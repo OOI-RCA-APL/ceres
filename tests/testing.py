@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -32,18 +33,23 @@ from ceres import (
 )
 from ceres._internal import util
 from ceres._internal.auth import get_password_hash
-from ceres._internal.entity import BaseEntityFilterArgs
-from ceres._internal.item import BaseItemFilterArgs
-from ceres._internal.record import BaseRecordFilterArgs
-from ceres.alert import AlertFilterArgs
+from ceres._internal.entity import (
+    BaseAddressEntityFilterArgs,
+    BaseEntityFilterArgs,
+    BaseUUIDEntityFilterArgs,
+)
 from ceres.config import BCryptHashingConfig
 from ceres.data import JSONDict, MaybeSequence, StrEnum, jsonify, uuid7
 from ceres.database import Database
 from ceres.item import Item
-from ceres.particle import ParticleFilterArgs
 from ceres.record import Record
 from ceres.timing import _now_context_var
 from ceres.user import UserRole
+
+if TYPE_CHECKING:
+    from ceres._internal.record import BaseRecordFilterArgs
+    from ceres.alert import AlertFilterArgs
+    from ceres.particle import ParticleFilterArgs
 
 
 async def wait_for_condition(
@@ -164,9 +170,11 @@ async def execute_filter_test(
         assert await manager.where(filter) == expected
         assert await manager.where(filter).select() == expected
         assert await manager.where(filter).count() == len(expected)
+        assert bool(expected) == await manager.where(filter).any()
         assert await manager.where(filter).delete() == len(expected)
         assert await manager.where(filter) == []
         assert await manager.count() == len(entities) - len(expected)
+        assert await manager.any() == bool(len(entities) - len(expected))
         await reset()
         if update:
             assert await manager.where(filter).update(update) == len(expected)
@@ -177,6 +185,7 @@ async def execute_filter_test(
         assert unordered(await manager.where(filter).delete().all()) == uexpected
         assert await manager.where(filter) == []
         assert await manager.count() == len(entities) - len(expected)
+        assert await manager.any() == bool(len(entities) - len(expected))
         await reset()
         if update:
             assert unordered(await manager.where(filter).update(update).all()) == uexpected
@@ -525,7 +534,7 @@ async def execute_email_filter_test(
 
 
 async def execute_address_filter_test(cls: type[Item]):
-    group: FilterTestGroup[BaseItemFilterArgs] = {
+    group: FilterTestGroup[BaseAddressEntityFilterArgs] = {
         "entities": {
             "@": {"address": "@"},
             "@abc": {"address": "@abc"},
@@ -612,7 +621,7 @@ async def execute_boolean_filter_test(cls: type[Entity], field: str):
 
 
 async def execute_id_filter_test(cls: type[Entity], field: str = "id"):
-    group: FilterTestGroup[BaseEntityFilterArgs] = {
+    group: FilterTestGroup[BaseUUIDEntityFilterArgs] = {
         "order": field,
         "entities": {
             "a": {field: "00000000-0000-0000-0000-000000000000"},

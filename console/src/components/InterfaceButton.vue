@@ -41,7 +41,6 @@ const action = $computed(() => request.data.value ?? null)
       v-if="action"
       v-model="isShowingMenu"
       anchor="bottom left"
-      class="no-shadow"
       :offset="[0, 8]"
       persistent
       self="top left"

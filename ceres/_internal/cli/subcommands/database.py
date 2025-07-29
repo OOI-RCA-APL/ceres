@@ -1,19 +1,16 @@
 import sys
-from pathlib import Path
-from typing import Sequence, override
+from typing import override
 
-from pydantic import FilePath, NewPath
-from pydantic_settings import CliPositionalArg, CliSubCommand
+from pydantic_settings import CliSubCommand
 
 from ceres._internal import util
 from ceres._internal.cli.shared import (
     CLICommand,
+    CLICommandExit,
     CLICommandFailed,
     CLICommandGroup,
     get_confirmation,
 )
-from ceres.database.enums import DataFormat
-from ceres.entity import EntityType
 from ceres.timing import utc
 
 
@@ -47,99 +44,84 @@ class InitCommand(CLICommand):
                 self.write("Database has not been modified.")
 
 
-class DumpCommand(CLICommand):
+class DDLCommand(CLICommand):
     """
-    Dump data from the database into a CSV or SQLite file.
+    Show DDL commands used to initialize the database.
     """
-
-    path: CliPositionalArg[FilePath | NewPath]
-    """File path to write to."""
-
-    entity_type: Sequence[EntityType] = []
-    """
-    Data type(s) to dump.
-    * For **--format csv**, a single **--entity-type** is *required*.
-    * For **--format sqlite**, if **--entity-type** is *omitted*, *all* entity types will be dumped
-    to the SQLite database. If **--entity-type** is specified *one or more times*,
-    *only* those entity types will be dumped.
-    """
-
-    format: DataFormat | None
-    """File format to dump as. This is inferred from the file extension if possible."""
 
     @override
     async def __run__(self) -> None:
-        format = _guess_format(self.format, self.path)
-
-        if format == DataFormat.CSV:
-            if not self.entity_type:
-                raise CLICommandFailed("Dumping to CSV requires '--entity-type' to be specified.")
-            elif len(self.entity_type) != 1:
-                raise CLICommandFailed(
-                    "Dumping to CSV requires exactly one '--entity-type' to be specified."
-                )
-
-        entity_type = self.entity_type or list(EntityType)
-        start = utc()
-
-        async with self.use_database() as database:
-            match format:
-                case DataFormat.CSV:
-                    self.write("Dumping data to CSV...")
-                    await database.dump_csv(self.path, entity_type[0])
-                case DataFormat.SQLITE:
-                    self.write("Dumping data to SQLite...")
-                    await database.dump_sqlite(self.path, entity_type)
-
-        duration = utc() - start
-        self.write(f"Dump completed in {util.show_td(duration)}.")
+        async with self.use_database(require_initialized=False, require_connect=False) as database:
+            for statement in database.ddl:
+                self.write(statement, sys.stdout, color=False)
 
 
-class LoadCommand(CLICommand):
-    """
-    Load data into the database from a CSV or SQLite file.
-    """
-
-    path: CliPositionalArg[FilePath | NewPath]
-    """File path to read data from."""
-
-    entity_type: Sequence[EntityType] = []
-    """
-    Data type(s) to load.
-    * For **--format csv**, a single **--entity-type** is *required*.
-    * For **--format sqlite**, if **--entity-type** is *omitted*, *all* entity types will be
-    loaded from the SQLite database. If **--entity-type** is specified *one or more times*, *only*
-    those entity types will be loaded.
-    """
-
-    format: DataFormat | None
-    """File format to read as. This is inferred from the file extension if possible."""
-
+class ShellCommand(CLICommand):
     @override
     async def __run__(self) -> None:
-        format = _guess_format(self.format, self.path)
-        if format == DataFormat.CSV:
-            if not self.entity_type:
-                raise CLICommandFailed("Loading from CSV requires '--entity-type' to be specified.")
-            elif len(self.entity_type) != 1:
-                raise CLICommandFailed(
-                    "Loading from CSV requires exactly one '--entity-type' to be specified."
-                )
+        import os
+        from shutil import which
 
-        entity_type = self.entity_type or list(EntityType)
-        start = utc()
+        from ceres.database import DatabaseType, PostgresDatabase, SQLiteDatabase
 
         async with self.use_database() as database:
-            match format:
-                case DataFormat.CSV:
-                    self.write("Loading data from CSV...")
-                    await database.load_csv(self.path, entity_type[0])
-                case DataFormat.SQLITE:
-                    self.write("Loading data from SQLite...")
-                    await database.load_sqlite(self.path, entity_type)
+            command: list[str] = []
+            env: dict[str, str] = {**os.environ}
 
-        duration = utc() - start
-        self.write(f"Load completed in {util.show_td(duration)}.")
+            match database.type:
+                case DatabaseType.POSTGRES:
+                    assert isinstance(database, PostgresDatabase)
+                    command = [
+                        "psql",
+                        "--host",
+                        database.config.host,
+                        *(
+                            ["--port", str(database.config.port)]
+                            if database.config.port is not None
+                            else ()
+                        ),
+                        "--user",
+                        database.config.user,
+                        database.config.database,
+                    ]
+
+                    if database.config.password is not None:
+                        env["PGPASSWORD"] = database.config.password.get_secret_value()
+
+                case DatabaseType.SQLITE:
+                    assert isinstance(database, SQLiteDatabase)
+                    command = ["sqlite3", str(database.path)]
+                    command.extend(["-cmd", f".output {os.devnull}"])
+                    for statement in database._get_connect_commands():
+                        command.extend(["-cmd", statement])
+                    for statement in database.config.hooks.init or ():
+                        command.extend(["-cmd", statement])
+
+                    command.extend(["-cmd", ".output"])
+
+            executable = command[0]
+            if which(executable) is None:
+                raise CLICommandFailed(
+                    f"Executable {executable!r} was not found in system path. It must be installed "
+                    "to use this command."
+                )
+
+            from signal import SIGTERM
+
+            import anyio
+
+            process = await anyio.open_process(
+                command,
+                env=env,
+                stdin=sys.stdin,
+                stderr=sys.stderr,
+                stdout=sys.stdout,
+            )
+
+            with util.temporary_signal_handler([SIGTERM], lambda: process.terminate()):
+                status = await process.wait()
+
+        raise CLICommandExit(status)
 
 
 class ClearCommand(CLICommand):
@@ -159,33 +141,7 @@ class ClearCommand(CLICommand):
             await database.clear()
 
             duration = utc() - start
-            self.write(f"Cleared all data from database in {util.show_td(duration)}.")
-
-
-class DDLCommand(CLICommand):
-    """
-    Show DDL commands used to initialize the database.
-    """
-
-    @override
-    async def __run__(self) -> None:
-        async with self.use_database(require_initialized=False, require_connect=False) as database:
-            for statement in database.ddl:
-                self.write(statement, sys.stdout, color=False)
-
-
-def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:
-    if format is not None:
-        return format
-    if path.suffix == ".csv":
-        return DataFormat.CSV
-    if path.suffix in (".db", ".sqlite", ".sqlite3"):
-        return DataFormat.SQLITE
-
-    raise CLICommandFailed(
-        f"Could not infer data format from file extension: {path.suffix!r}. "
-        + "Try specifying the '--format' option."
-    )
+            self.write(f"Cleared all data from database in {util.encode_td(duration)}.")
 
 
 class DatabaseCommand(CLICommandGroup):
@@ -194,7 +150,6 @@ class DatabaseCommand(CLICommandGroup):
     """
 
     init: CliSubCommand[InitCommand]
-    dump: CliSubCommand[DumpCommand]
-    load: CliSubCommand[LoadCommand]
-    clear: CliSubCommand[ClearCommand]
     ddl: CliSubCommand[DDLCommand]
+    shell: CliSubCommand[ShellCommand]
+    clear: CliSubCommand[ClearCommand]

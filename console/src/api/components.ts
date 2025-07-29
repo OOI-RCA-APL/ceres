@@ -159,12 +159,34 @@ export const useComponents = defineStore('components', () => {
     return mapping[address.toString()] ?? null
   })
 
+  const getDescendants = getter(get, (address: Address | string) => {
+    const component = get.value(address)
+    if (component == null) {
+      return []
+    }
+
+    const components: ComponentInfo[] = []
+    function traverse(current: ComponentInfo) {
+      components.push(current)
+      for (const child of current.components) {
+        traverse(child)
+      }
+    }
+
+    for (const child of component.components) {
+      traverse(child)
+    }
+
+    return components
+  })
+
   const all = $computed(() => Object.values(mapping))
 
   return {
     ...query,
     root: computed(() => root),
     get,
+    getDescendants,
     all: computed(() => all),
     getProcedure,
     call,

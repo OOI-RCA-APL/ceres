@@ -438,7 +438,6 @@ async def test_routines() -> None:
     assert len(restarts_forever.emitted[RoutineExceptionEvent]) == 0
     assert 1 < len(restarts_forever.emitted[RoutineRestartedEvent]) < 10000
 
-    # TODO: Fix in CI for Python 3.10.
     assert 1 < crashes_forever.count < 10000
     assert len(crashes_forever.emitted[RoutineStartedEvent]) == 1
     assert len(crashes_forever.emitted[RoutineStoppedEvent]) == 1

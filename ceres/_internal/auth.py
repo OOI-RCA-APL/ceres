@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import TypeGuard
-
-from argon2 import PasswordHasher
+from typing import TYPE_CHECKING, TypeGuard
 
 from ceres._internal import util
 from ceres.config import Argon2HashingConfig, BCryptHashingConfig, HashingConfig
 from ceres.config import HashType as HashType
 from ceres.data import Argon2Hash, BCryptHash, PasswordHash, PasswordStr
+
+if TYPE_CHECKING:
+    from argon2 import PasswordHasher
 
 
 def get_password_hash_type(hash: str) -> HashType | None:
@@ -70,6 +71,8 @@ def verify_password(password: str, hash: PasswordHash) -> bool:
 def _get_argon2_hasher(config: Argon2HashingConfig | None = None) -> PasswordHasher:
     if config is None:
         config = Argon2HashingConfig()
+
+    from argon2 import PasswordHasher
 
     return PasswordHasher(
         time_cost=config.time_cost,

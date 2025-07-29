@@ -18,9 +18,10 @@ const navigation = useNavigation()
       <q-btn
         dense
         flat
-        :icon="icons.menu"
+        :icon="icons.drawer"
         round
-        style="margin-left: -2px; margin-right: 14px"
+        size="13px"
+        style="margin-left: -2px; margin-right: 15px"
         @click="drawer.toggle()"
       />
       <q-toolbar-title class="cursor-pointer" @click="navigation.go('/')">

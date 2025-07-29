@@ -7,7 +7,7 @@ from abc import abstractmethod
 from datetime import timedelta
 from functools import cached_property
 from re import Match, Pattern, RegexFlag
-from typing import Annotated, Any, Literal, Self, TypeAlias, override
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
 from pydantic import BeforeValidator, ByteSize, Field, TypeAdapter, model_validator
 from pydantic.types import NonNegativeInt, PositiveInt
@@ -38,9 +38,11 @@ from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.timing import utc
 
+if TYPE_CHECKING:
+    from anyio.abc import SocketStream
+
 with lazy_imports(__name__):
     import anyio
-    from anyio.abc import SocketStream
 
 
 class ConnectionException(Exception):

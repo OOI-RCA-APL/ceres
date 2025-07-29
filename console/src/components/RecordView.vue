@@ -125,13 +125,7 @@ const recordCullCount = $computed(() => recordsVisible + 100)
 const recordsUntilNearTop = 30
 
 let scroll = $shallowRef<QVirtualScroll | null>(null)
-const scrollElement = $computed(() => {
-  if (scroll == null) {
-    return null
-  }
-
-  return scroll.$el as HTMLDivElement
-})
+let scrollElement = $shallowRef<HTMLDivElement | null>(null)
 
 let tableElement = $ref<HTMLElement | null>(null)
 watchEffect(() => {
@@ -146,6 +140,7 @@ watchEffect(() => {
 const records = shallowReactive<Record[]>([])
 const recordsPending = shallowReactive<Record[]>([])
 let lastLoadedCurrent = $shallowRef<Moment | null>(null)
+let lastLoadedPrevious = $shallowRef<Moment | null>(null)
 
 const earliestRecordTimestamp = $computed(() => records[0]?.timestamp ?? null)
 
@@ -268,6 +263,9 @@ async function onScroll() {
   if (lastLoadedCurrent == null || moment.utc().diff(lastLoadedCurrent) < 1000) {
     return
   }
+  if (lastLoadedPrevious != null && moment.utc().diff(lastLoadedPrevious) < 1000) {
+    return
+  }
 
   if (!isNearTop()) {
     return
@@ -383,6 +381,7 @@ async function loadPrevious() {
 
     isExhausted = results.length === 0
     await prependRecords(results.reverse())
+    lastLoadedPrevious = moment.utc()
   } finally {
     isLoadingPrevious = false
   }
@@ -479,7 +478,6 @@ useStream(debouncedFilter, async (record: Record) => {
               <q-menu
                 v-if="columnHasFilterMenu(column.name)"
                 anchor="top left"
-                class="no-shadow"
                 :offset="[0, 4]"
                 self="bottom left"
               >
@@ -632,7 +630,10 @@ useStream(debouncedFilter, async (record: Record) => {
         </span>
       </transition-group>
       <q-virtual-scroll
-        ref="scroll"
+        :ref="(instance: QVirtualScroll | null) => {
+          scroll = instance;
+          scrollElement = instance?.$el as HTMLDivElement;
+        }"
         :class="['fit', $style.virtualScroll, records.length === 0 && $style.virtualScrollEmpty]"
         dense
         flat

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ceres._internal.app.shared import create_entity_router
+from ceres._internal.app.shared import create_record_router
 from ceres.particle import Particle
 
-router = create_entity_router(Particle, "particles", 5000)
+router = create_record_router("particles", Particle, limit=5000)

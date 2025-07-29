@@ -1,7 +1,11 @@
+from typing import TYPE_CHECKING
+
 from ceres import Variable
-from ceres.variable import VariableFilterArgs
 from tests import testing
 from tests.testing import FilterTestGroup, execute_filter_test
+
+if TYPE_CHECKING:
+    from ceres.variable import VariableFilterArgs
 
 
 async def test_variable_address_filtering():

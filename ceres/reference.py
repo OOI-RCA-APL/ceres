@@ -14,8 +14,6 @@ from typing import (
     override,
 )
 
-from pydantic import GetCoreSchemaHandler
-from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 
 from ceres._internal import util
@@ -24,6 +22,10 @@ from ceres.component import Component
 
 _reference_static_cls_generic_cache: dict[type | None, type[Reference]] = {}
 _reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type[Reference]] = {}
+
+if TYPE_CHECKING:
+    from pydantic import GetCoreSchemaHandler
+    from pydantic_core import CoreSchema
 
 
 class ReferenceProxiedMethods:
@@ -491,7 +493,7 @@ class Reference:
             return target
 
         if root is not None:
-            root = cast(Component, root)
+            root = cast("Component", root)
             return root.system.get_component(target)
 
         return None
@@ -548,9 +550,9 @@ def ref[T: Component](
     /,
 ) -> T:
     if isinstance(target, Reference):
-        return cast(T, target)
+        return cast("T", target)
 
-    return cast(T, Reference[constraint](target))
+    return cast("T", Reference[constraint](target))
 
 
 if TYPE_CHECKING:

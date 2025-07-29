@@ -6,9 +6,8 @@ import signal
 import sys
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
-from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence, override
+from typing import TYPE_CHECKING, Any, Sequence, override
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -23,23 +22,27 @@ from pydantic_settings import (
 from ceres._internal import util
 from ceres._internal.cli.shared import (
     CLICommand,
+    CLICommandExit,
     CLICommandFailed,
     CLICommandGroup,
     strbool,
     write,
     write_table,
 )
+from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import Address, AddressSelector
 from ceres.data import jsonify
 from ceres.error import Failure
 from ceres.result import Fail, Ok
 
+if TYPE_CHECKING:
+    from ceres.database import Database
+
 with lazy_imports(__name__):
     from ceres._internal.app.api import DisableResult, EnableResult
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
-    from ceres.database import Database
     from ceres.engine import Engine
     from ceres.threading import spawn
 
@@ -111,13 +114,6 @@ class StatusCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
-        from aiohttp import ClientError
-
-        if TYPE_CHECKING:
-            from ceres._internal.app.api.routes.statuses import GetStatusesQueryParameters
-        else:
-            GetStatusesQueryParameters = dict
-
         if self.addresses:
             addresses = self.addresses
         else:
@@ -129,14 +125,14 @@ class StatusCommand(CLICommand):
 
         from ceres.status import Status
 
-        try:
+        if await client.alive():
             statuses = await client.get(
                 "/statuses",
-                params=GetStatusesQueryParameters(address=address),
+                params=ComponentFilter(address=address),
                 result=list[Status],
             )
             running = True
-        except ClientError:
+        else:
             running = False
             config = await self.use_config()  # TODO: Don't require a validated config.
             async with self.use_database(
@@ -345,31 +341,36 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
     up: CliSubCommand[UpCommand]
     down: CliSubCommand[DownCommand]
 
+    def __init__(self, args: Sequence[str]) -> None:
+        super().__init__(
+            _cli_parse_args=list(args),
+            _cli_settings_source=MainCliSettingsSource(type(self), args),
+        )
+
+    async def execute(self) -> int:
+        try:
+            await super().__run__()
+            return 0
+        except Failure as failure:
+            self.write(jsonify(failure.error, indent=2))
+            return 1
+        except CLICommandExit as exception:
+            if exception.message is not None:
+                self.write(exception.message)
+            return exception.status
+        except (KeyboardInterrupt, CancelledError):
+            self.write("Interrupted. Exiting...")
+            return 0
+
     @override
-    async def __execute__(self) -> None:
+    async def __run__(self) -> None:
         if self.version:
             from ceres import __version__
 
             self.write(__version__, sys.stdout)
             return
 
-        try:
-            await super().__execute__()
-        except Failure as failure:
-            self.write(jsonify(failure.error, indent=2))
-            exit(1)
-        except SettingsError as exception:
-            self.write(exception)
-            exit(1)
-        except (KeyboardInterrupt, CancelledError):
-            self.write("Interrupted. Exiting...")
-            exit(0)
-
-    def __init__(self, args: Sequence[str]) -> None:
-        super().__init__(
-            _cli_parse_args=list(args),
-            _cli_settings_source=MainCliSettingsSource(type(self), args),
-        )
+        await super().__run__()
 
 
 class MainCliSettingsSource(CliSettingsSource):
@@ -394,13 +395,15 @@ with lazy_imports(__name__):
     from ceres._internal.cli.subcommands.settings import SettingsCommand
     from ceres._internal.cli.subcommands.users import UsersCommand
     from ceres._internal.cli.subcommands.variables import VariablesCommand
+    from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
+    from ceres._internal.cli.subcommands.workspaces import WorkspacesCommand
 
 
-def main(args: Sequence[str] | None = None) -> None:
-    _main(args)
+def main(args: Sequence[str] | None = None) -> int:
+    return _main(args)
 
 
-def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> None:
+def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
     if args is None:
         args = sys.argv[1:]
 
@@ -422,6 +425,8 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> None:
         "settings": SettingsCommand,
         "users": UsersCommand,
         "variables": VariablesCommand,
+        "workspaces": WorkspacesCommand,
+        "workspace-memberships": WorkspaceMembershipsCommand,
     }
 
     if subcommand in subcommands:
@@ -433,31 +438,36 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> None:
         name: (CliSubCommand[subcommand], ...) for name, subcommand in subcommands.items()
     }
 
+    from ceres.version import __version__
+
     MainCommand = create_model(
         "MainCommand",
         **fields,
         __base__=BaseMainCommand,
+        __doc__=f"""Ceres CLI Version {__version__}""",
     )
 
-    async def run() -> None:
-        color = None
-        if "--color" in args:
-            color = True
-        if "--no-color" in args:
-            color = False
+    color = None
+    if "--color" in args:
+        color = True
+    if "--no-color" in args:
+        color = False
 
-        try:
-            command = MainCommand(args)
-        except ValidationError as exception:
-            _show_validation_error(exception, color)
-            exit(1)
-        except SettingsError as exception:
-            write(exception, color=color)
-            exit(1)
+    try:
+        command = MainCommand(args)
+    except ValidationError as exception:
+        _show_validation_error(exception, color)
+        return 1
+    except SettingsError as exception:
+        write(exception, color=color)
+        return 1
+    except Exception:
+        import traceback
 
-        await command.__execute__()
+        traceback.print_exc()
+        return 1
 
-    asyncio.run(run())
+    return asyncio.run(command.execute(), loop_factory=util.ensure_event_loop)
 
 
 async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch: bool) -> None:
@@ -502,7 +512,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
 
-            with _temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+            with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
         if not isinstance(exception, CLICommandFailed):
@@ -577,7 +587,7 @@ async def _run_watch(
     def handle_exit_signal(*args: object, **kwargs: object) -> None:
         task.cancel()
 
-    with _temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+    with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
         try:
             await task
         except CancelledError:
@@ -593,25 +603,6 @@ def _set_current_process_name(name: str) -> None:
         setproctitle(name)
     except Exception:
         pass
-
-
-@contextmanager
-def _temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]):
-    import signal
-
-    originals: dict[int, Any] = {}
-
-    for signum in signums:
-        if original := signal.getsignal(signum):
-            originals[signum] = original
-
-        signal.signal(signum, handler)
-
-    try:
-        yield
-    finally:
-        for signum, original in originals.items():
-            signal.signal(signum, original)
 
 
 async def _set_enabled(

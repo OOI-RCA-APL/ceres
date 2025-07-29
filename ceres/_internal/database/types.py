@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from enum import Enum as BaseEnum
 from typing import TYPE_CHECKING, Any, Callable, override
 from uuid import UUID
 
 from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator, Uuid
-from sqlalchemy.sql.operators import OperatorType
 
 from ceres._internal import util
 from ceres.address import Address
+
+if TYPE_CHECKING:
+    from enum import Enum as BaseEnum
+
+    from sqlalchemy.orm import InstrumentedAttribute
+    from sqlalchemy.sql.operators import OperatorType
 
 
 def EnumMapper(cls: type[BaseEnum]) -> Enum:
@@ -25,11 +29,12 @@ def EnumMapper(cls: type[BaseEnum]) -> Enum:
     return enum
 
 
-def EnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
-    return CheckConstraint(
-        sqltext=f"{column} in ({', '.join([repr(enum.value) for enum in cls])})",
-        name=name,
-    )
+def EnumConstraint(
+    column: InstrumentedAttribute[Any],
+    cls: type[BaseEnum],
+    name: str,
+) -> CheckConstraint:
+    return CheckConstraint(column.in_(cls), name=name)
 
 
 class UUIDMapper(TypeDecorator[UUID]):

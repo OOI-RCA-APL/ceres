@@ -4,10 +4,10 @@ import logging
 from types import MappingProxyType
 from typing import Final
 
-from ceres.data import PriorityStrEnum
+from ceres.data import OrderedStrEnum
 
 
-class Level(PriorityStrEnum):
+class Level(OrderedStrEnum):
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"

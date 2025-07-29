@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
@@ -8,10 +9,12 @@ from typing import (
     Callable,
     Coroutine,
     Mapping,
+    cast,
 )
 from uuid import UUID
 
 from fastapi import (
+    Cookie,
     Depends,
     Header,
     HTTPException,
@@ -23,12 +26,12 @@ from fastapi import (
 from fastapi.requests import HTTPConnection
 from fastapi.routing import APIRouter
 from fastapi.websockets import WebSocketState
-from pydantic import Field, Json, ValidationError
-from starlette.requests import cookie_parser
+from pydantic import AfterValidator, Json, ValidationError
+from pydantic_core import PydanticKnownError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
-from ceres._internal.entity import BaseEntity
+from ceres._internal.entity import BaseEntityFilter
 from ceres._internal.lazy import lazy_imports
 from ceres.data import (
     DateTime,
@@ -44,17 +47,19 @@ from ceres.timing import utc
 from ceres.user import User, UserRole
 
 if TYPE_CHECKING:
+    from asgiref.typing import WebSocketReceiveEvent
+
     from ceres._internal.app.main import App
     from ceres.engine import Engine
+    from ceres.message import MessageFilter
 else:
     Engine = object
     App = object
 
 with lazy_imports(__name__):
-    import jwt
-
     from ceres._internal.server import Server
     from ceres.config import ServerAuthenticationConfig
+    from ceres.record import Record
 
 
 def _get_current_app(connection: HTTPConnection) -> App:
@@ -93,25 +98,41 @@ class Socket:
         await self.socket.send_text(jsonify(data))
 
     async def receive(self) -> Any:
-        await self.socket.receive_json()
+        message = cast("WebSocketReceiveEvent", await self.socket.receive())
+        data: bytes | str | None = message.get("text")
+        if data is None:
+            data = message.get("bytes")
+        if data is None:
+            raise ValueError("Invalid message format.")
+
+        return json.loads(data)
 
     async def execute(
         self,
         callback: Callable[[], Coroutine[Any, Any, Any]],
         direction: SocketDirection = SocketDirection.SEND,
     ) -> None:
-        async def poll():
+        async def run():
+            try:
+                await callback()
+            except RuntimeError:
+                return
+
+        async def wait_disconnect():
             if direction == SocketDirection.SEND:
                 # If we're only sending data, poll the socket for disconnects.
                 while True:
-                    await self.socket.receive_bytes()
+                    try:
+                        await self.socket.receive()
+                    except RuntimeError:
+                        break
             else:
                 # Otherwise, do nothing.
                 await util.sleep_forever()
 
         await util.wait_any(
-            callback(),
-            poll(),
+            run(),
+            wait_disconnect(),
             self.server.wait_until_stopping(),
             cancelling=True,
             raised=True,
@@ -126,7 +147,11 @@ async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> Async
 
     assert engine.server is not None
     try:
-        await socket.accept()
+        try:
+            await socket.accept()
+        except RuntimeError:
+            pass
+
         yield Socket(socket, engine.server)
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -189,6 +214,8 @@ def create_identity(
     user: User,
     authentication: ServerAuthenticationConfig,
 ) -> Identity:
+    import jwt
+
     expires = utc() + authentication.duration
     token = jwt.encode(
         {
@@ -226,31 +253,8 @@ def assign_authorization_cookie(
     )
 
 
-async def _get_current_cookies(connection: HTTPConnection) -> dict[str, str]:
-    """
-    Parse cookies from request headers.
-
-    Multiple "cookie" headers, as allowed in HTTP/2, will be combined into a single dictionary, with
-    later cookies with the same name overriding earlier ones.
-
-    See https://github.com/encode/starlette/discussions/2916.
-    """
-    cookies: dict[str, str] = {}
-    for value in connection.headers.getlist("cookie"):
-        cookies.update(cookie_parser(value))
-
-    return cookies
-
-
-CurrentCookies = Annotated[dict[str, str], Depends(_get_current_cookies)]
-
-
-async def _get_current_authorization_cookie(cookies: CurrentCookies) -> str | None:
-    return cookies.get("Authorization")
-
-
 CurrentAuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
-CurrentAuthorizationCookie = Annotated[str | None, Depends(_get_current_authorization_cookie)]
+CurrentAuthorizationCookie = Annotated[str | None, Cookie(alias="Authorization")]
 
 
 async def _get_current_identity(
@@ -271,6 +275,8 @@ async def _get_current_identity(
     if authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ")
         try:
+            import jwt
+
             info: Mapping[str, object] = jwt.decode(
                 token,
                 authentication.secret,
@@ -416,69 +422,134 @@ def assert_found[T](value: T | None, /) -> T:
     return value
 
 
-def create_entity_get_route(router: APIRouter, Entity: type[BaseEntity]):
-    singular = util.get_entity_plural(Entity)
-
-    class QueryParameters(Entity.Filter):
-        pass
-
-    QueryParameters.__name__ = f"Get{singular.title().replace(" ", "")}QueryParameters"
+def create_record_get_route(router: APIRouter, Record: type[Record]):
+    naming = Record.__naming__
 
     async def get(engine: CurrentEngine, id: UUID):
-        return assert_found(await util.get_entity_manager(engine, Entity).get(id))  # type: ignore
+        filter = cast("type[MessageFilter]", Record.Filter)(id=id)
+        return assert_found(await engine.__manager__(Record).where(filter).first())
 
-    get.__name__ = f"Get {singular.title()}"
-    return router.get("/{id}", response_model=Entity)(get)
+    get.__name__ = f"get_{util.snakecase(naming.singular)}"
+    return router.get(
+        "/{id:uuid}",
+        response_model=Record,
+        dependencies=[VIEWER],
+        tags=[util.kebabcase(naming.plural)],
+    )(get)
 
 
-def create_entity_get_all_route(router: APIRouter, Entity: type[BaseEntity], limit: int):
-    plural = util.get_entity_plural(Entity)
-
-    _limit = limit
-
-    class QueryParameters(Entity.Filter):
-        limit: int = Field(default=100, ge=0, le=_limit)
-
-    QueryParameters.__name__ = f"GetAll{plural.title().replace(" ", "")}QueryParameters"
+def create_record_get_all_route(router: APIRouter, Record: type[Record], limit: int):
+    naming = Record.__naming__
 
     async def get_all(
         engine: CurrentEngine,
-        filter: Annotated[QueryParameters, Query()],
+        filter: Annotated[
+            Record.Filter,  # type: ignore
+            Query(),
+            Limit(limit),
+        ],
     ):
-        return await util.get_entity_manager(engine, Entity).where(filter)
+        return await engine.__manager__(Record).where(filter)
 
-    get_all.__name__ = f"Get {plural.title()}"
-    return router.get("", response_model=list[Entity])(get_all)
+    get_all.__name__ = f"get_all_{util.snakecase(naming.plural)}"
+    return router.get(
+        "",
+        response_model=list[Record],
+        dependencies=[VIEWER],
+        tags=[util.kebabcase(naming.plural)],
+    )(get_all)
 
 
-def create_entity_follow_route(router: APIRouter, Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
+def create_record_count_route(router: APIRouter, Record: type[Record]):
+    naming = Record.__naming__
 
-    class QueryParameters(Entity.Filter):
-        pass
+    async def count(
+        engine: CurrentEngine,
+        filter: Annotated[
+            Record.Filter,  # type: ignore
+            Query(),
+        ],
+    ) -> int:
+        return await engine.__manager__(Record).where(filter).count()
 
-    QueryParameters.__name__ = f"Follow{plural.title().replace(" ", "")}QueryParameters"
+    count.__name__ = f"count_{util.snakecase(naming.plural)}"
+    return router.get(
+        "/count",
+        dependencies=[VIEWER],
+        tags=[util.kebabcase(naming.plural)],
+    )(count)
+
+
+def create_record_follow_route(router: APIRouter, Record: type[Record]):
+    naming = Record.__naming__
 
     async def follow(
         socket: CurrentSocket,
         engine: CurrentEngine,
-        filter: Annotated[QueryParameters, Query()],
+        filter: Annotated[
+            Record.Filter,  # type: ignore
+            Query(),
+        ],
     ) -> None:
         async def write() -> None:
-            async for message in util.get_entity_manager(engine, Entity).follow(filter):  # type: ignore
-                await socket.send(message)
+            async for record in engine.__manager__(Record).follow(filter):  # type: ignore
+                await socket.send(record)
 
         await socket.execute(write)
 
-    follow.__name__ = f"Follow {plural.title()}"
-    return router.websocket("")(follow)
+    follow.__name__ = f"follow_{util.snakecase(naming.plural)}"
+    return router.websocket("", dependencies=[VIEWER])(follow)
 
 
-def create_entity_router(Entity: type[BaseEntity], name: str, limit: int):
+def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
     router = APIRouter(prefix=f"/{name}", tags=[name])
 
-    create_entity_get_route(router, Entity)
-    create_entity_get_all_route(router, Entity, limit)
-    create_entity_follow_route(router, Entity)
+    create_record_get_route(router, Record)
+    create_record_get_all_route(router, Record, limit)
+    create_record_count_route(router, Record)
+    create_record_follow_route(router, Record)
 
     return router
+
+
+def __require_self_or_admin(
+    connection: HTTPConnection,
+    user: RequireViewer,
+    role: CurrentRole,
+) -> UUID:
+    user_id = connection.path_params.get("user_id") or connection.path_params.get("id")
+    if user_id is None:
+        raise Failure(NotPermittedError)
+
+    try:
+        user_id = UUID(str(user_id))
+    except ValueError:
+        raise Failure(NotPermittedError)
+
+    if role < UserRole.ADMIN:
+        if user is None or user.id != user_id:
+            raise Failure(NotPermittedError)
+
+    return user_id
+
+
+SELF_OR_ADMIN = Depends(__require_self_or_admin)
+
+
+def Limit[FilterT: BaseEntityFilter](max: int) -> AfterValidator:
+    """
+    Decorator to validate limits for a filter.
+
+    :param default: Default limit if not specified.
+    :param max: Maximum limit allowed.
+    """
+
+    def validate_limit(filter: FilterT) -> FilterT:
+        if filter.limit is None:
+            filter = filter.model_copy(update={"limit": max})
+        elif filter.limit > max:
+            raise PydanticKnownError("less_than_equal", {"le": max})
+
+        return filter
+
+    return AfterValidator(validate_limit)

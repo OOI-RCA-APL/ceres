@@ -1,18 +1,14 @@
 import { useQuery } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
 import { debounce } from 'quasar'
-import { computed, reactive, watch } from 'vue'
+import { reactive, watch } from 'vue'
 import Zod, { ZodTypeAny } from 'zod'
 
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
-import { safeArrayOf } from '@/utilities'
-import { WorkspaceModel } from '@/workspace'
 
 export type ConsoleSettings = Zod.infer<typeof ConsoleSettingsModel>
-export const ConsoleSettingsModel = Zod.object({
-  workspaces: safeArrayOf(WorkspaceModel),
-})
+export const ConsoleSettingsModel = Zod.object({})
 
 export function SettingModel<T extends ZodTypeAny>(valueModel: T) {
   return Zod.object({
@@ -74,7 +70,7 @@ export const useSettings = defineStore('settings', () => {
       console.log('Console settings fetched successfully.')
       if (JSON.stringify(result) !== JSON.stringify(settings)) {
         unwritten(() => {
-          settings.workspaces = result.workspaces
+          // Update stores here.
         })
       }
 
@@ -82,9 +78,8 @@ export const useSettings = defineStore('settings', () => {
     } catch (error) {
       console.error('Failed to fetch console settings.')
       unwritten(() => {
-        settings.workspaces = []
+        // Update stores here.
       })
-      console.error(error)
       return null
     }
   }
@@ -135,9 +130,5 @@ export const useSettings = defineStore('settings', () => {
     },
     get,
     set,
-    workspaces: computed({
-      get: () => settings.workspaces,
-      set: (value) => (settings.workspaces = value),
-    }),
   }
 })

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from typing import (
+    TYPE_CHECKING,
     Any,
     ClassVar,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     TypedDict,
     Unpack,
@@ -14,32 +14,38 @@ from typing import (
 )
 
 from pydantic import ValidationError
-from sqlalchemy import JSON, Text, cast
+from sqlalchemy import JSON, Index, PrimaryKeyConstraint, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import Index, PrimaryKeyConstraint, SchemaItem
-from sqlalchemy.sql import SQLColumnExpression
 
 from ceres._internal import util
-from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery
-from ceres._internal.item import (
-    BaseItem,
-    BaseItemCreate,
-    BaseItemField,
-    BaseItemFilter,
-    BaseItemFilterArgs,
-    BaseItemOrder,
-    BaseItemRow,
+from ceres._internal.entity import (
+    BaseAddressEntity,
+    BaseAddressEntityCreate,
+    BaseAddressEntityField,
+    BaseAddressEntityFilter,
+    BaseAddressEntityFilterArgs,
+    BaseAddressEntityOrder,
+    BaseAddressEntityRow,
+    BaseEntityManager,
+    BaseEntityQuery,
+    EntityNaming,
+    EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import MatchMode, get_type_adapter
-from ceres.address import Address
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, jsonify
-from ceres.database import DatabaseType
-from ceres.stream import Stream
+
+if TYPE_CHECKING:
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.address import Address
+    from ceres.database import DatabaseType
+    from ceres.stream import Stream
 
 
-class VariableRow(BaseItemRow, kw_only=True):
+class VariableRow(BaseAddressEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "variables"
 
     name: Mapped[str] = mapped_column(Text)
@@ -59,14 +65,14 @@ class VariableRow(BaseItemRow, kw_only=True):
 
 
 VariableField: TypeAlias = (
-    BaseItemField
+    BaseAddressEntityField
     | Literal[
         "name",
         "value",
     ]
 )
 VariableOrder: TypeAlias = (
-    BaseItemOrder
+    BaseAddressEntityOrder
     | Literal[
         "name",
         "name:asc",
@@ -78,7 +84,7 @@ VariableOrder: TypeAlias = (
 )
 
 
-class VariableFilterArgs(BaseItemFilterArgs[VariableField, VariableOrder], total=False):
+class VariableFilterArgs(BaseAddressEntityFilterArgs[VariableField, VariableOrder], total=False):
     name: MaybeSequence[str] | None
     name_contains: MaybeSequence[str] | None
     name_prefix: MaybeSequence[str] | None
@@ -87,7 +93,7 @@ class VariableFilterArgs(BaseItemFilterArgs[VariableField, VariableOrder], total
     value: JSONSerializable | None
 
 
-class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
+class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, VariableOrder]):
     name: MaybeSequence[str] | None = None
     """Filter by `name` being equal to one or more given names."""
     name_contains: MaybeSequence[str] | None = None
@@ -105,8 +111,8 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
     value: JSONSerializable | None = None
 
     @override
-    def matches(self, obj: Variable) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: Variable) -> bool:
+        if not super()._matches(obj):
             return False
 
         if not util.match_value(obj.name, self.name):
@@ -157,11 +163,11 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
             yield util.sql_match_value(cast(columns.value, Text), jsonify(self.value))
 
     @override
-    def _get_default_order(self) -> Sequence[VariableOrder]:
+    def _get_default_order(self) -> MaybeSequence[VariableOrder]:
         return ("address", "name")
 
 
-class VariableCreate(BaseItemCreate):
+class VariableCreate(BaseAddressEntityCreate):
     name: str
     value: FromYAML[JSONSerializable]
 
@@ -305,7 +311,7 @@ class BoundVariableManager(VariableManager, BaseNodeManager):
         )
 
 
-class Variable(BaseItem, VariableCreate):
+class Variable(BaseAddressEntity, VariableCreate):
     Manager: ClassVar[type[VariableManager]] = VariableManager
     BoundManager: ClassVar[type[BoundVariableManager]] = BoundVariableManager
     Row: ClassVar[type[VariableRow]] = VariableRow
@@ -315,6 +321,8 @@ class Variable(BaseItem, VariableCreate):
     FilterArgs: ClassVar[type[VariableFilterArgs]] = VariableFilterArgs
     Field = VariableField
     Order = VariableOrder
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming("user")
 
 
 class InternalVariableName(StrEnum):

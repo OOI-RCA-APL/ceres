@@ -4,8 +4,7 @@ import traceback
 from abc import abstractmethod
 from collections import defaultdict
 from dataclasses import field
-from datetime import datetime
-from typing import Any, Iterable, Sequence, final, override
+from typing import TYPE_CHECKING, Any, Iterable, Sequence, final, override
 
 from ceres._internal import util
 from ceres._internal.templates import templates
@@ -18,6 +17,9 @@ from ceres.loaded import Loaded
 from ceres.notifier import Notification, Notifier
 from ceres.reference import Ref
 from ceres.schedule import ScheduleExpr
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class Dispatch(ImmutableDataObject):
@@ -67,8 +69,7 @@ class Dispatcher(Component):
 
         if not alerts:
             self.system.log.info(
-                "No alerts were found that match the current filter. No notification will be "
-                "sent."
+                "No alerts were found that match the current filter. No notification will be sent."
             )
             return
 

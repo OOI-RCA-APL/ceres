@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING, Any, cast
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseComponentManager
-from ceres._internal.protocols import ComponentSource
-from ceres.data import Name
 from ceres.entity import EntityType
 from ceres.event import (
     PruneCancelledEvent,
@@ -22,12 +20,15 @@ from ceres.event import (
 )
 
 with lazy_imports(__name__):
-    from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     from ceres.job import _get_trigger_adapter_class
 
+
 if TYPE_CHECKING:
+    from apscheduler.job import Job as InternalJob
+
+    from ceres._internal.protocols import ComponentSource
     from ceres.config import PrunerConfig
 
 
@@ -41,7 +42,7 @@ class ComponentPrunerManager(BaseComponentManager):
     def __init__(self, source: ComponentSource, /) -> None:
         super().__init__(source)
         self.__scheduler = self.__create_scheduler()
-        self.__pruners: dict[Name, PrunerConfig] = {}
+        self.__pruners: dict[str, PrunerConfig] = {}
         self.__lock = Lock()
 
     @classmethod
@@ -75,13 +76,13 @@ class ComponentPrunerManager(BaseComponentManager):
             self.__system__.events.emit(PrunerAddedEvent, pruner=pruner.name)
             self.__sync_pruners()
 
-    def get(self, name: Name) -> PrunerConfig | None:
+    def get(self, name: str) -> PrunerConfig | None:
         return self.__pruners.get(name)
 
     def get_all(self) -> list[PrunerConfig]:
         return list(self.__pruners.values())
 
-    def remove(self, name: Name) -> PrunerConfig | None:
+    def remove(self, name: str) -> PrunerConfig | None:
         from apscheduler.jobstores.base import JobLookupError
 
         with self.__lock:
@@ -134,7 +135,7 @@ class ComponentPrunerManager(BaseComponentManager):
                 manager = self.__system__.log
 
         try:
-            deleted = await manager.where(cast(Any, pruner.filter)).delete()
+            deleted = await manager.where(cast("Any", pruner.filter)).delete()
 
             self.__system__.events.emit(
                 PruneCompletedEvent,

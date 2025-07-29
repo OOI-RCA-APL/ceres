@@ -4,16 +4,18 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from pydantic import Field
 from starlette.status import HTTP_201_CREATED
 
 from ceres._internal.app.shared import (
     ADMIN,
+    SELF_OR_ADMIN,
     VIEWER,
     APIUser,
     CurrentEngine,
     CurrentRole,
     CurrentUser,
+    Limit,
+    assert_found,
 )
 from ceres.error import Failure, NotFoundError, NotPermittedError
 from ceres.user import User, UserCreate, UserFilter, UserRole, UserUpdate
@@ -21,25 +23,25 @@ from ceres.user import User, UserCreate, UserFilter, UserRole, UserUpdate
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/{id}", dependencies=[VIEWER], response_model=APIUser)
+@router.get("/{id:uuid}", dependencies=[VIEWER], response_model=APIUser)
 async def get_user(engine: CurrentEngine, id: UUID) -> User:
-    user = await engine.users.get(id)
-    if user is None:
-        raise Failure(NotFoundError)
-
-    return user
-
-
-class GetUsersQueryParameters(UserFilter):
-    limit: int = Field(default=100, ge=0, le=1000)
+    return assert_found(await engine.users.get(id))
 
 
 @router.get("", dependencies=[VIEWER], response_model=list[APIUser])
 async def get_users(
     engine: CurrentEngine,
-    filter: Annotated[GetUsersQueryParameters, Query()],
+    filter: Annotated[UserFilter, Query(), Limit(1000)],
 ) -> list[User]:
     return await engine.users.where(filter)
+
+
+@router.get("/count", dependencies=[VIEWER])
+async def count_users(
+    engine: CurrentEngine,
+    filter: Annotated[UserFilter, Query()],
+) -> int:
+    return await engine.users.where(filter).count()
 
 
 @router.post("", dependencies=[ADMIN], response_model=APIUser, status_code=HTTP_201_CREATED)
@@ -47,7 +49,7 @@ async def create_user(engine: CurrentEngine, data: UserCreate) -> User:
     return await engine.users.create(data)
 
 
-@router.patch("/{id}", dependencies=[ADMIN], response_model=APIUser)
+@router.patch("/{id:uuid}", dependencies=[SELF_OR_ADMIN], response_model=APIUser)
 async def update_user(
     engine: CurrentEngine,
     role: CurrentRole,
@@ -56,7 +58,7 @@ async def update_user(
     assign: UserUpdate,
 ) -> User:
     if role < UserRole.ADMIN:
-        if user is None or id != user.id:
+        if "role" in assign or "disabled" in assign:
             raise Failure(NotPermittedError)
 
     updated = await engine.users.where(id=id).update(assign).first()
@@ -66,10 +68,6 @@ async def update_user(
     return updated
 
 
-@router.delete("/{id}", dependencies=[ADMIN], response_model=APIUser)
+@router.delete("/{id:uuid}", dependencies=[ADMIN], response_model=APIUser)
 async def delete_user(engine: CurrentEngine, id: UUID) -> User:
-    deleted = await engine.users.where(id=id).delete().first()
-    if deleted is None:
-        raise Failure(NotFoundError)
-
-    return deleted
+    return assert_found(await engine.users.where(id=id).delete().first())

@@ -11,11 +11,13 @@ from pydantic import (
     model_validator,
     validate_call,
 )
-from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 
 from ceres._internal import util
 from ceres.data import ImmutableDataObject
+
+if TYPE_CHECKING:
+    from pydantic_core import CoreSchema
 
 
 class Loader[T](ImmutableDataObject):

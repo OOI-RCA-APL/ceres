@@ -32,7 +32,7 @@ def test_runtime_type_checks():
 
 def test_property_proxying():
     component = Component()
-    reference = cast(Component, Reference(component))
+    reference = cast("Component", Reference(component))
     assert reference.system is component.system
     assert isinstance(reference.system.address, Address)
 

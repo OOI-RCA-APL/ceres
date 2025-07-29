@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import dataclasses
-import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum as BaseStrEnum
-from json import JSONDecodeError
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -24,8 +22,7 @@ from typing import (
 )
 from uuid import UUID
 
-import pydantic
-import pydantic.generics
+import pydantic.dataclasses
 from pydantic import (
     AfterValidator,
     AliasGenerator,
@@ -33,18 +30,20 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    PlainSerializer,
     StringConstraints,
 )
 from pydantic.aliases import AliasChoices
 from pydantic.fields import FieldInfo
-from pydantic.functional_serializers import PlainSerializer
-from pydantic.main import IncEx
-from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import TypeVar
 
 from ceres._internal import util
 from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike, get_type_adapter
+
+if TYPE_CHECKING:
+    from pydantic.main import IncEx
+    from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 
 
 class SimplifyKwargs(TypedDict, total=False):
@@ -60,8 +59,27 @@ class SerializeKwargs(SimplifyKwargs, total=False):
     indent: int | None
 
 
+_parse_json_impl: Callable[[str | bytes], Any] | None = None
+
+
+def _parse_json(value: str | bytes) -> Any:
+    global _parse_json_impl
+
+    if _parse_json_impl is None:
+        try:
+            import orjson
+
+            _parse_json_impl = orjson.loads
+        except ImportError:
+            import json
+
+            _parse_json_impl = json.loads
+
+    return _parse_json_impl(value)
+
+
 def simplify(obj: object, **kwargs: Unpack[SimplifyKwargs]) -> Any:
-    return json.loads(jsonify(obj, **kwargs))
+    return _parse_json(jsonify(obj, **kwargs))
 
 
 def jsonify(obj: object, **kwargs: Unpack[SerializeKwargs]) -> str:
@@ -145,7 +163,8 @@ def __validate_non_negative_timedelta(value: object) -> timedelta | None:
 
 
 NonNegativeTimeDelta: TypeAlias = Annotated[
-    timedelta, BeforeValidator(__validate_non_negative_timedelta)
+    timedelta,
+    BeforeValidator(__validate_non_negative_timedelta),
 ]
 
 
@@ -172,23 +191,27 @@ def uuid7(
 
 
 def __pre_validate_from_json(value: object) -> object:
-    if isinstance(value, str | bytes):
+    if isinstance(value, (str, bytes)):
         try:
-            return json.loads(value)
-        except JSONDecodeError as error:
+            return _parse_json(value)
+        except Exception as error:
             raise ValueError(f"invalid JSON: {error}")
 
     return value
 
 
 def __pre_validate_from_yaml(value: object) -> object:
-    import yaml
-    from yaml import YAMLError
+    if isinstance(value, (str, bytes)):
+        try:
+            return _parse_json(value)
+        except Exception:
+            pass
 
-    if isinstance(value, str | bytes):
+        import yaml
+
         try:
             return yaml.safe_load(value)
-        except YAMLError as error:
+        except Exception as error:
             raise ValueError(f"invalid YAML: {error}")
 
     return value
@@ -280,8 +303,31 @@ class DataObject(BaseModel, ABC):
     )
 
     @override
+    def __setattr__(self, name: str, value: Any, /) -> None:
+        super().__setattr__(name, value)
+        self.model_fields_set.add(name)
+
+    @override
+    def __repr__(self) -> str:
+        fields = self.model_fields_set
+        tokens: list[str] = [self.__class__.__name__, "("]
+        for i, field in enumerate(fields):
+            try:
+                value = getattr(self, field)
+            except Exception:
+                continue
+
+            if i < len(fields) - 1:
+                tokens.append(f"{field}={value!r}, ")
+            else:
+                tokens.append(f"{field}={value!r}")
+
+        tokens.append(")")
+        return "".join(tokens)
+
+    @override
     def __str__(self) -> str:
-        return super().__repr__()
+        return self.__repr__()
 
 
 class ImmutableDataObject(DataObject):
@@ -322,7 +368,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         cls,
         *,
         init: Literal[False] = False,
-        repr: bool = True,
+        repr: bool = False,
         eq: bool = True,
         order: bool = False,
         unsafe_hash: bool = False,
@@ -358,6 +404,35 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
             validate_on_init=validate_on_init,
             kw_only=kw_only,
         )(cls)
+
+    @override
+    def __repr__(self) -> str:
+        fields = self.__pydantic_fields__
+        tokens: list[str] = [self.__class__.__name__, "("]
+        for i, (name, field) in enumerate(fields.items()):
+            try:
+                value = getattr(self, name)
+            except Exception:
+                continue
+
+            try:
+                is_default = value == field.default
+            except Exception:
+                is_default = False
+
+            if not is_default:
+                tokens.append(f"{name}={value!r}")
+                tokens.append(", ")
+
+        if tokens and tokens[-1] == ", ":
+            tokens.pop()
+
+        tokens.append(")")
+        return "".join(tokens)
+
+    @override
+    def __str__(self) -> str:
+        return self.__repr__()
 
 
 __USERNAME_PATTERN = r"[a-zA-Z\-_]+"
@@ -433,27 +508,35 @@ class StrEnum(BaseStrEnum):
         return self.value
 
 
-_priority_cache: dict[tuple[type[PriorityStrEnum], str], int] = {}
+_order_cache: dict[tuple[type[OrderedStrEnum], str], int] = {}
 
 
-class PriorityStrEnum(StrEnum):
+class OrderedStrEnum(StrEnum):
+    @classmethod
+    def __order_mapping__(cls) -> dict[Any, int]:
+        return {}
+
     @property
-    def priority(self) -> Any:
+    def order(self) -> int:
         key = (type(self), self)
-        priority = _priority_cache.get(key)
-        if priority is None:
-            priority = tuple(type(self)).index(self)
-            _priority_cache[key] = priority
+        value = _order_cache.get(key)
+        if value is not None:
+            return value
 
-        return priority
+        value = self.__order_mapping__().get(self)
+        if value is None:
+            value = tuple(type(self)).index(self)
+
+        _order_cache[key] = value
+        return value
 
     @override
     def __lt__(self, __x: str | None) -> bool:
         if __x is None:
             return False
 
-        if isinstance(__x, type(self)):
-            return self.priority < __x.priority
+        if isinstance(__x, OrderedStrEnum):
+            return self.order < __x.order
 
         return super().__lt__(__x)
 
@@ -462,8 +545,8 @@ class PriorityStrEnum(StrEnum):
         if __x is None:
             return False
 
-        if isinstance(__x, type(self)):
-            return self.priority <= __x.priority
+        if isinstance(__x, OrderedStrEnum):
+            return self.order <= __x.order
 
         return super().__le__(__x)
 
@@ -472,8 +555,8 @@ class PriorityStrEnum(StrEnum):
         if __x is None:
             return True
 
-        if isinstance(__x, type(self)):
-            return self.priority > __x.priority
+        if isinstance(__x, OrderedStrEnum):
+            return self.order > __x.order
 
         return super().__gt__(__x)
 
@@ -482,7 +565,7 @@ class PriorityStrEnum(StrEnum):
         if __x is None:
             return True
 
-        if isinstance(__x, type(self)):
-            return self.priority >= __x.priority
+        if isinstance(__x, OrderedStrEnum):
+            return self.order >= __x.order
 
         return super().__ge__(__x)

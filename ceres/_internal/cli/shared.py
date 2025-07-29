@@ -60,13 +60,12 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
 from ceres._internal.util import PathLike, wrap_database_errors
 from ceres.data import DataObject, DeferBuild, FromYAML, MaybeSequence, NonEmpty, jsonify
-from ceres.database.enums import DatabaseType
+from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.result import Ok
 
 with lazy_imports(__name__):
     from ceres._internal.cli.client import Client
-    from ceres._internal.entity import BaseEntity
     from ceres.config import Config, ConfigCheckType, ConfigMeta
     from ceres.engine import Engine
 
@@ -286,9 +285,6 @@ class CLICommand(DataObject, DeferBuild):
                 self.config_path = command.config_path
 
         return self
-
-    async def __execute__(self) -> None:
-        await self.__run__()
 
     @abstractmethod
     async def __run__(self) -> None: ...
@@ -610,31 +606,38 @@ class CLICommandGroup(CLICommand):
     async def __run__(self) -> None:
         subcommand = get_subcommand(self, cli_exit_on_error=True)
         if subcommand is not None:
-            await subcommand.__execute__()
+            await subcommand.__run__()
 
 
-class CLICommandFailed(SettingsError):
-    def __init__(self, message: Any) -> None:
-        try:
-            content = json.loads(message)
-            message = jsonify(content, indent=2)
-        except Exception:
-            if not isinstance(message, str):
-                try:
-                    message = jsonify(message, indent=2)
-                except Exception:
-                    message = str(message)
+class CLICommandExit(SettingsError):
+    def __init__(self, status: int = 0, message: str | None = None) -> None:
+        if message is not None:
+            try:
+                content = json.loads(message)
+                message = jsonify(content, indent=2)
+            except Exception:
+                if not isinstance(message, str):
+                    try:
+                        message = jsonify(message, indent=2)
+                    except Exception:
+                        message = str(message)
 
-        self.message = message
-        super().__init__(message)
+        self.message: str | None = message
+        self.status: int = status
 
     @override
     def __str__(self) -> str:
-        text = super().__str__()
-        if not text.startswith("Error: "):
-            text = f"Error: {text}"
+        text = (self.message or "").strip()
+        if text and self.status != 0:
+            if not text.startswith("Error: "):
+                text = f"Error: {text}"
 
         return text
+
+
+class CLICommandFailed(CLICommandExit):
+    def __init__(self, message: str) -> None:
+        super().__init__(1, message)
 
 
 class CLIClientError(CLICommandFailed, ClientError):
@@ -695,7 +698,7 @@ class CLIDataOutputCommand(CLICommand):
             data_format = _resolve_data_format(self.output, data_format)
 
         if fields is None and self.field is not None:
-            fields = util.as_sequence(self.field)
+            fields = util.seq(self.field)
 
         fields = _resolve_fields(fields)
 
@@ -748,12 +751,12 @@ class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
         )
 
 
-def create_entity_select_command(Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
+def create_entity_select_command(Entity: type[Entity]):
+    naming = Entity.__naming__
 
-    class SelectCommand(CLIDataOutputSelectionCommand, Entity.Filter):
+    class SelectCommand(CLIDataOutputSelectionCommand, cast("type", Entity.Filter)):
         f"""
-        Retrieve {plural}.
+        Retrieve {naming.plural}.
         """
         fields: CliPositionalArg[list[str] | None] = None
 
@@ -761,57 +764,74 @@ def create_entity_select_command(Entity: type[BaseEntity]):
         async def __run__(self) -> None:
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                await self.put(util.get_entity_manager(database, Entity).where(filter).select())
+                await self.put(database.__manager__(Entity).where(filter).select())
 
     return SelectCommand
 
 
-def create_entity_count_command(Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
+def create_entity_count_command(Entity: type[Entity]):
+    naming = Entity.__naming__
 
-    class CountCommand(CLICommand, Entity.Filter):
+    class CountCommand(CLICommand, cast("type", Entity.Filter)):
         f"""
-        Count {plural}.
+        Count {naming.plural}.
         """
 
         @override
         async def __run__(self) -> None:
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                await self.put(
-                    await util.get_entity_manager(database, Entity).where(filter).count()
-                )
+                await self.put(await database.__manager__(Entity).where(filter).count())
 
     return CountCommand
 
 
-def create_entity_create_command(Entity: type[BaseEntity]):
-    singular = util.get_entity_singular(Entity)
+def create_entity_any_command(Entity: type[Entity]):
+    naming = Entity.__naming__
 
-    class CreateCommand(CLIDataOutputCommand, Entity.Create):
+    class AnyCommand(CLICommand, cast("type", Entity.Filter)):
         f"""
-        Create a new {singular}.
+        Check if one or more {naming.plural} match the provided filter.
+        """
+
+        @override
+        async def __run__(self) -> None:
+            filter = self.read(Entity.Filter)
+            async with self.use_database() as database:
+                exists = await database.__manager__(Entity).where(filter).any()
+                await self.put(exists)
+                raise CLICommandExit(0 if exists else 1)
+
+    return AnyCommand
+
+
+def create_entity_create_command(Entity: type[Entity]):
+    naming = Entity.__naming__
+
+    class CreateCommand(CLIDataOutputCommand, cast("type", Entity.Create)):
+        f"""
+        Create a new {naming.singular}.
         """
 
         @override
         async def __run__(self) -> None:
             data = self.read(Entity.Create)
             async with self.use_database() as database:
-                await self.put(await util.get_entity_manager(database, Entity).create(data))
+                await self.put(await database.__manager__(Entity).create(data))
 
     return CreateCommand
 
 
-def create_entity_update_command(Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
+def create_entity_update_command(Entity: type[Entity]):
+    naming = Entity.__naming__
 
-    class UpdateCommand(CLIDataOutputCommand, Entity.Filter):
+    class UpdateCommand(CLIDataOutputCommand, cast("type", Entity.Filter)):
         f"""
-        Update {plural}. Return the number updated.
+        Update {naming.plural}. Return the number updated.
         """
 
         assign: Assign[Entity.Update]  # type: ignore
-        f"""Values to assign to matched {plural}. Specified as a JSON or YAML object."""
+        f"""Values to assign to matched {naming.plural}. Specified as a JSON or YAML object."""
         confirm: Confirm = True
         """Confirm before updating."""
         collect: bool = False
@@ -821,10 +841,10 @@ def create_entity_update_command(Entity: type[BaseEntity]):
         async def __run__(self) -> None:
             async with self.use_database() as database:
                 filter = self.read(Entity.Filter)
-                manager = util.get_entity_manager(database, Entity)
+                manager = database.__manager__(Entity)
                 if self.confirm:
                     count = await manager.where(filter).count()
-                    get_confirmation(f"Update {count} {plural}?", abort=True)
+                    get_confirmation(f"Update {count} {naming.plural}?", abort=True)
 
                 result = manager.where(filter).update(self.assign)
                 await self.put(result if self.collect else await result)
@@ -832,12 +852,12 @@ def create_entity_update_command(Entity: type[BaseEntity]):
     return UpdateCommand
 
 
-def create_entity_delete_command(Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
+def create_entity_delete_command(Entity: type[Entity]):
+    naming = Entity.__naming__
 
-    class DeleteCommand(CLIDataOutputCommand, Entity.Filter):
+    class DeleteCommand(CLIDataOutputCommand, cast("type", Entity.Filter)):
         f"""
-        Delete {plural}. Return the number deleted.
+        Delete {naming.plural}. Return the number deleted.
         """
 
         confirm: Confirm = True
@@ -849,10 +869,10 @@ def create_entity_delete_command(Entity: type[BaseEntity]):
         async def __run__(self) -> None:
             async with self.use_database() as database:
                 filter = self.read(Entity.Filter)
-                manager = util.get_entity_manager(database, Entity)
+                manager = database.__manager__(Entity)
                 if self.confirm:
                     count = await manager.where(filter).count()
-                    get_confirmation(f"Delete {count} {plural}?", abort=True)
+                    get_confirmation(f"Delete {count} {naming.plural}?", abort=True)
 
                 result = manager.where(filter).delete()
                 await self.put(result if self.collect else await result)
@@ -860,20 +880,19 @@ def create_entity_delete_command(Entity: type[BaseEntity]):
     return DeleteCommand
 
 
-def create_entity_follow_command(Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
-    route = util.get_entity_route_name(Entity)
+def create_entity_follow_command(Entity: type[Entity]):
+    naming = Entity.__naming__
 
-    class FollowCommand(CLIDataOutputSelectionCommand, Entity.Filter):
+    class FollowCommand(CLIDataOutputSelectionCommand, cast("type", Entity.Filter)):
         f"""
-        Follow new {plural}.
+        Follow new {naming.plural}.
         """
 
         @override
         async def __run__(self) -> None:
             client = await self.use_client()
             filter = self.read(Entity.Filter)
-            return await self.put(client.follow(route, params=filter, result=Entity))
+            return await self.put(client.follow(naming.route, params=filter, result=Entity))
 
     return FollowCommand
 
@@ -883,15 +902,15 @@ if TYPE_CHECKING:
 
 
 def create_entity_load_command(Entity: type[Entity]):
-    plural = util.get_entity_plural(Entity)
+    naming = Entity.__naming__
 
     class LoadCommand(CLICommand):
         f"""
-        Load {plural} from file. Return the number loaded.
+        Load {naming.plural} from file. Return the number loaded.
         """
 
-        path: CliPositionalArg[FilePath] = Field(description=f"File path to load {plural} from.")
-        f"""File path to load {plural} from."""
+        path: CliPositionalArg[FilePath]
+        f"""File path to load {naming.plural} from."""
 
         data_format: CLIDataFormat | None = None
         """
@@ -924,8 +943,6 @@ def create_entity_load_command(Entity: type[Entity]):
             data_format: CLIDataFormat | None = None,
             on_conflict: CLIDataConflict = CLIDataConflict.ERROR,
         ) -> int:
-            from ceres.entity import Entity
-
             path = Path(path)
             data_format = _resolve_data_format(path, data_format)
             cls = entity_type.cls
@@ -974,7 +991,7 @@ def create_entity_load_command(Entity: type[Entity]):
                                     case CLIDataFormat.JSON:
                                         adapter = util.get_type_adapter(
                                             cast(
-                                                Iterable[Json[Entity]],
+                                                "Iterable[Json[Entity]]",
                                                 Iterable[Json[cls]],
                                             )
                                         )
@@ -987,22 +1004,17 @@ def create_entity_load_command(Entity: type[Entity]):
                                         if batch:
                                             await flush()
                                     case CLIDataFormat.CSV:
-                                        from csv import DictReader, Sniffer
+                                        from csv import DictReader
 
                                         adapter = util.get_type_adapter(
                                             cast(
-                                                Iterable[Entity],
+                                                "Iterable[Entity]",
                                                 Iterable[cls],
                                             )
                                         )
 
                                         with open(path) as stream:
-                                            sample = "".join([next(stream, "") for _ in range(10)])
-
-                                        dialect = Sniffer().sniff(sample)
-
-                                        with open(path) as stream:
-                                            reader = DictReader(stream, dialect=dialect)
+                                            reader = DictReader(stream)
                                             for entity in adapter.validate_python(reader):
                                                 batch.append(entity)
                                                 if len(batch) >= batch_size:
@@ -1013,12 +1025,12 @@ def create_entity_load_command(Entity: type[Entity]):
 
                             except FileNotFoundError:
                                 raise CLICommandFailed(
-                                    f"Output file '{str(self.path)!r}' not found."
+                                    f"Input file '{str(self.path)!r}' not found."
                                 )
                             except OSError:
                                 raise CLICommandFailed(f"Failed to read input file: {str(path)!r}")
                             except ValidationError as error:
-                                raise CLICommandFailed(error.errors())
+                                raise CLICommandFailed(str(error.errors()))
 
                             await connection.commit()
 
@@ -1033,6 +1045,7 @@ _COMMAND_CREATORS = {
     "select": create_entity_select_command,
     "follow": create_entity_follow_command,
     "count": create_entity_count_command,
+    "any": create_entity_any_command,
     "create": create_entity_create_command,
     "update": create_entity_update_command,
     "delete": create_entity_delete_command,
@@ -1041,7 +1054,7 @@ _COMMAND_CREATORS = {
 
 
 def create_entity_command(
-    Entity: type[BaseEntity],
+    Entity: type[Entity],
     overrides: EntitySubCommandMapping | None = None,
     *,
     follow: bool = False,
@@ -1055,11 +1068,11 @@ def create_entity_command(
             mapping[name] = creator(Entity)
 
     fields: Any = {key: (CliSubCommand[cls], ...) for key, cls in mapping.items()}
-    plural = util.get_entity_plural(Entity)
+    naming = Entity.__naming__
 
     return create_model(
-        f"{Entity.__name__}sCommand",
+        f"{util.ucamelcase(naming.plural)}Command",
         **fields,
         __base__=CLICommandGroup,
-        __doc__=f"Manage {plural}.",
+        __doc__=f"Manage {naming.plural}.",
     )

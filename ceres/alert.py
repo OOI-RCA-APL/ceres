@@ -1,32 +1,30 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import (
+    TYPE_CHECKING,
     Any,
     ClassVar,
     Iterable,
     Literal,
     TypeAlias,
-    TypedDict,
     Unpack,
     override,
 )
-from uuid import UUID
 
 from pydantic import Field
-from sqlalchemy import JSON, SQLColumnExpression, Text, cast
+from sqlalchemy import JSON, Index, SQLColumnExpression, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import Index, SchemaItem
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityQuery,
+    ConcreteEntity,
+    EntityNaming,
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
@@ -35,14 +33,22 @@ from ceres._internal.record import (
     BaseRecordFilterArgs,
     BaseRecordOrder,
     BaseRecordRow,
+    BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.address import Address
-from ceres.data import DateTime, FromYAML, JSONSerializableDict, MaybeSequence, jsonify
-from ceres.database import DatabaseType
+from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, jsonify
 from ceres.level import Level
-from ceres.stream import Stream
 from ceres.timing import utc
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.database import DatabaseType
+    from ceres.stream import Stream
 
 
 class AlertRow(BaseRecordRow, kw_only=True):
@@ -61,7 +67,7 @@ class AlertRow(BaseRecordRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            EnumConstraint("level", Level, f"ck_{cls.__tablename__}__level"),
+            EnumConstraint(cls.level, Level, f"ck_{cls.__tablename__}__level"),
             Index(
                 f"ix_{cls.__tablename__}__type",
                 cls.type,
@@ -122,9 +128,9 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
 
     @override
-    def matches(self, obj: Alert, *, now: datetime | None = None) -> bool:
+    def _matches(self, obj: Alert, *, now: datetime | None = None) -> bool:
         now = utc(now)
-        if not super().matches(obj, now=now):
+        if not super()._matches(obj, now=now):
             return False
 
         if not util.match_value(obj.level, self.level):
@@ -202,9 +208,7 @@ class AlertCreate(BaseRecordCreate):
     data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
 
 
-class AlertUpdate(TypedDict, total=False):
-    address: Address
-    timestamp: DateTime
+class AlertUpdate(BaseRecordUpdate, total=False):
     level: Level
     type: str
     data: FromYAML[JSONSerializableDict]
@@ -314,7 +318,7 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
         return self.emit(Level.CRITICAL, type, data)
 
 
-class Alert(BaseRecord, AlertCreate):
+class Alert(BaseRecord, AlertCreate, ConcreteEntity):
     Manager: ClassVar[type[AlertManager]] = AlertManager
     BoundManager: ClassVar[type[BoundAlertManager]] = BoundAlertManager
     Row: ClassVar[type[AlertRow]] = AlertRow
@@ -325,3 +329,5 @@ class Alert(BaseRecord, AlertCreate):
     Field = AlertField
     Order = AlertOrder
     Level: ClassVar[type[Level]] = Level
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming("alert")

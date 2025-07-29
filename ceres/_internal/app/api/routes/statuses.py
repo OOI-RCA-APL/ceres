@@ -22,27 +22,19 @@ async def get_status(engine: CurrentEngine, address: Address | None = None) -> S
     return await component.get_status()
 
 
-class GetStatusesQueryParameters(ComponentFilter):
-    pass
-
-
 @router.get("")
 async def get_statuses(
     engine: CurrentEngine,
-    filter: Annotated[GetStatusesQueryParameters, Query()],
+    filter: Annotated[ComponentFilter, Query()],
 ) -> list[Status]:
     return await engine.get_statuses(filter)
-
-
-class FollowStatusesQueryParameters(GetStatusesQueryParameters):
-    pass
 
 
 @router.websocket("")
 async def follow_statuses(
     socket: CurrentSocket,
     engine: CurrentEngine,
-    filter: Annotated[FollowStatusesQueryParameters, Query()],
+    filter: Annotated[ComponentFilter, Query()],
 ) -> None:
     async def write() -> None:
         async for statuses in engine.follow_statuses(filter):

@@ -3,7 +3,9 @@ import { upperFirst } from 'lodash-es'
 
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
+import StatusBadgeAffectedCounter from '@/components/StatusBadgeAffectedCounter.vue'
 import icons from '@/icons'
+import { debouncedComputed } from '@/utilities'
 
 const { address } = $defineProps<{
   address: Address
@@ -18,6 +20,43 @@ const status = $computed(() => ({
 }))
 
 let menuIsOpen = $ref(false)
+
+const descendants = $computed(() => engine.components.getDescendants(address))
+const states = $(
+  debouncedComputed(() => {
+    let running = status.running ? 1 : 0
+    let stopped = status.running ? 0 : 1
+    let enabled = status.enabled ? 1 : 0
+    let disabled = status.enabled ? 0 : 1
+
+    for (const descendant of descendants) {
+      const descendantStatus = engine.statuses.get(descendant.address)
+      if (descendantStatus) {
+        if (descendantStatus.running) {
+          running++
+        } else {
+          stopped++
+        }
+        if (descendantStatus.enabled) {
+          enabled++
+        } else {
+          disabled++
+        }
+      }
+    }
+
+    return {
+      running,
+      stopped,
+      enabled,
+      disabled,
+      allRunning: running === descendants.length + 1,
+      someRunning: running > 0,
+      allEnabled: enabled === descendants.length + 1,
+      someEnabled: enabled > 0,
+    }
+  }, 250)
+)
 
 const connectionColor = $computed(() => {
   if (status.running !== true) {
@@ -70,47 +109,116 @@ const connectionColor = $computed(() => {
         v-if="engine.auth.isOperator"
         v-model="menuIsOpen"
         anchor="top right"
-        class="no-shadow"
-        :offset="[8, 0]"
+        class="relative-position"
+        :offset="[12, 12]"
+        self="top left"
       >
-        <q-list bordered class="rounded-corners" dense>
-          <q-item clickable @click="status.running ? engine.stop(address) : engine.start(address)">
-            <q-item-section>
-              <q-item-label>{{ status.running ? 'Stop' : 'Start' }}</q-item-label>
-            </q-item-section>
-          </q-item>
-          <q-item
-            clickable
-            @click="status.enabled ? engine.disable(address) : engine.enable(address)"
-          >
-            <q-item-section>
-              <q-item-label>{{ status.enabled ? 'Disable' : 'Enable' }}</q-item-label>
-            </q-item-section>
-          </q-item>
-          <q-separator />
-          <q-item clickable @click="engine.start(address.all())">
-            <q-item-section>
-              <q-item-label>Start All</q-item-label>
-            </q-item-section>
-          </q-item>
-          <q-separator />
-          <q-item clickable @click="engine.enable(address.all())">
-            <q-item-section>
-              <q-item-label>Enable All</q-item-label>
-            </q-item-section>
-          </q-item>
-          <q-item clickable @click="engine.disable(address.all())">
-            <q-item-section>
-              <q-item-label>Disable All</q-item-label>
-            </q-item-section>
-          </q-item>
-          <q-separator />
-          <q-item :to="`/components/${address}`">
-            <q-item-section>
-              <q-item-label>View</q-item-label>
-            </q-item-section>
-          </q-item>
-        </q-list>
+        <q-card bordered>
+          <q-list dense>
+            <q-item v-if="!status.running" clickable @click="engine.start(address)">
+              <q-item-section avatar class="text-positive">
+                <q-icon :name="icons.start" size="16px" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Start</q-item-label>
+              </q-item-section>
+            </q-item>
+            <q-item
+              v-if="!states.allRunning && descendants.length > 0"
+              clickable
+              @click="engine.start(address.all())"
+            >
+              <q-item-section avatar class="text-positive">
+                <div class="items-center row">
+                  <q-icon :name="icons.start" size="16px" />
+                  <span :class="$style.allIcon">*</span>
+                </div>
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Start All</q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <status-badge-affected-counter>
+                  {{ states.stopped }}
+                </status-badge-affected-counter>
+              </q-item-section>
+            </q-item>
+            <q-item v-show="states.someRunning" clickable @click="engine.stop(address)">
+              <q-item-section avatar class="text-negative">
+                <q-icon :name="icons.stop" size="16px" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>
+                  {{ descendants.length > 0 ? 'Stop All' : 'Stop' }}
+                </q-item-label>
+              </q-item-section>
+              <q-item-section v-if="descendants.length > 0" side>
+                <status-badge-affected-counter>
+                  {{ states.running }}
+                </status-badge-affected-counter>
+              </q-item-section>
+            </q-item>
+            <q-separator />
+            <q-item v-if="!status.enabled" clickable @click="engine.enable(address)">
+              <q-item-section avatar class="text-positive">
+                <q-icon :name="icons.enable" size="16px" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Enable</q-item-label>
+              </q-item-section>
+            </q-item>
+            <q-item
+              v-if="!states.allEnabled && descendants.length > 0"
+              clickable
+              @click="engine.enable(address.all())"
+            >
+              <q-item-section avatar class="text-positive">
+                <div class="items-center row">
+                  <q-icon :name="icons.enable" size="16px" />
+                  <span :class="$style.allIcon">*</span>
+                </div>
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>
+                  <q-item-label>Enable All</q-item-label>
+                </q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <status-badge-affected-counter>
+                  {{ states.disabled }}
+                </status-badge-affected-counter>
+              </q-item-section>
+            </q-item>
+            <q-item v-else clickable @click="engine.disable(address)">
+              <q-item-section avatar class="text-warning">
+                <q-icon :name="icons.disable" size="16px" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Disable</q-item-label>
+              </q-item-section>
+            </q-item>
+            <q-item
+              v-if="states.someEnabled && descendants.length > 0"
+              clickable
+              @click="engine.disable(address.all())"
+            >
+              <q-item-section avatar class="text-warning">
+                <div class="items-center row">
+                  <q-icon :name="icons.disable" size="16px" />
+                  <span :class="$style.allIcon">*</span>
+                </div>
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Disable All</q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <status-badge-affected-counter>
+                  {{ states.enabled }}
+                </status-badge-affected-counter>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card>
       </q-menu>
     </q-badge>
   </div>
@@ -144,5 +252,10 @@ const connectionColor = $computed(() => {
   100% {
     transform: rotate(360deg);
   }
+}
+
+.allIcon {
+  margin-top: 5px;
+  margin-left: 2px;
 }
 </style>

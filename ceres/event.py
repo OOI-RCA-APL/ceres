@@ -20,19 +20,21 @@ from pydantic import ByteSize, Field
 
 from ceres._internal import util
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import NodeSource
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, uuid7
 from ceres.level import Level
 from ceres.stream import Stream, WriteStream
 from ceres.timing import utc
 
+if TYPE_CHECKING:
+    from ceres._internal.protocols import NodeSource
+
 
 class Event(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid7)
 
     if TYPE_CHECKING:
-        address: Address = cast(Address, None)
+        address: Address = cast("Address", None)
     else:
         address: Address
 
@@ -785,8 +787,7 @@ class _ComponentEventListener:
                 await result
         except Exception:
             self.__system.log.error(
-                f"An exception occurred while processing event {event}: "
-                f"{traceback.format_exc()}"
+                f"An exception occurred while processing event {event}: {traceback.format_exc()}"
             )
         finally:
             self.__queue.task_done()

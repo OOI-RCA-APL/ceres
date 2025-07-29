@@ -1,19 +1,19 @@
 <script lang="ts" setup>
 import { useDialogPluginComponent } from 'quasar'
 
-import { Engine } from '@/api/engine'
+import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import { useForm } from '@/form'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
 
-const { userId, engine } = $defineProps<{
+const { userId } = $defineProps<{
   userId: string
-  engine: Engine
 }>()
 
 defineEmits([...useDialogPluginComponent.emits])
 
+const engine = useEngine()
 const notify = useNotify()
 const validate = useValidate()
 
@@ -51,7 +51,7 @@ const isShowingNewPassword = $ref(false)
 
 <template>
   <q-dialog ref="dialogRef" persistent @hide="onDialogHide">
-    <q-card class="q-dialog-plugin">
+    <q-card bordered class="q-dialog-plugin" flat>
       <div class="q-px-md">
         <common-text element="h2" variant="title1">Change Password</common-text>
       </div>
@@ -98,14 +98,14 @@ const isShowingNewPassword = $ref(false)
           </q-input>
         </div>
         <q-card-actions class="justify-end">
-          <q-btn v-close-popup color="grey" flat label="Cancel" />
+          <q-btn v-close-popup color="grey-8" label="Cancel" unelevated />
           <q-btn
             color="primary"
             :disable="form.validation !== 'valid'"
-            flat
             label="Submit"
             :loading="form.state === 'submitting'"
             type="submit"
+            unelevated
           />
         </q-card-actions>
       </q-form>

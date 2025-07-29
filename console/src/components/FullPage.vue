@@ -9,7 +9,7 @@ defineProps<{
 <template>
   <div :class="$style.root">
     <div :class="[$style.header, 'items-center', 'row']">
-      <common-text v-if="title != null" class="q-ml-md q-py-sm" variant="title2">
+      <common-text v-if="title != null" class="q-ml-md" variant="title2">
         {{ title }}
       </common-text>
       <slot name="header-append" />
@@ -20,15 +20,23 @@ defineProps<{
 </template>
 
 <style lang="scss" module>
-.header {
-  height: 48px !important;
+.root {
+  position: relative;
 }
 
-:global(.body--light) .root {
+.header {
+  height: 42px !important;
+}
+
+:global(.dark) .header {
+  background-color: $dark;
+}
+
+:global(.light) .root {
   background-color: $grey-2;
 }
 
-:global(.body--light) .header {
+:global(.light) .header {
   background-color: white;
 }
 </style>

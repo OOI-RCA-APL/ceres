@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from abc import abstractmethod
 from functools import cached_property
-from typing import Any, AsyncIterable, Unpack, dataclass_transform, override
+from typing import TYPE_CHECKING, Any, AsyncIterable, Unpack, dataclass_transform, override
 
 from pydantic import Field
 from pydantic.fields import FieldInfo
@@ -24,24 +24,24 @@ from ceres.event import (
 )
 from ceres.tasklet import Tasklet
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres._internal.database.writer import Writer
-    from ceres.alert import BoundAlertManager
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database import Database
     from ceres.engine import Engine
-    from ceres.event import NodeEventManager
     from ceres.item import Item
+
+with lazy_imports(__name__):
+    from ceres._internal.database.writer import Writer
+    from ceres.alert import BoundAlertManager
+    from ceres.event import NodeEventManager
     from ceres.logs import BoundLogManager
     from ceres.message import BoundMessageManager
     from ceres.particle import BoundParticleManager
-    from ceres.setting import SettingManager
     from ceres.statistics import StatisticsManager
     from ceres.status import Status
-    from ceres.user import UserManager
     from ceres.variable import BoundVariableManager
 
 
@@ -124,16 +124,8 @@ class Node(Tasklet, NodeSource):
         return self.logs
 
     @cached_property
-    def users(self) -> UserManager:
-        return UserManager(self)
-
-    @cached_property
     def variables(self) -> BoundVariableManager:
         return BoundVariableManager(self)
-
-    @cached_property
-    def settings(self) -> SettingManager:
-        return SettingManager(self)
 
     @cached_property
     def events(self) -> NodeEventManager:

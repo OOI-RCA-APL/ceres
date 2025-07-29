@@ -9,7 +9,6 @@ import traceback
 import typing
 from asyncio import AbstractEventLoop, Future
 from collections import defaultdict
-from collections.abc import Set
 from contextlib import contextmanager
 from datetime import timedelta
 from enum import Enum
@@ -43,16 +42,19 @@ from typing import (
 from weakref import WeakSet, ref
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
-from pydantic.fields import FieldInfo
-from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
-from typing_extensions import TypeIs
 
 from ceres._internal.lazy import lazy_imports
 
-with lazy_imports(__name__, export=True):
+if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
+    from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
     from sqlalchemy import SQLColumnExpression
+    from typing_extensions import TypeIs
 
     from ceres.data import MaybeSequence
+
+
+with lazy_imports(__name__, export=True):
     from ceres.util import azip_latest as azip_latest
     from ceres.util import cancel as cancel
     from ceres.util import concurrently as concurrently
@@ -78,30 +80,13 @@ def reprify(value: object) -> str:
         return "<__repr__() raised exception>"
 
 
-def syncify[**P, T](function: Callable[P, Awaitable[T] | T]) -> Callable[P, T]:
-    import inspect
-
-    from ceres.util import ensure_event_loop
-
-    if not inspect.iscoroutinefunction(function):
-        return cast(Callable[P, T], function)
-
-    from functools import wraps
-
-    @wraps(function)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
-        return ensure_event_loop().run_until_complete(function(*args, **kwargs))
-
-    return cast(Callable[P, T], wrapper)
-
-
 async def awaitify[T](value: Awaitable[T] | T) -> T:
     import inspect
 
     if inspect.isawaitable(value):
-        return cast(T, await value)
+        return cast("T", await value)
 
-    return cast(T, value)
+    return cast("T", value)
 
 
 def dictify(obj: object) -> dict[str, Any]:
@@ -146,10 +131,49 @@ class PydanticDataclassLike(DataclassLike, Protocol):
 
 
 def is_dataclass_instance(obj: object) -> TypeIs[DataclassLike]:
+    """
+    >>> from dataclasses import dataclass
+    >>>
+    >>> @dataclass
+    ... class Dataclass:
+    ...    pass
+    >>>
+    >>> is_dataclass_instance(Dataclass())
+    True
+    >>> is_dataclass_instance(Dataclass)
+    False
+    >>>
+    >>> class Normal:
+    ...    pass
+    >>>
+    >>> is_dataclass_instance(Normal())
+    False
+    >>> is_dataclass_instance(Normal)
+    False
+    """
     return not isinstance(obj, type) and is_dataclass(obj)
 
 
 def is_dataclass_type(obj: object) -> TypeIs[DataclassLike]:
+    """
+    >>> from dataclasses import dataclass
+    >>>
+    >>> @dataclass
+    ... class Dataclass:
+    ...    pass
+    >>>
+    >>> is_dataclass_type(Dataclass)
+    True
+    >>> is_dataclass_type(Dataclass())
+    False
+    >>>
+    >>> class Normal:
+    ...    pass
+    >>> is_dataclass_type(Normal)
+    False
+    >>> is_dataclass_type(Normal())
+    False
+    """
     return isinstance(obj, type) and is_dataclass(obj)
 
 
@@ -175,11 +199,81 @@ ModelLike = BaseModel | PydanticDataclassLike
 
 
 def snakecase(text: str) -> str:
-    import re
+    """
+    >>> snakecase("Hello World")
+    'hello_world'
+    >>> snakecase("helloWorld")
+    'hello_world'
+    >>> snakecase("hello-world")
+    'hello_world'
+    >>> snakecase("hello_world")
+    'hello_world'
+    >>> snakecase("HELLO")
+    'hello'
+    """
+    from pydantic.alias_generators import to_snake
 
-    text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", text)
-    text = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", text)
-    return text.replace("-", "_").lower()
+    text = text.strip()
+    # Convert all runs of whitespace and hyphens to a single underscore.
+    text = re.sub(r"[\s-]+", "_", text)
+    return to_snake(text)
+
+
+def kebabcase(text: str) -> str:
+    """
+    >>> kebabcase("Hello World")
+    'hello-world'
+    >>> kebabcase("helloWorld")
+    'hello-world'
+    >>> kebabcase("hello-world")
+    'hello-world'
+    >>> kebabcase("hello_world")
+    'hello-world'
+    >>> kebabcase("HELLO")
+    'hello'
+    """
+    return snakecase(text).replace("_", "-")
+
+
+def ucamelcase(text: str) -> str:
+    """
+    >>> upper_camelcase("Hello World")
+    'HelloWorld'
+    >>> upper_camelcase("helloWorld")
+    'HelloWorld'
+    >>> upper_camelcase("hello-world")
+    'HelloWorld'
+    >>> upper_camelcase("hello_world")
+    'HelloWorld'
+    >>> upper_camelcase("HELLO")
+    'Hello'
+    """
+    from pydantic.alias_generators import to_camel
+
+    text = text.strip()
+    # Convert all runs of whitespace and hyphens to a single underscore.
+    text = re.sub(r"[\s-]+", "_", text)
+    text = to_camel(text)
+    if not text:
+        return ""
+
+    return text[0].upper() + text[1:]  # Capitalize the first letter.
+
+
+def titlecase(string: str) -> str:
+    """
+    >>> titlecase("Hello World")
+    'Hello World'
+    >>> titlecase("helloWorld")
+    'Hello World'
+    >>> titlecase("hello-world")
+    'Hello World'
+    >>> titlecase("hello_world")
+    'Hello World'
+    >>> titlecase("HELLO")
+    'Hello'
+    """
+    return " ".join(segment.capitalize() for segment in snakecase(string).split("_"))
 
 
 def randstr(characters: str, length: int) -> str:
@@ -188,38 +282,43 @@ def randstr(characters: str, length: int) -> str:
     return "".join(random.choice(characters) for _ in range(length))
 
 
-def encode_td(value: timedelta) -> str:
-    if value < timedelta(milliseconds=1):
-        encoded_value, encoded_unit = float(value.microseconds), "us"
-    elif value < timedelta(seconds=1):
-        encoded_value, encoded_unit = value.microseconds / 1000, "ms"
-    elif value < timedelta(minutes=1):
-        encoded_value, encoded_unit = value.total_seconds(), "s"
-    elif value < timedelta(hours=1):
-        encoded_value, encoded_unit = value.total_seconds() / 60, "m"
-    elif value < timedelta(days=1):
-        encoded_value, encoded_unit = value.total_seconds() / (60 * 60), "h"
+_DELTA_MS = timedelta(milliseconds=1)
+_DELTA_S = timedelta(seconds=1)
+_DELTA_M = timedelta(minutes=1)
+_DELTA_H = timedelta(hours=1)
+_DELTA_D = timedelta(days=1)
+
+
+def encode_td(
+    value: timedelta,
+    *,
+    decimals: int | None = None,
+    space: bool = False,
+) -> str:
+    if value < _DELTA_MS:
+        number, unit = float(value.microseconds), "us"
+    elif value < _DELTA_S:
+        number, unit = value.microseconds / 1000, "ms"
+    elif value < _DELTA_M:
+        number, unit = value.total_seconds(), "s"
+    elif value < _DELTA_H:
+        number, unit = value.total_seconds() / 60, "m"
+    elif value < _DELTA_D:
+        number, unit = value.total_seconds() / (60 * 60), "h"
     else:
-        encoded_value, encoded_unit = value.total_seconds() / (60 * 60 * 24), "d"
+        number, unit = value.total_seconds() / (60 * 60 * 24), "d"
 
-    return f"{str(encoded_value).rstrip('0').rstrip('.')}{encoded_unit}"
-
-
-def show_td(value: timedelta) -> str:
-    if value < timedelta(milliseconds=1):
-        encoded_value, encoded_unit = float(value.microseconds), "microseconds"
-    elif value < timedelta(seconds=1):
-        encoded_value, encoded_unit = value.microseconds / 1000, "milliseconds"
-    elif value < timedelta(minutes=1):
-        encoded_value, encoded_unit = value.total_seconds(), "seconds"
-    elif value < timedelta(hours=1):
-        encoded_value, encoded_unit = value.total_seconds() / 60, "minutes"
-    elif value < timedelta(days=1):
-        encoded_value, encoded_unit = value.total_seconds() / (60 * 60), "hours"
+    if decimals is not None:
+        number_text = f"{number:.{decimals}f}"
     else:
-        encoded_value, encoded_unit = value.total_seconds() / (60 * 60 * 24), "days"
+        number_text = f"{number}"
 
-    return f"{str(encoded_value).rstrip('0').rstrip('.')} {encoded_unit}"
+    number_text = number_text.rstrip("0").rstrip(".")
+
+    if space:
+        return f"{number_text} {unit}"
+    else:
+        return f"{number_text}{unit}"
 
 
 def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
@@ -268,7 +367,7 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
             raise get_exception()
 
         try:
-            decoded_value = float(value[: -len(decoded_unit)])
+            decoded_value = float(value[: -len(decoded_unit)].strip())
         except Exception:
             raise get_exception()
 
@@ -296,10 +395,15 @@ Stringy: TypeAlias = str | bytes | bytearray | memoryview
 
 
 def is_stringy(obj: Any) -> TypeIs[Stringy]:
+    if obj is None:
+        return False
+
     return isinstance(obj, Stringy)
 
 
 def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
+    if obj is None:
+        return False
     if not isinstance(obj, Iterable):
         return False
 
@@ -316,6 +420,10 @@ def is_true_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
 
 
 def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
+    if obj is None:
+        return False
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return True
     if not isinstance(obj, Collection):
         return False
 
@@ -333,6 +441,10 @@ def is_true_collection(obj: Any) -> TypeIs[Collection[Any]]:
 
 
 def is_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
+    if obj is None:
+        return False
+    if isinstance(obj, (list, tuple)):
+        return True
     if not isinstance(obj, Sequence):
         return False
 
@@ -350,6 +462,10 @@ def is_true_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
 
 
 def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
+    if obj is None:
+        return False
+    if isinstance(obj, dict):
+        return True
     if not isinstance(obj, Mapping):
         return False
 
@@ -507,7 +623,7 @@ def get_args_model(
     function = get_inner_function(function) if inner else function
 
     if model_name is None:
-        model_name = f"{upper_camel(function.__name__)}Args"
+        model_name = f"{ucamelcase(function.__name__)}Args"
 
     (
         position_parameter_names,
@@ -594,7 +710,7 @@ def match_value[T](value: T, possibilities: MaybeSequence[T] | None = None) -> b
     if possibilities is None:
         return True
 
-    return value in as_sequence(possibilities)
+    return value in seq(possibilities)
 
 
 class MatchMode(Enum):
@@ -614,7 +730,7 @@ def match_string[T: (str, bytes)](
     if possibilities is None:
         return True
 
-    possibilities = as_sequence(possibilities)
+    possibilities = seq(possibilities)
     if not possibilities:
         return False
 
@@ -639,7 +755,7 @@ def sql_match_value[T](
     expression: SQLColumnExpression[T],
     value: MaybeSequence[T],
 ) -> SQLColumnExpression[bool]:
-    return expression.in_(as_sequence(value))
+    return expression.in_(seq(value))
 
 
 def _escape_like_expression[T: (str, bytes)](text: T, escape: str) -> T:
@@ -658,7 +774,7 @@ def sql_match_string[T: (str, bytes)](
 ) -> SQLColumnExpression[bool]:
     import sqlalchemy
 
-    values = as_sequence(value)
+    values = seq(value)
     if not values:
         return sqlalchemy.false()
 
@@ -817,41 +933,19 @@ def get_traceback(exception: BaseException) -> list[str]:
     return traceback.format_exception(exception)
 
 
-def strlist(value: str | Sequence[str] | None) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, list):
-        return value
-
-    return list(value)
+@overload
+def seq[T: Stringy](value: T) -> Sequence[T]: ...
 
 
 @overload
-def as_sequence[T: Stringy](value: T) -> Sequence[T]: ...
+def seq[T](value: T | Sequence[T]) -> Sequence[T]: ...
 
 
-@overload
-def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]: ...
-
-
-def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]:
+def seq[T](value: T | Sequence[T]) -> Sequence[T]:
     if is_true_sequence(value):
         return value
 
     return (value,)
-
-
-def upper_camel(string: str) -> str:
-    return "".join(segment.capitalize() for segment in string.replace("_", "-").split("-"))
-
-
-def lower_camel(string: str) -> str:
-    if string == "":
-        return string
-
-    return string[0].lower() + upper_camel(string)[1:]
 
 
 Undefined = object()
@@ -982,7 +1076,7 @@ class OrderedSet(set[_T]):
 
     @override
     def intersection(self, *other: Iterable[Any]) -> OrderedSet[_T]:
-        other_set: Set[Any] = set()
+        other_set: set[Any] = set()
         other_set.update(*other)
         return self.__class__(a for a in self if a in other_set)
 
@@ -1007,7 +1101,7 @@ class OrderedSet(set[_T]):
 
     @override
     def __xor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:
-        return cast(OrderedSet[Union[_T, _S]], self).symmetric_difference(other)
+        return cast("OrderedSet[Union[_T, _S]]", self).symmetric_difference(other)
 
     @override
     def difference(self, *other: Iterable[Any]) -> OrderedSet[_T]:
@@ -1038,7 +1132,7 @@ class OrderedSet(set[_T]):
     @override
     def __ixor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:  # type: ignore
         self.symmetric_difference_update(other)
-        return cast(OrderedSet[Union[_T, _S]], self)
+        return cast("OrderedSet[Union[_T, _S]]", self)
 
     @override
     def difference_update(self, *other: Iterable[Any]) -> None:
@@ -1172,18 +1266,19 @@ def model_is_empty(model: BaseModel) -> bool:
 
 
 _SQLITE_UNIQUE_ERROR_REGEX = re.compile(
-    r"UNIQUE constraint failed: ([^ ]+)\.(?P<column>[^ ]+)",
+    r"UNIQUE constraint failed: (.+?)\.(?P<column>.+?)",
     re.MULTILINE | re.DOTALL,
 )
 _POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
-    r".*duplicate key.*\((?P<column>[^ ]+)\)=\((?P<value>[^ ]+)\)",
+    r".*duplicate key.*\((?P<column>.+?)\)=\((?P<value>.+?)\)",
     re.MULTILINE | re.DOTALL,
 )
 
 
 @contextmanager
 def wrap_database_errors() -> Iterator[None]:
-    from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+    from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
+    from sqlalchemy.exc import SQLAlchemyError
 
     from ceres.error import (
         AlreadyExistsError,
@@ -1191,6 +1286,7 @@ def wrap_database_errors() -> Iterator[None]:
         DatabaseUnexpectedError,
         DatabaseUnreachableError,
         Failure,
+        IntegrityError,
     )
 
     try:
@@ -1224,7 +1320,7 @@ def wrap_database_errors() -> Iterator[None]:
         if isinstance(exception, sqlalchemy.exc.TimeoutError):
             raise Failure(DatabaseUnreachableError(message=str(exception)))
 
-        if isinstance(exception, IntegrityError):
+        if isinstance(exception, SQLAlchemyIntegrityError):
             if isinstance(exception.orig, SQLiteIntegrityError):
                 match = _SQLITE_UNIQUE_ERROR_REGEX.match(str(exception.orig))
                 if match is not None:
@@ -1240,6 +1336,8 @@ def wrap_database_errors() -> Iterator[None]:
                             value=match.group("value"),
                         )
                     )
+
+            raise Failure(IntegrityError)
 
         raise Failure(DatabaseUnexpectedError(message=str(exception)))
 
@@ -1294,42 +1392,21 @@ async def run_in_loop[T](
 
 
 if TYPE_CHECKING:
-    from ceres._internal.entity import BaseEntity, BaseEntityManager
+    from ceres._internal.entity import BaseEntityManager
     from ceres.database import Database
+    from ceres.entity import Entity
     from ceres.node import Node
 
 
-def get_entity_singular(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "log entry"
+def get_entity_manager(source: Database | Node, entity: type[Entity]) -> BaseEntityManager:
+    naming = entity.__naming__
+    manager = getattr(source, naming.manager, None)
+    if manager is None:
+        raise ValueError(
+            f"Object `{source}` has no manager for {entity} at attribute {naming.manager!r}."
+        )
 
-    return Entity.__name__.lower()
-
-
-def get_entity_plural(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "log entries"
-
-    return f"{Entity.__name__.lower()}s"
-
-
-def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "logs"
-
-    return get_entity_plural(Entity)
-
-
-def get_entity_route_name(Entity: type[BaseEntity]) -> str:
-    return _get_entity_manager_attr(Entity)
-
-
-def get_entity_command_name(Entity: type[BaseEntity]) -> str:
-    return get_entity_route_name(Entity)
-
-
-def get_entity_manager(source: Database | Node, entity: type[BaseEntity]) -> BaseEntityManager:
-    return getattr(source, _get_entity_manager_attr(entity))
+    return manager
 
 
 LINUX = platform.system() == "Linux"
@@ -1345,3 +1422,28 @@ def get_temporary_directory() -> Path:
     from tempfile import gettempdir
 
     return Path(gettempdir())
+
+
+@contextmanager
+def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]):
+    import signal
+
+    originals: dict[int, Any] = {}
+
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+
+        signal.signal(signum, handler)
+
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)
+
+
+if __name__ == "__main__":
+    from doctest import testmod
+
+    testmod()

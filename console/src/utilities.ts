@@ -10,6 +10,14 @@ export type Plain = string | number | boolean | null | { [property: string]: Pla
 export type MaybeRef<T> = Ref<T> | T
 export type MaybePromise<T> = Promise<T> | T
 
+export function jsonEquals(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+export function deepClone<T>(value: T) {
+  return JSON.parse(JSON.stringify(value))
+}
+
 export function asRef<T>(value: MaybeRef<T>): Readonly<Ref<T>> {
   return isRef(value) ? value : computed(() => value)
 }
@@ -273,4 +281,8 @@ export function dataloader<F extends DataloaderFunction<T>, T>(
     filter: Parameters<typeof factory>[0],
     dataloaderOptions?: DataloaderOptions
   ) => Promise<T>
+}
+
+export function roundTo(number: number, increment: number, offset: number = 0) {
+  return Math.round((number - offset) / increment) * increment + offset
 }

@@ -3,15 +3,16 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Final, Literal, Self, Sequence, override
 
-from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, SchemaSerializer
 from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
-from sqlalchemy.sql import ColumnElement, SQLColumnExpression
 from sqlalchemy.util import LRUCache
 
 from ceres._internal import util
 from ceres._internal.util import NAME_PATTERN, classproperty
-from ceres.data import Name
+
+if TYPE_CHECKING:
+    from pydantic import GetCoreSchemaHandler
+    from sqlalchemy.sql import ColumnElement, SQLColumnExpression
 
 _NAME = NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
@@ -59,7 +60,7 @@ class AddressSelector:
         return [AddressSelector(segment) for segment in self._text.split("|")]
 
     def __init__(self, value: str | AddressSelector | Sequence[str | AddressSelector], /) -> None:
-        value = util.as_sequence(value)
+        value = util.seq(value)
 
         segments: list[str] = []
         for segment in value:
@@ -274,7 +275,7 @@ class DynamicAddress(AddressSelector):
         return super().__new__(cls, value)
 
     @property
-    def name(self) -> Name | None:
+    def name(self) -> str | None:
         self = self.as_relative()
         if self is None:
             return None
@@ -335,7 +336,7 @@ class DynamicAddress(AddressSelector):
         return ancestors
 
     @property
-    def names(self) -> Sequence[Name]:
+    def names(self) -> Sequence[str]:
         self = self.as_relative()
         if self is None:
             return []

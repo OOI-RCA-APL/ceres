@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from abc import ABC, abstractmethod
 from typing import (
     TYPE_CHECKING,
@@ -21,45 +22,64 @@ from typing import (
     Unpack,
     cast,
     final,
+    is_typeddict,
     override,
 )
 from uuid import UUID
 
-from pydantic import Field, NonNegativeInt
+from pydantic import ConfigDict, Field, NonNegativeInt, model_validator
 from sqlalchemy import (
-    ClauseElement,
-    Column,
-    ColumnElement,
     Delete,
     Dialect,
     Engine,
-    Result,
+    Index,
+    Integer,
     Select,
-    SQLColumnExpression,
     Update,
+    and_,
     delete,
     func,
+    literal,
+    or_,
     select,
     tuple_,
     update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_attr, mapped_column
 from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
-from sqlalchemy.sql.base import ReadOnlyColumnCollection
-from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
-from sqlalchemy.sql.roles import DDLConstraintColumnRole
 
 from ceres._internal import util
-from ceres._internal.database.types import UUIDMapper
+from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseDatabaseManager
-from ceres._internal.protocols import DatabaseSource
-from ceres.data import DeferBuild, ImmutableDataObject, MaybeSequence, uuid7
+from ceres.address import Address, AddressSelector
+from ceres.data import (
+    DateTime,
+    DeferBuild,
+    FromYAML,
+    ImmutableDataObject,
+    MaybeSequence,
+    NonNegativeTimeDelta,
+    PositiveTimeDelta,
+    uuid7,
+)
 from ceres.database import DatabaseType
+from ceres.timing import utc
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy import ClauseElement, ColumnElement, ScalarResult, SQLColumnExpression
+    from sqlalchemy.ext.asyncio import AsyncScalarResult, AsyncSession
+    from sqlalchemy.schema import SchemaItem
+    from sqlalchemy.sql.base import ReadOnlyColumnCollection
+    from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
+
+    from ceres._internal.protocols import DatabaseSource
 
 with lazy_imports(__name__):
-    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncResult, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 class BaseEntityRow(
@@ -139,15 +159,18 @@ class BaseEntityRow(
         if isinstance(dialect, (Engine, AsyncEngine)):
             dialect = dialect.dialect
 
-        for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name)):
+        for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name or "")):
             if index._ddl_if is not None:
-                if dialect.name not in util.as_sequence(index._ddl_if.dialect):
+                # `DDLif.dialect` can be a tuple of dialect names, despite the type annotation being
+                # `str | None` at the time of writing.
+                if dialect.name not in util.seq(index._ddl_if.dialect):
                     continue
 
             yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
 
     def values(self) -> dict[str, Any]:
-        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
+        values = self.__dict__
+        return {column: values[column] for column in self.__table__.columns.keys()}
 
     @declared_attr
     def __table_args__(cls) -> Any:
@@ -194,6 +217,12 @@ class BaseEntityFilterArgs[
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
+    or__: MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None]
+    and__: MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None]
+
+
+seen: set[int] = set()
+
 
 class BaseEntityFilter[
     EntityT: BaseEntity,
@@ -201,18 +230,151 @@ class BaseEntityFilter[
     OrderT: str,
 ](BaseFilter):
     order: MaybeSequence[OrderT] | None = None
-    """Specify ordering of results by field. Prefix field names with '-' for descending order."""
+    """
+    Specify ordering of results by field. Prefix field names with '-' for descending order.
+
+    If `and__` subfilters are defined, and `order` is unspecified in this root `order` argument, the
+    last `order` defined in `and__` will be used instead.
+    """
+
     limit: NonNegativeInt | None = None
-    """Limit the number of returned results."""
+
+    """
+    Limit the number of returned results.
+
+    If any `and__` subfilters are defined, and any of them specify a `limit` which is lower than
+    this root `limit` argument, the lowest defined `limit` value in `and__` will be used instead.
+    """
+
     offset: NonNegativeInt | None = None
-    """Skip over a given number of results."""
+    """
+    Skip over a given number of results.
+
+    If any `and__` subfilters are defined, and any of them specify an `offset` which is higher than
+    this root `offset` argument, the highest defined `offset` value in `and__` will be used instead.
+    """
+
+    or__: MaybeSequence[FromYAML[Self]] | None = Field(default=None, validation_alias="or")
+    """
+    One or more subfilters, where in the case any match the queried value, the overall filter should
+    match.
+
+    This is a logical OR operation, and can be added to using the `|` operator.
+
+    If both `or__` and `and__` are defined within the same filter object, `and__` is evaluated
+    first, meaning whether or not all conditions in `and__` are matched, if any condition in `or__`
+    is matched, the overall filter will match.
+    """
+
+    and__: MaybeSequence[FromYAML[Self]] | None = Field(default=None, validation_alias="and")
+    """
+    One or more subfilters, where in the case all of them they match the queried value, the overall
+    filter should match.
+
+    This is a logical AND operation, and can be added to using the `&` operator.
+
+    If both `or__` and `and__` are defined within the same filter object, `and__` is evaluated
+    first, meaning whether or not all conditions in `and__` are matched, if any condition in `or__`
+    is matched, the overall filter will match.
+    """
+
+    @classmethod
+    @override
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        # This is a hacky workaround for FastAPI not being able to generate query parameters for
+        # `Query()`models when `Self` is used in a field's type annotation. Here we just replace the
+        # annotations of `or__` and `and__` with the actual concrete type of this filter class.
+        super().__pydantic_init_subclass__(**kwargs)
+        or__ = cls.__pydantic_fields__["or__"]
+        or__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
+        and__ = cls.__pydantic_fields__["and__"]
+        and__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
+
+    @model_validator(mode="after")
+    def _resolve_and_or(self) -> Self:
+        if self.or__:
+            for subfilter in util.seq(self.or__):
+                if subfilter.order is not None:
+                    raise ValueError(
+                        "Cannot specify `order` in `or__` subfilters. Use `and__` instead."
+                    )
+                if subfilter.limit is not None:
+                    raise ValueError(
+                        "Cannot specify `limit` in `or__` subfilters. Use `and__` instead."
+                    )
+                if subfilter.offset is not None:
+                    raise ValueError(
+                        "Cannot specify `offset` in `or__` subfilters. Use `and__` instead."
+                    )
+
+        if self.and__:
+            for subfilter in util.seq(self.and__):
+                if subfilter.order is not None:
+                    object.__setattr__(self, "order", subfilter.order)
+                    self.model_fields_set.add("order")
+                if subfilter.limit is not None:
+                    if self.limit is None or subfilter.limit < self.limit:
+                        object.__setattr__(self, "limit", subfilter.limit)
+                        self.model_fields_set.add("limit")
+                if subfilter.offset is not None:
+                    if self.offset is None or subfilter.offset > self.offset:
+                        object.__setattr__(self, "offset", subfilter.offset)
+                        self.model_fields_set.add("offset")
+
+        return self
+
+    def __or__(self, other: Self, /) -> Self:
+        # Because `or__` has lower precedence than `and__` within the same filter, we can always
+        # just append the filter to the `or__` conditions.
+        or__ = [*(self.or__ or ()), other]
+        return self.model_copy(update={"or__": or__})
+
+    def __and__(self, other: Self, /) -> Self:
+        # Because `and__` has higher precedence than `or__` within the same filter, if `or__` is
+        # present, we need create a new parent filter to maintain operator precedence.
+        if self.or__ or other.or__:
+            return self.__class__(and__=[self, cast("Self", other)])
+
+        # Otherwise, we can append the filter to the `and__` conditions.
+        and__ = [*(self.and__ or ()), other]
+        return self.model_copy(update={"and__": and__})
 
     @classmethod
     @abstractmethod
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
     def matches(self, obj: EntityT) -> bool:
+        ands: Sequence[Self] = util.seq(self.and__ or ())
+        ors: Sequence[Self] = util.seq(self.or__ or ())
+
+        return (
+            self._matches(obj)
+            and all(subcondition.matches(obj) for subcondition in ands)
+            or any(subcondition.matches(obj) for subcondition in ors)
+        )
+
+    @abstractmethod
+    def _matches(self, obj: EntityT) -> bool:
         return True
+
+    def _get_combined_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        ands = list(self._get_where(dialect))
+
+        if self.and__:
+            for subcondition in util.seq(self.and__):
+                ands.extend(subcondition._get_combined_where(dialect))
+
+        if not self.or__:
+            yield from ands
+        else:
+            ors: list[SQLColumnExpression[bool]] = []
+            for subcondition in util.seq(self.or__):
+                ors.extend(subcondition._get_combined_where(dialect))
+
+            if ands:
+                yield or_(and_(*ands), *ors)
+            else:
+                yield or_(*ors)
 
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         return ()
@@ -227,7 +389,7 @@ class BaseEntityFilter[
 
         Row = self._get_row_cls()
         columns: list[SQLColumnExpression[Any]] = []
-        for value in util.as_sequence(order):
+        for value in util.seq(order):
             base = value.split(":")[0]
             ascending = not value.endswith(":desc")
             column = Row.__table__.columns[base]
@@ -244,7 +406,7 @@ class BaseEntityFilter[
         ignore_where: bool = False,
         ignore_order: bool = False,
     ) -> StatementT:
-        where = () if ignore_where else tuple(self._get_where(dialect))
+        where = () if ignore_where else tuple(self._get_combined_where(dialect))
         order_by = () if ignore_order else tuple(self._get_order_by())
         limit = self.limit
         offset = self.offset
@@ -253,11 +415,11 @@ class BaseEntityFilter[
         if not always_use_subquery:
             if isinstance(statement, Select):
                 return statement.where(*where).order_by(*order_by).limit(limit).offset(offset)
-            else:
-                # This is an update or delete statement, and if there is no `limit` or `offset`,
-                # `order_by` does not matter, so we can avoid using a subquery.
-                if limit is None and offset is None and not statement._returning:
-                    return statement.where(*where)
+
+            # This is an update or delete statement, and if there is no `limit` or `offset`,
+            # `order_by` does not matter, so we can avoid using a subquery.
+            if limit is None and offset is None and not statement._returning:
+                return statement.where(*where)
 
         pk = self._get_row_cls().get_primary_key_columns()
         pks = select(*pk).where(*where).order_by(*order_by).limit(limit).offset(offset)
@@ -278,107 +440,34 @@ class BaseEntityUpdate(TypedDict, total=False):
     pass
 
 
-class BaseEntity(BaseEntityCreate):
-    Row: ClassVar[type[BaseEntityRow]] = BaseEntityRow
-    Create: ClassVar[type[BaseEntityCreate]] = BaseEntityCreate
-    Update: ClassVar[type[BaseEntityUpdate]] = BaseEntityUpdate
+@dataclasses.dataclass(init=False, slots=True)
+class EntityNaming:
+    singular: str
+    plural: str
+    container: str
+    table: str
+    command: str
+    route: str
+    manager: str
 
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseEntityFilter
-        FilterArgs: ClassVar = BaseEntityFilterArgs
-        Field: ClassVar = str
-        Order: ClassVar = str
-    else:
-        Filter: ClassVar[type[BaseEntityFilter]] = BaseEntityFilter
-        FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs
-        Field: ClassVar[type[str]] = str
-        Order: ClassVar[type[str]] = str
-
-
-class BaseUUIDEntityRow(BaseEntityRow):
-    __abstract__: ClassVar[bool] = True
-
-    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid7)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
-        )
-
-
-BaseUUIDEntityField: TypeAlias = Literal["id"]
-BaseUUIDEntityOrder: TypeAlias = Literal[
-    "id",
-    "id:asc",
-    "id:desc",
-]
-
-
-class BaseUUIDEntityFilterArgs[
-    FieldT: str,
-    OrderT: str,
-](BaseEntityFilterArgs[FieldT, OrderT], total=False):
-    id: MaybeSequence[UUID] | None
-
-
-class BaseUUIDEntityFilter[
-    EntityT: BaseUUIDEntity,
-    FieldT: str,
-    OrderT: str,
-](BaseEntityFilter[EntityT, FieldT, OrderT]):
-    id: MaybeSequence[UUID] | None = None
-    """Filter by `id` being equal to one or more given UUIDs."""
-
-    @classmethod
-    @abstractmethod
-    @override
-    def _get_row_cls(cls) -> type[BaseUUIDEntityRow]: ...
-
-    @override
-    def matches(self, obj: EntityT) -> bool:
-        if not super().matches(obj):
-            return False
-
-        if not util.match_value(obj.id, self.id):
-            return False
-
-        return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.id is not None:
-            yield util.sql_match_value(columns.id, self.id)
-
-
-class BaseUUIDEntityCreate(BaseEntity):
-    id: UUID = Field(default_factory=uuid7)
-
-
-class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
-    pass
-
-
-class BaseUUIDEntity(BaseUUIDEntityCreate):
-    Row: ClassVar[type[BaseUUIDEntityRow]] = BaseUUIDEntityRow
-    Create: ClassVar[type[BaseUUIDEntityCreate]] = BaseUUIDEntityCreate
-    Update: ClassVar[type[BaseUUIDEntityUpdate]] = BaseUUIDEntityUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseUUIDEntityFilter
-        FilterArgs: ClassVar = BaseUUIDEntityFilterArgs
-        Field: ClassVar = BaseUUIDEntityField
-        Order: ClassVar = BaseUUIDEntityOrder
-    else:
-        Filter: ClassVar[type[BaseUUIDEntityFilter]] = BaseUUIDEntityFilter
-        FilterArgs: ClassVar[type[BaseUUIDEntityFilterArgs]] = BaseUUIDEntityFilterArgs
-        Field: ClassVar[type[BaseUUIDEntityField]] = BaseUUIDEntityField
-        Order: ClassVar[type[BaseUUIDEntityOrder]] = BaseUUIDEntityOrder
+    def __init__(
+        self,
+        singular: str,
+        *,
+        plural: str | None = None,
+        container: str | None = None,
+        table: str | None = None,
+        command: str | None = None,
+        route: str | None = None,
+        manager: str | None = None,
+    ) -> None:
+        self.singular = singular
+        self.plural = plural if plural else singular + "s"
+        self.container = container if container else self.plural
+        self.table = table if table else util.snakecase(self.container)
+        self.route = route if route else util.kebabcase(self.container)
+        self.command = command if command else util.kebabcase(self.container)
+        self.manager = manager if manager else util.snakecase(self.container)
 
 
 if TYPE_CHECKING:
@@ -432,7 +521,7 @@ class _BaseStatementExecutor[
     ) -> None:
         self._query: Final = query
         self._session: AsyncSession | None = None
-        self._stream: AsyncResult[Any] | None = None
+        self._stream: AsyncScalarResult[BaseEntityRow] | None = None
 
     @override
     def __eq__(self, value: object, /) -> bool:
@@ -449,7 +538,9 @@ class _BaseStatementExecutor[
             if self._session is None:
                 self._session = await self._query._get_database().init()
             if self._stream is None:
-                self._stream = await self._session.stream(await self._get_statement(True))
+                self._stream = await self._session.stream_scalars(
+                    await self._get_statement(True),
+                )
 
         return ResultsIterator(self._parse_async_rows(self._stream))
 
@@ -489,13 +580,13 @@ class _BaseStatementExecutor[
 
         async with await database.init() as session:
             if resolved.limit is not None and resolved.limit <= _EXECUTOR_STREAM_THRESHOLD:
-                result = await session.execute(statement)
+                result = await session.scalars(statement)
                 if self._should_commit():
                     await session.commit()
 
                 entities = await self._parse_rows(result)
             else:
-                stream = await session.stream(statement)
+                stream = await session.stream_scalars(statement)
                 if self._should_commit():
                     await session.commit()
 
@@ -521,14 +612,14 @@ class _BaseStatementExecutor[
         returning: bool,
     ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
 
-    def _get_parser(self) -> Callable[[Any], EntityT | None]:
+    def _get_parser(self) -> Callable[[BaseEntityRow], EntityT | None]:
         from ceres._internal.util import construct_model
 
         Entity = self._query._get_entity_class()
         transform = self._query._get_transform()
 
-        def parse(row: Any) -> EntityT | None:
-            entity = construct_model(Entity, row._mapping)
+        def parse(row: BaseEntityRow) -> EntityT | None:
+            entity = construct_model(Entity, row.values())
             if transform is not None:
                 entity = transform(entity)
 
@@ -536,7 +627,10 @@ class _BaseStatementExecutor[
 
         return parse
 
-    async def _parse_rows(self, rows: Result[Any]) -> list[EntityT]:
+    async def _parse_rows(
+        self,
+        rows: ScalarResult[BaseEntityRow],
+    ) -> list[EntityT]:
         parse = self._get_parser()
         entities: list[EntityT] = []
 
@@ -555,7 +649,10 @@ class _BaseStatementExecutor[
 
         return entities
 
-    async def _parse_async_rows(self, rows: AsyncResult[Any]) -> AsyncIterator[EntityT]:
+    async def _parse_async_rows(
+        self,
+        rows: AsyncScalarResult[BaseEntityRow],
+    ) -> AsyncIterator[EntityT]:
         parser = self._get_parser()
 
         count = 0
@@ -584,7 +681,7 @@ class SelectExecutor[
     async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
         Row = self._query._get_row_class()
         database = self._query._get_database()
-        statement = select(*Row.get_columns())
+        statement = select(Row)
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
 
@@ -614,7 +711,7 @@ class UpdateExecutor[
         assign: UpdateT,
         assign_transform: Callable[[UpdateT], Awaitable[UpdateT]] | None = None,
     ) -> None:
-        super().__init__(query=cast(Any, query))
+        super().__init__(query=cast("Any", query))
         self._query: Final = query  # type: ignore
         self._assign: Final = assign
 
@@ -645,7 +742,7 @@ class UpdateExecutor[
 
         statement = update(Row).values(assign)
         if returning:
-            statement = statement.returning(*Row.get_columns())
+            statement = statement.returning(Row)
 
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
@@ -687,7 +784,7 @@ class DeleteExecutor[
 
         statement = delete(Row)
         if returning:
-            statement = statement.returning(*Row.get_columns())
+            statement = statement.returning(Row)
 
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
@@ -715,7 +812,7 @@ class BaseEntityQuery[
     def where(
         self,
         filter: FilterT | None = None,
-        **kwargs: Unpack[BaseEntityFilterArgs[Any, Any]],
+        **kwargs: Unpack[BaseEntityFilterArgs],
     ) -> QueryT:
         filter = self._get_resolved_filter_args(filter, kwargs)
         return self._get_query_class()(
@@ -748,6 +845,23 @@ class BaseEntityQuery[
         async with await database.init() as session:
             results = await session.execute(statement)
             return results.scalar() or 0
+
+    async def any(self) -> bool:
+        database = self._get_database()
+        filter = self._get_resolved_filter()
+        statement = select("*").select_from(self._get_row_class())
+        statement = filter.apply(
+            statement,
+            database.type,
+            ignore_order=True,
+            always_use_subquery=filter.limit is not None or filter.offset is not None,
+        )
+        statement = select(statement.exists())
+
+        async with await database.init() as session:
+            results = await session.execute(statement)
+            count = results.scalar() or 0
+            return count > 0
 
     @abstractmethod
     def _get_database(self) -> Database: ...
@@ -783,10 +897,14 @@ class BaseEntityQuery[
     def _get_resolved_filter_args(
         self,
         filter: FilterT | None,
-        kwargs: BaseEntityFilterArgs,
+        kwargs: Mapping[str, Any],
     ) -> FilterT:
         Filter = self._get_filter_class()
-        return Filter(**kwargs).with_defaults(filter).with_defaults(self._get_resolved_filter())
+        return (
+            Filter(**cast("Any", kwargs))
+            .with_defaults(filter)
+            .with_defaults(self._get_resolved_filter())
+        )
 
     async def _assign_transform(self, assign: UpdateT) -> UpdateT:
         return assign
@@ -949,20 +1067,22 @@ class BaseEntityManager[
         self,
         data: CreateT,
         *,
-        upsert_on: Sequence[str | ColumnElement[Any] | DDLConstraintColumnRole] | None = None,
+        upsert: bool = False,
     ) -> EntityT:
         result = await self._create_transform(data)
-        await self._insert(result, upsert_on=upsert_on)
+        await self._insert(result, upsert=upsert)
         return result
 
     async def _insert(
         self,
         data: EntityT,
         *,
-        upsert_on: Sequence[str | Column[Any] | DDLConstraintColumnRole] | None = None,
+        upsert: bool = False,
     ) -> RowT:
         Row = self._get_row_class()
-        row = Row(**data.__dict__)
+        row = Row(
+            **{key: value for key, value in data.__dict__.items() if key in data.model_fields_set}
+        )
         match self.__database__.type:
             case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert
@@ -974,17 +1094,538 @@ class BaseEntityManager[
                 statement = insert(Row).values(row.values())
                 pk = Row.get_primary_key_columns()
 
-                if upsert_on is not None:
-                    upsert = {
+                if upsert:
+                    upsert_columns = {
                         name: column
                         for name, column in statement.excluded.items()
                         if name not in pk
                     }
                     statement = statement.on_conflict_do_update(
-                        index_elements=upsert_on,
-                        set_=upsert,
+                        index_elements=pk,
+                        set_=upsert_columns,
                     )
 
                 await session.execute(statement)
                 await session.commit()
                 return row  # type: ignore
+
+
+class BaseEntity(BaseEntityCreate):
+    Manager: ClassVar[type[BaseEntityManager]] = BaseEntityManager
+    Row: ClassVar[type[BaseEntityRow]] = BaseEntityRow
+    Create: ClassVar[type[BaseEntityCreate]] = BaseEntityCreate
+    Update: ClassVar[type[BaseEntityUpdate]] = BaseEntityUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseEntityFilter
+        FilterArgs: ClassVar = BaseEntityFilterArgs
+        Field: ClassVar = str
+        Order: ClassVar = str
+    else:
+        Filter: ClassVar[type[BaseEntityFilter]] = BaseEntityFilter
+        FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs
+        Field: ClassVar[type[str]] = str
+        Order: ClassVar[type[str]] = str
+
+
+_REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, type[Any] | None] = {
+    "__naming__": EntityNaming,
+    "Manager": BaseEntityManager,
+    "Row": BaseEntityRow,
+    "Create": BaseEntityCreate,
+    "Update": BaseEntityUpdate,
+    "Filter": BaseEntityFilter,
+    "FilterArgs": BaseEntityFilterArgs,
+    "Field": None,
+    "Order": None,
+}
+
+
+class ConcreteEntity(BaseEntity):
+    __naming__: ClassVar[EntityNaming]
+
+    def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]) -> None:
+        super().__init_subclass__(**kwargs)
+        if cls.__name__.startswith("Base"):
+            return
+
+        for attribute, constraint in _REQUIRED_CONCRETE_CLASS_ATTRIBUTES.items():
+            value = cls.__dict__.get(attribute)
+            if value is None:
+                raise TypeError(
+                    f"Concrete entity class `{cls.__name__}` must define `{attribute}` as a class attribute."
+                )
+            elif constraint is not None:
+                if is_typeddict(constraint):
+                    continue
+
+                if isinstance(value, type):
+                    if not issubclass(value, constraint):
+                        raise TypeError(
+                            f"Concrete entity class `{cls.__name__}` must define `{attribute}` as a subclass of `{constraint.__name__}`."
+                        )
+                else:
+                    if not isinstance(value, constraint):
+                        raise TypeError(
+                            f"Concrete entity class `{cls.__name__}` must define `{attribute}` as an instance of `{constraint.__name__}`."
+                        )
+
+
+class BaseUUIDEntityRow(BaseEntityRow):
+    __abstract__: ClassVar[bool] = True
+
+    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid7)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
+        )
+
+
+BaseUUIDEntityField: TypeAlias = Literal["id"]
+BaseUUIDEntityOrder: TypeAlias = Literal[
+    "id",
+    "id:asc",
+    "id:desc",
+]
+
+
+class BaseUUIDEntityFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    id: MaybeSequence[UUID] | None
+
+
+class BaseUUIDEntityFilter[
+    EntityT: BaseUUIDEntity,
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilter[EntityT, FieldT, OrderT]):
+    id: MaybeSequence[UUID] | None = None
+    """Filter by `id` being equal to one or more given UUIDs."""
+
+    @classmethod
+    @abstractmethod
+    @override
+    def _get_row_cls(cls) -> type[BaseUUIDEntityRow]: ...
+
+    @override
+    def _matches(self, obj: EntityT) -> bool:
+        if not super()._matches(obj):
+            return False
+
+        if not util.match_value(obj.id, self.id):
+            return False
+
+        return True
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        if self.id is not None:
+            yield util.sql_match_value(columns.id, self.id)
+
+
+class BaseUUIDEntityCreate(BaseEntity):
+    id: UUID = Field(default_factory=uuid7)
+
+
+class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
+    pass
+
+
+class BaseUUIDEntity(BaseUUIDEntityCreate):
+    Row: ClassVar[type[BaseUUIDEntityRow]] = BaseUUIDEntityRow
+    Create: ClassVar[type[BaseUUIDEntityCreate]] = BaseUUIDEntityCreate
+    Update: ClassVar[type[BaseUUIDEntityUpdate]] = BaseUUIDEntityUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseUUIDEntityFilter
+        FilterArgs: ClassVar = BaseUUIDEntityFilterArgs
+        Field: ClassVar = BaseUUIDEntityField
+        Order: ClassVar = BaseUUIDEntityOrder
+    else:
+        Filter: ClassVar[type[BaseUUIDEntityFilter]] = BaseUUIDEntityFilter
+        FilterArgs: ClassVar[type[BaseUUIDEntityFilterArgs]] = BaseUUIDEntityFilterArgs
+        Field: ClassVar[type[BaseUUIDEntityField]] = BaseUUIDEntityField
+        Order: ClassVar[type[BaseUUIDEntityOrder]] = BaseUUIDEntityOrder
+
+
+class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
+    __abstract__: ClassVar[bool] = True
+
+    address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__address", cls.address),
+        )
+
+
+BaseAddressEntityField: TypeAlias = Literal["address"]
+BaseAddressEntityOrder: TypeAlias = Literal[
+    "address",
+    "address:asc",
+    "address:desc",
+]
+
+
+class BaseAddressEntityFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    root: Address
+    address: AddressSelector | str | None
+
+
+class BaseAddressEntityFilter[
+    ItemT: BaseAddressEntity,
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilter[ItemT, FieldT, OrderT]):
+    address: AddressSelector | None = None
+    """Filter by `address` matching one or more address selectors."""
+    root: Address = Address.ROOT
+    """The address which relative address selectors in `address` are relative to."""
+
+    @override
+    def _matches(self, obj: ItemT) -> bool:
+        if not super()._matches(obj):
+            return False
+
+        if self.address is not None:
+            if not self.address.matches(obj.address, self.root):
+                return False
+
+        return True
+
+    @classmethod
+    @abstractmethod
+    @override
+    def _get_row_cls(cls) -> type[BaseAddressEntityRow]: ...
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        if self.address is not None:
+            yield self.address.matches_expression(columns.address, self.root)
+
+
+class BaseAddressEntityCreate(BaseEntity):
+    address: Address
+
+
+class BaseAddressEntityUpdate(BaseEntityUpdate, total=False):
+    address: Address
+
+
+class BaseAddressEntity(BaseAddressEntityCreate):
+    Row: ClassVar[type[BaseAddressEntityRow]] = BaseAddressEntityRow
+    Create: ClassVar[type[BaseAddressEntityCreate]] = BaseAddressEntityCreate
+    Update: ClassVar[type[BaseAddressEntityUpdate]] = BaseAddressEntityUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseAddressEntityFilter
+        FilterArgs: ClassVar = BaseAddressEntityFilterArgs
+        Field: ClassVar = BaseAddressEntityField
+        Order: ClassVar = BaseAddressEntityOrder
+    else:
+        Filter: ClassVar[type[BaseAddressEntityFilter]] = BaseAddressEntityFilter
+        FilterArgs: ClassVar[type[BaseAddressEntityFilterArgs]] = BaseAddressEntityFilterArgs
+        Field: ClassVar[type[BaseAddressEntityField]] = BaseAddressEntityField
+        Order: ClassVar[type[BaseAddressEntityOrder]] = BaseAddressEntityOrder
+
+
+class BaseTimestampEntityRow(BaseEntityRow):
+    __abstract__: ClassVar[bool] = True
+
+    timestamp: Mapped[DateTime] = mapped_column(
+        DateTimeMapper,
+        sort_order=-1000,
+        default_factory=utc,
+        server_default=func.now(),
+    )
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
+        )
+
+
+BaseTimestampEntityField: TypeAlias = Literal["timestamp"]
+BaseTimestampEntityOrder: TypeAlias = Literal[
+    "timestamp",
+    "timestamp:asc",
+    "timestamp:desc",
+]
+
+
+class BaseTimestampEntityFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    timestamp: MaybeSequence[DateTime] | None
+    after: DateTime | None
+    before: DateTime | None
+    timespan: PositiveTimeDelta | None
+    min_age: NonNegativeTimeDelta | None
+    max_age: NonNegativeTimeDelta | None
+    after_hour: NonNegativeInt | None
+    before_hour: NonNegativeInt | None
+
+
+class BaseTimestampEntityFilter[
+    EntityT: BaseTimestampEntity,
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilter[EntityT, FieldT, OrderT]):
+    timestamp: MaybeSequence[DateTime] | None = None
+    """Filter by `timestamp` being exactly equal to one or more given datetimes."""
+    after: DateTime | None = None
+    """Filter by `timestamp` being greater than or equal to a given datetime."""
+    before: DateTime | None = None
+    """Filter by `timestamp` being less than a given datetime."""
+
+    timespan: PositiveTimeDelta | None = None
+    """
+    Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is
+    `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current
+    time.
+    """
+
+    min_age: NonNegativeTimeDelta | None = None
+    """
+    Filter by the age of `timestamp`, relative to the current time, being greater than or equal to a
+    given threshold.
+    """
+
+    max_age: NonNegativeTimeDelta | None = None
+    """
+    Filter by the age of `timestamp`, relative to the current time, being less than a given
+    threshold.
+    """
+
+    after_hour: NonNegativeInt | None = Field(default=None, le=24)
+    """Filter by the hour value of `timestamp` being greater than or equal to a given value."""
+    before_hour: NonNegativeInt | None = Field(default=None, le=24)
+    """Filter by the hour value of `timestamp` being less than a given value."""
+    after_minute: NonNegativeInt | None = Field(default=None, le=60)
+    """Filter by the minute value of `timestamp` being greater than or equal to a given value."""
+    before_minute: NonNegativeInt | None = Field(default=None, le=60)
+    """Filter by the minute of `timestamp` being less than a given value."""
+
+    @override
+    def _matches(self, obj: EntityT, *, now: datetime | None = None) -> bool:
+        if not super()._matches(obj):
+            return False
+
+        if self.timestamp is not None:
+            if obj.timestamp not in util.seq(self.timestamp):
+                return False
+        if self.after is not None:
+            if obj.timestamp < self.after:
+                return False
+        if self.before is not None:
+            if obj.timestamp >= self.before:
+                return False
+
+        now = utc(now)
+        if self.timespan is not None:
+            if self.after is not None:
+                if obj.timestamp >= (self.after + self.timespan):
+                    return False
+            elif self.before is not None:
+                if obj.timestamp < ((self.before or now) - self.timespan):
+                    return False
+            else:
+                if obj.timestamp < now - self.timespan:
+                    return False
+                if obj.timestamp >= now:
+                    return False
+
+        if self.max_age is not None:
+            if obj.timestamp <= now - self.max_age:
+                return False
+        if self.min_age is not None:
+            if obj.timestamp > now - self.min_age:
+                return False
+
+        if self.after_hour is not None or self.before_hour is not None:
+            if obj.timestamp is None:
+                return False
+
+            min_hour = self.after_hour if self.after_hour is not None else 0
+            max_hour = self.before_hour if self.before_hour is not None else 24
+            within_min = obj.timestamp.hour >= min_hour
+            within_max = obj.timestamp.hour < max_hour
+            if min_hour <= max_hour:
+                if not within_min or not within_max:
+                    return False
+            else:
+                if not within_min and not within_max:
+                    return False
+
+        if self.after_minute is not None or self.before_minute is not None:
+            if obj.timestamp is None:
+                return False
+
+            min_minute = self.after_minute if self.after_minute is not None else 0
+            max_minute = self.before_minute if self.before_minute is not None else 60
+            within_min = obj.timestamp.minute >= min_minute
+            within_max = obj.timestamp.minute < max_minute
+            if min_minute <= max_minute:
+                if not within_min or not within_max:
+                    return False
+            else:
+                if not within_min and not within_max:
+                    return False
+
+        return True
+
+    @classmethod
+    @abstractmethod
+    @override
+    def _get_row_cls(cls) -> type[BaseTimestampEntityRow]: ...
+
+    @override
+    def _get_where(
+        self,
+        dialect: DatabaseType,
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        from sqlalchemy import cast
+
+        if self.timestamp is not None:
+            yield util.sql_match_value(columns.timestamp, self.timestamp)
+        if self.after is not None:
+            yield columns.timestamp >= self.after
+        if self.before is not None:
+            yield columns.timestamp < self.before
+
+        now = utc(now)
+        if self.timespan is not None:
+            if self.after is not None:
+                yield columns.timestamp < self.after + self.timespan
+            elif self.before is not None:
+                yield columns.timestamp >= self.before - self.timespan
+            else:
+                yield columns.timestamp >= now - self.timespan
+                yield columns.timestamp < now
+
+        if self.max_age is not None:
+            yield columns.timestamp > now - self.max_age
+        if self.min_age is not None:
+            yield columns.timestamp <= now - self.min_age
+
+        if self.after_hour is not None or self.before_hour is not None:
+            min_hour = self.after_hour if self.after_hour is not None else 0
+            max_hour = self.before_hour if self.before_hour is not None else 24
+            match dialect:
+                case DatabaseType.POSTGRES:
+                    hour = func.date_part(
+                        literal("hour", literal_execute=True),
+                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
+                    )
+                case DatabaseType.SQLITE:
+                    hour = cast(func.strftime("%H", columns.timestamp), Integer)
+
+            within_min = hour >= min_hour
+            within_max = hour < max_hour
+            if min_hour <= max_hour:
+                yield within_min & within_max
+            else:
+                yield within_min | within_max
+
+        if self.after_minute is not None or self.before_minute is not None:
+            min_minute = self.after_minute if self.after_minute is not None else 0
+            max_minute = self.before_minute if self.before_minute is not None else 60
+            match dialect:
+                case DatabaseType.POSTGRES:
+                    minute = func.date_part(
+                        literal("minute", literal_execute=True),
+                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
+                    )
+                case DatabaseType.SQLITE:
+                    minute = cast(func.strftime("%M", columns.timestamp), Integer)
+
+            within_min = minute >= min_minute
+            within_max = minute < max_minute
+            if min_minute <= max_minute:
+                yield within_min & within_max
+            else:
+                yield within_min | within_max
+
+    @override
+    def _get_default_order(self) -> MaybeSequence[OrderT]:
+        return "timestamp"  # type: ignore
+
+    def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:
+        starts: list[datetime] = []
+        ends: list[datetime] = []
+
+        if self.after is not None:
+            starts.append(self.after)
+        if self.before is not None:
+            ends.append(self.before)
+
+        if self.timespan is not None:
+            if self.after is not None:
+                ends.append(self.after + self.timespan)
+            elif self.before is not None:
+                starts.append(self.before - self.timespan)
+            else:
+                starts.append(now - self.timespan)
+                ends.append(now)
+
+        if self.max_age is not None:
+            starts.append(now - self.max_age)
+        if self.min_age is not None:
+            ends.append(now - self.min_age)
+
+        start = max(starts) if starts else None
+        end = min(ends) if ends else None
+
+        return start, end
+
+
+class BaseTimestampEntityCreate(BaseEntity):
+    timestamp: DateTime = Field(default_factory=utc)
+
+
+class BaseTimestampEntityUpdate(BaseEntityUpdate, total=False):
+    timestamp: DateTime
+
+
+class BaseTimestampEntity(BaseTimestampEntityCreate):
+    Row: ClassVar[type[BaseTimestampEntityRow]] = BaseTimestampEntityRow
+    Create: ClassVar[type[BaseTimestampEntityCreate]] = BaseTimestampEntityCreate
+    Update: ClassVar[type[BaseTimestampEntityUpdate]] = BaseTimestampEntityUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseTimestampEntityFilter
+        FilterArgs: ClassVar = BaseTimestampEntityFilterArgs
+        Field: ClassVar = BaseTimestampEntityField
+        Order: ClassVar = BaseTimestampEntityOrder
+    else:
+        Filter: ClassVar[type[BaseTimestampEntityFilter]] = BaseTimestampEntityFilter
+        FilterArgs: ClassVar[type[BaseTimestampEntityFilterArgs]] = BaseTimestampEntityFilterArgs
+        Field: ClassVar[type[BaseTimestampEntityField]] = BaseTimestampEntityField
+        Order: ClassVar[type[BaseTimestampEntityOrder]] = BaseTimestampEntityOrder

@@ -28,7 +28,6 @@ with lazy_imports(__name__, export=True):
     from ceres.data import jsonify as jsonify
     from ceres.data import simplify as simplify
     from ceres.database.enums import DatabaseType as DatabaseType
-    from ceres.database.enums import DataFormat as DataFormat
     from ceres.directory import Directory as Directory
     from ceres.dispatcher import Dispatch as Dispatch
     from ceres.dispatcher import Dispatcher as Dispatcher
@@ -85,3 +84,5 @@ with lazy_imports(__name__, export=True):
     from ceres.user import User as User
     from ceres.variable import Variable as Variable
     from ceres.version import __version__ as __version__
+    from ceres.workspace import Workspace as Workspace
+    from ceres.workspace import WorkspaceMembership as WorkspaceMembership

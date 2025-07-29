@@ -12,10 +12,9 @@ from typing import (
 )
 from uuid import UUID
 
-from sqlalchemy import Boolean, Text
+from sqlalchemy import Boolean, Text, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import SchemaItem, UniqueConstraint
-from sqlalchemy.sql import SQLColumnExpression, expression
+from sqlalchemy.sql import expression
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -29,23 +28,29 @@ from ceres._internal.entity import (
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
     BaseUUIDEntityRow,
+    EntityNaming,
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import MatchMode
 from ceres.data import (
     EmailStr,
     MaybeSequence,
+    OrderedStrEnum,
     PasswordHash,
     PasswordStr,
-    PriorityStrEnum,
     UsernameStr,
 )
-from ceres.database import DatabaseType
+
+if TYPE_CHECKING:
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.database import DatabaseType
 
 
-class UserRole(PriorityStrEnum):
+class UserRole(OrderedStrEnum):
     VIEWER = "viewer"
     OPERATOR = "operator"
     ADMIN = "admin"
@@ -73,8 +78,8 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            UniqueConstraint("username", name=f"uq_{cls.__tablename__}__username"),
-            EnumConstraint("role", UserRole, name=f"ck_{cls.__tablename__}__role"),
+            UniqueConstraint(cls.username, name=f"uq_{cls.__tablename__}__username"),
+            EnumConstraint(cls.role, UserRole, name=f"ck_{cls.__tablename__}__role"),
         )
 
 
@@ -109,6 +114,10 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
     email_suffix: MaybeSequence[str] | None
     role: MaybeSequence[UserRole] | None
     disabled: bool | None
+    can_view_workspace: MaybeSequence[UUID] | None
+    can_edit_workspace: MaybeSequence[UUID] | None
+    can_own_workspace: MaybeSequence[UUID] | None
+    has_workspace_membership: MaybeSequence[UUID] | None
 
 
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
@@ -132,6 +141,14 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     """Filter by `role` being one or more given roles."""
     disabled: bool | None = None
     """Filter by `disabled` being either `True` or `False`."""
+    can_view_workspace: MaybeSequence[UUID] | None = None
+    """Filter, matching only users who can view at least one of the given workspaces."""
+    can_edit_workspace: MaybeSequence[UUID] | None = None
+    """Filter, matching only users who can edit at least one of the given workspaces."""
+    can_own_workspace: MaybeSequence[UUID] | None = None
+    """Filter, matching only users who can own at least one of the given workspaces."""
+    has_workspace_membership: MaybeSequence[UUID] | None = None
+    """Filter, matching only users who have a membership in at least one of the given workspaces."""
 
     @classmethod
     @override
@@ -139,8 +156,8 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         return UserRow
 
     @override
-    def matches(self, obj: User) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: User) -> bool:
+        if not super()._matches(obj):
             return False
 
         if not util.match_value(obj.username, self.username):
@@ -206,8 +223,28 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         if self.disabled is not None:
             yield columns.disabled == self.disabled
 
+        if (
+            self.can_view_workspace is not None
+            or self.can_edit_workspace is not None
+            or self.can_own_workspace is not None
+            or self.has_workspace_membership is not None
+        ):
+            from ceres.workspace import WorkspaceFilter, WorkspaceRow
+
+            filter = WorkspaceFilter()
+            if self.can_view_workspace is not None:
+                filter = filter.with_overrides(WorkspaceFilter(viewable_by=self.id))
+            if self.can_edit_workspace is not None:
+                filter = filter.with_overrides(WorkspaceFilter(editable_by=self.id))
+            if self.can_own_workspace is not None:
+                filter = filter.with_overrides(WorkspaceFilter(manageable_by=self.id))
+            if self.has_workspace_membership is not None:
+                filter = filter.with_overrides(WorkspaceFilter(joined_by=self.id))
+
+            yield filter.apply(select(WorkspaceRow.id), dialect).exists()
+
     @override
-    def _get_default_order(self) -> UserOrder:
+    def _get_default_order(self) -> MaybeSequence[UserOrder]:
         return "username"
 
 
@@ -225,10 +262,6 @@ class UserUpdate(TypedDict, total=False):
     password: PasswordStr | PasswordHash
     role: UserRole
     disabled: bool
-
-
-if TYPE_CHECKING:
-    from ceres.data import PasswordHash
 
 
 class _BaseUserQuery(
@@ -320,5 +353,7 @@ class User(BaseUUIDEntity, UserCreate):
     Field = UserField
     Order = UserOrder
     Role: ClassVar[type[UserRole]] = UserRole
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming("user")
 
     password: PasswordHash

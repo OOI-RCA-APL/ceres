@@ -1,21 +1,31 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, Self, TypeAlias, override
+from typing import TYPE_CHECKING, ClassVar, Iterable, Self, TypeAlias, override
 
-from pydantic import Field, NonNegativeInt, PositiveInt
-from pydantic.functional_validators import model_validator
-from sqlalchemy import cast, func, literal, select
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import Index, SchemaItem
-from sqlalchemy.sql import SQLColumnExpression
-from sqlalchemy.types import Integer
+from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
+from sqlalchemy import Integer, cast, func, literal, select
 
 from ceres._internal import util
-from ceres._internal.database.types import DateTimeMapper
 from ceres._internal.entity import (
+    BaseAddressEntity,
+    BaseAddressEntityCreate,
+    BaseAddressEntityField,
+    BaseAddressEntityFilter,
+    BaseAddressEntityFilterArgs,
+    BaseAddressEntityOrder,
+    BaseAddressEntityRow,
+    BaseAddressEntityUpdate,
+    BaseTimestampEntity,
+    BaseTimestampEntityCreate,
+    BaseTimestampEntityField,
+    BaseTimestampEntityFilter,
+    BaseTimestampEntityFilterArgs,
+    BaseTimestampEntityOrder,
+    BaseTimestampEntityRow,
+    BaseTimestampEntityUpdate,
     BaseUUIDEntity,
+    BaseUUIDEntityCreate,
     BaseUUIDEntityField,
     BaseUUIDEntityFilter,
     BaseUUIDEntityFilterArgs,
@@ -23,44 +33,27 @@ from ceres._internal.entity import (
     BaseUUIDEntityRow,
     BaseUUIDEntityUpdate,
 )
-from ceres._internal.item import (
-    BaseItem,
-    BaseItemField,
-    BaseItemFilter,
-    BaseItemFilterArgs,
-    BaseItemOrder,
-    BaseItemRow,
-    BaseItemUpdate,
-)
 from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTimeDelta, StrEnum
 from ceres.database import DatabaseType
 from ceres.timing import utc
 
+if TYPE_CHECKING:
+    from datetime import datetime
 
-class BaseRecordRow(BaseItemRow, BaseUUIDEntityRow, kw_only=True):
+    from sqlalchemy import SQLColumnExpression
+
+
+class BaseRecordRow(
+    BaseTimestampEntityRow,
+    BaseAddressEntityRow,
+    BaseUUIDEntityRow,
+    kw_only=True,
+):
     __abstract__: ClassVar[bool] = True
 
-    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
 
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
-        )
-
-
-BaseRecordField: TypeAlias = BaseUUIDEntityField | BaseItemField | Literal["timestamp"]
-BaseRecordOrder: TypeAlias = (
-    BaseUUIDEntityOrder
-    | BaseItemOrder
-    | Literal[
-        "timestamp",
-        "timestamp:asc",
-        "timestamp:desc",
-    ]
-)
+BaseRecordField: TypeAlias = BaseUUIDEntityField | BaseAddressEntityField | BaseTimestampEntityField
+BaseRecordOrder: TypeAlias = BaseUUIDEntityOrder | BaseAddressEntityOrder | BaseTimestampEntityOrder
 
 
 class SubsampleSelect(StrEnum):
@@ -78,7 +71,8 @@ class BaseRecordFilterArgs[
     FieldT: str,
     OrderT: str,
 ](
-    BaseItemFilterArgs[FieldT, OrderT],
+    BaseTimestampEntityFilterArgs[FieldT, OrderT],
+    BaseAddressEntityFilterArgs[FieldT, OrderT],
     BaseUUIDEntityFilterArgs[FieldT, OrderT],
     total=False,
 ):
@@ -102,35 +96,10 @@ class BaseRecordFilter[
     FieldT: str,
     OrderT: str,
 ](
-    BaseItemFilter[RecordT, FieldT, OrderT],
+    BaseTimestampEntityFilter[RecordT, FieldT, OrderT],
+    BaseAddressEntityFilter[RecordT, FieldT, OrderT],
     BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
 ):
-    timestamp: MaybeSequence[DateTime] | None = None
-    """Filter by `timestamp` being exactly equal to one or more given datetimes."""
-    after: DateTime | None = None
-    """Filter by `timestamp` being greater than or equal to a given datetime."""
-    before: DateTime | None = None
-    """Filter by `timestamp` being less than a given datetime."""
-
-    timespan: PositiveTimeDelta | None = None
-    """
-    Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is
-    `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current
-    time.
-    """
-
-    min_age: NonNegativeTimeDelta | None = None
-    """
-    Filter by the age of `timestamp`, relative to the current time, being greater than or equal to a
-    given threshold.
-    """
-
-    max_age: NonNegativeTimeDelta | None = None
-    """
-    Filter by the age of `timestamp`, relative to the current time, being less than a given
-    threshold.
-    """
-
     subsample_every: PositiveTimeDelta | None = None
     """
     Subsample results, selecting at most one record per this interval of time.
@@ -160,15 +129,6 @@ class BaseRecordFilter[
     `subsample`. If unspecified or `None`, this will default to `SubsampleSelect.FIRST`.
     """
 
-    after_hour: NonNegativeInt | None = Field(default=None, le=24)
-    """Filter by the hour value of `timestamp` being greater than or equal to a given value."""
-    before_hour: NonNegativeInt | None = Field(default=None, le=24)
-    """Filter by the hour value of `timestamp` being less than a given value."""
-    after_minute: NonNegativeInt | None = Field(default=None, le=60)
-    """Filter by the minute value of `timestamp` being greater than or equal to a given value."""
-    before_minute: NonNegativeInt | None = Field(default=None, le=60)
-    """Filter by the minute of `timestamp` being less than a given value."""
-
     @model_validator(mode="after")
     def _validate_subsample(self) -> Self:
         if self.subsample is None:
@@ -195,12 +155,12 @@ class BaseRecordFilter[
         return self
 
     @override
-    def matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
+        if not super()._matches(obj):
             return False
 
         if self.timestamp is not None:
-            if obj.timestamp not in util.as_sequence(self.timestamp):
+            if obj.timestamp not in util.seq(self.timestamp):
                 return False
         if self.after is not None:
             if obj.timestamp < self.after:
@@ -271,28 +231,7 @@ class BaseRecordFilter[
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
-        if self.timestamp is not None:
-            yield util.sql_match_value(columns.timestamp, self.timestamp)
-        if self.after is not None:
-            yield columns.timestamp >= self.after
-        if self.before is not None:
-            yield columns.timestamp < self.before
-
         now = utc(now)
-        if self.timespan is not None:
-            if self.after is not None:
-                yield columns.timestamp < self.after + self.timespan
-            elif self.before is not None:
-                yield columns.timestamp >= self.before - self.timespan
-            else:
-                yield columns.timestamp >= now - self.timespan
-                yield columns.timestamp < now
-
-        if self.max_age is not None:
-            yield columns.timestamp > now - self.max_age
-        if self.min_age is not None:
-            yield columns.timestamp <= now - self.min_age
-
         if self.subsample_every is not None or self.subsample is not None:
             start, end = self._get_time_bounds(now)
 
@@ -401,47 +340,33 @@ class BaseRecordFilter[
                 yield within_min | within_max
 
     @override
-    def _get_default_order(self) -> OrderT:
+    def _get_default_order(self) -> MaybeSequence[OrderT]:
         return "timestamp"  # type: ignore
 
-    def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:
-        starts: list[datetime] = []
-        ends: list[datetime] = []
 
-        if self.after is not None:
-            starts.append(self.after)
-        if self.before is not None:
-            ends.append(self.before)
-
-        if self.timespan is not None:
-            if self.after is not None:
-                ends.append(self.after + self.timespan)
-            elif self.before is not None:
-                starts.append(self.before - self.timespan)
-            else:
-                starts.append(now - self.timespan)
-                ends.append(now)
-
-        if self.max_age is not None:
-            starts.append(now - self.max_age)
-        if self.min_age is not None:
-            ends.append(now - self.min_age)
-
-        start = max(starts) if starts else None
-        end = min(ends) if ends else None
-
-        return start, end
-
-
-class BaseRecordCreate(BaseItem, BaseUUIDEntity):
+class BaseRecordCreate(
+    BaseTimestampEntityCreate,
+    BaseAddressEntityCreate,
+    BaseUUIDEntityCreate,
+):
     timestamp: DateTime = Field(default_factory=utc)
 
 
-class BaseRecordUpdate(BaseItemUpdate, BaseUUIDEntityUpdate, total=False):
+class BaseRecordUpdate(
+    BaseTimestampEntityUpdate,
+    BaseAddressEntityUpdate,
+    BaseUUIDEntityUpdate,
+    total=False,
+):
     timestamp: DateTime
 
 
-class BaseRecord(BaseRecordCreate):
+class BaseRecord(
+    BaseTimestampEntity,
+    BaseAddressEntity,
+    BaseUUIDEntity,
+    BaseRecordCreate,
+):
     Row: ClassVar[type[BaseRecordRow]] = BaseRecordRow
     Create: ClassVar[type[BaseRecordCreate]] = BaseRecordCreate
     Update: ClassVar[type[BaseRecordUpdate]] = BaseRecordUpdate

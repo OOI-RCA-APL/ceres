@@ -18,8 +18,6 @@ from typing import (
     override,
 )
 
-from pydantic import GetCoreSchemaHandler
-from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 
 from ceres.data import uuid4
@@ -27,6 +25,8 @@ from ceres.data import uuid4
 if TYPE_CHECKING:
     from _typeshed import OpenBinaryMode as OpenBinaryMode
     from _typeshed import OpenTextMode as OpenTextMode
+    from pydantic import GetCoreSchemaHandler
+    from pydantic_core import CoreSchema
 else:
     OpenBinaryMode = "OpenBinaryMode"
     OpenTextMode = "OpenTextMode"

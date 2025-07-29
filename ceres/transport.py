@@ -4,12 +4,12 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Callable, Unpack, overload, override
 
 from ceres._internal import util
-from ceres._internal.util import BytesLike
-from ceres.message import MessageFilterArgs
+from ceres.message import Message
 
 if TYPE_CHECKING:
+    from ceres._internal.util import BytesLike
     from ceres.connection import Connection
-    from ceres.message import Message
+    from ceres.message import MessageFilterArgs
 
 
 class Transport:

@@ -12,6 +12,7 @@ import { useParticles } from '@/api/particles'
 import { useStatistics } from '@/api/statistics'
 import { useStatuses } from '@/api/statuses'
 import { useUsers } from '@/api/users'
+import { useWorkspaces } from '@/workspace'
 
 export type Engine = ReturnType<typeof useEngine>
 
@@ -28,6 +29,7 @@ export const useEngine = defineStore('engine', () => {
   const statistics = useStatistics()
   const statuses = useStatuses()
   const users = useUsers()
+  const workspaces = useWorkspaces()
 
   async function start(address: AddressSelector) {
     return await client.post('/api/start', {
@@ -87,6 +89,7 @@ export const useEngine = defineStore('engine', () => {
     statistics,
     statuses,
     users,
+    workspaces,
     start,
     stop,
     enable,

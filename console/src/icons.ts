@@ -1,47 +1,69 @@
 const icons = {
   add: 'mdi-plus',
   admin: 'admin_panel_settings', // Material Icons
+  all: 'mdi-asterisk',
   arrowDown: 'mdi-arrow-down',
   arrowLeft: 'mdi-arrow-left',
   arrowUp: 'mdi-arrow-up',
   cancel: 'mdi-close-circle',
+  changeRole: 'mdi-account-convert',
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
   circle: 'mdi-circle',
   clearLocalStorage: 'mdi-delete-sweep',
   close: 'mdi-close',
   configuration: 'mdi-cogs',
+  confirm: 'mdi-check',
   connection: 'route', // Material Icons
   copy: 'mdi-content-copy',
   darkMode: 'dark_mode',
   dashboard: 'space_dashboard', // Material Icons
   delete: 'mdi-delete',
   developer: 'construction', // Material Icons
+  disable: 'mdi-minus-circle-outline',
+  discard: 'mdi-arrow-u-left-top',
+  drawer: 'mdi-menu',
   duplicate: 'mdi-content-duplicate',
   edit: 'mdi-pencil',
+  editor: 'mdi-account-edit',
+  enable: 'mdi-check-circle-outline',
   export: 'mdi-download',
+  filter: 'mdi-filter',
   grab: 'mdi-grab',
   help: 'mdi-help',
   import: 'mdi-upload',
+  join: 'mdi-star-outline',
+  joined: 'mdi-star',
   json: 'mdi-code-json',
+  leave: 'mdi-exit-run',
   lightMode: 'light_mode', // Material Icons
-  menu: 'mdi-menu',
+  logout: 'mdi-logout', // Material Icons
+  manager: 'mdi-account-star',
   menuDown: 'mdi-menu-down',
   menuLeft: 'mdi-menu-left',
   menuRight: 'mdi-menu-right',
   menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
   operations: 'mdi-cog-transfer',
-  preferences: 'mdi-account-cog',
+  operator: 'mdi-account-cog',
+  password: 'password', // Material Icons
+  preferences: 'mdi-theme-light-dark',
   reload: 'mdi-cog-sync',
+  removeMember: 'mdi-account-remove',
   rename: 'mdi-rename',
+  revertToOriginal: 'mdi-restore',
   search: 'mdi-magnify',
   send: 'mdi-send',
   settings: 'mdi-cog',
+  start: 'mdi-play',
+  stop: 'mdi-stop',
   submit: 'mdi-check',
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',
+  viewOriginal: 'mdi-eye-arrow-left',
+  viewer: 'mdi-account-eye',
+  workspace: 'mdi-dots-grid',
 } as const
 
 export default icons

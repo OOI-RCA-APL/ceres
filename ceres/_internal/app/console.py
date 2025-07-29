@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from typing import override
+from typing import TYPE_CHECKING, override
 
 from fastapi.staticfiles import StaticFiles
 
 from ceres._internal.lazy import lazy_imports
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
     import os
+
+with lazy_imports(__name__):
     from pathlib import Path
 
 

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import sys
-from typing import override
+from typing import TYPE_CHECKING, override
 
 from pydantic import FilePath, NewPath
 from pydantic_settings import CliPositionalArg, CliSubCommand
 
 from ceres._internal.cli.shared import CLICommand, CLICommandGroup, write_table
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.project import LoadedProject
 from ceres._internal.util import LINUX, MACOS
+
+if TYPE_CHECKING:
+    from ceres._internal.project import LoadedProject
 
 with lazy_imports(__name__):
     from ceres._internal.cli.service import LaunchDService, Service, SystemDService

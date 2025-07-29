@@ -1,15 +1,28 @@
 from __future__ import annotations
 
+import importlib
 import sys
 from contextlib import contextmanager
 from threading import Lock
-from types import ModuleType, UnionType
-from typing import TYPE_CHECKING, Any, Final, Iterable, Mapping, Sequence, overload, override
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Final,
+    Iterable,
+    Mapping,
+    Sequence,
+    overload,
+    override,
+)
+
+if TYPE_CHECKING:
+    from types import ModuleType, UnionType
 
 _UNDEFINED = object()
 
 
-class LazyProxy:
+class LazyImportProxy:
     __slots__ = (
         "__proxy_module__",
         "__proxy_proxied_attrs__",
@@ -73,8 +86,6 @@ class LazyProxy:
         if self.__proxy_target__ is not _UNDEFINED:
             return self.__proxy_target__
 
-        import importlib
-
         module = importlib.import_module(self.__proxy_module__)
         if self.__proxy_target_attr__ is None:
             target = module
@@ -85,18 +96,18 @@ class LazyProxy:
         return target
 
 
-_lazy_proxy_cache: dict[tuple[str, tuple[str, ...], str | None], LazyProxy] = {}
+_lazy_proxy_cache: dict[tuple[str, tuple[str, ...], str | None], LazyImportProxy] = {}
 
 
 def _get_cached_lazy_proxy(
     module: str,
     proxied_attrs: tuple[str, ...] = (),
     target_attr: str | None = None,
-) -> LazyProxy:
+) -> LazyImportProxy:
     key = (module, proxied_attrs, target_attr)
     proxy = _lazy_proxy_cache.get(key)
     if proxy is None:
-        proxy = LazyProxy(module, proxied_attrs, target_attr)
+        proxy = LazyImportProxy(module, proxied_attrs, target_attr)
         _lazy_proxy_cache.setdefault(key, proxy)
 
     return proxy
@@ -112,21 +123,33 @@ def __lazy_import__(
     name: str,
     globals: Mapping[str, object] | None = None,
     locals: Mapping[str, object] | None = None,
-    fromlist: Sequence[str] | None = None,
+    fromlist: Sequence[str] = (),
     level: int = 0,
-) -> ModuleType | LazyProxy:
-    if locals is not None:
-        module__name__ = locals.get("__name__")
-        if module__name__ is not None and module__name__ in _lazy_importing_modules:
-            return _get_cached_lazy_proxy(name, tuple(fromlist or ()))
+) -> ModuleType | LazyImportProxy:
+    # Ensure imports are only lazy for modules currently marked for lazy importing.
+    if locals is None or (module__name__ := locals.get("__name__")) not in _lazy_importing_modules:
+        return _original__import__(
+            name,
+            globals,
+            locals,
+            fromlist,
+            level,
+        )
 
-    return _original__import__(
-        name,
-        globals,
-        locals,
-        fromlist,  # type: ignore
-        level,
-    )
+    # When `level` > 0 this is a relative import and we need to convert it to an absolute one.
+    if level > 0:
+        # Ascend the current module name to the correct module based on `level`.
+        end = len(module__name__)
+        for _ in range(level - 1):
+            end = module__name__.rindex(".", 0, end)
+
+        # Concatenate the base module and `name` to get the absolute import.
+        base = module__name__[:end]
+        absolute = f"{base}.{name}"
+    else:
+        absolute = name
+
+    return _get_cached_lazy_proxy(absolute, tuple(fromlist or ()))
 
 
 @contextmanager
@@ -150,7 +173,7 @@ def lazy_imports(module__name__: str, /, *, export: bool = False):
 
         if export:
             added_names = set(module__dict__) - original_names
-            module__lazy_exports__: dict[str, LazyProxy] = module.__dict__.setdefault(
+            module__lazy_exports__: dict[str, LazyImportProxy] = module.__dict__.setdefault(
                 _LAZY_EXPORTS_NAME, {}
             )
 
@@ -161,37 +184,50 @@ def lazy_imports(module__name__: str, /, *, export: bool = False):
 
             for name in added_names:
                 value = module__dict__[name]
-                if isinstance(value, LazyProxy):
+                if isinstance(value, LazyImportProxy):
                     module__lazy_exports__[name] = value
                     del module__dict__[name]
                     __all__.append(name)
 
-            def __lazy_getattr__(name: str) -> object:
-                module = sys.modules[module__name__]
-                module__dict__ = module.__dict__
-                module__lazy_exports__: dict[str, LazyProxy] | None = module__dict__.get(
-                    _LAZY_EXPORTS_NAME
-                )
-                if module__lazy_exports__ is not None:
-                    proxy = module__lazy_exports__.get(name)
-                    if proxy is not None:
-                        return module__dict__.setdefault(name, proxy.__proxy_get__())
+            module__dict__["__getattr__"] = _create_lazy_getattr(module__name__)
 
-                raise AttributeError(f"module {module__name__} has no attribute {name}")
 
-            module__dict__["__getattr__"] = __lazy_getattr__
+def _create_lazy_getattr(module__name__: str) -> Callable[[str], object]:
+    def __lazy_getattr__(name: str) -> object:
+        module = sys.modules[module__name__]
+        module__dict__ = module.__dict__
+        module__lazy_exports__: dict[str, LazyImportProxy] | None = module__dict__.get(
+            _LAZY_EXPORTS_NAME
+        )
+
+        if module__lazy_exports__ is None:
+            module__lazy_exports__ = module__dict__.setdefault(_LAZY_EXPORTS_NAME, {})
+            assert module__lazy_exports__ is not None
+
+            for variable, value in list(module__dict__.items()):
+                if isinstance(value, LazyImportProxy):
+                    module__lazy_exports__[name] = value
+                    del module__dict__[name]
+
+        proxy = module__lazy_exports__.get(name)
+        if proxy is not None:
+            return module__dict__.setdefault(name, proxy.__proxy_get__())
+
+        raise AttributeError(f"module {module__name__} has no attribute {name}")
+
+    return __lazy_getattr__
 
 
 @overload
-def unlazy(value: LazyProxy) -> Any: ...
+def unlazy(value: LazyImportProxy) -> Any: ...
 
 
 @overload
 def unlazy[T](value: T) -> T: ...
 
 
-def unlazy[T](value: T | LazyProxy) -> T:
-    if isinstance(value, LazyProxy):
+def unlazy[T](value: T | LazyImportProxy) -> T:
+    if isinstance(value, LazyImportProxy):
         return value.__proxy_get__()
 
     return value

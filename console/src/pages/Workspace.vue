@@ -1,8 +1,11 @@
 <script lang="ts" setup>
 import { useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
-import { QPopupEdit } from 'quasar'
-import { computed, onMounted, reactive, watchEffect } from 'vue'
+import { upperFirst } from 'lodash-es'
+import { QPopupEdit, colors } from 'quasar'
+import { onMounted, reactive, watchEffect, watch } from 'vue'
 
+import { useAuth } from '@/api/auth'
+import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import FullPage from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
@@ -10,20 +13,80 @@ import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
 import { useDialogs } from '@/dialogs'
+import { NotFoundError } from '@/errors'
 import icons from '@/icons'
-import { provideWorkspace, resolveWidgetWidths, useWorkspaces, Widget } from '@/workspace'
+import { useNavigation } from '@/navigation'
+import { useNotify } from '@/notify'
+import { deepClone } from '@/utilities'
+import {
+  provideWorkspace,
+  resolveWidgetWidths,
+  Widget,
+  WorkspaceData,
+  WorkspaceMembershipRole,
+  WorkspaceMembershipRoleModel,
+  WorkspaceMembershipRoleOf,
+  widgetInfos,
+} from '@/workspace'
 
-const { name } = $defineProps<{
-  name: string
+const { id } = $defineProps<{
+  id: string
 }>()
 
-const workspaces = useWorkspaces()
+const engine = useEngine()
+const auth = useAuth()
 const dialogs = useDialogs()
+const navigation = useNavigation()
+const notify = useNotify()
+
+const workspace = provideWorkspace(id)
+await workspace.load()
+
 const layout = $ref<HTMLDivElement | null>(null)
-const workspace = provideWorkspace({
-  name: computed(() => name),
+let original = $ref<WorkspaceData | null>(null)
+let isViewingOriginal = $computed(() => original != null)
+let isMembershipMenuOpen = $ref(false)
+
+if (workspace.data == null || workspace.name == null) {
+  throw new NotFoundError('workspace', id)
+}
+
+async function startViewingOriginal() {
+  await workspace.refresh()
+  original = deepClone(workspace.originalData) as WorkspaceData
+  key++
+}
+
+function stopViewingOriginal() {
+  original = null
+  key++
+}
+
+const data = $computed(() => {
+  if (isViewingOriginal) {
+    return original
+  } else {
+    return workspace.data
+  }
 })
 
+let key = $ref(0)
+
+let name = $ref<string>(workspace.name)
+watch(
+  () => name,
+  async () => {
+    await workspace.rename(name)
+  }
+)
+watch(
+  () => workspace.name,
+  () => {
+    if (workspace.name != null) {
+      name = workspace.name
+    }
+  }
+)
 let renamePopup = $ref<QPopupEdit | null>(null)
 let layoutWidth = $ref<number | null>(null)
 
@@ -52,44 +115,106 @@ const draggedWidgetIconStyle = $computed(() => ({
   transform: 'translate(-50%, -50%)',
 }))
 
-let nameValue = $computed({
-  get: () => workspace.name,
-  set: (value: string) => {
-    if (value == workspace.name) {
-      return
-    }
-
-    const renamed = workspace.rename(value)
-    if (renamed != null) {
-      workspaces.open(renamed.name)
-    }
-  },
-})
-
 function duplicate() {
-  const copied = workspace.duplicate()
-  if (copied != null) {
-    workspaces.open(copied.name)
+  dialogs.duplicateWorkspace(id, data as WorkspaceData)
+}
+
+function promptLeave() {
+  const role = workspace.membership?.role
+  if (role == null) {
+    return
   }
+
+  dialogs
+    .confirm({
+      title: 'Leave Workspace',
+      html: true,
+      message:
+        `Are you sure you'd like to leave workspace "${workspace.name}"?\n\n` +
+        '<i>' +
+        'You will no longer be a member. If the workspace does not allow general access for your ' +
+        `account's role level (${role}) you will not be able to rejoin on your own.` +
+        '</i>',
+      ok: {
+        label: 'Leave',
+        color: 'negative',
+      },
+    })
+    .onOk(async () => {
+      await workspace.leave()
+      await navigation.go('/')
+    })
 }
 
 function promptDelete() {
   dialogs
     .delete({
       title: 'Delete Workspace',
-      message: `Are you sure you want to delete workspace "${workspace.name}"?`,
+      html: true,
+      message:
+        `Are you sure you'd like to delete workspace "${workspace.name}"?\n\n` +
+        '<i>' +
+        'This action cannot be undone. You and any users with access to this workspace will ' +
+        'never see it again.' +
+        '</i>',
     })
-    .onOk(() => {
-      workspace.delete()
+    .onOk(async () => {
+      await workspace.delete()
+      await navigation.go('/')
+    })
+}
+
+function promptCommit() {
+  dialogs
+    .confirm({
+      title: 'Commit Changes',
+      html: true,
+      message:
+        `Commit changes to workspace "${workspace.name}"?\n\n` +
+        '<i>' +
+        'This will update the current shared version of this workspace, allowing users with ' +
+        'access to see this version.' +
+        '</i>',
+      ok: {
+        label: 'Commit',
+        color: 'primary',
+      },
+    })
+    .onOk(async () => {
+      await workspace.save()
+      notify.success('Workspace changes committed successfully.')
+    })
+}
+
+function promptRevert() {
+  dialogs
+    .confirm({
+      title: 'Revert Changes',
+      html: true,
+      message:
+        `Revert all personal changes to this workspace?\n\n` +
+        '<i>' +
+        'This will discard your current working copy and replace it with the latest shared ' +
+        'version of the workspace. The workspace will not be modified for any other users.' +
+        '</i>',
+      ok: {
+        label: 'Yes',
+        color: 'warning',
+      },
+    })
+    .onOk(async () => {
+      await workspace.revert()
+      original = null
+      key++
     })
 }
 
 function resolveAllWidgetWidths() {
-  if (workspace.data == null) {
+  if (data == null) {
     return
   }
 
-  for (const row of workspace.data.layout) {
+  for (const row of data.layout) {
     resolveWidgetWidths(row.widgets)
   }
 }
@@ -110,6 +235,39 @@ function getWidgetWidthStyle(widget: Widget) {
 onMounted(() => {
   resolveAllWidgetWidths()
 })
+
+function promptChangeRole(role: WorkspaceMembershipRole) {
+  const user = auth.user
+  const membership = workspace.membership
+  if (user == null || membership == null) {
+    return
+  }
+
+  const isDemotion = WorkspaceMembershipRoleOf[role] < WorkspaceMembershipRoleOf[membership.role]
+  const verb = isDemotion ? 'Demote' : 'Change'
+
+  dialogs
+    .confirm({
+      title: 'Change Workspace Role',
+      message: `${verb} your workspace role from ${membership.role} to ${role}?`,
+      ok: {
+        label: 'Yes',
+        color: isDemotion ? 'negative' : 'primary',
+      },
+    })
+    .onOk(async () => {
+      if (membership == null || workspace == null) {
+        return
+      }
+
+      await engine.workspaces.updateMembership(membership.user_id, id, {
+        role,
+      })
+
+      notify.success(`Workspace role changed to ${role} successfully.`)
+      await workspace.refresh()
+    })
+}
 </script>
 
 <template>
@@ -128,14 +286,18 @@ onMounted(() => {
     </div>
     <template #header-append>
       <div>
-        <common-text class="q-ml-md q-py-sm" variant="title2">
-          {{ workspace.name }}
+        <common-text
+          class="q-ml-md q-mr-sm"
+          :class="workspace.canManage && $style.nameEditable"
+          variant="title2"
+        >
+          {{ name }}
         </common-text>
         <q-popup-edit
-          v-if="workspace.data != null"
+          v-if="workspace.canManage && workspace.data != null"
           ref="renamePopup"
           v-slot="scope"
-          v-model="nameValue"
+          v-model="name"
           anchor="bottom left"
           auto-save
           :class="$style.popupEdit"
@@ -154,6 +316,124 @@ onMounted(() => {
           </q-card>
         </q-popup-edit>
       </div>
+      <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
+        Join
+        <q-menu :offset="[0, 8]">
+          <q-card bordered flat>
+            <q-list dense>
+              <q-item
+                v-if="workspace.couldView"
+                v-close-popup
+                clickable
+                @click="workspace.join('viewer')"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.viewer" />
+                </q-item-section>
+                <q-item-section>As Viewer</q-item-section>
+              </q-item>
+              <q-item
+                v-if="workspace.couldEdit"
+                v-close-popup
+                clickable
+                @click="workspace.join('editor')"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.editor" />
+                </q-item-section>
+                <q-item-section>As Editor</q-item-section>
+              </q-item>
+              <q-item
+                v-if="workspace.couldManage"
+                v-close-popup
+                clickable
+                @click="workspace.join('manager')"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.manager" />
+                </q-item-section>
+                <q-item-section>As Manager</q-item-section>
+              </q-item>
+            </q-list>
+          </q-card>
+        </q-menu>
+      </q-chip>
+      <q-chip
+        v-else
+        class="no-shadow q-px-sm"
+        clickable
+        color="primary"
+        dense
+        flat
+        :icon="icons[workspace.membership.role]"
+        size="sm"
+        text-color="white"
+      >
+        {{ upperFirst(workspace.membership.role) }}
+        <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
+
+        <q-tooltip v-if="!isMembershipMenuOpen" class="bg-primary text-white" :delay="500">
+          You are {{ workspace.membership.role === 'editor' ? 'an' : 'a' }}
+          {{ workspace.membership.role }} of this workspace.
+        </q-tooltip>
+        <q-menu
+          v-if="workspace.membership != null"
+          v-model="isMembershipMenuOpen"
+          anchor="bottom left"
+          :offset="[0, 8]"
+          self="top left"
+        >
+          <q-card bordered flat>
+            <q-list dense>
+              <q-item clickable>
+                <q-item-section avatar>
+                  <q-icon :name="icons.changeRole" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Change Role</q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-icon :name="icons.menuRight" size="16px" />
+                </q-item-section>
+                <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+                  <q-card bordered flat>
+                    <q-list dense>
+                      <q-item
+                        v-for="role in WorkspaceMembershipRoleModel.options.filter(
+                          (role) =>
+                            workspace.membership?.role != role &&
+                            (WorkspaceMembershipRoleOf[role] <=
+                              WorkspaceMembershipRoleOf[workspace.membership?.role ?? 'viewer'] ||
+                              (role === 'viewer' && workspace.couldView) ||
+                              (role === 'editor' && workspace.couldEdit) ||
+                              (role === 'manager' && workspace.couldManage))
+                        )"
+                        :key="role"
+                        v-close-popup
+                        clickable
+                        @click="promptChangeRole(role)"
+                      >
+                        <q-item-section avatar>
+                          <q-icon :name="icons[role]" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>To {{ upperFirst(role) }}</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </q-list>
+                  </q-card>
+                </q-menu>
+              </q-item>
+              <q-item v-close-popup clickable @click="promptLeave">
+                <q-item-section avatar>
+                  <q-icon :name="icons.leave" />
+                </q-item-section>
+                <q-item-section>Leave Workspace</q-item-section>
+              </q-item>
+            </q-list>
+          </q-card>
+        </q-menu>
+      </q-chip>
       <q-btn
         v-if="workspace.data != null"
         class="faded-hover q-ml-xs"
@@ -162,70 +442,144 @@ onMounted(() => {
         round
         size="8px"
       >
-        <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
-          <q-list bordered>
-            <q-item v-close-popup clickable dense @click="renamePopup?.show()">
-              <q-item-section avatar>
-                <q-icon :name="icons.rename" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Rename</q-item-label>
-              </q-item-section>
-            </q-item>
-            <q-item v-close-popup clickable dense @click="duplicate">
-              <q-item-section avatar>
-                <q-icon :name="icons.duplicate" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Duplicate</q-item-label>
-              </q-item-section>
-            </q-item>
-            <q-item
-              clickable
-              dense
-              :disable="workspace.data == null"
-              @click="workspaces.exportFile(workspace.name)"
-            >
-              <q-item-section avatar>
-                <q-icon :name="icons.export" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Export</q-item-label>
-              </q-item-section>
-            </q-item>
-            <q-item clickable dense @click="promptDelete">
-              <q-item-section avatar>
-                <q-icon :name="icons.delete" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Delete</q-item-label>
-              </q-item-section>
-            </q-item>
-            <q-separator />
-            <q-item clickable dense>
-              <q-item-section avatar>
-                <q-icon :name="icons.add" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Add Widget</q-item-label>
-              </q-item-section>
-              <workspace-add-widget-menu :row="-1" />
-            </q-item>
-          </q-list>
+        <q-menu anchor="top right" :offset="[8, 5]" self="top left">
+          <q-card bordered>
+            <q-list dense>
+              <q-item
+                v-close-popup
+                clickable
+                dense
+                @click="dialogs.workspaceSettings(id).onOk(() => workspace.refresh())"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.settings" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Settings</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item v-close-popup clickable dense @click="duplicate">
+                <q-item-section avatar>
+                  <q-icon :name="icons.duplicate" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Duplicate</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item clickable dense>
+                <q-item-section avatar>
+                  <q-icon :name="icons.add" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Add Widget</q-item-label>
+                </q-item-section>
+                <workspace-add-widget-menu
+                  anchor="top right"
+                  :offset="[8, 0]"
+                  :row="-1"
+                  self="top left"
+                />
+                <q-item-section side>
+                  <q-icon :name="icons.menuRight" size="16px" />
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item
+                v-if="workspace.canManage"
+                v-close-popup
+                clickable
+                dense
+                @click="promptDelete"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.delete" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Delete</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-card>
         </q-menu>
       </q-btn>
+      <q-space />
+      <div class="q-mr-md">
+        <q-btn
+          v-if="workspace.edited && isViewingOriginal"
+          class="q-mr-sm"
+          clickable
+          color="warning"
+          dense
+          flat
+          :icon="icons.revertToOriginal"
+          label="Revert to Original Version"
+          style="padding-top: 2px; padding-bottom: 2px"
+          @click="promptRevert"
+        />
+        <q-btn
+          v-if="workspace.edited && isViewingOriginal"
+          clickable
+          dense
+          :icon="icons.close"
+          round
+          size="12px"
+          unelevated
+          @click="stopViewingOriginal"
+        />
+        <q-chip
+          v-else-if="workspace.edited"
+          class="q-px-sm"
+          clickable
+          color="warning"
+          dense
+          icon="mdi-pencil-box-multiple"
+          label="Working Copy"
+          size="12px"
+          text-color="white"
+        >
+          <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
+          <q-menu :offset="[0, 10]">
+            <q-card bordered>
+              <q-list dense>
+                <q-item clickable :disable="!workspace.canEdit" @click="promptCommit">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.confirm" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Commit Changes</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item clickable @click="startViewingOriginal">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.viewOriginal" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>View Original</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-card>
+          </q-menu>
+        </q-chip>
+      </div>
     </template>
-    <div class="q-pa-xs">
-      <div v-if="workspace.data == null" ref="layout" class="q-py-lg text-center">
-        <div>No workspace named "{{ name }}" exists. Create it?</div>
-        <q-btn class="q-mt-md" color="primary" dense label="Create" @click="workspace.create" />
+    <div
+      :key="key"
+      class="q-px-sm"
+      :style="isViewingOriginal && { border: `1px dashed ${colors.getPaletteColor('warning')}` }"
+    >
+      <div v-if="data == null" ref="layout" class="q-py-lg text-center">
+        <div>No workspace named "{{ name }}" exists.</div>
       </div>
       <div v-else ref="layout">
         <div
-          v-for="(row, i) in workspace.data.layout"
+          v-for="(row, i) in data.layout"
           :key="row.id"
-          class="full-width no-wrap q-gutter-xs q-py-xs relative-position row"
-          :style="{ height: row.collapsed ? undefined : `${row.height}px` }"
+          class="full-width no-wrap q-my-sm relative-position row"
+          :style="{
+            height: row.collapsed ? undefined : `${row.height}px`,
+          }"
         >
           <workspace-gap
             v-if="workspace.drag != null"
@@ -234,7 +588,7 @@ onMounted(() => {
             :row="i"
           />
           <workspace-gap
-            v-if="workspace.drag != null && i === workspace.data.layout.length - 1"
+            v-if="workspace.drag != null && i === data.layout.length - 1"
             v-show="workspace.drag != null"
             :class="$style.gapVerticalBottom"
             direction="vertical"
@@ -246,12 +600,28 @@ onMounted(() => {
             :class="$style.verticalResizeHandle"
             direction="vertical"
             hidden
-            :min="150"
+            :min="
+              Math.max(
+                ...row.widgets.map((widget) => widgetInfos[widget.type]?.minHeight ?? 50),
+                50
+              )
+            "
+            :step="10"
           />
           <div
             v-for="(widget, j) in row.widgets"
             :key="widget.id"
-            :class="[j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow', 'relative-position']"
+            :class="[
+              j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow',
+              'relative-position',
+              row.widgets.length === 1
+                ? ''
+                : j === 0
+                ? 'q-mr-xs'
+                : j === row.widgets.length - 1
+                ? 'q-ml-xs'
+                : 'q-mx-xs',
+            ]"
             :style="j === row.widgets.length - 1 ? undefined : getWidgetWidthStyle(widget)"
           >
             <template v-if="workspace.drag != null">
@@ -284,6 +654,7 @@ onMounted(() => {
               hidden
               :min="100"
               :model-value="(widget.width / 100) * layoutWidth"
+              :step="10"
               @update:model-value="
                 (pixels) => {
                   if (layoutWidth == null) {
@@ -306,10 +677,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
-    <div class="faded-hover items-center justify-center q-mt-sm row">
-      <q-btn v-if="workspace.data != null" color="primary" :icon="icons.add" round size="8px">
+    <div v-if="!isViewingOriginal" class="faded-hover items-center justify-center q-mt-sm row">
+      <q-btn v-if="data != null" color="primary" :icon="icons.add" round size="8px">
         <q-tooltip class="bg-primary">Add Widget</q-tooltip>
-        <WorkspaceAddWidgetMenu :offset="[0, 8]" :row="workspace.data.layout.length" />
+        <workspace-add-widget-menu :offset="[0, 8]" :row="data.layout.length" />
       </q-btn>
     </div>
     <div :class="$style.bottomPadding" />
@@ -321,16 +692,20 @@ onMounted(() => {
   overflow-x: hidden;
 }
 
+.nameEditable:hover {
+  color: grey !important;
+}
+
 .verticalResizeHandle {
   position: absolute;
-  left: -2px;
-  bottom: 4px;
+  left: 0px;
+  bottom: 0px;
   z-index: 1;
 }
 
 .horizontalResizeHandle {
   position: absolute;
-  right: -2.5px;
+  right: 0px;
   top: 0px;
   z-index: 1;
 }
@@ -350,29 +725,29 @@ onMounted(() => {
 
 .gapVerticalTop {
   @include gap;
-  top: -2px;
+  top: -10px;
   left: 0;
 }
 
 .gapVerticalBottom {
   @include gap;
-  bottom: -2px;
+  bottom: -10px;
   left: 0;
 }
 
 .gapHorizontalLeft {
   @include gap;
-  left: -5.5px;
+  left: -5px;
 }
 
 .gapHorizontalMiddle {
   @include gap;
-  left: -8px;
+  left: -10px;
 }
 
 .gapHorizontalRight {
   @include gap;
-  right: -5.5px;
+  right: -5px;
 }
 
 .draggedWidgetIcon {

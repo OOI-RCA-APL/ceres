@@ -1,49 +1,45 @@
 from __future__ import annotations
 
-import csv
-import shutil
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
 from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
-from tempfile import NamedTemporaryFile, gettempdir
+from tempfile import gettempdir
 from textwrap import dedent
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Iterable,
-    Iterator,
-    Mapping,
-    Self,
-    Sequence,
-    final,
-    override,
-)
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Self, final, override
 
-from pydantic import ValidationError
-from sqlalchemy import URL, AsyncAdaptedQueuePool, Connection, delete, event, inspect, text
-from sqlalchemy.engine.interfaces import DBAPIConnection
+from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
 
 from ceres._internal import util
-from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
-from ceres._internal.entity import BaseEntity, BaseEntityRow
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.util import PathLike
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify, uuid4
-from ceres.database import DatabaseType
 from ceres.entity import EntityType
-from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
+from ceres.error import DatabaseInitError, Failure
 from ceres.threading import spawn
+
+if TYPE_CHECKING:
+    import sqlite3
+    from uuid import UUID
+
+    from sqlalchemy import Connection
+    from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
+    from sqlalchemy.engine.interfaces import DBAPIConnection
+
+    from ceres._internal.entity import BaseEntityManager, BaseEntityRow
+    from ceres.database import DatabaseType
+    from ceres.entity import Entity
+
+    _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
+else:
+    _SQLiteConnection = object
+
 
 with lazy_imports(__name__):
     import sqlite3
 
-    import asyncpg
     from sqlalchemy.ext.asyncio import (
         AsyncConnection,
         AsyncEngine,
@@ -51,6 +47,7 @@ with lazy_imports(__name__):
         create_async_engine,
     )
 
+    from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
     from ceres.alert import AlertManager
     from ceres.logs import LogManager
     from ceres.message import MessageManager
@@ -59,13 +56,7 @@ with lazy_imports(__name__):
     from ceres.statistics import StatisticsManager
     from ceres.user import UserManager
     from ceres.variable import VariableManager
-
-if TYPE_CHECKING:
-    from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
-
-    _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
-else:
-    _SQLiteConnection = object
+    from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
 
 
 class Database:
@@ -149,8 +140,23 @@ class Database:
         return SettingManager(self)
 
     @cached_property
+    def workspaces(self) -> WorkspaceManager:
+        return WorkspaceManager(self)
+
+    @cached_property
+    def workspace_memberships(self) -> WorkspaceMembershipManager:
+        return WorkspaceMembershipManager(self)
+
+    @cached_property
+    def workspace_edits(self) -> WorkspaceEditManager:
+        return WorkspaceEditManager(self)
+
+    @cached_property
     def statistics(self) -> StatisticsManager:
         return StatisticsManager(self)
+
+    def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
+        return util.get_entity_manager(self, Entity)
 
     @property
     @abstractmethod
@@ -159,66 +165,79 @@ class Database:
     @abstractmethod
     def _get_engine_config(self) -> dict[str, Any]: ...
 
-    @abstractmethod
-    def _pre_configure_engine(self, engine: AsyncEngine) -> None: ...
-
-    @abstractmethod
-    async def dump_csv(self, path: PathLike, entity_type: EntityType) -> None: ...
-
-    @abstractmethod
-    async def load_csv(self, path: PathLike, entity_type: EntityType) -> None: ...
-
-    @abstractmethod
-    async def dump_sqlite(
-        self,
-        path: PathLike,
-        entity_types: Sequence[EntityType] | None = None,
-    ) -> None: ...
-
-    @abstractmethod
-    async def load_sqlite(
-        self,
-        path: PathLike,
-        entity_types: Sequence[EntityType] | None = None,
-    ) -> None: ...
-
-    def _create_base_engine(self) -> AsyncEngine:
-        return create_async_engine(self.url, **self._get_engine_config())
-
+    @final
     def _create_engine(self) -> AsyncEngine:
-        engine = self._create_base_engine()
-
-        self._pre_configure_engine(engine)
-
-        init = util.as_sequence(self.config.hooks.init or ())
-        connect = util.as_sequence(self.config.hooks.connect or ())
-        disconnect = util.as_sequence(self.config.hooks.close or ())
-
-        if init:
-
-            @event.listens_for(engine.sync_engine, "first_connect")
-            def init_hook(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                for statement in init:
-                    cursor.execute(statement)
-
-        if connect:
-
-            @event.listens_for(engine.sync_engine, "connect")
-            def connect_hook(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                for statement in connect:
-                    cursor.execute(statement)
-
-        if disconnect:
-
-            @event.listens_for(engine.sync_engine, "close")
-            def close_hook(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                for statement in disconnect:
-                    cursor.execute(statement)
-
+        engine = create_async_engine(self.url, **self._get_engine_config())
+        self._setup_engine(engine)
         return engine
+
+    def _setup_engine(self, engine: AsyncEngine) -> None:
+        on_init = [*self._get_base_init_commands(), *(self.config.hooks.init or ())]
+        on_connect = [*self._get_base_connect_commands(), *(self.config.hooks.connect or ())]
+        on_close = [*self._get_base_close_commands(), *(self.config.hooks.close or ())]
+
+        if on_init:
+            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.first_connect
+            @event.listens_for(engine.sync_engine, "first_connect")
+            def first_connect(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
+                try:
+                    for statement in on_init:
+                        cursor.execute(statement)
+                finally:
+                    cursor.close()
+
+        if on_connect:
+            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
+            @event.listens_for(engine.sync_engine, "connect")
+            def connect(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
+                try:
+                    for statement in on_connect:
+                        cursor.execute(statement)
+                finally:
+                    cursor.close()
+
+        if on_close:
+            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.close
+            @event.listens_for(engine.sync_engine, "close")
+            def close(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
+                try:
+                    for statement in on_close:
+                        cursor.execute(statement)
+                finally:
+                    cursor.close()
+
+    @final
+    def _get_init_commands(self) -> Iterable[str]:
+        """Get all SQL commands to run when first connecting to the database."""
+        yield from self._get_base_init_commands()
+        yield from self.config.hooks.init or ()
+
+    def _get_base_init_commands(self) -> Iterable[str]:
+        """Get base SQL commands to run when first connecting to the database."""
+        yield from ()
+
+    @final
+    def _get_connect_commands(self) -> Iterable[str]:
+        """Get all SQL commands to run when connecting to the database."""
+        yield from self._get_base_connect_commands()
+        yield from self.config.hooks.connect or ()
+
+    def _get_base_connect_commands(self) -> Iterable[str]:
+        """Get base SQL commands to run when connecting to the database."""
+        yield from ()
+
+    @final
+    def _get_close_commands(self) -> Iterable[str]:
+        """Get all SQL commands to run when closing the database connection."""
+        yield from self._get_base_close_commands()
+        yield from self.config.hooks.close or ()
+
+    def _get_base_close_commands(self) -> Iterable[str]:
+        """Get base SQL commands to run when connecting to the database."""
+        yield from ()
 
     def session(self) -> AsyncSession:
         return AsyncSession(self.__engine, expire_on_commit=False)
@@ -308,7 +327,7 @@ class Database:
 
 
 @final
-class SQLiteDatabase(Database):  #
+class SQLiteDatabase(Database):
     @override
     def __new__(cls, /, config: SQLiteDatabaseConfig | None = None) -> Self:
         instance = object.__new__(cls)
@@ -369,7 +388,7 @@ class SQLiteDatabase(Database):  #
         }
 
     @override
-    def _pre_configure_engine(self, engine: AsyncEngine) -> None:
+    def _setup_engine(self, engine: AsyncEngine) -> None:
         # https://docs.sqlalchemy.org/en/latest/core/events.html#sqlalchemy.events.DialectEvents.do_connect
         @event.listens_for(engine.sync_engine, "do_connect")
         def do_connect(*args: object) -> None:
@@ -380,31 +399,15 @@ class SQLiteDatabase(Database):  #
                 except Exception:
                     traceback.print_exc()
 
-        @event.listens_for(engine.sync_engine, "first_connect")
-        def first_connect(connection: _SQLiteConnection, *args: object) -> None:
-            # Enable incremental "auto_vacuum" mode when the first connection to the database is
-            # made. This can only be done before database tables are created and is disabled by
-            # default, so we do it here just in case "incremental_vacuum" is needed later on.
-            # https://www.sqlite.org/pragma.html#pragma_auto_vacuum
-            # https://www.sqlite.org/pragma.html#pragma_incremental_vacuum
-            connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
-
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
         @event.listens_for(engine.sync_engine, "connect")
         def connect(connection: _SQLiteConnection, *args: object) -> None:
-            # Clear the isolation level to stop "pysqlite" from:
+            # Clear the isolation level to stop "sqlite3" from:
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
             connection.isolation_level = None
-            # Enable foreign key handling by default.
-            # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
-            connection.execute("PRAGMA foreign_keys = ON")
-            # Set like statements to be case sensitive to match Postgres.
-            connection.execute("PRAGMA case_sensitive_like = ON")
-            # Enable a 30 second busy timeout.
-            connection.execute("PRAGMA busy_timeout = 30000")
-
+            # Create custom functions.
             _sqlite_create_functions(connection)
 
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.ConnectionEvents.begin
@@ -414,146 +417,29 @@ class SQLiteDatabase(Database):  #
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
-    @override
-    async def load_csv(self, path: PathLike, entity_type: EntityType) -> None:
-        path = _prepare_read_path(path)
-
-        await self.init()
-
-        def execute() -> None:
-            with sqlite3.connect(self.path) as connection:
-                connection.execute("BEGIN")
-
-                columns = _get_columns_joined(entity_type)
-                placeholders = ", ".join(":" + column for column in _get_columns(entity_type))
-                statement = f"INSERT INTO {entity_type.table} ({columns}) VALUES ({placeholders})"
-
-                for entity in _read_csv_entities(path, entity_type.cls):
-                    id = entity.__dict__.get("id")
-                    if id is not None:
-                        entity.__dict__["id"] = str(id)
-
-                    connection.execute(statement, entity.__dict__)
-
-                connection.execute("COMMIT")
-
-        await spawn(execute)
+        # Apply base setup.
+        super()._setup_engine(engine)
 
     @override
-    async def dump_csv(self, path: PathLike, entity_type: EntityType) -> None:
-        path = _prepare_write_path(path)
-
-        await self.init()
-
-        def execute() -> None:
-            with sqlite3.connect(self.path) as connection:
-                _sqlite_create_functions(connection)
-
-                header = _get_columns(entity_type)
-                selects = _get_columns_joined(
-                    entity_type,
-                    {
-                        EntityType.MESSAGE: {"content": "decode(content, 'latin-1')"},
-                    },
-                )
-
-                query = f"SELECT {selects} FROM {entity_type.table}"
-
-                with path.open("w") as output:
-                    writer = csv.writer(output)
-                    # Write header.
-                    writer.writerow(header)
-                    # Write rows directly from the cursor.
-                    writer.writerows(connection.execute(query))
-
-        await spawn(execute)
-
-    async def __copy(
-        self,
-        entity_types: Sequence[EntityType] | None,
-        source: Path,
-        destination_engine: AsyncEngine,
-        create: bool,
-    ) -> None:
-        if entity_types is None:
-            entity_types = list(EntityType)
-
-        async with destination_engine.connect() as destination_connection:
-            if create:
-                await destination_connection.execute(text("PRAGMA busy_timeout = 30000"))
-                await destination_connection.execute(text("PRAGMA synchronous = OFF"))
-                await destination_connection.execute(text("PRAGMA foreign_keys = OFF"))
-                await destination_connection.execute(text("PRAGMA cache_size = -64000"))
-
-            await destination_connection.execute(
-                text("ATTACH DATABASE :path AS source"), {"path": str(source)}
-            )
-
-            for type in entity_types:
-                await destination_connection.execute(
-                    text(f"INSERT INTO main.{type.table} SELECT * FROM source.{type.table}")
-                )
-
-            await destination_connection.commit()
-
-            if create:
-                await destination_connection.execute(text("PRAGMA synchronous = FULL"))
-                await destination_connection.commit()
+    def _get_base_init_commands(self) -> Iterable[str]:
+        yield from super()._get_base_init_commands()
+        # Enable incremental "auto_vacuum" mode when the first connection to the database is
+        # made. This can only be done before database tables are created and is disabled by
+        # default, so we do it here just in case "incremental_vacuum" is needed later on.
+        # https://www.sqlite.org/pragma.html#pragma_auto_vacuum
+        # https://www.sqlite.org/pragma.html#pragma_incremental_vacuum
+        yield "PRAGMA auto_vacuum = INCREMENTAL"
 
     @override
-    async def dump_sqlite(
-        self,
-        path: PathLike,
-        entity_types: Sequence[EntityType] | None = None,
-    ) -> None:
-        if entity_types is None:
-            entity_types = list(EntityType)
-
-        await self.init()
-
-        if set(entity_types) == set(EntityType):
-
-            def execute() -> None:
-                with sqlite3.connect(self.path) as source:
-                    _sqlite_create_functions(source)
-                    with sqlite3.connect(path) as destination:
-                        source.backup(destination)
-
-            await spawn(execute)
-            return
-
-        path = _prepare_write_path(path)
-
-        destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
-
-        try:
-            await _execute_ddl(destination_engine, tables=True, indexes=False)
-            await self.__copy(
-                entity_types,
-                source=self.path,
-                destination_engine=destination_engine,
-                create=True,
-            )
-            await _execute_ddl(destination_engine, tables=False, indexes=True)
-        finally:
-            await destination_engine.dispose()
-
-    @override
-    async def load_sqlite(
-        self,
-        path: PathLike,
-        entity_types: Sequence[EntityType] | None = None,
-    ) -> None:
-        path = _prepare_read_path(path)
-
-        await self.init()
-
-        await self.__copy(
-            entity_types,
-            source=path,
-            destination_engine=self.engine,
-            create=False,
-        )
+    def _get_base_connect_commands(self) -> Iterable[str]:
+        yield from super()._get_base_connect_commands()
+        # Enable foreign key handling by default.
+        # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
+        yield "PRAGMA foreign_keys = ON"
+        # Set like statements to be case sensitive to match Postgres.
+        yield "PRAGMA case_sensitive_like = ON"
+        # Enable a 30 second busy timeout.
+        yield "PRAGMA busy_timeout = 30000"
 
     def __get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
@@ -647,189 +533,6 @@ class PostgresDatabase(Database):
             **self.config.engine,
         }
 
-    @override
-    def _pre_configure_engine(self, engine: AsyncEngine) -> None:
-        pass
-
-    @override
-    async def dump_csv(self, path: PathLike, entity_type: EntityType) -> None:
-        path = _prepare_write_path(path)
-
-        await self.init()
-
-        url = self.url.replace("+asyncpg", "")
-
-        connection: asyncpg.Connection = await asyncpg.connect(url)
-
-        try:
-            timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US') as timestamp"
-
-            async with connection.transaction():
-                columns = _get_columns_joined(
-                    entity_type,
-                    {
-                        EntityType.MESSAGE: {
-                            "timestamp": timestamp,
-                            "content": "convert_from(content, 'latin-1') as content",
-                        },
-                        EntityType.ALERT: {
-                            "timestamp": timestamp,
-                        },
-                        EntityType.LOG_ENTRY: {
-                            "timestamp": timestamp,
-                        },
-                    },
-                )
-                query = f"""SELECT {columns} FROM {entity_type.table}"""
-
-                await connection.copy_from_query(
-                    query,
-                    output=path,
-                    format="csv",
-                    header=True,
-                )
-        finally:
-            await connection.close()
-
-    @override
-    async def load_csv(self, path: PathLike, entity_type: EntityType) -> None:
-        path = _prepare_read_path(path)
-
-        await self.init()
-
-        url = self.url.replace("+asyncpg", "")
-
-        connection: asyncpg.Connection = await asyncpg.connect(url)
-
-        try:
-            row_cls = entity_type.cls.Row
-            temporary = "__temporary__" + uuid4().hex.replace("-", "")
-
-            async with connection.transaction():
-                await connection.execute(
-                    row_cls.get_table_ddl(
-                        self.engine.sync_engine,
-                        name=temporary,
-                        temporary=True,
-                    )
-                )
-
-                def _get_fields(entity: BaseEntity):
-                    fields = entity.__dict__
-                    if "address" in fields:
-                        fields["address"] = str(fields["address"])
-                    if entity_type == EntityType.ALERT:
-                        fields["info"] = jsonify(fields["info"])
-                    elif entity_type == EntityType.VARIABLE:
-                        fields["value"] = jsonify(fields["value"])
-
-                    return fields
-
-                records = (
-                    tuple(_get_fields(entity).values())
-                    for entity in _read_csv_entities(path, entity_type.cls)
-                )
-
-                await connection.copy_records_to_table(
-                    temporary,
-                    columns=_get_columns(entity_type),
-                    records=records,
-                )
-
-                await connection.execute(
-                    f"INSERT INTO {entity_type.table} SELECT * FROM {temporary}"
-                )
-        finally:
-            await connection.close()
-
-    @override
-    async def dump_sqlite(
-        self,
-        path: PathLike,
-        entity_types: Sequence[EntityType] | None = None,
-    ) -> None:
-        if entity_types is None:
-            entity_types = list(EntityType)
-
-        path = _prepare_write_path(path)
-
-        await self.init()
-
-        destination = Database(SQLiteDatabaseConfig(path=path))
-        for entity_type in entity_types:
-            with NamedTemporaryFile() as temporary:
-                await self.dump_csv(temporary.name, entity_type)
-                await destination.load_csv(temporary.name, entity_type)
-
-    @override
-    async def load_sqlite(
-        self,
-        path: PathLike,
-        entity_types: Sequence[EntityType] | None = None,
-    ) -> None:
-        if entity_types is None:
-            entity_types = list(EntityType)
-
-        path = _prepare_read_path(path)
-
-        await self.init()
-
-        source = SQLiteDatabase(SQLiteDatabaseConfig(path=path))
-        for entity_type in entity_types:
-            with NamedTemporaryFile() as temporary:
-                await source.dump_csv(temporary.name, entity_type)
-                await self.load_csv(temporary.name, entity_type)
-
-
-def _remove(path: Path) -> None:
-    if path.is_dir():
-        shutil.rmtree(path, True)
-    else:
-        path.unlink(missing_ok=True)
-
-
-def _prepare_write_path(path: PathLike) -> Path:
-    path = Path(path).absolute()
-    _remove(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _prepare_read_path(path: PathLike) -> Path:
-    path = Path(path).absolute()
-    return path
-
-
-def _read_csv_rows(path: Path) -> Iterator[Any]:
-    with open(path, encoding="utf-8", errors="ignore") as stream:
-        for row in csv.reader(stream, delimiter=",", lineterminator="\n", quotechar='"'):
-            yield row
-
-
-def _read_csv_entities[T: BaseEntity](
-    path: Path,
-    entity_cls: type[T],
-) -> Iterable[T]:
-    rows = _read_csv_rows(path)
-    columns = list(entity_cls.model_fields.keys())
-    header = next(rows)
-
-    if set(header) != set(columns):
-        raise ValueError(f"Expected CSV header columns to include {columns}, got: {header}")
-
-    for row in rows:
-        while len(row) < len(columns):
-            row.append("")
-
-        fields = {column: row[index] for index, column in enumerate(header) if row[index] != ""}
-
-        try:
-            entity = entity_cls.model_validate(fields)
-        except ValidationError as error:
-            raise Failure(DatabaseLoadError(message=f"invalid CSV row: {error}")) from error
-
-        yield entity
-
 
 def _ceres_decode_latin1(value: bytes) -> str:
     return value.decode("latin-1")
@@ -911,6 +614,7 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.setting import SettingRow
     from ceres.user import UserRow
     from ceres.variable import VariableRow
+    from ceres.workspace import WorkspaceEditRow, WorkspaceMembershipRow, WorkspaceRow
 
     return [
         MessageRow,
@@ -920,4 +624,7 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
         UserRow,
         SettingRow,
         VariableRow,
+        WorkspaceRow,
+        WorkspaceMembershipRow,
+        WorkspaceEditRow,
     ]

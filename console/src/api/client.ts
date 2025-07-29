@@ -9,7 +9,7 @@ import {
 } from '@tanstack/vue-query'
 import { DeepMaybeRef, useMounted } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { v4 } from 'uuid'
+import { v7 } from 'uuid'
 import { reactive, watchEffect, onUnmounted, DeepReadonly, MaybeRef } from 'vue'
 import { ZodAny, ZodError, ZodTypeAny } from 'zod'
 
@@ -171,7 +171,7 @@ function useStream<TParseModel extends ZodTypeAny>(
   const ids = [] as string[]
   function getId(index: number) {
     while (ids.length <= index) {
-      ids.push(v4())
+      ids.push(v7())
     }
     return ids[index]
   }
@@ -324,17 +324,9 @@ function createQueryParameters(values: Record<string, unknown>): string {
     return ''
   }
 
-  const result = new URLSearchParams()
-  for (const key of keys) {
-    let value = values[key]
-    if (Array.isArray(value)) {
-      for (const element of value) {
-        if (element != undefined) {
-          result.append(key, String(element.valueOf()))
-        }
-      }
-
-      continue
+  function stringify(value: unknown): string {
+    if (value == undefined) {
+      return ''
     }
 
     if (typeof value === 'object') {
@@ -345,8 +337,24 @@ function createQueryParameters(values: Record<string, unknown>): string {
       }
     }
 
+    return String(value)
+  }
+
+  const result = new URLSearchParams()
+  for (const key of keys) {
+    const value = values[key]
+    if (Array.isArray(value)) {
+      for (const element of value) {
+        if (element != undefined) {
+          result.append(key, stringify(element))
+        }
+      }
+
+      continue
+    }
+
     if (value !== undefined) {
-      result.append(key, String(value))
+      result.append(key, stringify(value))
     }
   }
 

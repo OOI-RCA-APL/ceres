@@ -3,16 +3,18 @@ from __future__ import annotations
 from asyncio import Event as AsyncEvent
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres.database import Database, DatabaseType
     from ceres.entity import Entity
+
+with lazy_imports(__name__):
+    from ceres.database import Database, DatabaseType
 
 
 @dataclass(slots=True)

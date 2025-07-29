@@ -6,12 +6,14 @@ import traceback
 from abc import ABC, abstractmethod
 from getpass import getuser
 from pathlib import Path
-from typing import Any, Sequence, override
+from typing import TYPE_CHECKING, Any, Sequence, override
 
 from ceres._internal.cli.shared import write
-from ceres._internal.project import LoadedProject, Project
-from ceres.config import ServiceConfig
 from ceres.data import DataObject, StrEnum
+
+if TYPE_CHECKING:
+    from ceres._internal.project import LoadedProject, Project
+    from ceres.config import ServiceConfig
 
 
 class ServiceState(StrEnum):

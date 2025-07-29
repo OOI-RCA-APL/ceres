@@ -42,7 +42,11 @@ const secondsInAYear = secondsInADay * 365
 
 export function displayDuration(
   durationOrSections: Duration | number | null | undefined,
-  { hideOne = false, short = false }: { hideOne?: boolean; short?: boolean } = {}
+  {
+    hideOne = false,
+    short = false,
+    decimals = 1,
+  }: { hideOne?: boolean; short?: boolean; decimals?: number } = {}
 ): string {
   const seconds = moment.isDuration(durationOrSections)
     ? durationOrSections.asSeconds()
@@ -74,7 +78,7 @@ export function displayDuration(
     unit = short ? 'ms' : 'milliseconds'
   }
 
-  let result = (seconds / divisor).toFixed(1)
+  let result = (seconds / divisor).toFixed(decimals)
   if (result.endsWith('.0')) {
     result = result.slice(0, result.length - '.0'.length)
     if (!short && result === '1' && unit.endsWith('s')) {

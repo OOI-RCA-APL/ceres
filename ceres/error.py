@@ -220,6 +220,11 @@ class AlreadyExistsError(__BaseAPIError):
     value: str | None = None
 
 
+class IntegrityError(__BaseAPIError):
+    __error_status_code__: ClassVar[int] = HTTP_409_CONFLICT
+    type: Literal["integrity-error"] = "integrity-error"
+
+
 class NotAuthenticatedError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_401_UNAUTHORIZED
     type: Literal["not-authenticated-error"] = "not-authenticated-error"
@@ -255,6 +260,7 @@ class HTTPError(__BaseAPIError):
 APIError: TypeAlias = (
     NotFoundError
     | AlreadyExistsError
+    | IntegrityError
     | NotRunningError
     | NotAuthenticatedError
     | NotPermittedError
@@ -298,6 +304,7 @@ class DatabaseInitError(__BaseStandardError):
 
 DatabaseError: TypeAlias = (
     AlreadyExistsError
+    | IntegrityError
     | NotFoundError
     | DatabaseUnreachableError
     | DatabaseProgrammingError

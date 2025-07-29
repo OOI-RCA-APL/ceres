@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import traceback
+from functools import cached_property
 from pathlib import Path
-from typing import Literal, Self, Sequence, Unpack, final, override
+from typing import TYPE_CHECKING, Literal, Self, Sequence, Unpack, final, override
 
 import anyio
 from pydantic import Field
@@ -13,7 +14,6 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject
 from ceres._internal.server import Server
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
 from ceres.data import DeferBuild, ImmutableDataObject, Name, PasswordHash, jsonify
 from ceres.directory import Directory
@@ -22,8 +22,16 @@ from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
 from ceres.node import Node
 from ceres.result import Fail, Ok, Result
 
+if TYPE_CHECKING:
+    from ceres._internal.entity import BaseEntityManager
+    from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
+    from ceres.entity import Entity
+
 with lazy_imports(__name__):
     from ceres.database import Database
+    from ceres.setting import SettingManager
+    from ceres.user import UserManager
+    from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
 
 
 SyncActionType = Literal[
@@ -139,6 +147,29 @@ class Engine(Node):
     @override
     def config(self) -> Config:
         return self.__config
+
+    @cached_property
+    def users(self) -> UserManager:
+        return UserManager(self)
+
+    @cached_property
+    def settings(self) -> SettingManager:
+        return SettingManager(self)
+
+    @cached_property
+    def workspaces(self) -> WorkspaceManager:
+        return WorkspaceManager(self)
+
+    @cached_property
+    def workspace_memberships(self) -> WorkspaceMembershipManager:
+        return WorkspaceMembershipManager(self)
+
+    @cached_property
+    def workspace_edits(self) -> WorkspaceEditManager:
+        return WorkspaceEditManager(self)
+
+    def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
+        return util.get_entity_manager(self, Entity)
 
     @property
     def config_path(self) -> Path | None:
@@ -431,8 +462,7 @@ class Engine(Node):
                         self.log.info(f"Component configurations {verb}ed successfully.")
                 except Exception:
                     self.log.error(
-                        f"An issue occurred while {verb}ing components: "
-                        f"{traceback.format_exc()}"
+                        f"An issue occurred while {verb}ing components: {traceback.format_exc()}"
                     )
 
             for component in self.get_components():

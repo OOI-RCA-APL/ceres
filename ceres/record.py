@@ -20,12 +20,8 @@ class RecordType(StrEnum):
     LOG_ENTRY = "log-entry"
 
     @property
-    def table(self) -> str:
-        return self.upcast().table
-
-    @property
     def cls(self) -> type[Record]:
-        return cast(type[Record], self.upcast().cls)
+        return cast("type[Record]", self.upcast().cls)
 
     def upcast(self) -> ItemType:
         return ItemType(self)

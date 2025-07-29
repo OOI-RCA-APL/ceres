@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from pydantic import BaseModel, ValidationError
 
 from ceres._internal import util
 from ceres._internal.cli.shared import CLIClientError
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.project import LoadedProject
 from ceres.data import simplify
+
+if TYPE_CHECKING:
+    from ceres._internal.project import LoadedProject
+    from ceres._internal.server import CLIServerInfo
 
 with lazy_imports(__name__):
     from aiohttp import ClientSession
-
-    from ceres._internal.server import CLIServerInfo
 
 
 class Client:
@@ -24,6 +25,7 @@ class Client:
 
     async def alive(self) -> bool:
         from aiohttp import ClientError
+        from starlette.status import HTTP_502_BAD_GATEWAY
 
         try:
             async with self.__get_session() as session:
@@ -35,7 +37,7 @@ class Client:
                     self.__get_http_root_url() + "alive",
                     allow_redirects=True,
                 ) as response:
-                    if response.status >= 400:
+                    if response.status >= HTTP_502_BAD_GATEWAY:
                         return False
         except ClientError:
             return False
@@ -52,7 +54,7 @@ class Client:
         result: type[T] | None = None,
     ) -> T:
         if result is None:
-            result = cast(type[T], Any)
+            result = cast("type[T]", Any)
 
         params = simplify(params, exclude_defaults=True)
         adapter = util.get_type_adapter(result)
@@ -86,7 +88,7 @@ class Client:
         from aiohttp import WSMsgType
 
         if result is None:
-            result = cast(type[T], Any)
+            result = cast("type[T]", Any)
 
         params = simplify(params, exclude_defaults=True)
         adapter = util.get_type_adapter(result)

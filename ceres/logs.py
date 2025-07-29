@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     ClassVar,
@@ -12,18 +11,14 @@ from typing import (
     Unpack,
     override,
 )
-from uuid import UUID
 
-from sqlalchemy import Text
+from sqlalchemy import Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import Index, SchemaItem
-from sqlalchemy.sql import SQLColumnExpression
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery
+from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityNaming, EntityQuery
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
@@ -35,12 +30,21 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.address import Address
 from ceres.data import MaybeSequence
-from ceres.database import DatabaseType
 from ceres.level import Level
-from ceres.stream import Stream
 from ceres.timing import utc
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.address import Address
+    from ceres.database import DatabaseType
+    from ceres.stream import Stream
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):
@@ -54,7 +58,7 @@ class LogEntryRow(BaseRecordRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
+            EnumConstraint(cls.level, Level, name=f"ck_{cls.__tablename__}__level"),
             Index(
                 f"ix_{cls.__tablename__}__content",
                 cls.content,
@@ -105,9 +109,9 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
     """Filter by `content` ending with one or more given suffixes."""
 
     @override
-    def matches(self, obj: LogEntry, *, now: datetime | None = None) -> bool:
+    def _matches(self, obj: LogEntry, *, now: datetime | None = None) -> bool:
         now = utc(now)
-        if not super().matches(obj, now=now):
+        if not super()._matches(obj, now=now):
             return False
 
         if not util.match_value(obj.level, self.level):
@@ -208,7 +212,6 @@ def get_logger(name: str) -> logging.Logger:
 if TYPE_CHECKING:
     from ceres.alert import Alert
     from ceres.event import Event
-    from ceres.level import Level
     from ceres.message import Message
     from ceres.particle import Particle
 
@@ -406,3 +409,9 @@ class LogEntry(BaseRecord, LogEntryCreate):
     Field = LogEntryField
     Order = LogEntryOrder
     Level: ClassVar[type[Level]] = Level
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming(
+        singular="log entry",
+        plural="log entries",
+        container="logs",
+    )
