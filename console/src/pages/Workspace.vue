@@ -26,6 +26,7 @@ import {
   WorkspaceMembershipRole,
   WorkspaceMembershipRoleModel,
   WorkspaceMembershipRoleOf,
+  widgetInfos,
 } from '@/workspace'
 
 const { id } = $defineProps<{
@@ -599,7 +600,13 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
             :class="$style.verticalResizeHandle"
             direction="vertical"
             hidden
-            :min="150"
+            :min="
+              Math.max(
+                ...row.widgets.map((widget) => widgetInfos[widget.type]?.minHeight ?? 50),
+                50
+              )
+            "
+            :step="10"
           />
           <div
             v-for="(widget, j) in row.widgets"
@@ -647,6 +654,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
               hidden
               :min="100"
               :model-value="(widget.width / 100) * layoutWidth"
+              :step="10"
               @update:model-value="
                 (pixels) => {
                   if (layoutWidth == null) {

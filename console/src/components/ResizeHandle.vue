@@ -1,17 +1,21 @@
 <script lang="ts" setup>
 import { onMounted, onUnmounted } from 'vue'
 
+import { roundTo } from '@/utilities'
+
 const {
   direction,
   modelValue,
   min = 0,
   max,
+  step,
 } = $defineProps<{
   direction: 'vertical' | 'horizontal'
   modelValue: number
   min?: number
   max?: number
   hidden?: boolean
+  step?: number
 }>()
 
 const emit = defineEmits<{
@@ -26,6 +30,9 @@ type Drag = {
 }
 
 function clamp(size: number) {
+  if (step != null) {
+    size = roundTo(size, step)
+  }
   if (min != null && size < min) {
     return min
   }

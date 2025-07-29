@@ -13,7 +13,7 @@ import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
 import WorkspaceWidgetValueEdit from '@/components/WorkspaceWidgetValueEdit.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
-import { useWorkspace, Widget, WidgetRow } from '@/workspace'
+import { widgetInfos, useWorkspace, Widget, WidgetRow } from '@/workspace'
 
 defineProps<{
   widget: Widget
@@ -172,7 +172,10 @@ let isShowingEditDialog = $ref(false)
     </div>
     <template v-if="!container.collapsed">
       <q-separator />
-      <div class="col-grow overflow-auto q-pa-sm" style="height: 0">
+      <div
+        :class="['col-grow overflow-auto', widgetInfos[widget.type].paddingClass]"
+        style="height: 0"
+      >
         <workspace-widget-messages
           v-if="widget.type === 'messages'"
           class="full-height"

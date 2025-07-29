@@ -282,3 +282,7 @@ export function dataloader<F extends DataloaderFunction<T>, T>(
     dataloaderOptions?: DataloaderOptions
   ) => Promise<T>
 }
+
+export function roundTo(number: number, increment: number, offset: number = 0) {
+  return Math.round((number - offset) / increment) * increment + offset
+}

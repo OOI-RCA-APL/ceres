@@ -1,8 +1,11 @@
 <script lang="ts" setup>
-import { computed } from 'vue'
+import moment from 'moment'
+import { computed, onMounted } from 'vue'
 
 import { useClient } from '@/api/client'
+import { useEngine } from '@/api/engine'
 import { Particle, ParticleModel } from '@/api/particles'
+import { displayDuration, useTime } from '@/time'
 import { ValueWidget } from '@/workspace'
 
 const { widget } = $defineProps<{
@@ -10,9 +13,44 @@ const { widget } = $defineProps<{
 }>()
 
 const client = useClient()
+const engine = useEngine()
+const time = useTime()
 
-let hasValue = $ref(false)
-let value = $ref<any>(undefined)
+let particle = $ref<Particle | null>(null)
+
+let value = $computed(() => {
+  if (particle == null) {
+    return undefined
+  }
+
+  let value: unknown
+  if (widget.particleField) {
+    value = particle.data[widget.particleField]
+  } else {
+    value = particle.data
+  }
+
+  return value
+})
+
+onMounted(async () => {
+  const latest = (
+    await engine.particles.getAll({
+      address: widget.particleAddress,
+      type: widget.particleType,
+      order: 'timestamp:desc',
+      limit: 1,
+    })
+  )?.[0]
+
+  if (latest == null) {
+    return
+  }
+
+  if (particle == null || moment.utc(latest.timestamp).isAfter(particle.timestamp)) {
+    particle = latest
+  }
+})
 
 const textWeight = $computed(() => {
   switch (widget.fontWeight) {
@@ -36,7 +74,7 @@ const textStyle = $computed(() => {
 })
 
 const stringified = $computed(() => {
-  if (!hasValue) {
+  if (particle == null) {
     return ''
   }
   if (value === undefined) {
@@ -53,7 +91,7 @@ const stringified = $computed(() => {
 const display = $computed(() => {
   let current = stringified
   if (current.trim() === '') {
-    return ''
+    return ' '
   }
 
   if (widget.prefix) {
@@ -66,6 +104,20 @@ const display = $computed(() => {
   return current
 })
 
+const updatedAt = $computed(() => {
+  if (particle == null) {
+    return ''
+  }
+
+  let timestamp = moment.utc(particle.timestamp)
+  let age = time.nowFast.diff(timestamp, 'seconds')
+  if (age < 1.5) {
+    return 'Now'
+  }
+
+  return `${displayDuration(age, { decimals: 0, short: true })} ago`
+})
+
 client.useStream({
   stream: computed(() => ({
     path: '/api/particles',
@@ -75,13 +127,9 @@ client.useStream({
     },
   })),
   parse: ParticleModel as any,
-  onReceive: (particle: Particle) => {
-    hasValue = true
-    const current = particle.data
-    if (widget.particleField) {
-      value = current[widget.particleField]
-    } else {
-      value = current
+  onReceive: (latest: Particle) => {
+    if (particle == null || moment.utc(latest.timestamp).isAfter(particle.timestamp)) {
+      particle = latest
     }
   },
 })
@@ -89,7 +137,12 @@ client.useStream({
 
 <template>
   <div :class="$style.root">
-    <div :class="$style.text" :style="textStyle">{{ display }}</div>
+    <div class="text-center">
+      <div :class="$style.text" :style="textStyle">{{ display }}</div>
+      <div :class="$style.updatedAt">
+        {{ updatedAt }}
+      </div>
+    </div>
   </div>
 </template>
 
@@ -101,11 +154,21 @@ client.useStream({
   align-items: center;
   justify-content: center;
   min-height: 100%;
+  position: relative;
 }
 
 .text {
   font-weight: 200;
   padding: 0;
   margin: 0;
+  white-space: pre-wrap;
+}
+
+.updatedAt {
+  opacity: 0.5;
+  font-size: 10px;
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
 }
 </style>

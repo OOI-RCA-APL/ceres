@@ -168,7 +168,7 @@ const baseOption: Option = $computed(() => {
 
   return {
     tooltip: { trigger: 'axis', confine: true },
-    legend: { show: true },
+    legend: { show: widget.particles.flatMap((particle) => particle.series).length > 1 },
     dataZoom: [{ type: 'inside' }],
     series,
     ...baseAxisOption,

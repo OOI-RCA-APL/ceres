@@ -14,7 +14,7 @@ const engine = useEngine()
 
 <template>
   <div class="q-pa-md">
-    <common-text class="q-mb-sm" variant="title1">Value</common-text>
+    <common-text class="q-mb-sm" variant="title1">{{ widget.name }}</common-text>
     <q-card bordered class="q-mb-md q-pa-sm" flat>
       <workspace-widget-value :widget="widget" />
     </q-card>

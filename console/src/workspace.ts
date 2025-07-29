@@ -148,46 +148,64 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
 export type WidgetType = Widget['type']
 export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos]
 
+const defaultMinHeight = 150
+
 export const widgetInfos = {
   messages: {
     type: 'messages',
     name: 'Messages View',
     model: MessagesWidgetModel,
+    minHeight: defaultMinHeight,
+    paddingClass: 'q-pa-sm',
   },
   particles: {
     type: 'particles',
     name: 'Particles View',
     model: ParticlesWidgetModel,
+    minHeight: defaultMinHeight,
+    paddingClass: 'q-pa-sm',
   },
   alerts: {
     type: 'alerts',
     name: 'Alerts View',
     model: AlertsWidgetModel,
+    minHeight: defaultMinHeight,
+    paddingClass: 'q-pa-sm',
   },
   logs: {
     type: 'logs',
     name: 'Logs View',
     model: LogsWidgetModel,
+    minHeight: defaultMinHeight,
+    paddingClass: 'q-pa-sm',
   },
   procedures: {
     type: 'procedures',
     name: 'Procedures View',
     model: ProceduresWidgetModel,
+    minHeight: defaultMinHeight,
+    paddingClass: 'q-pa-sm',
   },
   ui: {
     type: 'ui',
     name: 'UI View',
     model: UIWidgetModel,
+    minHeight: defaultMinHeight,
+    paddingClass: 'q-pa-sm',
   },
   chart: {
     type: 'chart',
     name: 'Chart',
     model: ChartWidgetModel,
+    minHeight: defaultMinHeight,
+    paddingClass: ['q-py-sm', 'q-pr-md'],
   },
   value: {
     type: 'value',
     name: 'Value',
     model: ValueWidgetModel,
+    minHeight: 50,
+    paddingClass: [],
   },
 } as const
 
@@ -880,6 +898,12 @@ export function resolveWidgetWidths(
 
   for (const widget of adjusted) {
     widget.width -= excessWidthPerWidget
+  }
+
+  for (const widget of widgets) {
+    if (Math.round(widget.width) !== widget.width) {
+      widget.width = Math.round(widget.width)
+    }
   }
 }
 
