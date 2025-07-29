@@ -33,7 +33,7 @@ let isShowingEditDialog = $ref(false)
 <template>
   <q-card v-if="workspace != null" bordered class="col column full-height" flat>
     <div
-      class="q-px-sm q-py-xs"
+      :class="[$style.header, 'q-px-sm', 'q-py-xs']"
       :style="{ cursor: workspace.drag != null ? 'grabbing' : 'grab' }"
       @mousedown.prevent="workspace.drag = { widget, row, column }"
       @mousemove.prevent
@@ -43,7 +43,7 @@ let isShowingEditDialog = $ref(false)
       <div class="items-center row">
         <div class="q-mr-xs">
           <common-text
-            class="text-capitalize"
+            :class="[$style.name, 'text-capitalize']"
             style="cursor: text"
             variant="th"
             @mousedown.stop
@@ -77,7 +77,7 @@ let isShowingEditDialog = $ref(false)
             flat
             :icon="icons.settings"
             round
-            size="6px"
+            size="7px"
             @click.stop="isShowingEditDialog = true"
             @mousedown.stop
             @touchstart.stop
@@ -106,7 +106,7 @@ let isShowingEditDialog = $ref(false)
             flat
             :icon="icons.more"
             round
-            size="6px"
+            size="7px"
             @mousedown.stop
             @touchstart.stop
           >
@@ -133,7 +133,7 @@ let isShowingEditDialog = $ref(false)
                   <q-item-section>
                     <q-item-label>Add Widget Before</q-item-label>
                   </q-item-section>
-                  <workspace-add-widget-menu :column="column - 1" :row="row" />
+                  <workspace-add-widget-menu :column="column" :row="row" />
                 </q-item>
                 <q-item clickable dense>
                   <q-item-section avatar>
@@ -161,7 +161,7 @@ let isShowingEditDialog = $ref(false)
         <q-btn
           flat
           round
-          size="6px"
+          size="7px"
           @click.prevent="container.collapsed = !container.collapsed"
           @mousedown.stop
           @touchstart.stop
@@ -173,8 +173,7 @@ let isShowingEditDialog = $ref(false)
     <template v-if="!container.collapsed">
       <q-separator />
       <div
-        :class="['col-grow overflow-auto', widgetInfos[widget.type].paddingClass]"
-        style="height: 0"
+        :class="[$style.content, 'col-grow overflow-auto', widgetInfos[widget.type].paddingClass]"
       >
         <workspace-widget-messages
           v-if="widget.type === 'messages'"
@@ -215,6 +214,23 @@ let isShowingEditDialog = $ref(false)
 </template>
 
 <style lang="scss" module>
+@use 'sass:color';
+:global(.light) .header {
+  background-color: color.adjust(white, $lightness: -1%);
+}
+
+.name:hover {
+  opacity: 0.6;
+}
+
+.content {
+  height: 0 !important;
+}
+
+:global(.dark) .content {
+  background-color: $darker;
+}
+
 .popupEdit {
   box-shadow: unset !important;
   padding: 0 !important;

@@ -693,7 +693,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
 }
 
 .nameEditable:hover {
-  color: grey !important;
+  opacity: 0.6;
 }
 
 .verticalResizeHandle {

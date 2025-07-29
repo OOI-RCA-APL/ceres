@@ -400,6 +400,13 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       data.layout = [...data.layout, WidgetRowModel.parse({ widgets })]
     } else {
       data.layout[row].widgets = widgets
+      // const rowObject = data.layout[row]
+      // const minHeight = widgetInfos[widget.type].minHeight
+      // if (rowObject.height < minHeight) {
+      //   rowObject.height = minHeight
+      // }
+
+      // rowObject.widgets = widgets
     }
   }
 

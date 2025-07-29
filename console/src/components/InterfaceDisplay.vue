@@ -154,9 +154,9 @@ const configButtonColor = $computed(() => {
   </q-card>
 </template>
 
-<style module>
+<style module lang="scss">
 .dark {
-  background-color: #131313;
+  background-color: $darker;
 }
 
 .configButton {
