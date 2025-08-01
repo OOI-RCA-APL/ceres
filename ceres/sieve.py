@@ -23,12 +23,12 @@ from ceres.event import (
     SieveStartedEvent,
     SieveStoppedEvent,
 )
-from ceres.message import Message
 from ceres.particle import Particle
 from ceres.stream import WriteStream
 
 if TYPE_CHECKING:
     from ceres._internal.protocols import ComponentSource
+    from ceres.message import Message
 
     _T = TypeVar("_T", bound=Particle, covariant=True, default=Particle)
 else:
@@ -46,7 +46,6 @@ class MonoSieve(Sieve[_T], Generic[_T]):
         self,
         messages: AsyncIterable[Message],
     ) -> AsyncIterator[_T | ParticleError]:
-        print(Message.__name__)
         async for message in messages:
             yield self.parse(message)
 

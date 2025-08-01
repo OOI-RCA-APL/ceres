@@ -1,4 +1,5 @@
-# simulation.py
+# ruff: noqa: T201
+# simulator.py
 
 import random
 import socket

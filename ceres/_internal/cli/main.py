@@ -460,7 +460,6 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
 
     try:
         command = MainCommand(args)
-        print(command)
     except ValidationError as exception:
         _show_validation_error(exception, color)
         return 1

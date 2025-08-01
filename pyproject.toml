@@ -72,7 +72,7 @@ line-length = 100
 
 [tool.ruff.lint]
 ignore = ["F402"]
-extend-select = ["I", "TC"]
+extend-select = ["I", "TC", "T201"]
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = [

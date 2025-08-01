@@ -28,10 +28,10 @@ class InitCommand(CLICommand):
             except Exception:
                 raise CLICommandFailed("Failed to connect to database.")
 
-            print("<PENDING>")
+            self.write("<PENDING>", color=False)
             for statement in database.ddl:
                 self.write(statement)
-            print("</PENDING>")
+            self.write("</PENDING>", color=False)
 
             if await database.initialized():
                 confirmation = "Database is not empty, execute above commands anyway?"
