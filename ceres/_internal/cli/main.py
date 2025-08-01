@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import signal
 import sys
 from asyncio import CancelledError
@@ -371,12 +372,16 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
 class MainCliSettingsSource(CliSettingsSource):
     @override
     def _merge_parsed_list(self, parsed_list: list[str], field_name: str) -> str:
+        # Work around issue where Pydantic Settings will pass an array with one or more dict
+        # elements to dict fields, for whatever reason. Here, just return the last element.
         if field_name in self._cli_dict_args:
             return parsed_list[-1]
 
-        return super()._merge_parsed_list(parsed_list, field_name)
-
-        # return json.dumps(parsed_list)  # Don't merge anything.
+        # Otherwise, don't merge anything. This avoids the default behavior where passing a string
+        # like "abc,def" to a field of the form `T | Sequence[T]` would parse the value as
+        # `["abc", "def"]` instead of "abc,def", which occurs commonly when searching things like
+        # messages and alerts which often contain commas.
+        return json.dumps(parsed_list)
 
     @override
     def __init__(self, settings_cls: type[BaseSettings], args: Sequence[str]) -> None:
@@ -455,6 +460,7 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
 
     try:
         command = MainCommand(args)
+        print(command)
     except ValidationError as exception:
         _show_validation_error(exception, color)
         return 1
