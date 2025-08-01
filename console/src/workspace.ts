@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
 import { debounce } from 'lodash-es'
 import { defineStore } from 'pinia'
+import { exportFile as download } from 'quasar'
 import { v7 } from 'uuid'
 import {
   computed,
@@ -16,8 +17,6 @@ import {
 } from 'vue'
 import Zod from 'zod'
 
-import { User, UserRoleOf } from './api/users'
-
 import { AddressModel, AddressSelectorModel } from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
@@ -27,9 +26,11 @@ import { LogEntryFilterModel } from '@/api/logs'
 import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
+import { User, UserRoleOf } from '@/api/users'
 import { useNavigation } from '@/navigation'
+import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
-import { deepClone, jsonEquals, safeArrayOf } from '@/utilities'
+import { deepClone, jsonEquals, safeArrayOf, selectFile } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
@@ -383,6 +384,17 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return result
   }
 
+  async function exportFile() {
+    if (workspace == null || data == null) {
+      return
+    }
+
+    await workspaces.exportFile({
+      name: workspace.name,
+      data,
+    })
+  }
+
   function insertWidget(widget: Widget, row: number, column: number = 0) {
     if (data == null) {
       return
@@ -399,14 +411,13 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     } else if (data.layout[row] == null) {
       data.layout = [...data.layout, WidgetRowModel.parse({ widgets })]
     } else {
-      data.layout[row].widgets = widgets
-      // const rowObject = data.layout[row]
-      // const minHeight = widgetInfos[widget.type].minHeight
-      // if (rowObject.height < minHeight) {
-      //   rowObject.height = minHeight
-      // }
+      const rowObject = data.layout[row]
+      const minHeight = widgetInfos[widget.type].minHeight
+      if (rowObject.height < minHeight) {
+        rowObject.height = minHeight
+      }
 
-      // rowObject.widgets = widgets
+      rowObject.widgets = widgets
     }
   }
 
@@ -582,6 +593,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     revert,
     join,
     leave,
+    exportFile,
     getWidget,
     getWidgetAt,
     getWidgetPosition,
@@ -621,6 +633,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
   const navigation = useNavigation()
   const client = useClient()
   const auth = useAuth()
+  const notify = useNotify()
 
   function getUserId() {
     if (auth.user == null) {
@@ -842,6 +855,60 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return await deleteMembership(getUserId(), workspaceId)
   }
 
+  async function exportFile(workspaceOrId: string | WorkspaceInput) {
+    const workspace = typeof workspaceOrId === 'string' ? await get(workspaceOrId) : workspaceOrId
+    if (workspace == null) {
+      notify.error('Workspace not found.')
+      return
+    }
+
+    const json = JSON.stringify(
+      {
+        name: workspace.name,
+        data: workspace.data,
+      },
+      null,
+      2
+    )
+
+    download(`${workspace.name}.workspace.json`, json)
+  }
+
+  async function importFiles() {
+    const files = await selectFile({ multiple: true, accept: 'application/json' })
+    if (files == null) {
+      return null
+    }
+
+    const imported: Workspace[] = []
+
+    for (const file of files) {
+      const parsed = JSON.parse(await file.text())
+      if (parsed === undefined) {
+        notify.error(`Import of '${file.name}' failed. Invalid JSON.`)
+        continue
+      }
+
+      const { data: workspace, error } = WorkspaceModel.safeParse(parsed)
+      if (error != null) {
+        notify.error(`Import of '${file.name}' failed. Invalid workspace file. ${error.message}`)
+        continue
+      }
+
+      const created = await create({
+        name: workspace.name,
+        data: workspace.data,
+      })
+      imported.push(created)
+    }
+
+    if (imported.length == 0) {
+      notify.success(`${imported.length} workspace(s) imported successfully.`)
+    }
+
+    return imported
+  }
+
   return {
     load,
     refresh,
@@ -867,6 +934,8 @@ export const useWorkspaces = defineStore('workspaces', () => {
     getEdit,
     assignEdit,
     discardEdit,
+    importFiles,
+    exportFile,
     join,
     leave,
   }

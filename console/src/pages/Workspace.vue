@@ -119,6 +119,10 @@ function duplicate() {
   dialogs.duplicateWorkspace(id, data as WorkspaceData)
 }
 
+function exportFile() {
+  workspace.exportFile()
+}
+
 function promptLeave() {
   const role = workspace.membership?.role
   if (role == null) {
@@ -459,14 +463,6 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                 </q-item-section>
               </q-item>
               <q-separator />
-              <q-item v-close-popup clickable dense @click="duplicate">
-                <q-item-section avatar>
-                  <q-icon :name="icons.duplicate" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Duplicate</q-item-label>
-                </q-item-section>
-              </q-item>
               <q-item clickable dense>
                 <q-item-section avatar>
                   <q-icon :name="icons.add" />
@@ -482,6 +478,23 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                 />
                 <q-item-section side>
                   <q-icon :name="icons.menuRight" size="16px" />
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item v-close-popup clickable dense @click="duplicate">
+                <q-item-section avatar>
+                  <q-icon :name="icons.duplicate" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Duplicate</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item v-close-popup clickable dense @click="exportFile">
+                <q-item-section avatar>
+                  <q-icon :name="icons.export" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Export</q-item-label>
                 </q-item-section>
               </q-item>
               <q-separator />
