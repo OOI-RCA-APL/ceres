@@ -58,6 +58,13 @@ async function createWorkspace() {
   workspaces.open(created.id)
 }
 
+async function importWorkspaces() {
+  const imported = await workspaces.importFiles()
+  if (imported != null && imported.length > 0) {
+    workspaces.open(imported[0].id)
+  }
+}
+
 function clearLocalStorage() {
   dialogs
     .show({
@@ -217,6 +224,14 @@ function promptReload() {
                             </q-item-section>
                             <q-item-section>
                               <q-item-label>New</q-item-label>
+                            </q-item-section>
+                          </q-item>
+                          <q-item clickable @click="importWorkspaces">
+                            <q-item-section avatar>
+                              <q-icon :name="icons.import" />
+                            </q-item-section>
+                            <q-item-section>
+                              <q-item-label>Import</q-item-label>
                             </q-item-section>
                           </q-item>
                         </q-list>

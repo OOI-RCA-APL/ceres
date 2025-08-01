@@ -61,7 +61,7 @@ const emit = defineEmits<{
 
 <style lang="scss" module>
 :global(.dark) .root {
-  background-color: #131313;
+  background-color: $darker;
 }
 
 .header {
@@ -71,7 +71,7 @@ const emit = defineEmits<{
 }
 
 :global(.dark) .header {
-  background-color: #1d1d1d;
+  background-color: $dark;
 }
 
 .spinnerContainer {

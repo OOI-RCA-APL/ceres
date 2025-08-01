@@ -217,8 +217,8 @@ class BaseEntityFilterArgs[
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
-    or__: MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None]
-    and__: MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None]
+    or__: FromYAML[MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]]] | None]
+    and__: FromYAML[MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]]] | None]
 
 
 seen: set[int] = set()
@@ -254,7 +254,11 @@ class BaseEntityFilter[
     this root `offset` argument, the highest defined `offset` value in `and__` will be used instead.
     """
 
-    or__: MaybeSequence[FromYAML[Self]] | None = Field(default=None, validation_alias="or")
+    or__: MaybeSequence[FromYAML[Self]] | None = Field(
+        default=None,
+        validation_alias="or",
+        serialization_alias="or",
+    )
     """
     One or more subfilters, where in the case any match the queried value, the overall filter should
     match.
@@ -266,7 +270,11 @@ class BaseEntityFilter[
     is matched, the overall filter will match.
     """
 
-    and__: MaybeSequence[FromYAML[Self]] | None = Field(default=None, validation_alias="and")
+    and__: MaybeSequence[FromYAML[Self]] | None = Field(
+        default=None,
+        validation_alias="and",
+        serialization_alias="and",
+    )
     """
     One or more subfilters, where in the case all of them they match the queried value, the overall
     filter should match.
@@ -286,9 +294,9 @@ class BaseEntityFilter[
         # annotations of `or__` and `and__` with the actual concrete type of this filter class.
         super().__pydantic_init_subclass__(**kwargs)
         or__ = cls.__pydantic_fields__["or__"]
-        or__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
+        or__.annotation = cast("type[Any]", FromYAML[MaybeSequence[FromYAML[cls]]] | None)
         and__ = cls.__pydantic_fields__["and__"]
-        and__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
+        and__.annotation = cast("type[Any]", FromYAML[MaybeSequence[FromYAML[cls]]] | None)
 
     @model_validator(mode="after")
     def _resolve_and_or(self) -> Self:
@@ -1169,6 +1177,12 @@ class ConcreteEntity(BaseEntity):
                         raise TypeError(
                             f"Concrete entity class `{cls.__name__}` must define `{attribute}` as an instance of `{constraint.__name__}`."
                         )
+
+        Filter = cls.__dict__["Filter"]
+        try:
+            Filter()
+        except Exception:
+            raise TypeError(f"Filter class `{Filter}` must be constructable with no arguments.")
 
 
 class BaseUUIDEntityRow(BaseEntityRow):
