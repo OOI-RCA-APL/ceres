@@ -482,8 +482,21 @@ class CLICommand(DataObject, DeferBuild):
         await engine.load(config_path, silent=True)
         return engine
 
-    def read[T: BaseModel](self, model: type[T]) -> T:
-        return model.model_validate(self.model_dump(include=set(model.model_fields)))
+    def read[T: BaseModel](self, model_cls: type[T]) -> T:
+        # We do this hackery here with an intermediate class because commands inheriting from
+        # `BaseEntityFilter` can contain instances of themselves in their `and__` and `or__` fields.
+        # All of these instances are instances of the command type, rather than the filter type, and
+        # so need to be converted to `model_cls` too. All these instances contain extra fields
+        # `model_cls` does not have, and in the usual case that `model_cls` does not allow extra
+        # inputs, we need to create an intermediate model class that does in order to strip extra
+        # fields out, but preserve the defaults the command class has set on itself.
+        class IgnoreExtra(model_cls):
+            model_config = ConfigDict(extra="ignore")
+
+        # If only we could pass `extra = "ignore"` to the validation method itself, but we can't.
+        intermediate = IgnoreExtra.model_validate_json(self.model_dump_json())
+        # Convert the `IgnoreExtra` instance with exactly matching fields into `model_cls`.
+        return model_cls.model_validate_json(intermediate.model_dump_json())
 
     def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         if output is None:

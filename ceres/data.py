@@ -36,6 +36,7 @@ from pydantic import (
 from pydantic.aliases import AliasChoices
 from pydantic.fields import FieldInfo
 from pydantic_extra_types.color import Color as Color
+from pydantic_settings import NoDecode
 from typing_extensions import TypeVar
 
 from ceres._internal import util
@@ -219,8 +220,8 @@ def __pre_validate_from_yaml(value: object) -> object:
 
 _T = TypeVar("_T")
 
-FromJSON: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
-FromYAML: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
+FromJSON: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json), NoDecode]
+FromYAML: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml), NoDecode]
 
 
 def __validate_number(value: object) -> object:

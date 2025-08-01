@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import signal
 import sys
 from asyncio import CancelledError
@@ -304,9 +303,7 @@ def _show_validation_error(exception: ValidationError, color: bool | None = None
         else:
             message = "(unknown-message)"
 
-        value = error.get("input") or "(unknown-value)"
-
-        write(f"- {location} = {value!r}: {message}", file=sys.stderr, color=color)
+        write(f"- {location}: {message}", file=sys.stderr, color=color)
 
     exit(1)
 
@@ -316,7 +313,6 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
         cli_prog_name="ceres",
         case_sensitive=True,
         use_attribute_docstrings=True,
-        cli_avoid_json=True,
         cli_enforce_required=True,
         cli_exit_on_error=True,
         cli_hide_none_type=True,
@@ -324,7 +320,6 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
         cli_kebab_case=True,
         cli_parse_args=True,
         cli_use_class_docs_for_groups=True,
-        enable_decoding=True,
     )
 
     version: bool = False
@@ -376,7 +371,12 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
 class MainCliSettingsSource(CliSettingsSource):
     @override
     def _merge_parsed_list(self, parsed_list: list[str], field_name: str) -> str:
-        return json.dumps(parsed_list)  # Don't merge anything.
+        if field_name in self._cli_dict_args:
+            return parsed_list[-1]
+
+        return super()._merge_parsed_list(parsed_list, field_name)
+
+        # return json.dumps(parsed_list)  # Don't merge anything.
 
     @override
     def __init__(self, settings_cls: type[BaseSettings], args: Sequence[str]) -> None:
