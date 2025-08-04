@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast, final
 
 from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.requests import HTTPConnection
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
         ASGISendEvent,
         Scope,
     )
-    from fastapi.requests import HTTPConnection
 
     from ceres.config import ServerConfig
     from ceres.engine import Engine
@@ -322,7 +322,7 @@ class CLIAuthMiddleware:
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
 
-        request = Request(cast("Any", scope))
+        request = HTTPConnection(cast("Any", scope))
         if request.headers.get("Authorization") != self.cli_token:
             raise Failure(NotAuthenticatedError)
 
