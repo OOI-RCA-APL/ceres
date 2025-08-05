@@ -64,7 +64,7 @@ const engine = useEngine()
             :schema="{
               type: 'integer',
               title: 'Font Size (px)',
-              default: 20,
+              optional: true,
             }"
           />
         </div>

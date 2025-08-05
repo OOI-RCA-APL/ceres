@@ -27,6 +27,7 @@ type ColumnDefinition = {
   label: string
   name: string
   filtered?: boolean
+  minWidth?: number
 }
 
 const {
@@ -58,8 +59,9 @@ const columns = $computed(() => [
         widget.filter.before_hour ??
         widget.filter.after_minute ??
         widget.filter.before_minute) != null,
+    minWidth: 88,
   },
-  { label: 'Address', name: 'address', filtered: widget.filter.address != null },
+  { label: 'Address', name: 'address', filtered: widget.filter.address != null, minWidth: 72 },
   ...appendedColumns,
 ])
 
@@ -469,12 +471,24 @@ useStream(debouncedFilter, async (record: Record) => {
               v-for="(column, i) in columns"
               :key="column.name"
               :class="[$style.headerColumn, columnHasFilterMenu(column.name) && 'cursor-pointer']"
-              :style="i < columns.length - 1 ? { width: `${context.getColumnWidth(i)}px` } : {}"
+              :style="[
+                i < columns.length - 1 ? { width: `${context.getColumnWidth(i)}px` } : {},
+                { minWidth: column.minWidth != null ? `${column.minWidth}px` : undefined },
+              ]"
             >
-              <span>
-                {{ column.label }}
-              </span>
-              <span v-if="column.filtered" class="text-primary"> *</span>
+              <div class="items-center no-wrap row">
+                <span :class="$style.headerColumnLabel">
+                  {{ column.label }}
+                </span>
+                <q-icon
+                  :class="[
+                    $style.headerColumnGearIcon,
+                    column.filtered && $style.headerColumnGearIconEdited,
+                  ]"
+                  :name="icons.settings"
+                  size="10px"
+                />
+              </div>
               <q-menu
                 v-if="columnHasFilterMenu(column.name)"
                 anchor="top left"
@@ -701,6 +715,26 @@ useStream(debouncedFilter, async (record: Record) => {
   padding: 2px 8px !important;
   text-align: left;
   height: 22px;
+}
+
+.headerColumn:hover {
+  .headerColumnLabel {
+    opacity: 0.5;
+  }
+  .headerColumnGearIcon {
+    opacity: 0.25;
+  }
+}
+
+.headerColumnGearIconEdited {
+  opacity: 1 !important;
+  color: $primary;
+}
+
+.headerColumnGearIcon {
+  opacity: 0;
+  margin-left: 4px;
+  margin-right: -4px;
 }
 
 .headerColumnFilter {

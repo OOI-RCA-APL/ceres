@@ -16,6 +16,7 @@ const columns = $computed(() => [
         widget.filter.type_contains ??
         widget.filter.type_prefix ??
         widget.filter.type_suffix) != null,
+    minWidth: 52,
   },
   {
     label: 'Data',

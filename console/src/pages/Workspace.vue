@@ -691,7 +691,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
       </div>
     </div>
     <div v-if="!isViewingOriginal" class="faded-hover items-center justify-center q-mt-sm row">
-      <q-btn v-if="data != null" color="primary" :icon="icons.add" round size="8px">
+      <q-btn v-if="data != null" color="primary" :icon="icons.add" round size="8px" unelevated>
         <q-tooltip class="bg-primary">Add Widget</q-tooltip>
         <workspace-add-widget-menu :offset="[0, 8]" :row="data.layout.length" />
       </q-btn>

@@ -34,7 +34,7 @@ const directionColor = $computed(() => {
 
 <style lang="scss" module>
 .directionColumn {
-  width: 76px;
+  min-width: 76px;
   text-align: center;
 }
 

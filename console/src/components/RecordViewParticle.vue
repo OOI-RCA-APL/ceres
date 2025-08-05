@@ -8,12 +8,11 @@ const { particle } = $defineProps<{
 }>()
 
 const renderedData = $computed(() => highlight(JSON.stringify(particle.data), 'json'))
-// const renderedData = $computed(() => JSON.stringify(particle.data))
 </script>
 
 <template>
   <record-view-record :record="particle">
-    <q-td>
+    <q-td auto-width :class="$style.typeColumn">
       <span class="monospace-xs">
         {{ particle.type }}
       </span>
@@ -26,6 +25,10 @@ const renderedData = $computed(() => highlight(JSON.stringify(particle.data), 'j
 </template>
 
 <style lang="scss" module>
+.typeColumn {
+  min-width: 52px;
+}
+
 .data {
   font-family: 'Roboto Mono', monospace;
   font-size: 9px;

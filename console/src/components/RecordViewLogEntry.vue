@@ -40,7 +40,7 @@ const levelTextColor = $computed(() => {
 
 <template>
   <record-view-record :record="entry">
-    <q-td auto-width :class="$style.levelColumn">
+    <q-td :class="$style.levelColumn">
       <q-chip :class="$style.levelChip" :color="levelColor" dense :text-color="levelTextColor">
         <span :class="$style.levelText">
           {{ entry.level }}
@@ -56,6 +56,7 @@ const levelTextColor = $computed(() => {
 <style lang="scss" module>
 .levelColumn {
   text-align: center;
+  min-width: 56px;
 }
 
 .levelChip {

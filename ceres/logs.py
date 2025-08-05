@@ -90,6 +90,8 @@ LogEntryOrder: TypeAlias = (
 
 class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], total=False):
     level: MaybeSequence[Level] | None
+    min_level: Level | None
+    max_level: Level | None
     content: MaybeSequence[str] | None
     contains: MaybeSequence[str] | None
     prefix: MaybeSequence[str] | None
@@ -99,6 +101,10 @@ class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], tot
 class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder]):
     level: MaybeSequence[Level] | None = None
     """Filter by `level` being equal to one or more given levels."""
+    min_level: Level | None = None
+    """Filter by `level` being greater than or equal to the given level value."""
+    max_level: Level | None = None
+    """Filter by `level` being less than or equal to the given level value."""
     content: MaybeSequence[str] | None = None
     """Filter by `content` being equal to one or more given strings."""
     contains: MaybeSequence[str] | None = None
@@ -116,6 +122,14 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
 
         if not util.match_value(obj.level, self.level):
             return False
+
+        if self.min_level is not None:
+            if obj.level < self.min_level:
+                return False
+        if self.max_level is not None:
+            if obj.level > self.max_level:
+                return False
+
         if not util.match_value(obj.content, self.content):
             return False
         if not util.match_string(obj.content, self.contains, MatchMode.CONTAINS):
@@ -144,6 +158,11 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
 
         if self.level is not None:
             yield util.sql_match_value(columns.level, self.level)
+        if self.min_level is not None:
+            yield columns.level.in_(current for current in Level if current >= self.min_level)
+        if self.max_level is not None:
+            yield columns.level.in_(current for current in Level if current <= self.max_level)
+
         if self.content is not None:
             yield util.sql_match_value(columns.content, self.content)
         if self.contains is not None:

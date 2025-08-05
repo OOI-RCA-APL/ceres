@@ -49,7 +49,7 @@ const renderedData = $computed(() => highlight(JSON.stringify(alert.data), 'json
         </span>
       </q-chip>
     </q-td>
-    <q-td auto-width>
+    <q-td auto-width :class="$style.typeColumn">
       <div :class="$style.type">{{ alert.type }}</div>
     </q-td>
     <q-td>
@@ -62,6 +62,7 @@ const renderedData = $computed(() => highlight(JSON.stringify(alert.data), 'json
 <style lang="scss" module>
 .levelColumn {
   text-align: center;
+  min-width: 56px;
 }
 
 .levelChip {
@@ -75,6 +76,10 @@ const renderedData = $computed(() => highlight(JSON.stringify(alert.data), 'json
   white-space: nowrap;
   white-space: nowrap;
   width: 100%;
+}
+
+.typeColumn {
+  min-width: 52px;
 }
 
 .type {
