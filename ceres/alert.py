@@ -100,6 +100,8 @@ AlertOrder: TypeAlias = (
 
 class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False):
     level: MaybeSequence[Level] | None
+    min_level: Level | None
+    max_level: Level | None
     type: MaybeSequence[str] | None
     type_contains: MaybeSequence[str] | None
     type_prefix: MaybeSequence[str] | None
@@ -112,6 +114,10 @@ class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False)
 class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     level: MaybeSequence[Level] | None = None
     """Filter by `level` being equal to one or more given levels."""
+    min_level: Level | None = None
+    """Filter by `level` being greater than or equal to the given level value."""
+    max_level: Level | None = None
+    """Filter by `level` being less than or equal to the given level value."""
     type: MaybeSequence[str] | None = None
     """Filter by `type` being equal to one or more given types."""
     type_contains: MaybeSequence[str] | None = None
@@ -135,6 +141,13 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
 
         if not util.match_value(obj.level, self.level):
             return False
+
+        if self.min_level is not None:
+            if obj.level < self.min_level:
+                return False
+        if self.max_level is not None:
+            if obj.level > self.max_level:
+                return False
 
         if not util.match_value(obj.type, self.type):
             return False
@@ -178,6 +191,10 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
 
         if self.level is not None:
             yield util.sql_match_value(columns.level, self.level)
+        if self.min_level is not None:
+            yield columns.level.in_(current for current in Level if current >= self.min_level)
+        if self.max_level is not None:
+            yield columns.level.in_(current for current in Level if current <= self.max_level)
 
         if self.type is not None:
             yield util.sql_match_string(columns.type, self.type, MatchMode.EQUALS)

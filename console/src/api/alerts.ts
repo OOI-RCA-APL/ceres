@@ -18,6 +18,8 @@ export const AlertModel = RecordModel.extend({
 export type AlertFilter = Zod.infer<typeof AlertFilterModel>
 export const AlertFilterModel = RecordFilterModel.extend({
   level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullish(),
+  min_level: LevelModel.nullish(),
+  max_level: LevelModel.nullish(),
   type_contains: Zod.string().nullish(),
   type_prefix: Zod.string().nullish(),
   type_suffix: Zod.string().nullish(),

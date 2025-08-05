@@ -20,6 +20,7 @@ const columns = $computed(() => [
     label: 'Direction',
     name: 'direction',
     filtered: widget.filter.direction != null,
+    minWidth: 76,
   },
   {
     label: 'Content',

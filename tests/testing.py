@@ -571,17 +571,25 @@ async def execute_address_filter_test(cls: type[Item]):
     await execute_filter_test(cls, group)
 
 
-async def execute_enum_filter_test(cls: type[Entity], field: str, enum: type[StrEnum]):
+async def execute_enum_filter_test(
+    cls: type[Entity],
+    field: str,
+    enum: type[StrEnum],
+    *,
+    comparison: bool = False,
+):
+    options = list(enum)
+
     group: FilterTestGroup[BaseEntityFilterArgs] = {
         "order": field,
-        "entities": {value: {field: value} for value in enum},
+        "entities": {value: {field: value} for value in options},
         "tests": [
             {"filter": {}, "keys": None},
             {"filter": {field: []}, "keys": []},
         ],
     }
 
-    for i, value in enumerate(enum):
+    for i, value in enumerate(options):
         group["tests"].extend(
             [
                 {"filter": {field: value}, "keys": [value]},
@@ -589,11 +597,30 @@ async def execute_enum_filter_test(cls: type[Entity], field: str, enum: type[Str
             ]
         )
 
-        previous = list(enum)[i - 1] if i > 0 else None
+        previous = options[i - 1] if i > 0 else None
         if previous is not None:
             group["tests"].append(
                 {"filter": {field: [previous, value]}, "keys": [previous, value]},
             )
+
+    if comparison and len(options) > 1:
+        first = options[0]
+        second = options[1]
+        second_last = options[-2]
+        last = options[-1]
+
+        group["tests"].extend(
+            [
+                {"filter": {f"min_{field}": None}, "keys": None},
+                {"filter": {f"min_{field}": first}, "keys": None},
+                {"filter": {f"min_{field}": second_last}, "keys": options[-2:]},
+                {"filter": {f"min_{field}": last}, "keys": [last]},
+                {"filter": {f"max_{field}": None}, "keys": None},
+                {"filter": {f"max_{field}": first}, "keys": options[:1]},
+                {"filter": {f"max_{field}": second}, "keys": options[:2]},
+                {"filter": {f"max_{field}": last}, "keys": None},
+            ]
+        )
 
     await execute_filter_test(
         cls,

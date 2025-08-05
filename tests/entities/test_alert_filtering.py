@@ -15,7 +15,7 @@ async def test_alert_timestamp_filtering():
 
 
 async def test_alert_level_filtering():
-    await testing.execute_enum_filter_test(Alert, "level", Alert.Level)
+    await testing.execute_enum_filter_test(Alert, "level", Alert.Level, comparison=True)
 
 
 async def test_alert_type_filtering():

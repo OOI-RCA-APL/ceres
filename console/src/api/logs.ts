@@ -17,6 +17,8 @@ export const LogEntryModel = RecordModel.extend({
 export type LogEntryFilter = Zod.infer<typeof LogEntryFilterModel>
 export const LogEntryFilterModel = RecordFilterModel.extend({
   level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullish(),
+  min_level: LevelModel.nullish(),
+  max_level: LevelModel.nullish(),
   contains: Zod.string().nullish(),
   prefix: Zod.string().nullish(),
   suffix: Zod.string().nullish(),

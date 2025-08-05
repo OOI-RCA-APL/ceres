@@ -128,7 +128,7 @@ export const ValueWidgetModel = BaseWidgetModel.extend({
   particleAddress: AddressSelectorModel.nullish(),
   particleType: Zod.string().nullish(),
   particleField: Zod.string().nullish(),
-  fontSize: Zod.number().min(1).max(60).default(20).catch(20),
+  fontSize: Zod.number().min(1).max(60).nullish(),
   fontWeight: TextWeightModel.default('normal').catch('normal'),
   prefix: Zod.string().nullish(),
   suffix: Zod.string().nullish(),

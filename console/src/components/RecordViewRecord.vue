@@ -35,12 +35,12 @@ onBeforeUnmount(() => {
     :class="[$style.root, 'no-wrap', 'q-tr--no-hover', 'record-view-record']"
     no-hover
   >
-    <q-td auto-width>
+    <q-td auto-width :class="$style.timestampColumn">
       <span :class="$style.timestamp">
         {{ timestamp }}
       </span>
     </q-td>
-    <q-td auto-width :class="[$style.address, 'monospace-xs']">{{ record.address }}</q-td>
+    <q-td auto-width :class="[$style.addressColumn, 'monospace-xs']">{{ record.address }}</q-td>
     <slot />
   </tr>
 </template>
@@ -71,13 +71,17 @@ onBeforeUnmount(() => {
   border-bottom-color: rgba(255, 255, 255, 0.12) !important;
 }
 
+.timestampColumn {
+  min-width: 88px;
+}
+
 .timestamp {
   font-family: 'Roboto Mono', monospace;
   font-size: 10px;
   white-space: nowrap;
 }
 
-.address {
-  min-width: 70px;
+.addressColumn {
+  min-width: 72px;
 }
 </style>
