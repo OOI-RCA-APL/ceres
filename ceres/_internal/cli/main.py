@@ -345,7 +345,7 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
 
     async def execute(self) -> int:
         try:
-            await super().__run__()
+            await self.__run__()
             return 0
         except Failure as failure:
             self.write(jsonify(failure.error, indent=2))
