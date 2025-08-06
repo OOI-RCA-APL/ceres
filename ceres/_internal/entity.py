@@ -34,6 +34,8 @@ from sqlalchemy import (
     Engine,
     Index,
     Integer,
+    Result,
+    Row,
     Select,
     Update,
     and_,
@@ -45,6 +47,7 @@ from sqlalchemy import (
     tuple_,
     update,
 )
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncResult
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_attr, mapped_column
 from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
 
@@ -70,13 +73,15 @@ from ceres.timing import utc
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from sqlalchemy import ClauseElement, ColumnElement, ScalarResult, SQLColumnExpression
-    from sqlalchemy.ext.asyncio import AsyncScalarResult, AsyncSession
+    from sqlalchemy import ClauseElement, ColumnElement, SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
 
     from ceres._internal.protocols import DatabaseSource
+
+    _Rows = Result[tuple[object, ...]]
+    _AsyncRows: TypeAlias = AsyncResult[tuple[object, ...]]
 
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -492,11 +497,11 @@ class ResultsIterator[EntityT: BaseEntity]:
         return self
 
     async def __anext__(self) -> EntityT:
-        return await anext(self._results)
+        return await self._results.__anext__()
 
     async def first(self) -> EntityT | None:
         try:
-            return await anext(self)
+            return await self.__anext__()
         except StopAsyncIteration:
             return None
 
@@ -518,7 +523,7 @@ class _BaseStatementExecutor[
 ](ABC):
     __slots__ = (
         "_query",
-        "_session",
+        "_connection",
         "_stream",
     )
 
@@ -528,8 +533,8 @@ class _BaseStatementExecutor[
         query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
     ) -> None:
         self._query: Final = query
-        self._session: AsyncSession | None = None
-        self._stream: AsyncScalarResult[BaseEntityRow] | None = None
+        self._connection: AsyncConnection | None = None
+        self._stream: _AsyncRows | None = None
 
     @override
     def __eq__(self, value: object, /) -> bool:
@@ -543,10 +548,11 @@ class _BaseStatementExecutor[
 
     async def __aenter__(self) -> ResultsIterator[EntityT]:
         with util.wrap_database_errors():
-            if self._session is None:
-                self._session = await self._query._get_database().init()
+            if self._connection is None:
+                self._connection = await self._query._get_database().use()
+                await self._connection.__aenter__()
             if self._stream is None:
-                self._stream = await self._session.stream_scalars(
+                self._stream = await self._connection.stream(
                     await self._get_statement(True),
                 )
 
@@ -558,13 +564,13 @@ class _BaseStatementExecutor[
                 await self._stream.close()
         finally:
             self._stream = None
-            if self._session is not None:
+            if self._connection is not None:
                 if exc_type is None and self._should_commit():
-                    await self._session.commit()
+                    await self._connection.commit()
                 try:
-                    await self._session.__aexit__(exc_type, exc_value, traceback)
+                    await self._connection.__aexit__(exc_type, exc_value, traceback)
                 finally:
-                    self._session = None
+                    self._connection = None
 
     def limit(self, limit: int) -> Self:
         return self._with_query(self._query.limit(limit))
@@ -586,19 +592,17 @@ class _BaseStatementExecutor[
         database = self._query._get_database()
         statement = await self._get_statement(True)
 
-        async with await database.init() as session:
+        async with await database.use() as connection:
             if resolved.limit is not None and resolved.limit <= _EXECUTOR_STREAM_THRESHOLD:
-                result = await session.scalars(statement)
-                if self._should_commit():
-                    await session.commit()
-
+                result = await connection.execute(statement)
                 entities = await self._parse_rows(result)
-            else:
-                stream = await session.stream_scalars(statement)
                 if self._should_commit():
-                    await session.commit()
-
+                    await connection.commit()
+            else:
+                stream = await connection.stream(statement)
                 entities = [entity async for entity in self._parse_async_rows(stream)]
+                if self._should_commit():
+                    await connection.commit()
 
             return entities
 
@@ -620,14 +624,14 @@ class _BaseStatementExecutor[
         returning: bool,
     ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
 
-    def _get_parser(self) -> Callable[[BaseEntityRow], EntityT | None]:
+    def _get_parser(self) -> Callable[[Row], EntityT | None]:
         from ceres._internal.util import construct_model
 
         Entity = self._query._get_entity_class()
         transform = self._query._get_transform()
 
-        def parse(row: BaseEntityRow) -> EntityT | None:
-            entity = construct_model(Entity, row.values())
+        def parse(row: Row) -> EntityT | None:
+            entity = construct_model(Entity, row._mapping)
             if transform is not None:
                 entity = transform(entity)
 
@@ -635,10 +639,7 @@ class _BaseStatementExecutor[
 
         return parse
 
-    async def _parse_rows(
-        self,
-        rows: ScalarResult[BaseEntityRow],
-    ) -> list[EntityT]:
+    async def _parse_rows(self, rows: _Rows) -> list[EntityT]:
         parse = self._get_parser()
         entities: list[EntityT] = []
 
@@ -657,10 +658,7 @@ class _BaseStatementExecutor[
 
         return entities
 
-    async def _parse_async_rows(
-        self,
-        rows: AsyncScalarResult[BaseEntityRow],
-    ) -> AsyncIterator[EntityT]:
+    async def _parse_async_rows(self, rows: _AsyncRows) -> AsyncIterator[EntityT]:
         parser = self._get_parser()
 
         count = 0
@@ -689,7 +687,7 @@ class SelectExecutor[
     async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
         Row = self._query._get_row_class()
         database = self._query._get_database()
-        statement = select(Row)
+        statement = select(*Row.get_columns())
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
 
@@ -737,9 +735,9 @@ class UpdateExecutor[
         statement = await self._get_statement(False)
 
         with util.wrap_database_errors():
-            async with await database.init() as session:
-                result = await session.execute(statement)
-                await session.commit()
+            async with await database.use() as connection:
+                result = await connection.execute(statement)
+                await connection.commit()
                 return result.rowcount
 
     @override
@@ -750,7 +748,7 @@ class UpdateExecutor[
 
         statement = update(Row).values(assign)
         if returning:
-            statement = statement.returning(Row)
+            statement = statement.returning(*Row.get_columns())
 
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
@@ -780,9 +778,9 @@ class DeleteExecutor[
         statement = await self._get_statement(False)
 
         with util.wrap_database_errors():
-            async with await database.init() as session:
-                result = await session.execute(statement)
-                await session.commit()
+            async with await database.use() as connection:
+                result = await connection.execute(statement)
+                await connection.commit()
                 return result.rowcount
 
     @override
@@ -792,7 +790,7 @@ class DeleteExecutor[
 
         statement = delete(Row)
         if returning:
-            statement = statement.returning(Row)
+            statement = statement.returning(*Row.get_columns())
 
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
@@ -850,8 +848,8 @@ class BaseEntityQuery[
             always_use_subquery=filter.limit is not None or filter.offset is not None,
         )
 
-        async with await database.init() as session:
-            results = await session.execute(statement)
+        async with await database.use() as connection:
+            results = await connection.execute(statement)
             return results.scalar() or 0
 
     async def any(self) -> bool:
@@ -866,8 +864,8 @@ class BaseEntityQuery[
         )
         statement = select(statement.exists())
 
-        async with await database.init() as session:
-            results = await session.execute(statement)
+        async with await database.use() as connection:
+            results = await connection.execute(statement)
             count = results.scalar() or 0
             return count > 0
 
@@ -1098,7 +1096,7 @@ class BaseEntityManager[
                 from sqlalchemy.dialects.postgresql import insert
 
         with util.wrap_database_errors():
-            async with await self.__database__.init() as session:
+            async with await self.__database__.use() as connection:
                 statement = insert(Row).values(row.values())
                 pk = Row.get_primary_key_columns()
 
@@ -1113,8 +1111,8 @@ class BaseEntityManager[
                         set_=upsert_columns,
                     )
 
-                await session.execute(statement)
-                await session.commit()
+                await connection.execute(statement)
+                await connection.commit()
                 return row  # type: ignore
 
 

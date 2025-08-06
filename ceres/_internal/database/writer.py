@@ -9,7 +9,7 @@ from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.entity import Entity
 
@@ -85,9 +85,9 @@ class Writer:
                 await previous.event.wait()
 
             database = self._database()
-            async with await database.init() as session:
-                await self.__write_entities(database, session, flush.entities)
-                await session.commit()
+            async with await database.use() as connection:
+                await self.__write_entities(database, connection, flush.entities)
+                await connection.commit()
         except DatabaseError:
             if len(self._flushes) > 1:
                 next = self._flushes[1].entities
@@ -115,7 +115,7 @@ class Writer:
     async def __write_entities(
         self,
         database: Database,
-        session: AsyncSession,
+        connection: AsyncConnection,
         entities: Iterable[Entity],
     ) -> None:
         by_type: defaultdict[type[Entity], list[Entity]] = defaultdict(list)
@@ -123,12 +123,12 @@ class Writer:
             by_type[cls] = list(group)
 
         for cls, entities in by_type.items():
-            await self.__write_entities_of_cls(database, session, cls, entities)
+            await self.__write_entities_of_cls(database, connection, cls, entities)
 
     async def __write_entities_of_cls(
         self,
         database: Database,
-        session: AsyncSession,
+        connection: AsyncConnection,
         cls: type[Entity],
         entities: list[Entity],
     ) -> None:
@@ -148,7 +148,7 @@ class Writer:
         pk = cls.Row.get_primary_key_columns()
         upsert = {name: column for name, column in statement.excluded.items() if name not in pk}
 
-        await session.execute(
+        await connection.execute(
             statement.on_conflict_do_update(index_elements=pk.values(), set_=upsert),
             values,
         )

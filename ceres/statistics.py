@@ -86,8 +86,8 @@ class StatisticsManager(BaseDatabaseManager):
         results: dict[Address, Statistics] = {}
 
         with util.wrap_database_errors():
-            async with await self.__database__.init() as session:
-                for address, level, count in await session.execute(statement):
+            async with await self.__database__.use() as connection:
+                for address, level, count in await connection.execute(statement):
                     address: Address
                     for ancestor in address.path:
                         if filter.root is not None:

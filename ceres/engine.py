@@ -199,10 +199,10 @@ class Engine(Node):
         await self.__load_database()
         await self.__node_sync__()
 
-        async with await self.database.init() as session:
+        async with await self.database.use() as connection:
             components = self.get_components()
             for component in components:
-                await component.system.__node_sync__(session)
+                await component.system.__node_sync__(connection)
             if self.root is not None and self.root.enabled:
                 self.root.start(all_enabled=True)
 
@@ -341,7 +341,7 @@ class Engine(Node):
         if not await self.database.initialized():
             self.log.info("Database appears empty, initializing database...")
             try:
-                await self.database.init()
+                await self.database.use()
                 self.log.info("Database initialized successfully.")
             except Failure:
                 self.log.error("Database initialization failed.")

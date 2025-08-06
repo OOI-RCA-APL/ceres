@@ -77,7 +77,7 @@ from ceres.node import Node
 from ceres.variable import InternalVariableName, Variable
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
@@ -888,8 +888,8 @@ class ComponentSystem(Node, ComponentSource):
         return ComponentSieveManager(self)
 
     @override
-    async def __node_sync__(self, session: AsyncSession | None = None) -> None:
-        await super().__node_sync__(session)
+    async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
+        await super().__node_sync__(connection)
         self.__enabled = await self.__get_enabled_in_database()
 
     @property

@@ -25,7 +25,7 @@ from ceres.event import (
 from ceres.tasklet import Tasklet
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
@@ -76,7 +76,7 @@ class Node(Tasklet, NodeSource):
     def __node__(self) -> Node:
         return self
 
-    async def __node_sync__(self, session: AsyncSession | None = None) -> None:
+    async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
         pass
 
     @property
