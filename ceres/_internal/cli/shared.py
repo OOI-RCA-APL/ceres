@@ -462,20 +462,6 @@ class CLICommand(DataObject, DeferBuild):
         async with database:
             yield database
 
-    @asynccontextmanager
-    async def use_database_session(
-        self,
-        *,
-        require_initialized: bool = True,
-        require_connect: bool = True,
-    ):
-        async with self.use_database(
-            require_initialized=require_initialized,
-            require_connect=require_connect,
-        ) as database:
-            async with database.session() as session:
-                yield session
-
     async def use_temporary_engine(self):
         config_path = self.use_config_path()
         engine = Engine()
@@ -537,6 +523,9 @@ _CSV_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
     **_CSV_ATOMIC_STRINGIFIERS,
     list: jsonify,
     dict: jsonify,
+    tuple: jsonify,
+    set: jsonify,
+    frozenset: jsonify,
 }
 
 

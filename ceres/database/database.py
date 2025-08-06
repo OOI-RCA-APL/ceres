@@ -245,6 +245,10 @@ class Database:
     def connect(self) -> AsyncConnection:
         return self.__engine.connect()
 
+    async def use(self) -> AsyncConnection:
+        await self.init()
+        return self.connect()
+
     async def ping(self) -> bool:
         try:
             async with self.connect():
@@ -262,14 +266,14 @@ class Database:
         with util.wrap_database_errors():
             await self.__engine.dispose()
 
-    async def init(self) -> AsyncSession:
+    async def init(self) -> None:
         with util.wrap_database_errors():
             if self.__completed_init_successfully:
-                return self.session()
+                return
 
             async with self.__init_lock:
                 if self.__completed_init_successfully:
-                    return self.session()
+                    return
 
                 try:
                     async with self.__engine.begin() as connection:
@@ -279,8 +283,6 @@ class Database:
                     raise Failure(DatabaseInitError(message=str(error))) from error
 
                 self.__completed_init_successfully = True
-
-            return self.session()
 
     async def clear(self) -> None:
         with util.wrap_database_errors():
