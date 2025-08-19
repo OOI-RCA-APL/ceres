@@ -6,7 +6,7 @@ import Zod from 'zod'
 import { Address } from '@/api/address'
 import { useClient, StreamOptions } from '@/api/client'
 import { RecordFilterModel, RecordModel } from '@/api/entity'
-import { BaseFailModel, createResultType } from '@/api/shared'
+import { ResultModel } from '@/api/shared'
 import { dataloader } from '@/utilities'
 
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>
@@ -27,7 +27,7 @@ export const MessageFilterModel = RecordFilterModel.extend({
 })
 
 export type SendMessageResult = Zod.infer<typeof SendMessageResultModel>
-const SendMessageResultModel = createResultType(MessageModel, BaseFailModel)
+const SendMessageResultModel = ResultModel(MessageModel)
 
 export const useMessages = defineStore('messages', () => {
   const client = useClient()

@@ -11,6 +11,7 @@ from starlette.status import (
     HTTP_409_CONFLICT,
     HTTP_422_UNPROCESSABLE_ENTITY,
     HTTP_500_INTERNAL_SERVER_ERROR,
+    HTTP_503_SERVICE_UNAVAILABLE,
 )
 
 from ceres._internal import util
@@ -213,6 +214,12 @@ class NotRunningError(__BaseAPIError):
     type: Literal["not-running-error"] = "not-running-error"
 
 
+class NotReachableError(__BaseAPIError):
+    __error_status_code__: ClassVar[int] = HTTP_503_SERVICE_UNAVAILABLE
+    type: Literal["not-reachable-error"] = "not-reachable-error"
+    message: str | None = None
+
+
 class AlreadyExistsError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_409_CONFLICT
     type: Literal["already-exists-error"] = "already-exists-error"
@@ -259,9 +266,10 @@ class HTTPError(__BaseAPIError):
 
 APIError: TypeAlias = (
     NotFoundError
+    | NotRunningError
+    | NotReachableError
     | AlreadyExistsError
     | IntegrityError
-    | NotRunningError
     | NotAuthenticatedError
     | NotPermittedError
     | BadCredentialsError

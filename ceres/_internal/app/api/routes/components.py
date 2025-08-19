@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import traceback
-from typing import Annotated, Any, Literal, Mapping, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    AsyncIterator,
+    Literal,
+    Mapping,
+    Sequence,
+    TypeAlias,
+)
 
-from fastapi import APIRouter, Body, Request, WebSocket, WebSocketException
+from fastapi import APIRouter, Body, Request, Response, WebSocket, WebSocketException
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
 from ceres._internal import util
@@ -14,8 +26,14 @@ from ceres._internal.app.shared import (
     CurrentRole,
     CurrentSocket,
 )
+from ceres._internal.util import BytesLike, cancel
 from ceres.address import Address
-from ceres.component import Component, ProcedureBinding, ProcedureType
+from ceres.component import (
+    Component,
+    ProcedureBinding,
+    ProcedureType,
+    Writer,
+)
 from ceres.data import DeferBuild, ImmutableDataObject, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
@@ -26,7 +44,8 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotPermittedError,
 )
-from ceres.result import Fail, Ok, Result
+from ceres.result import Fail
+from ceres.stream import WriteStream
 from ceres.user import UserRole
 
 
@@ -113,6 +132,77 @@ async def get_procedure(
     return binding
 
 
+if TYPE_CHECKING:
+    CallResult: TypeAlias = Any | Response | None | ProcedureError
+else:
+    CallResult = Any
+
+
+async def _call(
+    *,
+    method: Literal["GET", "POST"],
+    engine: CurrentEngine,
+    role: CurrentRole,
+    address: Address,
+    procedure: Name,
+    arguments: Mapping[Name, object] | None = None,
+) -> CallResult:
+    try:
+        component = engine.get_component(address)
+        if component is None:
+            return Fail(ProcedureComponentNotFoundError())
+        binding = component.system.get_procedure_binding(procedure)
+        if binding is None:
+            return Fail(ProcedureNotFoundError())
+        if method == "GET" and binding.type == ProcedureType.ACTION:
+            return Fail(ProcedureNotPermittedError())
+        if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
+            return Fail(ProcedureNotPermittedError())
+
+        output = await component.system.call(procedure, arguments)
+        if not isinstance(output, Writer):
+            return output
+
+        stream: WriteStream[BytesLike] = WriteStream()
+        task = asyncio.create_task(output.write(stream))
+
+        async def canceller():
+            await cancel(task)
+
+        background = BackgroundTask(canceller)
+
+        def convert(chunk: BytesLike):
+            if isinstance(chunk, bytearray):
+                chunk = bytes(chunk)
+
+            return chunk
+
+        async def read() -> AsyncIterator[str | bytes | memoryview]:
+            reader = stream.read()
+            while not task.done():
+                try:
+                    async with asyncio.timeout(0.1):
+                        chunk = await anext(reader)
+                    yield convert(chunk)
+                except TimeoutError:
+                    continue
+
+            for chunk in reader.clear():
+                yield convert(chunk)
+
+        return StreamingResponse(
+            read(),
+            media_type=output.mime,
+            background=background,
+        )
+
+    except Failure as exception:
+        if isinstance(exception.error, ProcedureError):
+            return Fail(exception.error)
+
+        raise
+
+
 @router.post("/{address}/procedures/{procedure}/call", tags=["procedures"])
 async def call(
     engine: CurrentEngine,
@@ -120,7 +210,7 @@ async def call(
     address: Address,
     procedure: Name,
     arguments: Annotated[Mapping[Name, object] | None, Body()] = None,
-) -> Result[Any | None, ProcedureError]:
+) -> CallResult:
     return await _call(
         method="POST",
         engine=engine,
@@ -139,7 +229,7 @@ async def call_by_get(
     address: Address,
     procedure: Name,
     query_arguments: CurrentProcedureQueryArguments,
-) -> Result[Any | None, ProcedureError]:
+) -> CallResult:
     arguments = {}
     arguments.update(query_arguments or {})
     arguments.update(request.query_params)
@@ -154,35 +244,6 @@ async def call_by_get(
         procedure=procedure,
         arguments=arguments,
     )
-
-
-async def _call(
-    *,
-    method: Literal["GET", "POST"],
-    engine: CurrentEngine,
-    role: CurrentRole,
-    address: Address,
-    procedure: Name,
-    arguments: Mapping[Name, object] | None = None,
-) -> Result[Any | None, ProcedureError]:
-    try:
-        component = engine.get_component(address)
-        if component is None:
-            return Fail(ProcedureComponentNotFoundError())
-        binding = component.system.get_procedure_binding(procedure)
-        if binding is None:
-            return Fail(ProcedureNotFoundError())
-        if method == "GET" and binding.type == ProcedureType.ACTION:
-            return Fail(ProcedureNotPermittedError())
-        if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
-            return Fail(ProcedureNotPermittedError())
-
-        return Ok(await component.system.call(procedure, arguments))
-    except Failure as exception:
-        if isinstance(exception.error, ProcedureError):
-            return Fail(exception.error)
-
-        raise
 
 
 @router.websocket("/{address}/procedures/{procedure}/subscribe")

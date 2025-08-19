@@ -4,6 +4,7 @@ import { computed } from 'vue'
 
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
+import { isError } from '@/api/shared'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { useInterfaceContext } from '@/interface'
 
@@ -28,5 +29,5 @@ const result = $computed(() => query.data.value)
 </script>
 
 <template>
-  <interface-element v-if="result?.ok" :element="result.value" :path="[]" />
+  <interface-element v-if="result != null && !isError(result)" :element="result" :path="[]" />
 </template>

@@ -17,6 +17,7 @@ from typing import (
     AsyncIterable,
     Awaitable,
     Callable,
+    Coroutine,
     Final,
     Iterable,
     Literal,
@@ -40,7 +41,7 @@ from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.protocols import ComponentSource
-from ceres._internal.util import OrderedWeakSet, Undefined
+from ceres._internal.util import BytesLike, OrderedWeakSet, Undefined
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import ComponentConfig, JobConfig, PrunerConfig, SieveConfig
 from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta, StrEnum, ValidatedDataclass
@@ -74,6 +75,7 @@ from ceres.event import (
     WillDetachEvent,
 )
 from ceres.node import Node
+from ceres.stream import WriteStream
 from ceres.variable import InternalVariableName, Variable
 
 if TYPE_CHECKING:
@@ -390,13 +392,26 @@ class ProcedureSchemas(ImmutableDataObject):
     output: Mapping[str, Any]
 
 
+class ProcedureOutputType(StrEnum):
+    DATA = "data"
+    FILE = "file"
+
+
 class ProcedureArgumentsInfo(ImmutableDataObject):
     json_schema: Mapping[str, Any]
     required: bool
 
 
-class ProcedureOutputInfo(ImmutableDataObject):
+class ProcedureDataOutputInfo(ImmutableDataObject):
+    type: Literal[ProcedureOutputType.DATA] = ProcedureOutputType.DATA
     json_schema: Mapping[str, Any]
+
+
+class ProcedureFileOutputInfo(ImmutableDataObject):
+    type: Literal[ProcedureOutputType.FILE] = ProcedureOutputType.FILE
+
+
+ProcedureOutputInfo: TypeAlias = ProcedureDataOutputInfo | ProcedureFileOutputInfo
 
 
 class __BaseProcedureBinding(ImmutableDataObject):
@@ -418,6 +433,11 @@ class ActionBinding(__BaseProcedureBinding):
 
 
 ProcedureBinding = QueryBinding | ActionBinding
+
+
+class Writer(ValidatedDataclass):
+    mime: str
+    write: Callable[[WriteStream[BytesLike]], Coroutine[Any, Any, None]]
 
 
 @overload
@@ -533,13 +553,17 @@ def __get_procedure_method_info(
         except Exception:
             raise error
 
-    try:
-        output_json_schema = util.get_type_adapter(output_annotation).json_schema()
-    except Exception as exception:
-        raise ValueError(
-            f"output type of {type_} {util.strify(method)} must be serializable as a JSON object: "
-            f"{exception}"
-        )
+    if isinstance(output_annotation, type) and issubclass(output_annotation, Writer):
+        output = ProcedureFileOutputInfo()
+    else:
+        try:
+            output_json_schema = util.get_type_adapter(output_annotation).json_schema()
+            output = ProcedureDataOutputInfo(json_schema=output_json_schema)
+        except Exception as exception:
+            raise ValueError(
+                f"output type of {type_} {util.strify(method)} must be either `Download` or be serializable as JSON. Type is not serializable: "
+                f"{exception}"
+            )
 
     return __ProcedureMethodInfo(
         name=_get_bound_name(method),
@@ -548,9 +572,7 @@ def __get_procedure_method_info(
             json_schema=arguments_json_schema,
             required=arguments_required,
         ),
-        output=ProcedureOutputInfo(
-            json_schema=output_json_schema,
-        ),
+        output=output,
         live=live,
     )
 
@@ -1474,6 +1496,10 @@ class ComponentSystem(Node, ComponentSource):
             raise Failure(ProcedureNotFoundError)
 
         result = await self.__invoke(procedure, arguments)
+
+        if isinstance(result, Writer):
+            # If the result is a file writer, we return it directly.
+            return result
 
         if not binding.live:
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
