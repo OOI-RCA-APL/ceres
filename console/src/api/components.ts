@@ -20,20 +20,21 @@ export const ProcedureArgumentsInfoModel = Zod.object({
 })
 
 export type ProcedureDataOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>
-export const ProcedureDataOutputInfoModel = Zod.object({
-  type: Zod.literal('data'),
+export const ProcedureValueOutputInfoModel = Zod.object({
+  type: Zod.literal('value'),
   json_schema: Zod.record(Zod.string(), Zod.any()),
 })
 
 export type ProcedureFileOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>
-export const ProcedureFileOutputInfoModel = Zod.object({
-  type: Zod.literal('file'),
+export const ProcedureMediaOutputInfo = Zod.object({
+  type: Zod.literal('media'),
+  media: Zod.string().nullish(),
 })
 
 export type ProcedureOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>
 export const ProcedureOutputInfoModel = Zod.discriminatedUnion('type', [
-  ProcedureDataOutputInfoModel,
-  ProcedureFileOutputInfoModel,
+  ProcedureValueOutputInfoModel,
+  ProcedureMediaOutputInfo,
 ])
 
 const BaseProcedureInfoModel = Zod.object({

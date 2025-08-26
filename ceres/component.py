@@ -44,7 +44,15 @@ from ceres._internal.protocols import ComponentSource
 from ceres._internal.util import BytesLike, OrderedWeakSet, Undefined
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import ComponentConfig, JobConfig, PrunerConfig, SieveConfig
-from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta, StrEnum, ValidatedDataclass
+from ceres.data import (
+    ImmutableDataObject,
+    Name,
+    NonEmptyStr,
+    OrderedStrEnum,
+    PositiveTimeDelta,
+    StrEnum,
+    ValidatedDataclass,
+)
 from ceres.error import (
     Failure,
     ProcedureInternalError,
@@ -393,8 +401,8 @@ class ProcedureSchemas(ImmutableDataObject):
 
 
 class ProcedureOutputType(StrEnum):
-    DATA = "data"
-    FILE = "file"
+    VALUE = "value"
+    MEDIA = "media"
 
 
 class ProcedureArgumentsInfo(ImmutableDataObject):
@@ -402,21 +410,49 @@ class ProcedureArgumentsInfo(ImmutableDataObject):
     required: bool
 
 
-class ProcedureDataOutputInfo(ImmutableDataObject):
-    type: Literal[ProcedureOutputType.DATA] = ProcedureOutputType.DATA
+class ProcedureValueOutputInfo(ImmutableDataObject):
+    type: Literal[ProcedureOutputType.VALUE] = ProcedureOutputType.VALUE
     json_schema: Mapping[str, Any]
 
 
-class ProcedureFileOutputInfo(ImmutableDataObject):
-    type: Literal[ProcedureOutputType.FILE] = ProcedureOutputType.FILE
+class ProcedureMediaOutputInfo(ImmutableDataObject):
+    type: Literal[ProcedureOutputType.MEDIA] = ProcedureOutputType.MEDIA
+    media: str
 
 
-ProcedureOutputInfo: TypeAlias = ProcedureDataOutputInfo | ProcedureFileOutputInfo
+ProcedureOutputInfo: TypeAlias = ProcedureValueOutputInfo | ProcedureMediaOutputInfo
+
+
+class ProcedureAccessLevel(OrderedStrEnum):
+    @classmethod
+    @override
+    def __order_mapping__(cls) -> dict[ProcedureAccessLevel, int]:
+        from ceres.user import UserRole
+
+        return {
+            cls.PUBLIC: UserRole.VIEWER.order - 1,
+            cls.VIEWERS: UserRole.VIEWER.order,
+            cls.OPERATORS: UserRole.OPERATOR.order,
+            cls.ADMINS: UserRole.ADMIN.order,
+        }
+
+    PUBLIC = "public"
+    VIEWERS = "viewers"
+    OPERATORS = "operators"
+    ADMINS = "admins"
+
+
+RawProcedureAccessLevel = Literal["public", "viewers", "operators", "admins"]
+ProcedureAccessLevelInput = ProcedureAccessLevel | RawProcedureAccessLevel
+
+ProcedurePermissions = ProcedureAccessLevel
+ProcedurePermissionsInput = ProcedureAccessLevelInput
 
 
 class __BaseProcedureBinding(ImmutableDataObject):
-    name: Name
     type: ProcedureType
+    name: Name
+    permissions: ProcedurePermissions
     method: str
     live: bool
     arguments: ProcedureArgumentsInfo | None
@@ -434,10 +470,12 @@ class ActionBinding(__BaseProcedureBinding):
 
 ProcedureBinding = QueryBinding | ActionBinding
 
+MediaWriter: TypeAlias = Callable[[WriteStream[BytesLike]], Coroutine[Any, Any, None]]
 
-class Writer(ValidatedDataclass):
-    mime: str
-    write: Callable[[WriteStream[BytesLike]], Coroutine[Any, Any, None]]
+
+class Media(ValidatedDataclass, kw_only=False):
+    type: NonEmptyStr
+    writer: MediaWriter
 
 
 @overload
@@ -445,8 +483,18 @@ def query[**P, T](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
+def query[**P, T: Media | Awaitable[Media]](
+    *,
+    media: str,
+    permit: ProcedurePermissionsInput = ...,
+) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+
+@overload
 def query[**P, T](
-    *, poll: float | timedelta = ...
+    *,
+    poll: float | timedelta = ...,
+    permit: ProcedurePermissionsInput = ...,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
@@ -454,13 +502,16 @@ def query[**P, T](
     method: Callable[P, T] | None = None,
     *,
     poll: float | timedelta = timedelta(seconds=5),
+    media: str | None = None,
+    permit: ProcedurePermissionsInput = ProcedureAccessLevel.VIEWERS,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def query(method: Callable[P, T]) -> Callable[P, T]:
-        info = __get_procedure_method_info(method, ProcedureType.QUERY)
+        info = __get_procedure_method_info(method, ProcedureType.QUERY, media)
         _bind(
             method,
             QueryBinding(
                 name=_get_bound_name(method),
+                permissions=ProcedureAccessLevel(permit),
                 method=util.get_function_name(method),
                 arguments=info.arguments,
                 output=info.output,
@@ -482,18 +533,26 @@ def action[**P, T](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
-def action[**P, T]() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+def action[**P, T](
+    *,
+    media: str | None = None,
+    permit: ProcedurePermissionsInput = ...,
+) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
 def action[**P, T](
     method: Callable[P, T] | None = None,
+    *,
+    media: str | None = None,
+    permit: ProcedurePermissionsInput = ProcedureAccessLevel.OPERATORS,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def action(method: Callable[P, T]) -> Callable[P, T]:
-        validated = __get_procedure_method_info(method, ProcedureType.ACTION)
+        validated = __get_procedure_method_info(method, ProcedureType.ACTION, media)
         _bind(
             method,
             ActionBinding(
                 name=_get_bound_name(method),
+                permissions=ProcedureAccessLevel(permit),
                 method=util.get_function_name(method),
                 arguments=validated.arguments,
                 output=validated.output,
@@ -520,6 +579,7 @@ class __ProcedureMethodInfo(ImmutableDataObject):
 def __get_procedure_method_info(
     method: Callable[..., Any],
     type_: ProcedureType,
+    media: str | None,
     /,
 ) -> __ProcedureMethodInfo:
     method = util.get_inner_function(method)
@@ -553,12 +613,20 @@ def __get_procedure_method_info(
         except Exception:
             raise error
 
-    if isinstance(output_annotation, type) and issubclass(output_annotation, Writer):
-        output = ProcedureFileOutputInfo()
+    if isinstance(output_annotation, type) and issubclass(output_annotation, Media):
+        if media is None:
+            raise ValueError(f"`media` type must be specified for {type_} {util.strify(method)}")
+
+        output = ProcedureMediaOutputInfo(media=media)
     else:
+        if media is not None:
+            raise ValueError(
+                f"`media` type was specified for {type_} {util.strify(method)}, but return type is not `Media`"
+            )
+
         try:
             output_json_schema = util.get_type_adapter(output_annotation).json_schema()
-            output = ProcedureDataOutputInfo(json_schema=output_json_schema)
+            output = ProcedureValueOutputInfo(json_schema=output_json_schema)
         except Exception as exception:
             raise ValueError(
                 f"output type of {type_} {util.strify(method)} must be either `Download` or be serializable as JSON. Type is not serializable: "
@@ -1497,7 +1565,7 @@ class ComponentSystem(Node, ComponentSource):
 
         result = await self.__invoke(procedure, arguments)
 
-        if isinstance(result, Writer):
+        if isinstance(result, Media):
             # If the result is a file writer, we return it directly.
             return result
 

@@ -28,12 +28,7 @@ from ceres._internal.app.shared import (
 )
 from ceres._internal.util import BytesLike, cancel
 from ceres.address import Address
-from ceres.component import (
-    Component,
-    ProcedureBinding,
-    ProcedureType,
-    Writer,
-)
+from ceres.component import Component, Media, ProcedureBinding, ProcedureType
 from ceres.data import DeferBuild, ImmutableDataObject, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
@@ -154,46 +149,62 @@ async def _call(
         binding = component.system.get_procedure_binding(procedure)
         if binding is None:
             return Fail(ProcedureNotFoundError())
+        if role < binding.permissions:
+            return Fail(ProcedureNotPermittedError())
         if method == "GET" and binding.type == ProcedureType.ACTION:
             return Fail(ProcedureNotPermittedError())
         if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
             return Fail(ProcedureNotPermittedError())
 
         output = await component.system.call(procedure, arguments)
-        if not isinstance(output, Writer):
+        if not isinstance(output, Media):
             return output
 
         stream: WriteStream[BytesLike] = WriteStream()
-        task = asyncio.create_task(output.write(stream))
+        writer = asyncio.create_task(output.writer(stream))
 
         async def canceller():
-            await cancel(task)
+            await cancel(writer)
 
-        background = BackgroundTask(canceller)
-
+        # Convert the bytes-like object to something `StreamingResponse` can handle.
         def convert(chunk: BytesLike):
             if isinstance(chunk, bytearray):
                 chunk = bytes(chunk)
 
             return chunk
 
+        # Yield chunks from the stream. Exit if the writer task is exits, or cancel it if this async
+        # iterator itself is cancelled.
         async def read() -> AsyncIterator[str | bytes | memoryview]:
-            reader = stream.read()
-            while not task.done():
-                try:
-                    async with asyncio.timeout(0.1):
-                        chunk = await anext(reader)
-                    yield convert(chunk)
-                except TimeoutError:
-                    continue
+            try:
+                reader = stream.read()
+                while not writer.done():
+                    try:
+                        async with asyncio.timeout(0.1):
+                            chunk = await anext(reader)
 
-            for chunk in reader.clear():
-                yield convert(chunk)
+                        yield convert(chunk)
+                    except TimeoutError:
+                        continue
+
+                    # Yield to the event loop.
+                    await asyncio.sleep(0)
+
+                # Yield any remaining chunks from the reader buffer after the writer task is done.
+                for chunk in reader.clear():
+                    yield convert(chunk)
+            finally:
+                # Attempt to cancel the writer task if it hasn't already.
+                try:
+                    async with asyncio.timeout(3):
+                        await cancel(writer)
+                except TimeoutError:
+                    pass
 
         return StreamingResponse(
             read(),
-            media_type=output.mime,
-            background=background,
+            media_type=output.type,
+            background=BackgroundTask(canceller),
         )
 
     except Failure as exception:

@@ -8,6 +8,8 @@ with lazy_imports(__name__, export=True):
     from ceres.alert import Alert as Alert
     from ceres.component import Component as Component
     from ceres.component import ComponentSystem as ComponentSystem
+    from ceres.component import Media as Media
+    from ceres.component import ProcedureAccessLevel as ProcedureAccessLevel
     from ceres.component import ProcedureType as ProcedureType
     from ceres.component import action as action
     from ceres.component import listener as listener
@@ -82,6 +84,7 @@ with lazy_imports(__name__, export=True):
     from ceres.threading import spawn as spawn
     from ceres.timing import utc as utc
     from ceres.user import User as User
+    from ceres.user import UserRole as UserRole
     from ceres.variable import Variable as Variable
     from ceres.version import __version__ as __version__
     from ceres.workspace import Workspace as Workspace
