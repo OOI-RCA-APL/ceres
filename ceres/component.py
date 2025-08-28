@@ -593,6 +593,10 @@ def __get_procedure_method_info(
 
     arguments_json_schema = util.get_args_model(method).model_json_schema()
     arguments_required = len(arguments_json_schema.get("properties", {}).get("required", [])) > 0
+    arguments = ProcedureArgumentsInfo(
+        json_schema=arguments_json_schema,
+        required=arguments_required,
+    )
 
     output_annotation = util.get_return_annotation(method, Undefined)
     if output_annotation is Undefined:
@@ -636,10 +640,7 @@ def __get_procedure_method_info(
     return __ProcedureMethodInfo(
         name=_get_bound_name(method),
         method=util.get_function_name(method),
-        arguments=ProcedureArgumentsInfo(
-            json_schema=arguments_json_schema,
-            required=arguments_required,
-        ),
+        arguments=arguments,
         output=output,
         live=live,
     )
