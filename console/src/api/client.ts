@@ -14,6 +14,7 @@ import { reactive, watchEffect, onUnmounted, DeepReadonly, MaybeRef } from 'vue'
 import { ZodAny, ZodError, ZodTypeAny } from 'zod'
 
 import { ErrorInfo, Failure } from '@/errors'
+import { getWebSocketUrl } from '@/utilities'
 
 export type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type RequestOptions<TParseModel extends ZodTypeAny = ZodAny> = {
@@ -117,27 +118,6 @@ async function del<TParseModel extends ZodTypeAny = ZodAny>(
   options?: RequestOptions<TParseModel>
 ) {
   return request('DELETE', path, options)
-}
-
-function getWebSocketURI(relative: string) {
-  const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws'
-  const hostname = window.location.hostname
-  let port: string
-  if (process.env.NODE_ENV === 'production') {
-    if (window.location.port !== '') {
-      port = ':' + window.location.port
-    } else {
-      port = ''
-    }
-  } else {
-    if (process.env.DEVELOPMENT_CERES_API_PORT != null) {
-      port = ':' + process.env.DEVELOPMENT_CERES_API_PORT
-    } else {
-      port = ''
-    }
-  }
-
-  return `${protocol}://${hostname}${port}${relative}`
 }
 
 export type StreamInput = DeepReadonly<{
@@ -262,7 +242,7 @@ function createSocket<TParseModel extends ZodTypeAny>(
   options: UseStreamOptions<TParseModel>,
   onClose: (stream: Stream) => unknown
 ) {
-  const url = getWebSocketURI(stream.path) + createQueryParameters(stream.query ?? {})
+  const url = getWebSocketUrl(stream.path) + createQueryParameters(stream.query ?? {})
   const socket = new WebSocket(url)
   socket.addEventListener('open', () => {
     console.log(`Connected to '${url}'.`)

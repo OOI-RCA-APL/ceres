@@ -26,7 +26,7 @@ import {
   WorkspaceMembershipRole,
   WorkspaceMembershipRoleModel,
   WorkspaceMembershipRoleOf,
-  widgetInfos,
+  getWidgetInfo,
 } from '@/workspace'
 
 const { id } = $defineProps<{
@@ -615,7 +615,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
             hidden
             :min="
               Math.max(
-                ...row.widgets.map((widget) => widgetInfos[widget.type]?.minHeight ?? 50),
+                ...row.widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight ?? 50),
                 50
               )
             "

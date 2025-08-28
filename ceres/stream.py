@@ -58,7 +58,7 @@ class StreamReader[T](AsyncIterator[T]):
 
     @property
     def attached(self) -> bool:
-        return self._source.has_reader(self)
+        return self._source._is_registered(self)
 
     def __len__(self) -> int:
         return self._queue.qsize()
@@ -113,10 +113,10 @@ class StreamReader[T](AsyncIterator[T]):
         await self._queue.join()
 
     def attach(self) -> None:
-        self._source.add_reader(self)
+        self._source._register(self)
 
     def detach(self) -> None:
-        self._source.remove_reader(self)
+        self._source._unregister(self)
 
     def _put(self, value: T) -> None:
         loop = self._get_bound_event_loop()
@@ -198,13 +198,13 @@ class Stream[T](AsyncIterable[T]):
         derived._map = transform  # type: ignore
         return derived
 
-    def has_reader(self, reader: StreamReader[Any]) -> bool:
+    def _is_registered(self, reader: StreamReader[Any]) -> bool:
         return reader in self._readers
 
-    def add_reader(self, reader: StreamReader[T]) -> None:
+    def _register(self, reader: StreamReader[T]) -> None:
         self._readers.add(reader)
 
-    def remove_reader(self, reader: StreamReader[T]) -> None:
+    def _unregister(self, reader: StreamReader[T]) -> None:
         self._readers.discard(reader)
 
     def _put(self, value: T) -> None:

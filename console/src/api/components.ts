@@ -25,10 +25,10 @@ export const ProcedureValueOutputInfoModel = Zod.object({
   json_schema: Zod.record(Zod.string(), Zod.any()),
 })
 
-export type ProcedureFileOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>
+export type ProcedureMediaOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>
 export const ProcedureMediaOutputInfo = Zod.object({
   type: Zod.literal('media'),
-  media: Zod.string().nullish(),
+  media: Zod.string(),
 })
 
 export type ProcedureOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>

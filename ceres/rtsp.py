@@ -1,25 +1,21 @@
 import asyncio
 import subprocess
 import sys
+from os import PathLike
 from shutil import which
-from typing import TYPE_CHECKING
-
-import anyio
 
 from ceres._internal.util import BytesLike
 from ceres.component import Media
 from ceres.stream import WriteStream
 
-if TYPE_CHECKING:
-    from anyio.abc import Process
-
 
 async def rtsp(
     url: str,
     *,
-    fragment_duration: float = 0.05,  # Seconds. 1/20 of a second by default to reduce latency.
+    ffmpeg: str | PathLike[str] | None = None,
+    copy: bool = True,
+    fragment_duration: float = 0.05,  # Seconds. 1/20th of a second by default to reduce latency.
     dash: bool = True,
-    ffmpeg_path: str | None = None,
 ) -> Media:
     """
     Using `ffmpeg`, read from an RTSP stream at the provided URL, then convert it into MP4 format
@@ -27,15 +23,16 @@ async def rtsp(
     returned directly from component queries/actions to proxy video from an external RTSP source.
 
     :param url: The URL of the RTSP stream to read from.
-    :param fragment_duration: The interval in seconds at which new video fragments will be sent.
-    :param dash: Whether to use DASH streaming for the output.
     :param ffmpeg_path: The path to the `ffmpeg` executable.
+    :param copy: Whether to copy the video stream without re-encoding. If the video stream is already in MP4 format, this will use far less resources than re-encoding.
+    :param fragment_duration: The interval in seconds at which new video fragments will be sent. 1/20 of a second by default to reduce latency.
+    :param dash: Whether to use DASH streaming for the output.
 
     This function requires `ffmpeg` to be installed. If this command is not available in the system
     path, provide its location through the `ffmpeg_path` argument.
     """
-    if ffmpeg_path is not None:
-        ffmpeg = ffmpeg_path
+    if ffmpeg is not None:
+        ffmpeg = str(ffmpeg)
     else:
         if which("ffmpeg") is None:
             raise SystemError("Executable `ffmpeg` was not found in system path.")
@@ -47,6 +44,7 @@ async def rtsp(
         movflags = [
             "empty_moov",  # Don't create a moov atom. Fragment everything.
             "default_base_moof",  # Use default base movie fragment.
+            # "dash",  # Use DASH streaming for video output.
         ]
 
         if dash:
@@ -56,6 +54,8 @@ async def rtsp(
             ffmpeg,
             # Use input media framerate.
             "-re",
+            # Use one thread on the input side.
+            *("-threads", "1"),
             # Hide CLI banner.
             "-hide_banner",
             # Only log errors.
@@ -64,6 +64,10 @@ async def rtsp(
             *("-rtsp_transport", "tcp"),
             # Read data from the input RTSP URL.
             *("-i", url),
+            # Use one thread on the output side.
+            *("-threads", "1"),
+            # Whether to directly copy the input video codec.
+            *(("-vcodec", "copy") if copy else ()),
             # Output video in MP4 format.
             *("-f", "mp4"),
             # Apply fragment duration option.
@@ -77,36 +81,26 @@ async def rtsp(
             "-",
         ]
 
-        # Read all chunks of MP4 data `ffmpeg` stdout and put it into the output stream.
-        process: Process | None = None
+        # Spawn an async `ffmpeg` subprocess.
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=sys.stderr,
+        )
 
         try:
-            async with await anyio.open_process(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=sys.stderr,
-            ) as process:
-                assert process.stdin is not None
-                assert process.stdout is not None
-                async for chunk in process.stdout:
-                    output.put(chunk)
+            # Read all MP4 data from the `ffmpeg` stdout and put it into the output stream.
+            assert process.stdout is not None
+            await asyncio.sleep(0)
+            while True:
+                chunk = await process.stdout.read(2**13)
+                if chunk == b"":
+                    break
+
+                output.put(chunk)
         finally:
-            if process is not None:
-
-                async def kill():
-                    try:
-                        process.kill()
-                    except ProcessLookupError:
-                        # Process already exited.
-                        pass
-
-                    try:
-                        async with asyncio.timeout(3):
-                            await process.wait()
-                    except TimeoutError:
-                        print("WARNING: Failed to kill `ffmpeg` process within 3 seconds.")  # noqa
-
-                await asyncio.shield(asyncio.create_task(kill()))
+            # Kill it! I've learned `ffmpeg` does not respect `SIGTERM`, and it does not respect me.
+            process.kill()
 
     return Media("video/mp4", write)

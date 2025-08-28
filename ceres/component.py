@@ -503,7 +503,7 @@ def query[**P, T](
     *,
     poll: float | timedelta = timedelta(seconds=5),
     media: str | None = None,
-    permit: ProcedurePermissionsInput = ProcedureAccessLevel.VIEWERS,
+    permit: ProcedurePermissionsInput = ProcedureAccessLevel.PUBLIC,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def query(method: Callable[P, T]) -> Callable[P, T]:
         info = __get_procedure_method_info(method, ProcedureType.QUERY, media)

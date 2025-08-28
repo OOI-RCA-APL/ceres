@@ -52,7 +52,7 @@ const description = $computed(() => form.getDescription(path))
 <style module>
 .root {
   padding-top: 8px;
-  padding-left: 12px;
+  padding-left: 8px;
   min-height: 40px;
 }
 </style>
