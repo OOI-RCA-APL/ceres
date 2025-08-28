@@ -1566,7 +1566,7 @@ class ComponentSystem(Node, ComponentSource):
         result = await self.__invoke(procedure, arguments)
 
         if isinstance(result, Media):
-            # If the result is a file writer, we return it directly.
+            # If the result is a media object, just return it directly.
             return result
 
         if not binding.live:
