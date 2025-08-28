@@ -54,8 +54,6 @@ async def rtsp(
             ffmpeg,
             # Use input media framerate.
             "-re",
-            # Use one thread on the input side.
-            *("-threads", "1"),
             # Hide CLI banner.
             "-hide_banner",
             # Only log errors.
@@ -64,8 +62,6 @@ async def rtsp(
             *("-rtsp_transport", "tcp"),
             # Read data from the input RTSP URL.
             *("-i", url),
-            # Use one thread on the output side.
-            *("-threads", "1"),
             # Whether to directly copy the input video codec.
             *(("-vcodec", "copy") if copy else ()),
             # Output video in MP4 format.
