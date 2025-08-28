@@ -4,7 +4,7 @@ import { onBeforeUnmount } from 'vue'
 
 import icons from '@/icons'
 import { getHttpUrl } from '@/utilities'
-import type { VideoWidget } from '@/workspace'
+import { VideoWidget } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: VideoWidget
@@ -16,6 +16,7 @@ const element = $ref<HTMLVideoElement>()
 
 let state = $ref<'loading' | 'error' | 'ok'>('loading')
 
+let isUnloading = $ref(false)
 let isMuted = $ref(widget.startMuted)
 let isDisposed = false
 
@@ -61,10 +62,12 @@ function dispose() {
 }
 
 onBeforeUnmount(() => {
+  isUnloading = true
   dispose()
 })
 
 useEventListener('beforeunload', () => {
+  isUnloading = true
   dispose()
 })
 </script>
@@ -82,7 +85,11 @@ useEventListener('beforeunload', () => {
       @error="onError"
       @loadedmetadata="onLoad"
     />
-    <div v-if="state === 'error'" class="absolute-center text-center" style="opacity: 0.8">
+    <div
+      v-if="state === 'error' && !isUnloading"
+      class="absolute-center text-center"
+      style="opacity: 0.8"
+    >
       <div class="q-mb-sm text-body2 text-negative">An error occurred while loading the video.</div>
       <q-btn
         color="negative"
@@ -101,17 +108,20 @@ useEventListener('beforeunload', () => {
   </div>
 </template>
 
-<style module>
+<style module lang="scss">
 .root {
   overflow: hidden;
 }
 
-.video {
-  object-fit: contain;
-  background-color: black;
+:global(.light) .root {
+  background-color: $grey-4;
 }
 
-.error-banner {
-  padding: 8;
+:global(.dark) .root {
+  background-color: $dark;
+}
+
+.video {
+  object-fit: contain;
 }
 </style>

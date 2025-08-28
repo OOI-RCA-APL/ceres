@@ -612,7 +612,6 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
             v-model="row.height"
             :class="$style.verticalResizeHandle"
             direction="vertical"
-            hidden
             :min="
               Math.max(
                 ...row.widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight ?? 50),
@@ -620,6 +619,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
               )
             "
             :step="10"
+            visibility="hover"
           />
           <div
             v-for="(widget, j) in row.widgets"
@@ -630,10 +630,10 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
               row.widgets.length === 1
                 ? ''
                 : j === 0
-                ? 'q-mr-xs'
+                ? 'q-pr-xs'
                 : j === row.widgets.length - 1
-                ? 'q-ml-xs'
-                : 'q-mx-xs',
+                ? 'q-pl-xs'
+                : 'q-px-xs',
             ]"
             :style="j === row.widgets.length - 1 ? undefined : getWidgetWidthStyle(widget)"
           >
@@ -664,10 +664,10 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
               v-if="layoutWidth && workspace.drag == null && j < row.widgets.length - 1"
               :class="$style.horizontalResizeHandle"
               direction="horizontal"
-              hidden
               :min="100"
               :model-value="(widget.width / 100) * layoutWidth"
-              :step="10"
+              :step="1"
+              visibility="hover"
               @update:model-value="
                 (pixels) => {
                   if (layoutWidth == null) {
@@ -712,13 +712,13 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
 .verticalResizeHandle {
   position: absolute;
   left: 0px;
-  bottom: 0px;
+  bottom: -4.5px;
   z-index: 1;
 }
 
 .horizontalResizeHandle {
   position: absolute;
-  right: 0px;
+  right: -0.5px;
   top: 0px;
   z-index: 1;
 }

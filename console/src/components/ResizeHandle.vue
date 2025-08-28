@@ -9,12 +9,13 @@ const {
   min = 0,
   max,
   step,
+  visibility = 'always',
 } = $defineProps<{
   direction: 'vertical' | 'horizontal'
   modelValue: number
   min?: number
   max?: number
-  hidden?: boolean
+  visibility?: 'hidden' | 'hover' | 'always'
   step?: number
 }>()
 
@@ -120,7 +121,8 @@ onUnmounted(() => {
       $style.root,
       $q.dark.isActive && $style.dark,
       isVertical ? $style.vertical : $style.horizontal,
-      hidden && $style.hidden,
+      visibility === 'hidden' && $style.hidden,
+      visibility === 'hover' && $style.visibleHover,
     ]"
   >
     <div :class="[$style.handleContainer, 'fit']">
@@ -147,6 +149,10 @@ onUnmounted(() => {
 }
 
 .hidden {
+  background-color: transparent !important;
+}
+
+.visibleHover:not(:hover) {
   background-color: transparent !important;
 }
 
