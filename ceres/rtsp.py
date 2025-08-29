@@ -14,7 +14,11 @@ async def rtsp(
     *,
     ffmpeg: str | PathLike[str] | None = None,
     copy: bool = True,
-    fragment_duration: float = 0.05,  # Seconds. 1/20th of a second by default to reduce latency.
+    loglevel: str | None = "error",
+    transport: str = "tcp",
+    tune: str | None = "zerolatency",
+    preset: str | None = "ultrafast",
+    fragment_duration: float = 0.05,  # Seconds.
     dash: bool = True,
 ) -> Media:
     """
@@ -23,9 +27,13 @@ async def rtsp(
     returned directly from component queries/actions to proxy video from an external RTSP source.
 
     :param url: The URL of the RTSP stream to read from.
-    :param ffmpeg_path: The path to the `ffmpeg` executable.
+    :param ffmpeg: Optional command or path of the `ffmpeg` executable. Defaults to "ffmpeg".
     :param copy: Whether to copy the video stream without re-encoding. If the video stream is already in MP4 format, this will use far less resources than re-encoding.
-    :param fragment_duration: The interval in seconds at which new video fragments will be sent. 1/20 of a second by default to reduce latency.
+    :param loglevel: The `ffmpeg` `-loglevel` to use. Defaults to "error". Set to `None` to omit `-loglevel`.
+    :param transport: The `ffmpeg` `-rtsp_transport` protocol to use. Defaults to "tcp".
+    :param tune: The `ffmpeg` encoding `-tune` to use. Defaults to "zerolatency". This has no effect if `copy` is `True`. Set to `None` to omit `-tune`.
+    :param preset: The`ffmpeg`  encoding `-preset` to use. Defaults to "ultrafast". This has no effect if `copy` is `True`. Set to `None` to omit `-preset`.
+    :param fragment_duration: The interval in seconds at which new video fragments will be sent. Defaults to 1/20th of a second to reduce latency.
     :param dash: Whether to use DASH streaming for the output.
 
     This function requires `ffmpeg` to be installed. If this command is not available in the system
@@ -44,7 +52,6 @@ async def rtsp(
         movflags = [
             "empty_moov",  # Don't create a moov atom. Fragment everything.
             "default_base_moof",  # Use default base movie fragment.
-            # "dash",  # Use DASH streaming for video output.
         ]
 
         if dash:
@@ -57,13 +64,14 @@ async def rtsp(
             # Hide CLI banner.
             "-hide_banner",
             # Only log errors.
-            *("-loglevel", "error"),
+            *(("-loglevel", loglevel) if loglevel else ()),
             # Use TCP as the RTSP transport protocol.
-            *("-rtsp_transport", "tcp"),
+            *("-rtsp_transport", transport),
             # Read data from the input RTSP URL.
             *("-i", url),
             # Whether to directly copy the input video codec.
             *(("-vcodec", "copy") if copy else ()),
+            # *("-vcodec", "libx264"),
             # Output video in MP4 format.
             *("-f", "mp4"),
             # Apply fragment duration option.
@@ -71,8 +79,8 @@ async def rtsp(
             # Apply movflags option.
             *("-movflags", "+" + "+".join(movflags)),
             # Reduce latency.
-            *("-tune", "zerolatency"),
-            *("-preset", "ultrafast"),
+            *(("-tune", tune) if tune else ()),
+            *(("-preset", preset) if preset else ()),
             # Write output to stdout.
             "-",
         ]

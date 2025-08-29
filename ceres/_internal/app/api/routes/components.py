@@ -250,7 +250,7 @@ async def _call(
             try:
                 reader = stream.read()
                 while True:
-                    if writer.done():
+                    if writer.done() and len(reader) == 0:
                         break
                     if await request.is_disconnected():
                         break
@@ -258,17 +258,13 @@ async def _call(
                     try:
                         async with asyncio.timeout(0.1):
                             chunk = await anext(reader)
-
-                        yield convert(chunk)
                     except TimeoutError:
                         continue
 
+                    yield convert(chunk)
+
                     # Yield to the event loop.
                     await asyncio.sleep(0)
-
-                # Yield any remaining chunks from the reader buffer after the writer task is done.
-                for chunk in reader.clear():
-                    yield convert(chunk)
             finally:
                 # Attempt to cancel the writer task if it hasn't already.
                 try:

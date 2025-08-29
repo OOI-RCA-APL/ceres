@@ -36,6 +36,10 @@ const src = $computed(() => {
   return getHttpUrl(`/api/components/${queryComponent}/queries/${queryName}/call`)
 })
 
+// const agent = navigator.userAgent.toLowerCase()
+// const isSafari = agent.includes('safari') && !agent.includes('chrome')
+const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+
 function onError() {
   console.error(src)
   state = 'error'
@@ -45,10 +49,15 @@ async function onLoad() {
   if (element != null && widget.autoplay) {
     try {
       await element.play()
+      state = 'ok'
     } catch (error) {
       console.warn('Autoplay failed.', error)
     }
   }
+}
+
+async function onPlay() {
+  state = 'ok'
 }
 
 /// Ensure the video element stops downloading when removed from the DOM.
@@ -81,14 +90,22 @@ useEventListener('beforeunload', () => {
       class="full-height full-width"
       :controls="widget.showControls"
       :muted="isMuted"
+      playsinline
       :src="src"
       @error="onError"
       @loadedmetadata="onLoad"
+      @play="onPlay"
     />
+    <div v-if="isSafari && state != 'ok'">
+      <div class="absolute-top-left full-width q-pa-md text-center">
+        <div class="text-body2 text-negative">
+          Video playback is not supported in Safari-based browsers.
+        </div>
+      </div>
+    </div>
     <div
       v-if="state === 'error' && !isUnloading"
-      class="absolute-center text-center"
-      style="opacity: 0.8"
+      :class="[$style.error, 'absolute-center q-pa-md text-center']"
     >
       <div class="q-mb-sm text-body2 text-negative">An error occurred while loading the video.</div>
       <q-btn
@@ -114,14 +131,26 @@ useEventListener('beforeunload', () => {
 }
 
 :global(.light) .root {
-  background-color: $grey-4;
+  background-color: $grey-4 !important;
 }
 
 :global(.dark) .root {
-  background-color: $dark;
+  background-color: $dark !important;
 }
 
 .video {
   object-fit: contain;
+}
+
+.error {
+  border-radius: 3px;
+}
+
+:global(.light) .error {
+  background-color: white;
+}
+
+:global(.dark) .error {
+  background-color: $dark;
 }
 </style>
