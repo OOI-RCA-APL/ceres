@@ -71,7 +71,6 @@ async def rtsp(
             *("-i", url),
             # Whether to directly copy the input video codec.
             *(("-vcodec", "copy") if copy else ()),
-            # *("-vcodec", "libx264"),
             # Output video in MP4 format.
             *("-f", "mp4"),
             # Apply fragment duration option.

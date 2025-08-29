@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useEventListener } from '@vueuse/core'
-import { onBeforeUnmount } from 'vue'
+import { onBeforeUnmount, watchEffect } from 'vue'
 
 import icons from '@/icons'
 import { getHttpUrl } from '@/utilities'
@@ -22,9 +22,10 @@ let isDisposed = false
 
 const queryComponent = $computed(() => widget.query?.split('::')?.[0] ?? null)
 const queryName = $computed(() => widget.query?.split('::')?.[2] ?? null)
+
 const src = $computed(() => {
   if (queryComponent == null || queryName == null || isDisposed) {
-    return ''
+    return undefined
   }
 
   // We need to use this in development to ensure the video is requested directly through the real
@@ -36,18 +37,122 @@ const src = $computed(() => {
   return getHttpUrl(`/api/components/${queryComponent}/queries/${queryName}/call`)
 })
 
-// const agent = navigator.userAgent.toLowerCase()
-// const isSafari = agent.includes('safari') && !agent.includes('chrome')
-const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+// Use a `MediaSource` to stream the video data directly from the server. Why? Because fuck Safari,
+// that's why. Jakey's going insane here. Apple had to think different and require video streaming
+// responses to support byte range requests which don't make sense when you're live streaming video.
+// So we're downloading the video ourselves and appending it to the `SourceBuffer` of a
+// `MediaSource` which we bind to the `video` element. Pretty cool. Wish we didn't have to do this.
+let mediaSource: MediaSource | null = $shallowRef(null)
 
-function onError() {
-  console.error(src)
+// Passed to the `video` element's `src` attribute.
+const mediaSourceUrl = $computed(() => {
+  if (mediaSource == null || isDisposed) {
+    return undefined
+  }
+
+  return URL.createObjectURL(mediaSource)
+})
+
+// Determine the `type` to pass to the current source buffer based on the `Content-Type` header of
+// the HTTP response.
+function getSourceBufferType(contentType: string) {
+  let bufferType: string
+  switch (contentType) {
+    case 'video/mp4':
+      bufferType = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"'
+      break
+    case 'video/webm':
+      bufferType = 'video/webm'
+      break
+    default:
+      bufferType = contentType
+      break
+  }
+
+  if (!MediaSource.isTypeSupported(bufferType)) {
+    return null
+  }
+
+  return bufferType
+}
+
+// Sync and live update the media source with data from the given URL.
+async function sync(src: string | null | undefined) {
+  if (src == null) {
+    mediaSource = null
+    state = 'ok'
+    return
+  }
+
+  state = 'loading'
+  const result = await fetch(src)
+  const contentType = result.headers.get('content-type')
+  if (contentType == null) {
+    console.error('Failed to get video content type from response headers.')
+    state = 'error'
+    return
+  }
+
+  const bufferType = getSourceBufferType(contentType)
+  if (bufferType == null) {
+    console.error(`Unsupported video content type: "${contentType}"`)
+    state = 'error'
+    return
+  }
+
+  const reader = result.body?.getReader()
+  if (reader == null) {
+    console.error('No data in response.')
+    state = 'error'
+    return
+  }
+
+  const boundMediaSource = new MediaSource()
+  mediaSource = boundMediaSource
+
+  // Event listener options.
+  const once = { once: true, passive: true }
+  // Wait for the media source to open.
+  await new Promise((resolve) => boundMediaSource.addEventListener('sourceopen', resolve, once))
+
+  // Create a new source buffer.
+  const buffer = boundMediaSource.addSourceBuffer(bufferType)
+  // If the media source has changed, likely due to a change in the video `src`, we should exit.
+  while (boundMediaSource === mediaSource && element?.src === mediaSourceUrl) {
+    // Wait for the next chunk of video data.
+    const { value: chunk } = await reader.read()
+    // If the chunk is null, the stream has ended.
+    if (chunk == null) {
+      break
+    }
+
+    // Append the latest video data to the buffer.
+    try {
+      buffer.appendBuffer(chunk)
+    } catch {
+      // If this fails, the `src` has probably changed, causing the media source to be detached.
+      // When this happens, stop downloading.
+      break
+    }
+
+    // Wait for the append operation to complete before continuing.
+    await new Promise((resolve) => buffer.addEventListener('updateend', resolve, once))
+  }
+}
+
+// Sync video data whenever the input `src` changes.
+watchEffect(() => {
+  sync(src)
+})
+
+async function onError() {
   state = 'error'
 }
 
 async function onLoad() {
   if (element != null && widget.autoplay) {
     try {
+      // Run autoplay ourselves, if possible.
       await element.play()
       state = 'ok'
     } catch (error) {
@@ -65,7 +170,7 @@ function dispose() {
   if (element != null) {
     element.pause()
     isDisposed = true
-    element.src = ''
+    element.removeAttribute('src')
     element.load()
   }
 }
@@ -91,18 +196,11 @@ useEventListener('beforeunload', () => {
       :controls="widget.showControls"
       :muted="isMuted"
       playsinline
-      :src="src"
+      :src="mediaSourceUrl"
       @error="onError"
       @loadedmetadata="onLoad"
       @play="onPlay"
     />
-    <div v-if="isSafari && state != 'ok'">
-      <div class="absolute-top-left full-width q-pa-md text-center">
-        <div class="text-body2 text-negative">
-          Video playback is not supported in Safari-based browsers.
-        </div>
-      </div>
-    </div>
     <div
       v-if="state === 'error' && !isUnloading"
       :class="[$style.error, 'absolute-center q-pa-md text-center']"
@@ -136,10 +234,6 @@ useEventListener('beforeunload', () => {
 
 :global(.dark) .root {
   background-color: $dark !important;
-}
-
-.video {
-  object-fit: contain;
 }
 
 .error {
