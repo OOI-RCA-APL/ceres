@@ -48,6 +48,7 @@ watch([() => widget.autoplay, () => widget.startMuted], () => {
             type: 'string',
             title: 'Video Query',
             enum: possibleQueryNames,
+            optional: true,
           }"
         />
       </div>

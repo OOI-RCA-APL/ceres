@@ -1,7 +1,10 @@
+<script lang="ts"></script>
+
 <script lang="ts" setup>
 import { useEventListener } from '@vueuse/core'
 import { onBeforeUnmount, watchEffect } from 'vue'
 
+import { isSafari, isMediaSourceSupported } from '@/environment'
 import icons from '@/icons'
 import { getHttpUrl } from '@/utilities'
 import { VideoWidget } from '@/workspace'
@@ -23,7 +26,8 @@ let isDisposed = false
 const queryComponent = $computed(() => widget.query?.split('::')?.[0] ?? null)
 const queryName = $computed(() => widget.query?.split('::')?.[2] ?? null)
 
-const src = $computed(() => {
+// API URL we video data will be streamed from.
+const url = $computed(() => {
   if (queryComponent == null || queryName == null || isDisposed) {
     return undefined
   }
@@ -37,55 +41,73 @@ const src = $computed(() => {
   return getHttpUrl(`/api/components/${queryComponent}/queries/${queryName}/call`)
 })
 
-// Use a `MediaSource` to stream the video data directly from the server. Why? Because fuck Safari,
-// that's why. Jakey's going insane here. Apple had to think different and require video streaming
-// responses to support byte range requests which don't make sense when you're live streaming video.
-// So we're downloading the video ourselves and appending it to the `SourceBuffer` of a
-// `MediaSource` which we bind to the `video` element. Pretty cool. Wish we didn't have to do this.
+// Use a `MediaSource` to stream the video data directly from the server if we're running in Safari.
+// Apple had to think different and require video streaming responses to support byte range requests
+// which don't really make sense when you're live streaming video. So we're downloading the video
+// ourselves and appending it to the `SourceBuffer` of a `MediaSource` which we bind to the `video`
+// element. Pretty cool. Really wish we didn't have to do this.
+const isUsingMediaSourceBuffer = isSafari && isMediaSourceSupported
+if (isUsingMediaSourceBuffer) {
+  console.log('Using media source buffer for video playback.')
+} else {
+  console.log('Using standard video URL `src` for video playback.')
+}
+
 let mediaSource: MediaSource | null = $shallowRef(null)
 
 // Passed to the `video` element's `src` attribute.
-const mediaSourceUrl = $computed(() => {
-  if (mediaSource == null || isDisposed) {
+const src = $computed(() => {
+  if (isDisposed) {
     return undefined
   }
 
-  return URL.createObjectURL(mediaSource)
+  // If we're using a media source buffer to store video data, once the media source loads, the
+  // video's `src` will be set to its object URL.
+  if (isUsingMediaSourceBuffer) {
+    if (mediaSource == null) {
+      return undefined
+    }
+
+    return URL.createObjectURL(mediaSource)
+  }
+
+  return url
 })
 
-// Determine the `type` to pass to the current source buffer based on the `Content-Type` header of
-// the HTTP response.
-function getSourceBufferType(contentType: string) {
-  let bufferType: string
-  switch (contentType) {
-    case 'video/mp4':
-      bufferType = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"'
-      break
-    case 'video/webm':
-      bufferType = 'video/webm'
-      break
-    default:
-      bufferType = contentType
-      break
-  }
-
-  if (!MediaSource.isTypeSupported(bufferType)) {
-    return null
-  }
-
-  return bufferType
-}
-
-// Sync and live update the media source with data from the given URL.
-async function sync(src: string | null | undefined) {
-  if (src == null) {
+// Sync and live update the media source with data from the given `url`. If the `url` is null or
+// undefined, the media source will be cleared. Only used when using media source buffers.
+async function syncMediaSource(url: string | null | undefined) {
+  if (url == null) {
     mediaSource = null
     state = 'ok'
     return
   }
 
+  // Determine the `type` to pass to the current source buffer based on the `Content-Type` header of
+  // the HTTP response.
+  function getMediaSourceBufferType(contentType: string) {
+    let bufferType: string
+    switch (contentType) {
+      case 'video/mp4':
+        bufferType = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"'
+        break
+      case 'video/webm':
+        bufferType = 'video/webm'
+        break
+      default:
+        bufferType = contentType
+        break
+    }
+
+    if (!MediaSource.isTypeSupported(bufferType)) {
+      return null
+    }
+
+    return bufferType
+  }
+
   state = 'loading'
-  const result = await fetch(src)
+  const result = await fetch(url)
   const contentType = result.headers.get('content-type')
   if (contentType == null) {
     console.error('Failed to get video content type from response headers.')
@@ -93,7 +115,7 @@ async function sync(src: string | null | undefined) {
     return
   }
 
-  const bufferType = getSourceBufferType(contentType)
+  const bufferType = getMediaSourceBufferType(contentType)
   if (bufferType == null) {
     console.error(`Unsupported video content type: "${contentType}"`)
     state = 'error'
@@ -117,8 +139,8 @@ async function sync(src: string | null | undefined) {
 
   // Create a new source buffer.
   const buffer = boundMediaSource.addSourceBuffer(bufferType)
-  // If the media source has changed, likely due to a change in the video `src`, we should exit.
-  while (boundMediaSource === mediaSource && element?.src === mediaSourceUrl) {
+  // If the destination media source has changed we should exit.
+  while (boundMediaSource === mediaSource && element?.src === src) {
     // Wait for the next chunk of video data.
     const { value: chunk } = await reader.read()
     // If the chunk is null, the stream has ended.
@@ -140,9 +162,11 @@ async function sync(src: string | null | undefined) {
   }
 }
 
-// Sync video data whenever the input `src` changes.
+// If using media source buffers, sync video data whenever the input `url` changes.
 watchEffect(() => {
-  sync(src)
+  if (isUsingMediaSourceBuffer) {
+    syncMediaSource(url)
+  }
 })
 
 async function onError() {
@@ -196,7 +220,8 @@ useEventListener('beforeunload', () => {
       :controls="widget.showControls"
       :muted="isMuted"
       playsinline
-      :src="mediaSourceUrl"
+      :src="src"
+      :style="src == null ? { display: 'none' } : {}"
       @error="onError"
       @loadedmetadata="onLoad"
       @play="onPlay"
@@ -215,7 +240,7 @@ useEventListener('beforeunload', () => {
         @click="$emit('reload-requested')"
       />
     </div>
-    <div v-else-if="src === ''" class="full-height items-center justify-center row text-center">
+    <div v-else-if="url == null" class="full-height items-center justify-center row text-center">
       <q-btn color="primary" icon="mdi-video-plus" round @click="$emit('settings-requested')">
         <q-tooltip class="bg-primary text-white">Choose Video</q-tooltip>
       </q-btn>
