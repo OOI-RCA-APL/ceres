@@ -109,6 +109,9 @@ async def rtsp(
                 await asyncio.sleep(0)
         finally:
             # Kill it! Behold, `ffmpeg` does not respect `SIGTERM`, and it does not respect me.
-            process.kill()
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
 
     return StreamingOutput(stream, "video/mp4")
