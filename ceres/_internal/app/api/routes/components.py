@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import traceback
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncIterator,
     Literal,
     Mapping,
     Sequence,
@@ -14,7 +12,6 @@ from typing import (
 )
 
 from fastapi import APIRouter, Body, Request, Response, WebSocket, WebSocketException
-from fastapi.responses import StreamingResponse
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
 from ceres._internal import util
@@ -25,12 +22,11 @@ from ceres._internal.app.shared import (
     CurrentRole,
     CurrentSocket,
 )
-from ceres._internal.util import BytesLike, cancel
 from ceres.address import Address
 from ceres.component import (
     ActionBinding,
+    BaseOutput,
     Component,
-    Media,
     ProcedureAccessLevel,
     ProcedureBinding,
     ProcedureType,
@@ -47,7 +43,6 @@ from ceres.error import (
     ProcedureNotPermittedError,
 )
 from ceres.result import Fail
-from ceres.stream import WriteStream
 from ceres.user import UserRole
 
 if TYPE_CHECKING:
@@ -231,49 +226,10 @@ async def _call(
             return Fail(ProcedureNotPermittedError())
 
         output = await component.system.call(procedure, arguments)
-        if not isinstance(output, Media):
-            return output
+        if isinstance(output, BaseOutput):
+            return output.to_response()
 
-        stream: WriteStream[BytesLike] = WriteStream()
-        writer = asyncio.create_task(output.writer(stream))
-
-        # Convert the bytes-like object to something `StreamingResponse` can handle.
-        def convert(chunk: BytesLike):
-            if isinstance(chunk, bytearray):
-                chunk = bytes(chunk)
-
-            return chunk
-
-        # Yield chunks from the stream. Exit if the writer task is exits, or cancel it if this async
-        # iterator itself is cancelled.
-        async def read() -> AsyncIterator[str | bytes | memoryview]:
-            try:
-                reader = stream.read()
-                while True:
-                    if writer.done() and len(reader) == 0:
-                        break
-                    if await request.is_disconnected():
-                        break
-
-                    try:
-                        async with asyncio.timeout(0.1):
-                            chunk = await anext(reader)
-                    except TimeoutError:
-                        continue
-
-                    yield convert(chunk)
-
-                    # Yield to the event loop.
-                    await asyncio.sleep(0)
-            finally:
-                # Attempt to cancel the writer task if it hasn't already.
-                try:
-                    async with asyncio.timeout(3):
-                        await cancel(writer)
-                except TimeoutError:
-                    pass
-
-        return StreamingResponse(read(), media_type=output.type)
+        return output
 
     except Failure as exception:
         if isinstance(exception.error, ProcedureError):

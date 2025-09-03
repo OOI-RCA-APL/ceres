@@ -19,7 +19,8 @@ const possibleQueries = $computed(() =>
       .filter(
         (procedure) =>
           procedure.type === 'query' &&
-          procedure.output.type === 'media' &&
+          (procedure.output.type === 'file' || procedure.output.type === 'streaming') &&
+          procedure.output.media != null &&
           procedure.output.media.startsWith('video')
       )
       .map((procedure) => [component.address, procedure.name] as [Address, string])

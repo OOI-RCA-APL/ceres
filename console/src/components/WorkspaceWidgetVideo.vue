@@ -4,7 +4,7 @@
 import { useEventListener } from '@vueuse/core'
 import { onBeforeUnmount, watchEffect } from 'vue'
 
-import { isSafari, isMediaSourceSupported } from '@/environment'
+import { isMediaSourceSupported, isSafari } from '@/environment'
 import icons from '@/icons'
 import { getHttpUrl } from '@/utilities'
 import { VideoWidget } from '@/workspace'

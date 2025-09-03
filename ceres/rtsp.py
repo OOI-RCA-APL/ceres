@@ -1,18 +1,21 @@
+from __future__ import annotations
+
 import asyncio
 import subprocess
 import sys
-from os import PathLike
 from shutil import which
+from typing import TYPE_CHECKING, AsyncIterator
 
-from ceres._internal.util import BytesLike
-from ceres.component import Media
-from ceres.stream import WriteStream
+from ceres.component import StreamingOutput
+
+if TYPE_CHECKING:
+    from ceres._internal.util import PathLike
 
 
 async def rtsp(
     url: str,
     *,
-    ffmpeg: str | PathLike[str] | None = None,
+    ffmpeg: PathLike | None = None,
     copy: bool = True,
     loglevel: str | None = "error",
     transport: str = "tcp",
@@ -20,11 +23,11 @@ async def rtsp(
     preset: str | None = "ultrafast",
     fragment_duration: float = 0.05,  # Seconds.
     dash: bool = True,
-) -> Media:
+) -> StreamingOutput:
     """
     Using `ffmpeg`, read from an RTSP stream at the provided URL, then convert it into MP4 format
-    and output the live video into an output stream `Media` object. This media object can be
-    returned directly from component queries/actions to proxy video from an external RTSP source.
+    and output the live video into a `StreamingOutput` object. This object can be returned directly
+    from component queries/actions to proxy video from the external RTSP source.
 
     :param url: The URL of the RTSP stream to read from.
     :param ffmpeg: Optional command or path of the `ffmpeg` executable. Defaults to "ffmpeg".
@@ -47,7 +50,7 @@ async def rtsp(
 
         ffmpeg = "ffmpeg"
 
-    async def write(output: WriteStream[BytesLike]) -> None:
+    async def stream() -> AsyncIterator[bytes]:
         # Flags passed into the `-movflags` option.
         movflags = [
             "empty_moov",  # Don't create a moov atom. Fragment everything.
@@ -84,7 +87,7 @@ async def rtsp(
             "-",
         ]
 
-        # Spawn an async `ffmpeg` subprocess.
+        # Spawn an `ffmpeg` subprocess asyncronously.
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=subprocess.PIPE,
@@ -93,17 +96,19 @@ async def rtsp(
         )
 
         try:
-            # Read all MP4 data from the `ffmpeg` stdout and put it into the output stream.
+            # Yield all MP4 data from `ffmpeg` stdout.
             assert process.stdout is not None
-            await asyncio.sleep(0)
             while True:
                 chunk = await process.stdout.read(2**13)
                 if chunk == b"":
+                    # If the chunk is empty, the stream has ended.
                     break
 
-                output.put(chunk)
+                yield chunk
+                # Yield to the event loop.
+                await asyncio.sleep(0)
         finally:
-            # Kill it! I've learned `ffmpeg` does not respect `SIGTERM`, and it does not respect me.
+            # Kill it! Behold, `ffmpeg` does not respect `SIGTERM`, and it does not respect me.
             process.kill()
 
-    return Media("video/mp4", write)
+    return StreamingOutput(stream, "video/mp4")

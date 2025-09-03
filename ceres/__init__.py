@@ -6,11 +6,13 @@ with lazy_imports(__name__, export=True):
     from ceres.address import AddressSelector as AddressSelector
     from ceres.address import DynamicAddress as DynamicAddress
     from ceres.alert import Alert as Alert
+    from ceres.component import BaseOutput as BaseOutput
     from ceres.component import Component as Component
     from ceres.component import ComponentSystem as ComponentSystem
-    from ceres.component import Media as Media
+    from ceres.component import FileOutput as FileOutput
     from ceres.component import ProcedureAccessLevel as ProcedureAccessLevel
     from ceres.component import ProcedureType as ProcedureType
+    from ceres.component import StreamingOutput as StreamingOutput
     from ceres.component import action as action
     from ceres.component import listener as listener
     from ceres.component import query as query
