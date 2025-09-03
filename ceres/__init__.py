@@ -6,6 +6,9 @@ with lazy_imports(__name__, export=True):
     from ceres.address import AddressSelector as AddressSelector
     from ceres.address import DynamicAddress as DynamicAddress
     from ceres.alert import Alert as Alert
+    from ceres.channel import Channel as Channel
+    from ceres.channel import ChannelReader as ChannelReader
+    from ceres.channel import OutputChannel as OutputChannel
     from ceres.component import BaseOutput as BaseOutput
     from ceres.component import Component as Component
     from ceres.component import ComponentSystem as ComponentSystem
@@ -80,9 +83,6 @@ with lazy_imports(__name__, export=True):
     from ceres.sieve import Sieve as Sieve
     from ceres.statistics import Statistics as Statistics
     from ceres.status import Status as Status
-    from ceres.stream import Stream as Stream
-    from ceres.stream import StreamReader as StreamReader
-    from ceres.stream import WriteStream as WriteStream
     from ceres.threading import spawn as spawn
     from ceres.timing import utc as utc
     from ceres.user import User as User

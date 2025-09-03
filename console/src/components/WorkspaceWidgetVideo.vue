@@ -4,6 +4,7 @@
 import { useEventListener } from '@vueuse/core'
 import { onBeforeUnmount, watchEffect } from 'vue'
 
+import { useEngine } from '@/api/engine'
 import { isMediaSourceSupported, isSafari } from '@/environment'
 import icons from '@/icons'
 import { getHttpUrl } from '@/utilities'
@@ -15,6 +16,8 @@ const { widget } = defineProps<{
 
 defineEmits(['reload-requested', 'settings-requested'])
 
+const engine = useEngine()
+
 const element = $ref<HTMLVideoElement>()
 
 let state = $ref<'loading' | 'error' | 'ok'>('loading')
@@ -25,6 +28,19 @@ let isDisposed = false
 
 const queryComponent = $computed(() => widget.query?.split('::')?.[0] ?? null)
 const queryName = $computed(() => widget.query?.split('::')?.[2] ?? null)
+const queryInfo = $computed(() => {
+  if (queryComponent == null || queryName == null) {
+    return null
+  }
+
+  return (
+    engine.components
+      .get(queryComponent)
+      ?.procedures.find((current) => current.name === queryName && current.type === 'query') ?? null
+  )
+})
+
+const isStreamingOutput = $computed(() => queryInfo?.output.type === 'streaming')
 
 // API URL we video data will be streamed from.
 const url = $computed(() => {
@@ -41,17 +57,24 @@ const url = $computed(() => {
   return getHttpUrl(`/api/components/${queryComponent}/queries/${queryName}/call`)
 })
 
-// Use a `MediaSource` to stream the video data directly from the server if we're running in Safari.
-// Apple had to think different and require video streaming responses to support byte range requests
-// which don't really make sense when you're live streaming video. So we're downloading the video
-// ourselves and appending it to the `SourceBuffer` of a `MediaSource` which we bind to the `video`
-// element. Pretty cool. Really wish we didn't have to do this.
-const isUsingMediaSourceBuffer = isSafari && isMediaSourceSupported
-if (isUsingMediaSourceBuffer) {
-  console.log('Using media source buffer for video playback.')
-} else {
-  console.log('Using standard video URL `src` for video playback.')
-}
+// Use a `MediaSource` to stream the video data directly from the server if we're running in Safari
+// and the query outputs a data stream. Apple had to go ahead and think different and require video
+// streaming responses to support byte range requests which don't really make sense when you're live
+// streaming video. So we're downloading the video ourselves and appending it to the `SourceBuffer`
+// of a `MediaSource` which we bind to the `video` element. Pretty cool. Really wish we didn't have
+// to do this.
+const isUsingMediaSourceBuffer = $computed(
+  () => isStreamingOutput && isSafari && isMediaSourceSupported
+)
+
+// Log which method we're using for video playback.
+watchEffect(() => {
+  if (url && isUsingMediaSourceBuffer) {
+    console.log(`Using media source buffer for video playback of "${url}".`)
+  } else {
+    console.log(`Using standard video "src" URL for video playback of "${url}".`)
+  }
+})
 
 let mediaSource: MediaSource | null = $shallowRef(null)
 

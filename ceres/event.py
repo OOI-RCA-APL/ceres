@@ -21,9 +21,9 @@ from pydantic import ByteSize, Field
 from ceres._internal import util
 from ceres._internal.manager import BaseNodeManager
 from ceres.address import Address
+from ceres.channel import Channel, OutputChannel
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, uuid7
 from ceres.level import Level
-from ceres.stream import Stream, WriteStream
 from ceres.timing import utc
 
 if TYPE_CHECKING:
@@ -548,13 +548,13 @@ if TYPE_CHECKING:
 
 class NodeEventManager(BaseNodeManager):
     __slots__ = (
-        "__stream",
+        "__channel",
         "__listeners",
     )
 
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
-        self.__stream: WriteStream[Event] = WriteStream()
+        self.__channel: Channel[Event] = Channel()
         self.__listeners = (
             []
             if self.__system__ is None
@@ -589,8 +589,8 @@ class NodeEventManager(BaseNodeManager):
         while not self.settled:
             await util.concurrently(listener.settle() for listener in self.__listeners)
 
-    def follow(self) -> Stream[Event]:
-        return self.__stream.view()
+    def follow(self) -> OutputChannel[Event]:
+        return self.__channel.output()
 
     def emit[**P, T: Event](
         self,
@@ -633,7 +633,7 @@ class NodeEventManager(BaseNodeManager):
                     self.__node__.log.alert(event.alert)
 
         # Add the event to the outgoing event stream.
-        self.__stream.put(event)
+        self.__channel.put(event)
 
         container = self.__node__.__container__
 

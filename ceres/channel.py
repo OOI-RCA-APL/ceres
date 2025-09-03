@@ -29,7 +29,7 @@ def _get_running_loop() -> AbstractEventLoop | None:
 
 
 @final
-class StreamReader[T](AsyncIterator[T]):
+class ChannelReader[T](AsyncIterator[T]):
     __slots__ = (
         "_source",
         "_queue",
@@ -37,7 +37,7 @@ class StreamReader[T](AsyncIterator[T]):
         "__weakref__",
     )
 
-    def __init__(self, source: Stream[T]) -> None:
+    def __init__(self, source: OutputChannel[T]) -> None:
         self._source = source
         self._queue: AsyncQueue[T] = AsyncQueue()
 
@@ -49,7 +49,7 @@ class StreamReader[T](AsyncIterator[T]):
         self.attach()
 
     @property
-    def source(self) -> Stream[T]:
+    def source(self) -> OutputChannel[T]:
         return self._source
 
     @property
@@ -141,70 +141,70 @@ class StreamReader[T](AsyncIterator[T]):
         return loop
 
 
-class Stream[T](AsyncIterable[T]):
+class OutputChannel[T](AsyncIterable[T]):
     __slots__ = (
         "_source",
         "_readers",
-        "_derived",
+        "_outputs",
         "_every",
         "_filter",
         "_map",
         "__weakref__",
     )
 
-    def __init__(self, source: Stream[T] | None = None) -> None:
+    def __init__(self, source: OutputChannel[T] | None = None) -> None:
         self._source = source
-        self._readers: WeakSet[StreamReader[T]] = WeakSet()
-        self._derived: WeakSet[Stream[T]] = WeakSet()
+        self._readers: WeakSet[ChannelReader[T]] = WeakSet()
+        self._outputs: WeakSet[OutputChannel[T]] = WeakSet()
         self._every: type[T] | None = None
         self._filter: Callable[[T], bool] | None = None
         self._map: Callable[[T], Any] | None = None
 
         if source is not None:
-            source._derived.add(self)
+            source._outputs.add(self)
 
     @property
-    def readers(self) -> Sequence[StreamReader[T]]:
+    def readers(self) -> Sequence[ChannelReader[T]]:
         return list(self._readers)
 
     @override
-    def __aiter__(self) -> StreamReader[T]:
+    def __aiter__(self) -> ChannelReader[T]:
         return self.read()
 
-    def read(self) -> StreamReader[T]:
-        return StreamReader(self)
+    def read(self) -> ChannelReader[T]:
+        return ChannelReader(self)
 
-    def view(self) -> Stream[T]:
-        return Stream(self)
-
-    @overload
-    def every[O](self, cls: type[O], /) -> Stream[O]: ...
+    def output(self) -> OutputChannel[T]:
+        return OutputChannel(self)
 
     @overload
-    def every[O](self, cls: O, /) -> Stream[O]: ...
+    def every[O](self, cls: type[O], /) -> OutputChannel[O]: ...
 
-    def every[O](self, cls: O | type[O], /) -> Stream[O]:
-        derived = cast("Stream[O]", Stream(self))
-        derived._every = cls  # type: ignore
-        return derived
+    @overload
+    def every[O](self, cls: O, /) -> OutputChannel[O]: ...
 
-    def filter(self, filter: Callable[[T], bool], /) -> Stream[T]:
-        derived = Stream(self)
-        derived._filter = filter
-        return derived
+    def every[O](self, cls: O | type[O], /) -> OutputChannel[O]:
+        output = cast("OutputChannel[O]", OutputChannel(self))
+        output._every = cls  # type: ignore
+        return output
 
-    def map[O](self, transform: Callable[[T], O], /) -> Stream[O]:
-        derived = cast("Stream[O]", Stream(self))
-        derived._map = transform  # type: ignore
-        return derived
+    def filter(self, filter: Callable[[T], bool], /) -> OutputChannel[T]:
+        output = OutputChannel(self)
+        output._filter = filter
+        return output
 
-    def _is_registered(self, reader: StreamReader[Any]) -> bool:
+    def map[O](self, transform: Callable[[T], O], /) -> OutputChannel[O]:
+        output = cast("OutputChannel[O]", OutputChannel(self))
+        output._map = transform  # type: ignore
+        return output
+
+    def _is_registered(self, reader: ChannelReader[Any]) -> bool:
         return reader in self._readers
 
-    def _register(self, reader: StreamReader[T]) -> None:
+    def _register(self, reader: ChannelReader[T]) -> None:
         self._readers.add(reader)
 
-    def _unregister(self, reader: StreamReader[T]) -> None:
+    def _unregister(self, reader: ChannelReader[T]) -> None:
         self._readers.discard(reader)
 
     def _put(self, value: T) -> None:
@@ -220,10 +220,10 @@ class Stream[T](AsyncIterable[T]):
 
         for reader in self._readers:
             reader._put(value)
-        for child in self._derived:
-            child._put(value)
+        for output in self._outputs:
+            output._put(value)
 
 
-class WriteStream[T](Stream[T]):
+class Channel[T](OutputChannel[T]):
     def put(self, value: T) -> None:
         super()._put(value)

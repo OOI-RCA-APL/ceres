@@ -31,11 +31,24 @@ const possibleQueryNames = $computed(() =>
   possibleQueries.map(([address, name]) => `${address}::query::${name}`)
 )
 
-watch([() => widget.autoplay, () => widget.startMuted], () => {
-  if (widget.autoplay) {
-    widget.startMuted = false
-  }
-})
+watch(
+  [() => widget.autoplay],
+  () => {
+    if (widget.autoplay) {
+      widget.startMuted = true
+    }
+  },
+  { immediate: true }
+)
+watch(
+  [() => widget.startMuted],
+  () => {
+    if (!widget.startMuted) {
+      widget.autoplay = false
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -71,6 +84,7 @@ watch([() => widget.autoplay, () => widget.startMuted], () => {
                 type: 'boolean',
                 title: 'Start Muted',
               }"
+              :style="widget.autoplay && { opacity: 0.6 }"
             />
           </div>
           <div class="col">

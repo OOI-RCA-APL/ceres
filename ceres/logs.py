@@ -43,8 +43,8 @@ if TYPE_CHECKING:
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
+    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
-    from ceres.stream import Stream
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):
@@ -293,7 +293,7 @@ class BoundLogManager(LogManager, BaseNodeManager):
         self,
         filter: LogEntryFilter | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> Stream[LogEntry]:
+    ) -> OutputChannel[LogEntry]:
         from ceres.event import LogEvent
 
         filter = self._get_resolved_filter_args(filter, kwargs)

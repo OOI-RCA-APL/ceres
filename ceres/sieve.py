@@ -10,6 +10,7 @@ from typing_extensions import TypeVar
 
 from ceres._internal import util
 from ceres._internal.manager import BaseComponentManager
+from ceres.channel import Channel
 from ceres.data import Name, ValidatedDataclass
 from ceres.error import ParticleError
 from ceres.event import (
@@ -24,7 +25,6 @@ from ceres.event import (
     SieveStoppedEvent,
 )
 from ceres.particle import Particle
-from ceres.stream import WriteStream
 
 if TYPE_CHECKING:
     from ceres._internal.protocols import ComponentSource
@@ -71,7 +71,7 @@ class ComponentSieveManager(BaseComponentManager):
         self.__runners: dict[Name, Task[None]] = {}
         self.__running = False
         self.__stopping = False
-        self.__syncs: WriteStream[SieveConfig] = WriteStream()
+        self.__syncs: Channel[SieveConfig] = Channel()
 
     @property
     def count(self) -> int:

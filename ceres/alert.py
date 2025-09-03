@@ -47,8 +47,8 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
-    from ceres.stream import Stream
 
 
 class AlertRow(BaseRecordRow, kw_only=True):
@@ -289,7 +289,7 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
         self,
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
-    ) -> Stream[Alert]:
+    ) -> OutputChannel[Alert]:
         from ceres.event import AlertEvent
 
         resolved = self._get_resolved_filter_args(filter, kwargs)

@@ -41,8 +41,8 @@ if TYPE_CHECKING:
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
+    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
-    from ceres.stream import Stream
 
 
 class VariableRow(BaseAddressEntityRow, kw_only=True):
@@ -299,7 +299,7 @@ class BoundVariableManager(VariableManager, BaseNodeManager):
         self,
         filter: VariableFilter | None = None,
         **kwargs: Unpack[VariableFilterArgs],
-    ) -> Stream[Variable]:
+    ) -> OutputChannel[Variable]:
         from ceres.event import VariableAssignedEvent
 
         filter = self._get_resolved_filter_args(filter, kwargs)
