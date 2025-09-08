@@ -48,8 +48,8 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
-    from ceres.stream import Stream
 
 
 class MessageDirection(StrEnum):
@@ -262,7 +262,7 @@ class BoundMessageManager(MessageManager, BaseNodeManager):
         self,
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
-    ) -> Stream[Message]:
+    ) -> OutputChannel[Message]:
         from ceres.event import MessageEvent, MessageReceivedEvent
 
         resolved = self._get_resolved_filter_args(filter, kwargs)

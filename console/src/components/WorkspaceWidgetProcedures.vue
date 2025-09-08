@@ -47,55 +47,57 @@ watchEffect(() => {
 </script>
 
 <template>
-  <div class="q-col-gutter-sm row">
-    <div class="col">
-      <q-select
-        v-model="widget.procedureAddress"
-        dense
-        filled
-        label="Component"
-        :options="engine.components.all.map((current) => current.address.toString())"
-        options-dense
-      />
-    </div>
-    <div :class="$style.procedureTypeColumn">
-      <q-select
-        v-model="widget.procedureType"
-        dense
-        filled
-        label="Procedure Type"
-        :option-label="upperFirst"
-        :options="['action', 'query']"
-        options-dense
-      />
-    </div>
-  </div>
-  <q-separator class="q-my-sm" />
   <div>
-    <template v-if="procedures.length">
-      <div class="row">
-        <div class="col">
-          <q-select
-            v-model="widget.procedureName"
-            class="monospace-md q-mb-sm"
-            dense
-            filled
-            :label="upperFirst(widget.procedureType)"
-            :options="procedures.map((procedure) => procedure.name)"
-            options-dense
-            popup-content-class="no-shadow monospace-md"
-          />
+    <div class="q-col-gutter-sm row">
+      <div class="col">
+        <q-select
+          v-model="widget.procedureAddress"
+          dense
+          filled
+          label="Component"
+          :options="engine.components.all.map((current) => current.address.toString())"
+          options-dense
+        />
+      </div>
+      <div :class="$style.procedureTypeColumn">
+        <q-select
+          v-model="widget.procedureType"
+          dense
+          filled
+          label="Procedure Type"
+          :option-label="upperFirst"
+          :options="['action', 'query']"
+          options-dense
+        />
+      </div>
+    </div>
+    <q-separator class="q-my-sm" />
+    <div>
+      <template v-if="procedures.length">
+        <div class="row">
+          <div class="col">
+            <q-select
+              v-model="widget.procedureName"
+              class="monospace-md q-mb-sm"
+              dense
+              filled
+              :label="upperFirst(widget.procedureType)"
+              :options="procedures.map((procedure) => procedure.name)"
+              options-dense
+              popup-content-class="no-shadow monospace-md"
+            />
+          </div>
         </div>
-      </div>
-      <template v-if="selected != null && component != null">
-        <procedure :key="selected.name" :address="component.address" :procedure="selected" />
+        <template v-if="selected != null && component != null">
+          <procedure :key="selected.name" :address="component.address" :procedure="selected" />
+        </template>
       </template>
-    </template>
-    <template v-else>
-      <div class="items-center justify-center q-pa-sm row" :style="{ opacity: 0.5 }">
-        No available {{ typePlural }} were found.
-      </div>
-    </template>
+      <template v-else>
+        <div class="items-center justify-center q-pa-sm row" :style="{ opacity: 0.5 }">
+          No available {{ typePlural }} were found.
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 

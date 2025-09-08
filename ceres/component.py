@@ -4,11 +4,13 @@ import asyncio
 import inspect
 import traceback
 import warnings
+from abc import abstractmethod
 from asyncio import CancelledError, TaskGroup
 from dataclasses import InitVar, field
 from datetime import timedelta
 from functools import cached_property
 from inspect import Parameter
+from pathlib import Path
 from string import ascii_lowercase
 from types import MappingProxyType, UnionType
 from typing import (
@@ -40,10 +42,17 @@ from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.protocols import ComponentSource
-from ceres._internal.util import OrderedWeakSet, Undefined
+from ceres._internal.util import OrderedWeakSet, PathLike, Undefined
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import ComponentConfig, JobConfig, PrunerConfig, SieveConfig
-from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta, StrEnum, ValidatedDataclass
+from ceres.data import (
+    ImmutableDataObject,
+    Name,
+    OrderedStrEnum,
+    PositiveTimeDelta,
+    StrEnum,
+    ValidatedDataclass,
+)
 from ceres.error import (
     Failure,
     ProcedureInternalError,
@@ -78,6 +87,7 @@ from ceres.variable import InternalVariableName, Variable
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
+    from starlette.responses import FileResponse, Response, StreamingResponse
 
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
@@ -390,18 +400,67 @@ class ProcedureSchemas(ImmutableDataObject):
     output: Mapping[str, Any]
 
 
+class ProcedureOutputType(StrEnum):
+    VALUE = "value"
+    STREAMING = "streaming"
+    FILE = "file"
+
+
 class ProcedureArgumentsInfo(ImmutableDataObject):
     json_schema: Mapping[str, Any]
     required: bool
 
 
-class ProcedureOutputInfo(ImmutableDataObject):
+class ProcedureValueOutputInfo(ImmutableDataObject):
+    type: Literal[ProcedureOutputType.VALUE] = ProcedureOutputType.VALUE
     json_schema: Mapping[str, Any]
 
 
+class ProcedureFileOutputInfo(ImmutableDataObject):
+    type: Literal[ProcedureOutputType.FILE] = ProcedureOutputType.FILE
+    media: str | None = None
+
+
+class ProcedureStreamingOutputInfo(ImmutableDataObject):
+    type: Literal[ProcedureOutputType.STREAMING] = ProcedureOutputType.STREAMING
+    media: str
+
+
+ProcedureOutputInfo: TypeAlias = (
+    ProcedureValueOutputInfo | ProcedureFileOutputInfo | ProcedureStreamingOutputInfo
+)
+
+
+class ProcedureAccessLevel(OrderedStrEnum):
+    @classmethod
+    @override
+    def __order_mapping__(cls) -> dict[ProcedureAccessLevel, int]:
+        from ceres.user import UserRole
+
+        return {
+            cls.PUBLIC: UserRole.VIEWER.order - 1,
+            cls.VIEWERS: UserRole.VIEWER.order,
+            cls.OPERATORS: UserRole.OPERATOR.order,
+            cls.ADMINS: UserRole.ADMIN.order,
+        }
+
+    PUBLIC = "public"
+    VIEWERS = "viewers"
+    OPERATORS = "operators"
+    ADMINS = "admins"
+
+
+RawProcedureAccessLevel = Literal["public", "viewers", "operators", "admins"]
+ProcedureAccessLevelInput = ProcedureAccessLevel | RawProcedureAccessLevel
+
+ProcedurePermissions = ProcedureAccessLevel
+ProcedurePermissionsInput = ProcedureAccessLevelInput
+
+
 class __BaseProcedureBinding(ImmutableDataObject):
-    name: Name
     type: ProcedureType
+    name: Name
+    permissions: ProcedurePermissions
     method: str
     live: bool
     arguments: ProcedureArgumentsInfo | None
@@ -420,13 +479,136 @@ class ActionBinding(__BaseProcedureBinding):
 ProcedureBinding = QueryBinding | ActionBinding
 
 
+OutputResponse: TypeAlias = "Response"
+OutputMediaType: TypeAlias = str
+
+
+class BaseOutput:
+    @abstractmethod
+    def to_response(self) -> OutputResponse: ...
+
+
+class FileOutput(BaseOutput):
+    __slots__ = (
+        "path",
+        "media",
+        "http_status",
+        "http_headers",
+        "http_filename",
+        "on_exit",
+    )
+
+    def __init__(
+        self,
+        path: PathLike,
+        media: OutputMediaType | None = None,
+        *,
+        http_status: int = 200,
+        http_headers: Mapping[str, str] | None = None,
+        http_filename: str | None = None,
+        on_exit: Callable[[], Awaitable[Any]] | None = None,
+    ) -> None:
+        self.path = Path(path)
+        self.media = media
+        self.http_status = http_status
+        self.http_headers = http_headers
+        self.http_filename = http_filename
+        self.on_exit = on_exit
+
+    @override
+    def to_response(self) -> FileResponse:
+        from starlette.background import BackgroundTask
+        from starlette.responses import FileResponse
+
+        if self.on_exit is not None:
+            background = BackgroundTask(self.on_exit)
+        else:
+            background = None
+
+        return FileResponse(
+            self.path,
+            media_type=self.media,
+            status_code=self.http_status,
+            headers=self.http_headers,
+            filename=self.http_filename,
+            background=background,
+        )
+
+
+DataStreamChunk: TypeAlias = bytes | memoryview
+DataStream: TypeAlias = (
+    AsyncIterable[DataStreamChunk] | Callable[[], AsyncIterable[DataStreamChunk]]
+)
+
+
+class StreamingOutput(BaseOutput):
+    __slots__ = (
+        "stream",
+        "media",
+        "http_status",
+        "http_headers",
+        "on_exit",
+    )
+
+    def __init__(
+        self,
+        stream: DataStream,
+        media: OutputMediaType,
+        *,
+        http_status: int = 200,
+        http_headers: Mapping[str, str] | None = None,
+        on_exit: Callable[[], Awaitable[Any]] | None = None,
+    ) -> None:
+        self.stream = stream
+        self.media = media
+        self.http_status = http_status
+        self.http_headers = http_headers
+        self.on_exit = on_exit
+
+    @override
+    def to_response(self) -> StreamingResponse:
+        from starlette.background import BackgroundTask
+        from starlette.responses import StreamingResponse
+
+        if callable(self.stream):
+            stream = self.stream()
+        else:
+            stream = self.stream
+
+        if self.on_exit is not None:
+            background = BackgroundTask(self.on_exit)
+        else:
+            background = None
+
+        return StreamingResponse(
+            stream,
+            media_type=self.media,
+            status_code=self.http_status,
+            headers=self.http_headers,
+            background=background,
+        )
+
+
+Output: TypeAlias = FileOutput | StreamingOutput
+
+
 @overload
 def query[**P, T](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
+def query[**P, T: BaseOutput | Awaitable[BaseOutput]](
+    *,
+    media: str,
+    permit: ProcedurePermissionsInput = ...,
+) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+
+@overload
 def query[**P, T](
-    *, poll: float | timedelta = ...
+    *,
+    poll: float | timedelta = ...,
+    permit: ProcedurePermissionsInput = ...,
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
@@ -434,13 +616,16 @@ def query[**P, T](
     method: Callable[P, T] | None = None,
     *,
     poll: float | timedelta = timedelta(seconds=5),
+    media: str | None = None,
+    permit: ProcedurePermissionsInput = ProcedureAccessLevel.PUBLIC,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def query(method: Callable[P, T]) -> Callable[P, T]:
-        info = __get_procedure_method_info(method, ProcedureType.QUERY)
+        info = __get_procedure_method_info(method, ProcedureType.QUERY, media)
         _bind(
             method,
             QueryBinding(
                 name=_get_bound_name(method),
+                permissions=ProcedureAccessLevel(permit),
                 method=util.get_function_name(method),
                 arguments=info.arguments,
                 output=info.output,
@@ -462,18 +647,26 @@ def action[**P, T](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
-def action[**P, T]() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+def action[**P, T](
+    *,
+    media: str | None = None,
+    permit: ProcedurePermissionsInput = ...,
+) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
 def action[**P, T](
     method: Callable[P, T] | None = None,
+    *,
+    media: str | None = None,
+    permit: ProcedurePermissionsInput = ProcedureAccessLevel.OPERATORS,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def action(method: Callable[P, T]) -> Callable[P, T]:
-        validated = __get_procedure_method_info(method, ProcedureType.ACTION)
+        validated = __get_procedure_method_info(method, ProcedureType.ACTION, media)
         _bind(
             method,
             ActionBinding(
                 name=_get_bound_name(method),
+                permissions=ProcedureAccessLevel(permit),
                 method=util.get_function_name(method),
                 arguments=validated.arguments,
                 output=validated.output,
@@ -500,6 +693,7 @@ class __ProcedureMethodInfo(ImmutableDataObject):
 def __get_procedure_method_info(
     method: Callable[..., Any],
     type_: ProcedureType,
+    media: str | None,
     /,
 ) -> __ProcedureMethodInfo:
     method = util.get_inner_function(method)
@@ -513,6 +707,10 @@ def __get_procedure_method_info(
 
     arguments_json_schema = util.get_args_model(method).model_json_schema()
     arguments_required = len(arguments_json_schema.get("properties", {}).get("required", [])) > 0
+    arguments = ProcedureArgumentsInfo(
+        json_schema=arguments_json_schema,
+        required=arguments_required,
+    )
 
     output_annotation = util.get_return_annotation(method, Undefined)
     if output_annotation is Undefined:
@@ -533,24 +731,35 @@ def __get_procedure_method_info(
         except Exception:
             raise error
 
-    try:
-        output_json_schema = util.get_type_adapter(output_annotation).json_schema()
-    except Exception as exception:
-        raise ValueError(
-            f"output type of {type_} {util.strify(method)} must be serializable as a JSON object: "
-            f"{exception}"
-        )
+    if isinstance(output_annotation, type) and issubclass(output_annotation, BaseOutput):
+        if issubclass(output_annotation, StreamingOutput):
+            if media is None:
+                raise ValueError(
+                    f"`media` type must be specified for {type_} {util.strify(method)}"
+                )
+
+            output = ProcedureStreamingOutputInfo(media=media)
+        elif issubclass(output_annotation, FileOutput):
+            output = ProcedureFileOutputInfo(media=media)
+        else:
+            raise ValueError(
+                f"output type of {type_} {util.strify(method)} must be either `FileOutput` or `StreamingOutput` if it is a subtype of `Output`."
+            )
+    else:
+        try:
+            output_json_schema = util.get_type_adapter(output_annotation).json_schema()
+            output = ProcedureValueOutputInfo(json_schema=output_json_schema)
+        except Exception as exception:
+            raise ValueError(
+                f"output type of {type_} {util.strify(method)} must be either a JSON serializable type, `FileOutput` or `StreamingOutput`. Type is not JSON serializable: "
+                f"{exception}"
+            )
 
     return __ProcedureMethodInfo(
         name=_get_bound_name(method),
         method=util.get_function_name(method),
-        arguments=ProcedureArgumentsInfo(
-            json_schema=arguments_json_schema,
-            required=arguments_required,
-        ),
-        output=ProcedureOutputInfo(
-            json_schema=output_json_schema,
-        ),
+        arguments=arguments,
+        output=output,
         live=live,
     )
 
@@ -1473,26 +1682,30 @@ class ComponentSystem(Node, ComponentSource):
         if binding is None:
             raise Failure(ProcedureNotFoundError)
 
-        result = await self.__invoke(procedure, arguments)
+        output = await self.__invoke(procedure, arguments)
+
+        if isinstance(output, BaseOutput):
+            # If the result is an `Output` object, just return it directly.
+            return output
 
         if not binding.live:
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
-            return result
+            return output
 
         try:
             match binding:
                 # If the procedure is a live query, we just return the first output.
                 case QueryBinding():
-                    async for output in result:
-                        return output
+                    async for current in output:
+                        return current
 
                     return None
                 # If the procedure is a live action, iterate through all outputs and return the
                 # last one.
                 case ActionBinding():
                     last: object | None = None
-                    async for output in result:
-                        last = output
+                    async for current in output:
+                        last = current
                     return last
         except Exception as exception:
             traceback = util.get_traceback(exception)
@@ -1513,7 +1726,7 @@ class ComponentSystem(Node, ComponentSource):
         if binding is None:
             raise Failure(ProcedureNotFoundError)
 
-        result = await self.__invoke(procedure, arguments)
+        output = await self.__invoke(procedure, arguments)
 
         if not binding.live:
             if isinstance(binding, ActionBinding):
@@ -1532,9 +1745,9 @@ class ComponentSystem(Node, ComponentSource):
                 raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
         try:
-            if result is not None:
-                async for output in result:
-                    yield output
+            if output is not None:
+                async for current in output:
+                    yield current
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
         except CancelledError:
             self.events.emit(ProcedureCancelledEvent, procedure=procedure)

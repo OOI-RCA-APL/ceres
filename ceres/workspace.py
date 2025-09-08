@@ -66,10 +66,10 @@ if TYPE_CHECKING:
     from ceres.database import DatabaseType
 
 
-class WorkspaceAccessRestriction(OrderedStrEnum):
+class WorkspaceAccessLevel(OrderedStrEnum):
     @classmethod
     @override
-    def __order_mapping__(cls) -> dict[WorkspaceAccessRestriction, int]:
+    def __order_mapping__(cls) -> dict[WorkspaceAccessLevel, int]:
         return {
             cls.ANYONE: UserRole.VIEWER.order,
             cls.OPERATORS: UserRole.OPERATOR.order,
@@ -466,20 +466,20 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "workspaces"
 
     name: Mapped[str] = mapped_column(Text)
-    general_viewership: Mapped[WorkspaceAccessRestriction] = mapped_column(
-        EnumMapper(WorkspaceAccessRestriction),
-        default=WorkspaceAccessRestriction.PRIVATE,
-        server_default=str(WorkspaceAccessRestriction.PRIVATE),
+    general_viewership: Mapped[WorkspaceAccessLevel] = mapped_column(
+        EnumMapper(WorkspaceAccessLevel),
+        default=WorkspaceAccessLevel.PRIVATE,
+        server_default=str(WorkspaceAccessLevel.PRIVATE),
     )
-    general_editorship: Mapped[WorkspaceAccessRestriction] = mapped_column(
-        EnumMapper(WorkspaceAccessRestriction),
-        default=WorkspaceAccessRestriction.PRIVATE,
-        server_default=str(WorkspaceAccessRestriction.PRIVATE),
+    general_editorship: Mapped[WorkspaceAccessLevel] = mapped_column(
+        EnumMapper(WorkspaceAccessLevel),
+        default=WorkspaceAccessLevel.PRIVATE,
+        server_default=str(WorkspaceAccessLevel.PRIVATE),
     )
-    general_managership: Mapped[WorkspaceAccessRestriction] = mapped_column(
-        EnumMapper(WorkspaceAccessRestriction),
-        default=WorkspaceAccessRestriction.PRIVATE,
-        server_default=str(WorkspaceAccessRestriction.PRIVATE),
+    general_managership: Mapped[WorkspaceAccessLevel] = mapped_column(
+        EnumMapper(WorkspaceAccessLevel),
+        default=WorkspaceAccessLevel.PRIVATE,
+        server_default=str(WorkspaceAccessLevel.PRIVATE),
     )
     data: Mapped[JSONSerializableDict] = mapped_column(
         JSON,
@@ -495,17 +495,17 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
             PrimaryKeyConstraint(cls.id, name=f"pk_{cls.__tablename__}"),
             EnumConstraint(
                 cls.general_viewership,
-                WorkspaceAccessRestriction,
+                WorkspaceAccessLevel,
                 name=f"ck_{cls.__tablename__}__general_viewership",
             ),
             EnumConstraint(
                 cls.general_editorship,
-                WorkspaceAccessRestriction,
+                WorkspaceAccessLevel,
                 name=f"ck_{cls.__tablename__}__general_editorship",
             ),
             EnumConstraint(
                 cls.general_managership,
-                WorkspaceAccessRestriction,
+                WorkspaceAccessLevel,
                 name=f"ck_{cls.__tablename__}__general_managership",
             ),
         )
@@ -548,9 +548,9 @@ class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrde
     name_contains: MaybeSequence[str] | None
     name_prefix: MaybeSequence[str] | None
     name_suffix: MaybeSequence[str] | None
-    general_viewership: MaybeSequence[WorkspaceAccessRestriction]
-    general_editorship: MaybeSequence[WorkspaceAccessRestriction]
-    general_managership: MaybeSequence[WorkspaceAccessRestriction]
+    general_viewership: MaybeSequence[WorkspaceAccessLevel]
+    general_editorship: MaybeSequence[WorkspaceAccessLevel]
+    general_managership: MaybeSequence[WorkspaceAccessLevel]
     viewable_by: MaybeSequence[UUID] | None
     editable_by: MaybeSequence[UUID] | None
     manageable_by: MaybeSequence[UUID] | None
@@ -566,11 +566,11 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
     """Filter by `name` starting with one or more given prefixes."""
     name_suffix: MaybeSequence[str] | None = None
     """Filter by `name` ending with one or more given suffixes."""
-    general_viewership: MaybeSequence[WorkspaceAccessRestriction] | None = None
+    general_viewership: MaybeSequence[WorkspaceAccessLevel] | None = None
     """Filter by `general_viewership` being equal to one or more given access levels."""
-    general_editorship: MaybeSequence[WorkspaceAccessRestriction] | None = None
+    general_editorship: MaybeSequence[WorkspaceAccessLevel] | None = None
     """Filter by `general_editorship` being equal to one or more given access levels."""
-    general_managership: MaybeSequence[WorkspaceAccessRestriction] | None = None
+    general_managership: MaybeSequence[WorkspaceAccessLevel] | None = None
     """Filter by `general_managership` being equal to one or more given access levels."""
     viewable_by: MaybeSequence[UUID] | None = None
     """Filter, matching only workspaces viewable by one or more given user IDs."""
@@ -643,7 +643,7 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
                     columns.id.in_(
                         select(columns.id).where(
                             _ordered_enum_value(
-                                WorkspaceAccessRestriction,
+                                WorkspaceAccessLevel,
                                 general_access_restriction,
                             )
                             <= _ordered_enum_value(
@@ -679,9 +679,9 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
 
 class WorkspaceCreate(BaseUUIDEntityCreate):
     name: NonEmptyStr
-    general_viewership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
-    general_editorship: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
-    general_managership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
+    general_viewership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
+    general_editorship: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
+    general_managership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
     data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -709,9 +709,9 @@ class WorkspaceCreate(BaseUUIDEntityCreate):
 
 class WorkspaceUpdate(TypedDict, total=False):
     name: NonEmptyStr
-    general_viewership: WorkspaceAccessRestriction
-    general_editorship: WorkspaceAccessRestriction
-    general_managership: WorkspaceAccessRestriction
+    general_viewership: WorkspaceAccessLevel
+    general_editorship: WorkspaceAccessLevel
+    general_managership: WorkspaceAccessLevel
     data: FromYAML[JSONSerializableDict]
 
 

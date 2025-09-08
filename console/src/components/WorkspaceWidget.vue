@@ -1,21 +1,11 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
-import WorkspaceWidgetAlerts from '@/components/WorkspaceWidgetAlerts.vue'
-import WorkspaceWidgetChart from '@/components/WorkspaceWidgetChart.vue'
-import WorkspaceWidgetChartEdit from '@/components/WorkspaceWidgetChartEdit.vue'
-import WorkspaceWidgetLogs from '@/components/WorkspaceWidgetLogs.vue'
-import WorkspaceWidgetMessages from '@/components/WorkspaceWidgetMessages.vue'
-import WorkspaceWidgetParticles from '@/components/WorkspaceWidgetParticles.vue'
-import WorkspaceWidgetProcedures from '@/components/WorkspaceWidgetProcedures.vue'
-import WorkspaceWidgetUi from '@/components/WorkspaceWidgetUi.vue'
-import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
-import WorkspaceWidgetValueEdit from '@/components/WorkspaceWidgetValueEdit.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
-import { widgetInfos, useWorkspace, Widget, WidgetRow } from '@/workspace'
+import { getWidgetInfo, useWorkspace, Widget, WidgetRow } from '@/workspace'
 
-defineProps<{
+const { widget } = defineProps<{
   widget: Widget
   container: WidgetRow
   row: number
@@ -25,9 +15,33 @@ defineProps<{
 const workspace = useWorkspace()
 const preferences = usePreferences()
 
-const darkModeKey = $computed(() => String(preferences.isDarkModeEnabled))
+const info = $computed(() => getWidgetInfo(widget.type))
+const settingsComponent = $computed(() => {
+  if ('settingsComponent' in info) {
+    return info.settingsComponent
+  }
 
-let isShowingEditDialog = $ref(false)
+  return null
+})
+
+let isShowingSettingsDialog = $ref(false)
+let reloads = $ref(0)
+
+function onReloadRequested() {
+  reloads++
+}
+
+function onSettingsRequested() {
+  isShowingSettingsDialog = true
+}
+
+const key = $computed(() => {
+  if (info.options.reloadOnThemeChange) {
+    return String(preferences.isDarkModeEnabled) + '/' + String(reloads)
+  }
+
+  return String(reloads)
+})
 </script>
 
 <template>
@@ -71,22 +85,20 @@ let isShowingEditDialog = $ref(false)
             </q-popup-edit>
           </common-text>
         </div>
-        <div v-if="widget.type === 'chart' || widget.type === 'value'">
+        <div v-if="settingsComponent != null">
           <q-btn
             class="faded-hover"
             flat
             :icon="icons.settings"
             round
             size="7px"
-            @click.stop="isShowingEditDialog = true"
+            @click.stop="isShowingSettingsDialog = true"
             @mousedown.stop
             @touchstart.stop
           >
-            <q-dialog v-model="isShowingEditDialog">
+            <q-dialog v-model="isShowingSettingsDialog">
               <q-card bordered :class="$style.editDialog" flat outline>
-                <workspace-widget-chart-edit v-if="widget.type === 'chart'" :widget="widget" />
-                <workspace-widget-value-edit v-if="widget.type === 'value'" :widget="widget" />
-
+                <component :is="settingsComponent as any" :widget="widget" />
                 <q-separator />
                 <q-btn
                   class="full-width"
@@ -94,7 +106,7 @@ let isShowingEditDialog = $ref(false)
                   dense
                   flat
                   label="Done"
-                  @click="isShowingEditDialog = false"
+                  @click="isShowingSettingsDialog = false"
                 />
               </q-card>
             </q-dialog>
@@ -159,6 +171,17 @@ let isShowingEditDialog = $ref(false)
         </div>
         <q-space />
         <q-btn
+          class="faded-hover"
+          flat
+          round
+          size="7px"
+          @click.prevent="onReloadRequested"
+          @mousedown.stop
+          @touchstart.stop
+        >
+          <q-icon :name="icons.refresh" size="12px" />
+        </q-btn>
+        <q-btn
           flat
           round
           size="7px"
@@ -173,40 +196,15 @@ let isShowingEditDialog = $ref(false)
     <template v-if="!container.collapsed">
       <q-separator />
       <div
-        :class="[$style.content, 'col-grow overflow-auto', widgetInfos[widget.type].paddingClass]"
+        :key="key"
+        :class="[$style.content, 'col-grow overflow-auto', info.options.paddingClass]"
       >
-        <workspace-widget-messages
-          v-if="widget.type === 'messages'"
-          class="full-height"
+        <component
+          :is="info.component as any"
+          :class="info.options.fullHeight && 'full-height'"
           :widget="widget"
-        />
-        <workspace-widget-particles
-          v-else-if="widget.type === 'particles'"
-          class="full-height"
-          :widget="widget"
-        />
-        <workspace-widget-alerts
-          v-else-if="widget.type === 'alerts'"
-          class="full-height"
-          :widget="widget"
-        />
-        <workspace-widget-logs
-          v-else-if="widget.type === 'logs'"
-          class="full-height"
-          :widget="widget"
-        />
-        <workspace-widget-procedures v-else-if="widget.type === 'procedures'" :widget="widget" />
-        <workspace-widget-ui v-else-if="widget.type === 'ui'" :widget="widget" />
-        <workspace-widget-chart
-          v-else-if="widget.type === 'chart'"
-          :key="darkModeKey"
-          class="full-height"
-          :widget="widget"
-        />
-        <workspace-widget-value
-          v-else-if="widget.type === 'value'"
-          class="full-height"
-          :widget="widget"
+          @reload-requested="onReloadRequested"
+          @settings-requested="onSettingsRequested"
         />
       </div>
     </template>

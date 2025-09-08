@@ -27,6 +27,18 @@ import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
 import { User, UserRoleOf } from '@/api/users'
+import WorkspaceWidgetAlerts from '@/components/WorkspaceWidgetAlerts.vue'
+import WorkspaceWidgetChart from '@/components/WorkspaceWidgetChart.vue'
+import WorkspaceWidgetChartSettings from '@/components/WorkspaceWidgetChartSettings.vue'
+import WorkspaceWidgetLogs from '@/components/WorkspaceWidgetLogs.vue'
+import WorkspaceWidgetMessages from '@/components/WorkspaceWidgetMessages.vue'
+import WorkspaceWidgetParticles from '@/components/WorkspaceWidgetParticles.vue'
+import WorkspaceWidgetProcedures from '@/components/WorkspaceWidgetProcedures.vue'
+import WorkspaceWidgetUi from '@/components/WorkspaceWidgetUi.vue'
+import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
+import WorkspaceWidgetValueSettings from '@/components/WorkspaceWidgetValueSettings.vue'
+import WorkspaceWidgetVideo from '@/components/WorkspaceWidgetVideo.vue'
+import WorkspaceWidgetVideoSettings from '@/components/WorkspaceWidgetVideoSettings.vue'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
@@ -134,6 +146,16 @@ export const ValueWidgetModel = BaseWidgetModel.extend({
   suffix: Zod.string().nullish(),
 })
 
+export type VideoWidget = Zod.infer<typeof VideoWidgetModel>
+export const VideoWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('video'),
+  name: Zod.string().catch('Video'),
+  query: Zod.string().nullish(),
+  autoplay: Zod.boolean().default(true).catch(true),
+  startMuted: Zod.boolean().default(true).catch(true),
+  showControls: Zod.boolean().default(true).catch(true),
+})
+
 export type Widget = Zod.infer<typeof WidgetModel>
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
@@ -144,69 +166,121 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   UIWidgetModel,
   ChartWidgetModel,
   ValueWidgetModel,
+  VideoWidgetModel,
 ])
 
 export type WidgetType = Widget['type']
 export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos]
+export type WidgetComponent = (typeof widgetInfos)[WidgetType]['component']
 
 const defaultMinHeight = 150
+const defaultPaddingClass = 'q-pa-sm'
+
+export function getWidgetInfo(type: WidgetType): WidgetInfo {
+  return widgetInfos[type]
+}
+
+type WidgetOptionsInput = {
+  minHeight?: number
+  paddingClass?: string | string[]
+  fullHeight?: boolean
+  reloadOnThemeChange?: boolean
+}
+
+type WidgetOptions = {
+  minHeight: number
+  paddingClass: string | string[]
+  fullHeight: boolean
+  reloadOnThemeChange: boolean
+}
+
+function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
+  return {
+    minHeight: options.minHeight ?? defaultMinHeight,
+    paddingClass: options.paddingClass ?? defaultPaddingClass,
+    fullHeight: options.fullHeight ?? true,
+    reloadOnThemeChange: options.reloadOnThemeChange ?? false,
+  }
+}
 
 export const widgetInfos = {
   messages: {
     type: 'messages',
     name: 'Messages View',
     model: MessagesWidgetModel,
-    minHeight: defaultMinHeight,
-    paddingClass: 'q-pa-sm',
+    component: WorkspaceWidgetMessages,
+    options: widgetOptions({}),
   },
   particles: {
     type: 'particles',
     name: 'Particles View',
     model: ParticlesWidgetModel,
-    minHeight: defaultMinHeight,
-    paddingClass: 'q-pa-sm',
+    component: WorkspaceWidgetParticles,
+    options: widgetOptions({}),
   },
   alerts: {
     type: 'alerts',
     name: 'Alerts View',
     model: AlertsWidgetModel,
-    minHeight: defaultMinHeight,
-    paddingClass: 'q-pa-sm',
+    component: WorkspaceWidgetAlerts,
+    options: widgetOptions({}),
   },
   logs: {
     type: 'logs',
     name: 'Logs View',
     model: LogsWidgetModel,
-    minHeight: defaultMinHeight,
-    paddingClass: 'q-pa-sm',
+    component: WorkspaceWidgetLogs,
+    options: widgetOptions({}),
   },
   procedures: {
     type: 'procedures',
     name: 'Procedures View',
     model: ProceduresWidgetModel,
-    minHeight: defaultMinHeight,
-    paddingClass: 'q-pa-sm',
+    component: WorkspaceWidgetProcedures,
+    options: widgetOptions({
+      fullHeight: false,
+    }),
   },
   ui: {
     type: 'ui',
     name: 'UI View',
     model: UIWidgetModel,
-    minHeight: defaultMinHeight,
-    paddingClass: 'q-pa-sm',
+    component: WorkspaceWidgetUi,
+    options: widgetOptions({
+      fullHeight: false,
+    }),
   },
   chart: {
     type: 'chart',
     name: 'Chart',
     model: ChartWidgetModel,
-    minHeight: defaultMinHeight,
-    paddingClass: ['q-py-sm', 'q-pr-md'],
+    component: WorkspaceWidgetChart,
+    settingsComponent: WorkspaceWidgetChartSettings,
+    options: widgetOptions({
+      paddingClass: ['q-py-sm', 'q-pr-md'],
+      reloadOnThemeChange: true,
+    }),
   },
   value: {
     type: 'value',
     name: 'Value',
     model: ValueWidgetModel,
-    minHeight: 50,
-    paddingClass: [],
+    component: WorkspaceWidgetValue,
+    settingsComponent: WorkspaceWidgetValueSettings,
+    options: widgetOptions({
+      minHeight: 50,
+      paddingClass: [],
+    }),
+  },
+  video: {
+    type: 'video',
+    name: 'Video',
+    model: VideoWidgetModel,
+    component: WorkspaceWidgetVideo,
+    settingsComponent: WorkspaceWidgetVideoSettings,
+    options: widgetOptions({
+      paddingClass: [],
+    }),
   },
 } as const
 
@@ -412,7 +486,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       data.layout = [...data.layout, WidgetRowModel.parse({ widgets })]
     } else {
       const rowObject = data.layout[row]
-      const minHeight = widgetInfos[widget.type].minHeight
+      const minHeight = widgetInfos[widget.type].options.minHeight
       if (rowObject.height < minHeight) {
         rowObject.height = minHeight
       }

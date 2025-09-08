@@ -49,6 +49,7 @@ const icons = {
   password: 'password', // Material Icons
   preferences: 'mdi-theme-light-dark',
   reload: 'mdi-cog-sync',
+  refresh: 'mdi-refresh',
   removeMember: 'mdi-account-remove',
   rename: 'mdi-rename',
   revertToOriginal: 'mdi-restore',

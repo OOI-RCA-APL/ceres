@@ -56,8 +56,8 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
-    from ceres.stream import Stream
 
 
 class ParticleRow(BaseRecordRow, kw_only=True):
@@ -376,7 +376,7 @@ class BoundParticleManager(ParticleManager, BaseNodeManager):
         self,
         filter: ParticleFilter[_T] | None = None,
         **kwargs: Unpack[ParticleFilterArgs[_T]],
-    ) -> Stream[Particle[_T]]:
+    ) -> OutputChannel[Particle[_T]]:
         from ceres.event import ParticleEvent
 
         assert self.__node__ is not None

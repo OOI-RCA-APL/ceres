@@ -21,57 +21,24 @@ export const ConnectivityModel = Zod.enum(['disconnected', 'connecting', 'connec
 export type Level = Zod.infer<typeof LevelModel>
 export const LevelModel = Zod.enum(['debug', 'info', 'warning', 'error', 'critical'])
 
-export type Ok<TValue> = {
-  ok: true
-  value: TValue
+export type ErrorObject = Zod.infer<typeof ErrorModel>
+export const ErrorModel = Zod.object({
+  __error__: Zod.literal(true),
+  type: Zod.string(),
+}).passthrough()
+
+export function isOk(obj: any): boolean {
+  return !isError(obj)
 }
 
-export type Fail<TError> = {
-  ok: false
-  error: TError
+export function isError(obj: any): obj is ErrorObject {
+  return '__error__' in obj && Boolean(obj.__error__)
 }
 
-export type Result<TValue, TError = unknown> = Ok<TValue> | Fail<TError>
-
-export function ResultModel<TValueModel extends ZodTypeAny, TErrorModel extends ZodTypeAny>(
-  valueModel: TValueModel,
-  errorModel?: TErrorModel
-): Result<Zod.infer<TValueModel>, Zod.infer<TErrorModel>> {
-  return Zod.discriminatedUnion('ok', [
-    Zod.object({
-      ok: Zod.literal(true),
-      value: valueModel,
-    }),
-    Zod.object({
-      ok: Zod.literal(false),
-      error: errorModel ?? Zod.unknown(),
-    }),
-  ]) as any
+export type Result<T> = T | ErrorObject
+export function ResultModel<T extends ZodTypeAny>(ok: T) {
+  return Zod.union([ok, ErrorModel])
 }
 
-export const BaseOkModel = Zod.object({
-  ok: Zod.literal(true),
-  value: Zod.unknown(),
-})
-
-export const BaseFailModel = Zod.object({
-  ok: Zod.literal(false),
-  error: Zod.unknown(),
-})
-
-export const BaseResultModel = Zod.discriminatedUnion('ok', [BaseOkModel, BaseFailModel])
-
-export function createResultType<TValueModel extends ZodTypeAny, TErrorModel extends ZodTypeAny>(
-  valueModel: TValueModel,
-  errorModel: TErrorModel
-) {
-  const okModel = BaseOkModel.extend({
-    value: valueModel,
-  })
-
-  const failModel = BaseFailModel.extend({
-    error: errorModel,
-  })
-
-  return Zod.discriminatedUnion('ok', [okModel, failModel])
-}
+export type AnyResult = Result<any>
+export const AnyResultModel = ResultModel(Zod.any())

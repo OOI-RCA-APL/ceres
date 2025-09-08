@@ -7,7 +7,7 @@ import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { ElementModel } from '@/api/elements'
-import { BaseFailModel, BaseResultModel, createResultType } from '@/api/shared'
+import { AnyResultModel, ResultModel } from '@/api/shared'
 import { getter } from '@/getter'
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
@@ -19,10 +19,30 @@ export const ProcedureArgumentsInfoModel = Zod.object({
   required: Zod.boolean(),
 })
 
-export type ProcedureOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>
-export const ProcedureOutputInfoModel = Zod.object({
+export type ProcedureDataOutputInfo = Zod.infer<typeof ProcedureValueOutputInfoModel>
+export const ProcedureValueOutputInfoModel = Zod.object({
+  type: Zod.literal('value'),
   json_schema: Zod.record(Zod.string(), Zod.any()),
 })
+
+export type ProcedureFileOutputInfo = Zod.infer<typeof ProcedureFileOutputInfoModel>
+export const ProcedureFileOutputInfoModel = Zod.object({
+  type: Zod.literal('file'),
+  media: Zod.string().nullish(),
+})
+
+export type ProcedureStreamingOutputInfo = Zod.infer<typeof ProcedureStreamingOutputInfoModel>
+export const ProcedureStreamingOutputInfoModel = Zod.object({
+  type: Zod.literal('streaming'),
+  media: Zod.string(),
+})
+
+export type ProcedureOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>
+export const ProcedureOutputInfoModel = Zod.discriminatedUnion('type', [
+  ProcedureValueOutputInfoModel,
+  ProcedureStreamingOutputInfoModel,
+  ProcedureFileOutputInfoModel,
+])
 
 const BaseProcedureInfoModel = Zod.object({
   name: Zod.string(),
@@ -65,7 +85,7 @@ export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
 }) as any
 
 export type RenderResult = Zod.infer<typeof RenderResultModel>
-const RenderResultModel = createResultType(ElementModel, BaseFailModel)
+const RenderResultModel = ResultModel(ElementModel)
 
 export const useComponents = defineStore('components', () => {
   const client = useClient()
@@ -98,7 +118,7 @@ export const useComponents = defineStore('components', () => {
   ) {
     return await client.post(`/api/components/${address}/procedures/${procedure}/call`, {
       data: unref(args),
-      parse: BaseResultModel,
+      parse: AnyResultModel,
     })
   }
 

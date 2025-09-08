@@ -286,3 +286,45 @@ export function dataloader<F extends DataloaderFunction<T>, T>(
 export function roundTo(number: number, increment: number, offset: number = 0) {
   return Math.round((number - offset) / increment) * increment + offset
 }
+
+export function getWebSocketUrl(relative: string) {
+  const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws'
+  const hostname = window.location.hostname
+  let port: string
+  if (process.env.NODE_ENV === 'production') {
+    if (window.location.port !== '') {
+      port = ':' + window.location.port
+    } else {
+      port = ''
+    }
+  } else {
+    if (process.env.DEVELOPMENT_CERES_API_PORT != null) {
+      port = ':' + process.env.DEVELOPMENT_CERES_API_PORT
+    } else {
+      port = ''
+    }
+  }
+
+  return `${protocol}://${hostname}${port}${relative}`
+}
+
+export function getHttpUrl(relative: string) {
+  const protocol = window.location.protocol.startsWith('https') ? 'https' : 'http'
+  const hostname = window.location.hostname
+  let port: string
+  if (process.env.NODE_ENV === 'production') {
+    if (window.location.port !== '') {
+      port = ':' + window.location.port
+    } else {
+      port = ''
+    }
+  } else {
+    if (process.env.DEVELOPMENT_CERES_API_PORT != null) {
+      port = ':' + process.env.DEVELOPMENT_CERES_API_PORT
+    } else {
+      port = ''
+    }
+  }
+
+  return `${protocol}://${hostname}${port}${relative}`
+}
