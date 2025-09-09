@@ -34,12 +34,7 @@ function create() {
 <template>
   <div>
     <q-card :bordered="path.length > 0 || !isRequired" flat>
-      <div
-        :class="[
-          form.inline && $q.screen.gt.sm ? 'row q-pr-xs' : 'column',
-          isDefined ? $style.defined : $style.notDefined,
-        ]"
-      >
+      <div :class="['column', isDefined ? $style.defined : $style.notDefined]">
         <template v-if="title || description">
           <div
             :class="[

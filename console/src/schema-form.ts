@@ -32,7 +32,6 @@ export type SchemaFormOptions = {
   editing?: boolean
   schema: MaybeRef<Schema>
   persist?: MaybeRef<KeyInput>
-  inline?: MaybeRef<boolean>
   onSubmit?: (value: any) => MaybePromise<SchemaFormState | void>
 }
 
@@ -67,7 +66,6 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
 
     return Array.isArray(value) ? value.join('/') : value
   })
-  const inline = $computed(() => unref(options.inline) ?? false)
   let state = $ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'
   )
@@ -501,7 +499,6 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     editable: computed(() => state === 'editing'),
     readonly: computed(() => state !== 'editing'),
     submitting: computed(() => state === 'submitting'),
-    inline: computed(() => inline),
     reset,
     submit,
     edit,

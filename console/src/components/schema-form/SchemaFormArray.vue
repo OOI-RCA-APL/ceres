@@ -84,14 +84,7 @@ function remove(index: number) {
     :path
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   >
-    <div
-      v-if="array != null"
-      :class="
-        form.inline && $q.screen.gt.sm
-          ? 'row items-center q-col-gutter-sm q-pa-sm'
-          : 'column q-col-gutter-xs q-pa-sm'
-      "
-    >
+    <div v-if="array != null" class="column q-col-gutter-xs q-pa-sm">
       <div v-for="[index, subvalue] in array.entries()" :key="index">
         <div class="items-center relative-position row">
           <div class="col-grow">

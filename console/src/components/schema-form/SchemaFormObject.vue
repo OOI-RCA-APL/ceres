@@ -61,10 +61,7 @@ function onUpdate(property: string, subvalue: unknown) {
   >
     <div
       v-if="object"
-      :class="[
-        form.inline && $q.screen.gt.sm ? 'row q-col-gutter-sm' : 'column q-col-gutter-xs',
-        (path.length > 0 || !isRequired) && 'q-pa-sm',
-      ]"
+      :class="['column q-col-gutter-xs', (path.length > 0 || !isRequired) && 'q-pa-sm']"
     >
       <div v-for="property in properties" :key="property">
         <schema-form-node
