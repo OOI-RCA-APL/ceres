@@ -8,7 +8,7 @@ import SchemaFormDateTime from '@/components/schema-form/SchemaFormDateTime.vue'
 import SchemaFormDuration from '@/components/schema-form/SchemaFormDuration.vue'
 import SchemaFormEnum from '@/components/schema-form/SchemaFormEnum.vue'
 import SchemaFormInteger from '@/components/schema-form/SchemaFormInteger.vue'
-import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.vue'
+import SchemaFormNodeValueIndicator from '@/components/schema-form/SchemaFormNodeValueIndicator.vue'
 import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
 import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
@@ -122,13 +122,11 @@ function update(value: unknown) {
       <template v-else>
         <schema-form-any v-bind="forward" @update:model-value="update" />
       </template>
-      <schema-form-node-toggle
-        v-if="!isRequired"
+      <schema-form-node-value-indicator
         class="absolute-top-left"
         :form
         :model-value="modelValue"
         :path
-        @update:model-value="update"
       />
     </div>
   </template>
