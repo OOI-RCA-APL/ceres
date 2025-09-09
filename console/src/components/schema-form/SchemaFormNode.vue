@@ -27,7 +27,6 @@ const emit = defineEmits<{
 }>()
 
 const schema = $computed(() => form.getSchema(path))
-const isRequired = $computed(() => form.getRequired(path))
 const forward = $computed(() => ({
   class: 'col-grow',
   form,

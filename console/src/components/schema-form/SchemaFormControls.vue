@@ -30,6 +30,7 @@ function reset() {
         :disable="form == null || !form.canSubmit"
         :label="executeLabel"
         :loading="form?.state === 'submitting'"
+        unelevated
         @click="submit"
       />
     </div>
@@ -40,6 +41,7 @@ function reset() {
         dense
         :disable="form == null || form.readonly || form.isInitialValue"
         :label="resetLabel"
+        unelevated
         @click="reset"
       />
     </div>

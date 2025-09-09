@@ -9,17 +9,36 @@ const { modelValue, form, path } = $defineProps<{
 
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
+const isHidden = $computed(() => isRequired && path.length === 0)
+const error = $computed(() => form.getValidationErrorMessage(path))
+const backgroundColorClass = $computed(() => {
+  if (error != null) {
+    return 'bg-negative'
+  }
+  if (isHidden) {
+    return 'bg-transparent'
+  }
+  if (isDefined) {
+    return 'bg-primary'
+  }
+
+  return 'bg-grey'
+})
 </script>
 
 <template>
   <div
     :class="[
       $style.root,
-      isDefined ? 'bg-primary' : 'bg-grey',
+      backgroundColorClass,
       isDefined && $style.defined,
-      isRequired && $style.required,
+      isHidden && $style.hidden,
     ]"
-  />
+  >
+    <q-tooltip v-if="error != null" class="bg-negative text-white">
+      {{ error }}
+    </q-tooltip>
+  </div>
 </template>
 
 <style module>
@@ -33,9 +52,5 @@ const isRequired = $computed(() => form.getRequired(path))
 
 .root:hover {
   opacity: 1;
-}
-
-.required {
-  background-color: transparent !important;
 }
 </style>

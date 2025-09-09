@@ -1,5 +1,5 @@
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { cloneDeep, isEqual } from 'lodash-es'
+import { cloneDeep, isEqual, upperFirst } from 'lodash-es'
 import { computed, reactive, unref } from 'vue'
 
 import { getter } from '@/getter'
@@ -108,6 +108,14 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
   })
 
   const schemaError = $computed(() => compilation.error)
+  const schemaErrorMessage = $computed(() => {
+    if (schemaError == null) {
+      return null
+    }
+
+    humanizeErrorMessage(schemaError.message)
+  })
+
   const validator = $computed(() => compilation.validator)
   const validationErrors = $computed(() => {
     if (validator == null) {
@@ -426,6 +434,65 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     persisted.value = value
   }
 
+  function getPathString(path: string | SchemaPath): string {
+    if (typeof path !== 'string') {
+      path = path.join('/')
+    }
+
+    if (path.length === 0) {
+      path = '/'
+    } else {
+      if (!path.startsWith('/')) {
+        path = '/' + path
+      }
+    }
+
+    return path
+  }
+
+  function humanizeErrorMessage(message: string) {
+    message = message.trim()
+    if (message === '') {
+      return 'Invalid value.'
+    }
+
+    message = upperFirst(message)
+    if (!message.endsWith('.')) {
+      message += '.'
+    }
+
+    return message
+  }
+
+  function getExactValidationErrorMessage(path: SchemaPath) {
+    const pathString = getPathString(path)
+    const message =
+      validationErrors.find((error) => getPathString(error.instancePath) === pathString)?.message ??
+      null
+
+    if (message == null) {
+      return null
+    }
+
+    return humanizeErrorMessage(message)
+  }
+
+  function getValidationErrorMessage(path: SchemaPath) {
+    let message = getExactValidationErrorMessage(path)
+    if (message == null) {
+      const parent = path.length > 0 ? path.slice(0, path.length - 1) : null
+      if (parent != null && getParentSchema(path)?.type === 'object') {
+        const parentError = getExactValidationErrorMessage(parent)
+        const name = path[path.length - 1]
+        if (parentError?.includes(`required property '${name}'`)) {
+          message = `This value is required, but currently undefined.`
+        }
+      }
+    }
+
+    return message
+  }
+
   return reactive({
     value: computed(() => persisted.value),
     schema: computed(() => rootSchema),
@@ -447,6 +514,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     isValidSchema: computed(() => isValidSchema),
     validator: computed(() => validator),
     schemaError: computed(() => schemaError),
+    schemaErrorMessage: computed(() => schemaErrorMessage),
     validationErrors: computed(() => validationErrors),
     resolve: getter($$(rootSchema), resolve),
     getDefault: getter($$(rootSchema), getDefault),
@@ -456,6 +524,15 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     getRequired: getter($$(rootSchema), getRequired),
     getLabel: getter($$(rootSchema), getLabel),
     getDescription: getter($$(rootSchema), getDescription),
+    humanizeErrorMessage: getter(
+      computed(() => null),
+      humanizeErrorMessage
+    ),
+    getPathString: getter(
+      computed(() => null),
+      getPathString
+    ),
+    getValidationErrorMessage: getter($$(validationErrors), getValidationErrorMessage),
   })
 }
 
