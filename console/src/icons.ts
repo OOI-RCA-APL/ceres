@@ -45,6 +45,7 @@ const icons = {
   menuRight: 'mdi-menu-right',
   menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
+  moreVertical: 'mdi-dots-vertical',
   operations: 'mdi-cog-transfer',
   operator: 'mdi-account-cog',
   password: 'password', // Material Icons

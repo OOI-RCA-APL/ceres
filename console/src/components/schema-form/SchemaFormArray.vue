@@ -1,7 +1,10 @@
 <script lang="ts" setup>
+import { cloneDeep } from 'lodash-es'
+
 import SchemaFormComposite from '@/components/schema-form/SchemaFormComposite.vue'
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddButton.vue'
+import icons from '@/icons'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
 const { modelValue, form, path } = $defineProps<{
@@ -57,6 +60,21 @@ function onAddButtonClicked() {
   const initial = form.getInitialValue(subschema)
   emit('update:modelValue', [...(array ?? []), initial])
 }
+
+function duplicate(index: number) {
+  if (array == null || index < 0 || index >= array.length) {
+    return
+  }
+
+  const before = array.slice(0, index + 1)
+  const after = array.slice(index + 1)
+
+  emit('update:modelValue', [...before, cloneDeep(array[index]), ...after])
+}
+
+function remove(index: number) {
+  emit('update:modelValue', withAssigned(index, undefined))
+}
 </script>
 
 <template>
@@ -75,13 +93,37 @@ function onAddButtonClicked() {
       "
     >
       <div v-for="[index, subvalue] in array.entries()" :key="index">
-        <schema-form-node
-          :form
-          :model-value="subvalue"
-          no-clear-on-empty
-          :path="[...path, index]"
-          @update:model-value="(subvalue) => onUpdate(index, subvalue)"
-        />
+        <div class="items-center relative-position row">
+          <div class="col-grow">
+            <schema-form-node
+              :form
+              :model-value="subvalue"
+              no-clear-on-empty
+              :path="[...path, index]"
+              @update:model-value="(subvalue) => onUpdate(index, subvalue)"
+            />
+          </div>
+          <q-btn
+            :class="[$style.moreButton, 'faded-hover']"
+            dense
+            flat
+            :icon="icons.moreVertical"
+            size="6px"
+          >
+            <q-menu anchor="top right" :offset="[8, 8]" self="top left">
+              <q-card bordered flat>
+                <q-list dense>
+                  <q-item v-close-popup clickable @click="duplicate(index)">
+                    <q-item-section>Duplicate</q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable @click="remove(index)">
+                    <q-item-section>Remove</q-item-section>
+                  </q-item>
+                </q-list>
+              </q-card>
+            </q-menu>
+          </q-btn>
+        </div>
       </div>
       <div class="text-center">
         <schema-form-node-add-button @click="onAddButtonClicked" />
@@ -97,5 +139,14 @@ function onAddButtonClicked() {
 
 .addButton:hover {
   opacity: 1;
+}
+
+.moreButton {
+  position: absolute;
+  right: 4px;
+  top: 13px;
+  width: 8px;
+  padding-left: 0px;
+  padding-right: 0px;
 }
 </style>
