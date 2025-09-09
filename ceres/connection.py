@@ -231,17 +231,17 @@ class Connection(Component):
             MessageContent,
             Field(
                 description="""
-                Bytes to send over the connection. The connection's "separator" value is appended
-                automatically if not present.
+                Bytes to send. String values are encoded as "latin-1". The connection's `separator`
+                value is appended automatically if not present.
                 """
             ),
         ],
     ) -> Message:
         """
-        Send raw data over the connection. Returns the sent message.
+        Send raw bytes through the connection, returning the sent message if successful.
 
-        There is no guarantee that the message was will be received host-side, only that if this
-        action returns successfully, the data was sent.
+        Note, there is no guarantee the returned message is actually recieved on the remote end,
+        only that the message content was transmitted.
         """
         if not self.connected:
             raise ConnectionInactive()
