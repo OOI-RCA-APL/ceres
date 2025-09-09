@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
-import { usePreferences } from '@/preferences'
+import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddButton.vue'
+import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import { SchemaForm, SchemaPath } from '@/schema-form'
-import { isLight } from '@/utilities'
 
 const { modelValue, path, form } = $defineProps<{
   modelValue: unknown
@@ -14,26 +14,15 @@ const emit = defineEmits<{
   'update:modelValue': [value: unknown]
 }>()
 
-const preferences = usePreferences()
-
 const title = $computed(() => (path.length === 0 ? undefined : form.getLabel(path)))
 
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
 
-const definedColor = $computed(() => (isRequired ? 'transparent' : 'primary'))
-const undefinedColor = $computed(() => (preferences.isDarkModeEnabled ? 'grey-9' : 'grey-5'))
-
-const color = $computed(() => (isDefined ? definedColor : undefinedColor))
-const textColor = $computed(() => (isLight(color) ? 'black' : 'white'))
 const description = $computed(() => form.getDescription(path))
 
-function toggle() {
-  if (isDefined) {
-    if (!isRequired) {
-      emit('update:modelValue', undefined)
-    }
-  } else {
+function create() {
+  if (!isDefined) {
     const schema = form.getSchema(path)
     if (schema) {
       emit('update:modelValue', form.getInitialValue(schema))
@@ -48,7 +37,7 @@ function toggle() {
       <div
         :class="[
           form.inline && $q.screen.gt.sm ? 'row q-pr-xs' : 'column',
-          isDefined && $style.defined,
+          isDefined ? $style.defined : $style.notDefined,
         ]"
       >
         <template v-if="title || description">
@@ -60,24 +49,22 @@ function toggle() {
               'q-mb-xs',
             ]"
           >
-            <div>
-              <q-chip
-                v-if="title"
-                :class="[$style.title, 'monospace-sm', 'q-mr-sm']"
-                :clickable="!isRequired"
-                :color
-                dense
-                :ripple="!isRequired"
-                :text-color="textColor"
-                @click="toggle"
-              >
-                {{ title }}
-              </q-chip>
+            <div class="monospace-sm q-mr-sm">
+              {{ title }}
             </div>
             <div>
               <common-text v-if="description" :class="$style.description" variant="description">
                 {{ description }}
               </common-text>
+            </div>
+            <q-space />
+            <div>
+              <q-space />
+              <schema-form-node-clear-button
+                v-if="!isRequired && modelValue !== undefined"
+                @click="emit('update:modelValue', undefined)"
+              />
+              <schema-form-node-add-button v-else-if="modelValue === undefined" @click="create" />
             </div>
           </div>
           <q-separator v-if="modelValue != null && title" />
@@ -91,25 +78,30 @@ function toggle() {
 <style lang="scss" module>
 .titleContainer {
   margin-bottom: 8px;
+  padding-right: 12px;
 }
 
 .titleContainerTitled {
   margin-top: 8px;
   margin-left: 12px;
+  padding-right: 12px;
 }
 
 .title {
-  padding: 0px 8px;
-  outline: 1px solid grey;
+  padding: 0px 4px;
   margin-left: 0;
 }
 
 .description {
-  margin-top: 4px;
+  margin-top: 1px;
 }
 
-:not(.defined) .title:focus {
-  outline: 1px solid $primary;
+.title {
+  opacity: 1;
+}
+
+.notDefined .title {
+  opacity: 0.5;
 }
 
 .defined .title:focus {

@@ -188,7 +188,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
       return undefined
     }
     if (typeof schema === 'boolean') {
-      return undefined
+      return null // JSON (Any)
     }
 
     if (schema.default !== undefined) {
@@ -200,6 +200,10 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     }
 
     const type = (Array.isArray(schema.type) ? schema[0] : schema.type) ?? undefined
+    if (type == null) {
+      return null // JSON (Any)
+    }
+
     switch (type) {
       case 'null':
         return null

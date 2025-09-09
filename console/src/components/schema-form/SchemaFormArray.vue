@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import SchemaFormComposite from '@/components/schema-form/SchemaFormComposite.vue'
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
-import icons from '@/icons'
+import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddButton.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
 const { modelValue, form, path } = $defineProps<{
@@ -13,6 +13,7 @@ const { modelValue, form, path } = $defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: unknown]
+  click: []
 }>()
 
 const array = $computed(() => {
@@ -53,7 +54,8 @@ function onAddButtonClicked() {
     return
   }
 
-  emit('update:modelValue', [...(array ?? []), form.getInitialValue(subschema)])
+  const initial = form.getInitialValue(subschema)
+  emit('update:modelValue', [...(array ?? []), initial])
 }
 </script>
 
@@ -76,19 +78,13 @@ function onAddButtonClicked() {
         <schema-form-node
           :form
           :model-value="subvalue"
+          no-clear-on-empty
           :path="[...path, index]"
           @update:model-value="(subvalue) => onUpdate(index, subvalue)"
         />
       </div>
       <div class="text-center">
-        <q-btn
-          :class="$style.addButton"
-          clickable
-          dense
-          :icon="icons.add"
-          :ripple="false"
-          @click="onAddButtonClicked"
-        />
+        <schema-form-node-add-button @click="onAddButtonClicked" />
       </div>
     </div>
   </schema-form-composite>
@@ -96,8 +92,6 @@ function onAddButtonClicked() {
 
 <style module>
 .addButton {
-  opacity: 0.75;
-  scale: 0.65;
   overflow: hidden;
 }
 

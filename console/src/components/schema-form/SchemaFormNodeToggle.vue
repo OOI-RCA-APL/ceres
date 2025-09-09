@@ -7,25 +7,8 @@ const { modelValue, form, path } = $defineProps<{
   path: SchemaPath
 }>()
 
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
-}>()
-
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
-
-function toggle() {
-  if (isDefined) {
-    if (!isRequired) {
-      emit('update:modelValue', undefined)
-    }
-  } else {
-    const schema = form.getSchema(path)
-    if (schema) {
-      emit('update:modelValue', form.getInitialValue(schema))
-    }
-  }
-}
 </script>
 
 <template>
@@ -36,7 +19,6 @@ function toggle() {
       isDefined && $style.defined,
       isRequired && $style.required,
     ]"
-    @click="toggle"
   />
 </template>
 
@@ -55,10 +37,5 @@ function toggle() {
 
 .required {
   background-color: transparent !important;
-}
-
-.root:not(.defined),
-.root:not(.required) {
-  cursor: pointer;
 }
 </style>

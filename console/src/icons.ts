@@ -6,6 +6,7 @@ const icons = {
   arrowLeft: 'mdi-arrow-left',
   arrowUp: 'mdi-arrow-up',
   cancel: 'mdi-close-circle',
+  clear: 'mdi-close-circle',
   changeRole: 'mdi-account-convert',
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',

@@ -2,6 +2,7 @@
 import { isEqual } from 'lodash-es'
 
 import CommonText from '@/components/CommonText.vue'
+import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { Plain } from '@/utilities'
 
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 }>()
 
 const title = $computed(() => form.getLabel(path))
+const isRequired = $computed(() => form.getRequired(path))
 
 function resolve(value: unknown) {
   if (value == null) {
@@ -95,8 +97,14 @@ let options = $shallowRef(computeOptions())
           </span>
         </div>
       </template>
+      <template #append>
+        <schema-form-node-clear-button
+          v-if="!isRequired && modelValue !== undefined"
+          @click="emit('update:modelValue', undefined)"
+        />
+      </template>
     </q-select>
-    <common-text v-if="description" class="q-ml-sm q-mt-xs" variant="description">
+    <common-text v-if="description" :class="$style.description" variant="description">
       {{ description }}
     </common-text>
   </div>
@@ -115,5 +123,11 @@ let options = $shallowRef(computeOptions())
 
 .popup {
   @extend .monospace-md;
+}
+
+.description {
+  margin-top: 4px;
+  margin-left: 12px;
+  padding-bottom: 4px;
 }
 </style>

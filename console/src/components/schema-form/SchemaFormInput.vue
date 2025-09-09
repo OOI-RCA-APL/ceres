@@ -3,6 +3,7 @@ import { QInput, debounce } from 'quasar'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
+import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import icons from '@/icons'
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
 
@@ -22,6 +23,7 @@ const {
   autogrow = false,
   suffix = undefined,
   presets = undefined,
+  noClearOnEmpty = false,
 } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
@@ -36,6 +38,7 @@ const {
   autogrow?: boolean
   suffix?: string
   presets?: Preset[]
+  noClearOnEmpty?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -106,8 +109,8 @@ function onBlur() {
 // Run when the user hits backspace.
 function onBackspace() {
   // If the value is not required, the text is empty and the user hits backspace one more time,
-  // emit undefined to remove the value.
-  if (text === '' && !isRequired) {
+  // emit `undefined` to remove the value, so long as `noClearOnEmpty` is not set.
+  if (!noClearOnEmpty && text === '' && !isRequired) {
     emit('update:modelValue', undefined)
   }
 }
@@ -146,9 +149,17 @@ function onBackspace() {
       <template v-if="$slots.prepend" #prepend>
         <slot name="prepend" />
       </template>
-      <template v-if="$slots.append || presets" #append>
+      <template #append>
         <slot name="append" />
-        <q-btn color="primary" flat :icon="icons.settings" round size="8px" tabindex="-1">
+        <q-btn
+          v-if="presets"
+          color="primary"
+          flat
+          :icon="icons.settings"
+          round
+          size="8px"
+          tabindex="-1"
+        >
           <q-menu dense transition-duration="100" transition-hide="scale" transition-show="scale">
             <q-list bordered class="rounded-borders" dense>
               <q-item
@@ -164,9 +175,13 @@ function onBackspace() {
             </q-list>
           </q-menu>
         </q-btn>
+        <schema-form-node-clear-button
+          v-if="!isRequired && modelValue !== undefined"
+          @click="emit('update:modelValue', undefined)"
+        />
       </template>
     </q-input>
-    <common-text v-if="description" class="q-ml-sm q-mt-xs" variant="description">
+    <common-text v-if="description" :class="$style.description" variant="description">
       {{ description }}
     </common-text>
   </div>
@@ -175,5 +190,11 @@ function onBackspace() {
 <style module>
 .labelExtra {
   opacity: 0.5;
+}
+
+.description {
+  margin-top: 4px;
+  margin-left: 12px;
+  padding-bottom: 4px;
 }
 </style>
