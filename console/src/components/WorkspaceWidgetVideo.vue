@@ -285,6 +285,7 @@ useEventListener('beforeunload', () => {
 }
 
 .error {
+  margin-top: -8px;
   border-radius: 3px;
 }
 

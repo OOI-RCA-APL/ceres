@@ -19,6 +19,7 @@ const label = $computed(() => (path.length === 0 ? undefined : form.getLabel(pat
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
 const isShowingHeader = $computed(() => label != null || description != null || !isRequired)
+const isRoot = $computed(() => path.length === 0)
 
 const description = $computed(() => form.getDescription(path))
 
@@ -34,7 +35,7 @@ function create() {
 
 <template>
   <div>
-    <q-card :bordered="path.length > 0 || !isRequired" flat>
+    <q-card :bordered="!isRoot || !isRequired" flat>
       <div :class="['column', isDefined ? $style.defined : $style.notDefined]">
         <div v-if="isShowingHeader">
           <div
@@ -61,7 +62,7 @@ function create() {
               <schema-form-node-add-button v-else-if="modelValue === undefined" @click="create" />
             </div>
           </div>
-          <q-separator v-if="modelValue != null && (label || description)" />
+          <q-separator v-if="!isRoot && modelValue != null && (label || description)" />
         </div>
         <slot />
       </div>
