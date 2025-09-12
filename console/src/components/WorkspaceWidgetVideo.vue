@@ -152,36 +152,43 @@ async function syncMediaSource(url: string | null | undefined) {
     return
   }
 
-  const boundMediaSource = new MediaSource()
-  mediaSource = boundMediaSource
+  try {
+    const boundMediaSource = new MediaSource()
+    mediaSource = boundMediaSource
 
-  // Event listener options.
-  const once = { once: true, passive: true }
-  // Wait for the media source to open.
-  await new Promise((resolve) => boundMediaSource.addEventListener('sourceopen', resolve, once))
+    // Event listener options.
+    const once = { once: true, passive: true }
+    // Wait for the media source to open.
+    await new Promise((resolve) => boundMediaSource.addEventListener('sourceopen', resolve, once))
 
-  // Create a new source buffer.
-  const buffer = boundMediaSource.addSourceBuffer(bufferType)
-  // If the destination media source has changed we should exit.
-  while (boundMediaSource === mediaSource && element?.src === src) {
-    // Wait for the next chunk of video data.
-    const { value: chunk } = await reader.read()
-    // If the chunk is null, the stream has ended.
-    if (chunk == null) {
-      break
+    // Create a new source buffer.
+    const buffer = boundMediaSource.addSourceBuffer(bufferType)
+    // If the destination media source has changed we should exit.
+    while (boundMediaSource === mediaSource && element?.src === src) {
+      // Wait for the next chunk of video data.
+      const { value: chunk } = await reader.read()
+      // If the chunk is null, the stream has ended.
+      if (chunk == null) {
+        break
+      }
+
+      // Append the latest video data to the buffer.
+      try {
+        buffer.appendBuffer(chunk)
+      } catch {
+        // If this fails, the `src` has probably changed, causing the media source to be detached.
+        // When this happens, stop downloading.
+        break
+      }
+
+      // Wait for the append operation to complete before continuing.
+      await new Promise((resolve) => buffer.addEventListener('updateend', resolve, once))
     }
-
-    // Append the latest video data to the buffer.
-    try {
-      buffer.appendBuffer(chunk)
-    } catch {
-      // If this fails, the `src` has probably changed, causing the media source to be detached.
-      // When this happens, stop downloading.
-      break
-    }
-
-    // Wait for the append operation to complete before continuing.
-    await new Promise((resolve) => buffer.addEventListener('updateend', resolve, once))
+  } finally {
+    // Ensure the reader is cancelled. If we don't the request will continue running in the
+    // background until either the browser tab is closed, or the server closes the connection
+    // itself. Let's not leave a bunch of stray, useless `ffmpeg` processes running.
+    await reader.cancel()
   }
 }
 
@@ -215,6 +222,7 @@ async function onPlay() {
 /// Ensure the video element stops downloading when removed from the DOM.
 function dispose() {
   if (element != null) {
+    console.log('Disposing video element and stopping download.')
     element.pause()
     isDisposed = true
     element.removeAttribute('src')
