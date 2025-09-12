@@ -24,7 +24,7 @@ function resolveText(value: string): unknown {
 
   value = value.trim()
   if (value === '') {
-    return undefined
+    return ''
   }
 
   try {

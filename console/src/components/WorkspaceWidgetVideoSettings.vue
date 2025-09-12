@@ -92,7 +92,7 @@ watch(
               v-model="widget.showControls"
               :schema="{
                 type: 'boolean',
-                title: 'Controls',
+                title: 'Show Controls',
               }"
             />
           </div>

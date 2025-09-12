@@ -31,22 +31,25 @@ function update(value: unknown) {
 
 <template>
   <q-form @submit.prevent>
-    <q-banner v-if="form.schemaError" class="bg-warning text-dark" dense rounded>
+    <q-banner v-if="form.schemaErrorMessage" class="bg-warning text-dark" dense>
       Failed to generate form due to an invalid JSON schema.
+      <div class="q-mt-sm">
+        {{ form.schemaErrorMessage }}
+      </div>
     </q-banner>
     <template v-else>
       <schema-form-node :form :model-value="form.value" :path @update:model-value="update" />
       <q-markup-table v-if="!form.isValid" bordered class="q-mt-sm" dense flat separator="cell">
         <thead>
           <q-tr>
-            <q-td class="text-left">Location</q-td>
-            <q-td class="text-left">Problem</q-td>
+            <q-th class="text-left">Location</q-th>
+            <q-th class="text-left">Error</q-th>
           </q-tr>
         </thead>
         <tbody>
-          <q-tr v-for="(error, i) in form.validationErrors" :key="i" class="bg-negative">
-            <q-td class="monospace-sm">{{ error.instancePath }}</q-td>
-            <q-td class="monospace-sm">{{ error.message }}</q-td>
+          <q-tr v-for="(error, i) in form.validationErrors" :key="i" class="bg-negative text-white">
+            <q-td class="monospace-sm">{{ form.getPathString(error.instancePath) }}</q-td>
+            <q-td class="monospace-sm">{{ form.humanizeErrorMessage(error.message ?? '') }}</q-td>
           </q-tr>
         </tbody>
       </q-markup-table>

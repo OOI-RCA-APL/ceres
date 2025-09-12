@@ -20,6 +20,12 @@ const component = $computed(() => {
   return engine.components.get(widget.procedureAddress)
 })
 
+const componentAddresses = $computed(() =>
+  engine.components.all
+    .filter((component) => component.procedures.length > 0)
+    .map((component) => component.address)
+)
+
 const actions = $computed(
   () => component?.procedures.filter((procedure) => procedure.type === 'action') ?? []
 )
@@ -55,7 +61,7 @@ watchEffect(() => {
           dense
           filled
           label="Component"
-          :options="engine.components.all.map((current) => current.address.toString())"
+          :options="componentAddresses"
           options-dense
         />
       </div>

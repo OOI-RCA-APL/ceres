@@ -1,5 +1,5 @@
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { cloneDeep, isEqual } from 'lodash-es'
+import { cloneDeep, isEqual, upperFirst } from 'lodash-es'
 import { computed, reactive, unref } from 'vue'
 
 import { getter } from '@/getter'
@@ -32,7 +32,6 @@ export type SchemaFormOptions = {
   editing?: boolean
   schema: MaybeRef<Schema>
   persist?: MaybeRef<KeyInput>
-  inline?: MaybeRef<boolean>
   onSubmit?: (value: any) => MaybePromise<SchemaFormState | void>
 }
 
@@ -67,7 +66,6 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
 
     return Array.isArray(value) ? value.join('/') : value
   })
-  const inline = $computed(() => unref(options.inline) ?? false)
   let state = $ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'
   )
@@ -108,6 +106,14 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
   })
 
   const schemaError = $computed(() => compilation.error)
+  const schemaErrorMessage = $computed(() => {
+    if (schemaError == null) {
+      return null
+    }
+
+    humanizeErrorMessage(schemaError.message)
+  })
+
   const validator = $computed(() => compilation.validator)
   const validationErrors = $computed(() => {
     if (validator == null) {
@@ -188,7 +194,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
       return undefined
     }
     if (typeof schema === 'boolean') {
-      return undefined
+      return null // JSON (Any)
     }
 
     if (schema.default !== undefined) {
@@ -200,6 +206,10 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     }
 
     const type = (Array.isArray(schema.type) ? schema[0] : schema.type) ?? undefined
+    if (type == null) {
+      return null // JSON (Any)
+    }
+
     switch (type) {
       case 'null':
         return null
@@ -312,6 +322,15 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     return resolve(current)
   }
 
+  function getSchemaObject(path: SchemaPath): SchemaObject | undefined {
+    const schema = getSchema(path)
+    if (typeof schema === 'boolean') {
+      return {}
+    }
+
+    return schema
+  }
+
   function getParentSchema(path: SchemaPath): SchemaObject | undefined {
     if (path.length === 0) {
       return undefined
@@ -422,6 +441,70 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     persisted.value = value
   }
 
+  function getPathString(path: string | SchemaPath): string {
+    if (typeof path !== 'string') {
+      path = path.join('/')
+    }
+
+    if (path.length === 0) {
+      path = '/'
+    } else {
+      if (!path.startsWith('/')) {
+        path = '/' + path
+      }
+    }
+
+    return path
+  }
+
+  function humanizeErrorMessage(message: string) {
+    message = message.trim()
+    if (message === '') {
+      return 'Invalid value.'
+    }
+
+    message = upperFirst(message)
+    if (!message.endsWith('.')) {
+      message += '.'
+    }
+
+    return message
+  }
+
+  function getExactValidationErrorMessage(path: SchemaPath) {
+    const pathString = getPathString(path)
+    const message =
+      validationErrors.find((error) => getPathString(error.instancePath) === pathString)?.message ??
+      null
+
+    if (message == null) {
+      return null
+    }
+
+    return humanizeErrorMessage(message)
+  }
+
+  function getValidationErrorMessage(path: SchemaPath) {
+    let message = getExactValidationErrorMessage(path)
+    if (message?.includes('required property')) {
+      return null
+    }
+
+    if (message == null) {
+      const parent = path.length > 0 ? path.slice(0, path.length - 1) : null
+      const parentSchema = parent != null ? getParentSchema(path) : null
+      if (parent != null && (parentSchema == null || parentSchema.type === 'object')) {
+        const parentError = getExactValidationErrorMessage(parent)
+        const name = path[path.length - 1]
+        if (parentError?.includes(`required property '${name}'`)) {
+          message = `This value is required, but currently undefined.`
+        }
+      }
+    }
+
+    return message
+  }
+
   return reactive({
     value: computed(() => persisted.value),
     schema: computed(() => rootSchema),
@@ -430,7 +513,6 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     editable: computed(() => state === 'editing'),
     readonly: computed(() => state !== 'editing'),
     submitting: computed(() => state === 'submitting'),
-    inline: computed(() => inline),
     reset,
     submit,
     edit,
@@ -443,15 +525,26 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     isValidSchema: computed(() => isValidSchema),
     validator: computed(() => validator),
     schemaError: computed(() => schemaError),
+    schemaErrorMessage: computed(() => schemaErrorMessage),
     validationErrors: computed(() => validationErrors),
     resolve: getter($$(rootSchema), resolve),
     getDefault: getter($$(rootSchema), getDefault),
     getInitialValue: getter($$(rootSchema), getInitialValue),
     getSchema: getter($$(rootSchema), getSchema),
+    getSchemaObject: getter($$(rootSchema), getSchemaObject),
     getParentSchema: getter($$(rootSchema), getParentSchema),
     getRequired: getter($$(rootSchema), getRequired),
     getLabel: getter($$(rootSchema), getLabel),
     getDescription: getter($$(rootSchema), getDescription),
+    humanizeErrorMessage: getter(
+      computed(() => null),
+      humanizeErrorMessage
+    ),
+    getPathString: getter(
+      computed(() => null),
+      getPathString
+    ),
+    getValidationErrorMessage: getter($$(validationErrors), getValidationErrorMessage),
   })
 }
 

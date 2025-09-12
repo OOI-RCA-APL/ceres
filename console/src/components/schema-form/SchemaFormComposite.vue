@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
-import { usePreferences } from '@/preferences'
+import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddButton.vue'
+import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import { SchemaForm, SchemaPath } from '@/schema-form'
-import { isLight } from '@/utilities'
 
 const { modelValue, path, form } = $defineProps<{
   modelValue: unknown
@@ -14,26 +14,17 @@ const emit = defineEmits<{
   'update:modelValue': [value: unknown]
 }>()
 
-const preferences = usePreferences()
-
-const title = $computed(() => (path.length === 0 ? undefined : form.getLabel(path)))
+const label = $computed(() => (path.length === 0 ? undefined : form.getLabel(path)))
 
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
+const isShowingHeader = $computed(() => label != null || description != null || !isRequired)
+const isRoot = $computed(() => path.length === 0)
 
-const definedColor = $computed(() => (isRequired ? 'transparent' : 'primary'))
-const undefinedColor = $computed(() => (preferences.isDarkModeEnabled ? 'grey-9' : 'grey-5'))
-
-const color = $computed(() => (isDefined ? definedColor : undefinedColor))
-const textColor = $computed(() => (isLight(color) ? 'black' : 'white'))
 const description = $computed(() => form.getDescription(path))
 
-function toggle() {
-  if (isDefined) {
-    if (!isRequired) {
-      emit('update:modelValue', undefined)
-    }
-  } else {
+function create() {
+  if (!isDefined) {
     const schema = form.getSchema(path)
     if (schema) {
       emit('update:modelValue', form.getInitialValue(schema))
@@ -44,44 +35,35 @@ function toggle() {
 
 <template>
   <div>
-    <q-card :bordered="path.length > 0 || !isRequired" flat>
-      <div
-        :class="[
-          form.inline && $q.screen.gt.sm ? 'row q-pr-xs' : 'column',
-          isDefined && $style.defined,
-        ]"
-      >
-        <template v-if="title || description">
+    <q-card :bordered="!isRoot || !isRequired" flat>
+      <div :class="['column', isDefined ? $style.defined : $style.notDefined]">
+        <div v-if="isShowingHeader">
           <div
             :class="[
-              $style.titleContainer,
-              title != null && $style.titleContainerTitled,
-              'row',
-              'q-mb-xs',
+              $style.header,
+              label != null && $style.headerWithLabel,
+              'column',
+              'q-col-gutter-y-xs',
             ]"
           >
-            <div>
-              <q-chip
-                v-if="title"
-                :class="[$style.title, 'monospace-sm', 'q-mr-sm']"
-                :clickable="!isRequired"
-                :color
-                dense
-                :ripple="!isRequired"
-                :text-color="textColor"
-                @click="toggle"
-              >
-                {{ title }}
-              </q-chip>
+            <div class="monospace-sm" :class="$style.title">
+              {{ label }}
             </div>
-            <div>
+            <div class="col">
               <common-text v-if="description" :class="$style.description" variant="description">
                 {{ description }}
               </common-text>
             </div>
+            <div :class="[$style.buttons, 'col-shrink justify-end row']">
+              <schema-form-node-clear-button
+                v-if="!isRequired && modelValue !== undefined"
+                @click="emit('update:modelValue', undefined)"
+              />
+              <schema-form-node-add-button v-else-if="modelValue === undefined" @click="create" />
+            </div>
           </div>
-          <q-separator v-if="modelValue != null && title" />
-        </template>
+          <q-separator v-if="!isRoot && modelValue != null && (label || description)" />
+        </div>
         <slot />
       </div>
     </q-card>
@@ -89,30 +71,38 @@ function toggle() {
 </template>
 
 <style lang="scss" module>
-.titleContainer {
-  margin-bottom: 8px;
+.header {
+  position: relative;
+  padding-right: 12px;
+  padding-bottom: 6px;
 }
 
-.titleContainerTitled {
-  margin-top: 8px;
+.header.headerWithLabel {
+  margin-top: 4px;
   margin-left: 12px;
-}
-
-.title {
-  padding: 0px 8px;
-  outline: 1px solid grey;
-  margin-left: 0;
+  padding-right: 12px;
 }
 
 .description {
-  margin-top: 4px;
+  padding-bottom: 2px;
 }
 
-:not(.defined) .title:focus {
-  outline: 1px solid $primary;
+.label {
+  opacity: 1;
 }
 
-.defined .title:focus {
-  outline: 1px solid white;
+.title {
+  opacity: 1;
+  padding-top: 4px;
+}
+
+.notDefined .title {
+  opacity: 0.8;
+}
+
+.buttons {
+  position: absolute;
+  top: -2px;
+  right: 6px;
 }
 </style>

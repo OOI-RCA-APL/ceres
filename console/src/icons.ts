@@ -6,6 +6,7 @@ const icons = {
   arrowLeft: 'mdi-arrow-left',
   arrowUp: 'mdi-arrow-up',
   cancel: 'mdi-close-circle',
+  clear: 'mdi-close-circle',
   changeRole: 'mdi-account-convert',
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
@@ -44,6 +45,7 @@ const icons = {
   menuRight: 'mdi-menu-right',
   menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
+  moreVertical: 'mdi-dots-vertical',
   operations: 'mdi-cog-transfer',
   operator: 'mdi-account-cog',
   password: 'password', // Material Icons

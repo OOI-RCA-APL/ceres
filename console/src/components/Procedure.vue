@@ -55,7 +55,7 @@ const form = useSchemaForm({
 
 <template>
   <div v-if="!form.isEmpty || form.getDescription([]) != null" class="q-mb-sm">
-    <q-card bordered class="q-px-sm q-py-xs" flat>
+    <q-card bordered class="q-px-sm q-py-sm" flat>
       <schema-form :key="procedure.name" :form />
     </q-card>
   </div>

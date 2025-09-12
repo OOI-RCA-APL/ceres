@@ -8,17 +8,18 @@ import SchemaFormDateTime from '@/components/schema-form/SchemaFormDateTime.vue'
 import SchemaFormDuration from '@/components/schema-form/SchemaFormDuration.vue'
 import SchemaFormEnum from '@/components/schema-form/SchemaFormEnum.vue'
 import SchemaFormInteger from '@/components/schema-form/SchemaFormInteger.vue'
-import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.vue'
+import SchemaFormNodeValueIndicator from '@/components/schema-form/SchemaFormNodeValueIndicator.vue'
 import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
 import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
 import { isType, SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path, autofocus } = $defineProps<{
+const { modelValue, form, path, autofocus, noClearOnEmpty } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   path: SchemaPath
   autofocus?: boolean
+  noClearOnEmpty?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -26,7 +27,6 @@ const emit = defineEmits<{
 }>()
 
 const schema = $computed(() => form.getSchema(path))
-const isRequired = $computed(() => form.getRequired(path))
 const forward = $computed(() => ({
   class: 'col-grow',
   form,
@@ -34,6 +34,7 @@ const forward = $computed(() => ({
   path,
   schema: schema as any,
   autofocus,
+  noClearOnEmpty,
 }))
 
 function is(type: string) {
@@ -120,13 +121,12 @@ function update(value: unknown) {
       <template v-else>
         <schema-form-any v-bind="forward" @update:model-value="update" />
       </template>
-      <schema-form-node-toggle
-        v-if="!isRequired"
+      <schema-form-node-value-indicator
         class="absolute-top-left"
         :form
         :model-value="modelValue"
         :path
-        @update:model-value="update"
+        :style="{ zIndex: path.length }"
       />
     </div>
   </template>
