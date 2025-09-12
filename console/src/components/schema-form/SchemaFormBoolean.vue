@@ -49,6 +49,7 @@ const description = $computed(() => form.getDescription(path))
       <div>
         <schema-form-node-clear-button
           v-if="!isRequired && modelValue !== undefined"
+          :class="$style.clearButton"
           @click="emit('update:modelValue', undefined)"
         />
       </div>
@@ -61,13 +62,20 @@ const description = $computed(() => form.getDescription(path))
 
 <style module>
 .root {
-  padding-top: 8px;
+  padding-top: 4px;
   padding-left: 12px;
   padding-right: 12px;
   min-height: 40px;
+  position: relative;
 }
 
 .row {
   min-height: 22px;
+}
+
+.clearButton {
+  position: absolute;
+  top: 9.5px;
+  right: 11.75px;
 }
 </style>

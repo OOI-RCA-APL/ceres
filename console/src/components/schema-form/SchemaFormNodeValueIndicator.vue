@@ -43,11 +43,12 @@ const backgroundColorClass = $computed(() => {
 
 <style module>
 .root {
-  border-bottom-left-radius: 4px;
-  border-top-left-radius: 4px;
-  height: 100%;
+  border-bottom-left-radius: 50px;
+  border-top-left-radius: 50px;
+  top: 0.6px;
+  bottom: 0.6px;
   transition: opacity 0.5s;
-  width: 4px;
+  width: 2px;
 }
 
 .root:hover {

@@ -322,6 +322,15 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     return resolve(current)
   }
 
+  function getSchemaObject(path: SchemaPath): SchemaObject | undefined {
+    const schema = getSchema(path)
+    if (typeof schema === 'boolean') {
+      return {}
+    }
+
+    return schema
+  }
+
   function getParentSchema(path: SchemaPath): SchemaObject | undefined {
     if (path.length === 0) {
       return undefined
@@ -477,9 +486,14 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
 
   function getValidationErrorMessage(path: SchemaPath) {
     let message = getExactValidationErrorMessage(path)
+    if (message?.includes('required property')) {
+      return null
+    }
+
     if (message == null) {
       const parent = path.length > 0 ? path.slice(0, path.length - 1) : null
-      if (parent != null && getParentSchema(path)?.type === 'object') {
+      const parentSchema = parent != null ? getParentSchema(path) : null
+      if (parent != null && (parentSchema == null || parentSchema.type === 'object')) {
         const parentError = getExactValidationErrorMessage(parent)
         const name = path[path.length - 1]
         if (parentError?.includes(`required property '${name}'`)) {
@@ -517,6 +531,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     getDefault: getter($$(rootSchema), getDefault),
     getInitialValue: getter($$(rootSchema), getInitialValue),
     getSchema: getter($$(rootSchema), getSchema),
+    getSchemaObject: getter($$(rootSchema), getSchemaObject),
     getParentSchema: getter($$(rootSchema), getParentSchema),
     getRequired: getter($$(rootSchema), getRequired),
     getLabel: getter($$(rootSchema), getLabel),

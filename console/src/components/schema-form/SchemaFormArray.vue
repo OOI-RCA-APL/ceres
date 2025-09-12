@@ -75,6 +75,15 @@ function duplicate(index: number) {
 function remove(index: number) {
   emit('update:modelValue', withAssigned(index, undefined))
 }
+
+function childIsComposite(index: number) {
+  const subschema = form.getSchemaObject([...path, index])
+  if (subschema == null) {
+    return false
+  }
+
+  return subschema.type === 'object' || subschema.type === 'array'
+}
 </script>
 
 <template>
@@ -97,7 +106,11 @@ function remove(index: number) {
             />
           </div>
           <q-btn
-            :class="[$style.moreButton, 'faded-hover']"
+            :class="[
+              $style.moreButton,
+              childIsComposite(index) && $style.moreButtonCompositeChild,
+              'faded-hover',
+            ]"
             dense
             flat
             :icon="icons.moreVertical"
@@ -107,6 +120,9 @@ function remove(index: number) {
               <q-card bordered flat>
                 <q-list dense>
                   <q-item v-close-popup clickable @click="duplicate(index)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.duplicate" />
+                    </q-item-section>
                     <q-item-section>Duplicate</q-item-section>
                   </q-item>
                   <q-item v-close-popup clickable @click="remove(index)">
@@ -141,5 +157,10 @@ function remove(index: number) {
   width: 8px;
   padding-left: 0px;
   padding-right: 0px;
+}
+
+.moreButton.moreButtonCompositeChild {
+  top: 11px;
+  right: 2px;
 }
 </style>

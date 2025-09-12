@@ -31,8 +31,6 @@ const route = useRoute()
 const preferences = usePreferences()
 const isDevelopment = process.env.DEV
 
-const iconSize = '18px'
-
 const persisted = usePersisted({
   schema: ({ object, boolean, number }) =>
     object({
@@ -146,7 +144,7 @@ function promptReload() {
         <q-list dense>
           <q-item :active="route.fullPath === '/'" :class="$style.largeItem" clickable to="/">
             <q-item-section avatar>
-              <q-icon :name="icons.dashboard" :size="iconSize" />
+              <q-icon :name="icons.dashboard" />
             </q-item-section>
             <q-item-section avatar>
               <q-item-label>Dashboard</q-item-label>
@@ -167,7 +165,6 @@ function promptReload() {
                 >
                   <q-icon
                     :name="persisted.isShowingWorkspaces ? icons.menuDown : icons.menuRight"
-                    :size="iconSize"
                   />
                 </q-btn>
               </div>
@@ -271,20 +268,20 @@ function promptReload() {
       <q-list dense>
         <q-item v-if="engine.auth.isAdmin" clickable>
           <q-item-section avatar>
-            <q-icon :name="icons.admin" :size="iconSize" />
+            <q-icon :name="icons.admin" />
           </q-item-section>
           <q-item-section>
             <q-item-label>Admin</q-item-label>
           </q-item-section>
           <q-item-section side>
-            <q-icon :name="icons.menuRight" :size="iconSize" />
+            <q-icon :name="icons.menuRight" />
           </q-item-section>
           <q-menu anchor="top right" :offset="[8, 0]" self="top left">
             <q-card bordered>
               <q-list dense>
                 <q-item to="/users">
                   <q-item-section avatar>
-                    <q-icon :name="icons.user" :size="iconSize" />
+                    <q-icon :name="icons.user" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Users</q-item-label>
@@ -296,20 +293,20 @@ function promptReload() {
         </q-item>
         <q-item v-if="engine.auth.isOperator" clickable>
           <q-item-section avatar>
-            <q-icon :name="icons.configuration" :size="iconSize" />
+            <q-icon :name="icons.configuration" />
           </q-item-section>
           <q-item-section>
             <q-item-label>Configuration</q-item-label>
           </q-item-section>
           <q-item-section side>
-            <q-icon :name="icons.menuRight" :size="iconSize" />
+            <q-icon :name="icons.menuRight" />
           </q-item-section>
           <q-menu anchor="top right" :offset="[8, 0]" self="top left">
             <q-card bordered>
               <q-list dense>
                 <q-item v-close-popup clickable @click="promptReload">
                   <q-item-section avatar>
-                    <q-icon :name="icons.reload" :size="iconSize" />
+                    <q-icon :name="icons.reload" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Reload Engine Configuration</q-item-label>
@@ -321,13 +318,13 @@ function promptReload() {
         </q-item>
         <q-item clickable>
           <q-item-section avatar>
-            <q-icon :name="icons.preferences" :size="iconSize" />
+            <q-icon :name="icons.preferences" />
           </q-item-section>
           <q-item-section>
             <q-item-label>Preferences</q-item-label>
           </q-item-section>
           <q-item-section side>
-            <q-icon :name="icons.menuRight" :size="iconSize" />
+            <q-icon :name="icons.menuRight" />
           </q-item-section>
           <q-menu anchor="bottom right" :offset="[8, 0]" self="bottom left">
             <q-card bordered flat :style="{ minWidth: '350px' }">
@@ -378,19 +375,19 @@ function promptReload() {
           <q-separator />
           <q-item clickable>
             <q-item-section avatar>
-              <q-icon :name="icons.developer" :size="iconSize" />
+              <q-icon :name="icons.developer" />
             </q-item-section>
             <q-item-section>
               <q-item-label>Developer</q-item-label>
             </q-item-section>
             <q-item-section side>
-              <q-icon :name="icons.menuRight" :size="iconSize" />
+              <q-icon :name="icons.menuRight" />
             </q-item-section>
             <q-menu anchor="bottom right" :offset="[8, 0]" self="bottom left">
               <q-list bordered dense>
                 <q-item clickable @click="clearLocalStorage">
                   <q-item-section avatar>
-                    <q-icon :name="icons.clearLocalStorage" :size="iconSize" />
+                    <q-icon :name="icons.clearLocalStorage" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Clear Local Storage</q-item-label>
@@ -398,7 +395,7 @@ function promptReload() {
                 </q-item>
                 <q-item clickable to="/developer/schema-form-playground">
                   <q-item-section avatar>
-                    <q-icon :name="icons.json" :size="iconSize" />
+                    <q-icon :name="icons.json" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Schema Form Playground</q-item-label>
@@ -411,7 +408,7 @@ function promptReload() {
         <q-separator />
         <q-item :to="engine.auth.user == null ? '/login' : '/account'">
           <q-item-section avatar>
-            <q-icon :name="icons.user" :size="iconSize" />
+            <q-icon :name="icons.user" />
           </q-item-section>
           <q-item-section>
             <q-item-label>

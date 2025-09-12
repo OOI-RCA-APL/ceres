@@ -14,10 +14,11 @@ const emit = defineEmits<{
   'update:modelValue': [value: unknown]
 }>()
 
-const title = $computed(() => (path.length === 0 ? undefined : form.getLabel(path)))
+const label = $computed(() => (path.length === 0 ? undefined : form.getLabel(path)))
 
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
+const isShowingHeader = $computed(() => label != null || description != null || !isRequired)
 
 const description = $computed(() => form.getDescription(path))
 
@@ -35,26 +36,24 @@ function create() {
   <div>
     <q-card :bordered="path.length > 0 || !isRequired" flat>
       <div :class="['column', isDefined ? $style.defined : $style.notDefined]">
-        <template v-if="title || description">
+        <div v-if="isShowingHeader">
           <div
             :class="[
-              $style.titleContainer,
-              title != null && $style.titleContainerTitled,
-              'row',
-              'q-mb-xs',
+              $style.header,
+              label != null && $style.headerWithLabel,
+              'column',
+              'q-col-gutter-y-xs',
             ]"
           >
-            <div class="monospace-sm q-mr-sm">
-              {{ title }}
+            <div class="monospace-sm" :class="$style.title">
+              {{ label }}
             </div>
-            <div>
+            <div class="col">
               <common-text v-if="description" :class="$style.description" variant="description">
                 {{ description }}
               </common-text>
             </div>
-            <q-space />
-            <div>
-              <q-space />
+            <div :class="[$style.buttons, 'col-shrink justify-end row']">
               <schema-form-node-clear-button
                 v-if="!isRequired && modelValue !== undefined"
                 @click="emit('update:modelValue', undefined)"
@@ -62,8 +61,8 @@ function create() {
               <schema-form-node-add-button v-else-if="modelValue === undefined" @click="create" />
             </div>
           </div>
-          <q-separator v-if="modelValue != null && title" />
-        </template>
+          <q-separator v-if="modelValue != null && (label || description)" />
+        </div>
         <slot />
       </div>
     </q-card>
@@ -71,35 +70,38 @@ function create() {
 </template>
 
 <style lang="scss" module>
-.titleContainer {
-  margin-bottom: 8px;
+.header {
+  position: relative;
   padding-right: 12px;
+  padding-bottom: 6px;
 }
 
-.titleContainerTitled {
-  margin-top: 8px;
+.header.headerWithLabel {
+  margin-top: 4px;
   margin-left: 12px;
   padding-right: 12px;
 }
 
-.title {
-  padding: 0px 4px;
-  margin-left: 0;
+.description {
+  padding-bottom: 2px;
 }
 
-.description {
-  margin-top: 1px;
+.label {
+  opacity: 1;
 }
 
 .title {
   opacity: 1;
+  padding-top: 4px;
 }
 
 .notDefined .title {
-  opacity: 0.5;
+  opacity: 0.8;
 }
 
-.defined .title:focus {
-  outline: 1px solid white;
+.buttons {
+  position: absolute;
+  top: -2px;
+  right: 6px;
 }
 </style>

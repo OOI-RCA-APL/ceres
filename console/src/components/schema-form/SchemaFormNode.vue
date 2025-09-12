@@ -126,6 +126,7 @@ function update(value: unknown) {
         :form
         :model-value="modelValue"
         :path
+        :style="{ zIndex: path.length }"
       />
     </div>
   </template>
