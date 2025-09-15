@@ -756,7 +756,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
 
 .gapHorizontalMiddle {
   @include gap;
-  left: -10px;
+  left: -6px;
 }
 
 .gapHorizontalRight {
