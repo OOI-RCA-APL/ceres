@@ -1,5 +1,5 @@
 import Color from 'color'
-import { throttle } from 'lodash-es'
+import { isEqual, throttle } from 'lodash-es'
 import moment, { Duration, Moment } from 'moment'
 import Prism from 'prismjs'
 import { colors, debounce } from 'quasar'
@@ -10,10 +10,19 @@ export type Plain = string | number | boolean | null | { [property: string]: Pla
 export type MaybeRef<T> = Ref<T> | T
 export type MaybePromise<T> = Promise<T> | T
 
-export function jsonEquals(left: unknown, right: unknown) {
-  return JSON.stringify(left) === JSON.stringify(right)
+/**
+ * Return `true` if the plain object representations of the two values are deeply equal, while
+ * ignoring order of object properties.
+ */
+export function isStructurallyEqual(left: unknown, right: unknown) {
+  left = deepClone(left)
+  right = deepClone(right)
+  return isEqual(left, right)
 }
 
+/**
+ * Deep clone a value using JSON serialization.
+ */
 export function deepClone<T>(value: T) {
   return JSON.parse(JSON.stringify(value))
 }

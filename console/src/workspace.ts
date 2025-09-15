@@ -4,17 +4,7 @@ import { debounce } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { exportFile as download } from 'quasar'
 import { v7 } from 'uuid'
-import {
-  computed,
-  inject,
-  MaybeRef,
-  provide,
-  reactive,
-  readonly,
-  unref,
-  watch,
-  watchEffect,
-} from 'vue'
+import { computed, inject, MaybeRef, provide, reactive, unref, watch, watchEffect } from 'vue'
 import Zod from 'zod'
 
 import { AddressModel, AddressSelectorModel } from '@/api/address'
@@ -42,7 +32,7 @@ import WorkspaceWidgetVideoSettings from '@/components/WorkspaceWidgetVideoSetti
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
-import { deepClone, jsonEquals, safeArrayOf, selectFile } from '@/utilities'
+import { deepClone, isStructurallyEqual, safeArrayOf, selectFile } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
@@ -372,10 +362,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   })
 
   const workspace = $computed(
-    () =>
-      (query.data.value?.workspace
-        ? readonly(query.data.value.workspace)
-        : null) as Workspace | null
+    () => (query.data.value?.workspace ? query.data.value.workspace : null) as Workspace | null
   )
 
   const membership = $computed(
@@ -393,7 +380,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     await workspaces.assignEdit(id, data)
   }
 
-  watch($$(data), debounce(saveEdit, 500), { deep: true })
+  watch(() => data, debounce(saveEdit, 500), { deep: true })
 
   useEventListener(window, 'beforeunload', async () => {
     try {
@@ -403,9 +390,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   })
 
-  const edited = $computed(
-    () => data != null && workspace != null && !jsonEquals(data, workspace?.data)
-  )
+  const edited = $computed(() => {
+    return data != null && workspace != null && !isStructurallyEqual(data, workspace?.data)
+  })
 
   async function rename(newName: string) {
     return await workspaces.rename(id, newName)
