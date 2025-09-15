@@ -635,7 +635,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                 ? 'q-pl-xs'
                 : 'q-px-xs',
             ]"
-            :style="getWidgetWidthStyle(widget)"
+            :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
           >
             <template v-if="workspace.drag != null">
               <workspace-gap

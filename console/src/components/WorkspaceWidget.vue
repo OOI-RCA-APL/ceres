@@ -54,15 +54,9 @@ const key = $computed(() => {
       @touchmove.prevent
       @touchstart.prevent="workspace.drag = { widget, row, column }"
     >
-      <div class="items-center row">
+      <div class="items-center no-wrap row">
         <div class="q-mr-xs">
-          <common-text
-            :class="[$style.name, 'text-capitalize']"
-            style="cursor: text"
-            variant="th"
-            @mousedown.stop
-            @touchstart.stop
-          >
+          <common-text :class="$style.name" variant="th" @mousedown.stop @touchstart.stop>
             {{ widget.name }}
             <q-popup-edit
               v-slot="scope"
@@ -171,6 +165,7 @@ const key = $computed(() => {
         </div>
         <q-space />
         <q-btn
+          v-if="$q.screen.gt.xs"
           class="faded-hover"
           flat
           round
@@ -215,6 +210,10 @@ const key = $computed(() => {
 @use 'sass:color';
 :global(.light) .header {
   background-color: color.adjust(white, $lightness: -1%);
+}
+
+.name {
+  cursor: text;
 }
 
 .name:hover {
