@@ -1,34 +1,33 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
+// https://v2.quasar.dev/quasar-cli-vite/quasar-config-js
 /* eslint-env node */
 
-// https://v2.quasar.dev/quasar-cli-vite/quasar-config-js
+import fs from 'fs'
+import path from 'path'
 
-const fs = require('fs')
-const path = require('path')
+import dotenv from 'dotenv'
+import VueMacros from 'unplugin-vue-macros/vite'
 
-const { merge } = require('lodash')
-const { configure } = require('quasar/wrappers')
-const VueMacros = require('unplugin-vue-macros/vite')
+import { defineConfig } from '#q-app/wrappers'
 
-module.exports = configure((context) => {
+export default defineConfig((context) => {
   function getDevelopmentEnvironment() {
     if (context.prod) {
       return null
     }
 
-    const dotenv =
-      require('dotenv').config({
+    const values =
+      dotenv.config({
         path: path.join(__dirname, '.env'),
         override: true,
       }).parsed ?? {}
 
     return {
-      ceresApiPort: Number(dotenv.DEVELOPMENT_CERES_API_PORT ?? 8080),
-      ceresConsolePort: Number(dotenv.DEVELOPMENT_CERES_CONSOLE_PORT ?? 8085),
+      ceresApiPort: Number(values.DEVELOPMENT_CERES_API_PORT ?? 8080),
+      ceresConsolePort: Number(values.DEVELOPMENT_CERES_CONSOLE_PORT ?? 8085),
     }
   }
 
-  development = getDevelopmentEnvironment()
+  const development = getDevelopmentEnvironment()
 
   return {
     eslint: {
@@ -48,37 +47,30 @@ module.exports = configure((context) => {
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#build
     build: {
       distDir: path.join(__dirname, '../ceres/static/console'),
-      target: {
-        browser: ['es2019', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
-        node: 'node16',
-      },
       env: development
         ? {
-            DEVELOPMENT_CERES_API_PORT: development.ceresApiPort,
-            DEVELOPMENT_CERES_CONSOLE_PORT: development.ceresConsolePort,
+            DEVELOPMENT_CERES_API_PORT: String(development.ceresApiPort),
+            DEVELOPMENT_CERES_CONSOLE_PORT: String(development.ceresConsolePort),
           }
         : undefined,
       vueRouterMode: 'history',
-      vitePlugins: [AllowDotURLsPlugin()],
-      extendViteConf(config) {
-        // Allow '@' to be used as an alias for the 'src' directory.
-        config.resolve ??= {}
-        config.resolve.alias ??= {}
-        config.resolve.alias['@'] = path.resolve(__dirname, './src')
-
-        // Insert the Vue Macros plugin directly after the 'vite:vue' plugin.
-        const vuePluginIndex = config.plugins.findIndex((plugin) => plugin.name === 'vite:vue')
-        config.plugins.splice(vuePluginIndex + 1, 0, VueMacros())
-        config.build = merge({}, config.build, {
-          minify: 'terser',
-          rollupOptions: {
-            output: {
-              inlineDynamicImports: true,
+      vitePlugins: [VueMacros() as any, AllowDotURLsPlugin()],
+      extendViteConf() {
+        return {
+          resolve: {
+            alias: {
+              '@': path.resolve(__dirname, './src'),
             },
           },
-        })
-
-        return config
+          build: {
+            minify: 'terser',
+            rollupOptions: {
+              output: {
+                inlineDynamicImports: true,
+              },
+            },
+          },
+        }
       },
     },
 
@@ -113,8 +105,8 @@ module.exports = configure((context) => {
 function AllowDotURLsPlugin() {
   return {
     name: 'allow-dot-urls-plugin',
-    configureServer: (server) => {
-      server.middlewares.use((request, _, next) => {
+    configureServer: (server: any) => {
+      server.middlewares.use((request: any, _: any, next: any) => {
         const path = request.url.split('?', 2)[0]
         if (
           !request.url.startsWith('/@') && // Ignore virtual files provided by vite plugins.

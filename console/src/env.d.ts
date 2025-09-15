@@ -1,6 +1,14 @@
 /* eslint-disable */
-
 /// <reference types="unplugin-vue-macros/macros-global" />
+
+import { Quasar } from 'quasar'
+import 'vue'
+
+declare module '@vue/runtime-core' {
+  interface ComponentCustomProperties {
+    $q: Quasar
+  }
+}
 
 declare namespace NodeJS {
   interface ProcessEnv {
