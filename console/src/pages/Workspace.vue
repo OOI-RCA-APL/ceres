@@ -21,6 +21,7 @@ import { deepClone } from '@/utilities'
 import {
   provideWorkspace,
   resolveWidgetWidths,
+  widgetWidthSubdivisions,
   Widget,
   WorkspaceData,
   WorkspaceMembershipRole,
@@ -228,7 +229,7 @@ function getWidgetWidthStyle(widget: Widget) {
     return undefined
   }
 
-  const width = `${Math.round((widget.width / 100) * layoutWidth).toFixed(1)}px`
+  const width = `${Math.round((widget.width / widgetWidthSubdivisions) * layoutWidth).toFixed(1)}px`
 
   return {
     maxWidth: width,
@@ -618,7 +619,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                 50
               )
             "
-            :step="10"
+            :step="5"
             visibility="hover"
           />
           <div
@@ -635,7 +636,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                 ? 'q-pl-xs'
                 : 'q-px-xs',
             ]"
-            :style="getWidgetWidthStyle(widget)"
+            :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
           >
             <template v-if="workspace.drag != null">
               <workspace-gap
@@ -665,8 +666,8 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
               :class="$style.horizontalResizeHandle"
               direction="horizontal"
               :min="100"
-              :model-value="(widget.width / 100) * layoutWidth"
-              :step="1"
+              :model-value="(widget.width / widgetWidthSubdivisions) * layoutWidth"
+              :step="1 / widgetWidthSubdivisions"
               visibility="hover"
               @update:model-value="
                 (pixels) => {
@@ -674,7 +675,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                     return
                   }
 
-                  widget.width = (pixels / layoutWidth) * 100
+                  widget.width = Math.round((pixels / layoutWidth) * widgetWidthSubdivisions)
                   resolveWidgetWidths(row.widgets, j, 'after')
                 }
               "
@@ -755,7 +756,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
 
 .gapHorizontalMiddle {
   @include gap;
-  left: -10px;
+  left: -6px;
 }
 
 .gapHorizontalRight {

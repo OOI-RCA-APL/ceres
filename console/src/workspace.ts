@@ -42,13 +42,14 @@ import WorkspaceWidgetVideoSettings from '@/components/WorkspaceWidgetVideoSetti
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
-import { deepClone, jsonEquals, safeArrayOf, selectFile } from '@/utilities'
+import { deepClone, isStructurallyEqual, safeArrayOf, selectFile } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
   id: Zod.string().catch(() => v7()),
   name: Zod.string(),
-  width: Zod.number().catch(100), // Percentage of row width, not pixels.
+  // Fraction of row width out of 120, not pixels.
+  width: Zod.number().catch(() => widgetWidthSubdivisions),
 })
 
 export type MessagesWidget = Zod.infer<typeof MessagesWidgetModel>
@@ -393,7 +394,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     await workspaces.assignEdit(id, data)
   }
 
-  watch($$(data), debounce(saveEdit, 500), { deep: true })
+  watch(() => data, debounce(saveEdit, 500), { deep: true })
 
   useEventListener(window, 'beforeunload', async () => {
     try {
@@ -403,9 +404,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   })
 
-  const edited = $computed(
-    () => data != null && workspace != null && !jsonEquals(data, workspace?.data)
-  )
+  const edited = $computed(() => {
+    return data != null && workspace != null && !isStructurallyEqual(data, workspace?.data)
+  })
 
   async function rename(newName: string) {
     return await workspaces.rename(id, newName)
@@ -477,7 +478,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     row = Math.min(data.layout.length, row)
     const widgets = [...(data.layout[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
-    widget.width = Math.min(100 / widgets.length, widget.width)
+    widget.width = Math.min(widgetWidthSubdivisions / widgets.length, widget.width)
     resolveWidgetWidths(widgets, widgets.indexOf(widget))
 
     if (row < 0) {
@@ -601,7 +602,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     destinationRow.height = Math.max(destinationRow.height, sourceRow.height)
 
     resolveWidgetWidths(sourceRow.widgets)
-    widget.width = Math.min(100 / destinationRow.widgets.length, widget.width)
+    widget.width = Math.min(widgetWidthSubdivisions / destinationRow.widgets.length, widget.width)
     resolveWidgetWidths(destinationRow.widgets, destinationRow.widgets.indexOf(widget))
 
     data.layout = data.layout.filter((row) => row != null && row.widgets.length > 0)
@@ -1015,6 +1016,9 @@ export const useWorkspaces = defineStore('workspaces', () => {
   }
 })
 
+export const widgetWidthSubdivisions = 120
+export const minWidgetWidthPixels = 100
+
 export function resolveWidgetWidths(
   widgets: Widget[],
   keepIndex?: number,
@@ -1027,9 +1031,9 @@ export function resolveWidgetWidths(
     keepIndex = undefined
   }
 
-  const totalWidthPercentage = widgets.reduce((sum, current) => sum + current.width, 0)
-  const excessWidthPercentage = totalWidthPercentage - 100
-  if (excessWidthPercentage === 0) {
+  const totalWidthUnits = widgets.reduce((sum, current) => sum + current.width, 0)
+  const excessWidthUnits = totalWidthUnits - widgetWidthSubdivisions
+  if (excessWidthUnits === 0) {
     return
   }
 
@@ -1044,10 +1048,10 @@ export function resolveWidgetWidths(
     }
   }
 
-  const excessWidthPerWidget = excessWidthPercentage / adjusted.length
+  const excessWidthUnitsPerWidget = excessWidthUnits / adjusted.length
 
   for (const widget of adjusted) {
-    widget.width -= excessWidthPerWidget
+    widget.width -= excessWidthUnitsPerWidget
   }
 
   for (const widget of widgets) {
