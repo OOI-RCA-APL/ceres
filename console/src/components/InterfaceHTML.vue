@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { HTMLElement } from '@/api/elements'
 
-const { element } = $defineProps<{
+const { element } = defineProps<{
   element: HTMLElement
 }>()
 </script>

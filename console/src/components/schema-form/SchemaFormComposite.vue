@@ -4,7 +4,7 @@ import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddB
 import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import { SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, path, form } = $defineProps<{
+const { modelValue, path, form } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   path: SchemaPath

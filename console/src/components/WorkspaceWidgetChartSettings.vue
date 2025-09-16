@@ -5,7 +5,7 @@ import CommonText from '@/components/CommonText.vue'
 import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
 import { ChartWidgetParticle, ChartWidget } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: ChartWidget
 }>()
 

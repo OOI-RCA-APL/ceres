@@ -8,7 +8,7 @@ import { Particle, ParticleModel } from '@/api/particles'
 import { displayDuration, useTime } from '@/time'
 import { ValueWidget } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: ValueWidget
 }>()
 

@@ -5,7 +5,7 @@ import { RowElement } from '@/api/elements'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
 
-const { element } = $defineProps<{
+const { element } = defineProps<{
   element: RowElement
   path: InterfacePath
 }>()

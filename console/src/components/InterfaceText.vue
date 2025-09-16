@@ -2,7 +2,7 @@
 import type { TextElement } from '@/api/elements'
 import CommonText from '@/components/CommonText.vue'
 
-const { element } = $defineProps<{
+const { element } = defineProps<{
   element: TextElement
 }>()
 

@@ -27,7 +27,7 @@ const componentClasses: Readonly<Record<ElementType, ComponentConstructor>> = {
   text: InterfaceText,
 }
 
-const { element, path } = $defineProps<{
+const { element, path } = defineProps<{
   element: Element
   path: InterfacePath
 }>()

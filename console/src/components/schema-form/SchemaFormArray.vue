@@ -7,7 +7,7 @@ import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddB
 import icons from '@/icons'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = $defineProps<{
+const { modelValue, form, path } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'array' }
@@ -21,7 +21,7 @@ const emit = defineEmits<{
 
 const array = $computed(() => {
   if (modelValue == null) {
-    return modelValue
+    return undefined
   }
 
   if (!Array.isArray(modelValue)) {
@@ -126,6 +126,9 @@ function childIsComposite(index: number) {
                     <q-item-section>Duplicate</q-item-section>
                   </q-item>
                   <q-item v-close-popup clickable @click="remove(index)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.cancel" />
+                    </q-item-section>
                     <q-item-section>Remove</q-item-section>
                   </q-item>
                 </q-list>

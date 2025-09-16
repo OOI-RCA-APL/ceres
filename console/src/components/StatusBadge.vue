@@ -7,7 +7,7 @@ import StatusBadgeAffectedCounter from '@/components/StatusBadgeAffectedCounter.
 import icons from '@/icons'
 import { debouncedComputed } from '@/utilities'
 
-const { address } = $defineProps<{
+const { address } = defineProps<{
   address: Address
 }>()
 

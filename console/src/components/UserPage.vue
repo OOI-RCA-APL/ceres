@@ -12,7 +12,7 @@ import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
 
-const { id = null } = $defineProps<{
+const { id = null } = defineProps<{
   id?: string | null
 }>()
 

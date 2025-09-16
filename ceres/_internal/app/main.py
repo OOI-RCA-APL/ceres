@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.requests import HTTPConnection
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException
-from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
+from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
 
 from ceres._internal import util
 from ceres._internal.app.shared import CurrentEngine
@@ -174,7 +174,7 @@ class App(FastAPI):
         exception: RequestValidationError,
     ) -> Response:
         error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
-        return JSONResponse(simplify(error), HTTP_422_UNPROCESSABLE_ENTITY)
+        return JSONResponse(simplify(error), HTTP_422_UNPROCESSABLE_CONTENT)
 
 
 class LoggingMiddleware:

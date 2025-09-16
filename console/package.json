@@ -4,40 +4,40 @@
   "author": "Jake Ploskey <jploskey@uw.edu>",
   "private": true,
   "scripts": {
+    "quasar": "quasar",
+    "postinstall": "quasar prepare",
     "build": "quasar build",
     "dev": "quasar dev",
-    "quasar": "quasar",
-    "lint": "eslint --ext .js,.ts,.vue . && prettier --ignore-path .gitignore --check .",
-    "fix": "eslint --ext .js,.ts,.vue --fix . && prettier --ignore-path .gitignore --write ."
+    "lint": "quasar prepare && vue-tsc --noEmit && eslint --ext .js,.ts,.vue . && prettier --ignore-path .gitignore --check .",
+    "fix": "quasar prepare && eslint --ext .js,.ts,.vue --fix . && prettier --ignore-path .gitignore --write ."
   },
   "dependencies": {
-    "@quasar/extras": "1.16.12",
+    "@quasar/extras": "1.17.0",
     "@tanstack/vue-query": "5.59.16",
-    "@videojs-player/vue": "^1.0.0",
     "@vueuse/core": "11.1.0",
     "ajv": "8.17.1",
     "color": "4.2.3",
-    "echarts": "5.5.1",
+    "echarts": "5.6.0",
     "lodash-es": "4.17.21",
     "moment": "2.30.1",
     "moment-timezone": "0.5.46",
-    "pinia": "2.2.5",
-    "prismjs": "1.29.0",
-    "quasar": "2.17.1",
+    "pinia": "3.0.3",
+    "prismjs": "1.30.0",
+    "quasar": "2.18.2",
     "url": "0.11.4",
     "uuid": "11.0.2",
-    "validator": "13.12.0",
-    "vue": "^3.0.0",
-    "vue-router": "^4.0.0",
+    "validator": "13.15.15",
+    "vue": "3.5.21",
+    "vue-router": "4.5.1",
     "zod": "3.23.8"
   },
   "devDependencies": {
-    "@quasar/app-vite": "^1.10.2",
-    "@types/color": "^4.2.0",
-    "@types/lodash-es": "^4.17.12",
-    "@types/node": "^22.8.4",
-    "@types/prismjs": "^1.26.4",
-    "@types/validator": "^13.11.9",
+    "@quasar/app-vite": "2.4.0",
+    "@types/color": "4.2.0",
+    "@types/lodash-es": "4.17.12",
+    "@types/node": "24.5.0",
+    "@types/prismjs": "1.26.5",
+    "@types/validator": "13.15.3",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "autoprefixer": "^10.4.0",
@@ -49,11 +49,15 @@
     "eslint-plugin-vue": "^9.0.0",
     "prettier": "^2.5.0",
     "typescript": "^5.0.0",
-    "unplugin-vue-macros": "2.13.3"
+    "vue-macros": "^3.0.0-beta.23",
+    "vue-tsc": "3.0.6"
   },
   "engines": {
-    "node": ">= 16",
-    "npm": ">= 6.13.4",
-    "yarn": ">= 1.21.1"
+    "node": ">=24.0.0"
+  },
+  "prettier": {
+    "semi": false,
+    "printWidth": 100,
+    "singleQuote": true
   }
 }

@@ -7,7 +7,7 @@ import { useEngine } from '@/api/engine'
 import Procedure from '@/components/Procedure.vue'
 import icons from '@/icons'
 
-const { element } = $defineProps<{
+const { element } = defineProps<{
   element: ButtonElement
 }>()
 

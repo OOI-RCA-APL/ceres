@@ -3,7 +3,7 @@ import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { displayDuration, parseDuration } from '@/utilities'
 
-const { modelValue, form, path } = $defineProps<{
+const { modelValue, form, path } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'duration' }
@@ -20,7 +20,7 @@ const resolvedOrDefault = $computed(() => resolved ?? defaultValue)
 
 function resolve(value: unknown) {
   if (value == null) {
-    return value
+    return undefined
   }
 
   try {

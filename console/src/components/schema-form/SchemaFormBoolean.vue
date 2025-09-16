@@ -3,7 +3,7 @@ import CommonText from '@/components/CommonText.vue'
 import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = $defineProps<{
+const { modelValue, form, path } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'boolean' }

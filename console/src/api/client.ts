@@ -190,7 +190,7 @@ function useStream<TParseModel extends ZodTypeAny>(
         ) {
           entries[stream.id].socket = createSocket(
             entry.stream,
-            options as UseStreamOptions<TParseModel>,
+            options as any as UseStreamOptions<TParseModel>,
             onClose
           )
         }
@@ -230,7 +230,7 @@ function useStream<TParseModel extends ZodTypeAny>(
 
       const socket = options.disable
         ? null
-        : createSocket(stream, options as UseStreamOptions<TParseModel>, onClose)
+        : createSocket(stream, options as any as UseStreamOptions<TParseModel>, onClose)
 
       entries[stream.id] = { stream, socket }
     }
@@ -249,7 +249,7 @@ function createSocket<TParseModel extends ZodTypeAny>(
   })
 
   socket.addEventListener('message', (event) => {
-    let data
+    let data: any
     try {
       data = JSON.parse(event.data)
     } catch {

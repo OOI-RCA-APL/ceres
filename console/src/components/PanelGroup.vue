@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { providePanelGroup } from '@/panel-group'
 
-const { panels, defaultHeight, persist } = $defineProps<{
+const { panels, defaultHeight, persist } = defineProps<{
   title?: string
   panels?: string[]
   defaultHeight?: number

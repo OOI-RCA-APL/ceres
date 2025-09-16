@@ -34,7 +34,7 @@ const {
   widget,
   filter,
   columns: appendedColumns,
-} = $defineProps<{
+} = defineProps<{
   widget: MessagesWidget | ParticlesWidget | AlertsWidget | LogsWidget
   columns: ColumnDefinition[]
   filter: RecordFilter

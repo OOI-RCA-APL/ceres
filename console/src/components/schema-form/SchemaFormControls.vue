@@ -5,7 +5,7 @@ const {
   form,
   executeLabel = 'Execute',
   resetLabel = 'Reset',
-} = $defineProps<{
+} = defineProps<{
   form?: SchemaForm | null
   executeLabel?: string
   resetLabel?: string

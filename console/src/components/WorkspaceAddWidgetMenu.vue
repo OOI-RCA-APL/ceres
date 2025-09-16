@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useWorkspace, widgetInfos, WidgetType } from '@/workspace'
 
-const { row, column } = $defineProps<{
+const { row, column } = defineProps<{
   row: number
   column?: number
 }>()

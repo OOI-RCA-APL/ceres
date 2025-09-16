@@ -109,7 +109,7 @@ export function providePanelGroup(options?: MaybeRef<PanelGroupOptions>) {
 export function usePanelGroup() {
   const instance = inject(panelGroupInjectionKey, null)
   if (instance == null) {
-    throw Error(`missing inject for ${panelGroupInjectionKey}`)
+    throw Error(`missing inject for ${String(panelGroupInjectionKey)}`)
   }
 
   return instance

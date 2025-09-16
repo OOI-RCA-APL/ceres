@@ -6,7 +6,7 @@ import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeCl
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { Plain } from '@/utilities'
 
-const { form, schema, path } = $defineProps<{
+const { form, schema, path } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { enum: Plain[] }

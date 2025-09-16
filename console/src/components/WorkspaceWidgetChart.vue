@@ -12,7 +12,7 @@ import { useTime } from '@/time'
 import { debouncedComputed, parseDuration } from '@/utilities'
 import { ChartWidget } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: ChartWidget
 }>()
 
@@ -46,39 +46,12 @@ const end = $computed(() => {
   return null
 })
 
-const duration = $computed(() => {
-  return moment.duration((end ?? time.now).diff(start))
-})
-
-function append(seriesName: string, entries: DataEntry[], to?: 'option' | 'pending' | 'instance') {
+function append(seriesName: string, entries: DataEntry[], to: 'pending' | 'instance') {
   if (entries.length === 0) {
     return
   }
 
-  if (to == null) {
-    to = isZooming ? 'option' : 'instance'
-  }
-
-  if (to === 'option') {
-    if (instance == null) {
-      return
-    }
-    const option = instance.getOption() as Option
-    const seriess =
-      option.series == null || Array.isArray(option.series) ? option.series ?? [] : [option.series]
-    const series = seriess.find((current) => current.name === seriesName)
-    if (series == null) {
-      return
-    }
-
-    let data = series.data as DataEntry[]
-    if (!Array.isArray(series.data)) {
-      series.data = data = []
-    }
-
-    data.push(...entries)
-    instance.setOption({ series: option.series })
-  } else if (to === 'pending') {
+  if (to === 'pending') {
     pending[seriesName] ??= []
     pending[seriesName].push(...entries)
   } else {
@@ -110,24 +83,16 @@ const seriesIndexes = $computed(() => {
   return indexes
 })
 
-const zoom = $ref({ start: 0, end: 100 })
-const isZooming = $computed(() => zoom.start > 0 || zoom.end < 100)
-
-watchEffect((cleanup) => {
-  instance?.on('dataZoom', (incoming: any) => {
-    for (const event of incoming.batch) {
-      zoom.start = event.start
-      zoom.end = event.end
-    }
-  })
-
-  cleanup(() => {
-    instance?.off('dataZoom')
-  })
-})
-
 const xMin = $computed(() => start.valueOf())
 const xMax = $computed(() => (end ?? time.now).valueOf())
+
+const smoothAnimations = {
+  animation: true,
+  animationDurationUpdate: 1000,
+  animationEasingUpdate: 'linear',
+  // This threshold needs to be set, otherwise most charts just will not animate.
+  animationThreshold: 200000,
+} as const
 
 const axisOption: Option = $computed(() => {
   return {
@@ -136,6 +101,8 @@ const axisOption: Option = $computed(() => {
       type: 'time',
       min: xMin,
       max: xMax,
+      // Smoothly scroll the X axis as time progresses.
+      ...smoothAnimations,
     },
     yAxis: {
       name: widget.unit ?? '',
@@ -152,7 +119,8 @@ const baseOption: Option = $computed(() => {
         name: series.name,
         type: widget.display,
         data: getData(series.name),
-        animation: widget.display === 'bar' ? false : true, // Disable animation for bar chart.
+        // Enable smooth scrolling animations for non-bar charts.
+        ...(widget.display !== 'bar' ? smoothAnimations : { animation: false }),
         showSymbol: false, // Disable showing dots, for performance.
         symbolSize: 3,
         emphasis: {
@@ -254,7 +222,7 @@ let lastPendingApplied = $shallowRef(time.now)
 
 function applyPending() {
   for (const name in pending) {
-    append(name, pending[name])
+    append(name, pending[name], 'instance')
   }
 
   clearPending()
@@ -263,26 +231,11 @@ function applyPending() {
 
 const isVisible = $(useElementVisibility(() => instance?.getDom()))
 const pendingApplyInterval = $computed(() => {
-  if (!isVisible) {
-    return moment.duration(5, 'minutes')
+  if (isVisible) {
+    return moment.duration(1, 'seconds')
+  } else {
+    return moment.duration(1, 'minute')
   }
-
-  const percentageVisible = (zoom.end - zoom.start) / 100
-  const timeVisible = moment.duration(duration.asMilliseconds() * percentageVisible)
-  if (timeVisible.asDays() >= 1) {
-    return moment.duration(1, 'minutes')
-  }
-  if (timeVisible.asHours() >= 1) {
-    return moment.duration(30, 'seconds')
-  }
-  if (timeVisible.asMinutes() >= 30) {
-    return moment.duration(15, 'seconds')
-  }
-  if (timeVisible.asMinutes() >= 5) {
-    return moment.duration(5, 'seconds')
-  }
-
-  return moment.duration(1, 'seconds')
 })
 
 watch(
@@ -326,15 +279,24 @@ watch(
   { immediate: true }
 )
 
+function getSeries(option: Option) {
+  if (option.series == null) {
+    return []
+  }
+  if (Array.isArray(option.series)) {
+    return option.series
+  }
+
+  return [option.series]
+}
+
 function clear(seriesName?: string) {
   const option = instance?.getOption()
   if (option == null) {
     return
   }
 
-  const series =
-    option.series == null || Array.isArray(option.series) ? option.series ?? [] : [option.series]
-
+  const series = getSeries(option)
   for (const current of series) {
     if (seriesName == null || current.name !== seriesName) {
       continue
@@ -355,9 +317,7 @@ function getData(seriesName: string) {
     return []
   }
 
-  const series =
-    option.series == null || Array.isArray(option.series) ? option.series ?? [] : [option.series]
-
+  const series = getSeries(option)
   for (const current of series) {
     if (current.name === seriesName) {
       return current.data as any[][] | undefined
@@ -373,9 +333,7 @@ function prune() {
     return
   }
 
-  const series =
-    option.series == null || Array.isArray(option.series) ? option.series ?? [] : [option.series]
-
+  const series = getSeries(option)
   for (const current of series) {
     const data = current.data as any[][] | undefined
     if (data == null) {
@@ -404,7 +362,7 @@ useIntervalFn(
   () => {
     prune()
   },
-  () => pendingApplyInterval.asMilliseconds() * 5
+  () => moment.duration(1, 'minute').asMilliseconds()
 )
 
 client.useStream({

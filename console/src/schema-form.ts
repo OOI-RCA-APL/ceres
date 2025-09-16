@@ -1,7 +1,8 @@
-import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
+import AJV, { SchemaObject as BaseSchemaObject, ValidateFunction } from 'ajv'
 import { cloneDeep, isEqual, upperFirst } from 'lodash-es'
 import { computed, reactive, unref } from 'vue'
 
+import { FormState } from '@/form'
 import { getter } from '@/getter'
 import { KeyInput, usePersisted } from '@/persistence'
 import { useTime } from '@/time'
@@ -91,7 +92,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
       })
   )
 
-  const compilation = $computed(() => {
+  const compilation = $computed<{ validator: ValidateFunction<unknown>; error: Error }>(() => {
     try {
       return {
         validator: ajv.compile(rootSchema),
@@ -416,7 +417,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     if (canSubmit && onSubmit) {
       state = 'submitting'
       try {
-        state = (await onSubmit(persisted.value)) ?? 'editing'
+        state = ((await onSubmit(persisted.value)) as FormState | undefined) ?? 'editing'
       } catch {
         state = 'editing'
       }

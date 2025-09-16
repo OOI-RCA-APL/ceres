@@ -2,7 +2,7 @@
 import AppBoundary from '@/AppBoundary.vue'
 import { usePanelGroup } from '@/panel-group'
 
-const { name } = $defineProps<{
+const { name } = defineProps<{
   name: string
 }>()
 

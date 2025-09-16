@@ -7,7 +7,7 @@ import { useForm } from '@/form'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
 
-const { userId } = $defineProps<{
+const { userId } = defineProps<{
   userId: string
 }>()
 

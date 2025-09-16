@@ -29,7 +29,7 @@ import {
   WorkspaceMembershipRoleOf,
 } from '@/workspace'
 
-const { workspaceId, data, action } = $defineProps<
+const { workspaceId, data, action } = defineProps<
   | {
       workspaceId: string
       action: 'view'

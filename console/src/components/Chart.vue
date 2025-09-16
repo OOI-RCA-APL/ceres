@@ -50,7 +50,7 @@ const {
   option,
   loading = false,
   height = undefined,
-} = $defineProps<{
+} = defineProps<{
   option?: Option
   loading?: boolean
   height?: number | string | null

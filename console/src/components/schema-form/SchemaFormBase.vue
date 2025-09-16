@@ -4,7 +4,7 @@ import { computed, watchEffect } from 'vue'
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import { SchemaObject, SchemaPath, useSchemaForm } from '@/schema-form'
 
-const { schema } = $defineProps<{
+const { schema } = defineProps<{
   schema: SchemaObject
 }>()
 

@@ -14,7 +14,7 @@ import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
 import { isType, SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path, autofocus, noClearOnEmpty } = $defineProps<{
+const { modelValue, form, path, autofocus, noClearOnEmpty } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   path: SchemaPath

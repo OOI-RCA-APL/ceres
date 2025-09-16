@@ -9,7 +9,7 @@ import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { MessagesWidget } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: MessagesWidget
 }>()
 

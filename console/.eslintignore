@@ -1,7 +1,6 @@
-.eslintrc.js
-/.quasar
+# Quasar
+.quasar
 /dist
+
+# Node
 /node_modules
-/src-capacitor
-/src-cordova
-/src-ssr

@@ -143,8 +143,6 @@ class Socket:
 
 
 async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> AsyncIterator[Socket]:
-    from websockets.exceptions import ConnectionClosed
-
     assert engine.server is not None
     try:
         try:
@@ -153,7 +151,7 @@ async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> Async
             pass
 
         yield Socket(socket, engine.server)
-    except (WebSocketDisconnect, ConnectionClosed):
+    except WebSocketDisconnect:
         pass
     finally:
         if socket.application_state == WebSocketState.CONNECTED:
