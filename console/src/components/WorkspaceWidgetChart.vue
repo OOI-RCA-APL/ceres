@@ -46,37 +46,12 @@ const end = $computed(() => {
   return null
 })
 
-const duration = $computed(() => {
-  return moment.duration((end ?? time.now).diff(start))
-})
-
-function append(seriesName: string, entries: DataEntry[], to?: 'option' | 'pending' | 'instance') {
+function append(seriesName: string, entries: DataEntry[], to: 'pending' | 'instance') {
   if (entries.length === 0) {
     return
   }
 
-  if (to == null) {
-    to = isZooming ? 'option' : 'instance'
-  }
-
-  if (to === 'option') {
-    if (instance == null) {
-      return
-    }
-    const option = instance.getOption() as Option
-    const series = getSeries(option).find((current) => current.name === seriesName)
-    if (series == null) {
-      return
-    }
-
-    let data = series.data as DataEntry[]
-    if (!Array.isArray(series.data)) {
-      series.data = data = []
-    }
-
-    data.push(...entries)
-    instance.setOption({ series: option.series })
-  } else if (to === 'pending') {
+  if (to === 'pending') {
     pending[seriesName] ??= []
     pending[seriesName].push(...entries)
   } else {
@@ -106,22 +81,6 @@ const seriesIndexes = $computed(() => {
   }
 
   return indexes
-})
-
-const zoom = $ref({ start: 0, end: 100 })
-const isZooming = $computed(() => zoom.start > 0 || zoom.end < 100)
-
-watchEffect((cleanup) => {
-  instance?.on('dataZoom', (incoming: any) => {
-    for (const event of incoming.batch) {
-      zoom.start = event.start
-      zoom.end = event.end
-    }
-  })
-
-  cleanup(() => {
-    instance?.off('dataZoom')
-  })
 })
 
 const xMin = $computed(() => start.valueOf())
@@ -252,7 +211,7 @@ let lastPendingApplied = $shallowRef(time.now)
 
 function applyPending() {
   for (const name in pending) {
-    append(name, pending[name])
+    append(name, pending[name], 'instance')
   }
 
   clearPending()
@@ -261,26 +220,11 @@ function applyPending() {
 
 const isVisible = $(useElementVisibility(() => instance?.getDom()))
 const pendingApplyInterval = $computed(() => {
-  if (!isVisible) {
-    return moment.duration(5, 'minutes')
+  if (isVisible) {
+    return moment.duration(1, 'seconds')
+  } else {
+    return moment.duration(1, 'minute')
   }
-
-  const percentageVisible = (zoom.end - zoom.start) / 100
-  const timeVisible = moment.duration(duration.asMilliseconds() * percentageVisible)
-  if (timeVisible.asDays() >= 1) {
-    return moment.duration(1, 'minutes')
-  }
-  if (timeVisible.asHours() >= 1) {
-    return moment.duration(30, 'seconds')
-  }
-  if (timeVisible.asMinutes() >= 30) {
-    return moment.duration(15, 'seconds')
-  }
-  if (timeVisible.asMinutes() >= 5) {
-    return moment.duration(5, 'seconds')
-  }
-
-  return moment.duration(1, 'seconds')
 })
 
 watch(
@@ -407,7 +351,7 @@ useIntervalFn(
   () => {
     prune()
   },
-  () => pendingApplyInterval.asMilliseconds() * 5
+  () => moment.duration(1, 'minute').asMilliseconds()
 )
 
 client.useStream({
