@@ -12,7 +12,7 @@ import { useTime } from '@/time'
 import { debouncedComputed, parseDuration } from '@/utilities'
 import { ChartWidget } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: ChartWidget
 }>()
 
@@ -64,9 +64,7 @@ function append(seriesName: string, entries: DataEntry[], to?: 'option' | 'pendi
       return
     }
     const option = instance.getOption() as Option
-    const seriess =
-      option.series == null || Array.isArray(option.series) ? option.series ?? [] : [option.series]
-    const series = seriess.find((current) => current.name === seriesName)
+    const series = getSeries(option).find((current) => current.name === seriesName)
     if (series == null) {
       return
     }
@@ -326,15 +324,24 @@ watch(
   { immediate: true }
 )
 
+function getSeries(option: Option) {
+  if (option.series == null) {
+    return []
+  }
+  if (Array.isArray(option.series)) {
+    return option.series
+  }
+
+  return [option.series]
+}
+
 function clear(seriesName?: string) {
   const option = instance?.getOption()
   if (option == null) {
     return
   }
 
-  const series =
-    option.series == null || Array.isArray(option.series) ? option.series ?? [] : [option.series]
-
+  const series = getSeries(option)
   for (const current of series) {
     if (seriesName == null || current.name !== seriesName) {
       continue
@@ -355,9 +362,7 @@ function getData(seriesName: string) {
     return []
   }
 
-  const series =
-    option.series == null || Array.isArray(option.series) ? option.series ?? [] : [option.series]
-
+  const series = getSeries(option)
   for (const current of series) {
     if (current.name === seriesName) {
       return current.data as any[][] | undefined
@@ -373,9 +378,7 @@ function prune() {
     return
   }
 
-  const series =
-    option.series == null || Array.isArray(option.series) ? option.series ?? [] : [option.series]
-
+  const series = getSeries(option)
   for (const current of series) {
     const data = current.data as any[][] | undefined
     if (data == null) {

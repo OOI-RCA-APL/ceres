@@ -3,7 +3,7 @@ import { LogEntry } from '@/api/logs'
 import RecordViewRecord from '@/components/RecordViewRecord.vue'
 import TextContent from '@/components/TextContent.vue'
 
-const { entry } = $defineProps<{
+const { entry } = defineProps<{
   entry: LogEntry
 }>()
 

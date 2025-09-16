@@ -5,7 +5,7 @@ import fs from 'fs'
 import path from 'path'
 
 import dotenv from 'dotenv'
-import VueMacros from 'unplugin-vue-macros/vite'
+import VueMacros from 'vue-macros/vite'
 
 import { defineConfig } from '#q-app/wrappers'
 

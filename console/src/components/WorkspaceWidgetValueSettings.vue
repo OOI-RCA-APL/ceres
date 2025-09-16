@@ -5,7 +5,7 @@ import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
 import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
 import { ValueWidget, TextWeightModel } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: ValueWidget
 }>()
 

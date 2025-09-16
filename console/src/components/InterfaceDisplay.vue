@@ -15,7 +15,7 @@ const {
   element,
   path,
   noConfig = false,
-} = $defineProps<{
+} = defineProps<{
   element: DisplayElement
   path: InterfacePath
   noConfig?: boolean

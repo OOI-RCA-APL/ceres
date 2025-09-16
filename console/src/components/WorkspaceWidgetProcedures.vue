@@ -6,7 +6,7 @@ import { useEngine } from '@/api/engine'
 import Procedure from '@/components/Procedure.vue'
 import { ProceduresWidget } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: ProceduresWidget
 }>()
 

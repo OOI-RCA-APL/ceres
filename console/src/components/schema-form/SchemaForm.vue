@@ -10,7 +10,7 @@ import {
   useSchemaForm,
 } from '@/schema-form'
 
-const { form: formInput, formRef } = $defineProps<{
+const { form: formInput, formRef } = defineProps<{
   form: SchemaForm | SchemaFormOptions
   formRef?: (form: SchemaForm) => unknown
 }>()

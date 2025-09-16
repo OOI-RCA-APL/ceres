@@ -161,7 +161,7 @@ export function useForm<
 
     try {
       form.state = 'submitting'
-      const state = await options.onSubmit(form.data)
+      const state = (await options.onSubmit(form.data)) as FormState | undefined
       if (state != null) {
         form.state = state
       } else if (form.state === 'submitting') {

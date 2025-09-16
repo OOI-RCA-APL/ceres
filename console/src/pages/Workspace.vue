@@ -30,7 +30,7 @@ import {
   getWidgetInfo,
 } from '@/workspace'
 
-const { id } = $defineProps<{
+const { id } = defineProps<{
   id: string
 }>()
 

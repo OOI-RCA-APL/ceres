@@ -15,5 +15,8 @@
   "ts-node": {
     "esm": true,
     "experimentalSpecifierResolution": "node"
+  },
+  "vueCompilerOptions": {
+    "plugins": ["vue-macros/volar"]
   }
 }

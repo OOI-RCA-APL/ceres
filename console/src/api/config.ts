@@ -13,11 +13,11 @@ export type ComponentConfig = {
   components: ComponentConfig[]
 }
 
-export const ComponentConfigModel: Zod.ZodType<ComponentConfig> = Zod.object({
+export const ComponentConfigModel = Zod.object({
   name: NameStrModel,
   class: Zod.string(),
   components: Zod.lazy(() => Zod.array(ComponentConfigModel)),
-})
+}) as Zod.ZodType<ComponentConfig>
 
 export type DatabaseType = Zod.infer<typeof DatabaseTypeModel>
 export const DatabaseTypeModel = Zod.enum(['sqlite', 'postgres'])

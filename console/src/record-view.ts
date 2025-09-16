@@ -77,7 +77,7 @@ export function provideRecordViewContext() {
 export function useRecordViewContext() {
   const instance = inject(recordViewContextInjectionKey, null)
   if (instance == null) {
-    throw Error(`missing inject for ${recordViewContextInjectionKey}`)
+    throw Error(`missing inject for ${String(recordViewContextInjectionKey)}`)
   }
 
   return instance

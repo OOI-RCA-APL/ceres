@@ -24,7 +24,7 @@ const {
   suffix = undefined,
   presets = undefined,
   noClearOnEmpty = false,
-} = $defineProps<{
+} = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: Schema

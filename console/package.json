@@ -7,7 +7,7 @@
     "build": "quasar build",
     "dev": "quasar dev",
     "quasar": "quasar",
-    "lint": "eslint --ext .js,.ts,.vue . && prettier --ignore-path .gitignore --check .",
+    "lint": "vue-tsc --noEmit && eslint --ext .js,.ts,.vue . && prettier --ignore-path .gitignore --check .",
     "fix": "eslint --ext .js,.ts,.vue --fix . && prettier --ignore-path .gitignore --write ."
   },
   "dependencies": {
@@ -49,7 +49,8 @@
     "eslint-plugin-vue": "^9.0.0",
     "prettier": "^2.5.0",
     "typescript": "^5.0.0",
-    "unplugin-vue-macros": "2.14.5"
+    "vue-macros": "^3.0.0-beta.23",
+    "vue-tsc": "3.0.6"
   },
   "engines": {
     "node": ">=24.0.0"

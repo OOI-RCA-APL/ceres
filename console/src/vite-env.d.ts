@@ -1,5 +1,6 @@
 /* eslint-disable */
-/// <reference types="unplugin-vue-macros/macros-global" />
+/// <reference types="vite/client" />
+/// <reference types="vue-macros/macros-global" />
 
 import { Quasar } from 'quasar'
 import 'vue'

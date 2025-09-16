@@ -4,7 +4,7 @@ import moment from 'moment'
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue } = $defineProps<{
+const { modelValue } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'date-time' }
@@ -21,9 +21,9 @@ const outputPattern = 'YYYY-MM-DD HH:mm:ss.SSS+00:00'
 const resolved = $computed(() => resolve(modelValue))
 const valueOrNow = $computed(() => moment.utc(resolved ?? moment.utc()))
 
-function resolve(value: unknown) {
+function resolve(value: unknown): string | undefined {
   if (value == null) {
-    return value
+    return undefined
   }
 
   if (typeof value === 'string') {

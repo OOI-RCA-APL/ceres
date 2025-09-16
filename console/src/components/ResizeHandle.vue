@@ -10,7 +10,7 @@ const {
   max,
   step,
   visibility = 'always',
-} = $defineProps<{
+} = defineProps<{
   direction: 'vertical' | 'horizontal'
   modelValue: number
   min?: number

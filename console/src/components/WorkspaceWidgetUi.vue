@@ -3,7 +3,7 @@ import { useEngine } from '@/api/engine'
 import Interface from '@/components/Interface.vue'
 import { UIWidget } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: UIWidget
 }>()
 

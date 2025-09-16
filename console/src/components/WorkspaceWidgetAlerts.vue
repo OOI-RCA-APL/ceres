@@ -4,7 +4,7 @@ import RecordView from '@/components/RecordView.vue'
 import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
 import { AlertsWidget } from '@/workspace'
 
-const { widget } = $defineProps<{
+const { widget } = defineProps<{
   widget: AlertsWidget
 }>()
 

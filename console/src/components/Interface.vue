@@ -8,7 +8,7 @@ import { isError } from '@/api/shared'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { useInterfaceContext } from '@/interface'
 
-const { address } = $defineProps<{
+const { address } = defineProps<{
   address: Address
 }>()
 

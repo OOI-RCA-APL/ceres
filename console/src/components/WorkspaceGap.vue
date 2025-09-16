@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useWorkspace } from '@/workspace'
 
-const { row, column } = $defineProps<{
+const { row, column } = defineProps<{
   row: number
   column?: number
   direction: 'vertical' | 'horizontal'

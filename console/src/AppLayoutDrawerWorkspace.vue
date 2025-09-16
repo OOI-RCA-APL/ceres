@@ -2,7 +2,7 @@
 import icons from '@/icons'
 import { useWorkspaces, Workspace } from '@/workspace'
 
-const { workspace } = $defineProps<{
+const { workspace } = defineProps<{
   workspace: Workspace
 }>()
 

@@ -10,7 +10,7 @@ import {
 import { UserRole } from '@/api/users'
 import routes from '@/router/routes'
 
-export function userCanAccess(user: { role: UserRole } | null, route: RouteLocation): boolean {
+export function userCanAccess(user: { role?: UserRole } | null, route: RouteLocation): boolean {
   const requiresAdmin = route.matched.some((record) => record.meta.auth === 'admin')
   const requiresOperator = route.matched.some((record) => record.meta.auth === 'operator')
   const requiresViewer = route.matched.some((record) => record.meta.auth === 'viewer')
@@ -26,7 +26,7 @@ export function userCanAccess(user: { role: UserRole } | null, route: RouteLocat
     return true
   }
 
-  if (user == null) {
+  if (user?.role == null) {
     return false
   }
 

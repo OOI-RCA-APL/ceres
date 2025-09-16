@@ -2,7 +2,7 @@
 import SpecialCharacter from '@/components/SpecialCharacter.vue'
 import { highlight } from '@/utilities'
 
-const { text } = $defineProps<{
+const { text } = defineProps<{
   text: string
 }>()
 
