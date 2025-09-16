@@ -38,7 +38,6 @@ dependencies = [
     "uuid-utils>=0.10.0",
     "uvloop>=0.17; platform_system == 'Linux' or platform_system == 'Darwin'",
     "watchfiles>=0.10",
-    "websockets~=10.0",
 ]
 
 [dependency-groups]
