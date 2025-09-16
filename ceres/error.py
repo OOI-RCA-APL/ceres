@@ -9,7 +9,7 @@ from starlette.status import (
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
     HTTP_409_CONFLICT,
-    HTTP_422_UNPROCESSABLE_ENTITY,
+    HTTP_422_UNPROCESSABLE_CONTENT,
     HTTP_500_INTERNAL_SERVER_ERROR,
     HTTP_503_SERVICE_UNAVAILABLE,
 )
@@ -253,7 +253,7 @@ class AuthenticationDisabledError(__BaseAPIError):
 
 
 class ValidationFailedError(__BaseAPIError):
-    __error_status_code__: ClassVar[int] = HTTP_422_UNPROCESSABLE_ENTITY
+    __error_status_code__: ClassVar[int] = HTTP_422_UNPROCESSABLE_CONTENT
     type: Literal["validation-failed-error"] = "validation-failed-error"
     problems: Sequence[ValidationProblem]
 
