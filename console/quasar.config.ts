@@ -64,6 +64,7 @@ export default defineConfig((context) => {
           },
           build: {
             minify: 'terser',
+            chunkSizeWarningLimit: 5000,
             rollupOptions: {
               output: {
                 inlineDynamicImports: true,
