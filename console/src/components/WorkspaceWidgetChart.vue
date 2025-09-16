@@ -86,6 +86,14 @@ const seriesIndexes = $computed(() => {
 const xMin = $computed(() => start.valueOf())
 const xMax = $computed(() => (end ?? time.now).valueOf())
 
+const smoothAnimations = {
+  animation: true,
+  animationDurationUpdate: 1000,
+  animationEasingUpdate: 'linear',
+  // This threshold needs to be set, otherwise most charts just will not animate.
+  animationThreshold: 200000,
+} as const
+
 const axisOption: Option = $computed(() => {
   return {
     xAxis: {
@@ -93,6 +101,8 @@ const axisOption: Option = $computed(() => {
       type: 'time',
       min: xMin,
       max: xMax,
+      // Smoothly scroll the X axis as time progresses.
+      ...smoothAnimations,
     },
     yAxis: {
       name: widget.unit ?? '',
@@ -109,7 +119,8 @@ const baseOption: Option = $computed(() => {
         name: series.name,
         type: widget.display,
         data: getData(series.name),
-        animation: widget.display === 'bar' ? false : true, // Disable animation for bar chart.
+        // Enable smooth scrolling animations for non-bar charts.
+        ...(widget.display !== 'bar' ? smoothAnimations : { animation: false }),
         showSymbol: false, // Disable showing dots, for performance.
         symbolSize: 3,
         emphasis: {
