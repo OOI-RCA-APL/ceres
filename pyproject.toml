@@ -119,9 +119,11 @@ runtime-evaluated-decorators = [
 
 [tool.pyright]
 include = ["ceres", "tests"]
+typeCheckingMode = "standard"
 reportImplicitOverride = true
 reportIncompatibleVariableOverride = false
 reportMatchNotExhaustive = true
+reportRedeclaration = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
