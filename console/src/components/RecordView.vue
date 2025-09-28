@@ -17,7 +17,7 @@ import RecordViewAlert from '@/components/RecordViewAlert.vue'
 import RecordViewLogEntry from '@/components/RecordViewLogEntry.vue'
 import RecordViewMessage from '@/components/RecordViewMessage.vue'
 import RecordViewParticle from '@/components/RecordViewParticle.vue'
-import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
+import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
 import { debouncedComputed } from '@/utilities'
@@ -502,7 +502,7 @@ useStream(debouncedFilter, async (record: Record) => {
                     style="min-width: 200px"
                   >
                     <div class="row">
-                      <schema-form-base
+                      <schema-form-value
                         v-model="widget.filter.after"
                         class="col q-mr-xs"
                         :schema="{
@@ -512,7 +512,7 @@ useStream(debouncedFilter, async (record: Record) => {
                           optional: true,
                         }"
                       />
-                      <schema-form-base
+                      <schema-form-value
                         v-model="widget.filter.before"
                         class="col"
                         :schema="{
@@ -546,7 +546,7 @@ useStream(debouncedFilter, async (record: Record) => {
                     </div>
                     <template v-if="isShowingAdvancedTimestampFilters">
                       <div class="row">
-                        <schema-form-base
+                        <schema-form-value
                           v-model="widget.filter.after_hour"
                           class="col q-mr-xs"
                           :schema="{
@@ -557,7 +557,7 @@ useStream(debouncedFilter, async (record: Record) => {
                             exclusiveMaximum: 24,
                           }"
                         />
-                        <schema-form-base
+                        <schema-form-value
                           v-model="widget.filter.before_hour"
                           class="col"
                           :schema="{
@@ -570,7 +570,7 @@ useStream(debouncedFilter, async (record: Record) => {
                         />
                       </div>
                       <div class="row">
-                        <schema-form-base
+                        <schema-form-value
                           v-model="widget.filter.after_minute"
                           class="col q-mr-xs"
                           :schema="{
@@ -581,7 +581,7 @@ useStream(debouncedFilter, async (record: Record) => {
                             exclusiveMaximum: 60,
                           }"
                         />
-                        <schema-form-base
+                        <schema-form-value
                           v-model="widget.filter.before_minute"
                           class="col"
                           :schema="{
@@ -596,7 +596,7 @@ useStream(debouncedFilter, async (record: Record) => {
                     </template>
                   </div>
                   <div v-else-if="column.name === 'address'" style="min-width: 200px">
-                    <schema-form-base
+                    <schema-form-value
                       :model-value="widget.filter.address?.toString()"
                       :schema="{
                         title: 'Address',

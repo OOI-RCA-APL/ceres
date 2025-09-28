@@ -28,6 +28,8 @@ import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
 import { User, UserRoleOf } from '@/api/users'
 import WorkspaceWidgetAlerts from '@/components/WorkspaceWidgetAlerts.vue'
+import WorkspaceWidgetButton from '@/components/WorkspaceWidgetButton.vue'
+import WorkspaceWidgetButtonSettings from '@/components/WorkspaceWidgetButtonSettings.vue'
 import WorkspaceWidgetChart from '@/components/WorkspaceWidgetChart.vue'
 import WorkspaceWidgetChartSettings from '@/components/WorkspaceWidgetChartSettings.vue'
 import WorkspaceWidgetLogs from '@/components/WorkspaceWidgetLogs.vue'
@@ -157,6 +159,24 @@ export const VideoWidgetModel = BaseWidgetModel.extend({
   showControls: Zod.boolean().default(true).catch(true),
 })
 
+export type Color = Zod.infer<typeof ColorModel>
+export const ColorModel = Zod.enum(['grey', 'primary', 'warning', 'negative'])
+
+export type ButtonStyling = Zod.infer<typeof ButtonStylingModel>
+export const ButtonStylingModel = Zod.enum(['normal', 'flat', 'outlined'])
+
+export type ButtonWidget = Zod.infer<typeof ButtonWidgetModel>
+export const ButtonWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('button'),
+  name: Zod.string().catch(''),
+  label: Zod.string().nullish(),
+  address: AddressModel.nullish(),
+  action: Zod.string().nullish(),
+  arguments: Zod.record(Zod.string(), Zod.any()).catch(() => ({})),
+  color: ColorModel.catch('primary'),
+  styling: ButtonStylingModel.catch('normal'),
+})
+
 export type Widget = Zod.infer<typeof WidgetModel>
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
@@ -168,6 +188,7 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   ChartWidgetModel,
   ValueWidgetModel,
   VideoWidgetModel,
+  ButtonWidgetModel,
 ])
 
 export type WidgetType = Widget['type']
@@ -281,6 +302,17 @@ export const widgetInfos = {
     settingsComponent: WorkspaceWidgetVideoSettings,
     options: widgetOptions({
       paddingClass: [],
+    }),
+  },
+  button: {
+    type: 'button',
+    name: 'Button',
+    model: ButtonWidgetModel,
+    component: WorkspaceWidgetButton,
+    settingsComponent: WorkspaceWidgetButtonSettings,
+    options: widgetOptions({
+      minHeight: 50,
+      fullHeight: false,
     }),
   },
 } as const

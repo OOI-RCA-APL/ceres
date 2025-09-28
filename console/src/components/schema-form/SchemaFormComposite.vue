@@ -4,14 +4,11 @@ import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddB
 import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import { SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, path, form } = defineProps<{
-  modelValue: unknown
+let modelValue: unknown = $(defineModel<unknown>({ required: true }))
+
+const { path, form } = defineProps<{
   form: SchemaForm
   path: SchemaPath
-}>()
-
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
 }>()
 
 const label = $computed(() => (path.length === 0 ? undefined : form.getLabel(path)))
@@ -27,7 +24,7 @@ function create() {
   if (!isDefined) {
     const schema = form.getSchema(path)
     if (schema) {
-      emit('update:modelValue', form.getInitialValue(schema))
+      modelValue = form.getInitialValue(schema)
     }
   }
 }
@@ -57,7 +54,7 @@ function create() {
             <div :class="[$style.buttons, 'col-shrink justify-end row']">
               <schema-form-node-clear-button
                 v-if="!isRequired && modelValue !== undefined"
-                @click="emit('update:modelValue', undefined)"
+                @click="modelValue = undefined"
               />
               <schema-form-node-add-button v-else-if="modelValue === undefined" @click="create" />
             </div>

@@ -1,8 +1,9 @@
 <script lang="ts" setup>
 import { SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = defineProps<{
-  modelValue: unknown
+let modelValue: unknown = $(defineModel<unknown>({ required: true }))
+
+const { form, path } = defineProps<{
   form: SchemaForm
   path: SchemaPath
 }>()

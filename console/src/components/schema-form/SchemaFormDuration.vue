@@ -3,15 +3,12 @@ import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { displayDuration, parseDuration } from '@/utilities'
 
-const { modelValue, form, path } = defineProps<{
-  modelValue: unknown
+let modelValue = $(defineModel<unknown>({ required: true }))
+
+const { form, path } = defineProps<{
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'duration' }
   path: SchemaPath
-}>()
-
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
 }>()
 
 const resolved = $computed(() => resolve(modelValue))
@@ -58,16 +55,15 @@ const presets = [
 
 <template>
   <schema-form-input
+    v-model="modelValue"
     :form
     :format
     input-type="text"
-    :model-value="modelValue"
     :path
     :presets
     :resolve
     :schema
     schema-type="duration"
-    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   >
     <template v-if="resolvedOrDefault" #label-append>
       <span class="q-mx-xs">{{ '⸱' }}</span>

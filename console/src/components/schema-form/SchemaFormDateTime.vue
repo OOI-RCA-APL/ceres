@@ -4,15 +4,12 @@ import moment from 'moment'
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue } = defineProps<{
-  modelValue: unknown
+let modelValue = $(defineModel<unknown>({ required: true }))
+
+defineProps<{
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'date-time' }
   path: SchemaPath
-}>()
-
-const emit = defineEmits<{
-  (emit: 'update:modelValue', value: string | null | undefined): void
 }>()
 
 const inputPattern = 'YYYY-MM-DD HH:mm:ss.SSS'
@@ -120,16 +117,15 @@ const presets = [
 
 <template>
   <schema-form-input
+    v-model="modelValue"
     :form
     :format
     input-type="text"
-    :model-value="modelValue"
     :path
     :presets
     :resolve
     :schema
     schema-type="date-time"
     suffix="UTC"
-    @update:model-value="(modelValue: any) => emit('update:modelValue', modelValue)"
   />
 </template>

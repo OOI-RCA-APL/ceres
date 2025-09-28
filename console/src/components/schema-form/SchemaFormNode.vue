@@ -14,16 +14,17 @@ import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
 import { isType, SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path, autofocus, noClearOnEmpty } = defineProps<{
-  modelValue: unknown
+let modelValue = $(defineModel<unknown>({ required: true }))
+
+function update(value: unknown) {
+  modelValue = value
+}
+
+const { form, path, autofocus, noClearOnEmpty } = defineProps<{
   form: SchemaForm
   path: SchemaPath
   autofocus?: boolean
   noClearOnEmpty?: boolean
-}>()
-
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
 }>()
 
 const schema = $computed(() => form.getSchema(path))
@@ -61,10 +62,6 @@ function isFormat(format: string) {
   if (schema.anyOf) {
     return schema.anyOf.some((option) => typeof option === 'object' && option.format === format)
   }
-}
-
-function update(value: unknown) {
-  emit('update:modelValue', value)
 }
 </script>
 

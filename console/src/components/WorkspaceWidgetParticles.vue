@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import RecordView from '@/components/RecordView.vue'
-import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
+import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import { ParticlesWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -32,7 +32,7 @@ const columns = $computed(() => [
   <record-view :columns="columns" :filter="widget.filter" :widget>
     <template #column-filter-type>
       <div class="column q-gutter-xs" style="min-width: 200px">
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.type_contains"
           :schema="{
             title: 'Contains',
@@ -40,7 +40,7 @@ const columns = $computed(() => [
             optional: true,
           }"
         />
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.type_prefix"
           :schema="{
             title: 'Prefix',
@@ -52,7 +52,7 @@ const columns = $computed(() => [
     </template>
     <template #column-filter-data>
       <div class="column q-gutter-xs" style="min-width: 300px">
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.data_contains"
           :schema="{
             title: 'Contains',
@@ -60,7 +60,7 @@ const columns = $computed(() => [
             optional: true,
           }"
         />
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.data_prefix"
           :schema="{
             title: 'Prefix',

@@ -4,7 +4,7 @@ import { watch } from 'vue'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import RecordView from '@/components/RecordView.vue'
-import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
+import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { MessagesWidget } from '@/workspace'
@@ -118,7 +118,7 @@ async function submit() {
   <record-view :columns="columns" :filter="widget.filter" :widget>
     <template #column-filter-direction>
       <div style="min-width: 200px">
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.direction"
           :schema="{
             title: 'Direction',
@@ -131,11 +131,11 @@ async function submit() {
     </template>
     <template #column-filter-content>
       <div class="column q-gutter-xs" style="min-width: 300px">
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.contains"
           :schema="{ title: 'Contains', type: 'string', optional: true }"
         />
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.prefix"
           :schema="{ title: 'Prefix', type: 'string', optional: true }"
         />
