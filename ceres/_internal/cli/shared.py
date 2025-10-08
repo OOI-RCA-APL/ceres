@@ -607,7 +607,7 @@ class CLICommandGroup(CLICommand):
     @override
     async def __run__(self) -> None:
         subcommand = get_subcommand(self, cli_exit_on_error=True)
-        if subcommand is not None:
+        if isinstance(subcommand, CLICommand):
             await subcommand.__run__()
 
 
