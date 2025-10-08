@@ -14,6 +14,7 @@ from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.util import to_hex
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify, uuid4
 from ceres.entity import EntityType
@@ -494,7 +495,7 @@ class PostgresDatabase(Database):
         commands.append("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
         commands.append(
             dedent(
-                """
+                r"""
                 CREATE OR REPLACE FUNCTION ceres_decode_latin1(bytes bytea) RETURNS TEXT
                 IMMUTABLE
                 LANGUAGE plpgsql AS $$
@@ -505,15 +506,14 @@ class PostgresDatabase(Database):
                 """
             ).strip()
         )
-
         commands.append(
             dedent(
-                """
-                CREATE OR REPLACE FUNCTION ceres_encode_latin1(text text) RETURNS TEXT
+                r"""
+                CREATE OR REPLACE FUNCTION ceres_bytes_to_hex(bytes bytea) RETURNS TEXT
                 IMMUTABLE
                 LANGUAGE plpgsql AS $$
                     BEGIN
-                        RETURN convert_to($1, 'latin-1');
+                        RETURN regexp_replace(encode($1, 'hex'), '(.{2})', '\1 ', 'g');
                     END;
                 $$;
                 """
@@ -540,8 +540,8 @@ def _ceres_decode_latin1(value: bytes) -> str:
     return value.decode("latin-1")
 
 
-def _ceres_encode_latin1(value: str) -> bytes:
-    return value.encode("latin-1")
+def _ceres_bytes_to_hex(value: bytes) -> str:
+    return to_hex(value)
 
 
 def _ceres_date_bin(
@@ -569,7 +569,7 @@ def _ceres_date_bin(
 def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
     connection.create_function("ceres_decode_latin1", 1, _ceres_decode_latin1)
-    connection.create_function("ceres_encode_latin1", 1, _ceres_encode_latin1)
+    connection.create_function("ceres_bytes_to_hex", 1, _ceres_bytes_to_hex)
     connection.create_function("date_bin", 3, _ceres_date_bin)
 
 
