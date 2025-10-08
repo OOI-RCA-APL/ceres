@@ -496,19 +496,6 @@ class PostgresDatabase(Database):
         commands.append(
             dedent(
                 r"""
-                CREATE OR REPLACE FUNCTION ceres_decode_latin1(bytes bytea) RETURNS TEXT
-                IMMUTABLE
-                LANGUAGE plpgsql AS $$
-                    BEGIN
-                        RETURN convert_from($1, 'latin-1');
-                    END;
-                $$;
-                """
-            ).strip()
-        )
-        commands.append(
-            dedent(
-                r"""
                 CREATE OR REPLACE FUNCTION ceres_bytes_to_hex(bytes bytea) RETURNS TEXT
                 IMMUTABLE
                 LANGUAGE plpgsql AS $$
@@ -534,10 +521,6 @@ class PostgresDatabase(Database):
             "json_serializer": jsonify,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
-
-
-def _ceres_decode_latin1(value: bytes) -> str:
-    return value.decode("latin-1")
 
 
 def _ceres_bytes_to_hex(value: bytes) -> str:
@@ -568,7 +551,6 @@ def _ceres_date_bin(
 
 def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
-    connection.create_function("ceres_decode_latin1", 1, _ceres_decode_latin1)
     connection.create_function("ceres_bytes_to_hex", 1, _ceres_bytes_to_hex)
     connection.create_function("date_bin", 3, _ceres_date_bin)
 
