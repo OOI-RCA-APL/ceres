@@ -227,7 +227,7 @@ const connectionColor = $computed(() => {
 <style lang="scss" module>
 .root {
   background-color: black;
-  outline: 4px dotted black;
+  outline: 3.5px dotted black;
   scale: 0.55;
 }
 

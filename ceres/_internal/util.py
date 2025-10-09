@@ -808,6 +808,13 @@ def sql_match_string[T: (str, bytes)](
     raise ValueError(f"invalid mode: {mode!r}")
 
 
+def tokenize_bytes(value: bytes) -> str:
+    if not value:
+        return ""
+
+    return value.hex(b" ") + " "
+
+
 BytesLike: TypeAlias = str | bytes | bytearray | memoryview
 
 

@@ -58,7 +58,7 @@ class MessageDirection(StrEnum):
 
 
 def _serialize_message_content_json(value: bytes) -> str:
-    return value.decode("latin-1")
+    return value.decode("latin-1", "ignore")
 
 
 def _deserialize_message_content_json(value: Any) -> Any | None:
@@ -90,8 +90,8 @@ class MessageRow(BaseRecordRow, kw_only=True):
             Index(f"ix_{cls.__tablename__}__content", cls.content).ddl_if("sqlite"),
             Index(
                 f"ix_{cls.__tablename__}__content",
-                func.ceres_decode_latin1(cls.content).label("decoded_content"),
-                postgresql_ops={"decoded_content": "gin_trgm_ops"},
+                func.ceres_tokenize_bytes(cls.content).label("tokens"),
+                postgresql_ops={"tokens": "gin_trgm_ops"},
                 postgresql_using="gin",
             ).ddl_if("postgresql"),
         )
@@ -178,20 +178,16 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if self.content is not None:
             yield util.sql_match_value(columns.content, self.content)
 
-        decoded = func.ceres_decode_latin1(columns.content)
+        hex = func.ceres_tokenize_bytes(columns.content)
         if self.contains is not None:
-            matches = [current.decode("latin-1") for current in util.seq(self.contains)]
-            yield util.sql_match_string(decoded, matches, MatchMode.CONTAINS)
+            matches = [util.tokenize_bytes(current) for current in util.seq(self.contains)]
+            yield util.sql_match_string(hex, matches, MatchMode.CONTAINS)
         if self.prefix is not None:
-            matches = [current.decode("latin-1") for current in util.seq(self.prefix)]
-            yield util.sql_match_string(decoded, matches, MatchMode.PREFIX)
+            matches = [util.tokenize_bytes(current) for current in util.seq(self.prefix)]
+            yield util.sql_match_string(hex, matches, MatchMode.PREFIX)
         if self.suffix is not None:
-            matches = [current.decode("latin-1") for current in util.seq(self.suffix)]
-            yield util.sql_match_string(decoded, matches, MatchMode.SUFFIX)
-
-
-def _escape_bytes_like_expression(text: bytes) -> bytes:
-    return text.replace(b"%", b"%%").replace(b"_", b"__")
+            matches = [util.tokenize_bytes(current) for current in util.seq(self.suffix)]
+            yield util.sql_match_string(hex, matches, MatchMode.SUFFIX)
 
 
 class MessageCreate(BaseRecordCreate):

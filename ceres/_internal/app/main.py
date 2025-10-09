@@ -353,15 +353,12 @@ class ErrorMiddleware:
                 traceback.print_exc()
                 raise
 
-            try:
-                await JSONResponse(error, status)(
-                    scope,  # type: ignore
-                    receive,  # type: ignore
-                    send,  # type: ignore
-                )
-            except Exception:
-                self.engine.log.error(traceback.format_exc())
-                raise
+            # Try to send a JSON error response, if possible.
+            await JSONResponse(error, status)(
+                scope,  # type: ignore
+                receive,  # type: ignore
+                send,  # type: ignore
+            )
         except Exception:
             self.engine.log.error(traceback.format_exc())
             raise
