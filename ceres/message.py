@@ -90,8 +90,8 @@ class MessageRow(BaseRecordRow, kw_only=True):
             Index(f"ix_{cls.__tablename__}__content", cls.content).ddl_if("sqlite"),
             Index(
                 f"ix_{cls.__tablename__}__content",
-                func.ceres_bytes_to_hex(cls.content).label("hex"),
-                postgresql_ops={"hex": "gin_trgm_ops"},
+                func.ceres_tokenize_bytes(cls.content).label("tokens"),
+                postgresql_ops={"tokens": "gin_trgm_ops"},
                 postgresql_using="gin",
             ).ddl_if("postgresql"),
         )
@@ -178,15 +178,15 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if self.content is not None:
             yield util.sql_match_value(columns.content, self.content)
 
-        hex = func.ceres_bytes_to_hex(columns.content)
+        hex = func.ceres_tokenize_bytes(columns.content)
         if self.contains is not None:
-            matches = [util.to_hex(current) for current in util.seq(self.contains)]
+            matches = [util.tokenize_bytes(current) for current in util.seq(self.contains)]
             yield util.sql_match_string(hex, matches, MatchMode.CONTAINS)
         if self.prefix is not None:
-            matches = [util.to_hex(current) for current in util.seq(self.prefix)]
+            matches = [util.tokenize_bytes(current) for current in util.seq(self.prefix)]
             yield util.sql_match_string(hex, matches, MatchMode.PREFIX)
         if self.suffix is not None:
-            matches = [util.to_hex(current) for current in util.seq(self.suffix)]
+            matches = [util.tokenize_bytes(current) for current in util.seq(self.suffix)]
             yield util.sql_match_string(hex, matches, MatchMode.SUFFIX)
 
 
