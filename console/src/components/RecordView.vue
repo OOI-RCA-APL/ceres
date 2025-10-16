@@ -499,7 +499,7 @@ useStream(debouncedFilter, async (record: Record) => {
                   <div
                     v-if="column.name === 'timestamp'"
                     class="column q-gutter-xs"
-                    style="min-width: 200px"
+                    style="min-width: 510px"
                   >
                     <div class="row">
                       <schema-form-value
