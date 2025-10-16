@@ -6,7 +6,7 @@ import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import Procedure from '@/components/Procedure.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
-import { ButtonWidget } from '@/workspace'
+import { ButtonWidget, ColorModel, ButtonStylingModel } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ButtonWidget
@@ -57,12 +57,12 @@ const action = $computed(() => {
   <div class="q-pa-md">
     <common-text class="q-mb-sm" variant="title1">{{ title }}</common-text>
     <div class="q-col-gutter-sm q-mb-sm row">
-      <div class="col-6 col-xs-12">
+      <div class="col-sm-6 col-xs-12">
         <schema-form-value
           :model-value="widget.address?.toString()"
           :schema="{
             type: 'string',
-            title: 'Address',
+            title: 'Component',
             enum: possibleAddresses,
             optional: true,
           }"
@@ -71,7 +71,7 @@ const action = $computed(() => {
           "
         />
       </div>
-      <div class="col-6 col-xs-12">
+      <div class="col-sm-6 col-xs-12">
         <schema-form-value
           v-model="widget.action"
           :schema="{
@@ -82,12 +82,44 @@ const action = $computed(() => {
           }"
         />
       </div>
-      <div class="col-6 col-xs-12">
+      <div class="col-sm-6 col-xs-12">
         <schema-form-value
           v-model="widget.label"
           :schema="{
             type: 'string',
             title: 'Label',
+            optional: true,
+          }"
+        />
+      </div>
+      <div class="col-sm-6 col-xs-12">
+        <schema-form-value
+          v-model="widget.tooltip"
+          :schema="{
+            type: 'string',
+            title: 'Tooltip',
+            optional: true,
+          }"
+        />
+      </div>
+      <div class="col-sm-6 col-xs-12">
+        <schema-form-value
+          v-model="widget.color"
+          :schema="{
+            type: 'string',
+            title: 'Color',
+            enum: ColorModel.options,
+            optional: true,
+          }"
+        />
+      </div>
+      <div class="col-sm-6 col-xs-12">
+        <schema-form-value
+          v-model="widget.styling"
+          :schema="{
+            type: 'string',
+            title: 'Style',
+            enum: ButtonStylingModel.options,
             optional: true,
           }"
         />

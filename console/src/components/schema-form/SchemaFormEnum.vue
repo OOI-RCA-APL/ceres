@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { isEqual } from 'lodash-es'
+import { QSelect } from 'quasar'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
@@ -14,6 +15,8 @@ const { form, schema, path } = defineProps<{
   schema: SchemaObject & { enum: Plain[] }
   path: SchemaPath
 }>()
+
+let select = $ref<QSelect | null>(null)
 
 const title = $computed(() => form.getLabel(path))
 const isRequired = $computed(() => form.getRequired(path))
@@ -74,11 +77,17 @@ watch(
     options = computeOptions()
   }
 )
+
+function onClear() {
+  modelValue = undefined
+  select?.focus()
+}
 </script>
 
 <template>
   <div>
     <q-select
+      ref="select"
       :class="$style.input"
       dense
       filled
@@ -104,7 +113,7 @@ watch(
       <template #append>
         <schema-form-node-clear-button
           v-if="!isRequired && modelValue !== undefined"
-          @click="modelValue = undefined"
+          @click="onClear"
         />
       </template>
     </q-select>
