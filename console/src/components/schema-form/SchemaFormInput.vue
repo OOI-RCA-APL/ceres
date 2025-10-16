@@ -116,7 +116,6 @@ function onInputModelUpdate(value: string) {
     modelValue = resolvedValue
   }
 }
-
 </script>
 
 <template>
