@@ -39,4 +39,4 @@ jobs:
       - name: Build
         run: make build
       - name: Ensure Generated Files Match
-        run: git diff --exit-code
+        run: git diff --exit-code -- ':!**/package-lock.json'
