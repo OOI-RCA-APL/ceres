@@ -3,15 +3,12 @@ import CommonText from '@/components/CommonText.vue'
 import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = defineProps<{
-  modelValue: unknown
+let modelValue = $(defineModel<unknown>({ required: true }))
+
+const { form, path } = defineProps<{
   form: SchemaForm
   schema: SchemaObject & { type: 'boolean' }
   path: SchemaPath
-}>()
-
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
 }>()
 
 function resolve(value: unknown) {
@@ -22,9 +19,9 @@ function resolve(value: unknown) {
   return Boolean(value)
 }
 
-const value = $computed(() => resolve(modelValue))
-if (value !== modelValue) {
-  emit('update:modelValue', value)
+const resolved: unknown = $computed(() => resolve(modelValue))
+if (resolved !== modelValue) {
+  modelValue = resolved
 }
 
 const isRequired = $computed(() => form.getRequired(path))
@@ -41,16 +38,16 @@ const description = $computed(() => form.getDescription(path))
         dense
         :keep-color="true"
         :label
-        :model-value="value"
+        :model-value="resolved"
         size="xs"
-        @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
+        @update:model-value="(value) => (modelValue = resolve(value))"
       />
       <q-space />
       <div>
         <schema-form-node-clear-button
           v-if="!isRequired && modelValue !== undefined"
           :class="$style.clearButton"
-          @click="emit('update:modelValue', undefined)"
+          @click="modelValue = undefined"
         />
       </div>
     </div>

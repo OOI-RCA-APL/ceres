@@ -1,8 +1,9 @@
 <script lang="ts" setup>
+import { AddressSelector } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
-import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
+import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import { ValueWidget, TextWeightModel } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -22,8 +23,8 @@ const engine = useEngine()
       <common-text class="q-mb-sm" variant="title2">Particles</common-text>
       <div class="q-col-gutter-sm q-mb-sm row">
         <div class="col-6">
-          <schema-form-base
-            v-model="widget.particleAddress"
+          <schema-form-value
+            :model-value="widget.particleAddress?.toString()"
             :schema="{
               type: 'string',
               title: 'Address',
@@ -33,10 +34,13 @@ const engine = useEngine()
               ]),
               optional: true,
             }"
+            @update:model-value="(value: string) => {
+              widget.particleAddress = value ? AddressSelector.parse(value) : null
+            }"
           />
         </div>
         <div class="col-6">
-          <schema-form-base
+          <schema-form-value
             v-model="widget.particleType"
             :schema="{
               type: 'string',
@@ -46,7 +50,7 @@ const engine = useEngine()
           />
         </div>
         <div class="col">
-          <schema-form-base
+          <schema-form-value
             v-model="widget.particleField"
             :schema="{
               type: 'string',
@@ -59,7 +63,7 @@ const engine = useEngine()
       <common-text class="q-mb-sm" variant="title2">Display</common-text>
       <div class="q-col-gutter-sm q-mb-sm row">
         <div class="col-6">
-          <schema-form-base
+          <schema-form-value
             v-model="widget.fontSize"
             :schema="{
               type: 'integer',
@@ -69,7 +73,7 @@ const engine = useEngine()
           />
         </div>
         <div class="col-6">
-          <schema-form-base
+          <schema-form-value
             v-model="widget.fontWeight"
             :schema="{
               type: 'string',
@@ -79,7 +83,7 @@ const engine = useEngine()
           />
         </div>
         <div class="col-6">
-          <schema-form-base
+          <schema-form-value
             v-model="widget.prefix"
             :schema="{
               type: 'string',
@@ -89,7 +93,7 @@ const engine = useEngine()
           />
         </div>
         <div class="col-6">
-          <schema-form-base
+          <schema-form-value
             v-model="widget.suffix"
             :schema="{
               type: 'string',

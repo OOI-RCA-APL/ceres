@@ -2,7 +2,7 @@
 import { AddressSelector } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
-import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
+import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import { ChartWidgetParticle, ChartWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -47,7 +47,7 @@ const particlesSchema = $computed<any>(() => ({
 <template>
   <div>
     <div class="column q-gutter-xs q-pa-sm">
-      <schema-form-base
+      <schema-form-value
         v-model="widget.display"
         :schema="{
           type: 'string',
@@ -55,15 +55,15 @@ const particlesSchema = $computed<any>(() => ({
           enum: ['line', 'scatter', 'bar'],
         }"
       />
-      <schema-form-base
+      <schema-form-value
         v-model="widget.unit"
         :schema="{ type: 'string', title: 'Unit (Y Axis)', optional: true }"
       />
-      <schema-form-base
+      <schema-form-value
         v-model="widget.after"
         :schema="{ type: 'string', format: 'date-time', title: 'After', optional: true }"
       />
-      <schema-form-base
+      <schema-form-value
         v-model="widget.timespan"
         :schema="{
           type: 'string',
@@ -77,7 +77,7 @@ const particlesSchema = $computed<any>(() => ({
     <div class="q-pt-sm q-px-sm">
       <common-text variant="th">Particles</common-text>
     </div>
-    <schema-form-base
+    <schema-form-value
       :model-value="
         widget.particles.map((current) => ({
           ...current,

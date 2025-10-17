@@ -2,6 +2,7 @@
 import { upperFirst } from 'lodash-es'
 import { watchEffect } from 'vue'
 
+import { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import Procedure from '@/components/Procedure.vue'
 import { ProceduresWidget } from '@/workspace'
@@ -88,7 +89,7 @@ watchEffect(() => {
               dense
               filled
               :label="upperFirst(widget.procedureType)"
-              :options="procedures.map((procedure) => procedure.name)"
+              :options="procedures.map((procedure: ProcedureInfo) => procedure.name)"
               options-dense
               popup-content-class="no-shadow monospace-md"
             />

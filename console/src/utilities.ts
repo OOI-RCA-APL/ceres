@@ -6,7 +6,14 @@ import { colors, debounce } from 'quasar'
 import { ComputedRef, Ref, computed, isRef, shallowRef, watch } from 'vue'
 import { ZodType } from 'zod'
 
-export type Plain = string | number | boolean | null | { [property: string]: Plain } | Plain[]
+export type Plain =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | { [property: string]: Plain }
+  | Plain[]
 export type MaybeRef<T> = Ref<T> | T
 export type MaybePromise<T> = Promise<T> | T
 
@@ -110,7 +117,8 @@ export function displayDuration(
     return '0'
   }
 
-  let unitValue, unit
+  let unitValue: number
+  let unit: string
   if (delta.asSeconds() < 1) {
     unitValue = delta.asMilliseconds()
     unit = long ? 'milliseconds' : 'ms'
@@ -132,7 +140,7 @@ export function displayDuration(
     unit = unit.replace(/s$/, '')
   }
 
-  let displayedValue
+  let displayedValue: string | number
   if (decimals != null) {
     displayedValue = unitValue.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '')
   } else {

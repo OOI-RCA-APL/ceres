@@ -1,21 +1,22 @@
 <script lang="ts" setup>
 import { isEqual } from 'lodash-es'
+import { QSelect } from 'quasar'
+import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import SchemaFormNodeClearButton from '@/components/schema-form/SchemaFormNodeClearButton.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { Plain } from '@/utilities'
 
+let modelValue = $(defineModel<unknown>({ required: true }))
+
 const { form, schema, path } = defineProps<{
-  modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { enum: Plain[] }
   path: SchemaPath
 }>()
 
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
-}>()
+let select = $ref<QSelect | null>(null)
 
 const title = $computed(() => form.getLabel(path))
 const isRequired = $computed(() => form.getRequired(path))
@@ -70,11 +71,23 @@ function computeOptions(): Plain[] {
 }
 
 let options = $shallowRef(computeOptions())
+watch(
+  () => schema,
+  () => {
+    options = computeOptions()
+  }
+)
+
+function onClear() {
+  modelValue = undefined
+  select?.focus()
+}
 </script>
 
 <template>
   <div>
     <q-select
+      ref="select"
       :class="$style.input"
       dense
       filled
@@ -86,7 +99,7 @@ let options = $shallowRef(computeOptions())
       :options="options"
       options-dense
       :popup-content-class="$style.popup"
-      @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
+      @update:model-value="(value) => (modelValue = resolve(value))"
     >
       <template #label>
         <div class="monospace-md no-wrap row">
@@ -100,7 +113,7 @@ let options = $shallowRef(computeOptions())
       <template #append>
         <schema-form-node-clear-button
           v-if="!isRequired && modelValue !== undefined"
-          @click="emit('update:modelValue', undefined)"
+          @click="onClear"
         />
       </template>
     </q-select>

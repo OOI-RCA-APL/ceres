@@ -4,7 +4,7 @@ import { watch } from 'vue'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
-import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
+import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import type { VideoWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -56,7 +56,7 @@ watch(
     <common-text class="q-mb-sm" variant="title1">{{ widget.name }}</common-text>
     <div class="column">
       <div class="q-mb-sm">
-        <schema-form-base
+        <schema-form-value
           v-model="widget.query"
           :schema="{
             type: 'string',
@@ -69,7 +69,7 @@ watch(
       <div>
         <q-card bordered class="justify-between q-pa-none row text-center" flat>
           <div class="col">
-            <schema-form-base
+            <schema-form-value
               v-model="widget.autoplay"
               :schema="{
                 type: 'boolean',
@@ -78,7 +78,7 @@ watch(
             />
           </div>
           <div class="col">
-            <schema-form-base
+            <schema-form-value
               v-model="widget.startMuted"
               :schema="{
                 type: 'boolean',
@@ -88,7 +88,7 @@ watch(
             />
           </div>
           <div class="col">
-            <schema-form-base
+            <schema-form-value
               v-model="widget.showControls"
               :schema="{
                 type: 'boolean',

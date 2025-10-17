@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { LevelModel } from '@/api/shared'
 import RecordView from '@/components/RecordView.vue'
-import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
+import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import { AlertsWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -39,7 +39,7 @@ const columns = $computed(() => [
       <div style="min-width: 280px">
         <div class="q-col-gutter-xs row">
           <div class="col">
-            <schema-form-base
+            <schema-form-value
               v-model="widget.filter.min_level"
               :schema="{
                 title: 'Min',
@@ -50,7 +50,7 @@ const columns = $computed(() => [
             />
           </div>
           <div class="col">
-            <schema-form-base
+            <schema-form-value
               v-model="widget.filter.max_level"
               :schema="{
                 title: 'Max',
@@ -65,11 +65,11 @@ const columns = $computed(() => [
     </template>
     <template #column-filter-type>
       <div class="column q-gutter-xs" style="min-width: 200px">
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.type_contains"
           :schema="{ title: 'Contains', type: 'string', optional: true }"
         />
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.type_contains"
           :schema="{ title: 'Prefix', type: 'string', optional: true }"
         />
@@ -77,7 +77,7 @@ const columns = $computed(() => [
     </template>
     <template #column-filter-data>
       <div class="column q-gutter-xs" style="min-width: 300px">
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.data_contains"
           :schema="{
             title: 'Contains',
@@ -85,7 +85,7 @@ const columns = $computed(() => [
             optional: true,
           }"
         />
-        <schema-form-base
+        <schema-form-value
           v-model="widget.filter.data_prefix"
           :schema="{
             title: 'Prefix',

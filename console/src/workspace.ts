@@ -6,6 +6,7 @@ import { exportFile as download } from 'quasar'
 import { v7 } from 'uuid'
 import {
   computed,
+  defineAsyncComponent,
   inject,
   MaybeRef,
   provide,
@@ -27,18 +28,6 @@ import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
 import { User, UserRoleOf } from '@/api/users'
-import WorkspaceWidgetAlerts from '@/components/WorkspaceWidgetAlerts.vue'
-import WorkspaceWidgetChart from '@/components/WorkspaceWidgetChart.vue'
-import WorkspaceWidgetChartSettings from '@/components/WorkspaceWidgetChartSettings.vue'
-import WorkspaceWidgetLogs from '@/components/WorkspaceWidgetLogs.vue'
-import WorkspaceWidgetMessages from '@/components/WorkspaceWidgetMessages.vue'
-import WorkspaceWidgetParticles from '@/components/WorkspaceWidgetParticles.vue'
-import WorkspaceWidgetProcedures from '@/components/WorkspaceWidgetProcedures.vue'
-import WorkspaceWidgetUi from '@/components/WorkspaceWidgetUi.vue'
-import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
-import WorkspaceWidgetValueSettings from '@/components/WorkspaceWidgetValueSettings.vue'
-import WorkspaceWidgetVideo from '@/components/WorkspaceWidgetVideo.vue'
-import WorkspaceWidgetVideoSettings from '@/components/WorkspaceWidgetVideoSettings.vue'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
@@ -157,6 +146,25 @@ export const VideoWidgetModel = BaseWidgetModel.extend({
   showControls: Zod.boolean().default(true).catch(true),
 })
 
+export type Color = Zod.infer<typeof ColorModel>
+export const ColorModel = Zod.enum(['primary', 'positive', 'warning', 'negative'])
+
+export type ButtonStyling = Zod.infer<typeof ButtonStylingModel>
+export const ButtonStylingModel = Zod.enum(['flat', 'outlined'])
+
+export type ButtonWidget = Zod.infer<typeof ButtonWidgetModel>
+export const ButtonWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('button'),
+  name: Zod.string().catch(''),
+  label: Zod.string().nullish(),
+  address: AddressModel.nullish(),
+  action: Zod.string().nullish(),
+  arguments: Zod.record(Zod.string(), Zod.any()).catch(() => ({})),
+  color: ColorModel.nullish().catch(undefined),
+  styling: ButtonStylingModel.nullish().catch(undefined),
+  tooltip: Zod.string().nullish().catch(undefined),
+})
+
 export type Widget = Zod.infer<typeof WidgetModel>
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
@@ -168,6 +176,7 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   ChartWidgetModel,
   ValueWidgetModel,
   VideoWidgetModel,
+  ButtonWidgetModel,
 ])
 
 export type WidgetType = Widget['type']
@@ -209,35 +218,35 @@ export const widgetInfos = {
     type: 'messages',
     name: 'Messages View',
     model: MessagesWidgetModel,
-    component: WorkspaceWidgetMessages,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetMessages.vue')),
     options: widgetOptions({}),
   },
   particles: {
     type: 'particles',
     name: 'Particles View',
     model: ParticlesWidgetModel,
-    component: WorkspaceWidgetParticles,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetParticles.vue')),
     options: widgetOptions({}),
   },
   alerts: {
     type: 'alerts',
     name: 'Alerts View',
     model: AlertsWidgetModel,
-    component: WorkspaceWidgetAlerts,
+    component: () => defineAsyncComponent(() => import('@/components/WorkspaceWidgetAlerts.vue')),
     options: widgetOptions({}),
   },
   logs: {
     type: 'logs',
     name: 'Logs View',
     model: LogsWidgetModel,
-    component: WorkspaceWidgetLogs,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetLogs.vue')),
     options: widgetOptions({}),
   },
   procedures: {
     type: 'procedures',
     name: 'Procedures View',
     model: ProceduresWidgetModel,
-    component: WorkspaceWidgetProcedures,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetProcedures.vue')),
     options: widgetOptions({
       fullHeight: false,
     }),
@@ -246,7 +255,7 @@ export const widgetInfos = {
     type: 'ui',
     name: 'UI View',
     model: UIWidgetModel,
-    component: WorkspaceWidgetUi,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetUi.vue')),
     options: widgetOptions({
       fullHeight: false,
     }),
@@ -255,8 +264,10 @@ export const widgetInfos = {
     type: 'chart',
     name: 'Chart',
     model: ChartWidgetModel,
-    component: WorkspaceWidgetChart,
-    settingsComponent: WorkspaceWidgetChartSettings,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetChart.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/WorkspaceWidgetChartSettings.vue')
+    ),
     options: widgetOptions({
       paddingClass: ['q-py-sm', 'q-pr-md'],
       reloadOnThemeChange: true,
@@ -266,8 +277,10 @@ export const widgetInfos = {
     type: 'value',
     name: 'Value',
     model: ValueWidgetModel,
-    component: WorkspaceWidgetValue,
-    settingsComponent: WorkspaceWidgetValueSettings,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetValue.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/WorkspaceWidgetValueSettings.vue')
+    ),
     options: widgetOptions({
       minHeight: 50,
       paddingClass: [],
@@ -277,10 +290,25 @@ export const widgetInfos = {
     type: 'video',
     name: 'Video',
     model: VideoWidgetModel,
-    component: WorkspaceWidgetVideo,
-    settingsComponent: WorkspaceWidgetVideoSettings,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetVideo.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/WorkspaceWidgetVideoSettings.vue')
+    ),
     options: widgetOptions({
       paddingClass: [],
+    }),
+  },
+  button: {
+    type: 'button',
+    name: 'Button',
+    model: ButtonWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetButton.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/WorkspaceWidgetButtonSettings.vue')
+    ),
+    options: widgetOptions({
+      minHeight: 50,
+      fullHeight: false,
     }),
   },
 } as const

@@ -2,15 +2,12 @@
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
 
+let modelValue = $(defineModel<unknown>({ required: true }))
+
 defineProps<{
-  modelValue: unknown
   form: SchemaForm
   schema: Schema
   path: SchemaPath
-}>()
-
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
 }>()
 
 function resolve(value: unknown): unknown {
@@ -49,15 +46,14 @@ function format(value: unknown) {
 
 <template>
   <schema-form-input
+    v-model="modelValue"
     :form
     :format
     input-type="text"
-    :model-value="modelValue"
     :path
     :resolve
     :resolve-text="resolveText"
     :schema
     schema-type="JSON"
-    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   />
 </template>

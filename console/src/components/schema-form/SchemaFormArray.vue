@@ -7,16 +7,12 @@ import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddB
 import icons from '@/icons'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = defineProps<{
-  modelValue: unknown
+let modelValue: unknown = $(defineModel<unknown>({ required: true }))
+
+const { form, path } = defineProps<{
   form: SchemaForm
   schema: SchemaObject & { type: 'array' }
   path: SchemaPath
-}>()
-
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
-  click: []
 }>()
 
 const array = $computed(() => {
@@ -32,7 +28,7 @@ const array = $computed(() => {
 })
 
 if (array !== modelValue) {
-  emit('update:modelValue', array)
+  modelValue = array
 }
 
 function withAssigned(index: number, subvalue: unknown) {
@@ -48,7 +44,7 @@ function withAssigned(index: number, subvalue: unknown) {
 }
 
 function onUpdate(index: number, subvalue: unknown) {
-  emit('update:modelValue', withAssigned(index, subvalue))
+  modelValue = withAssigned(index, subvalue)
 }
 
 function onAddButtonClicked() {
@@ -58,7 +54,7 @@ function onAddButtonClicked() {
   }
 
   const initial = form.getInitialValue(subschema)
-  emit('update:modelValue', [...(array ?? []), initial])
+  modelValue = [...(array ?? []), initial]
 }
 
 function duplicate(index: number) {
@@ -69,11 +65,11 @@ function duplicate(index: number) {
   const before = array.slice(0, index + 1)
   const after = array.slice(index + 1)
 
-  emit('update:modelValue', [...before, cloneDeep(array[index]), ...after])
+  modelValue = [...before, cloneDeep(array[index]), ...after]
 }
 
 function remove(index: number) {
-  emit('update:modelValue', withAssigned(index, undefined))
+  modelValue = withAssigned(index, undefined)
 }
 
 function childIsComposite(index: number) {
@@ -91,7 +87,7 @@ function childIsComposite(index: number) {
     :form
     :model-value="array"
     :path
-    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
+    @update:model-value="(value) => (modelValue = value)"
   >
     <div v-if="array != null" class="column q-col-gutter-xs q-pa-sm">
       <div v-for="[index, subvalue] in array.entries()" :key="index">

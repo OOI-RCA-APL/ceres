@@ -3,15 +3,12 @@ import SchemaFormComposite from '@/components/schema-form/SchemaFormComposite.vu
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, schema, path } = defineProps<{
-  modelValue: unknown
+let modelValue: unknown = $(defineModel<unknown>({ required: true }))
+
+const { form, schema, path } = defineProps<{
   form: SchemaForm
   schema: SchemaObject & { type: 'object' }
   path: SchemaPath
-}>()
-
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
 }>()
 
 const isRequired = $computed(() => form.getRequired(path))
@@ -31,7 +28,7 @@ const object = $computed(() => {
 const properties = $computed(() => Object.keys(schema.properties ?? {}))
 
 if (object !== modelValue) {
-  emit('update:modelValue', object)
+  modelValue = object
 }
 
 function withAssigned(property: string, subvalue: unknown) {
@@ -48,7 +45,7 @@ function withAssigned(property: string, subvalue: unknown) {
 }
 
 function onUpdate(property: string, subvalue: unknown) {
-  emit('update:modelValue', withAssigned(property, subvalue))
+  modelValue = withAssigned(property, subvalue)
 }
 </script>
 
@@ -57,7 +54,7 @@ function onUpdate(property: string, subvalue: unknown) {
     :form
     :model-value="object"
     :path
-    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
+    @update:model-value="(value) => (modelValue = value)"
   >
     <div
       v-if="object"

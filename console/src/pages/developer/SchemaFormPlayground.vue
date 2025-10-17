@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import { computed } from 'vue'
 import Zod from 'zod'
 
 import CommonText from '@/components/CommonText.vue'
@@ -8,7 +7,7 @@ import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import { usePersisted } from '@/persistence'
 import { useSchemaForm } from '@/schema-form'
 
-const state = usePersisted({
+const persisted = usePersisted({
   schema: ({ object }) =>
     object({
       schemaJson: Zod.string().default(() => JSON.stringify(createDefaultSchema(), null, 2)),
@@ -18,14 +17,14 @@ const state = usePersisted({
 
 const schema = $computed<any>(() => {
   try {
-    return JSON.parse(state.schemaJson)
+    return JSON.parse(persisted.schemaJson)
   } catch {
     return undefined
   }
 })
 
 const form = useSchemaForm({
-  schema: computed(() => schema),
+  schema: () => schema,
   persist: ['state', 'schema-form-playground', 'form'],
 })
 
@@ -56,7 +55,7 @@ function createDefaultSchema() {
       <div class="col">
         <section-card title="Schema">
           <q-input
-            v-model="state.schemaJson"
+            v-model="persisted.schemaJson"
             autogrow
             dense
             filled

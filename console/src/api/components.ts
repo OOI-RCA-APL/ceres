@@ -8,7 +8,6 @@ import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { ElementModel } from '@/api/elements'
 import { AnyResultModel, ResultModel } from '@/api/shared'
-import { getter } from '@/getter'
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
 export const ProcedureTypeModel = Zod.enum(['query', 'action'])
@@ -101,16 +100,6 @@ export const useComponents = defineStore('components', () => {
     }
   }
 
-  async function getProcedure(address: Address, procedure: string): Promise<ProcedureInfo | null> {
-    try {
-      return await client.get(`/api/components/${address}/procedures/${procedure}`, {
-        parse: ProcedureInfoModel,
-      })
-    } catch {
-      return null
-    }
-  }
-
   async function call(
     address: Address,
     procedure: string,
@@ -175,40 +164,80 @@ export const useComponents = defineStore('components', () => {
     return mapping
   })
 
-  const get = getter($$(mapping), (address: Address | string) => {
-    return mapping[address.toString()] ?? null
-  })
-
-  const getDescendants = getter(get, (address: Address | string) => {
-    const component = get.value(address)
-    if (component == null) {
-      return []
-    }
-
-    const components: ComponentInfo[] = []
-    function traverse(current: ComponentInfo) {
-      components.push(current)
-      for (const child of current.components) {
-        traverse(child)
+  const get = $computed(
+    () =>
+      function get(address: Address | string) {
+        return mapping[address.toString()] ?? null
       }
-    }
+  )
 
-    for (const child of component.components) {
-      traverse(child)
-    }
+  const getDescendants = $computed(
+    () =>
+      function (address: Address | string) {
+        const component = get(address)
+        if (component == null) {
+          return []
+        }
 
-    return components
-  })
+        const components: ComponentInfo[] = []
+        function traverse(current: ComponentInfo) {
+          components.push(current)
+          for (const child of current.components) {
+            traverse(child)
+          }
+        }
+
+        for (const child of component.components) {
+          traverse(child)
+        }
+
+        return components
+      }
+  )
 
   const all = $computed(() => Object.values(mapping))
+
+  const getProcedure = $computed(
+    () =>
+      function getProcedure(address: Address, name: string): ProcedureInfo | null {
+        const component = get(address)
+        return component?.procedures.find((current) => current.name === name) ?? null
+      }
+  )
+
+  const getQuery = $computed(
+    () =>
+      function getQuery(address: Address, name: string): QueryInfo | null {
+        const procedure = getProcedure(address, name)
+        if (procedure?.type !== 'query') {
+          return null
+        }
+
+        return procedure
+      }
+  )
+
+  const getAction = $computed(
+    () =>
+      function getAction(address: Address, name: string): ActionInfo | null {
+        const procedure = getProcedure(address, name)
+        if (procedure?.type !== 'action') {
+          return null
+        }
+
+        return procedure
+      }
+  )
 
   return {
     ...query,
     root: computed(() => root),
-    get,
-    getDescendants,
+    get: computed(() => get),
+    getDescendants: computed(() => getDescendants),
     all: computed(() => all),
-    getProcedure,
+    getProcedure: computed(() => getProcedure),
+    getQuery: computed(() => getQuery),
+    getAction: computed(() => getAction),
     call,
     useElementStream,
     render,

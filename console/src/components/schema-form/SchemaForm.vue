@@ -1,32 +1,12 @@
 <script lang="ts" setup>
-import { watchEffect } from 'vue'
-
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
-import {
-  SchemaForm,
-  SchemaFormOptions,
-  SchemaPath,
-  isSchemaForm,
-  useSchemaForm,
-} from '@/schema-form'
+import { SchemaForm, SchemaPath } from '@/schema-form'
 
-const { form: formInput, formRef } = defineProps<{
-  form: SchemaForm | SchemaFormOptions
-  formRef?: (form: SchemaForm) => unknown
+const { form } = defineProps<{
+  form: SchemaForm
 }>()
 
 const path: SchemaPath = []
-const form = isSchemaForm(formInput) ? formInput : useSchemaForm({ ...formInput })
-
-watchEffect(() => {
-  if (formRef) {
-    formRef(form)
-  }
-})
-
-function update(value: unknown) {
-  form.assign(value)
-}
 </script>
 
 <template>
@@ -38,7 +18,7 @@ function update(value: unknown) {
       </div>
     </q-banner>
     <template v-else>
-      <schema-form-node :form :model-value="form.value" :path @update:model-value="update" />
+      <schema-form-node v-model="form.value" :form :path />
       <q-markup-table v-if="!form.isValid" bordered class="q-mt-sm" dense flat separator="cell">
         <thead>
           <q-tr>

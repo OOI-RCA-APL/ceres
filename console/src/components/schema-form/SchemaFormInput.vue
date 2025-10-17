@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { QInput, debounce } from 'quasar'
+import { QInput } from 'quasar'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
@@ -12,8 +12,9 @@ type Preset = {
   factory: () => unknown
 }
 
+let modelValue: unknown = $(defineModel<unknown>({ required: true }))
+
 const {
-  modelValue,
   form,
   path,
   resolve,
@@ -25,7 +26,6 @@ const {
   presets = undefined,
   noClearOnEmpty = false,
 } = defineProps<{
-  modelValue: unknown
   form: SchemaForm
   schema: Schema
   path: SchemaPath
@@ -41,15 +41,11 @@ const {
   noClearOnEmpty?: boolean
 }>()
 
-const emit = defineEmits<{
-  'update:modelValue': [value: unknown]
-}>()
-
 let input = $ref<QInput | null>(null)
 
 const resolvedModelValue = $computed(() => resolve(modelValue))
 if (resolvedModelValue !== modelValue) {
-  emit('update:modelValue', resolvedModelValue)
+  modelValue = resolvedModelValue
 }
 
 let text = $ref(format(resolvedModelValue))
@@ -60,19 +56,6 @@ const description = $computed(() => form.getDescription(path))
 const defaultValue = $computed(() => form.getDefault(path))
 const title = $computed(() => form.getLabel(path))
 const resolveText = $computed(() => resolveTextOriginal ?? resolve)
-
-// Whenever the input is focused and the text resolves to a valid value, update the model value.
-watch(
-  () => text,
-  debounce(() => {
-    if (isFocused) {
-      const resolvedValue = resolveText(text)
-      if (resolvedValue !== undefined) {
-        emit('update:modelValue', resolvedValue)
-      }
-    }
-  }, 0)
-)
 
 // Whenever the model value changes and the input is not focused, update the text.
 watch(
@@ -85,17 +68,17 @@ watch(
   { immediate: true }
 )
 
-// Run when the input is focused.
+// Run when the input element is focused.
 function onFocus() {
   isFocused = true
 }
 
-// Run when the input loses focus.
+// Run when the input element loses focus.
 function onBlur() {
   // Resolve the text value and emit the result whenever the input loses focus.
   if (resolvedModelValue !== undefined) {
     const resolvedValue = resolveText(text)
-    emit('update:modelValue', resolvedValue)
+    modelValue = resolvedValue
     // Write the resolved value to the text input.
     text = format(resolvedValue)
   } else {
@@ -106,12 +89,31 @@ function onBlur() {
   isFocused = false
 }
 
-// Run when the user hits backspace.
+// Run when the user hits backspace with the input element selected.
 function onBackspace() {
   // If the value is not required, the text is empty and the user hits backspace one more time,
   // emit `undefined` to remove the value, so long as `noClearOnEmpty` is not set.
   if (!noClearOnEmpty && text === '' && !isRequired) {
-    emit('update:modelValue', undefined)
+    modelValue = undefined
+  }
+}
+
+// Run when the user hits the clear button.
+async function onClear() {
+  modelValue = undefined
+  text = ''
+  input?.focus() // Re-focus the input after the clear button is hit.
+}
+
+// Run when the user types text into the input element.
+function onInputModelUpdate(value: string) {
+  // Store the raw text value.
+  text = value
+
+  // If the text resolves to a valid value, emit an update to the model value.
+  const resolvedValue = resolveText(text)
+  if (resolvedValue !== undefined) {
+    modelValue = resolvedValue
   }
 }
 </script>
@@ -120,7 +122,6 @@ function onBackspace() {
   <div>
     <q-input
       ref="input"
-      v-model="text"
       :aria-required="isRequired"
       :autogrow
       dense
@@ -128,6 +129,7 @@ function onBackspace() {
       input-class="monospace-md"
       label-slot
       :mask
+      :model-value="text"
       :placeholder="format(defaultValue)"
       spellcheck="false"
       :suffix
@@ -135,6 +137,7 @@ function onBackspace() {
       @blur="onBlur"
       @focus="onFocus"
       @keydown.backspace="onBackspace"
+      @update:model-value="onInputModelUpdate"
     >
       <template #label>
         <div class="monospace-md no-wrap row">
@@ -166,7 +169,7 @@ function onBackspace() {
                 v-for="preset in presets"
                 :key="preset.label"
                 clickable
-                @click="emit('update:modelValue', preset.factory())"
+                @click="modelValue = preset.factory()"
               >
                 <q-item-section>
                   <q-item-label>{{ preset.label }}</q-item-label>
@@ -177,7 +180,7 @@ function onBackspace() {
         </q-btn>
         <schema-form-node-clear-button
           v-if="!isRequired && modelValue !== undefined"
-          @click="emit('update:modelValue', undefined)"
+          @click="onClear"
         />
       </template>
     </q-input>

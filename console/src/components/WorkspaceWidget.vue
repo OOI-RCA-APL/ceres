@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { QPopupEdit } from 'quasar'
+
 import CommonText from '@/components/CommonText.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import icons from '@/icons'
@@ -14,6 +16,7 @@ const { widget } = defineProps<{
 
 const workspace = useWorkspace()
 const preferences = usePreferences()
+const popupEdit = $ref<QPopupEdit | null>(null)
 
 const info = $computed(() => getWidgetInfo(widget.type))
 const settingsComponent = $computed(() => {
@@ -55,24 +58,26 @@ const key = $computed(() => {
       @touchstart.prevent="workspace.drag = { widget, row, column }"
     >
       <div class="items-center no-wrap row">
-        <div class="q-mr-xs">
+        <div>
           <common-text :class="$style.name" variant="th" @mousedown.stop @touchstart.stop>
             {{ widget.name }}
             <q-popup-edit
+              ref="popupEdit"
               v-slot="scope"
               v-model="widget.name"
               auto-save
               :class="$style.popupEdit"
               self="top left"
-              :validate="(value: string) => value.trim() !== ''"
             >
               <q-card bordered class="q-pa-sm" flat style="max-width: 200px">
                 <q-input
                   v-model.trim="scope.value"
                   autofocus
+                  clearable
                   dense
                   filled
                   label="Widget Name"
+                  @clear="scope.value = ''"
                   @keyup.enter="scope.set()"
                 />
               </q-card>
@@ -81,7 +86,7 @@ const key = $computed(() => {
         </div>
         <div v-if="settingsComponent != null">
           <q-btn
-            class="faded-hover"
+            :class="['faded-hover', widget.name !== '' && 'q-ml-xs']"
             flat
             :icon="icons.settings"
             round
@@ -118,6 +123,14 @@ const key = $computed(() => {
           >
             <q-menu anchor="top right" :offset="[8, 0]" self="top left">
               <q-list bordered>
+                <q-item v-close-popup clickable dense @click="popupEdit?.show()">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.rename" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Rename</q-item-label>
+                  </q-item-section>
+                </q-item>
                 <q-item
                   v-close-popup
                   clickable

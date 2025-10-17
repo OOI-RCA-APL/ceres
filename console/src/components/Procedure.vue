@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import moment, { Moment } from 'moment'
-import { computed } from 'vue'
 
 import { Address } from '@/api/address'
 import { ProcedureInfo } from '@/api/components'
@@ -12,10 +11,17 @@ import { useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
 import { displayDuration, useTime } from '@/time'
 
-const { address, procedure } = defineProps<{
+let argumentsModel = $(defineModel<unknown>('arguments', { required: false }))
+
+const props = defineProps<{
   address: Address
   procedure: ProcedureInfo
 }>()
+
+const hasArgumentsModel = $computed(() => argumentsModel !== undefined)
+const address = $computed(() => props.address)
+const procedure = $computed(() => props.procedure)
+const persist = $computed(() => !hasArgumentsModel)
 
 const context = useInterfaceContext()
 const time = useTime()
@@ -33,30 +39,44 @@ const resultJson = $computed(() => {
   }
 })
 
+const options = $computed(() => {
+  if (hasArgumentsModel) {
+    return {
+      value: () => argumentsModel,
+      onUpdate: (value: unknown) => {
+        argumentsModel = value
+      },
+    }
+  }
+
+  return {
+    persist: () =>
+      persist
+        ? [context.key, 'state', 'procedure', 'schema-form', address, 'procedures', procedure.name]
+        : undefined,
+  }
+})
+
 const form = useSchemaForm({
-  persist: computed(() => [
-    context.key,
-    'state',
-    'procedure',
-    'schema-form',
-    address,
-    'procedures',
-    procedure.name,
-  ]),
-  schema: computed(() => procedure.arguments.json_schema),
-  async onSubmit(value) {
+  ...options,
+  schema: () => procedure.arguments.json_schema,
+  async onSubmit(args) {
     sentAt = moment.utc()
     receivedAt = null
-    result = await engine.components.call(address, procedure.name, value)
+    result = await engine.components.call(address, procedure.name, args)
     receivedAt = moment.utc()
   },
 })
+
+if (!form.isValid) {
+  form.reset()
+}
 </script>
 
 <template>
   <div v-if="!form.isEmpty || form.getDescription([]) != null" class="q-mb-sm">
     <q-card bordered class="q-px-sm q-py-sm" flat>
-      <schema-form :key="procedure.name" :form />
+      <schema-form :key="`${address}${procedure.name}`" :form />
     </q-card>
   </div>
   <div>

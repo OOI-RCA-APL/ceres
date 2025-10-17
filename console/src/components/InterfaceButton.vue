@@ -57,7 +57,7 @@ const action = $computed(() => request.data.value ?? null)
         <div class="items-center q-mb-sm q-ml-xs row">
           <div class="monospace-lg">{{ element.address }}::{{ element.action }}</div>
         </div>
-        <procedure :address="element.address" :procedure="action" />
+        <procedure :address="element.address" persist :procedure="action" />
       </q-card>
     </q-menu>
   </q-btn>

@@ -12,7 +12,7 @@ defineEmits(['click'])
     :icon="icons.clear"
     round
     size="9px"
-    @click="$emit('click')"
+    @click.stop.prevent="$emit('click')"
   />
 </template>
 
