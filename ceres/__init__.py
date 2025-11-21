@@ -20,6 +20,7 @@ with lazy_imports(__name__, export=True):
     from ceres.component import listener as listener
     from ceres.component import query as query
     from ceres.component import routine as routine
+    from ceres.component import sieve as sieve
     from ceres.config import Config as Config
     from ceres.config import ConfigCheckType as ConfigCheckType
     from ceres.connection import Connection as Connection

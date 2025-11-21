@@ -4,8 +4,9 @@ import asyncio
 import traceback
 from abc import abstractmethod
 from asyncio import Task
-from typing import TYPE_CHECKING, AsyncIterable, AsyncIterator, Generic, override
+from typing import TYPE_CHECKING, AsyncIterable, AsyncIterator, Callable, Generic, override
 
+from pydantic import SkipValidation
 from typing_extensions import TypeVar
 
 from ceres._internal import util
@@ -32,12 +33,26 @@ if TYPE_CHECKING:
 
     _T = TypeVar("_T", bound=Particle, covariant=True, default=Particle)
 else:
+    Message = object
+
     _T = TypeVar("_T", covariant=True, default=Particle)
 
 
 class Sieve(ValidatedDataclass, Generic[_T]):
     @abstractmethod
     def read(self, messages: AsyncIterable[Message]) -> AsyncIterator[_T | ParticleError]: ...
+
+
+class MethodSieve(Sieve[_T], Generic[_T]):
+    method: SkipValidation[Callable[[AsyncIterable[Message]], AsyncIterator[_T | ParticleError]]]
+
+    @override
+    async def read(
+        self,
+        messages: AsyncIterable[Message],
+    ) -> AsyncIterator[_T | ParticleError]:
+        async for message in self.method(messages):
+            yield message
 
 
 class MonoSieve(Sieve[_T], Generic[_T]):
@@ -146,7 +161,7 @@ class ComponentSieveManager(BaseComponentManager):
         retry = 0
 
         try:
-            sieve = config.create()
+            sieve = config.create(self.__system__.component)
             while True:
                 try:
                     async for current in sieve.read(

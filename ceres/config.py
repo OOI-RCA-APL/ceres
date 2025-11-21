@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ssl
+from abc import abstractmethod
 from datetime import timedelta
 from pathlib import Path
 from re import Pattern
@@ -149,16 +150,28 @@ else:
     Sieve = Any
 
 
-class SieveConfig(__BaseConfigObject):
+class __BaseSieveConfig(__BaseConfigObject):
+    type: Literal["class", "method"]
     name: Name
-    cls: ImportString[type[Sieve]] = Field(
-        validation_alias="class",
-        serialization_alias="class",
-    )
-    arguments: Mapping[str, Any] = Field(default_factory=dict)
     retries: NonNegativeInt | None = None
     retry_delay: PositiveTimeDelta = timedelta(seconds=5)
     filter: MessageFilter | None = None
+
+    @abstractmethod
+    def create(self, component: Component) -> Sieve: ...
+
+
+class ClassSieveConfig(__BaseSieveConfig):
+    type: Literal["class"] = "class"
+    if TYPE_CHECKING:
+        cls: ImportString[type[Sieve]]
+    else:
+        cls: ImportString[object] = Field(
+            validation_alias="class",
+            serialization_alias="class",
+        )
+
+    arguments: Mapping[str, Any] = Field(default_factory=dict)
 
     @field_validator("cls")
     def _validate_cls(
@@ -177,8 +190,24 @@ class SieveConfig(__BaseConfigObject):
         self.cls(**self.arguments)
         return self
 
-    def create(self) -> Sieve:
+    @override
+    def create(self, component: Component) -> Sieve:
         return self.cls(**self.arguments)
+
+
+class MethodSieveConfig(__BaseSieveConfig):
+    type: Literal["method"] = "method"
+    method: Name
+
+    @override
+    def create(self, component: Component) -> Sieve:
+        from ceres.sieve import MethodSieve
+
+        method = getattr(component, self.method)
+        return MethodSieve(method=method)
+
+
+SieveConfig: TypeAlias = ClassSieveConfig | MethodSieveConfig
 
 
 def _get_component_class() -> type[Component]:

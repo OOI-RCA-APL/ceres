@@ -36,7 +36,7 @@ from typing import (
     runtime_checkable,
 )
 
-from pydantic import ConfigDict, PositiveFloat, ValidationError
+from pydantic import ConfigDict, NonNegativeInt, PositiveFloat, ValidationError
 
 from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
@@ -44,7 +44,7 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.protocols import ComponentSource
 from ceres._internal.util import OrderedWeakSet, PathLike, Undefined
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.config import ComponentConfig, JobConfig, PrunerConfig, SieveConfig
+from ceres.config import ComponentConfig, JobConfig, MethodSieveConfig, PrunerConfig, SieveConfig
 from ceres.data import (
     ImmutableDataObject,
     Name,
@@ -91,7 +91,11 @@ if TYPE_CHECKING:
 
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
+    from ceres.message import Message, MessageFilter
+    from ceres.particle import Particle
     from ceres.status import Status
+else:
+    MessageFilter = ImmutableDataObject
 
 with lazy_imports(__name__):
     from ceres.database import Database
@@ -219,7 +223,7 @@ class Component(ValidatedDataclass, ComponentSource):
 
 
 @util.cached
-def get_component_listener_bindings(cls: type[Component]) -> Sequence[ListenerBinding]:
+def get_listener_bindings(cls: type) -> Sequence[ListenerBinding]:
     """
     Get all listener bindings for this component class.
     """
@@ -227,7 +231,7 @@ def get_component_listener_bindings(cls: type[Component]) -> Sequence[ListenerBi
 
 
 @util.cached
-def get_component_routine_bindings(cls: type[Component]) -> Sequence[RoutineBinding]:
+def get_routine_bindings(cls: type) -> Sequence[RoutineBinding]:
     """
     Get all routine bindings for this component class.
     """
@@ -235,24 +239,26 @@ def get_component_routine_bindings(cls: type[Component]) -> Sequence[RoutineBind
 
 
 @util.cached
-def get_component_query_bindings(cls: type[Component]) -> Mapping[str, QueryBinding]:
+def get_query_bindings(cls: type) -> Mapping[str, QueryBinding]:
     """
     Get all query bindings for this component class. Returns a mapping of query names to query
     bindings.
     """
-    return {
-        name: binding
-        for name, binding in get_component_procedure_bindings(cls).items()
-        if isinstance(binding, QueryBinding)
-    }
+    return MappingProxyType(
+        {
+            name: binding
+            for name, binding in get_procedure_bindings(cls).items()
+            if isinstance(binding, QueryBinding)
+        }
+    )
 
 
-def get_component_query_binding(cls: type[Component], name: str) -> QueryBinding | None:
+def get_query_binding(cls: type, name: str) -> QueryBinding | None:
     """
     Get a query binding for this component class by name. Returns `None` if the query binding
     does not exist.
     """
-    procedure = get_component_procedure_binding(cls, name)
+    procedure = get_procedure_binding(cls, name)
     if not isinstance(procedure, QueryBinding):
         return None
 
@@ -260,24 +266,26 @@ def get_component_query_binding(cls: type[Component], name: str) -> QueryBinding
 
 
 @util.cached
-def get_component_action_bindings(cls: type[Component]) -> Mapping[str, ActionBinding]:
+def get_action_bindings(cls: type) -> Mapping[str, ActionBinding]:
     """
     Get all action bindings for this component class. Returns a mapping of action names to
     action bindings.
     """
-    return {
-        name: binding
-        for name, binding in get_component_procedure_bindings(cls).items()
-        if isinstance(binding, ActionBinding)
-    }
+    return MappingProxyType(
+        {
+            name: binding
+            for name, binding in get_procedure_bindings(cls).items()
+            if isinstance(binding, ActionBinding)
+        }
+    )
 
 
-def get_component_action_binding(cls: type[Component], name: str) -> ActionBinding | None:
+def get_action_binding(cls: type, name: str) -> ActionBinding | None:
     """
     Get an action binding for this component class by name. Returns `None` if the action binding
     does not exist.
     """
-    procedure = get_component_procedure_binding(cls, name)
+    procedure = get_procedure_binding(cls, name)
     if not isinstance(procedure, ActionBinding):
         return None
 
@@ -285,7 +293,7 @@ def get_component_action_binding(cls: type[Component], name: str) -> ActionBindi
 
 
 @util.cached
-def get_component_procedure_bindings(cls: type[Component]) -> Mapping[Name, ProcedureBinding]:
+def get_procedure_bindings(cls: type) -> Mapping[Name, ProcedureBinding]:
     """
     Get all procedure bindings (actions and queries) for this component class. Returns a mapping
     of procedure names to procedure bindings.
@@ -297,13 +305,32 @@ def get_component_procedure_bindings(cls: type[Component]) -> Mapping[Name, Proc
     return MappingProxyType({binding.name: binding for binding in procedures})
 
 
-def get_component_procedure_binding(cls: type[Component], name: str) -> ProcedureBinding | None:
+def get_procedure_binding(cls: type, name: str) -> ProcedureBinding | None:
     """
     Get a procedure binding (action or query) for this component class by name. Returns `None`
     if the procedure does not exist.
     """
     name = _get_normalized_name(name)
-    return get_component_procedure_bindings(cls).get(name)
+    return get_procedure_bindings(cls).get(name)
+
+
+@util.cached
+def get_sieve_bindings(cls: type) -> Mapping[Name, SieveBinding]:
+    """
+    Get all sieve bindings for this component class.
+    """
+    return MappingProxyType(
+        {binding.name: binding for binding in get_component_bindings(cls, SieveBinding)}
+    )
+
+
+def get_sieve_binding(cls: type, name: str) -> SieveBinding | None:
+    """
+    Get a sieve binding for this component class by name. Returns `None` if the sieve binding
+    does not exist.
+    """
+    name = _get_normalized_name(name)
+    return get_sieve_bindings(cls).get(name)
 
 
 class ListenerBinding(ImmutableDataObject):
@@ -862,7 +889,7 @@ def get_component_method_binding[T: Binding](
     return None
 
 
-def get_component_bindings[T: Binding](cls: type[Component], binding_cls: type[T]) -> Sequence[T]:
+def get_component_bindings[T: Binding](cls: type, binding_cls: type[T]) -> Sequence[T]:
     bindings: dict[str, T] = {}
 
     for cls in reversed(cls.__mro__):
@@ -874,6 +901,58 @@ def get_component_bindings[T: Binding](cls: type[Component], binding_cls: type[T
                 bindings[binding.method] = binding
 
     return sorted(bindings.values(), key=lambda current: current.method)
+
+
+class SieveBinding(ImmutableDataObject):
+    name: Name
+    method: Name
+    retries: NonNegativeInt | None
+    retry_delay: PositiveTimeDelta
+    filter: MessageFilter | None
+
+
+type SieveMethod[S, T: Particle] = Callable[[S, AsyncIterable[Message]], AsyncIterable[T]]
+
+
+@overload
+def sieve[S, T: Particle](method: SieveMethod[S, T]) -> SieveMethod[S, T]: ...
+
+
+@overload
+def sieve[S, T: Particle](
+    *,
+    name: Name | None = None,
+    retries: NonNegativeInt | None = None,
+    retry_delay: PositiveTimeDelta = timedelta(seconds=5),
+    filter: MessageFilter | None = None,
+) -> Callable[[SieveMethod[S, T]], SieveMethod[S, T]]: ...
+
+
+def sieve[S, T: Particle](
+    method: SieveMethod[S, T] | None = None,
+    *,
+    name: Name | None = None,
+    retries: NonNegativeInt | None = None,
+    retry_delay: PositiveTimeDelta = timedelta(seconds=5),
+    filter: MessageFilter | None = None,
+) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
+    def sieve(method: SieveMethod[S, T]) -> SieveMethod[S, T]:
+        _bind(
+            method,
+            SieveBinding(
+                name=name or _get_bound_name(method),
+                method=util.get_function_name(method),
+                retries=retries,
+                retry_delay=retry_delay,
+                filter=filter,
+            ),
+        )
+        return method
+
+    if method is None:
+        return sieve
+
+    return sieve(method)
 
 
 def _bind(method: Callable[..., object], binding: Binding) -> None:
@@ -963,6 +1042,18 @@ class ComponentSystem(Node, ComponentSource):
             self.pruners.add(pruner)
 
         sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
+        sieves.update(
+            {
+                binding.name: MethodSieveConfig(
+                    name=binding.name,
+                    method=binding.method,
+                    retries=binding.retries,
+                    retry_delay=binding.retry_delay,
+                    filter=binding.filter,
+                )
+                for binding in self.get_sieve_bindings().values()
+            }
+        )
         sieves.update({sieve.name: sieve for sieve in (self.config.sieves if self.config else ())})
         for sieve in sieves.values():
             self.sieves.add(sieve)
@@ -1195,55 +1286,67 @@ class ComponentSystem(Node, ComponentSource):
         """
         Get all listener bindings for this component.
         """
-        return get_component_listener_bindings(type(self.component))
+        return get_listener_bindings(type(self.component))
 
     def get_routine_bindings(self) -> Sequence[RoutineBinding]:
         """
         Get all routine bindings for this component.
         """
-        return get_component_routine_bindings(type(self.component))
+        return get_routine_bindings(type(self.component))
 
-    def get_query_bindings(self) -> Mapping[str, QueryBinding]:
+    def get_query_bindings(self) -> Mapping[Name, QueryBinding]:
         """
         Get all query bindings for this component. Returns a mapping of query names to query
         bindings.
         """
-        return get_component_query_bindings(type(self.component))
+        return get_query_bindings(type(self.component))
 
     def get_query_binding(self, name: str) -> QueryBinding | None:
         """
         Get a query binding for this component by name. Returns `None` if the query binding does not
         exist.
         """
-        return get_component_query_binding(type(self.component), name)
+        return get_query_binding(type(self.component), name)
 
-    def get_action_bindings(self) -> Mapping[str, ActionBinding]:
+    def get_action_bindings(self) -> Mapping[Name, ActionBinding]:
         """
         Get all action bindings for this component. Returns a mapping of action names to action
         bindings.
         """
-        return get_component_action_bindings(type(self.component))
+        return get_action_bindings(type(self.component))
 
     def get_action_binding(self, name: str) -> ActionBinding | None:
         """
         Get an action binding for this component by name. Returns `None` if the action binding does
         not exist.
         """
-        return get_component_action_binding(type(self.component), name)
+        return get_action_binding(type(self.component), name)
 
     def get_procedure_bindings(self) -> Mapping[Name, ProcedureBinding]:
         """
         Get all procedure bindings (actions and queries) for this component. Returns a mapping of
         procedure names to procedure bindings.
         """
-        return get_component_procedure_bindings(type(self.component))
+        return get_procedure_bindings(type(self.component))
 
     def get_procedure_binding(self, name: str) -> ProcedureBinding | None:
         """
         Get a procedure binding (action or query) for this component by name. Returns `None` if the
         procedure does not exist.
         """
-        return get_component_procedure_binding(type(self.component), name)
+        return get_procedure_binding(type(self.component), name)
+
+    def get_sieve_bindings(self) -> Mapping[Name, SieveBinding]:
+        """
+        Get all sieve bindings for this component.
+        """
+        return get_sieve_bindings(type(self.component))
+
+    def get_sieve_binding(self, name: str) -> SieveBinding | None:
+        """
+        Get a sieve binding for this component by name. Returns `None` if the sieve does not exist.
+        """
+        return get_sieve_binding(type(self.component), name)
 
     def __propagate_tree_change(self) -> None:
         for component in self.root.get_components():
