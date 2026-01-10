@@ -27,8 +27,8 @@ with lazy_imports(__name__, export=True):
     from ceres.connection import ConnectionException as ConnectionException
     from ceres.connection import ConnectionInactive as ConnectionInactive
     from ceres.connection import ConnectionLost as ConnectionLost
-    from ceres.connection import TCPConnection as TCPConnection
-    from ceres.connection import UNIXSocketConnection as UNIXSocketConnection
+    from ceres.connection import TCPSource as TCPSource
+    from ceres.connection import UNIXSocketSource as UNIXSocketSource
     from ceres.connectivity import Connectivity as Connectivity
     from ceres.data import DataObject as DataObject
     from ceres.data import ImmutableDataObject as ImmutableDataObject
@@ -80,7 +80,6 @@ with lazy_imports(__name__, export=True):
     from ceres.server import UNIXSocketClient as UNIXSocketClient
     from ceres.server import UNIXSocketServer as UNIXSocketServer
     from ceres.setting import Setting as Setting
-    from ceres.sieve import MonoSieve as MonoSieve
     from ceres.sieve import Sieve as Sieve
     from ceres.statistics import Statistics as Statistics
     from ceres.status import Status as Status

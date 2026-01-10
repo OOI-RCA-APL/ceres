@@ -55,7 +55,7 @@ class Server(Component, Generic[_ClientT]):
     async def serve(self) -> None: ...
 
     @abstractmethod
-    async def _handle(self, client: _ClientT) -> None: ...
+    async def handle(self, client: _ClientT) -> None: ...
 
 
 class AnyIOClient[StreamT: ByteStream](Client):
@@ -157,7 +157,7 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
         try:
             async with stream:
                 try:
-                    await self._handle(client)
+                    await self.handle(client)
                 finally:
                     try:
                         # Attempt to send an EOF once the handler exits.
@@ -217,7 +217,7 @@ class TCPServer(AnyIOServer[TCPClient]):
 
     @abstractmethod
     @override
-    async def _handle(self, client: TCPClient) -> None: ...
+    async def handle(self, client: TCPClient) -> None: ...
 
     @override
     async def _create_listener(self) -> Listener[SocketStream]:
@@ -276,7 +276,7 @@ class UNIXSocketServer(AnyIOServer[UNIXSocketClient]):
 
     @abstractmethod
     @override
-    async def _handle(self, client: UNIXSocketClient) -> None: ...
+    async def handle(self, client: UNIXSocketClient) -> None: ...
 
     @override
     async def _create_listener(self) -> Listener[SocketStream]:

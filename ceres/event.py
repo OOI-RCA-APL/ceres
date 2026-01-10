@@ -22,7 +22,7 @@ from ceres._internal import util
 from ceres._internal.manager import BaseNodeManager
 from ceres.address import Address
 from ceres.channel import Channel, OutputChannel
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, uuid7
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, TimeDelta, uuid7
 from ceres.level import Level
 from ceres.timing import utc
 
@@ -93,73 +93,119 @@ LifecycleEvent: TypeAlias = (
 )
 
 
+class ConnectionAddedEvent(__BaseStandardEvent):
+    type: Literal["connection-added"] = "connection-added"
+    connection: str | None = None
+
+
+class ConnectionRemovedEvent(__BaseStandardEvent):
+    type: Literal["connection-removed"] = "connection-removed"
+    connection: str | None = None
+
+
+class ConnectionStartedEvent(__BaseStandardEvent):
+    type: Literal["connection-started"] = "connection-started"
+    connection: str | None = None
+
+
+class ConnectionStoppedEvent(__BaseStandardEvent):
+    type: Literal["connection-stopped"] = "connection-stopped"
+    connection: str | None = None
+
+
+class ConnectionExceptionEvent(__BaseStandardEvent):
+    type: Literal["connection-exception"] = "connection-exception"
+    level: Level = Level.ERROR
+    connection: str | None = None
+    traceback: Sequence[str]
+
+
 class ConnectingEvent(__BaseStandardEvent):
     type: Literal["connecting"] = "connecting"
+    connection: str | None = None
 
 
 class ConnectedEvent(__BaseStandardEvent):
     type: Literal["connected"] = "connected"
+    connection: str | None = None
 
 
 class DisconnectingEvent(__BaseStandardEvent):
     type: Literal["disconnecting"] = "disconnecting"
+    connection: str | None = None
 
 
 class DisconnectedEvent(__BaseStandardEvent):
     type: Literal["disconnected"] = "disconnected"
+    connection: str | None = None
 
 
 class IdleTimeoutEvent(__BaseStandardEvent):
     type: Literal["idle-timeout"] = "idle-timeout"
     level: Level = Level.WARNING
+    connection: str | None = None
+    timeout: TimeDelta
 
 
 class DisconnectVerifyStartedEvent(__BaseStandardEvent):
     type: Literal["disconnect-verify-started"] = "disconnect-verify-started"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
 class DisconnectVerifiedEvent(__BaseStandardEvent):
     type: Literal["disconnect-verified"] = "disconnect-verified"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
 class DisconnectUnverifiedEvent(__BaseStandardEvent):
     type: Literal["disconnect-unverified"] = "disconnect-unverified"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
 class DisconnectVerifyEndedEvent(__BaseStandardEvent):
     type: Literal["disconnect-verify-ended"] = "disconnect-verify-ended"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
 class ConnectionLostEvent(__BaseStandardEvent):
     type: Literal["connection-lost"] = "connection-lost"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
 class ConnectFailedEvent(__BaseStandardEvent):
     type: Literal["connect-failed"] = "connect-failed"
     level: Level = Level.ERROR
+    connection: str | None = None
     reason: str | None = None
 
 
 class ReconnectScheduledEvent(__BaseStandardEvent):
     type: Literal["reconnect-scheduled"] = "reconnect-scheduled"
+    connection: str | None = None
     delay: PositiveTimeDelta
 
 
 class BufferOverflowEvent(__BaseStandardEvent):
     type: Literal["buffer-overflow"] = "buffer-overflow"
     level: Level = Level.ERROR
+    connection: str | None = None
     size: ByteSize
     limit: ByteSize
     dropped: ByteSize
 
 
 ConnectionEvent: TypeAlias = (
-    ConnectedEvent
+    ConnectionAddedEvent
+    | ConnectionRemovedEvent
+    | ConnectionStartedEvent
+    | ConnectionStoppedEvent
+    | ConnectionExceptionEvent
+    | ConnectedEvent
     | DisconnectedEvent
     | DisconnectingEvent
     | IdleTimeoutEvent
@@ -458,13 +504,6 @@ class SieveRetryEvent(__BaseStandardEvent):
     sieve: str
 
 
-class SieveParticleErrorEvent(__BaseStandardEvent):
-    level: Level = Level.ERROR
-    type: Literal["sieve-particle-error"] = "sieve-particle-error"
-    sieve: str
-    error: ParticleError
-
-
 SieveEvent: TypeAlias = (
     SieveAddedEvent
     | SieveRemovedEvent
@@ -474,7 +513,6 @@ SieveEvent: TypeAlias = (
     | SieveExceptionEvent
     | SieveRetryPendingEvent
     | SieveRetryEvent
-    | SieveParticleErrorEvent
 )
 
 
@@ -533,7 +571,6 @@ StandardEvent: TypeAlias = (
 
 
 from ceres.alert import Alert  # noqa: E402
-from ceres.error import ParticleError  # noqa: E402
 from ceres.logs import LogEntry  # noqa: E402
 from ceres.message import Message  # noqa: E402
 from ceres.particle import Particle  # noqa: E402

@@ -15,6 +15,7 @@ from string import ascii_lowercase
 from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     AsyncIterable,
     Awaitable,
@@ -27,6 +28,7 @@ from typing import (
     Self,
     Sequence,
     TypeAlias,
+    TypeVar,
     Unpack,
     final,
     get_args,
@@ -37,14 +39,22 @@ from typing import (
 )
 
 from pydantic import ConfigDict, NonNegativeInt, PositiveFloat, ValidationError
+from typing_extensions import TypeVarTuple
 
 from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.protocols import ComponentSource
-from ceres._internal.util import OrderedWeakSet, PathLike, Undefined
+from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, is_subtype
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.config import ComponentConfig, JobConfig, MethodSieveConfig, PrunerConfig, SieveConfig
+from ceres.config import (
+    ComponentConfig,
+    JobConfig,
+    MethodSieveConfig,
+    PrunerConfig,
+    SieveConfig,
+)
+from ceres.connection import ComponentConnectionManager
 from ceres.data import (
     ImmutableDataObject,
     Name,
@@ -83,9 +93,11 @@ from ceres.event import (
     WillDetachEvent,
 )
 from ceres.node import Node
+from ceres.util import concurrently
 from ceres.variable import InternalVariableName, Variable
 
 if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
     from sqlalchemy.ext.asyncio import AsyncConnection
     from starlette.responses import FileResponse, Response, StreamingResponse
 
@@ -227,7 +239,7 @@ def get_listener_bindings(cls: type) -> Sequence[ListenerBinding]:
     """
     Get all listener bindings for this component class.
     """
-    return get_component_bindings(cls, ListenerBinding)
+    return get_component_method_bindings(cls, ListenerBinding)
 
 
 @util.cached
@@ -235,7 +247,7 @@ def get_routine_bindings(cls: type) -> Sequence[RoutineBinding]:
     """
     Get all routine bindings for this component class.
     """
-    return get_component_bindings(cls, RoutineBinding)
+    return get_component_method_bindings(cls, RoutineBinding)
 
 
 @util.cached
@@ -298,8 +310,8 @@ def get_procedure_bindings(cls: type) -> Mapping[Name, ProcedureBinding]:
     Get all procedure bindings (actions and queries) for this component class. Returns a mapping
     of procedure names to procedure bindings.
     """
-    queries = get_component_bindings(cls, QueryBinding)
-    actions = get_component_bindings(cls, ActionBinding)
+    queries = get_component_method_bindings(cls, QueryBinding)
+    actions = get_component_method_bindings(cls, ActionBinding)
     procedures = sorted([*queries, *actions], key=lambda current: current.name)
 
     return MappingProxyType({binding.name: binding for binding in procedures})
@@ -320,7 +332,7 @@ def get_sieve_bindings(cls: type) -> Mapping[Name, SieveBinding]:
     Get all sieve bindings for this component class.
     """
     return MappingProxyType(
-        {binding.name: binding for binding in get_component_bindings(cls, SieveBinding)}
+        {binding.name: binding for binding in get_component_method_bindings(cls, SieveBinding)}
     )
 
 
@@ -331,6 +343,45 @@ def get_sieve_binding(cls: type, name: str) -> SieveBinding | None:
     """
     name = _get_normalized_name(name)
     return get_sieve_bindings(cls).get(name)
+
+
+class ConnectionBinding(ImmutableDataObject):
+    name: Name
+    field: str
+
+
+@util.cached
+def get_connection_bindings(cls: type) -> Mapping[Name, ConnectionBinding]:
+    """
+    Get all connection bindings for this component class.
+    """
+
+    from ceres.connection import Connection
+
+    __pydantic_fields__: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
+
+    bindings: Mapping[Name, ConnectionBinding] = {}
+    for field_name, field in __pydantic_fields__.items():
+        connection = _get_normalized_name(field_name)
+        metadata = next(
+            (current for current in field.metadata if isinstance(current, BoundMetadata)), None
+        )
+        if metadata is None:
+            continue
+
+        if is_subtype(field.annotation, Connection):
+            bindings[connection] = ConnectionBinding(name=connection, field=field_name)
+
+    return MappingProxyType(bindings)
+
+
+def get_connection_binding(cls: type, name: str) -> ConnectionBinding | None:
+    """
+    Get a connection binding for this component class by name. Returns `None` if the connection
+    binding does not exist.
+    """
+    name = _get_normalized_name(name)
+    return get_connection_bindings(cls).get(name)
 
 
 class ListenerBinding(ImmutableDataObject):
@@ -397,7 +448,7 @@ def listener(
         if assigned_event_type is None:
             assigned_event_type = Event
 
-        _bind(
+        _add_binding(
             method,
             ListenerBinding(
                 name=_get_bound_name(method),
@@ -648,7 +699,7 @@ def query[**P, T](
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def query(method: Callable[P, T]) -> Callable[P, T]:
         info = __get_procedure_method_info(method, ProcedureType.QUERY, media)
-        _bind(
+        _add_binding(
             method,
             QueryBinding(
                 name=_get_bound_name(method),
@@ -689,7 +740,7 @@ def action[**P, T](
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def action(method: Callable[P, T]) -> Callable[P, T]:
         validated = __get_procedure_method_info(method, ProcedureType.ACTION, media)
-        _bind(
+        _add_binding(
             method,
             ActionBinding(
                 name=_get_bound_name(method),
@@ -840,7 +891,7 @@ def routine(
     restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
 ) -> _RoutineMethod | _RoutineMethodHandler:
     def routine(method: _RoutineMethod) -> _RoutineMethod:
-        _bind(
+        _add_binding(
             method,
             RoutineBinding(
                 method=util.get_function_name(method),
@@ -858,13 +909,14 @@ def routine(
 
 
 @runtime_checkable
-class Binding(Protocol):
+class _MethodBinding(Protocol):
     method: str
 
 
-def get_component_method_bindings[T: Binding](
+def get_component_method_bindings_on[T: _MethodBinding](
     method: Callable[..., Any],
     binding_cls: type[T],
+    /,
 ) -> Sequence[T]:
     method = util.get_inner_function(method)
     output: list[T] = []
@@ -878,18 +930,22 @@ def get_component_method_bindings[T: Binding](
     return tuple(output)
 
 
-def get_component_method_binding[T: Binding](
+def get_component_method_binding_on[T: _MethodBinding](
     method: Callable[..., Any],
     binding_cls: type[T],
+    /,
 ) -> T | None:
-    bindings = get_component_method_bindings(method, binding_cls)
+    bindings = get_component_method_bindings_on(method, binding_cls)
     if bindings:
         return bindings[0]
 
     return None
 
 
-def get_component_bindings[T: Binding](cls: type, binding_cls: type[T]) -> Sequence[T]:
+def get_component_method_bindings[T: _MethodBinding](
+    cls: type,
+    binding_cls: type[T],
+) -> Sequence[T]:
     bindings: dict[str, T] = {}
 
     for cls in reversed(cls.__mro__):
@@ -897,7 +953,7 @@ def get_component_bindings[T: Binding](cls: type, binding_cls: type[T]) -> Seque
             if not callable(member):
                 continue
 
-            for binding in get_component_method_bindings(member, binding_cls):
+            for binding in get_component_method_bindings_on(member, binding_cls):
                 bindings[binding.method] = binding
 
     return sorted(bindings.values(), key=lambda current: current.method)
@@ -937,7 +993,7 @@ def sieve[S, T: Particle](
     filter: MessageFilter | None = None,
 ) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
     def sieve(method: SieveMethod[S, T]) -> SieveMethod[S, T]:
-        _bind(
+        _add_binding(
             method,
             SieveBinding(
                 name=name or _get_bound_name(method),
@@ -955,9 +1011,9 @@ def sieve[S, T: Particle](
     return sieve(method)
 
 
-def _bind(method: Callable[..., object], binding: Binding) -> None:
+def _add_binding(method: Callable[..., object], binding: _MethodBinding) -> None:
     method = util.get_inner_function(method)
-    bindings: Sequence[Binding] | None = getattr(method, _BINDINGS_ATTRIBUTE, None)
+    bindings: Sequence[_MethodBinding] | None = getattr(method, _BINDINGS_ATTRIBUTE, None)
 
     if not isinstance(bindings, Sequence):
         bindings = []
@@ -1034,12 +1090,14 @@ class ComponentSystem(Node, ComponentSource):
         for job in jobs.values():
             self.jobs.add(job)
 
-        pruners = {pruner.name: pruner for pruner in self.component.__static_pruners__()}
-        pruners.update(
-            {pruner.name: pruner for pruner in (self.config.pruners if self.config else ())}
-        )
-        for pruner in pruners.values():
-            self.pruners.add(pruner)
+        connections = self.get_connection_bindings()
+        for connection in connections.values():
+            instance = getattr(self.component, connection.field, None)
+            if instance is not None:
+                if instance.name is None:
+                    instance.name = connection.name
+
+                self.connections.add(instance)
 
         sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
         sieves.update(
@@ -1057,6 +1115,13 @@ class ComponentSystem(Node, ComponentSource):
         sieves.update({sieve.name: sieve for sieve in (self.config.sieves if self.config else ())})
         for sieve in sieves.values():
             self.sieves.add(sieve)
+
+        pruners = {pruner.name: pruner for pruner in self.component.__static_pruners__()}
+        pruners.update(
+            {pruner.name: pruner for pruner in (self.config.pruners if self.config else ())}
+        )
+        for pruner in pruners.values():
+            self.pruners.add(pruner)
 
     @override
     def __str__(self) -> str:
@@ -1180,12 +1245,16 @@ class ComponentSystem(Node, ComponentSource):
         return ComponentJobManager(self)
 
     @cached_property
-    def pruners(self) -> ComponentPrunerManager:
-        return ComponentPrunerManager(self)
+    def connections(self) -> ComponentConnectionManager:
+        return ComponentConnectionManager(self)
 
     @cached_property
     def sieves(self) -> ComponentSieveManager:
         return ComponentSieveManager(self)
+
+    @cached_property
+    def pruners(self) -> ComponentPrunerManager:
+        return ComponentPrunerManager(self)
 
     @override
     async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
@@ -1344,9 +1413,23 @@ class ComponentSystem(Node, ComponentSource):
 
     def get_sieve_binding(self, name: str) -> SieveBinding | None:
         """
-        Get a sieve binding for this component by name. Returns `None` if the sieve does not exist.
+        Get a sieve binding for this component by name. Returns `None` if the sieve binding does not
+        exist.
         """
         return get_sieve_binding(type(self.component), name)
+
+    def get_connection_bindings(self) -> Mapping[Name, ConnectionBinding]:
+        """
+        Get all connection bindings for this component.
+        """
+        return get_connection_bindings(type(self.component))
+
+    def get_connection_binding(self, name: str) -> ConnectionBinding | None:
+        """
+        Get a connection binding for this component by name. Returns `None` if the connection
+        binding does not exist.
+        """
+        return get_connection_binding(type(self.component), name)
 
     def __propagate_tree_change(self) -> None:
         for component in self.root.get_components():
@@ -1656,12 +1739,13 @@ class ComponentSystem(Node, ComponentSource):
 
             await self.__node_sync__()
 
-            await util.concurrently(
+            await concurrently(
                 super().__run__(),
                 self.__run_routines(),
                 self.jobs.__run__(),
-                self.pruners.__run__(),
+                self.connections.__run__(),
                 self.sieves.__run__(),
+                self.pruners.__run__(),
             )
         except Exception:
             self.log.error("An error occurred during component system execution.", exc_info=True)
@@ -1719,9 +1803,7 @@ class ComponentSystem(Node, ComponentSource):
     @override
     async def __stop__(self) -> None:
         while any(child.running for child in self.children):
-            for system in reversed(self.children):
-                if system.running:
-                    await system.stop()
+            await concurrently(child.stop() for child in self.children if child.running)
 
         await self.settle()
 
@@ -1877,3 +1959,34 @@ class ComponentSystem(Node, ComponentSource):
         self.__children.clear()
         for component in order:
             self.__children[component.name] = component
+
+
+class BoundMetadata:
+    """
+    Metadata for a bound object. Currently only `Connection` objects can be bound to a component.
+    """
+
+    __slots__ = ()
+
+
+if TYPE_CHECKING:
+    from ceres.connection import Connection
+else:
+    Connection = object
+
+_T = TypeVar("_T")
+_O = TypeVarTuple("_O")
+
+
+class _BoundType:
+    def __class_getitem__(cls, args: Any | tuple[Any]) -> Any:
+        if not isinstance(args, tuple):
+            args = (args,)
+
+        return Annotated[args[0], BoundMetadata(), *args[1:]]
+
+
+if TYPE_CHECKING:
+    Bound = Annotated
+else:
+    Bound = _BoundType

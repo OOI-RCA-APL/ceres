@@ -164,4 +164,8 @@ class Tasklet(ABC):
             on_completed=on_completed,
             on_exception=on_exception,
         )
-        await self.wait_until_stopped(raise_exceptions)
+        try:
+            await self.wait_until_stopped(raise_exceptions)
+        finally:
+            # Handle cancellation.
+            await self.stop(raise_exceptions)

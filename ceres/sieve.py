@@ -13,12 +13,10 @@ from ceres._internal import util
 from ceres._internal.manager import BaseComponentManager
 from ceres.channel import Channel
 from ceres.data import Name, ValidatedDataclass
-from ceres.error import ParticleError
 from ceres.event import (
     ParticleEvent,
     SieveAddedEvent,
     SieveExceptionEvent,
-    SieveParticleErrorEvent,
     SieveRemovedEvent,
     SieveRetryEvent,
     SieveRetryPendingEvent,
@@ -40,31 +38,19 @@ else:
 
 class Sieve(ValidatedDataclass, Generic[_T]):
     @abstractmethod
-    def read(self, messages: AsyncIterable[Message]) -> AsyncIterator[_T | ParticleError]: ...
+    def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[_T]: ...
 
 
 class MethodSieve(Sieve[_T], Generic[_T]):
-    method: SkipValidation[Callable[[AsyncIterable[Message]], AsyncIterator[_T | ParticleError]]]
+    method: SkipValidation[Callable[[AsyncIterable[Message]], AsyncIterator[_T]]]
 
     @override
-    async def read(
+    async def process(
         self,
         messages: AsyncIterable[Message],
-    ) -> AsyncIterator[_T | ParticleError]:
+    ) -> AsyncIterator[_T]:
         async for message in self.method(messages):
             yield message
-
-
-class MonoSieve(Sieve[_T], Generic[_T]):
-    @override
-    async def read(
-        self,
-        messages: AsyncIterable[Message],
-    ) -> AsyncIterator[_T | ParticleError]:
-        async for message in messages:
-            yield self.parse(message)
-
-    def parse(self, message: Message) -> _T | ParticleError: ...
 
 
 if TYPE_CHECKING:
@@ -164,18 +150,11 @@ class ComponentSieveManager(BaseComponentManager):
             sieve = config.create(self.__system__.component)
             while True:
                 try:
-                    async for current in sieve.read(
+                    async for current in sieve.process(
                         self.__system__.messages.follow(filter=config.filter)
                     ):
-                        if isinstance(current, ParticleError):
-                            self.__system__.events.emit(
-                                SieveParticleErrorEvent,
-                                sieve=config.name,
-                                error=current,
-                            )
-                        elif isinstance(current, Particle):
-                            self.__system__.store(current)
-                            self.__system__.events.emit(ParticleEvent, particle=current)
+                        self.__system__.store(current)
+                        self.__system__.events.emit(ParticleEvent, particle=current)
                 except Exception as exception:
                     traceback.print_exc()
                     if config.retries is not None:

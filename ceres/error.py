@@ -384,18 +384,6 @@ class ReloadConfigInvalidError(__BaseReloadError):
 ReloadError: TypeAlias = ReloadConfigPathUnsetError | ReloadConfigInvalidError
 
 
-class __BaseParticleError(__BaseStandardError):
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
-
-
-class ParticleParseError(__BaseParticleError):
-    type: Literal["particle-parse-error"] = "particle-parse-error"
-    reason: str
-
-
-ParticleError: TypeAlias = ParticleParseError
-
-
 class Failure(Exception):
     def __init__(self, error: Error | Callable[[], Error]) -> None:
         if not util.lenient_isinstance(error, Error) and callable(error):

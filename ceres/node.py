@@ -12,6 +12,7 @@ from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.data import replacing
 from ceres.event import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -153,7 +154,7 @@ class Node(Tasklet, NodeSource):
 
         container = self.__container__
         if container is not None:
-            return util.model_apply_overrides(container.get_resolved_logging_config(), local)
+            return replacing(container.get_resolved_logging_config(), local)
 
         return local if local is not None else LoggingConfig()
 

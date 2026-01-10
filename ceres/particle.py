@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
+from abc import abstractmethod
 from collections.abc import Mapping
+from re import Pattern
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -12,6 +15,7 @@ from typing import (
     Literal,
     LiteralString,
     MutableMapping,
+    Self,
     Type,
     TypeAlias,
     Unpack,
@@ -100,14 +104,24 @@ UNKNOWN_TYPE: LiteralString = "__unknown__"
 
 
 class ParticleData(ImmutableDataObject, Mapping[str, Any]):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
 
+    __abstract__: ClassVar[bool] = True
     __type__: ClassVar[LiteralString]
 
     @classmethod
-    def __init_subclass__(cls) -> None:
-        if not hasattr(cls, "__type__") or not isinstance(cls.__type__, str):
-            raise ValueError(f"{cls} must define `__type__` as a class attribute")
+    @override
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+
+        if "__abstract__" not in cls.__dict__:
+            cls.__abstract__ = False
+
+        if not cls.__abstract__:
+            if "__type__" not in cls.__dict__ or not isinstance(cls.__type__, str):
+                raise TypeError(
+                    f"{cls} must define `__type__` as a class attribute unless `__abstract__` is set to `True`."
+                )
 
     @override
     def __getitem__(self, key: str, /) -> Any:
@@ -135,6 +149,7 @@ class ParticleData(ImmutableDataObject, Mapping[str, Any]):
 
 
 DynamicParticleData: TypeAlias = JSONSerializableDict | ParticleData
+
 
 if TYPE_CHECKING:
     _T = TypeVar(
@@ -491,3 +506,63 @@ def _get_data_class(
             data_class = filter.cls
 
     return data_class
+
+
+class ParticleParseFailed(Exception):
+    """Raised when `ParseableParticleData.parse` fails."""
+
+
+class ParseableParticleData(ParticleData):
+    __abstract__: ClassVar[bool] = True
+
+    @classmethod
+    @abstractmethod
+    def parse(cls, content: bytes) -> Self: ...
+
+
+class RegexParticleData(ParseableParticleData):
+    __abstract__: ClassVar[bool] = True
+    __regex__: ClassVar[bytes | Pattern[bytes]]
+    __regex_flags__: ClassVar[int] = re.MULTILINE | re.DOTALL
+    __regex_compiled__: ClassVar[Pattern[bytes]]
+
+    @classmethod
+    @override
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+
+        regex = getattr(cls, "__regex__", None)
+        if not isinstance(regex, bytes):
+            raise ValueError(
+                f"`{cls}.__regex__` must be defined as `bytes` or `re.Pattern[bytes]`."
+            )
+
+        try:
+            if isinstance(regex, Pattern):
+                cls.__regex_compiled__ = regex
+            else:
+                cls.__regex_compiled__ = re.compile(cls.__regex__, cls.__regex_flags__)
+        except re.error as error:
+            raise ValueError(f"Failed to compile `{cls}.__regex__`. {error}")
+
+        missing = sorted(set(cls.model_fields) - set(cls.__regex_compiled__.groupindex))
+        if missing:
+            raise ValueError(f"`{cls}.__regex__` is missing named capture groups: {missing}")
+
+        for field in cls.model_fields:
+            if field not in cls.__regex_compiled__.groupindex:
+                raise ValueError(
+                    f"Field {field!r} is not a named capturing group in `{cls}.__regex__`."
+                )
+
+    @classmethod
+    @override
+    def parse(cls, content: bytes) -> Self:
+        match = cls.__regex_compiled__.match(content)
+        if match is None:
+            raise ParticleParseFailed("Bytes did not match regex pattern.")
+
+        try:
+            return cls.model_validate(match.groupdict())
+        except ValidationError as error:
+            raise ParticleParseFailed(f"Bytes matched, but validation failed. {error}") from error

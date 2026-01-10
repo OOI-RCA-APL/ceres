@@ -18,6 +18,7 @@ from pydantic import (
 
 from ceres._internal import util
 from ceres.address import Address
+from ceres.component import get_component_method_binding_on
 from ceres.data import Color, DataObject, DeferBuild, Name, StrEnum
 
 
@@ -92,9 +93,9 @@ class Button(_BaseElement):
             address = action.__self__.system.address
 
         if not isinstance(action, str):
-            from ceres.component import ActionBinding, get_component_method_binding
+            from ceres.component import ActionBinding
 
-            binding = get_component_method_binding(action, ActionBinding)
+            binding = get_component_method_binding_on(action, ActionBinding)
             if not binding:
                 raise ValueError(f"function {util.strify(action)} has no action binding")
 
@@ -388,9 +389,9 @@ class _BaseRenderer(_BaseElement):
             address = query.__self__.system.address
 
         if not isinstance(query, str):
-            from ceres.component import QueryBinding, get_component_method_binding
+            from ceres.component import QueryBinding
 
-            binding = get_component_method_binding(query, QueryBinding)
+            binding = get_component_method_binding_on(query, QueryBinding)
             if not binding:
                 raise ValueError(f"function {util.strify(query)} has no query binding")
 

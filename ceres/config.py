@@ -78,6 +78,7 @@ from ceres.schedule import ScheduleExpr
 
 if TYPE_CHECKING:
     from ceres.component import ComponentSystem
+    from ceres.connection import Connection
     from ceres.engine import Engine
 
 with lazy_imports(__name__):
@@ -92,7 +93,7 @@ class __BaseConfigObject(ImmutableDataObject, DeferBuild):
 class LoggingConfig(__BaseConfigObject):
     output: Level = Level.INFO
     store: Level = Level.DEBUG
-    events: bool | Level = False
+    events: bool | Level = True
     messages: bool | Level = False
     particles: bool | Level = False
     alerts: bool | Level = False
@@ -115,6 +116,35 @@ class JobConfig(__BaseConfigObject):
                 data["name"] = data["action"]
 
         return data
+
+
+class ConnectionConfig(__BaseConfigObject):
+    name: Name
+    if TYPE_CHECKING:
+        cls: ImportString[type[Connection]]
+    else:
+        cls: ImportString[object] = Field(
+            validation_alias="class",
+            serialization_alias="class",
+        )
+    arguments: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("cls")
+    def _validate_cls(cls, value: object) -> ImportString[type[Connection]]:
+        from ceres.connection import Connection
+
+        if not isinstance(value, type) or not issubclass(value, Connection):
+            raise ValueError("`class` must be a subclass of `ceres.connection.Connection`")
+
+        return value
+
+    @model_validator(mode="after")
+    def _validate_arguments(self) -> Self:
+        self.cls(**self.arguments)
+        return self
+
+    def create(self) -> Connection:
+        return self.cls(**self.arguments)
 
 
 class __BasePrunerConfig[TFilter](__BaseConfigObject):

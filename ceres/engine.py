@@ -210,7 +210,7 @@ class Engine(Node):
             await super().__run__()
         finally:
             if self.stopping:
-                self.log.info("Exit signal received, stopping...")
+                self.log.info("Exit signal received, stopping.")
 
     @override
     def __stopping__(self) -> None:
@@ -228,6 +228,8 @@ class Engine(Node):
         self.events.emit(StoppedEvent)
         await self.flush()
         await self.__database.dispose()
+
+        self.log.info("Stopped.")
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None) -> Component | None:
@@ -277,7 +279,7 @@ class Engine(Node):
 
         if not silent:
             if isinstance(source, Path):
-                self.log.info(f"Loading configuration from '{source}'...")
+                self.log.info(f"Loading configuration from '{source}'.")
             else:
                 self.log.info("Loading provided configuration.")
 
@@ -291,10 +293,10 @@ class Engine(Node):
         silent: bool = False,
     ) -> Result[Config, ReloadError]:
         if self.config_path is not None:
-            self.log.info(f"Reloading configuration from '{self.config_path}'...")
+            self.log.info(f"Reloading configuration from '{self.config_path}'.")
             source = self.config_path
         else:
-            self.log.info("Reloading current configuration...")
+            self.log.info("Reloading current configuration.")
             source = self.config
 
         match await Config.load(source, checks=checks):
@@ -339,7 +341,7 @@ class Engine(Node):
 
     async def __load_database(self) -> None:
         if not await self.database.initialized():
-            self.log.info("Database appears empty, initializing database...")
+            self.log.info("Database appears empty, initializing database.")
             try:
                 await self.database.use()
                 self.log.info("Database initialized successfully.")
@@ -586,12 +588,12 @@ class Engine(Node):
             match action:
                 case CreateComponentEngineAction():
                     if not silent:
-                        self.log.info(f"Creating '{action.address}'...")
+                        self.log.info(f"Creating '{action.address}'.")
 
                     if config is None:
                         if not silent:
                             self.log.warning(
-                                f"Component at '{action.address}' not found in configuration. Skipping..."
+                                f"Component at '{action.address}' not found in configuration. Skipping."
                             )
 
                         continue
@@ -599,7 +601,7 @@ class Engine(Node):
                     if component is not None:
                         if not silent:
                             self.log.warning(
-                                f"Component at '{action.address}' already exists. Skipping..."
+                                f"Component at '{action.address}' already exists. Skipping."
                             )
 
                         continue
@@ -617,25 +619,25 @@ class Engine(Node):
                                     f"Failed to create '{action.address}'. Errors: {jsonify(errors, indent=2)}"
                                 )
                 case RecreateComponentEngineAction():
-                    self.log.info(f"Recreating '{action.address}'...")
+                    self.log.info(f"Recreating '{action.address}'.")
                     if config is None:
                         if not silent:
                             self.log.warning(
-                                f"Component at '{action.address}' not found in configuration. Skipping..."
+                                f"Component at '{action.address}' not found in configuration. Skipping."
                             )
 
                         continue
 
                     if component is not None:
                         if not silent:
-                            self.log.info(f"Stopping '{action.address}'...")
+                            self.log.info(f"Stopping '{action.address}'.")
 
                         await component.system.stop()
                         component.system.detach()
                     else:
                         if not silent:
                             self.log.warning(
-                                f"Component at '{action.address}' does not exist. Creating..."
+                                f"Component at '{action.address}' does not exist. Creating."
                             )
 
                     match config.create(container):
@@ -653,7 +655,7 @@ class Engine(Node):
                 case RemoveComponentEngineAction():
                     if component is not None:
                         if not silent:
-                            self.log.info(f"Stopping '{action.address}'...")
+                            self.log.info(f"Stopping '{action.address}'.")
 
                         await component.system.stop()
                         component.system.detach()
@@ -663,7 +665,7 @@ class Engine(Node):
                     else:
                         if not silent:
                             self.log.warning(
-                                f"Component at {action.address} does not exist to remove. Skipping..."
+                                f"Component at {action.address} does not exist to remove. Skipping."
                             )
 
             if action.address.is_root:

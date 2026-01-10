@@ -1,0 +1,25 @@
+service:
+  name: sensor
+server:
+  port: 8080
+database:
+  type: sqlite
+  path: ./local/database.sqlite
+logging:
+  output: debug
+  events: true
+components:
+  - name: driver
+    class: sensor.SensorDriver
+    arguments:
+      connection:
+        source:
+          class: ceres.connection.TCPSource
+          arguments:
+            host: localhost
+            port: 4000
+  - name: simulator
+    class: sensor.SensorSimulator
+    arguments:
+      port: 4000
+      interval: 1s

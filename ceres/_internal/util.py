@@ -15,9 +15,11 @@ from enum import Enum
 from os import PathLike as _BasePathLike
 from pathlib import Path
 from threading import Event
+from types import UnionType
 from typing import (
     TYPE_CHECKING,
     AbstractSet,
+    Annotated,
     Any,
     Awaitable,
     Callable,
@@ -36,6 +38,8 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    get_args,
+    get_origin,
     overload,
     override,
 )
@@ -89,43 +93,24 @@ async def awaitify[T](value: Awaitable[T] | T) -> T:
     return cast("T", value)
 
 
-def dictify(obj: object) -> dict[str, Any]:
-    def includes(key: str) -> bool:
-        return not key.startswith("__")
-
-    try:
-        if is_mapping(obj):
-            return dict(obj)
-        if is_dataclass_instance(obj):
-            return dataclasses.asdict(obj)
-        if isinstance(obj, BaseModel):
-            return {
-                key: getattr(obj, key) for key in obj.__class__.model_fields.keys() if includes(key)
-            }
-        if isinstance(obj, type):
-            return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
-        slots: tuple[str, ...] | None = getattr(obj, "__slots__", None)
-        if slots is not None:
-            return {name: getattr(obj, name) for name in slots if includes(name)}
-        return {key: value for key, value in obj.__dict__.items() if includes(key)}
-    except Exception:
-        raise ValueError("object cannot be dictified")
-
-
 class DataclassLike(Protocol):
-    __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
-    __dataclass_params__: ClassVar[Any]
-    __post_init__: Any
+    if TYPE_CHECKING:
+        __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
+        __dataclass_params__: ClassVar[Any]
+        __post_init__: Any
 
 
 class PydanticDataclassLike(DataclassLike, Protocol):
-    __pydantic_config__: ClassVar[ConfigDict]
-    __pydantic_complete__: ClassVar[bool]
-    __pydantic_core_schema__: ClassVar[CoreSchema]
-    __pydantic_decorators__: ClassVar[Any]
-    __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
-    __pydantic_serializer__: ClassVar[SchemaSerializer]
-    __pydantic_validator__: ClassVar[SchemaValidator]
+    if TYPE_CHECKING:
+        __pydantic_config__: ClassVar[ConfigDict]
+        __pydantic_complete__: ClassVar[bool]
+        __pydantic_core_schema__: ClassVar[CoreSchema]
+        __pydantic_decorators__: ClassVar[Any]
+        __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
+        __pydantic_serializer__: ClassVar[SchemaSerializer]
+        __pydantic_validator__: ClassVar[SchemaValidator]
+
+    __pydantic_fields_set__: set[str]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
@@ -195,7 +180,7 @@ def is_pydantic_dataclass(
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_core_schema__")
 
 
-ModelLike = BaseModel | PydanticDataclassLike
+ModelLike = BaseModel | DataclassLike
 
 
 def snakecase(text: str) -> str:
@@ -1454,3 +1439,39 @@ if __name__ == "__main__":
     from doctest import testmod
 
     testmod()
+
+
+def is_subtype(subtype: Any, supertype: Any, /) -> bool:
+    # If the supertype is a union, check if any of the contained types are subtypes.
+    if isinstance(supertype, UnionType):
+        for current in get_args(supertype):
+            if is_subtype(subtype, current):
+                return True
+
+        return False
+
+    origin = get_origin(supertype)
+    try:
+        args = get_args(supertype)
+    except Exception:
+        args = ()
+
+    # If the supertype is `Annotated` or `Optional`, check if the inner type is assignable.
+    if args and (origin is Annotated or origin is Optional):
+        inner = args[0]
+        if is_subtype(subtype, inner):
+            return True
+
+    # If the supertype is a type alias, check if the contained type is assignable.
+    try:
+        from typing import TypeAliasType
+
+        if isinstance(supertype, TypeAliasType):
+            return is_subtype(supertype.__value__, subtype)
+    except ImportError:
+        pass
+
+    # Finally, check if the subtype is a just class that is a subclass of the supertype.
+    return (
+        isinstance(supertype, type) and isinstance(subtype, type) and issubclass(subtype, supertype)
+    )

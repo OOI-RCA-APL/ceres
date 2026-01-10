@@ -4,6 +4,7 @@ import dataclasses
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum as BaseStrEnum
+from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -11,7 +12,10 @@ from typing import (
     Callable,
     ClassVar,
     Literal,
+    Mapping,
     NewType,
+    Protocol,
+    Self,
     Sequence,
     Sized,
     TypeAlias,
@@ -19,6 +23,7 @@ from typing import (
     Unpack,
     dataclass_transform,
     override,
+    runtime_checkable,
 )
 from uuid import UUID
 
@@ -30,8 +35,10 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    ModelWrapValidatorHandler,
     PlainSerializer,
     StringConstraints,
+    model_validator,
 )
 from pydantic.aliases import AliasChoices
 from pydantic.fields import FieldInfo
@@ -40,7 +47,12 @@ from pydantic_settings import NoDecode
 from typing_extensions import TypeVar
 
 from ceres._internal import util
-from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike, get_type_adapter
+from ceres._internal.util import (
+    NAME_PATTERN,
+    DataclassLike,
+    PydanticDataclassLike,
+    get_type_adapter,
+)
 
 if TYPE_CHECKING:
     from pydantic.main import IncEx
@@ -91,6 +103,35 @@ def yamlify(obj: object, **kwargs: Unpack[SerializeKwargs]) -> str:
     import yaml
 
     return yaml.safe_dump(simplify(obj, **kwargs), indent=kwargs.get("indent", None))
+
+
+def dictify(obj: object) -> dict[str, Any]:
+    def includes(key: str) -> bool:
+        return not key.startswith("__")
+
+    try:
+        if util.is_mapping(obj):
+            return dict(obj)
+        if util.is_dataclass_instance(obj):
+            return dataclasses.asdict(obj)
+        if isinstance(obj, BaseModel):
+            return {key: getattr(obj, key) for key in type(obj).model_fields}
+        if isinstance(obj, type):
+            return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
+
+        output = {}
+
+        __slots__: tuple[str, ...] | None = getattr(obj, "__slots__", None)
+        if __slots__:
+            output.update({name: getattr(obj, name) for name in __slots__ if includes(name)})
+
+        __dict__: dict[str, Any] = getattr(obj, "__dict__", {})
+        if __dict__:
+            output.update({key: value for key, value in __dict__.items() if includes(key)})
+
+        return output
+    except Exception:
+        raise ValueError(f"`{type(obj)}` cannot be converted to a dictionary.")
 
 
 Name: TypeAlias = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
@@ -349,7 +390,19 @@ class DeferBuild(BaseModel, ABC):
     ),
 )
 class ValidatedDataclass(ABC, PydanticDataclassLike):
+    __slots__ = (
+        "__weakref__",
+        "__pydantic_fields_set__",
+    )
+
     if TYPE_CHECKING:
+        __pydantic_fields_set__: set[str]
+        """
+        Set of field names that were explicitly set during initialization. Used for equivalent
+        set/unset functionality as with Pydantic's `BaseModel`.
+        """
+
+        # Class attributes and methods from `pydantic.dataclasses.dataclass`.
         __dataclass_fields__: ClassVar[dict[str, Any]]
         __dataclass_params__: ClassVar[Any]
         __post_init__: ClassVar[Callable[..., None]]
@@ -377,18 +430,19 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         config: ConfigDict | None = None,
         validate_on_init: bool | None = None,
         kw_only: bool = True,
+        slots: bool = False,
     ) -> None:
         super().__init_subclass__()
-        inherited_config = ConfigDict()
+        inherited = ConfigDict()
 
         for base in reversed(cls.__bases__):
             if util.is_pydantic_dataclass_type(base):
-                inherited_config.update(base.__pydantic_config__)
+                inherited.update(base.__pydantic_config__)
 
         config = ConfigDict(
             **{  # type: ignore
                 **DataObject.model_config,
-                **inherited_config,
+                **inherited,
                 **ConfigDict(title=cls.__qualname__),
                 **(config or ConfigDict()),
             }
@@ -404,26 +458,56 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
             config=config,
             validate_on_init=validate_on_init,
             kw_only=kw_only,
+            slots=slots,
         )(cls)
+
+        # Wrap the generated `__init__` to update `__pydantic_fields_set__`.
+        __init__ = cls.__init__
+
+        @wraps(__init__)
+        def wrapper(self: Self, *args: object, **kwargs: object) -> None:
+            __init__(self, *args, **kwargs)
+            self.__pydantic_fields_set__ = {*kwargs.keys()}
+
+        cls.__init__ = wrapper
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _init__pydantic_fields_set__(
+        cls,
+        data: Any,
+        handler: ModelWrapValidatorHandler[Self],
+    ) -> ValidatedDataclass:
+        if isinstance(data, Mapping):
+            __pydantic_fields_set__ = {*data.keys()}
+        else:
+            __pydantic_fields_set__ = {*cls.__pydantic_fields__.keys()}
+
+        instance = handler(data)
+        if not hasattr(instance, "__pydantic_fields_set__"):
+            instance.__pydantic_fields_set__ = __pydantic_fields_set__
+        else:
+            instance.__pydantic_fields_set__.update(instance.__pydantic_fields_set__)
+
+        return instance
+
+    @override
+    def __setattr__(self, name: str, value: Any, /) -> None:
+        super().__setattr__(name, value)
+        if name in self.__pydantic_fields__:
+            self.__pydantic_fields_set__.add(name)
 
     @override
     def __repr__(self) -> str:
-        fields = self.__pydantic_fields__
         tokens: list[str] = [self.__class__.__name__, "("]
-        for i, (name, field) in enumerate(fields.items()):
+        for name in self.__pydantic_fields_set__:
             try:
                 value = getattr(self, name)
             except Exception:
                 continue
 
-            try:
-                is_default = value == field.default
-            except Exception:
-                is_default = False
-
-            if not is_default:
-                tokens.append(f"{name}={value!r}")
-                tokens.append(", ")
+            tokens.append(f"{name}={value!r}")
+            tokens.append(", ")
 
         if tokens and tokens[-1] == ", ":
             tokens.pop()
@@ -570,3 +654,91 @@ class OrderedStrEnum(StrEnum):
             return self.order >= __x.order
 
         return super().__ge__(__x)
+
+
+@runtime_checkable
+class _AssignedFieldsTrackingDataclass(DataclassLike, Protocol):
+    __pydantic_fields_set__: set[str]
+
+
+_SupportsAssignedFieldsTracking = BaseModel | _AssignedFieldsTrackingDataclass
+
+
+def get_assigned_fields(obj: _SupportsAssignedFieldsTracking, /) -> set[str]:
+    return obj.__pydantic_fields_set__
+
+
+def get_assigned_values(obj: _SupportsAssignedFieldsTracking, /) -> dict[str, Any]:
+    fields = get_assigned_fields(obj)
+    values: dict[str, Any] = {}
+
+    for field in fields:
+        try:
+            values[field] = getattr(obj, field)
+        except AttributeError:
+            pass
+
+    return values
+
+
+def is_assigned(obj: _SupportsAssignedFieldsTracking, field: str, /) -> bool:
+    return field in get_assigned_fields(obj)
+
+
+def defaulting[T: _SupportsAssignedFieldsTracking](
+    original: T,
+    defaults: T | dict[str, Any] | None = None,
+    /,
+    **kwargs: Any,
+) -> T:
+    if defaults is None:
+        return original
+
+    is_mapping = util.is_mapping(defaults)
+
+    update: dict[str, Any] = {}
+    original_fields = get_assigned_fields(original)
+    defaults_fields = get_assigned_fields(defaults) if not is_mapping else defaults.keys()
+
+    for field in defaults_fields:
+        if field not in original_fields:
+            try:
+                update[field] = getattr(defaults, field) if not is_mapping else defaults[field]
+            except AttributeError:
+                pass
+
+    for key, value in kwargs.items():
+        if key not in original_fields and key not in update:
+            update[key] = value
+
+    if isinstance(original, BaseModel):
+        return original.model_copy(update=update)
+    else:
+        return dataclasses.replace(original, **update)
+
+
+def replacing[T: _SupportsAssignedFieldsTracking](
+    original: T, overrides: T | dict[str, Any] | None = None, /, **kwargs: Any
+) -> T:
+    if overrides is None:
+        return original
+
+    update = overrides if util.is_mapping(overrides) else get_assigned_values(overrides)
+    update.update(kwargs)
+
+    if isinstance(original, BaseModel):
+        return original.model_copy(update=update)
+    else:
+        return dataclasses.replace(original, **update)
+
+
+def WithDefaults(**kwargs: object) -> AfterValidator:
+    def WithDefaults(obj: object) -> Any:
+        if not isinstance(obj, _SupportsAssignedFieldsTracking):
+            raise TypeError(
+                "`WithDefaults` can only be applied to types with assigned fields tracking, such as `BaseModel` or `ValidatedDataclass` instances."
+            )
+
+        return defaulting(obj, **kwargs)
+
+    return AfterValidator(WithDefaults)

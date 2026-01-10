@@ -4,42 +4,70 @@ import asyncio
 import re
 import traceback
 from abc import abstractmethod
-from datetime import timedelta
-from functools import cached_property
-from re import Match, Pattern, RegexFlag
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
+from datetime import datetime, timedelta
+from re import Pattern, RegexFlag
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Iterable,
+    Literal,
+    Protocol,
+    Self,
+    TypeAlias,
+    override,
+    runtime_checkable,
+)
 
 from pydantic import BeforeValidator, ByteSize, Field, TypeAdapter, model_validator
 from pydantic.types import NonNegativeInt, PositiveInt
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.manager import BaseComponentTaskManager
 from ceres._internal.util import UNIX
-from ceres.component import Component, action, routine
+from ceres.address import Address
 from ceres.connectivity import Connectivity
-from ceres.data import ImmutableDataObject, NonEmptyStr, PositiveTimeDelta, StrEnum
+from ceres.data import (
+    ImmutableDataObject,
+    Name,
+    NonEmptyStr,
+    PositiveTimeDelta,
+    StrEnum,
+    ValidatedDataclass,
+)
 from ceres.event import (
     BufferOverflowEvent,
     ConnectedEvent,
     ConnectFailedEvent,
     ConnectingEvent,
+    ConnectionAddedEvent,
     ConnectionLostEvent,
+    ConnectionRemovedEvent,
+    ConnectionStartedEvent,
+    ConnectionStoppedEvent,
     DisconnectedEvent,
     DisconnectingEvent,
-    DisconnectUnverifiedEvent,
-    DisconnectVerifiedEvent,
-    DisconnectVerifyStartedEvent,
     IdleTimeoutEvent,
     MessageReceivedEvent,
     MessageSentEvent,
     ReconnectScheduledEvent,
 )
+from ceres.loaded import Loaded
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
+from ceres.tasklet import Tasklet
 from ceres.timing import utc
 
 if TYPE_CHECKING:
     from anyio.abc import SocketStream
+
+    from ceres.component import ComponentSystem
+    from ceres.config import ConnectionConfig
+else:
+    ConnectionConfig = object
+
 
 with lazy_imports(__name__):
     import anyio
@@ -127,11 +155,72 @@ def __pre_validate_regex_flags(value: object) -> object:
 
 RegexFlags = Annotated[RegexFlag, BeforeValidator(__pre_validate_regex_flags)]
 
+Split: TypeAlias = int | tuple[int, int]
 
-class Connection(Component):
-    separator: bytes
-    regex: bytes | None = None
-    regex_flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL
+
+class Splitter(Protocol):
+    @abstractmethod
+    def split(self, data: bytes | bytearray) -> Iterable[Split]: ...
+
+
+class LineSplitter(Splitter):
+    REGEX: ClassVar = re.compile(rb"[\n\r]+", re.MULTILINE)
+
+    @override
+    def split(self, data: bytes | bytearray) -> Iterable[Split]:
+        for match in self.REGEX.finditer(data):
+            yield match.end()
+
+
+class RegexSplitterMode(StrEnum):
+    PREFIX = "prefix"
+    SUFFIX = "suffix"
+
+
+RegexSplitterModeRaw: TypeAlias = Literal["prefix", "suffix"]
+RegexSplitterModeInput: TypeAlias = RegexSplitterMode | RegexSplitterModeRaw
+
+
+class RegexSplitter(Splitter):
+    def __init__(
+        self,
+        pattern: bytes | Pattern[bytes],
+        flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL,
+        mode: RegexSplitterModeInput = RegexSplitterMode.SUFFIX,
+    ) -> None:
+        if isinstance(pattern, bytes):
+            pattern = re.compile(pattern, flags)
+
+        self.pattern = pattern
+        self.mode = RegexSplitterMode(mode)
+
+    @override
+    def split(self, data: bytes | bytearray) -> Iterable[Split]:
+        for match in self.pattern.finditer(data):
+            match self.mode:
+                case RegexSplitterMode.SUFFIX:
+                    yield match.start()
+                case RegexSplitterMode.PREFIX:
+                    yield match.end()
+
+
+@runtime_checkable
+class Source(Protocol):
+    @property
+    def label(self) -> str: ...
+
+    async def connect(self) -> bool: ...
+    async def disconnect(self) -> None: ...
+    async def send(self, data: bytes) -> bytes | None: ...
+    async def receive(self, count: int) -> bytes | None: ...
+
+
+class Connection(ValidatedDataclass, Tasklet):
+    name: Name | None = None
+    source: Loaded[Source]
+    split: Loaded[Splitter] | None = None
+    suffix: bytes | None = None
+
     buffering: Buffering = Field(default_factory=Buffering)
     disconnect_on: DisconnectOn | None = None
     reconnect_on: ReconnectOn = Field(default_factory=ReconnectOn)
@@ -141,43 +230,27 @@ class Connection(Component):
     If `True`, ensure an EOF is sent before disconnect, provided one has not already been sent.
     """
 
-    @model_validator(mode="after")
-    def _validate(self) -> Self:
-        if self.regex is None:
-            return self
+    @property
+    def label(self) -> str:
+        return self.source.label
 
-        try:
-            re.compile(self.regex, self.regex_flags)
-        except re.error as exception:
-            raise ValueError(f"invalid `regex` or `regex_flags`: {exception}")
+    @property
+    def system(self) -> ComponentSystem | None:
+        return self.__system
 
-        return self
+    @system.setter
+    def system(self, system: ComponentSystem | None) -> None:
+        self.__system = system
 
     @override
-    def __setup__(self) -> None:
-        super().__setup__()
+    def __post_init__(self) -> None:
         self.__connectivity = Connectivity.DISCONNECTED
         self.__buffer = bytearray()
+        self.__system: ComponentSystem | None = None
 
     @property
     def buffer(self) -> memoryview:
         return memoryview(self.__buffer).toreadonly()
-
-    @cached_property
-    def __regex_pattern(self) -> Pattern[bytes]:
-        regex = self.regex
-        if regex is None:
-            regex = b".*?" + re.escape(self.separator)
-
-        return re.compile(regex, self.regex_flags)
-
-    @override
-    def __connectivity__(self) -> Connectivity:
-        return self.__connectivity
-
-    @property
-    @abstractmethod
-    def bind(self) -> str: ...
 
     @property
     def connectivity(self) -> Connectivity:
@@ -187,29 +260,19 @@ class Connection(Component):
     def connected(self) -> bool:
         return self.__connectivity == Connectivity.CONNECTED
 
-    @abstractmethod
-    async def _connect(self) -> bool: ...
-
-    @abstractmethod
-    async def _disconnect(self) -> None: ...
-
-    @abstractmethod
-    async def _send(self, data: bytes) -> bytes | None: ...
-
-    @abstractmethod
-    async def _receive(self, count: int) -> bytes | None: ...
-
     async def connect(self) -> bool:
         if self.__connectivity == Connectivity.CONNECTED:
             return True
 
-        self.system.events.emit(ConnectingEvent)
+        if self.system is not None:
+            self.system.events.emit(ConnectingEvent, connection=self.name)
+
         self.__connectivity = Connectivity.CONNECTING
 
         reason: str | None = None
 
         try:
-            connected = await self._connect()
+            connected = await self.source.connect()
         except Exception as exception:
             connected = False
             if text := str(exception).strip():
@@ -217,226 +280,314 @@ class Connection(Component):
 
         if connected:
             self.__connectivity = Connectivity.CONNECTED
-            self.system.events.emit(ConnectedEvent)
+            if self.system is not None:
+                self.system.events.emit(ConnectedEvent, connection=self.name)
         else:
             self.__connectivity = Connectivity.DISCONNECTED
-            self.system.events.emit(ConnectFailedEvent, reason=reason)
+            if self.system is not None:
+                self.system.events.emit(ConnectFailedEvent, connection=self.name, reason=reason)
 
         return self.connected
 
-    @action
-    async def send(
-        self,
-        data: Annotated[
-            MessageContent,
-            Field(
-                description="""
-                Bytes to send. String values are encoded as "latin-1". The connection's `separator`
-                value is appended automatically if not present.
-                """
-            ),
-        ],
-    ) -> Message:
+    async def send(self, data: MessageContent) -> Message:
         """
         Send raw bytes through the connection, returning the sent message if successful.
 
         Note, there is no guarantee the returned message is actually recieved on the remote end,
-        only that the message content was transmitted.
+        only that the message was transmitted.
         """
         if not self.connected:
             raise ConnectionInactive()
 
-        if not data.endswith(self.separator):
-            data += self.separator
+        if self.suffix and not data.endswith(self.suffix):
+            data += self.suffix
 
         try:
-            sent = await self._send(data)
+            sent = await self.source.send(data)
         except Exception:
             sent = None
 
         if sent is None and self.connected:
-            self.system.events.emit(ConnectionLostEvent)
+            if self.system is not None:
+                self.system.events.emit(ConnectionLostEvent, connection=self.name)
             await self.disconnect()
             raise ConnectionLost()
 
         message = Message(
-            address=self.system.address,
-            direction=MessageDirection.SEND,
+            address=Address.ROOT if self.system is None else self.system.address,
+            direction=Message.Direction.SEND,
             content=data,
         )
 
-        self.system.store(message)
-        self.system.events.emit(MessageSentEvent, message=message)
+        if self.system is not None:
+            self.system.store(message)
+            self.system.events.emit(MessageSentEvent, message=message)
+
         return message
 
     async def disconnect(self) -> None:
         if self.__connectivity == Connectivity.DISCONNECTED:
             return
 
-        self.system.events.emit(DisconnectingEvent)
+        if self.system is not None:
+            self.system.events.emit(DisconnectingEvent, connection=self.name)
 
         try:
-            await self._disconnect()
+            await self.source.disconnect()
         finally:
             self.__connectivity = Connectivity.DISCONNECTED
-            self.system.events.emit(DisconnectedEvent)
+            if self.system is not None:
+                self.system.events.emit(DisconnectedEvent, connection=self.name)
 
-    @routine
-    async def routine__process_connection(self) -> None:
-        regex = self.__regex_pattern
+    @override
+    async def __run__(self) -> None:
+        if self.system is not None:
+            self.system.events.emit(ConnectionStartedEvent, connection=self.name)
+
         initialized = False
 
-        while True:
-            trigger = self.reconnect_on.schedule.as_trigger()
-
+        try:
             while True:
-                if initialized:
-                    next = trigger.get_next_fire_time()
-                    if next is None:
+                trigger = self.reconnect_on.schedule.as_trigger()
+
+                while True:
+                    if initialized:
+                        next = trigger.get_next_fire_time()
+                        if next is None:
+                            break
+
+                        delay = next - utc()
+
+                        if self.system is not None:
+                            self.system.events.emit(
+                                ReconnectScheduledEvent,
+                                connection=self.name,
+                                delay=delay,
+                            )
+
+                        await asyncio.sleep(delay.total_seconds())
+
+                    # Yield to event loop.
+                    await asyncio.sleep(0)
+
+                    connected = await self.connect()
+                    initialized = True
+                    if connected:
                         break
 
-                    delay = next - utc()
-                    self.system.events.emit(ReconnectScheduledEvent, delay=delay)
-                    await asyncio.sleep(delay.total_seconds())
-
-                # Yield to event loop.
-                await asyncio.sleep(0)
-
-                connected = await self.connect()
-                initialized = True
-                if connected:
-                    break
-
-            while self.connected:
-                try:
-                    received = await self._receive(self.buffering.read)
-                except Exception:
-                    self.system.log.error(traceback.format_exc())
-                    received = None
-
-                # Yield to event loop.
-                await asyncio.sleep(0)
-
-                # If `_receive` returns `None`, an empty `bytes`, or throws an exception, the
-                # connection is considered lost.
-                if not received:
-                    if self.connected:
-                        self.system.events.emit(ConnectionLostEvent)
-                        await self.disconnect()
-
-                    break
-
-                # Append received data to the buffer.
-                self.__buffer.extend(received)
-
-                # Drop data from the buffer if it exceeds the buffer size limit.
-                excess = len(self.__buffer) - self.buffering.limit
-                if excess > 0:
-                    # Figure out how many times when need to drop `drop` bytes from the beginning
-                    # of the buffer to get below `limit`.
-                    drops = excess // self.buffering.drop
-                    # If there is a remainder, we need to drop one more time.
-                    if excess % self.buffering.drop != 0:
-                        drops += 1
-
-                    dropped = drops * self.buffering.drop
-                    size = len(self.__buffer)
-                    del self.__buffer[:dropped]
-
-                    self.system.events.emit(
-                        BufferOverflowEvent,
-                        size=ByteSize(size),
-                        limit=self.buffering.limit,
-                        dropped=ByteSize(dropped),
+                while self.connected:
+                    received: bytes | None = None
+                    timeout = (
+                        self.disconnect_on.idle
+                        if self.disconnect_on is not None and self.disconnect_on.idle is not None
+                        else None
                     )
 
-                # Keep track of the last match processed.
-                last: Match[bytes] | None = None
+                    try:
+                        with anyio.move_on_after(
+                            timeout.total_seconds() if timeout is not None else None
+                        ) as scope:
+                            received = await self.source.receive(self.buffering.read)
 
-                # Find all matches in the buffer.
-                for match in regex.finditer(self.__buffer):
-                    last = match
-                    # Extract bytes from the match.
-                    data = match.group()
+                        if scope.cancel_called and timeout is not None:
+                            if self.system is not None:
+                                self.system.events.emit(
+                                    IdleTimeoutEvent,
+                                    connection=self.name,
+                                    timeout=timeout,
+                                )
+                    except Exception:
+                        if self.system is not None:
+                            self.system.log.error(traceback.format_exc())
 
-                    message = Message(
-                        address=self.system.address,
-                        direction=MessageDirection.RECEIVE,
-                        content=data,
-                    )
+                        received = None
 
-                    self.system.store(message)
-                    self.system.events.emit(MessageReceivedEvent, message=message)
+                    # Yield to event loop.
+                    await asyncio.sleep(0)
 
-                # If any matches were found, drop all bytes up to the end of the last match.
-                if last is not None:
-                    del self.__buffer[: last.end()]
+                    # If `receive` returns `None`, an empty `bytes`, or throws an exception, the
+                    # connection is considered lost.
+                    if not received:
+                        if self.connected:
+                            if self.system is not None:
+                                self.system.events.emit(ConnectionLostEvent)
 
-    @routine
-    async def routine__disconnect_on_stop(self) -> None:
-        try:
-            await util.sleep_forever()
+                            await self.disconnect()
+
+                        break
+
+                    # Keep local reference to the buffer for performance.
+                    buffer = self.__buffer
+                    # Append received data to the buffer.
+                    buffer.extend(received)
+
+                    # Drop data from the buffer if it exceeds the buffer size limit.
+                    excess = len(buffer) - self.buffering.limit
+                    if excess > 0:
+                        # Figure out how many times when need to drop `drop` bytes from the beginning
+                        # of the buffer to get below `limit`.
+                        drops = excess // self.buffering.drop
+                        # If there is a remainder, we need to drop one more time.
+                        if excess % self.buffering.drop != 0:
+                            drops += 1
+
+                        dropped = drops * self.buffering.drop
+                        size = len(buffer)
+                        del buffer[:dropped]
+
+                        if self.system is not None:
+                            self.system.events.emit(
+                                BufferOverflowEvent,
+                                size=ByteSize(size),
+                                limit=self.buffering.limit,
+                                dropped=ByteSize(dropped),
+                            )
+
+                    # Find all matches in the buffer.
+                    if self.split is None:
+                        entries = [len(buffer)]
+                    else:
+                        entries = self.split.split(buffer)
+
+                    def compute_ranges() -> Iterable[tuple[int, int]]:
+                        last = 0
+                        for entry in entries:
+                            if isinstance(entry, int):
+                                start = last
+                                end = entry
+                            elif isinstance(entry, tuple):
+                                start, end = entry
+                                if start > last:
+                                    yield (last, start)
+                            else:
+                                continue
+
+                            if start > end:
+                                continue
+
+                            yield (start, end)
+                            last = end
+
+                    address = Address.ROOT if self.system is None else self.system.address
+                    end = 0
+                    last: datetime | None = None
+
+                    for start, end in compute_ranges():
+                        timestamp = utc()
+                        if last is not None and timestamp <= last:
+                            timestamp = last + timedelta(microseconds=1)
+
+                        content = bytes(buffer[start:end])
+                        message = Message(
+                            address=address,
+                            timestamp=timestamp,
+                            direction=MessageDirection.RECEIVE,
+                            content=content,
+                        )
+
+                        last = timestamp
+
+                        if self.system is not None:
+                            self.system.store(message)
+                            self.system.events.emit(MessageReceivedEvent, message=message)
+
+                    # If any matches were found, drop all bytes up to the end of the last match.
+                    del buffer[:end]
         finally:
             await self.disconnect()
+            if self.system is not None:
+                self.system.events.emit(ConnectionStoppedEvent, connection=self.name)
+
+    @override
+    async def __stop__(self) -> None:
+        pass
 
 
-class AnyIOConnection(Connection):
+class ComponentConnectionManager(BaseComponentTaskManager[Connection]):
+    @override
+    def add(self, connection: Connection) -> None:
+        super().add(connection)
+        connection.system = self.__system__
+        if connection.name is not None:
+            self.__system__.events.emit(ConnectionAddedEvent, connection=connection.name)
+
+    @override
+    async def remove(self, name: Name) -> Connection | None:
+        connection = await super().remove(name)
+        if connection is not None:
+            self.__system__.events.emit(ConnectionRemovedEvent, connection=name)
+            connection.system = None
+
+        return connection
+
+    @override
+    async def process(self, connection: Connection) -> None:
+        await connection.run()
+
+
+class ConnectFailed(Exception):
+    pass
+
+
+class ConnectTimeout(asyncio.TimeoutError):
+    pass
+
+
+class AnyIOSource(ValidatedDataclass, Source):
     timeout: PositiveTimeDelta = timedelta(seconds=5)
 
     @override
-    def __setup__(self) -> None:
-        super().__setup__()
+    def __post_init__(self) -> None:
         self._stream: SocketStream | None = None
 
     @abstractmethod
     async def _create_stream(self) -> SocketStream: ...
 
     @override
-    async def _connect(self) -> bool:
+    async def connect(self) -> bool:
         if self._stream is not None:
             return True
 
-        self._stream = await asyncio.wait_for(
-            self._create_stream(),
-            self.timeout.total_seconds(),
-        )
+        try:
+            self._stream = await asyncio.wait_for(
+                self._create_stream(),
+                self.timeout.total_seconds(),
+            )
+        except TimeoutError:
+            raise ConnectTimeout(
+                f"Connection attempt timed out after {util.encode_td(self.timeout, decimals=2)}."
+            )
+        except Exception as exception:
+            raise ConnectFailed(f"Connection attempt failed. {exception}") from exception
 
         return True
 
     @override
-    async def _disconnect(self) -> None:
+    async def disconnect(self) -> None:
         if self._stream is None:
             return
 
         try:
-            if self.auto_eof:
-                try:
-                    await self._stream.send_eof()
-                except Exception:
-                    pass
-
             await self._stream.aclose()
-        except Exception as exception:
-            if error := str(exception).strip():
-                self.system.log.error(error)
+        except Exception:
+            pass
 
         self._stream = None
 
     @override
-    async def _send(self, data: bytes) -> bytes | None:
+    async def send(self, data: bytes) -> bytes | None:
         if self._stream is None:
             return None
 
         try:
             await self._stream.send(data)
         except Exception:
-            self.system.log.error(traceback.format_exc())
             return None
 
         return data
 
     @override
-    async def _receive(self, count: int) -> bytes | None:
+    async def receive(self, count: int) -> bytes | None:
         if self._stream is None:
             return None
 
@@ -445,77 +596,14 @@ class AnyIOConnection(Connection):
         except Exception:
             return None
 
-    @routine
-    async def routine__process_disconnect(self) -> None:
-        condition = self.disconnect_on
-        if condition is None:
-            await util.sleep_forever()
-            return
 
-        async def wait_for_message_received() -> None:
-            async for event in self.system.events.follow().every(MessageReceivedEvent):
-                if isinstance(event, MessageReceivedEvent):
-                    return
-
-        while True:
-            try:
-                await asyncio.wait_for(
-                    wait_for_message_received(),
-                    condition.idle.total_seconds(),
-                )
-                continue
-            except asyncio.TimeoutError:
-                if not self.connected:
-                    continue
-
-            self.system.events.emit(IdleTimeoutEvent)
-
-            disconnected = True
-
-            if condition.verify is not None:
-                self.system.events.emit(DisconnectVerifyStartedEvent)
-                for i in range(condition.verify.count):
-                    if i > 0:
-                        await asyncio.sleep(condition.verify.interval.total_seconds())
-
-                    match condition.verify.type:
-                        case DisconnectVerifyType.RECONNECT:
-                            try:
-                                async with await asyncio.wait_for(
-                                    self._create_stream(),
-                                    self.timeout.total_seconds(),
-                                ) as stream:
-                                    if self.auto_eof:
-                                        try:
-                                            await stream.send_eof()
-                                        except Exception:
-                                            pass
-
-                                disconnected = False
-                                self.system.events.emit(DisconnectUnverifiedEvent)
-                                break
-                            except Exception:
-                                continue
-
-                if disconnected:
-                    self.system.events.emit(DisconnectVerifiedEvent)
-
-            if disconnected:
-                try:
-                    if self.connected:
-                        self.system.events.emit(ConnectionLostEvent)
-                        await self.disconnect()
-                except Exception:
-                    pass
-
-
-class TCPConnection(AnyIOConnection):
+class TCPSource(AnyIOSource):
     host: NonEmptyStr
     port: NonNegativeInt
 
     @property
     @override
-    def bind(self) -> str:
+    def label(self) -> str:
         return f"{self.host}:{self.port}"
 
     @override
@@ -523,20 +611,20 @@ class TCPConnection(AnyIOConnection):
         return await anyio.connect_tcp(self.host, self.port)
 
 
-class UNIXSocketConnection(AnyIOConnection):
+class UNIXSocketSource(AnyIOSource):
     socket: NonEmptyStr
 
     @model_validator(mode="before")
     @classmethod
     def _validate_os(cls, value: Any) -> Any:
         if not UNIX:
-            raise ValueError(f"`{cls.__name__}` is not supported on the current operating system.")
+            raise ValueError(f"`{cls}` is not supported on the current operating system.")
 
         return value
 
     @property
     @override
-    def bind(self) -> str:
+    def label(self) -> str:
         return self.socket
 
     @override
