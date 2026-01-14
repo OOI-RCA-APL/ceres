@@ -3,16 +3,15 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING, Callable, Unpack, overload, override
 
-from ceres._internal import util
-from ceres.message import Message
-
 if TYPE_CHECKING:
-    from ceres._internal.util import BytesLike
     from ceres.connection import Connection
-    from ceres.message import MessageFilterArgs
+    from ceres.data import ToBytes
+    from ceres.message import Message, MessageFilterArgs
 
 
 class Transport:
+    __slots__ = ("__connection",)
+
     def __init__(self, connection: Connection) -> None:
         self.__connection = connection
 
@@ -24,8 +23,8 @@ class Transport:
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.__connection})"
 
-    async def send(self, data: BytesLike) -> Message:
-        return await self.connection.send(util.bytes_of(data))
+    async def send(self, data: ToBytes) -> Message:
+        return await self.connection.send(data)
 
     @overload
     async def receive[T](
@@ -55,11 +54,15 @@ class Transport:
         default: T | Callable[[], T] = ...,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | T:
+        received = self.__connection.messages.received.read()
+
         if isinstance(timeout, timedelta):
             timeout = timeout.total_seconds()
 
         if kwargs:
-            query = Message.Filter.model_validate(kwargs)
+            from ceres.message import MessageFilter
+
+            query = MessageFilter.model_validate(kwargs)
         else:
             query = None
 
@@ -73,9 +76,7 @@ class Transport:
         import anyio
 
         with anyio.move_on_after(timeout):
-            async for message in self.__connection.system.messages.follow(
-                direction=Message.Direction.RECEIVE
-            ):
+            async for message in received:
                 if condition is not None:
                     if not condition(message):
                         return fail()

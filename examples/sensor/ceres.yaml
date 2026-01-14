@@ -23,3 +23,31 @@ components:
     arguments:
       port: 4000
       interval: 1s
+  # - name: processor
+  #   connections:
+  #     - name: primary
+  #       source:
+  #         class: TCPSource
+  #         arguments:
+  #           host: localhost
+  #           port: 4000
+  #       splitter:
+  #         class: RegexSplitter
+  #         arguments:
+  #           pattern: '@'
+  #           flags: dot-all
+  #       buffering:
+  #         size: 1024
+  #       disconnect-on:
+  #         idle: 10s
+  #       reconnect-on:
+  #         interval: 5s
+  #   sieves:
+  #     class: RegexSieve
+  #     pattern: 'temperature: (\d+\.\d+), humidity: (\d+\.\d+)'
+  #     particle:
+  #       type: sensor/data
+  #       data:
+  #         temperature: float
+  #         humidity: float
+  #         values: [float]

@@ -800,21 +800,6 @@ def tokenize_bytes(value: bytes) -> str:
     return value.hex(b" ") + " "
 
 
-BytesLike: TypeAlias = str | bytes | bytearray | memoryview
-
-
-def bytes_of(data: BytesLike) -> bytes:
-    if isinstance(data, bytes):
-        return data
-    if isinstance(data, str):
-        return data.encode("utf-8")
-    return bytes(data)
-
-
-_K = TypeVar("_K")
-_V = TypeVar("_V")
-
-
 def _hash(value: object) -> Hashable:
     if isinstance(value, Hashable):
         return hash(value)

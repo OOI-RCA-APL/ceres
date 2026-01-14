@@ -16,6 +16,9 @@ from typing import (
     Protocol,
     Self,
     TypeAlias,
+    TypedDict,
+    Unpack,
+    cast,
     override,
     runtime_checkable,
 )
@@ -28,14 +31,19 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseComponentTaskManager
 from ceres._internal.util import UNIX
 from ceres.address import Address
+from ceres.channel import Channel
+from ceres.component import BoundField, BoundFieldArgs
 from ceres.connectivity import Connectivity
 from ceres.data import (
+    BytesLike,
     ImmutableDataObject,
     Name,
     NonEmptyStr,
     PositiveTimeDelta,
     StrEnum,
+    ToBytes,
     ValidatedDataclass,
+    to_bytes,
 )
 from ceres.event import (
     BufferOverflowEvent,
@@ -55,7 +63,7 @@ from ceres.event import (
     ReconnectScheduledEvent,
 )
 from ceres.loaded import Loaded
-from ceres.message import Message, MessageContent, MessageDirection
+from ceres.message import BoundMessageManager, Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.tasklet import Tasklet
 from ceres.timing import utc
@@ -160,10 +168,10 @@ Split: TypeAlias = int | tuple[int, int]
 
 class Splitter(Protocol):
     @abstractmethod
-    def split(self, data: bytes | bytearray) -> Iterable[Split]: ...
+    def split(self, data: BytesLike) -> Iterable[Split]: ...
 
 
-class LineSplitter(Splitter):
+class SplitByLine(Splitter):
     REGEX: ClassVar = re.compile(rb"[\n\r]+", re.MULTILINE)
 
     @override
@@ -172,35 +180,33 @@ class LineSplitter(Splitter):
             yield match.end()
 
 
-class RegexSplitterMode(StrEnum):
-    PREFIX = "prefix"
-    SUFFIX = "suffix"
+class SplitByRegex(Splitter):
+    class Mode(StrEnum):
+        PREFIX = "prefix"
+        SUFFIX = "suffix"
 
+    ModeRaw: TypeAlias = Literal["prefix", "suffix"]
+    ModeInput: TypeAlias = Mode | ModeRaw
 
-RegexSplitterModeRaw: TypeAlias = Literal["prefix", "suffix"]
-RegexSplitterModeInput: TypeAlias = RegexSplitterMode | RegexSplitterModeRaw
-
-
-class RegexSplitter(Splitter):
     def __init__(
         self,
         pattern: bytes | Pattern[bytes],
         flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL,
-        mode: RegexSplitterModeInput = RegexSplitterMode.SUFFIX,
+        mode: ModeInput = Mode.SUFFIX,
     ) -> None:
         if isinstance(pattern, bytes):
             pattern = re.compile(pattern, flags)
 
         self.pattern = pattern
-        self.mode = RegexSplitterMode(mode)
+        self.mode = SplitByRegex.Mode(mode)
 
     @override
     def split(self, data: bytes | bytearray) -> Iterable[Split]:
         for match in self.pattern.finditer(data):
             match self.mode:
-                case RegexSplitterMode.SUFFIX:
+                case SplitByRegex.Mode.SUFFIX:
                     yield match.start()
-                case RegexSplitterMode.PREFIX:
+                case SplitByRegex.Mode.PREFIX:
                     yield match.end()
 
 
@@ -215,11 +221,24 @@ class Source(Protocol):
     async def receive(self, count: int) -> bytes | None: ...
 
 
+class ConnectionArgs(TypedDict, total=False):
+    name: Name
+    source: Loaded[Source]
+    splitter: Loaded[Splitter] | None
+    suffix: bytes | None
+    buffering: Buffering
+
+    disconnect_on: DisconnectOn | None
+    reconnect_on: ReconnectOn
+
+    auto_eof: bool
+
+
 class Connection(ValidatedDataclass, Tasklet):
     name: Name | None = None
     source: Loaded[Source]
-    split: Loaded[Splitter] | None = None
-    suffix: bytes | None = None
+    splitter: Loaded[Splitter] | None = None
+    suffix: MessageContent | None = None
 
     buffering: Buffering = Field(default_factory=Buffering)
     disconnect_on: DisconnectOn | None = None
@@ -230,27 +249,33 @@ class Connection(ValidatedDataclass, Tasklet):
     If `True`, ensure an EOF is sent before disconnect, provided one has not already been sent.
     """
 
+    @override
+    def __post_init__(self) -> None:
+        self.__connectivity = Connectivity.DISCONNECTED
+        self.__buffer = bytearray()
+        self.__system: ComponentSystem | None = None
+        self.__channel: Channel[Message] = Channel()
+
     @property
     def label(self) -> str:
         return self.source.label
 
     @property
-    def system(self) -> ComponentSystem | None:
+    def system(self) -> ComponentSystem:
+        from ceres.component import Component
+
+        if self.__system is None:
+            self.__system = Component().system
+
         return self.__system
 
     @system.setter
     def system(self, system: ComponentSystem | None) -> None:
         self.__system = system
 
-    @override
-    def __post_init__(self) -> None:
-        self.__connectivity = Connectivity.DISCONNECTED
-        self.__buffer = bytearray()
-        self.__system: ComponentSystem | None = None
-
     @property
-    def buffer(self) -> memoryview:
-        return memoryview(self.__buffer).toreadonly()
+    def buffer(self) -> bytes:
+        return bytes(self.__buffer)
 
     @property
     def connectivity(self) -> Connectivity:
@@ -260,12 +285,15 @@ class Connection(ValidatedDataclass, Tasklet):
     def connected(self) -> bool:
         return self.__connectivity == Connectivity.CONNECTED
 
+    @property
+    def messages(self) -> BoundMessageManager:
+        return self.system.messages
+
     async def connect(self) -> bool:
         if self.__connectivity == Connectivity.CONNECTED:
             return True
 
-        if self.system is not None:
-            self.system.events.emit(ConnectingEvent, connection=self.name)
+        self.system.events.emit(ConnectingEvent, connection=self.name)
 
         self.__connectivity = Connectivity.CONNECTING
 
@@ -280,16 +308,14 @@ class Connection(ValidatedDataclass, Tasklet):
 
         if connected:
             self.__connectivity = Connectivity.CONNECTED
-            if self.system is not None:
-                self.system.events.emit(ConnectedEvent, connection=self.name)
+            self.system.events.emit(ConnectedEvent, connection=self.name)
         else:
             self.__connectivity = Connectivity.DISCONNECTED
-            if self.system is not None:
-                self.system.events.emit(ConnectFailedEvent, connection=self.name, reason=reason)
+            self.system.events.emit(ConnectFailedEvent, connection=self.name, reason=reason)
 
         return self.connected
 
-    async def send(self, data: MessageContent) -> Message:
+    async def send(self, data: ToBytes) -> Message:
         """
         Send raw bytes through the connection, returning the sent message if successful.
 
@@ -299,6 +325,7 @@ class Connection(ValidatedDataclass, Tasklet):
         if not self.connected:
             raise ConnectionInactive()
 
+        data = to_bytes(data, "latin-1")
         if self.suffix and not data.endswith(self.suffix):
             data += self.suffix
 
@@ -308,8 +335,7 @@ class Connection(ValidatedDataclass, Tasklet):
             sent = None
 
         if sent is None and self.connected:
-            if self.system is not None:
-                self.system.events.emit(ConnectionLostEvent, connection=self.name)
+            self.system.events.emit(ConnectionLostEvent, connection=self.name)
             await self.disconnect()
             raise ConnectionLost()
 
@@ -319,9 +345,9 @@ class Connection(ValidatedDataclass, Tasklet):
             content=data,
         )
 
-        if self.system is not None:
-            self.system.store(message)
-            self.system.events.emit(MessageSentEvent, message=message)
+        self.system.store(message)
+        self.__channel.put(message)
+        self.system.events.emit(MessageSentEvent, message=message)
 
         return message
 
@@ -329,20 +355,18 @@ class Connection(ValidatedDataclass, Tasklet):
         if self.__connectivity == Connectivity.DISCONNECTED:
             return
 
-        if self.system is not None:
-            self.system.events.emit(DisconnectingEvent, connection=self.name)
+        self.system.events.emit(DisconnectingEvent, connection=self.name)
 
         try:
             await self.source.disconnect()
         finally:
+            self.__buffer.clear()
             self.__connectivity = Connectivity.DISCONNECTED
-            if self.system is not None:
-                self.system.events.emit(DisconnectedEvent, connection=self.name)
+            self.system.events.emit(DisconnectedEvent, connection=self.name)
 
     @override
     async def __run__(self) -> None:
-        if self.system is not None:
-            self.system.events.emit(ConnectionStartedEvent, connection=self.name)
+        self.system.events.emit(ConnectionStartedEvent, connection=self.name)
 
         initialized = False
 
@@ -358,12 +382,11 @@ class Connection(ValidatedDataclass, Tasklet):
 
                         delay = next - utc()
 
-                        if self.system is not None:
-                            self.system.events.emit(
-                                ReconnectScheduledEvent,
-                                connection=self.name,
-                                delay=delay,
-                            )
+                        self.system.events.emit(
+                            ReconnectScheduledEvent,
+                            connection=self.name,
+                            delay=delay,
+                        )
 
                         await asyncio.sleep(delay.total_seconds())
 
@@ -390,15 +413,13 @@ class Connection(ValidatedDataclass, Tasklet):
                             received = await self.source.receive(self.buffering.read)
 
                         if scope.cancel_called and timeout is not None:
-                            if self.system is not None:
-                                self.system.events.emit(
-                                    IdleTimeoutEvent,
-                                    connection=self.name,
-                                    timeout=timeout,
-                                )
+                            self.system.events.emit(
+                                IdleTimeoutEvent,
+                                connection=self.name,
+                                timeout=timeout,
+                            )
                     except Exception:
-                        if self.system is not None:
-                            self.system.log.error(traceback.format_exc())
+                        self.system.log.error(traceback.format_exc())
 
                         received = None
 
@@ -409,8 +430,7 @@ class Connection(ValidatedDataclass, Tasklet):
                     # connection is considered lost.
                     if not received:
                         if self.connected:
-                            if self.system is not None:
-                                self.system.events.emit(ConnectionLostEvent)
+                            self.system.events.emit(ConnectionLostEvent)
 
                             await self.disconnect()
 
@@ -435,19 +455,18 @@ class Connection(ValidatedDataclass, Tasklet):
                         size = len(buffer)
                         del buffer[:dropped]
 
-                        if self.system is not None:
-                            self.system.events.emit(
-                                BufferOverflowEvent,
-                                size=ByteSize(size),
-                                limit=self.buffering.limit,
-                                dropped=ByteSize(dropped),
-                            )
+                        self.system.events.emit(
+                            BufferOverflowEvent,
+                            size=ByteSize(size),
+                            limit=self.buffering.limit,
+                            dropped=ByteSize(dropped),
+                        )
 
                     # Find all matches in the buffer.
-                    if self.split is None:
+                    if self.splitter is None:
                         entries = [len(buffer)]
                     else:
-                        entries = self.split.split(buffer)
+                        entries = self.splitter.split(buffer)
 
                     def compute_ranges() -> Iterable[tuple[int, int]]:
                         last = 0
@@ -487,27 +506,26 @@ class Connection(ValidatedDataclass, Tasklet):
 
                         last = timestamp
 
-                        if self.system is not None:
-                            self.system.store(message)
-                            self.system.events.emit(MessageReceivedEvent, message=message)
+                        self.system.store(message)
+                        self.__channel.put(message)
+                        self.system.events.emit(MessageReceivedEvent, message=message)
 
                     # If any matches were found, drop all bytes up to the end of the last match.
                     del buffer[:end]
         finally:
             await self.disconnect()
-            if self.system is not None:
-                self.system.events.emit(ConnectionStoppedEvent, connection=self.name)
+            self.system.events.emit(ConnectionStoppedEvent, connection=self.name)
 
     @override
     async def __stop__(self) -> None:
-        pass
+        await self.disconnect()
 
 
 class ComponentConnectionManager(BaseComponentTaskManager[Connection]):
     @override
     def add(self, connection: Connection) -> None:
-        super().add(connection)
         connection.system = self.__system__
+        super().add(connection)
         if connection.name is not None:
             self.__system__.events.emit(ConnectionAddedEvent, connection=connection.name)
 
@@ -531,6 +549,32 @@ class ConnectFailed(Exception):
 
 class ConnectTimeout(asyncio.TimeoutError):
     pass
+
+
+class ConnectionFieldArgs(BoundFieldArgs, ConnectionArgs, total=False):
+    defaults: ConnectionArgs
+
+
+class ConnectionField[T: Connection | None](BoundField[T]):
+    __slots__ = ()
+
+    def __init__(
+        self,
+        default: Any = ...,
+        **kwargs: Unpack[ConnectionFieldArgs],
+    ):
+        defaults = kwargs.get("defaults")
+        if defaults is None:
+            kwargs["defaults"] = defaults = ConnectionArgs()
+        else:
+            defaults = dict(defaults)
+
+        for field in Connection.__pydantic_fields__:
+            if field in kwargs:
+                assigned = kwargs.pop(field)  # type: ignore
+                defaults[field] = assigned
+
+        super().__init__(default, **cast("ConnectionFieldArgs", kwargs))
 
 
 class AnyIOSource(ValidatedDataclass, Source):

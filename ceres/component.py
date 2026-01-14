@@ -28,8 +28,9 @@ from typing import (
     Self,
     Sequence,
     TypeAlias,
-    TypeVar,
+    TypedDict,
     Unpack,
+    cast,
     final,
     get_args,
     get_type_hints,
@@ -38,8 +39,15 @@ from typing import (
     runtime_checkable,
 )
 
-from pydantic import ConfigDict, NonNegativeInt, PositiveFloat, ValidationError
-from typing_extensions import TypeVarTuple
+from pydantic import (
+    AliasChoices,
+    AliasPath,
+    ConfigDict,
+    NonNegativeInt,
+    PositiveFloat,
+    ValidationError,
+)
+from pydantic.fields import Deprecated, FieldInfo
 
 from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
@@ -49,19 +57,21 @@ from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, is_subtype
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import (
     ComponentConfig,
+    ConnectionConfig,
     JobConfig,
     MethodSieveConfig,
     PrunerConfig,
     SieveConfig,
 )
-from ceres.connection import ComponentConnectionManager
 from ceres.data import (
     ImmutableDataObject,
+    MaybeSequence,
     Name,
     OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
     ValidatedDataclass,
+    WithDefaults,
 )
 from ceres.error import (
     Failure,
@@ -96,32 +106,44 @@ from ceres.node import Node
 from ceres.util import concurrently
 from ceres.variable import InternalVariableName, Variable
 
+
+class _Empty:
+    pass
+
+
+class _EmptyDict(TypedDict):
+    pass
+
+
 if TYPE_CHECKING:
-    from pydantic.fields import FieldInfo
+    from pydantic.config import JsonDict
+    from pydantic.types import Discriminator
     from sqlalchemy.ext.asyncio import AsyncConnection
     from starlette.responses import FileResponse, Response, StreamingResponse
 
+    from ceres.connection import Connection, ConnectionField
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
-    from ceres.message import Message, MessageFilter
+    from ceres.message import (
+        Message,
+        MessageContent,
+        MessageDirectionInput,
+        MessageFilter,
+    )
     from ceres.particle import Particle
     from ceres.status import Status
 else:
     MessageFilter = ImmutableDataObject
+    Connection = object
+    _ConnectionArgs = _EmptyDict
 
 with lazy_imports(__name__):
+    from ceres.connection import ComponentConnectionManager
     from ceres.database import Database
     from ceres.job import ComponentJobManager
     from ceres.pruner import ComponentPrunerManager
     from ceres.reference import Reference, unref
     from ceres.sieve import ComponentSieveManager
-
-
-warnings.filterwarnings(
-    action="ignore",
-    module="apscheduler",
-    message=r".*localize method is no longer necessary.*",
-)
 
 
 class ComponentFilterArgs(BaseFilterArgs, total=False):
@@ -216,13 +238,16 @@ class Component(ValidatedDataclass, ComponentSource):
     def __connectivity__(self) -> Connectivity | None:
         return None
 
+    def __static_connections__(self) -> Iterable[ConnectionConfig]:
+        return ()
+
+    def __static_sieves__(self) -> Iterable[SieveConfig]:
+        return ()
+
     def __static_jobs__(self) -> Iterable[JobConfig]:
         return ()
 
     def __static_pruners__(self) -> Iterable[PrunerConfig]:
-        return ()
-
-    def __static_sieves__(self) -> Iterable[SieveConfig]:
         return ()
 
     @final
@@ -347,7 +372,7 @@ def get_sieve_binding(cls: type, name: str) -> SieveBinding | None:
 
 class ConnectionBinding(ImmutableDataObject):
     name: Name
-    field: str
+    field: Name
 
 
 @util.cached
@@ -361,16 +386,18 @@ def get_connection_bindings(cls: type) -> Mapping[Name, ConnectionBinding]:
     __pydantic_fields__: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
 
     bindings: Mapping[Name, ConnectionBinding] = {}
-    for field_name, field in __pydantic_fields__.items():
-        connection = _get_normalized_name(field_name)
-        metadata = next(
-            (current for current in field.metadata if isinstance(current, BoundMetadata)), None
-        )
-        if metadata is None:
+
+    for field, info in __pydantic_fields__.items():
+        if any((current for current in info.metadata if isinstance(current, BoundField.Marker))):
+            bound = BoundField()
+        else:
             continue
 
-        if is_subtype(field.annotation, Connection):
-            bindings[connection] = ConnectionBinding(name=connection, field=field_name)
+        name = bound.name or _get_normalized_name(field)
+        if is_subtype(info.annotation, Connection):
+            bindings[name] = ConnectionBinding(name=name, field=field)
+        else:
+            continue
 
     return MappingProxyType(bindings)
 
@@ -965,33 +992,74 @@ class SieveBinding(ImmutableDataObject):
     retries: NonNegativeInt | None
     retry_delay: PositiveTimeDelta
     filter: MessageFilter | None
+    connections: Sequence[Name] | None = None
 
 
 type SieveMethod[S, T: Particle] = Callable[[S, AsyncIterable[Message]], AsyncIterable[T]]
 
 
 @overload
-def sieve[S, T: Particle](method: SieveMethod[S, T]) -> SieveMethod[S, T]: ...
+def sieve[S, T: Particle](method: SieveMethod[S, T], /) -> SieveMethod[S, T]: ...
 
 
 @overload
 def sieve[S, T: Particle](
+    connection: MaybeSequence[ConnectionField] | None = None,
+    /,
+    direction: MaybeSequence[MessageDirectionInput] | None = "receive",
     *,
     name: Name | None = None,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
-    filter: MessageFilter | None = None,
+    contains: MaybeSequence[MessageContent] | None = None,
+    prefix: MaybeSequence[MessageContent] | None = None,
+    suffix: MaybeSequence[MessageContent] | None = None,
 ) -> Callable[[SieveMethod[S, T]], SieveMethod[S, T]]: ...
 
 
 def sieve[S, T: Particle](
-    method: SieveMethod[S, T] | None = None,
+    first: SieveMethod[S, T] | MaybeSequence[ConnectionField] | None = None,
+    /,
+    direction: MaybeSequence[MessageDirectionInput] | None = "receive",
     *,
     name: Name | None = None,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
-    filter: MessageFilter | None = None,
+    contains: MaybeSequence[MessageContent] | None = None,
+    prefix: MaybeSequence[MessageContent] | None = None,
+    suffix: MaybeSequence[MessageContent] | None = None,
 ) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
+    if first is None:
+        method = None
+        connections = None
+    elif inspect.ismethod(first):
+        method = first
+        connections = None
+    else:
+        method = None
+        connections = [
+            current.name
+            for current in cast("Sequence[ConnectionField]", util.seq(first))
+            if current.name is not None
+        ]
+
+    from ceres.message import Message
+
+    filtering = Message.FilterArgs()
+    if direction is not None:
+        filtering["direction"] = direction
+    if contains is not None:
+        filtering["contains"] = contains
+    if suffix is not None:
+        filtering["suffix"] = suffix
+    if prefix is not None:
+        filtering["prefix"] = prefix
+
+    if filtering:
+        filter = Message.Filter.model_validate(filtering)
+    else:
+        filter = None
+
     def sieve(method: SieveMethod[S, T]) -> SieveMethod[S, T]:
         _add_binding(
             method,
@@ -1001,6 +1069,7 @@ def sieve[S, T: Particle](
                 retries=retries,
                 retry_delay=retry_delay,
                 filter=filter,
+                connections=connections,
             ),
         )
         return method
@@ -1047,7 +1116,7 @@ class ComponentSystem(Node, ComponentSource):
         "__name",
         "__config",
         "__referencers",
-        "_container",
+        "__container",
         "__children",
         "__enabled",
         "__database",
@@ -1085,21 +1154,38 @@ class ComponentSystem(Node, ComponentSource):
 
         self.sync_references()
 
-        jobs = {job.name: job for job in self.component.__static_jobs__()}
-        jobs.update({job.name: job for job in (self.config.jobs if self.config else ())})
-        for job in jobs.values():
-            self.jobs.add(job)
+        # Add connections from bindings, static connections, then configuration.
+        connections: dict[str, Connection] = {}
 
-        connections = self.get_connection_bindings()
-        for connection in connections.values():
+        # Load connections from bindings.
+        for connection in self.get_connection_bindings().values():
             instance = getattr(self.component, connection.field, None)
             if instance is not None:
                 if instance.name is None:
                     instance.name = connection.name
 
-                self.connections.add(instance)
+                connections[instance.name] = instance
 
+        # Load connections from static connections.
+        connections.update(
+            {
+                connection.name: connection.create()
+                for connection in self.component.__static_connections__()
+            }
+        )
+
+        # Load connections from configuration.
+        if self.config is not None:
+            for config in self.config.connections:
+                connections[config.name] = config.create()
+
+        # Add loaded connections to manager.
+        for connection in connections.values():
+            self.connections.add(connection)
+
+        # Load sieves from static sieves.
         sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
+        # Load sieves from bindings.
         sieves.update(
             {
                 binding.name: MethodSieveConfig(
@@ -1112,14 +1198,28 @@ class ComponentSystem(Node, ComponentSource):
                 for binding in self.get_sieve_bindings().values()
             }
         )
-        sieves.update({sieve.name: sieve for sieve in (self.config.sieves if self.config else ())})
+        # Load sieves from configuration.
+        if self.config is not None:
+            sieves.update({sieve.name: sieve for sieve in self.config.sieves})
+        # Add loaded sieves to manager.
         for sieve in sieves.values():
             self.sieves.add(sieve)
 
+        # Load jobs from static jobs.
+        jobs = {job.name: job for job in self.component.__static_jobs__()}
+        # Load jobs from configuration.
+        if self.config is not None:
+            jobs.update({job.name: job for job in self.config.jobs})
+        # Add loaded jobs to manager.
+        for job in jobs.values():
+            self.jobs.add(job)
+
+        # Load pruners from static pruners.
         pruners = {pruner.name: pruner for pruner in self.component.__static_pruners__()}
-        pruners.update(
-            {pruner.name: pruner for pruner in (self.config.pruners if self.config else ())}
-        )
+        # Load pruners from configuration.
+        if self.config is not None:
+            pruners.update({pruner.name: pruner for pruner in self.config.pruners})
+        # Add loaded pruners to manager.
         for pruner in pruners.values():
             self.pruners.add(pruner)
 
@@ -1961,32 +2061,100 @@ class ComponentSystem(Node, ComponentSource):
             self.__children[component.name] = component
 
 
-class BoundMetadata:
-    """
-    Metadata for a bound object. Currently only `Connection` objects can be bound to a component.
-    """
+class Bound[T]:
+    if TYPE_CHECKING:
 
-    __slots__ = ()
+        @overload
+        def __get__(self, instance: None, owner: type[Connection]) -> ConnectionField: ...
+        @overload
+        def __get__(self, instance: Any, owner: type[Connection]) -> ConnectionField | T: ...
+        @overload
+        def __get__(self, instance: Any, owner: type[Connection]) -> T: ...
 
+        @overload
+        def __get__(self, instance: None, owner: type[Any]) -> BoundField: ...
+        @overload
+        def __get__(self, instance: Any, owner: type[Any]) -> T: ...
+        def __get__(self, instance: Any, owner: type[Any]) -> BoundField | T: ...
 
-if TYPE_CHECKING:
-    from ceres.connection import Connection
-else:
-    Connection = object
-
-_T = TypeVar("_T")
-_O = TypeVarTuple("_O")
-
-
-class _BoundType:
-    def __class_getitem__(cls, args: Any | tuple[Any]) -> Any:
-        if not isinstance(args, tuple):
-            args = (args,)
-
-        return Annotated[args[0], BoundMetadata(), *args[1:]]
+        def __set__(self, instance: Any, value: T) -> None: ...
 
 
-if TYPE_CHECKING:
-    Bound = Annotated
-else:
-    Bound = _BoundType
+@classmethod
+def __class_getitem__(cls: Any, args: Any | tuple[Any]) -> Any:
+    if not isinstance(args, tuple):
+        args = (args,)
+
+    return Annotated[args[0], BoundField.Marker(), *args[1:]]
+
+
+Bound.__class_getitem__ = __class_getitem__  # type: ignore
+
+
+class BoundFieldArgs(TypedDict, total=False):
+    name: Name
+    defaults: Mapping[str, Any]
+
+    # Common Pydantic arguments for `FieldInfo`.
+    annotation: type[Any] | None
+    default_factory: Callable[[], Any] | Callable[[dict[str, Any]], Any] | None
+    alias: str | None
+    alias_priority: int | None
+    validation_alias: str | AliasPath | AliasChoices | None
+    serialization_alias: str | None
+    title: str | None
+    field_title_generator: Callable[[str, FieldInfo], str] | None
+    description: str | None
+    examples: list[Any] | None
+    discriminator: str | Discriminator | None
+    deprecated: Deprecated | str | bool | None
+    json_schema_extra: JsonDict | Callable[[JsonDict], None] | None
+    frozen: bool | None
+    validate_default: bool | None
+    repr: bool
+    init: bool | None
+    init_var: bool | None
+    kw_only: bool | None
+    coerce_numbers_to_str: bool | None
+    fail_fast: bool | None
+
+
+try:
+
+    class _BaseFieldInfo(FieldInfo):  # type: ignore
+        pass
+except Exception as exception:
+    raise RuntimeError("Could not inherit from `pydantic.fields.FieldInfo`.") from exception
+
+
+class BoundField[T](_BaseFieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
+    __slots__ = ("name", "defaults")
+
+    class Marker:
+        """
+        Metadata marker for a bound object. Currently only `Connection` objects can be bound to a
+        component.
+        """
+
+        __slots__ = ()
+
+    def __init__(
+        self,
+        default: Any = Undefined,
+        **kwargs: Unpack[BoundFieldArgs],
+    ) -> None:
+        name = kwargs.pop("name", None)
+        defaults = kwargs.pop("defaults", None)
+
+        super().__init__(default=default, **kwargs)
+
+        self.metadata.append(BoundField.Marker())
+        if defaults:
+            self.metadata.append(WithDefaults(**defaults))
+
+        self.name = name
+        self.defaults = dict(defaults) if defaults is not None else None
+
+    def __set_name__(self, owner: type[Any], name: str) -> None:
+        if self.name is None:
+            self.name = name

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterable
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -48,13 +49,17 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
-    from ceres.channel import OutputChannel
+    from ceres.channel import ChannelReader, OutputChannel
     from ceres.database import DatabaseType
 
 
 class MessageDirection(StrEnum):
     SEND = "send"
     RECEIVE = "receive"
+
+
+MessageDirectionRaw: TypeAlias = Literal["send", "receive"]
+MessageDirectionInput: TypeAlias = MessageDirection | MessageDirectionRaw
 
 
 def _serialize_message_content_json(value: bytes) -> str:
@@ -118,7 +123,7 @@ MessageOrder: TypeAlias = (
 
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
-    direction: MaybeSequence[MessageDirection] | None
+    direction: MaybeSequence[MessageDirectionInput] | None
     content: MaybeSequence[MessageContent] | None
     contains: MaybeSequence[MessageContent] | None
     prefix: MaybeSequence[MessageContent] | None
@@ -250,7 +255,7 @@ class MessageManager(
         return await self.where(id=id).first()
 
 
-class BoundMessageManager(MessageManager, BaseNodeManager):
+class BoundMessageManager(MessageManager, BaseNodeManager, AsyncIterable["Message"]):
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
@@ -268,6 +273,18 @@ class BoundMessageManager(MessageManager, BaseNodeManager):
             .map(lambda event: event.message)
             .filter(resolved.matches)
         )
+
+    @override
+    def __aiter__(self) -> ChannelReader[Message]:
+        return aiter(self.follow())
+
+    @property
+    def sent(self) -> OutputChannel[Message]:
+        return self.follow().filter(lambda current: current.direction == Message.Direction.SEND)
+
+    @property
+    def received(self) -> OutputChannel[Message]:
+        return self.follow().filter(lambda current: current.direction == Message.Direction.RECEIVE)
 
 
 class Message(BaseRecord, MessageCreate, ConcreteEntity):

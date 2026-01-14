@@ -147,16 +147,17 @@ class Node(Tasklet, NodeSource):
     def __writer(self):
         return Writer(lambda: self.database)
 
-    def get_resolved_logging_config(self) -> LoggingConfig:
-        from ceres.config import LoggingConfig
-
+    def get_resolved_logging_config(self) -> LoggingConfig | None:
         local = self.config.logging if self.config is not None else None
 
+        # If this node has a container, inherit logging configuration from it.
         container = self.__container__
         if container is not None:
-            return replacing(container.get_resolved_logging_config(), local)
+            inherited = container.get_resolved_logging_config()
+            if inherited is not None:
+                return replacing(inherited, local)
 
-        return local if local is not None else LoggingConfig()
+        return local
 
     def store(self, item: Item, /) -> None:
         from ceres.item import Item

@@ -264,7 +264,8 @@ class ComponentConfig(__BaseConfigObject):
     pruners: Sequence[Annotated[PrunerConfig, Field(discriminator="prunes")]] = Field(
         default_factory=list
     )
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    logging: LoggingConfig | None = None
+    connections: Sequence[ConnectionConfig] = Field(default_factory=list)
     sieves: Sequence[SieveConfig] = Field(default_factory=list)
     components: Sequence[ComponentConfig] = Field(default_factory=list)
 

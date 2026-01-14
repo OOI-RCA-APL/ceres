@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Protocol, override
 
 from ceres._internal import util
 from ceres._internal.protocols import ComponentSource, DatabaseSource, NodeSource
-from ceres.channel import Channel
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
@@ -59,7 +58,7 @@ class BaseComponentManager(BaseNodeManager, ComponentSource):
 
 
 class _Named(Protocol):
-    name: str | None
+    name: Any
 
 
 class BaseComponentTaskManager[T: _Named](BaseComponentManager):
@@ -78,7 +77,6 @@ class BaseComponentTaskManager[T: _Named](BaseComponentManager):
         self.__tasks: dict[str, Task] = {}
         self.__running = False
         self.__stopping = False
-        self.__syncs: Channel[T] = Channel()
 
     @property
     def count(self) -> int:
@@ -111,9 +109,9 @@ class BaseComponentTaskManager[T: _Named](BaseComponentManager):
     def add(self, obj: T, /) -> None:
         if obj.name is None:
             while True:
-                number = self.__system__.connections.count + 1
+                number = self.count + 1
                 name = str(number)
-                if self.__system__.connections.get(name) is None:
+                if self.get(name) is None:
                     obj.name = name
                     break
 

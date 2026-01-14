@@ -10,6 +10,7 @@ with lazy_imports(__name__, export=True):
     from ceres.channel import ChannelReader as ChannelReader
     from ceres.channel import OutputChannel as OutputChannel
     from ceres.component import BaseOutput as BaseOutput
+    from ceres.component import Bound as Bound
     from ceres.component import Component as Component
     from ceres.component import ComponentSystem as ComponentSystem
     from ceres.component import FileOutput as FileOutput
@@ -25,8 +26,11 @@ with lazy_imports(__name__, export=True):
     from ceres.config import ConfigCheckType as ConfigCheckType
     from ceres.connection import Connection as Connection
     from ceres.connection import ConnectionException as ConnectionException
+    from ceres.connection import ConnectionField as ConnectionField
     from ceres.connection import ConnectionInactive as ConnectionInactive
     from ceres.connection import ConnectionLost as ConnectionLost
+    from ceres.connection import SplitByLine as SplitByLine
+    from ceres.connection import SplitByRegex as SplitByRegex
     from ceres.connection import TCPSource as TCPSource
     from ceres.connection import UNIXSocketSource as UNIXSocketSource
     from ceres.connectivity import Connectivity as Connectivity

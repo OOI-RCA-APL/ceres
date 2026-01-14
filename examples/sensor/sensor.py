@@ -3,10 +3,18 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import AsyncIterable, TypeAlias, override
 
-from ceres import Component, Message, Particle, ParticleData, sieve
-from ceres.component import Bound
-from ceres.connection import Connection, LineSplitter, TCPSource
-from ceres.data import Number, TimeDelta, WithDefaults
+from ceres import (
+    Bound,
+    Component,
+    Connection,
+    ConnectionField,
+    Message,
+    Particle,
+    ParticleData,
+    SplitByLine,
+    sieve,
+)
+from ceres.data import Number, TimeDelta
 from ceres.particle import ParticleParseFailed, RegexParticleData
 from ceres.server import TCPClient, TCPServer
 
@@ -44,15 +52,12 @@ class SensorDriver(Component):
     See `SensorParticleData` for the expected data format.
     """
 
-    connection: Bound[
-        Connection,
-        WithDefaults(
-            split=LineSplitter(),
-            suffix=b"\n",
-        ),
-    ]
+    connection: Bound[Connection] = ConnectionField(
+        splitter=SplitByLine(),
+        suffix=b"\n",
+    )
 
-    @sieve
+    @sieve(connection)
     async def sieve(
         self,
         messages: AsyncIterable[Message],
@@ -69,9 +74,6 @@ class SensorDriver(Component):
                 address=message.address,
                 data=data,
             )
-
-
-SensorDriver(connection=Connection(source=TCPSource(host="localhost", port=9000)))
 
 
 class SensorSimulator(TCPServer):

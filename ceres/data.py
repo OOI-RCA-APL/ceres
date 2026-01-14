@@ -134,6 +134,28 @@ def dictify(obj: object) -> dict[str, Any]:
         raise ValueError(f"`{type(obj)}` cannot be converted to a dictionary.")
 
 
+BytesLike: TypeAlias = bytes | bytearray
+
+if TYPE_CHECKING:
+    from typing import SupportsBytes
+
+    ToBytes: TypeAlias = bytes | bytearray | memoryview | str | SupportsBytes
+else:
+    ToBytes: TypeAlias = bytes | bytearray | str
+
+
+def to_bytes(
+    data: ToBytes,
+    /,
+    encoding: str = "utf-8",
+    errors: str = "strict",
+) -> bytes:
+    if isinstance(data, str):
+        return bytes(data, encoding, errors)
+
+    return bytes(data)
+
+
 Name: TypeAlias = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
 NonEmptyStr: TypeAlias = Annotated[str, StringConstraints(min_length=1)]
 NonBlankStr: TypeAlias = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
@@ -380,6 +402,12 @@ class DeferBuild(BaseModel, ABC):
     model_config = ConfigDict(defer_build=True)
 
 
+if TYPE_CHECKING:
+    from ceres.component import ConnectionField
+else:
+    ConnectionField = object
+
+
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=(
@@ -387,6 +415,7 @@ class DeferBuild(BaseModel, ABC):
         FieldInfo,
         dataclasses.field,
         dataclasses.Field,
+        ConnectionField,
     ),
 )
 class ValidatedDataclass(ABC, PydanticDataclassLike):
@@ -467,10 +496,12 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         @wraps(__init__)
         def wrapper(self: Self, *args: object, **kwargs: object) -> None:
             __init__(self, *args, **kwargs)
-            self.__pydantic_fields_set__ = {*kwargs.keys()}
+            # TODO: Handle positional args.
+            self.__pydantic_fields_set__ = {key for key in kwargs if key in cls.__pydantic_fields__}
 
         cls.__init__ = wrapper
 
+    # TODO: Handle positional args.
     @model_validator(mode="wrap")
     @classmethod
     def _init__pydantic_fields_set__(
@@ -718,7 +749,10 @@ def defaulting[T: _SupportsAssignedFieldsTracking](
 
 
 def replacing[T: _SupportsAssignedFieldsTracking](
-    original: T, overrides: T | dict[str, Any] | None = None, /, **kwargs: Any
+    original: T,
+    overrides: T | dict[str, Any] | None = None,
+    /,
+    **kwargs: Any,
 ) -> T:
     if overrides is None:
         return original
@@ -732,13 +766,22 @@ def replacing[T: _SupportsAssignedFieldsTracking](
         return dataclasses.replace(original, **update)
 
 
-def WithDefaults(**kwargs: object) -> AfterValidator:
+def WithDefaults(
+    defaults: _SupportsAssignedFieldsTracking
+    | Callable[[], _SupportsAssignedFieldsTracking]
+    | None = None,
+    /,
+    **kwargs: Any,
+) -> AfterValidator:
+    if callable(defaults):
+        defaults = defaults()
+
     def WithDefaults(obj: object) -> Any:
         if not isinstance(obj, _SupportsAssignedFieldsTracking):
             raise TypeError(
                 "`WithDefaults` can only be applied to types with assigned fields tracking, such as `BaseModel` or `ValidatedDataclass` instances."
             )
 
-        return defaulting(obj, **kwargs)
+        return defaulting(obj, defaults, **kwargs)
 
     return AfterValidator(WithDefaults)
