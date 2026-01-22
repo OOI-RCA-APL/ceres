@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Iterable
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     ClassVar,
-    Iterable,
     Literal,
     TypeAlias,
     Unpack,
@@ -14,8 +13,9 @@ from typing import (
 )
 
 from pydantic import BeforeValidator, PlainSerializer
-from sqlalchemy import Index, LargeBinary, func
+from sqlalchemy import Index, LargeBinary, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import expression
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -83,6 +83,12 @@ MessageContent = Annotated[
 class MessageRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "messages"
 
+    connection: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        default=None,
+        server_default=expression.null(),
+    )
     direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
@@ -91,6 +97,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__connection", cls.connection),
             EnumConstraint(cls.direction, MessageDirection, f"ck_{cls.__tablename__}__direction"),
             Index(f"ix_{cls.__tablename__}__content", cls.content).ddl_if("sqlite"),
             Index(
@@ -105,6 +112,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
 MessageField: TypeAlias = (
     BaseRecordField
     | Literal[
+        "connection",
         "direction",
         "content",
     ]
@@ -112,6 +120,9 @@ MessageField: TypeAlias = (
 MessageOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
+        "connection",
+        "connection:asc",
+        "connection:desc",
         "direction",
         "direction:asc",
         "direction:desc",
@@ -131,6 +142,14 @@ class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=
 
 
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
+    connection: MaybeSequence[str] | None = None
+    """Filter by `connection` being equal to one or more given strings."""
+    connection_contains: MaybeSequence[str] | None = None
+    """Filter by `connection` containing one or more given substrings."""
+    connection_prefix: MaybeSequence[str] | None = None
+    """Filter by `connection` starting with one or more given substrings."""
+    connection_suffix: MaybeSequence[str] | None = None
+    """Filter by `connection` ending with one or more given substrings."""
     direction: MaybeSequence[MessageDirection] | None = None
     """Filter by `direction`."""
     content: MaybeSequence[MessageContent] | None = None
@@ -148,8 +167,19 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if not super()._matches(obj, now=now):
             return False
 
+        if self.connection is not None:
+            if obj.connection is None or not util.match_value(obj.connection, self.connection):
+                return False
+        if not util.match_string(obj.connection, self.connection_contains, MatchMode.CONTAINS):
+            return False
+        if not util.match_string(obj.connection, self.connection_prefix, MatchMode.PREFIX):
+            return False
+        if not util.match_string(obj.connection, self.connection_suffix, MatchMode.SUFFIX):
+            return False
+
         if not util.match_value(obj.direction, self.direction):
             return False
+
         if not util.match_value(obj.content, self.content):
             return False
         if not util.match_string(obj.content, self.contains, MatchMode.CONTAINS):
@@ -177,6 +207,28 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         yield from super()._get_where(dialect, now=now)
         columns = self._get_row_cls()
 
+        if self.connection is not None:
+            yield util.sql_match_value(columns.connection, self.connection)
+
+        if self.connection_contains is not None:
+            yield util.sql_match_string(
+                columns.connection,
+                self.connection_contains,
+                MatchMode.CONTAINS,
+            )
+        if self.connection_prefix is not None:
+            yield util.sql_match_string(
+                columns.connection,
+                self.connection_prefix,
+                MatchMode.PREFIX,
+            )
+        if self.connection_suffix is not None:
+            yield util.sql_match_string(
+                columns.connection,
+                self.connection_suffix,
+                MatchMode.SUFFIX,
+            )
+
         if self.direction is not None:
             yield util.sql_match_value(columns.direction, self.direction)
 
@@ -196,11 +248,13 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
 
 
 class MessageCreate(BaseRecordCreate):
+    connection: str | None = None
     direction: MessageDirection
     content: MessageContent
 
 
 class MessageUpdate(BaseRecordUpdate, total=False):
+    connection: str | None
     direction: MessageDirection
     content: MessageContent
 

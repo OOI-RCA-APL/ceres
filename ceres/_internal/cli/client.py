@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -11,6 +11,8 @@ from ceres._internal.lazy import lazy_imports
 from ceres.data import simplify
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from ceres._internal.project import LoadedProject
     from ceres._internal.server import CLIServerInfo
 

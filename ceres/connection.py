@@ -11,7 +11,6 @@ from typing import (
     Annotated,
     Any,
     ClassVar,
-    Iterable,
     Literal,
     Protocol,
     Self,
@@ -69,6 +68,8 @@ from ceres.tasklet import Tasklet
 from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from anyio.abc import SocketStream
 
     from ceres.component import ComponentSystem
@@ -341,6 +342,7 @@ class Connection(ValidatedDataclass, Tasklet):
 
         message = Message(
             address=Address.ROOT if self.system is None else self.system.address,
+            connection=self.name,
             direction=Message.Direction.SEND,
             content=data,
         )
@@ -499,6 +501,7 @@ class Connection(ValidatedDataclass, Tasklet):
                         content = bytes(buffer[start:end])
                         message = Message(
                             address=address,
+                            connection=self.name,
                             timestamp=timestamp,
                             direction=MessageDirection.RECEIVE,
                             content=content,
@@ -552,7 +555,7 @@ class ConnectTimeout(asyncio.TimeoutError):
 
 
 class ConnectionFieldArgs(BoundFieldArgs, ConnectionArgs, total=False):
-    defaults: ConnectionArgs
+    defaults: ConnectionArgs | None
 
 
 class ConnectionField[T: Connection | None](BoundField[T]):
@@ -563,16 +566,20 @@ class ConnectionField[T: Connection | None](BoundField[T]):
         default: Any = ...,
         **kwargs: Unpack[ConnectionFieldArgs],
     ):
-        defaults = kwargs.get("defaults")
-        if defaults is None:
-            kwargs["defaults"] = defaults = ConnectionArgs()
-        else:
-            defaults = dict(defaults)
+        defaults: ConnectionArgs | None = kwargs.get("defaults")
+        if defaults is not None:
+            kwargs["defaults"] = defaults = {**defaults}
 
         for field in Connection.__pydantic_fields__:
             if field in kwargs:
                 assigned = kwargs.pop(field)  # type: ignore
+                if defaults is None:
+                    defaults = {}
+
                 defaults[field] = assigned
+
+        if defaults:
+            kwargs["defaults"] = defaults
 
         super().__init__(default, **cast("ConnectionFieldArgs", kwargs))
 

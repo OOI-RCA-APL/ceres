@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import traceback
+from collections.abc import Mapping, Sequence
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     Literal,
-    Mapping,
-    Sequence,
     TypeAlias,
 )
 
@@ -16,6 +15,7 @@ from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
 from ceres._internal import util
 from ceres._internal.app.shared import (
+    OPERATOR,
     VIEWER,
     CurrentEngine,
     CurrentProcedureQueryArguments,
@@ -32,9 +32,11 @@ from ceres.component import (
     ProcedureType,
     QueryBinding,
 )
-from ceres.data import DeferBuild, ImmutableDataObject, Name, StrEnum, jsonify
+from ceres.connection import ConnectionInactive
+from ceres.data import DataObject, DeferBuild, ImmutableDataObject, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
+    NotConnectedError,
     NotFoundError,
     ProcedureComponentNotFoundError,
     ProcedureError,
@@ -42,6 +44,7 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotPermittedError,
 )
+from ceres.message import Message, MessageContent
 from ceres.result import Fail
 from ceres.user import UserRole
 
@@ -50,7 +53,6 @@ if TYPE_CHECKING:
 
 
 class ComponentRole(StrEnum):
-    CONNECTION = "connection"
     INTERFACE = "interface"
 
 
@@ -71,12 +73,9 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
     if not isinstance(component, type):
         component = type(component)
 
-    from ceres.connection import Connection
     from ceres.interface import Interface
 
     roles: list[ComponentRole] = []
-    if issubclass(component, Connection):
-        roles.append(ComponentRole.CONNECTION)
     if issubclass(component, Interface):
         roles.append(ComponentRole.INTERFACE)
 
@@ -386,3 +385,27 @@ async def subscribe_procedure(
 
 for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
     router.websocket("/{address}/" + namespace + "/{name}/subscribe")(subscribe_procedure)
+
+
+class SendMessageInput(DataObject):
+    data: MessageContent
+
+
+@router.post("/{address}/connections/{name}/send", dependencies=[OPERATOR])
+async def send_message(
+    engine: CurrentEngine,
+    address: Address,
+    connection: str,
+    input: Annotated[SendMessageInput, Body()],
+) -> Message | NotFoundError | NotConnectedError:
+    component = engine.get_component(address)
+    if component is None:
+        return NotFoundError()
+    target = component.system.connections.get(connection)
+    if target is None:
+        return NotFoundError()
+
+    try:
+        return await target.send(input.data)
+    except ConnectionInactive:
+        return NotConnectedError()

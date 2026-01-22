@@ -17,6 +17,12 @@ const engine = useEngine()
 
 const columns = $computed(() => [
   {
+    label: 'Connection',
+    name: 'connection',
+    filtered: widget.filter.connection != null,
+    minWidth: 76,
+  },
+  {
     label: 'Direction',
     name: 'direction',
     filtered: widget.filter.direction != null,
@@ -116,6 +122,18 @@ async function submit() {
 
 <template>
   <record-view :columns="columns" :filter="widget.filter" :widget>
+    <template #column-filter-connection>
+      <div style="min-width: 200px">
+        <schema-form-value
+          v-model="widget.filter.connection"
+          :schema="{
+            title: 'Connection',
+            type: 'string',
+            optional: true,
+          }"
+        />
+      </div>
+    </template>
     <template #column-filter-direction>
       <div style="min-width: 200px">
         <schema-form-value

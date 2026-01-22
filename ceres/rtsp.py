@@ -4,11 +4,13 @@ import asyncio
 import subprocess
 import sys
 from shutil import which
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING
 
 from ceres.component import StreamingOutput
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from ceres._internal.util import PathLike
 
 

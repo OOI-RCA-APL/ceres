@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING, Callable, Unpack, overload, override
+from typing import TYPE_CHECKING, Unpack, overload, override
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ceres.connection import Connection
     from ceres.data import ToBytes
     from ceres.message import Message, MessageFilterArgs

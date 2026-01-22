@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     ClassVar,
-    Iterable,
     Literal,
     TypeAlias,
     TypedDict,
@@ -34,6 +33,8 @@ from ceres.data import FromYAML, JSONSerializable, MaybeSequence, uuid7
 from ceres.user import UserRow
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 

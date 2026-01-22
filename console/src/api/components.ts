@@ -65,7 +65,7 @@ export type ProcedureInfo = Zod.infer<typeof ProcedureInfoModel>
 export const ProcedureInfoModel = Zod.discriminatedUnion('type', [QueryInfoModel, ActionInfoModel])
 
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
-export const ComponentRoleModel = Zod.enum(['connection', 'interface'])
+export const ComponentRoleModel = Zod.enum(['interface'])
 
 export type ComponentInfo = {
   name: string

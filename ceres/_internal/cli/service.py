@@ -6,12 +6,14 @@ import traceback
 from abc import ABC, abstractmethod
 from getpass import getuser
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence, override
+from typing import TYPE_CHECKING, Any, override
 
 from ceres._internal.cli.shared import write
 from ceres.data import DataObject, StrEnum
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ceres._internal.project import LoadedProject, Project
     from ceres.config import ServiceConfig
 
@@ -184,7 +186,7 @@ WantedBy=default.target
             ["systemctl", *(str(segment) for segment in command)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=True,
+            text=True,
         )
         if (log_errors and result.returncode != 0) or log_output:
             if result.stderr.strip():

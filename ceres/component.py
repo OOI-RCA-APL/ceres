@@ -6,7 +6,8 @@ import traceback
 import warnings
 from abc import abstractmethod
 from asyncio import CancelledError, TaskGroup
-from dataclasses import InitVar, field
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping, Sequence
+from dataclasses import InitVar, dataclass, field
 from datetime import timedelta
 from functools import cached_property
 from inspect import Parameter
@@ -17,16 +18,10 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncIterable,
-    Awaitable,
-    Callable,
     Final,
-    Iterable,
     Literal,
-    Mapping,
     Protocol,
     Self,
-    Sequence,
     TypeAlias,
     TypedDict,
     Unpack,
@@ -388,12 +383,18 @@ def get_connection_bindings(cls: type) -> Mapping[Name, ConnectionBinding]:
     bindings: Mapping[Name, ConnectionBinding] = {}
 
     for field, info in __pydantic_fields__.items():
-        if any((current for current in info.metadata if isinstance(current, BoundField.Marker))):
-            bound = BoundField()
-        else:
-            continue
+        marker = next(
+            (current for current in info.metadata if isinstance(current, BoundField.Marker)), None
+        )
 
-        name = bound.name or _get_normalized_name(field)
+        if marker is not None:
+            name = marker.name
+        else:
+            name = None
+
+        if name is None:
+            name = _get_normalized_name(field)
+
         if is_subtype(info.annotation, Connection):
             bindings[name] = ConnectionBinding(name=name, field=field)
         else:
@@ -2093,7 +2094,7 @@ Bound.__class_getitem__ = __class_getitem__  # type: ignore
 
 class BoundFieldArgs(TypedDict, total=False):
     name: Name
-    defaults: Mapping[str, Any]
+    defaults: Mapping[str, Any] | None
 
     # Common Pydantic arguments for `FieldInfo`.
     annotation: type[Any] | None
@@ -2128,15 +2129,16 @@ except Exception as exception:
 
 
 class BoundField[T](_BaseFieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
-    __slots__ = ("name", "defaults")
+    __slots__ = ("name", "marker")
 
+    @dataclass(slots=True)
     class Marker:
         """
         Metadata marker for a bound object. Currently only `Connection` objects can be bound to a
         component.
         """
 
-        __slots__ = ()
+        name: str | None = None
 
     def __init__(
         self,
@@ -2146,15 +2148,18 @@ class BoundField[T](_BaseFieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
         name = kwargs.pop("name", None)
         defaults = kwargs.pop("defaults", None)
 
+        if name is None and defaults is not None and "name" in defaults:
+            name = defaults["name"]
+
         super().__init__(default=default, **kwargs)
 
-        self.metadata.append(BoundField.Marker())
+        self.name = name
+        self.marker = BoundField.Marker(name=name)
+        self.metadata.append(self.marker)
+
         if defaults:
             self.metadata.append(WithDefaults(**defaults))
 
-        self.name = name
-        self.defaults = dict(defaults) if defaults is not None else None
-
     def __set_name__(self, owner: type[Any], name: str) -> None:
-        if self.name is None:
-            self.name = name
+        if self.marker.name is None:
+            self.marker.name = name

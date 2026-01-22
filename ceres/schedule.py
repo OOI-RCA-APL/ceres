@@ -3,8 +3,9 @@ from __future__ import annotations
 import datetime as dt
 import math
 from abc import abstractmethod
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any, Iterable, Literal, Sequence, TypeAlias, override
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias, override
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
@@ -149,7 +150,7 @@ Schedule: TypeAlias = CronSchedule | IntervalSchedule | OrSchedule
 
 
 def __pre_validate_schedule_expression(value: Any) -> Any:
-    if isinstance(value, (str, int, float)):
+    if isinstance(value, str | int | float):
         try:
             InternalCronTrigger.from_crontab(value)
             return CronSchedule(crontab=str(value))
@@ -211,7 +212,7 @@ class CronTrigger(Trigger):
     def __init__(self, schedule: CronSchedule) -> None:
         super().__init__()
         self.__schedule = schedule
-        self.__inner = InternalCronTrigger.from_crontab(schedule.crontab, timezone=dt.timezone.utc)
+        self.__inner = InternalCronTrigger.from_crontab(schedule.crontab, timezone=dt.UTC)
 
     @property
     def schedule(self) -> CronSchedule:
@@ -316,7 +317,7 @@ class InternalIntervalTrigger(BaseInternalIntervalTrigger):
             seconds=seconds,
             start_date=start_date,
             end_date=end_date,
-            timezone=dt.timezone.utc,
+            timezone=dt.UTC,
             jitter=jitter,
         )
         self.multiplier = multiplier
@@ -419,7 +420,7 @@ def _compute_iterations_and_fire_time_delay(
         # https://www.symbolab.com/solver/step-by-step/solve%20for%20n%2C%20d%20%3D%20%5Cleft(v%20%5Cleft(m%5E%7B%5Cleft(n%20%2B%201%5Cright)%7D%20-%201%5Cright)%5Cright)%2F%5Cleft(m%20-%201%5Cright)?or=input
         try:
             iterations = math.ceil(
-                (math.log(((runtime * (multiplier - 1)) / interval) + 1) / math.log(multiplier))
+                math.log(((runtime * (multiplier - 1)) / interval) + 1) / math.log(multiplier)
             )
         except ValueError:
             return None

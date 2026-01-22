@@ -5,12 +5,10 @@ import inspect
 import traceback
 from abc import ABC
 from asyncio import Queue as AsyncQueue
+from collections.abc import Awaitable, Callable, Sequence
 from typing import (
     TYPE_CHECKING,
-    Awaitable,
-    Callable,
     Literal,
-    Sequence,
     TypeAlias,
     cast,
 )

@@ -6,9 +6,12 @@ from abc import ABC, abstractmethod
 from asyncio import Event as AsyncEvent
 from asyncio import Task
 from dataclasses import dataclass, field
-from typing import Callable, Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 from ceres._internal import util
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass

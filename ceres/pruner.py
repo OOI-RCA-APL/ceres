@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from asyncio import CancelledError
-from datetime import timezone
+from datetime import UTC
 from threading import Lock
 from typing import TYPE_CHECKING, Any, cast
 
@@ -47,7 +47,7 @@ class ComponentPrunerManager(BaseComponentManager):
 
     @classmethod
     def __create_scheduler(cls) -> AsyncIOScheduler:
-        return AsyncIOScheduler(timezone=timezone.utc)
+        return AsyncIOScheduler(timezone=UTC)
 
     @property
     def count(self) -> int:

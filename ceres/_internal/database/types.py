@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, override
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, override
 from uuid import UUID
 
 from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator, Uuid
@@ -10,6 +10,7 @@ from ceres._internal import util
 from ceres.address import Address
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from enum import Enum as BaseEnum
 
     from sqlalchemy.orm import InstrumentedAttribute
@@ -141,15 +142,15 @@ class DateTimeMapper(TypeDecorator[datetime]):
         if value is None:
             return None
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
+            return value.replace(tzinfo=UTC)
 
-        return value.astimezone(timezone.utc)
+        return value.astimezone(UTC)
 
     @override
     def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         if value is None:
             return None
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
+            return value.replace(tzinfo=UTC)
 
-        return value.astimezone(timezone.utc)
+        return value.astimezone(UTC)

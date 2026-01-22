@@ -2,16 +2,13 @@ from __future__ import annotations
 
 import importlib
 import sys
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from threading import Lock
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Final,
-    Iterable,
-    Mapping,
-    Sequence,
     overload,
     override,
 )

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 from pydantic import field_validator
-from typing_extensions import TYPE_CHECKING
 
 from ceres._internal.cli.shared import CLICommand, create_entity_command, get_input
 from ceres.data import PasswordHash, PasswordStr

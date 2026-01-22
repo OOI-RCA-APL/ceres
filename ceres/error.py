@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Sequence, TypeAlias
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
 
 from pydantic import ImportString, ValidationError, computed_field, model_serializer
 from starlette.status import (
@@ -214,6 +215,12 @@ class NotRunningError(__BaseAPIError):
     type: Literal["not-running-error"] = "not-running-error"
 
 
+class NotConnectedError(__BaseAPIError):
+    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
+    type: Literal["not-connected-error"] = "not-connected-error"
+    message: str | None = None
+
+
 class NotReachableError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_503_SERVICE_UNAVAILABLE
     type: Literal["not-reachable-error"] = "not-reachable-error"
@@ -267,6 +274,7 @@ class HTTPError(__BaseAPIError):
 APIError: TypeAlias = (
     NotFoundError
     | NotRunningError
+    | NotConnectedError
     | NotReachableError
     | AlreadyExistsError
     | IntegrityError

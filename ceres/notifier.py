@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Iterable, override
+from collections.abc import Iterable
+from typing import override
 
 from pydantic import Field, SecretStr
 

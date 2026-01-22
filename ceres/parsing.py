@@ -3,7 +3,10 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from re import Pattern
-from typing import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class ParseFailed(ValueError):

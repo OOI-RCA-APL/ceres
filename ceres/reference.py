@@ -8,7 +8,6 @@ from typing import (
     NoReturn,
     Self,
     TypeVar,
-    Union,
     cast,
     overload,
     override,
@@ -363,7 +362,7 @@ class Reference:
             return value
         if isinstance(value, Reference):
             return cls(value.__reference_target__, value.__reference_root__)
-        if isinstance(value, (Component, DynamicAddress, str)):
+        if isinstance(value, Component | DynamicAddress | str):
             return cls(value)
 
         return cls(
@@ -374,10 +373,10 @@ class Reference:
 
     def __init__(
         self,
-        target: Union[Component, "Reference", DynamicAddress, str],
-        root: Union[Component, "Reference"] | None = None,
+        target: Component | Reference | DynamicAddress | str,
+        root: Component | Reference | None = None,
     ) -> None:
-        if not isinstance(target, (Component, Reference, Address, str)):
+        if not isinstance(target, Component | Reference | Address | str):
             raise ValueError(
                 f"first argument must be a component, another reference, an address or string, got "
                 f"{util.strify(type(target))}"
@@ -388,7 +387,7 @@ class Reference:
         elif isinstance(target, str):
             target = DynamicAddress(target)
         else:
-            if not isinstance(target, (Component, Reference)):
+            if not isinstance(target, Component | Reference):
                 raise ValueError(f"expected component, got {util.strify(type(target))}")
 
             if self.__reference_constraint__ is not None:

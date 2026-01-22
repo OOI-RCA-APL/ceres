@@ -4,7 +4,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Iterable,
     Literal,
     TypeAlias,
     Unpack,
@@ -41,6 +40,7 @@ from ceres.level import Level
 from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from datetime import datetime
     from uuid import UUID
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import (
     TYPE_CHECKING,
     ClassVar,
-    Iterable,
     Literal,
     Self,
     TypeAlias,
@@ -59,6 +58,8 @@ from ceres.data import (
 from ceres.user import UserRole, UserRow
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
@@ -356,7 +357,7 @@ class WorkspaceEditFilter(
         return True
 
     @override
-    def _get_where(self, dialect: "DatabaseType") -> Iterable[SQLColumnExpression[bool]]:
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 

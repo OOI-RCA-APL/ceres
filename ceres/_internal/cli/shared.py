@@ -6,7 +6,8 @@ import sys
 import time
 import warnings
 from abc import abstractmethod
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import AsyncIterable, Callable, Collection, Iterable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -16,15 +17,8 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncContextManager,
-    AsyncIterable,
-    Callable,
-    Collection,
-    Iterable,
     Literal,
-    Mapping,
     Self,
-    Sequence,
     TypeAlias,
     TypeVar,
     cast,
@@ -145,7 +139,7 @@ def get_input(
                 return default
 
             if isinstance(parser, type):
-                if issubclass(parser, (bool, int, float)):
+                if issubclass(parser, bool | int | float):
                     continue
 
         try:
@@ -425,7 +419,7 @@ class CLICommand(DataObject, DeferBuild):
 
                     started = True
 
-        if isinstance(data, AsyncContextManager):
+        if isinstance(data, AbstractAsyncContextManager):
             async with data as values:
                 if isinstance(values, AsyncIterable):
                     async for current in values:

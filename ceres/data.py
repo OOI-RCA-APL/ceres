@@ -2,22 +2,19 @@ from __future__ import annotations
 
 import dataclasses
 from abc import ABC
-from datetime import date, datetime, timedelta, timezone
+from collections.abc import Callable, Mapping, Sequence, Sized
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum as BaseStrEnum
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    Callable,
     ClassVar,
     Literal,
-    Mapping,
     NewType,
     Protocol,
     Self,
-    Sequence,
-    Sized,
     TypeAlias,
     TypedDict,
     Unpack,
@@ -181,13 +178,13 @@ def __validate_datetime(value: object) -> datetime | None:
                 year=instance.year,
                 month=instance.month,
                 day=instance.day,
-                tzinfo=timezone.utc,
+                tzinfo=UTC,
             )
 
     if instance.tzinfo is None:
-        return instance.replace(tzinfo=timezone.utc)
+        return instance.replace(tzinfo=UTC)
 
-    return instance.astimezone(timezone.utc)
+    return instance.astimezone(UTC)
 
 
 DateTime: TypeAlias = Annotated[datetime, AfterValidator(__validate_datetime)]
@@ -255,7 +252,7 @@ def uuid7(
 
 
 def __pre_validate_from_json(value: object) -> object:
-    if isinstance(value, (str, bytes)):
+    if isinstance(value, str | bytes):
         try:
             return _parse_json(value)
         except Exception as error:
@@ -265,7 +262,7 @@ def __pre_validate_from_json(value: object) -> object:
 
 
 def __pre_validate_from_yaml(value: object) -> object:
-    if isinstance(value, (str, bytes)):
+    if isinstance(value, str | bytes):
         try:
             return _parse_json(value)
         except Exception:

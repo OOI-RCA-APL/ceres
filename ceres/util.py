@@ -1,14 +1,11 @@
 import asyncio
 from asyncio import AbstractEventLoop, CancelledError, Task, TaskGroup
 from asyncio import Queue as AsyncQueue
+from collections.abc import AsyncIterable, AsyncIterator, Coroutine, Iterable, Sequence
 from dataclasses import dataclass
 from typing import (
     Any,
-    AsyncIterable,
-    AsyncIterator,
-    Coroutine,
-    Iterable,
-    Sequence,
+    cast,
     overload,
 )
 
@@ -110,27 +107,38 @@ def ensure_event_loop(*, uvloop: bool = True, eager: bool = True) -> AbstractEve
     :param uvloop: Whether or not to use `uvloop` as the event loop, provided it is installed and no current running loop exists.
     :param eager: Whether to use `asyncio.eager_task_factory` for the event loop, provided no current running loop exists.
     """
+    loop: AbstractEventLoop | None = None
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
+    if loop is None and uvloop:
+        try:
+            from uvloop import new_event_loop
+
+            loop = cast("AbstractEventLoop", new_event_loop())
+        except Exception:
+            pass
+
+    if loop is None:
+        loop = asyncio.new_event_loop()
+
+    if eager:
+        loop.set_task_factory(asyncio.eager_task_factory)
+
     try:
         return asyncio.get_running_loop()
-    except RuntimeError:
-        if uvloop:
-            try:
-                from uvloop import EventLoopPolicy  # type: ignore
+    except Exception:
+        pass
 
-                if not isinstance(asyncio.get_event_loop_policy(), EventLoopPolicy):
-                    asyncio.set_event_loop_policy(EventLoopPolicy())
-            except Exception:
-                pass
+    try:
+        asyncio.set_event_loop(loop)
+    except Exception:
+        pass
 
-        try:
-            return asyncio.get_running_loop()
-        except Exception:
-            loop = asyncio.new_event_loop()
-            if eager:
-                loop.set_task_factory(asyncio.eager_task_factory)
-
-            asyncio.set_event_loop(loop)
-            return loop
+    return loop
 
 
 _undefined = object()

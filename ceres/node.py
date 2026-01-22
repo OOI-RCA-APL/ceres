@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from abc import abstractmethod
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, AsyncIterable, Unpack, dataclass_transform, override
+from typing import TYPE_CHECKING, Any, Unpack, dataclass_transform, override
 
 from pydantic import Field
 from pydantic.fields import FieldInfo
@@ -26,6 +26,8 @@ from ceres.event import (
 from ceres.tasklet import Tasklet
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterable
+
     from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem

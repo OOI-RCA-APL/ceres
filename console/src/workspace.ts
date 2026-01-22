@@ -47,6 +47,7 @@ export const MessagesWidgetModel = BaseWidgetModel.extend({
   name: Zod.string().catch('Messages'),
   filter: MessageFilterModel.catch(() => ({})),
   commandAddress: AddressModel.nullish(),
+  commandConnection: Zod.string().nullish(),
   commandText: Zod.string().catch(''),
   commandHistory: Zod.string()
     .array()

@@ -7,7 +7,7 @@ import sys
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence, override
+from typing import TYPE_CHECKING, Any, override
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -37,6 +37,8 @@ from ceres.error import Failure
 from ceres.result import Fail, Ok
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ceres.database import Database
 
 with lazy_imports(__name__):

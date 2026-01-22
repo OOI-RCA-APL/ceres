@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import traceback
+from collections.abc import Sequence
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self, Sequence, Unpack, final, override
+from typing import TYPE_CHECKING, Literal, Self, Unpack, final, override
 
 import anyio
 from pydantic import Field

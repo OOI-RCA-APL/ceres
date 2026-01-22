@@ -3,14 +3,11 @@ from __future__ import annotations
 import asyncio
 from asyncio import AbstractEventLoop, QueueEmpty
 from asyncio import Queue as AsyncQueue
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Sequence
 from typing import (
     Any,
-    AsyncIterable,
-    Callable,
     Literal,
     Self,
-    Sequence,
     cast,
     final,
     overload,

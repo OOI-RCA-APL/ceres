@@ -104,7 +104,7 @@ class App(FastAPI):
         from ceres.config import ServerCompressionConfig
 
         compression = config.compression or ServerCompressionConfig()
-        if compression.enabled:
+        if compression.enabled and False:
             from starlette_compress import CompressMiddleware
 
             self.add_middleware(

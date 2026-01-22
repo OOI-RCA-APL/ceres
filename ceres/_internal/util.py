@@ -5,10 +5,23 @@ import dataclasses
 import os
 import platform
 import re
+import sys
 import traceback
 import typing
 from asyncio import AbstractEventLoop, Future
 from collections import defaultdict
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Collection,
+    Coroutine,
+    Hashable,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+    Set,
+)
 from contextlib import contextmanager
 from datetime import timedelta
 from enum import Enum
@@ -18,25 +31,13 @@ from threading import Event
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
-    AbstractSet,
     Annotated,
     Any,
-    Awaitable,
-    Callable,
     ClassVar,
-    Collection,
-    Coroutine,
-    Hashable,
-    Iterable,
-    Iterator,
-    List,
-    Mapping,
     Optional,
     Protocol,
-    Sequence,
     TypeAlias,
     TypeVar,
-    Union,
     cast,
     get_args,
     get_origin,
@@ -370,7 +371,7 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
             case "d":
                 return timedelta(days=decoded_value)
 
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return timedelta(seconds=value)
 
     raise get_exception()
@@ -407,7 +408,7 @@ def is_true_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
 def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
     if obj is None:
         return False
-    if isinstance(obj, (list, tuple, set, frozenset)):
+    if isinstance(obj, list | tuple | set | frozenset):
         return True
     if not isinstance(obj, Collection):
         return False
@@ -428,7 +429,7 @@ def is_true_collection(obj: Any) -> TypeIs[Collection[Any]]:
 def is_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
     if obj is None:
         return False
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, list | tuple):
         return True
     if not isinstance(obj, Sequence):
         return False
@@ -706,7 +707,7 @@ class MatchMode(Enum):
 
 
 def match_string[T: (str, bytes)](
-    value: T,
+    value: T | None,
     possibilities: MaybeSequence[T] | None,
     mode: MatchMode,
     *,
@@ -714,6 +715,9 @@ def match_string[T: (str, bytes)](
 ) -> bool:
     if possibilities is None:
         return True
+
+    if value is None:
+        return False
 
     possibilities = seq(possibilities)
     if not possibilities:
@@ -751,7 +755,7 @@ def _escape_like_expression[T: (str, bytes)](text: T, escape: str) -> T:
 
 
 def sql_match_string[T: (str, bytes)](
-    expression: SQLColumnExpression[T],
+    expression: SQLColumnExpression[T | None],
     value: MaybeSequence[T],
     mode: MatchMode,
     *,
@@ -826,8 +830,7 @@ def group_by[K, V](iterable: Iterable[V], key: Callable[[V], K]) -> Iterable[tup
     groups: defaultdict[K, list[V]] = defaultdict(list)
     for value in iterable:
         groups[key(value)].append(value)
-    for item in groups.items():
-        yield item
+    yield from groups.items()
 
 
 if TYPE_CHECKING:
@@ -960,9 +963,9 @@ _S = TypeVar("_S")
 class OrderedSet(set[_T]):
     __slots__ = ("_list",)
 
-    _list: List[_T]
+    _list: list[_T]
 
-    def __init__(self, d: Optional[Iterable[_T]] = None) -> None:
+    def __init__(self, d: Iterable[_T] | None = None) -> None:
         if d is not None:
             self._list = list(uniquify(d))
             super().update(self._list)
@@ -1024,7 +1027,7 @@ class OrderedSet(set[_T]):
 
     @override
     def __repr__(self) -> str:
-        return "%s(%r)" % (self.__class__.__name__, self._list)
+        return f"{self.__class__.__name__}({self._list!r})"
 
     __str__ = __repr__
 
@@ -1037,18 +1040,18 @@ class OrderedSet(set[_T]):
                     super().add(e)
 
     @override
-    def __ior__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:  # type: ignore
+    def __ior__(self, other: Set[_S]) -> OrderedSet[_T | _S]:  # type: ignore
         self.update(other)  # type: ignore
         return self  # type: ignore
 
     @override
-    def union(self, *other: Iterable[_S]) -> OrderedSet[Union[_T, _S]]:
-        result: OrderedSet[Union[_T, _S]] = self.copy()  # type: ignore
+    def union(self, *other: Iterable[_S]) -> OrderedSet[_T | _S]:
+        result: OrderedSet[_T | _S] = self.copy()  # type: ignore
         result.update(*other)
         return result
 
     @override
-    def __or__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:
+    def __or__(self, other: Set[_S]) -> OrderedSet[_T | _S]:
         return self.union(other)
 
     @override
@@ -1058,7 +1061,7 @@ class OrderedSet(set[_T]):
         return self.__class__(a for a in self if a in other_set)
 
     @override
-    def __and__(self, other: AbstractSet[object]) -> OrderedSet[_T]:
+    def __and__(self, other: Set[object]) -> OrderedSet[_T]:
         return self.intersection(other)
 
     @override
@@ -1077,8 +1080,8 @@ class OrderedSet(set[_T]):
         return result
 
     @override
-    def __xor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:
-        return cast("OrderedSet[Union[_T, _S]]", self).symmetric_difference(other)
+    def __xor__(self, other: Set[_S]) -> OrderedSet[_T | _S]:
+        return cast("OrderedSet[_T | _S]", self).symmetric_difference(other)
 
     @override
     def difference(self, *other: Iterable[Any]) -> OrderedSet[_T]:
@@ -1086,7 +1089,7 @@ class OrderedSet(set[_T]):
         return self.__class__(a for a in self._list if a in other_set)
 
     @override
-    def __sub__(self, other: AbstractSet[Optional[_T]]) -> OrderedSet[_T]:
+    def __sub__(self, other: Set[_T | None]) -> OrderedSet[_T]:
         return self.difference(other)
 
     @override
@@ -1095,7 +1098,7 @@ class OrderedSet(set[_T]):
         self._list = [a for a in self._list if a in self]
 
     @override
-    def __iand__(self, other: AbstractSet[object]) -> OrderedSet[_T]:
+    def __iand__(self, other: Set[object]) -> OrderedSet[_T]:
         self.intersection_update(other)
         return self
 
@@ -1107,16 +1110,16 @@ class OrderedSet(set[_T]):
         self._list += [a for a in collection if a in self]
 
     @override
-    def __ixor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:  # type: ignore
+    def __ixor__(self, other: Set[_S]) -> OrderedSet[_T | _S]:  # type: ignore
         self.symmetric_difference_update(other)
-        return cast("OrderedSet[Union[_T, _S]]", self)
+        return cast("OrderedSet[_T | _S]", self)
 
     @override
     def difference_update(self, *other: Iterable[Any]) -> None:
         super().difference_update(*other)
         self._list = [a for a in self._list if a in self]
 
-    def __isub__(self, other: AbstractSet[Optional[_T]]) -> OrderedSet[_T]:  # type: ignore  # noqa: E501
+    def __isub__(self, other: Set[_T | None]) -> OrderedSet[_T]:  # type: ignore  # noqa: E501
         self.difference_update(other)
         return self
 
@@ -1282,10 +1285,7 @@ def wrap_database_errors() -> Iterator[None]:
 
         if isinstance(
             exception,
-            (
-                sqlalchemy.exc.ArgumentError,
-                sqlalchemy.exc.InvalidRequestError,
-            ),
+            sqlalchemy.exc.ArgumentError | sqlalchemy.exc.InvalidRequestError,
         ):
             raise Failure(
                 DatabaseProgrammingError(
@@ -1390,6 +1390,7 @@ LINUX = platform.system() == "Linux"
 MACOS = platform.system() == "Darwin"
 WINDOWS = platform.system() == "Windows"
 UNIX = not WINDOWS
+FREE_THREADED = "free" in sys.version
 
 
 def get_temporary_directory() -> Path:

@@ -4,7 +4,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Iterable,
     Literal,
     TypeAlias,
     TypedDict,
@@ -36,6 +35,8 @@ from ceres._internal.util import MatchMode, get_type_adapter
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, jsonify
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 

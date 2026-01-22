@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import traceback
 from abc import abstractmethod
-from typing import TYPE_CHECKING, AsyncIterable, AsyncIterator, Callable, Generic, override
+from collections.abc import AsyncIterable, AsyncIterator, Callable
+from typing import TYPE_CHECKING, Generic, override
 
 from pydantic import SkipValidation
 from typing_extensions import TypeVar

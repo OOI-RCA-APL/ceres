@@ -1,14 +1,11 @@
 import json
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncIterator,
-    Callable,
-    Coroutine,
-    Mapping,
     cast,
 )
 from uuid import UUID

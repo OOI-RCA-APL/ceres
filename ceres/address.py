@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, Final, Literal, Self, Sequence, override
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Final, Literal, Self, override
 
 from pydantic_core import CoreSchema, SchemaSerializer
 from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
@@ -265,7 +266,7 @@ class DynamicAddress(AddressSelector):
         super().__init__(value)
 
     def __new__(cls, value: str | AddressSelector, /) -> Self:
-        if not isinstance(value, (str, AddressSelector)):
+        if not isinstance(value, str | AddressSelector):
             raise ValueError(f"{value!r} must be an instance of {str} or {AddressSelector}")
 
         if isinstance(value, str):
@@ -409,8 +410,8 @@ class Address(DynamicAddress):
     REGEX: Final = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")  # type: ignore
 
     if TYPE_CHECKING:
-        ENGINE: Self
-        ROOT: Self
+        ENGINE: Address
+        ROOT: Address
     else:
 
         @classproperty

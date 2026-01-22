@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, Mapping, Self, Sequence, TypeVar
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Annotated, Any, Self, TypeVar
 
 from pydantic import (
     BaseModel,

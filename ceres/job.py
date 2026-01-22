@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from asyncio import CancelledError
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from threading import Lock
 from typing import TYPE_CHECKING
@@ -70,7 +70,7 @@ class ComponentJobManager(BaseComponentManager):
 
     @classmethod
     def __create_scheduler(cls) -> AsyncIOScheduler:
-        return AsyncIOScheduler(timezone=timezone.utc)
+        return AsyncIOScheduler(timezone=UTC)
 
     @property
     def count(self) -> int:

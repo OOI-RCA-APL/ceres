@@ -1,17 +1,14 @@
 import asyncio
 import contextvars
 from asyncio import sleep
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable, Iterable, Sequence
+from datetime import UTC, datetime
 from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
 from typing import (
     TYPE_CHECKING,
     Any,
-    Awaitable,
-    Callable,
-    Iterable,
     NotRequired,
-    Sequence,
     TypedDict,
 )
 
@@ -815,7 +812,7 @@ async def execute_timestamp_filter_test(cls: type[Record]):
     }
 
     await fake_now(
-        datetime(year=2024, month=1, day=3, tzinfo=timezone.utc),
+        datetime(year=2024, month=1, day=3, tzinfo=UTC),
         execute_filter_test(cls, group),
     )
 

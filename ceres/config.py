@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ssl
 from abc import abstractmethod
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from re import Pattern
@@ -10,9 +11,7 @@ from typing import (
     Annotated,
     Any,
     Literal,
-    Mapping,
     Self,
-    Sequence,
     TypeAlias,
     TypeVar,
     override,
@@ -260,17 +259,17 @@ class ComponentConfig(__BaseConfigObject):
         serialization_alias="class",
     )
     arguments: Mapping[str, Any] = Field(default_factory=dict)
+    logging: LoggingConfig | None = None
+    connections: Sequence[ConnectionConfig] = Field(default_factory=list)
+    sieves: Sequence[SieveConfig] = Field(default_factory=list)
     jobs: Sequence[JobConfig] = Field(default_factory=list)
     pruners: Sequence[Annotated[PrunerConfig, Field(discriminator="prunes")]] = Field(
         default_factory=list
     )
-    logging: LoggingConfig | None = None
-    connections: Sequence[ConnectionConfig] = Field(default_factory=list)
-    sieves: Sequence[SieveConfig] = Field(default_factory=list)
     components: Sequence[ComponentConfig] = Field(default_factory=list)
 
     @field_validator("cls")
-    def _validate_cls(cls, value: ImportString[type[Component]]) -> ImportString[type[Component]]:
+    def _validate_cls(cls, value: ImportString[type]) -> ImportString[type[Component]]:
         from ceres.component import Component
 
         if not issubclass(value, Component):
@@ -615,7 +614,7 @@ class ConfigMeta(__BaseConfigObject):
                 return Fail(ConfigReadError(message=f"path '{source}' could not be resolved"))
 
             try:
-                with open(path, "r") as stream:
+                with open(path) as stream:
                     data = yaml.safe_load(stream)
             except OSError:
                 return Fail(ConfigReadError(message=f"failed to read file at '{path}'"))

@@ -9,10 +9,8 @@ from typing import (
     IO,
     TYPE_CHECKING,
     Any,
-    Iterable,
     Self,
     TypeAlias,
-    Union,
     final,
     overload,
     override,
@@ -23,16 +21,18 @@ from pydantic_core.core_schema import no_info_after_validator_function
 from ceres.data import uuid4
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from _typeshed import OpenBinaryMode as OpenBinaryMode
     from _typeshed import OpenTextMode as OpenTextMode
     from pydantic import GetCoreSchemaHandler
     from pydantic_core import CoreSchema
 else:
-    OpenBinaryMode = "OpenBinaryMode"
-    OpenTextMode = "OpenTextMode"
+    OpenBinaryMode = object
+    OpenTextMode = object
 
 StrPath: TypeAlias = str | PathLike[str]
-OpenMode: TypeAlias = Union[OpenTextMode, OpenBinaryMode]
+OpenMode: TypeAlias = OpenTextMode | OpenBinaryMode
 
 
 @final

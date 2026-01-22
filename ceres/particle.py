@@ -1,25 +1,20 @@
 from __future__ import annotations
 
+import builtins
 import re
 from abc import abstractmethod
-from collections.abc import Mapping
+from collections.abc import ItemsView, Iterable, KeysView, Mapping, MutableMapping, ValuesView
 from re import Pattern
 from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
     Generic,
-    ItemsView,
-    Iterable,
-    KeysView,
     Literal,
     LiteralString,
-    MutableMapping,
     Self,
-    Type,
     TypeAlias,
     Unpack,
-    ValuesView,
     overload,
     override,
 )
@@ -182,7 +177,7 @@ class ParticleFilterArgs(
     Generic[_T],
     total=False,
 ):
-    cls: ImportString[Type[_T]] | None
+    cls: ImportString[type[_T]] | None
     type: MaybeSequence[str] | None
     type_contains: MaybeSequence[str] | None
     type_prefix: MaybeSequence[str] | None
@@ -196,7 +191,7 @@ class ParticleFilter(
     BaseRecordFilter["Particle", ParticleField, ParticleOrder],
     Generic[_T],
 ):
-    cls: ImportString[Type[_T]] | None = None
+    cls: ImportString[builtins.type[_T]] | None = None
     """Filter by particles being instances of a specific data class."""
     type: MaybeSequence[str] | None = None
     """Filter by `type` being equal to one or more given types."""
@@ -458,7 +453,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
 
         return value
 
-    def convert[D: DynamicParticleData](self, cls: Type[D]) -> Particle[D]:
+    def convert[D: DynamicParticleData](self, cls: builtins.type[D]) -> Particle[D]:
         data = (
             cls.model_validate(self.data)
             if util.lenient_issubclass(cls, ParticleData)
@@ -473,7 +468,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
             data=data,
         )
 
-    def convert_or_none[D: DynamicParticleData](self, cls: Type[D]) -> Particle[D] | None:
+    def convert_or_none[D: DynamicParticleData](self, cls: builtins.type[D]) -> Particle[D] | None:
         try:
             return self.convert(cls)
         except ValidationError:

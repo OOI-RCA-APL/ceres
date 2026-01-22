@@ -3,12 +3,14 @@ from __future__ import annotations
 from asyncio import Event as AsyncEvent
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
     from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.entity import Entity

@@ -3,12 +3,13 @@ from __future__ import annotations
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
 from tempfile import gettempdir
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Self, final, override
+from typing import TYPE_CHECKING, Any, Self, final, override
 
 from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
 
@@ -532,7 +533,7 @@ def _ceres_date_bin(
     value: str | object,
     origin: str | object,
 ) -> str | None:
-    if not isinstance(interval, (int, float)):
+    if not isinstance(interval, int | float):
         return None
     if not isinstance(value, str):
         return None

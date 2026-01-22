@@ -3,8 +3,9 @@ from __future__ import annotations
 import traceback
 from abc import abstractmethod
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import field
-from typing import TYPE_CHECKING, Any, Iterable, Sequence, final, override
+from typing import TYPE_CHECKING, Any, final, override
 
 from ceres._internal import util
 from ceres._internal.templates import templates
@@ -129,7 +130,7 @@ class HTMLDispatchWriter(DispatchWriter):
             count = 0
 
             for value in values:
-                if isinstance(value, (dict, list)):
+                if isinstance(value, dict | list):
                     count += get_size(value)
                 else:
                     count += 1

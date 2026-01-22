@@ -1,5 +1,6 @@
+from collections.abc import Iterable, Sized
 from types import NoneType
-from typing import Iterable, Sized, cast
+from typing import cast
 
 from ceres import Component, Reference
 from ceres.address import Address
@@ -117,15 +118,13 @@ def test_indirect_references():
         c: Ref[C]
 
     a = A("a")
-    a.system.attach((b := B("b")))
-    a.system.attach((c := C("c", b=ref(b.system.address, B))))
+    a.system.attach(b := B("b"))
+    a.system.attach(c := C("c", b=ref(b.system.address, B)))
     a.system.attach(
-        (
-            d := D(
-                "d",
-                b=ref(b.system.address, B),
-                c=ref(c.system.address, C),
-            )
+        d := D(
+            "d",
+            b=ref(b.system.address, B),
+            c=ref(c.system.address, C),
         )
     )
 

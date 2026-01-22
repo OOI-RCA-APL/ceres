@@ -3,20 +3,22 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from abc import ABC, abstractmethod
-from typing import (
-    TYPE_CHECKING,
-    Any,
+from collections.abc import (
     AsyncIterator,
     Awaitable,
     Callable,
-    ClassVar,
-    Final,
     Generator,
     Iterable,
-    Literal,
     Mapping,
-    Self,
     Sequence,
+)
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Final,
+    Literal,
+    Self,
     TypeAlias,
     TypedDict,
     Unpack,
@@ -161,7 +163,7 @@ class BaseEntityRow(
         *,
         if_not_exists: bool = True,
     ) -> Iterable[str]:
-        if isinstance(dialect, (Engine, AsyncEngine)):
+        if isinstance(dialect, Engine | AsyncEngine):
             dialect = dialect.dialect
 
         for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name or "")):
@@ -439,7 +441,7 @@ class BaseEntityFilter[
 
         pk = pk[0] if len(pk) == 1 else tuple_(*pk)
 
-        if isinstance(statement, (Update, Delete)):
+        if isinstance(statement, Update | Delete):
             return statement.where(pk.in_(pks))
 
         return statement.where(pk.in_(pks)).order_by(*order_by)
