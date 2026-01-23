@@ -1,6 +1,6 @@
 from dataclasses import field
 
-from pydantic import TypeAdapter
+from pydantic import Field, TypeAdapter
 
 from ceres.data import ValidatedDataclass
 
@@ -32,4 +32,15 @@ def test_set_attribute_adds_to_fields_set():
     instance.b = "changed"
     assert instance.__pydantic_fields_set__ == {"a", "b"}
     instance.c = 3
+    assert instance.__pydantic_fields_set__ == {"a", "b", "c"}
+
+
+def test_positional_values_are_added_to_fields_set():
+    class PositionalValues(ValidatedDataclass):
+        a: int = Field(kw_only=False)
+        b: int = Field(default=0, kw_only=False)
+        c: str = "default"
+        d: float = field(default=1.0)
+
+    instance = PositionalValues(10, 20, c="c")
     assert instance.__pydantic_fields_set__ == {"a", "b", "c"}

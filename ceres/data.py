@@ -5,7 +5,6 @@ from abc import ABC
 from collections.abc import Callable, Mapping, Sequence, Sized
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum as BaseStrEnum
-from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -18,16 +17,18 @@ from typing import (
     TypeAlias,
     TypedDict,
     Unpack,
+    cast,
     dataclass_transform,
     override,
     runtime_checkable,
 )
 from uuid import UUID
 
-import pydantic.dataclasses
+import pydantic
 from pydantic import (
     AfterValidator,
     AliasGenerator,
+    AliasPath,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -39,19 +40,17 @@ from pydantic import (
 )
 from pydantic.aliases import AliasChoices
 from pydantic.fields import FieldInfo
+from pydantic_core import ArgsKwargs, PydanticUndefined
 from pydantic_extra_types.color import Color as Color
 from pydantic_settings import NoDecode
 from typing_extensions import TypeVar
 
 from ceres._internal import util
-from ceres._internal.util import (
-    NAME_PATTERN,
-    DataclassLike,
-    PydanticDataclassLike,
-    get_type_adapter,
-)
+from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike, get_type_adapter
 
 if TYPE_CHECKING:
+    from inspect import Signature
+
     from pydantic.main import IncEx
     from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 
@@ -322,7 +321,6 @@ def __validate_jsonable(value: object) -> object:
 _TAny = TypeVar("_TAny", default=Any)
 JSONSerializable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
 
-_TKey = TypeVar("_TKey", default=str)
 _TValue = TypeVar("_TValue", default=Any)
 JSONSerializableDict: TypeAlias = JSONSerializable[dict[str, _TValue]]
 JSONSerializableList: TypeAlias = JSONSerializable[list[_TValue]]
@@ -399,10 +397,30 @@ class DeferBuild(BaseModel, ABC):
     model_config = ConfigDict(defer_build=True)
 
 
+def _patch_dataclass_fields() -> None:
+    try:
+        _original_as_dataclass_field: Any = pydantic._internal._dataclasses.as_dataclass_field  # type: ignore
+    except AttributeError:
+        _original_as_dataclass_field = None
+
+    if _original_as_dataclass_field is not None:
+
+        def overridden_as_dataclass_field(pydantic_field: FieldInfo) -> dataclasses.Field[Any]:
+            field = _original_as_dataclass_field(pydantic_field)
+            if pydantic_field.kw_only is not None:
+                field.kw_only = pydantic_field.kw_only
+
+            return field
+
+        pydantic._internal._dataclasses.as_dataclass_field = overridden_as_dataclass_field  # type: ignore
+
+
 if TYPE_CHECKING:
     from ceres.component import ConnectionField
 else:
     ConnectionField = object
+
+_patch_dataclass_fields()
 
 
 @dataclass_transform(
@@ -436,6 +454,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
+        __signature__: ClassVar[Signature]
         __pydantic_config__: ClassVar[ConfigDict]
         __pydantic_complete__: ClassVar[bool]
         __pydantic_core_schema__: ClassVar[CoreSchema]
@@ -447,8 +466,8 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
     def __init_subclass__(
         cls,
         *,
-        init: Literal[False] = False,
-        repr: bool = False,
+        init: Literal[True] = True,
+        repr: Literal[True] = True,
         eq: bool = True,
         order: bool = False,
         unsafe_hash: bool = False,
@@ -457,8 +476,9 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         validate_on_init: bool | None = None,
         kw_only: bool = True,
         slots: bool = False,
+        **kwargs: Any,
     ) -> None:
-        super().__init_subclass__()
+        super().__init_subclass__(**kwargs)
         inherited = ConfigDict()
 
         for base in reversed(cls.__bases__):
@@ -475,8 +495,6 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         )
 
         pydantic.dataclasses.dataclass(
-            init=init,
-            repr=repr,
             eq=eq,
             order=order,
             unsafe_hash=unsafe_hash,
@@ -487,18 +505,6 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
             slots=slots,
         )(cls)
 
-        # Wrap the generated `__init__` to update `__pydantic_fields_set__`.
-        __init__ = cls.__init__
-
-        @wraps(__init__)
-        def wrapper(self: Self, *args: object, **kwargs: object) -> None:
-            __init__(self, *args, **kwargs)
-            # TODO: Handle positional args.
-            self.__pydantic_fields_set__ = {key for key in kwargs if key in cls.__pydantic_fields__}
-
-        cls.__init__ = wrapper
-
-    # TODO: Handle positional args.
     @model_validator(mode="wrap")
     @classmethod
     def _init__pydantic_fields_set__(
@@ -506,8 +512,8 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         data: Any,
         handler: ModelWrapValidatorHandler[Self],
     ) -> ValidatedDataclass:
-        if isinstance(data, Mapping):
-            __pydantic_fields_set__ = {*data.keys()}
+        if isinstance(data, Mapping | ArgsKwargs):
+            __pydantic_fields_set__ = cls._compute_fields_set(data)
         else:
             __pydantic_fields_set__ = {*cls.__pydantic_fields__.keys()}
 
@@ -518,6 +524,58 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
             instance.__pydantic_fields_set__.update(instance.__pydantic_fields_set__)
 
         return instance
+
+    @classmethod
+    def _compute_fields_set(cls, values: Mapping[str, Any] | ArgsKwargs) -> set[str]:
+        fields_set = set()
+
+        if isinstance(values, ArgsKwargs):
+            from inspect import Parameter
+
+            # Handle positional arguments.
+            count = len(values.args)
+            for i, parameter in enumerate(cls.__signature__.parameters.values()):
+                if i >= count:
+                    break
+
+                if (
+                    parameter.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
+                    and parameter.name in cls.__pydantic_fields__
+                ):
+                    fields_set.add(parameter.name)
+
+            values = values.kwargs or {}
+
+        # Taken from Pydantic's implementation.
+        for name, field in cls.__pydantic_fields__.items():
+            if field.alias is not None and field.alias in values:
+                fields_set.add(name)
+
+            if (name not in fields_set) and (field.validation_alias is not None):
+                aliases: list[str | AliasPath] = (
+                    field.validation_alias.choices
+                    if isinstance(field.validation_alias, AliasChoices)
+                    else [field.validation_alias]
+                )
+
+                for alias in aliases:
+                    if isinstance(alias, str) and alias in values:
+                        fields_set.add(name)
+                        break
+
+                    if isinstance(alias, AliasPath):
+                        value = alias.search_dict_for_path(cast("dict[str, Any]", values))
+                        if value is not PydanticUndefined:
+                            fields_set.add(name)
+                            break
+
+            if name not in fields_set:
+                if name in values:
+                    fields_set.add(name)
+                elif not field.is_required():
+                    pass
+
+        return fields_set
 
     @override
     def __setattr__(self, name: str, value: Any, /) -> None:
@@ -685,11 +743,9 @@ class OrderedStrEnum(StrEnum):
 
 
 @runtime_checkable
-class _AssignedFieldsTrackingDataclass(DataclassLike, Protocol):
+class _SupportsAssignedFieldsTracking(Protocol):
+    __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
     __pydantic_fields_set__: set[str]
-
-
-_SupportsAssignedFieldsTracking = BaseModel | _AssignedFieldsTrackingDataclass
 
 
 def get_assigned_fields(obj: _SupportsAssignedFieldsTracking, /) -> set[str]:
@@ -742,7 +798,7 @@ def defaulting[T: _SupportsAssignedFieldsTracking](
     if isinstance(original, BaseModel):
         return original.model_copy(update=update)
     else:
-        return dataclasses.replace(original, **update)
+        return dataclasses.replace(original, **update)  # type: ignore
 
 
 def replacing[T: _SupportsAssignedFieldsTracking](
@@ -760,7 +816,10 @@ def replacing[T: _SupportsAssignedFieldsTracking](
     if isinstance(original, BaseModel):
         return original.model_copy(update=update)
     else:
-        return dataclasses.replace(original, **update)
+        return dataclasses.replace(
+            original,  # type: ignore
+            **update,
+        )
 
 
 def WithDefaults(
