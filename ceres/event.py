@@ -6,12 +6,7 @@ import traceback
 from abc import ABC
 from asyncio import Queue as AsyncQueue
 from collections.abc import Awaitable, Callable, Sequence
-from typing import (
-    TYPE_CHECKING,
-    Literal,
-    TypeAlias,
-    cast,
-)
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from uuid import UUID
 
 from pydantic import ByteSize, Field
@@ -20,7 +15,13 @@ from ceres._internal import util
 from ceres._internal.manager import BaseNodeManager
 from ceres.address import Address
 from ceres.channel import Channel, OutputChannel
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, TimeDelta, uuid7
+from ceres.data import (
+    DateTime,
+    PositiveTimeDelta,
+    TimeDelta,
+    ValidatedDataclass,
+    uuid7,
+)
 from ceres.level import Level
 from ceres.timing import utc
 
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from ceres._internal.protocols import NodeSource
 
 
-class Event(ImmutableDataObject):
+class Event(ValidatedDataclass):
     id: UUID = Field(default_factory=uuid7)
 
     if TYPE_CHECKING:
@@ -138,8 +139,15 @@ class DisconnectedEvent(__BaseStandardEvent):
     connection: str | None = None
 
 
-class IdleTimeoutEvent(__BaseStandardEvent):
-    type: Literal["idle-timeout"] = "idle-timeout"
+class ConnectTimeoutEvent(__BaseStandardEvent):
+    type: Literal["connect-timeout"] = "connect-timeout"
+    level: Level = Level.WARNING
+    connection: str | None = None
+    timeout: TimeDelta
+
+
+class ReceiveTimeoutEvent(__BaseStandardEvent):
+    type: Literal["receive-timeout"] = "receive-timeout"
     level: Level = Level.WARNING
     connection: str | None = None
     timeout: TimeDelta
@@ -179,7 +187,7 @@ class ConnectFailedEvent(__BaseStandardEvent):
     type: Literal["connect-failed"] = "connect-failed"
     level: Level = Level.ERROR
     connection: str | None = None
-    reason: str | None = None
+    message: str | None = None
 
 
 class ReconnectScheduledEvent(__BaseStandardEvent):
@@ -206,7 +214,7 @@ ConnectionEvent: TypeAlias = (
     | ConnectedEvent
     | DisconnectedEvent
     | DisconnectingEvent
-    | IdleTimeoutEvent
+    | ReceiveTimeoutEvent
     | DisconnectVerifyStartedEvent
     | DisconnectVerifiedEvent
     | DisconnectUnverifiedEvent

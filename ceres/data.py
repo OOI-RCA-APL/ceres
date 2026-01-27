@@ -5,6 +5,7 @@ from abc import ABC
 from collections.abc import Callable, Mapping, Sequence, Sized
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum as BaseStrEnum
+from re import RegexFlag
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -841,3 +842,31 @@ def WithDefaults(
         return defaulting(obj, defaults, **kwargs)
 
     return AfterValidator(WithDefaults)
+
+
+_REGEX_FLAG_CHARACTERS = set(member for member in RegexFlag.__members__ if len(member) == 1)
+
+
+def _pre_validate_regex_flags(value: object) -> object:
+    if isinstance(value, str):
+        value = value.upper()
+        try:
+            return RegexFlag[value]
+        except KeyError:
+            pass
+
+        summed = RegexFlag.NOFLAG
+        for character in value:
+            try:
+                summed |= RegexFlag[character]
+            except KeyError:
+                raise ValueError(
+                    f"invalid regex flag character '{character}', must be one of: {_REGEX_FLAG_CHARACTERS}"
+                )
+
+        return summed
+
+    return value
+
+
+RegexFlags = Annotated[RegexFlag, BeforeValidator(_pre_validate_regex_flags)]

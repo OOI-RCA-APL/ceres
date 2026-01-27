@@ -29,10 +29,13 @@ with lazy_imports(__name__, export=True):
     from ceres.connection import ConnectionField as ConnectionField
     from ceres.connection import ConnectionInactive as ConnectionInactive
     from ceres.connection import ConnectionLost as ConnectionLost
+    from ceres.connection import SplitByDelay as SplitByDelay
     from ceres.connection import SplitByLine as SplitByLine
     from ceres.connection import SplitByRegex as SplitByRegex
+    from ceres.connection import Splitter as Splitter
     from ceres.connection import TCPSource as TCPSource
     from ceres.connection import UNIXSocketSource as UNIXSocketSource
+    from ceres.connection import Unsplit as Unsplit
     from ceres.connectivity import Connectivity as Connectivity
     from ceres.data import DataObject as DataObject
     from ceres.data import ImmutableDataObject as ImmutableDataObject

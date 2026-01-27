@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import traceback
 from abc import abstractmethod
-from collections.abc import AsyncIterable, AsyncIterator, Callable
-from typing import TYPE_CHECKING, Generic, override
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
+from dataclasses import field
+from typing import TYPE_CHECKING, Generic, TypeAlias, cast, override
 
 from pydantic import SkipValidation
 from typing_extensions import TypeVar
@@ -27,28 +28,60 @@ from ceres.particle import Particle
 if TYPE_CHECKING:
     from ceres.message import Message
 
-    _T = TypeVar("_T", bound=Particle, covariant=True, default=Particle)
+    ParticleT = TypeVar("ParticleT", bound=Particle, covariant=True, default=Particle)
 else:
     Message = object
 
-    _T = TypeVar("_T", covariant=True, default=Particle)
+    ParticleT = TypeVar("ParticleT", covariant=True, default=Particle)
 
 
-class Sieve(ValidatedDataclass, Generic[_T]):
+class Sieve(ValidatedDataclass, Generic[ParticleT]):
     @abstractmethod
-    def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[_T]: ...
+    def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[ParticleT]: ...
 
 
-class MethodSieve(Sieve[_T], Generic[_T]):
-    method: SkipValidation[Callable[[AsyncIterable[Message]], AsyncIterator[_T]]]
+MonoSieveFunction = Callable[[Message], ParticleT | None | Awaitable[ParticleT | None]]
+PolySieveFunction = Callable[[AsyncIterable[Message]], AsyncIterable[ParticleT]]
+SieveFunction: TypeAlias = MonoSieveFunction[ParticleT] | PolySieveFunction[ParticleT]
+
+
+def poly(messages: AsyncIterable[Message]) -> AsyncIterable[ParticleT]: ...
+
+
+class FunctionalSieve(Sieve[ParticleT], Generic[ParticleT]):
+    function: SkipValidation[SieveFunction[ParticleT]] = field(kw_only=False)
 
     @override
-    async def process(
-        self,
-        messages: AsyncIterable[Message],
-    ) -> AsyncIterator[_T]:
-        async for message in self.method(messages):
-            yield message
+    async def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[ParticleT]:
+        poly = self._get_poly()
+        async for message in poly(messages):
+            yield cast("ParticleT", message)
+
+    def _get_poly(self) -> PolySieveFunction:
+        import inspect
+
+        signature = inspect.signature(self.function)
+        annotations = inspect.get_annotations(self.function, eval_str=True)
+        parameters = list(signature.parameters.values())
+        if len(signature.parameters) != 1:
+            raise ValueError("Sieve method must take exactly one parameter.")
+
+        annotation = annotations.get(parameters[0].name)
+        mono = util.is_subtype(annotation, Message)
+
+        if mono:
+            inner = cast("MonoSieveFunction", self.function)
+
+            async def poly(messages: AsyncIterable[Message]) -> AsyncIterator[ParticleT]:
+                async for message in messages:
+                    result = await util.awaitify(inner(message))
+                    if result is not None:
+                        yield cast("ParticleT", result)
+
+            poly.__name__ = self.function.__name__
+            return poly
+
+        return cast("PolySieveFunction", self.function)
 
 
 if TYPE_CHECKING:

@@ -35,7 +35,6 @@ from pydantic import (
 )
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
@@ -76,13 +75,13 @@ from ceres.result import Fail, Ok, Result
 from ceres.schedule import ScheduleExpr
 
 if TYPE_CHECKING:
-    from ceres.component import ComponentSystem
+    from ceres.component import Component, ComponentSystem
     from ceres.connection import Connection
     from ceres.engine import Engine
-
-with lazy_imports(__name__):
-    from ceres.component import Component
-    from ceres.sieve import Sieve
+    from ceres.sieve import FunctionalSieve, Sieve
+else:
+    Sieve = Any
+    Component = Any
 
 
 class __BaseConfigObject(ImmutableDataObject, DeferBuild):
@@ -173,11 +172,6 @@ PrunerConfig: TypeAlias = (
     MessagePrunerConfig | ParticlePrunerConfig | AlertPrunerConfig | LogEntryPrunerConfig
 )
 
-if TYPE_CHECKING:
-    from ceres.sieve import Sieve
-else:
-    Sieve = Any
-
 
 class __BaseSieveConfig(__BaseConfigObject):
     type: Literal["class", "method"]
@@ -229,11 +223,11 @@ class MethodSieveConfig(__BaseSieveConfig):
     method: Name
 
     @override
-    def create(self, component: Component) -> Sieve:
-        from ceres.sieve import MethodSieve
+    def create(self, component: Component) -> FunctionalSieve:
+        from ceres.sieve import FunctionalSieve
 
         method = getattr(component, self.method)
-        return MethodSieve(method=method)
+        return FunctionalSieve(function=method)
 
 
 SieveConfig: TypeAlias = ClassSieveConfig | MethodSieveConfig
@@ -243,12 +237,6 @@ def _get_component_class() -> type[Component]:
     from ceres.component import Component
 
     return Component
-
-
-if TYPE_CHECKING:
-    from ceres.component import Component
-else:
-    Component = Any
 
 
 class ComponentConfig(__BaseConfigObject):

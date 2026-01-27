@@ -503,7 +503,7 @@ def _get_data_class(
     return data_class
 
 
-class ParticleParseFailed(Exception):
+class ParseFailed(Exception):
     """Raised when `ParseableParticleData.parse` fails."""
 
 
@@ -555,9 +555,9 @@ class RegexParticleData(ParseableParticleData):
     def parse(cls, content: bytes) -> Self:
         match = cls.__regex_compiled__.match(content)
         if match is None:
-            raise ParticleParseFailed("Bytes did not match regex pattern.")
+            raise ParseFailed("Bytes did not match regex pattern.")
 
         try:
             return cls.model_validate(match.groupdict())
         except ValidationError as error:
-            raise ParticleParseFailed(f"Bytes matched, but validation failed. {error}") from error
+            raise ParseFailed(f"Bytes matched, but validation failed. {error}") from error

@@ -29,7 +29,7 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import MaybeSequence
+from ceres.data import MaybeSequence, jsonify
 from ceres.level import Level
 from ceres.timing import utc
 
@@ -397,7 +397,7 @@ class BoundLogManager(LogManager, BaseNodeManager):
         if level is None:
             level = event.level
 
-        self.emit(level, "[event] {data}", event.address, data=event.model_dump_json())
+        self.emit(level, "[event] {data}", event.address, data=jsonify(event))
 
     def message(self, message: Message, level: Level | None = None, /) -> None:
         if level is None:

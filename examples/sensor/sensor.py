@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import AsyncIterable, TypeAlias, override
+from typing import TypeAlias, override
 
 from ceres import (
     Bound,
     Component,
     Connection,
-    ConnectionField,
     Message,
     Particle,
     ParticleData,
-    SplitByLine,
     sieve,
 )
+from ceres.connection.splitter import SplitByRegex
 from ceres.data import Number, TimeDelta
-from ceres.particle import ParticleParseFailed, RegexParticleData
+from ceres.particle import ParseFailed, RegexParticleData
 from ceres.server import TCPClient, TCPServer
 
 
@@ -47,33 +46,28 @@ SensorParticle: TypeAlias = Particle[ParticleData]
 
 class SensorDriver(Component):
     """
-    Example sensor driver that reads temperature, pressure, and humidity data from a TCP connection.
+    Example sensor driver that reads temperature, pressure, and humidity data from a connection.
 
     See `SensorParticleData` for the expected data format.
     """
 
-    connection: Bound[Connection] = ConnectionField(
-        splitter=SplitByLine(),
+    connection: Bound[Connection] = Connection.Field(
+        splitter=SplitByRegex(b"\n"),
         suffix=b"\n",
+        receive_timeout=30,
     )
 
     @sieve(connection)
-    async def sieve(
-        self,
-        messages: AsyncIterable[Message],
-    ) -> AsyncIterable[SensorParticle]:
-        async for message in messages:
-            try:
-                data = SensorParticleData.parse(message.content)
-            except ParticleParseFailed as exception:
-                self.system.log.warning(exception)
-                continue
-
-            yield SensorParticle(
+    async def sieve(self, message: Message) -> SensorParticle | None:
+        try:
+            return SensorParticle(
                 timestamp=message.timestamp,
                 address=message.address,
-                data=data,
+                data=SensorParticleData.parse(message.content),
             )
+        except ParseFailed as exception:
+            self.system.log.warning(exception)
+            return None
 
 
 class SensorSimulator(TCPServer):

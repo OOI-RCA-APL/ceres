@@ -996,7 +996,10 @@ class SieveBinding(ImmutableDataObject):
     connections: Sequence[Name] | None = None
 
 
-type SieveMethod[S, T: Particle] = Callable[[S, AsyncIterable[Message]], AsyncIterable[T]]
+type SieveMethod[S, T: Particle] = (
+    Callable[[S, Message], T | None | Awaitable[T | None]]
+    | Callable[[S, AsyncIterable[Message]], AsyncIterable[T]]
+)
 
 
 @overload
