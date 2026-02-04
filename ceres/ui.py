@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC
 from decimal import Decimal
 from enum import Enum
 from textwrap import dedent
@@ -19,7 +18,7 @@ from pydantic import (
 from ceres._internal import util
 from ceres.address import Address
 from ceres.component import get_component_method_binding_on
-from ceres.data import Color, DataObject, DeferBuild, Name, StrEnum
+from ceres.data import Color, DataObject, Name, StrEnum
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -63,7 +62,7 @@ class _BaseElementArgs(TypedDict, total=False):
     css_class: str | list[str] | None
 
 
-class _BaseElement(DataObject, DeferBuild, ABC):
+class _BaseElement(DataObject):
     type: ElementType
     css_style: str | dict[str, str] | None = None
     css_class: str | list[str] | None = None
@@ -253,7 +252,7 @@ AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | Strict
 
 
 class State(_BaseElement):
-    class Option(DataObject, DeferBuild):
+    class Option(DataObject):
         value: AtomicValue
         label: str
         color: Color
@@ -301,7 +300,7 @@ class State(_BaseElement):
 
 
 class Gauge(_BaseElement):
-    class ColorStop(DataObject, DeferBuild):
+    class ColorStop(DataObject):
         value: float
         color: Color
 

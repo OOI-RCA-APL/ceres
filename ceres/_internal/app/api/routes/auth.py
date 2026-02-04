@@ -16,7 +16,7 @@ from ceres._internal.app.shared import (
     assign_authorization_cookie,
     create_identity,
 )
-from ceres.data import DateTime, DeferBuild, ImmutableDataObject, NonEmptyStr, PasswordStr
+from ceres.data import DateTime, ImmutableDataObject, NonEmptyStr, PasswordStr
 from ceres.error import (
     AuthenticationDisabledError,
     BadCredentialsError,
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 WRONG_PASSWORD_DELAY_SECONDS = 2.5
 
 
-class LoginInput(ImmutableDataObject, DeferBuild):
+class LoginInput(ImmutableDataObject):
     username: str
     password: str
     cookie: AuthorizationCookieType | None = None
@@ -67,7 +67,7 @@ async def login(
     )
 
 
-class RefreshInput(ImmutableDataObject, DeferBuild):
+class RefreshInput(ImmutableDataObject):
     cookie: AuthorizationCookieType | None = None
 
 
@@ -104,7 +104,7 @@ async def logout(response: Response, identity: CurrentIdentity) -> Identity:
     return identity
 
 
-class MeResult(ImmutableDataObject, DeferBuild):
+class MeResult(ImmutableDataObject):
     user: APIUser
     expires: DateTime
 
@@ -117,7 +117,7 @@ async def get_me(identity: CurrentIdentity) -> Identity:
     return identity
 
 
-class ChangePasswordInput(ImmutableDataObject, DeferBuild):
+class ChangePasswordInput(ImmutableDataObject):
     old_password: NonEmptyStr
     new_password: PasswordStr
 

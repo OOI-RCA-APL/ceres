@@ -31,7 +31,6 @@ from ceres._internal.entity import BaseEntityFilter
 from ceres._internal.lazy import lazy_imports
 from ceres.data import (
     DateTime,
-    DeferBuild,
     EmailStr,
     ImmutableDataObject,
     StrEnum,
@@ -183,7 +182,7 @@ CurrentProcedureQueryArguments = Annotated[
 ]
 
 
-class APIUser(ImmutableDataObject, DeferBuild):
+class APIUser(ImmutableDataObject):
     id: UUID
     username: UsernameStr
     email: EmailStr
@@ -194,7 +193,7 @@ class APIUser(ImmutableDataObject, DeferBuild):
 APIUser.__name__ = "User"
 
 
-class APIIdentity(ImmutableDataObject, DeferBuild):
+class APIIdentity(ImmutableDataObject):
     user: APIUser
     token: str
     expires: DateTime

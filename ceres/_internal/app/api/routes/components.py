@@ -2,13 +2,7 @@ from __future__ import annotations
 
 import traceback
 from collections.abc import Mapping, Sequence
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Literal,
-    TypeAlias,
-)
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias
 
 from fastapi import APIRouter, Body, Request, Response, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
@@ -32,8 +26,7 @@ from ceres.component import (
     ProcedureType,
     QueryBinding,
 )
-from ceres.connection import ConnectionInactive
-from ceres.data import DataObject, DeferBuild, ImmutableDataObject, Name, StrEnum, jsonify
+from ceres.data import DataObject, ImmutableDataObject, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
     NotConnectedError,
@@ -56,7 +49,7 @@ class ComponentRole(StrEnum):
     INTERFACE = "interface"
 
 
-class APIComponent(ImmutableDataObject, DeferBuild):
+class APIComponent(ImmutableDataObject):
     name: Name
     address: Address
     components: Sequence[APIComponent]
@@ -398,6 +391,8 @@ async def send_message(
     connection: str,
     input: Annotated[SendMessageInput, Body()],
 ) -> Message | NotFoundError | NotConnectedError:
+    from ceres.connection import ConnectionInactive
+
     component = engine.get_component(address)
     if component is None:
         return NotFoundError()

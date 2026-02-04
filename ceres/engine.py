@@ -16,7 +16,7 @@ from ceres._internal.project import LoadedProject
 from ceres._internal.server import Server
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
-from ceres.data import DeferBuild, ImmutableDataObject, Name, PasswordHash, jsonify
+from ceres.data import ImmutableDataObject, Name, PasswordHash, jsonify
 from ceres.directory import Directory
 from ceres.error import ConfigError, Failure, ReloadConfigInvalidError, ReloadError
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
@@ -44,7 +44,7 @@ SyncActionType = Literal[
 ]
 
 
-class __BaseEngineAction(ImmutableDataObject, DeferBuild):
+class __BaseEngineAction(ImmutableDataObject):
     type: SyncActionType
 
 
@@ -82,7 +82,7 @@ EngineComponentAction = (
 EngineAction = EngineDatabaseAction | EngineServerAction | EngineComponentAction
 
 
-class EngineActions(ImmutableDataObject, DeferBuild):
+class EngineActions(ImmutableDataObject):
     database: EngineDatabaseAction | None
     server: EngineServerAction | None
     components: Sequence[EngineComponentAction] = Field(default_factory=list)

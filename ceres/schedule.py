@@ -20,7 +20,7 @@ from pydantic import (
 )
 
 from ceres._internal.util import decode_td
-from ceres.data import DateTime, DeferBuild, ImmutableDataObject, PositiveTimeDelta, StrEnum
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.timing import utc
 
 
@@ -30,7 +30,7 @@ class ScheduleType(StrEnum):
     OR = "or"
 
 
-class __BaseSchedule(ImmutableDataObject, DeferBuild):
+class __BaseSchedule(ImmutableDataObject):
     def __or__(self, other: Schedule) -> OrSchedule:
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)

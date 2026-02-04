@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from ceres.address import Address
 from ceres.connectivity import Connectivity
-from ceres.data import DataObject, DeferBuild
+from ceres.data import DataObject
 
 
-class Status(DataObject, DeferBuild):
+class Status(DataObject):
     address: Address
     running: bool
     enabled: bool | None = None

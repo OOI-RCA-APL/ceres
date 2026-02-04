@@ -66,7 +66,6 @@ from ceres._internal.util import construct_model
 from ceres.address import Address, AddressSelector
 from ceres.data import (
     DateTime,
-    DeferBuild,
     FromYAML,
     ImmutableDataObject,
     MaybeSequence,
@@ -447,7 +446,7 @@ class BaseEntityFilter[
         return statement.where(pk.in_(pks)).order_by(*order_by)
 
 
-class BaseEntityCreate(ImmutableDataObject, DeferBuild):
+class BaseEntityCreate(ImmutableDataObject):
     pass
 
 

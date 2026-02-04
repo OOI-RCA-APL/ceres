@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from ceres._internal.app.shared import SELF_OR_ADMIN, CurrentEngine, Limit, assert_found
-from ceres.data import DeferBuild, ImmutableDataObject, JSONSerializableDict
+from ceres.data import ImmutableDataObject, JSONSerializableDict
 from ceres.workspace import WorkspaceEdit, WorkspaceEditCreate, WorkspaceEditFilter
 
 router = APIRouter(tags=["workspace-edits"])
@@ -33,7 +33,7 @@ async def get_workspace_edits(
     return await engine.workspace_edits.where(user_id=user_id, and__=filter)
 
 
-class CreateWorkspaceEditData(ImmutableDataObject, DeferBuild):
+class CreateWorkspaceEditData(ImmutableDataObject):
     data: JSONSerializableDict
 
 

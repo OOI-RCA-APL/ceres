@@ -53,7 +53,7 @@ from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
 from ceres._internal.util import PathLike, wrap_database_errors
-from ceres.data import DataObject, DeferBuild, FromYAML, MaybeSequence, NonEmpty, dictify, jsonify
+from ceres.data import DataObject, FromYAML, MaybeSequence, NonEmpty, dictify, jsonify
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.result import Ok
@@ -255,7 +255,7 @@ class CLIDataConflict(StrEnum):
     UPDATE = "update"
 
 
-class CLICommand(DataObject, DeferBuild):
+class CLICommand(DataObject):
     model_config = ConfigDict(
         defer_build=True,
         use_attribute_docstrings=True,

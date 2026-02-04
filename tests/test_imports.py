@@ -43,8 +43,9 @@ def test_imports() -> None:
 
 def test_models_are_valid() -> None:
     """
-    Because `BaseModel` and Pydantic dataclasses can have `defer_build = True` set in their config
-    by default, this test makes sure all models and Pydantic dataclasses can actually be built.
+    Because `BaseModel` and Pydantic dataclasses may have `defer_build = True` set in their config,
+    or may have forward references, this test makes sure all models and Pydantic dataclasses can
+    actually be built.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("error")

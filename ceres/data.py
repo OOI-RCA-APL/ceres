@@ -381,10 +381,6 @@ class ImmutableDataObject(DataObject):
     model_config = ConfigDict(frozen=True)
 
 
-class DeferBuild:
-    model_config = ConfigDict(defer_build=True)
-
-
 def _patch_dataclass_fields() -> None:
     try:
         _original_as_dataclass_field: Any = pydantic._internal._dataclasses.as_dataclass_field  # type: ignore

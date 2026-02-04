@@ -17,7 +17,7 @@ from starlette.status import (
 
 from ceres._internal import util
 from ceres.address import Address, DynamicAddress
-from ceres.data import DataObject, DeferBuild, ImmutableDataObject, simplify
+from ceres.data import DataObject, ImmutableDataObject, simplify
 
 if TYPE_CHECKING:
     from fastapi.exceptions import RequestValidationError
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 _UNDEFINED = object()
 
 
-class ValidationProblem(ImmutableDataObject, DeferBuild):
+class ValidationProblem(ImmutableDataObject):
     type: str
     location: Sequence[str | int]
     message: str
@@ -101,7 +101,7 @@ class Error(ImmutableDataObject):
         return result
 
 
-class __BaseStandardError(Error, DeferBuild):
+class __BaseStandardError(Error):
     pass
 
 
@@ -344,7 +344,7 @@ class ConfigReadError(__BaseConfigError):
     message: str
 
 
-class ConfigParseErrorLocation(DataObject, DeferBuild):
+class ConfigParseErrorLocation(DataObject):
     line: int
     column: int
 
