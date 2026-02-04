@@ -104,7 +104,7 @@ class App(FastAPI):
         from ceres.config import ServerCompressionConfig
 
         compression = config.compression or ServerCompressionConfig()
-        if compression.enabled and False:
+        if compression.enabled:
             from starlette_compress import CompressMiddleware
 
             self.add_middleware(
@@ -276,34 +276,6 @@ class ScopeModifyMiddleware:
         extensions = scope.get("extensions")
         if extensions is not None:
             extensions.pop("http.response.pathsend", None)
-
-        # Combine multiple cookie headers into a single header. Starlette doesn't support multiple
-        # cookie headers, despite them being the sent by default on HTTP/2 and above in Chrome.
-        headers = scope.get("headers", [])
-        if not isinstance(headers, list):
-            headers = list(headers)
-
-        cookie_header_index: int | None = None
-        cookie_header_values: list[bytes] = []
-
-        for i, (key, value) in enumerate(headers):
-            if key.lower() == b"cookie":
-                if cookie_header_index is None:
-                    cookie_header_index = i
-
-                cookie_header_values.append(value)
-
-        if cookie_header_index is not None:
-            merged_cookie_header = (b"cookie", b"; ".join(cookie_header_values))
-            merged_headers = [
-                (key, value)
-                for i, (key, value) in enumerate(headers)
-                if key != "cookie" or i == cookie_header_index
-            ]
-            merged_headers[cookie_header_index] = merged_cookie_header
-
-            headers.clear()
-            headers.extend(merged_headers)
 
         return await self.app(scope, receive, send)
 

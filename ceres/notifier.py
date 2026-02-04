@@ -6,14 +6,8 @@ from typing import override
 
 from pydantic import Field, SecretStr
 
-from ceres._internal.lazy import lazy_imports
 from ceres.component import Component, action
 from ceres.data import ImmutableDataObject, NonBlankStr
-
-with lazy_imports(__name__):
-    from email.message import EmailMessage
-
-    import aiosmtplib
 
 
 class Notification(ImmutableDataObject):
@@ -52,6 +46,8 @@ class SMTPNotifier(Notifier):
             self.system.log.warning("No recipients specified, skipping notification.")
             return
 
+        from email.message import EmailMessage
+
         message = EmailMessage()
         message["From"] = self.sender
         message["To"] = ",".join(recipient.strip() for recipient in recipients)
@@ -64,8 +60,10 @@ class SMTPNotifier(Notifier):
         else:
             password = None
 
-        await aiosmtplib.send(
-            message=message,
+        from aiosmtplib import send
+
+        await send(
+            message,
             hostname=self.host,
             port=self.port,
             username=self.username,

@@ -69,27 +69,10 @@ class SerializeKwargs(SimplifyKwargs, total=False):
     indent: int | None
 
 
-_parse_json_impl: Callable[[str | bytes], Any] | None = None
-
-
-def _parse_json(value: str | bytes) -> Any:
-    global _parse_json_impl
-
-    if _parse_json_impl is None:
-        try:
-            import orjson
-
-            _parse_json_impl = orjson.loads
-        except ImportError:
-            import json
-
-            _parse_json_impl = json.loads
-
-    return _parse_json_impl(value)
-
-
 def simplify(obj: object, **kwargs: Unpack[SimplifyKwargs]) -> Any:
-    return _parse_json(jsonify(obj, **kwargs))
+    import json
+
+    return json.loads(jsonify(obj, **kwargs))
 
 
 def jsonify(obj: object, **kwargs: Unpack[SerializeKwargs]) -> str:
@@ -253,8 +236,10 @@ def uuid7(
 
 def __pre_validate_from_json(value: object) -> object:
     if isinstance(value, str | bytes):
+        import json
+
         try:
-            return _parse_json(value)
+            return json.loads(value)
         except Exception as error:
             raise ValueError(f"invalid JSON: {error}")
 
@@ -263,8 +248,10 @@ def __pre_validate_from_json(value: object) -> object:
 
 def __pre_validate_from_yaml(value: object) -> object:
     if isinstance(value, str | bytes):
+        import json
+
         try:
-            return _parse_json(value)
+            return json.loads(value)
         except Exception:
             pass
 
