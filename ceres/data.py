@@ -394,7 +394,7 @@ class ImmutableDataObject(DataObject):
     model_config = ConfigDict(frozen=True)
 
 
-class DeferBuild(BaseModel, ABC):
+class DeferBuild:
     model_config = ConfigDict(defer_build=True)
 
 
