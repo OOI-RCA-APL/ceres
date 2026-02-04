@@ -1477,9 +1477,6 @@ class BaseTimestampEntityFilter[
                 return False
 
         if self.after_hour is not None or self.before_hour is not None:
-            if obj.timestamp is None:
-                return False
-
             min_hour = self.after_hour if self.after_hour is not None else 0
             max_hour = self.before_hour if self.before_hour is not None else 24
             within_min = obj.timestamp.hour >= min_hour
@@ -1557,7 +1554,7 @@ class BaseTimestampEntityFilter[
                 case DatabaseType.SQLITE:
                     from sqlalchemy import cast
 
-                    hour = cast('func.strftime("%H", columns.timestamp)', Integer)
+                    hour = cast(func.strftime("%H", columns.timestamp), Integer)
 
             within_min = hour >= min_hour
             within_max = hour < max_hour
@@ -1578,7 +1575,7 @@ class BaseTimestampEntityFilter[
                 case DatabaseType.SQLITE:
                     from sqlalchemy import cast
 
-                    minute = cast('func.strftime("%M", columns.timestamp)', Integer)
+                    minute = cast(func.strftime("%M", columns.timestamp), Integer)
 
             within_min = minute >= min_minute
             within_max = minute < max_minute
