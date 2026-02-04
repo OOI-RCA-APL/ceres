@@ -403,19 +403,19 @@ class BoundLogManager(LogManager, BaseNodeManager):
         if level is None:
             level = Level.INFO
 
-        self.emit(level, "[message] {data}", message.address, data=message.model_dump_json())
+        self.emit(level, "[message] {data}", message.address, data=jsonify(message))
 
     def particle(self, particle: Particle, level: Level | None = None, /) -> None:
         if level is None:
             level = Level.INFO
 
-        self.emit(level, "[particle] {data}", particle.address, data=particle.model_dump_json())
+        self.emit(level, "[particle] {data}", particle.address, data=jsonify(particle))
 
     def alert(self, alert: Alert, level: Level | None = None, /) -> None:
         if level is None:
             level = alert.level
 
-        self.emit(level, "[alert] {data}", alert.address, data=alert.model_dump_json())
+        self.emit(level, "[alert] {data}", alert.address, data=jsonify(alert))
 
 
 class LogEntry(BaseRecord, LogEntryCreate):
