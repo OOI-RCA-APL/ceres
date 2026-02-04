@@ -6,18 +6,13 @@ from contextlib import closing
 from typing import TYPE_CHECKING, Any, Final, override
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject, uuid4
 from ceres.tasklet import Tasklet
 from ceres.threading import spawn
 
-with lazy_imports(__name__):
-    from granian.constants import Interfaces
+if TYPE_CHECKING:
     from granian.server.embed import Server as Granian
 
-    from ceres._internal.app import App
-
-if TYPE_CHECKING:
     from ceres._internal.project import LoadedProject
     from ceres.config import ServerConfig
     from ceres.engine import Engine
@@ -84,6 +79,11 @@ class Server(Tasklet):
                 token=self.__cli_token,
             )
         )
+
+        from granian.constants import Interfaces
+        from granian.server.embed import Server as Granian
+
+        from ceres._internal.app import App
 
         shared: dict[str, Any] = {
             "log_enabled": False,

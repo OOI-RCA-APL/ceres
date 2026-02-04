@@ -6,17 +6,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
     from sqlalchemy.ext.asyncio import AsyncConnection
 
+    from ceres.database import Database
     from ceres.entity import Entity
-
-with lazy_imports(__name__):
-    from ceres.database import Database, DatabaseType
 
 
 @dataclass(slots=True)
@@ -136,6 +133,8 @@ class Writer:
     ) -> None:
         if not entities:
             return
+
+        from ceres.database import DatabaseType
 
         match database.type:
             case DatabaseType.SQLITE:

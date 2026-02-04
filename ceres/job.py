@@ -8,7 +8,6 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseComponentManager
 from ceres.event import (
     JobAddedEvent,
@@ -23,15 +22,10 @@ from ceres.event import (
 )
 
 if TYPE_CHECKING:
-    from ceres._internal.protocols import ComponentSource
-
-with lazy_imports(__name__):
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-
-if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
+    from apscheduler.schedulers.base import BaseScheduler
 
+    from ceres._internal.protocols import ComponentSource
     from ceres.config import JobConfig
     from ceres.schedule import Trigger
 
@@ -69,7 +63,9 @@ class ComponentJobManager(BaseComponentManager):
         self.__lock = Lock()
 
     @classmethod
-    def __create_scheduler(cls) -> AsyncIOScheduler:
+    def __create_scheduler(cls) -> BaseScheduler:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
         return AsyncIOScheduler(timezone=UTC)
 
     @property

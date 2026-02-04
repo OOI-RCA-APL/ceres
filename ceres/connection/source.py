@@ -3,6 +3,7 @@ from abc import abstractmethod
 from datetime import timedelta
 from typing import Any, override
 
+import anyio
 from anyio.abc import SocketStream
 from pydantic import NonNegativeInt, model_validator
 
@@ -109,8 +110,6 @@ class TCPSource(AnyIOSource, kw_only=False):
 
     @override
     async def _create_stream(self) -> SocketStream:
-        import anyio
-
         return await anyio.connect_tcp(self.host, self.port)
 
 
@@ -132,6 +131,4 @@ class UNIXSocketSource(AnyIOSource, kw_only=False):
 
     @override
     async def _create_stream(self) -> SocketStream:
-        import anyio
-
         return await anyio.connect_unix(self.socket)

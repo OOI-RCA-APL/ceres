@@ -37,7 +37,6 @@ if TYPE_CHECKING:
     from ceres.item import Item
 
 with lazy_imports(__name__):
-    from ceres._internal.database.writer import Writer
     from ceres.alert import BoundAlertManager
     from ceres.event import NodeEventManager
     from ceres.logs import BoundLogManager
@@ -147,6 +146,8 @@ class Node(Tasklet, NodeSource):
 
     @cached_property
     def __writer(self):
+        from ceres._internal.database.writer import Writer
+
         return Writer(lambda: self.database)
 
     def get_resolved_logging_config(self) -> LoggingConfig | None:

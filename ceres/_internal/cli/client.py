@@ -7,17 +7,15 @@ from pydantic import BaseModel, ValidationError
 
 from ceres._internal import util
 from ceres._internal.cli.shared import CLIClientError
-from ceres._internal.lazy import lazy_imports
 from ceres.data import simplify
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from aiohttp import ClientSession
+
     from ceres._internal.project import LoadedProject
     from ceres._internal.server import CLIServerInfo
-
-with lazy_imports(__name__):
-    from aiohttp import ClientSession
 
 
 class Client:
@@ -162,6 +160,9 @@ class Client:
 
     def __get_session(self) -> ClientSession:
         info = self.__get_server_info()
+
+        from aiohttp import ClientSession
+
         return ClientSession(
             headers={"Authorization": f"{info.token}"},
         )

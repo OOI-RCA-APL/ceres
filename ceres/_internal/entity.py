@@ -31,14 +31,19 @@ from uuid import UUID
 
 from pydantic import ConfigDict, Field, NonNegativeInt, model_validator
 from sqlalchemy import (
+    ClauseElement,
+    ColumnElement,
     Delete,
     Dialect,
     Engine,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     Result,
     Row,
     Select,
+    SQLColumnExpression,
+    Table,
     Update,
     and_,
     delete,
@@ -49,15 +54,15 @@ from sqlalchemy import (
     tuple_,
     update,
 )
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncResult
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncResult
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_attr, mapped_column
-from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
+from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
 
 from ceres._internal import util
 from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseDatabaseManager
+from ceres._internal.util import construct_model
 from ceres.address import Address, AddressSelector
 from ceres.data import (
     DateTime,
@@ -75,8 +80,6 @@ from ceres.timing import utc
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from sqlalchemy import ClauseElement, ColumnElement, SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
 
@@ -84,9 +87,6 @@ if TYPE_CHECKING:
 
     _Rows = Result[tuple[object, ...]]
     _AsyncRows: TypeAlias = AsyncResult[tuple[object, ...]]
-
-with lazy_imports(__name__):
-    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 class BaseEntityRow(
@@ -627,8 +627,6 @@ class _BaseStatementExecutor[
     ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
 
     def _get_parser(self) -> Callable[[Row], EntityT | None]:
-        from ceres._internal.util import construct_model
-
         Entity = self._query._get_entity_class()
         transform = self._query._get_transform()
 
@@ -1525,8 +1523,6 @@ class BaseTimestampEntityFilter[
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
-        from sqlalchemy import cast
-
         if self.timestamp is not None:
             yield util.sql_match_value(columns.timestamp, self.timestamp)
         if self.after is not None:
@@ -1559,7 +1555,9 @@ class BaseTimestampEntityFilter[
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
                 case DatabaseType.SQLITE:
-                    hour = cast(func.strftime("%H", columns.timestamp), Integer)
+                    from sqlalchemy import cast
+
+                    hour = cast('func.strftime("%H", columns.timestamp)', Integer)
 
             within_min = hour >= min_hour
             within_max = hour < max_hour
@@ -1578,7 +1576,9 @@ class BaseTimestampEntityFilter[
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
                 case DatabaseType.SQLITE:
-                    minute = cast(func.strftime("%M", columns.timestamp), Integer)
+                    from sqlalchemy import cast
+
+                    minute = cast('func.strftime("%M", columns.timestamp)', Integer)
 
             within_min = minute >= min_minute
             within_max = minute < max_minute

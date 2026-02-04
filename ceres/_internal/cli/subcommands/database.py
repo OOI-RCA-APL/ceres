@@ -1,6 +1,7 @@
 import sys
 from typing import override
 
+import anyio
 from pydantic_settings import CliSubCommand
 
 from ceres._internal import util
@@ -107,8 +108,6 @@ class ShellCommand(CLICommand):
                 )
 
             from signal import SIGTERM
-
-            import anyio
 
             process = await anyio.open_process(
                 command,

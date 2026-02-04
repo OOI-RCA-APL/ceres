@@ -6,12 +6,13 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Final, Generic, Protocol, TypeVar, override
 
+import anyio
 from anyio import BrokenResourceError, ClosedResourceError, EndOfStream
+from anyio.abc import ByteStream, Listener, SocketAttribute, SocketStream
 from pydantic import NonNegativeInt, model_validator
 
 from ceres import Component, routine
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import UNIX
 from ceres.data import NonEmptyStr
 from ceres.event import (
@@ -23,10 +24,6 @@ from ceres.event import (
 )
 from ceres.schedule import IntervalSchedule, Schedule
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    import anyio
-    from anyio.abc import ByteStream, Listener, SocketAttribute, SocketStream
 
 
 class Client(Protocol):
@@ -186,6 +183,7 @@ class TCPClient(AnyIOClient[SocketStream]):
     @override
     def __init__(self, stream: SocketStream) -> None:
         super().__init__(stream)
+
         address = self.stream.extra(SocketAttribute.remote_address)
         port = self.stream.extra(SocketAttribute.remote_port)
 

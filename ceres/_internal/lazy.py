@@ -5,13 +5,7 @@ import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from threading import Lock
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Final,
-    overload,
-    override,
-)
+from typing import TYPE_CHECKING, Any, Final, overload, override
 
 if TYPE_CHECKING:
     from types import ModuleType, UnionType

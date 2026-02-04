@@ -84,22 +84,11 @@ class App(FastAPI):
         # Middlewares are run in reverse order. IE, this `CLIAuthMiddleware` is the last to be
         # entered on the way down the middleware stack.
         if self.__cli_token is not None:
-            self.add_middleware(
-                CLIAuthMiddleware,  # type: ignore
-                self.__cli_token,
-            )
+            self.add_middleware(CLIAuthMiddleware, self.__cli_token)
 
-        self.add_middleware(
-            ScopeModifyMiddleware,  # type: ignore
-        )
-        self.add_middleware(
-            ErrorMiddleware,  # type: ignore
-            self.engine,
-        )
-        self.add_middleware(
-            LoggingMiddleware,  # type: ignore
-            self.engine,
-        )
+        self.add_middleware(ScopeModifyMiddleware)
+        self.add_middleware(ErrorMiddleware, self.engine)
+        self.add_middleware(LoggingMiddleware, self.engine)
 
         from ceres.config import ServerCompressionConfig
 

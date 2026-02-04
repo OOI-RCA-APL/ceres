@@ -3,18 +3,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres.directory import Directory
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ceres.config import ConfigMeta
-
-with lazy_imports(__name__):
-    from hashlib import sha1
-
     from ceres._internal.server import CLIServerInfo
-    from ceres.directory import Directory
+    from ceres.config import ConfigMeta
 
 
 class Project:
@@ -31,6 +26,8 @@ class Project:
 
     @property
     def directory_hash(self) -> str:
+        from hashlib import sha1
+
         return sha1(str(self.directory).encode()).hexdigest()[0:6]
 
     @property
@@ -57,6 +54,8 @@ class LoadedProject(Project):
 
     def get_cli_server_info(self) -> CLIServerInfo | None:
         try:
+            from ceres._internal.server import CLIServerInfo
+
             return CLIServerInfo.model_validate_json(self.cli_server_info_path.read_text())
         except Exception:
             return None

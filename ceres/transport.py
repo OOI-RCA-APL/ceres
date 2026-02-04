@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING, Unpack, overload, override
 
+import anyio
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -74,8 +76,6 @@ class Transport:
             if callable(default):
                 return default()  # type: ignore
             return default  # type: ignore
-
-        import anyio
 
         with anyio.move_on_after(timeout):
             async for message in received:

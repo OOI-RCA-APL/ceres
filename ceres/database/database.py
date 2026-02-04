@@ -12,6 +12,12 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Self, final, override
 
 from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncEngine,
+    AsyncSession,
+    create_async_engine,
+)
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
@@ -40,15 +46,6 @@ else:
 
 
 with lazy_imports(__name__):
-    import sqlite3
-
-    from sqlalchemy.ext.asyncio import (
-        AsyncConnection,
-        AsyncEngine,
-        AsyncSession,
-        create_async_engine,
-    )
-
     from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
     from ceres.alert import AlertManager
     from ceres.logs import LogManager
@@ -551,6 +548,8 @@ def _ceres_date_bin(
 
 
 def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
+    import sqlite3
+
     sqlite3.enable_callback_tracebacks(True)
     connection.create_function("ceres_tokenize_bytes", 1, _ceres_tokenize_bytes)
     connection.create_function("date_bin", 3, _ceres_date_bin)

@@ -1,15 +1,14 @@
+# MODULE DOES NOT WORK WITH: from __future__ import annotations
+
 import json
+import warnings
 from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    cast,
-)
+from typing import TYPE_CHECKING, Annotated, Any, cast
 from uuid import UUID
 
+import jwt.warnings
 from fastapi import (
     Cookie,
     Depends,
@@ -42,6 +41,9 @@ from ceres.data import (
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
+
+# Allow using short JWT secrets without warnings.
+warnings.filterwarnings("ignore", category=jwt.warnings.InsecureKeyLengthWarning, module="jwt")
 
 if TYPE_CHECKING:
     from asgiref.typing import WebSocketReceiveEvent
