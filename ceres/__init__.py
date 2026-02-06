@@ -65,8 +65,6 @@ with lazy_imports(__name__, export=True):
     from ceres.notifier import Notification as Notification
     from ceres.notifier import Notifier as Notifier
     from ceres.notifier import SMTPNotifier as SMTPNotifier
-    from ceres.parsing import ParseFailed as ParseFailed
-    from ceres.parsing import Parser as Parser
     from ceres.particle import DynamicParticleData as DynamicParticleData
     from ceres.particle import Particle as Particle
     from ceres.particle import ParticleData as ParticleData
