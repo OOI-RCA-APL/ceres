@@ -71,21 +71,21 @@ with lazy_imports(__name__, export=True):
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 
 
-def strify(value: object) -> str:
+def strify(value: object, /) -> str:
     try:
         return str(value)
     except Exception:
         return "<__str__() raised exception>"
 
 
-def reprify(value: object) -> str:
+def reprify(value: object, /) -> str:
     try:
         return repr(value)
     except Exception:
         return "<__repr__() raised exception>"
 
 
-async def awaitify[T](value: Awaitable[T] | T) -> T:
+async def awaitify[T](value: Awaitable[T] | T, /) -> T:
     import inspect
 
     if inspect.isawaitable(value):
@@ -116,7 +116,7 @@ class PydanticDataclassLike(DataclassLike, Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
 
-def is_dataclass_instance(obj: object) -> TypeIs[DataclassLike]:
+def is_dataclass_instance(obj: object, /) -> TypeIs[DataclassLike]:
     """
     >>> from dataclasses import dataclass
     >>>
@@ -140,7 +140,7 @@ def is_dataclass_instance(obj: object) -> TypeIs[DataclassLike]:
     return not isinstance(obj, type) and is_dataclass(obj)
 
 
-def is_dataclass_type(obj: object) -> TypeIs[DataclassLike]:
+def is_dataclass_type(obj: object, /) -> TypeIs[DataclassLike]:
     """
     >>> from dataclasses import dataclass
     >>>
@@ -163,20 +163,20 @@ def is_dataclass_type(obj: object) -> TypeIs[DataclassLike]:
     return isinstance(obj, type) and is_dataclass(obj)
 
 
-def is_dataclass(obj: object) -> TypeIs[DataclassLike | type[DataclassLike]]:
+def is_dataclass(obj: object, /) -> TypeIs[DataclassLike | type[DataclassLike]]:
     return dataclasses.is_dataclass(obj)
 
 
-def is_pydantic_dataclass_type(obj: object) -> TypeIs[type[PydanticDataclassLike]]:
+def is_pydantic_dataclass_type(obj: object, /) -> TypeIs[type[PydanticDataclassLike]]:
     return isinstance(obj, type) and is_pydantic_dataclass(obj)
 
 
-def is_pydantic_dataclass_instance(obj: object) -> TypeIs[PydanticDataclassLike]:
+def is_pydantic_dataclass_instance(obj: object, /) -> TypeIs[PydanticDataclassLike]:
     return not isinstance(obj, type) and is_pydantic_dataclass(obj)
 
 
 def is_pydantic_dataclass(
-    obj: object,
+    obj: object, /
 ) -> TypeIs[PydanticDataclassLike | type[PydanticDataclassLike]]:
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_core_schema__")
 
@@ -184,7 +184,7 @@ def is_pydantic_dataclass(
 ModelLike = BaseModel | DataclassLike
 
 
-def snakecase(text: str) -> str:
+def snakecase(text: str, /) -> str:
     """
     >>> snakecase("Hello World")
     'hello_world'
@@ -205,7 +205,7 @@ def snakecase(text: str) -> str:
     return to_snake(text)
 
 
-def kebabcase(text: str) -> str:
+def kebabcase(text: str, /) -> str:
     """
     >>> kebabcase("Hello World")
     'hello-world'
@@ -221,7 +221,7 @@ def kebabcase(text: str) -> str:
     return snakecase(text).replace("_", "-")
 
 
-def ucamelcase(text: str) -> str:
+def ucamelcase(text: str, /) -> str:
     """
     >>> upper_camelcase("Hello World")
     'HelloWorld'
@@ -246,7 +246,7 @@ def ucamelcase(text: str) -> str:
     return text[0].upper() + text[1:]  # Capitalize the first letter.
 
 
-def titlecase(string: str) -> str:
+def titlecase(string: str, /) -> str:
     """
     >>> titlecase("Hello World")
     'Hello World'
@@ -262,7 +262,7 @@ def titlecase(string: str) -> str:
     return " ".join(segment.capitalize() for segment in snakecase(string).split("_"))
 
 
-def randstr(characters: str, length: int) -> str:
+def randstr(characters: str, length: int, /) -> str:
     import random
 
     return "".join(random.choice(characters) for _ in range(length))
@@ -277,6 +277,7 @@ _DELTA_D = timedelta(days=1)
 
 def encode_td(
     value: timedelta,
+    /,
     *,
     decimals: int | None = None,
     space: bool = False,
@@ -307,7 +308,7 @@ def encode_td(
         return f"{number_text}{unit}"
 
 
-def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
+def decode_td(value: str | timedelta | int | float | Any, /) -> timedelta:
     if isinstance(value, timedelta):
         return value
 
@@ -380,14 +381,14 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
 Stringy: TypeAlias = str | bytes | bytearray | memoryview
 
 
-def is_stringy(obj: Any) -> TypeIs[Stringy]:
+def is_stringy(obj: Any, /) -> TypeIs[Stringy]:
     if obj is None:
         return False
 
     return isinstance(obj, Stringy)
 
 
-def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
+def is_iterable(obj: Any, /) -> TypeIs[Iterable[Any]]:
     if obj is None:
         return False
     if not isinstance(obj, Iterable):
@@ -401,11 +402,11 @@ def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
     return True
 
 
-def is_true_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
+def is_true_iterable(obj: Any, /) -> TypeIs[Iterable[Any]]:
     return is_iterable(obj) and not is_stringy(obj) and not isinstance(obj, Future)
 
 
-def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
+def is_collection(obj: Any, /) -> TypeIs[Collection[Any]]:
     if obj is None:
         return False
     if isinstance(obj, list | tuple | set | frozenset):
@@ -422,11 +423,11 @@ def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
     return True
 
 
-def is_true_collection(obj: Any) -> TypeIs[Collection[Any]]:
+def is_true_collection(obj: Any, /) -> TypeIs[Collection[Any]]:
     return is_collection(obj) and not is_stringy(obj)
 
 
-def is_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
+def is_sequence(obj: Any, /) -> TypeIs[Sequence[Any]]:
     if obj is None:
         return False
     if isinstance(obj, list | tuple):
@@ -443,11 +444,11 @@ def is_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
     return True
 
 
-def is_true_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
+def is_true_sequence(obj: Any, /) -> TypeIs[Sequence[Any]]:
     return is_sequence(obj) and not is_stringy(obj)
 
 
-def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
+def is_mapping(obj: Any, /) -> TypeIs[Mapping[Any, Any]]:
     if obj is None:
         return False
     if isinstance(obj, dict):
@@ -465,6 +466,7 @@ def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
 
 def traverse(
     obj: object,
+    /,
     visit: Callable[[object], bool | None],
     seen: set[int] | None = None,
 ) -> None:
@@ -531,7 +533,7 @@ def get_event_loop_or_none() -> AbstractEventLoop | None:
         return None
 
 
-def dbg[T](value: T) -> T:
+def dbg[T](value: T, /) -> T:
     import rich
 
     rich.print(value)
@@ -540,16 +542,20 @@ def dbg[T](value: T) -> T:
 
 @overload
 def cached[T: Callable[..., Any]](
-    function: None = None, *, max_size: int | None = None
+    function: None = None,
+    /,
+    *,
+    max_size: int | None = None,
 ) -> Callable[[T], T]: ...
 
 
 @overload
-def cached[T: Callable[..., Any]](function: T) -> T: ...
+def cached[T: Callable[..., Any]](function: T, /) -> T: ...
 
 
 def cached[T: Callable[..., Any]](
     function: T | None = None,
+    /,
     *,
     max_size: int | None = None,
 ) -> T | Callable[[T], T]:
@@ -564,7 +570,7 @@ def cached[T: Callable[..., Any]](
     return cached(function)
 
 
-def get_function_name(function: Callable[..., Any]) -> str:
+def get_function_name(function: Callable[..., Any], /) -> str:
     original = function.__name__
 
     if function.__name__.startswith("__") and not function.__name__.endswith("__"):
@@ -577,7 +583,7 @@ def get_function_name(function: Callable[..., Any]) -> str:
     return original
 
 
-def get_inner_function(function: Callable[..., Any]) -> Callable[..., Any]:
+def get_inner_function(function: Callable[..., Any], /) -> Callable[..., Any]:
     while True:
         __wrapped__ = getattr(function, "__wrapped__", None)
         if __wrapped__ is not None:
@@ -596,6 +602,7 @@ def get_inner_function(function: Callable[..., Any]) -> Callable[..., Any]:
 
 def get_args_model(
     function: Callable[..., Any],
+    /,
     *,
     model_name: str | None = None,
     model_module: str | None = None,
@@ -676,7 +683,7 @@ type RecursiveIterable[T] = Iterable[T | RecursiveIterable[T]]
 type MaybeRecursiveIterable[T] = T | RecursiveIterable[T]
 
 
-def flatten[T](value: RecursiveIterable[T]) -> Iterator[T]:
+def flatten[T](value: RecursiveIterable[T], /) -> Iterator[T]:
     for current in value:
         if is_true_iterable(current):
             yield from flatten(current)
@@ -797,21 +804,25 @@ def sql_match_string[T: (str, bytes)](
     raise ValueError(f"invalid mode: {mode!r}")
 
 
-def tokenize_bytes(value: bytes) -> str:
+def tokenize_bytes(value: bytes, /) -> str:
     if not value:
         return ""
 
     return value.hex(b" ") + " "
 
 
-def _hash(value: object) -> Hashable:
+def _hash(value: object, /) -> Hashable:
     if isinstance(value, Hashable):
         return hash(value)
 
     return id(value)
 
 
-def uniquify[T](iterable: Iterable[T], key: Callable[[T], Hashable] | None = None) -> Iterable[T]:
+def uniquify[T](
+    iterable: Iterable[T],
+    /,
+    key: Callable[[T], Hashable] | None = None,
+) -> Iterable[T]:
     if key is None:
         key = _hash
 
@@ -826,7 +837,11 @@ def uniquify[T](iterable: Iterable[T], key: Callable[[T], Hashable] | None = Non
         yield value
 
 
-def group_by[K, V](iterable: Iterable[V], key: Callable[[V], K]) -> Iterable[tuple[K, list[V]]]:
+def group_by[K, V](
+    iterable: Iterable[V],
+    /,
+    key: Callable[[V], K],
+) -> Iterable[tuple[K, list[V]]]:
     groups: defaultdict[K, list[V]] = defaultdict(list)
     for value in iterable:
         groups[key(value)].append(value)
@@ -854,7 +869,8 @@ DEFAULT_VALIDATED_FUNCTION_CONFIG = ConfigDict(
 
 
 def create_validated_function(
-    __func: Callable[..., Any],
+    function: Callable[..., Any],
+    /,
     *,
     config: ConfigDict | None = None,
     validate_return: bool = False,
@@ -863,45 +879,46 @@ def create_validated_function(
         **DEFAULT_VALIDATED_FUNCTION_CONFIG,
         **(config or {}),
     }
-    return validate_call(config=config, validate_return=validate_return)(__func)  # type: ignore
+    return validate_call(config=config, validate_return=validate_return)(function)  # type: ignore
 
 
 @overload
-def validated_function(
+def validated_function[T: Callable[..., Any]](
     *,
     config: ConfigDict | None = None,
     validate_return: bool = False,
-) -> Callable[[_CallableT], _CallableT]: ...
+) -> Callable[[T], T]: ...
 
 
 @overload
-def validated_function(__func: _CallableT) -> _CallableT: ...
+def validated_function[T: Callable[..., Any]](function: T, /) -> T: ...
 
 
-def validated_function(
-    __func: _CallableT | None = None,
+def validated_function[T: Callable[..., Any]](
+    function: T | None = None,
+    /,
     *,
     config: ConfigDict | None = None,
     validate_return: bool = False,
-) -> _CallableT | Callable[[_CallableT], _CallableT]:
+) -> T | Callable[[T], T]:
     config = {
         **DEFAULT_VALIDATED_FUNCTION_CONFIG,
         **(config or {}),
     }
-    return validate_call(config=config, validate_return=validate_return)(__func)  # type: ignore
+    return validate_call(config=config, validate_return=validate_return)(function)  # type: ignore
 
 
 @overload
-def get_type_adapter[T](type_: type[T]) -> TypeAdapter[T]: ...
+def get_type_adapter[T](ty: type[T], /) -> TypeAdapter[T]: ...
 
 
 @overload
-def get_type_adapter[T](type_: T) -> TypeAdapter[T]: ...
+def get_type_adapter[T](ty: T, /) -> TypeAdapter[T]: ...
 
 
 @cached(max_size=500)
-def get_type_adapter[T](type_: type[T] | T) -> TypeAdapter[T]:
-    return TypeAdapter(type_)
+def get_type_adapter[T](ty: type[T] | T, /) -> TypeAdapter[T]:
+    return TypeAdapter(ty)
 
 
 def get_traceback(exception: BaseException) -> list[str]:
@@ -911,14 +928,14 @@ def get_traceback(exception: BaseException) -> list[str]:
 
 
 @overload
-def seq[T: Stringy](value: T) -> Sequence[T]: ...
+def seq[T: Stringy](value: T, /) -> Sequence[T]: ...
 
 
 @overload
-def seq[T](value: T | Sequence[T]) -> Sequence[T]: ...
+def seq[T](value: T | Sequence[T], /) -> Sequence[T]: ...
 
 
-def seq[T](value: T | Sequence[T]) -> Sequence[T]:
+def seq[T](value: T | Sequence[T], /) -> Sequence[T]:
     if is_true_sequence(value):
         return value
 
