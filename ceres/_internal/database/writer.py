@@ -85,7 +85,7 @@ class Writer:
 
             database = self._database()
             async with await database.use() as connection:
-                await self.__write_entities(database, connection, flush.entities)
+                await self._write_entities(database, connection, flush.entities)
                 await connection.commit()
         except DatabaseError:
             if len(self._flushes) > 1:
@@ -111,7 +111,7 @@ class Writer:
 
         await self._settled.wait()
 
-    async def __write_entities(
+    async def _write_entities(
         self,
         database: Database,
         connection: AsyncConnection,
@@ -122,9 +122,9 @@ class Writer:
             by_type[cls] = list(group)
 
         for cls, entities in by_type.items():
-            await self.__write_entities_of_cls(database, connection, cls, entities)
+            await self._write_entities_of_cls(database, connection, cls, entities)
 
-    async def __write_entities_of_cls(
+    async def _write_entities_of_cls(
         self,
         database: Database,
         connection: AsyncConnection,

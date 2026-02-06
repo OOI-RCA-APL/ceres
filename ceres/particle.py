@@ -3,7 +3,15 @@ from __future__ import annotations
 import builtins
 import re
 from abc import abstractmethod
-from collections.abc import ItemsView, Iterable, KeysView, Mapping, MutableMapping, ValuesView
+from collections.abc import (
+    Callable,
+    ItemsView,
+    Iterable,
+    KeysView,
+    Mapping,
+    MutableMapping,
+    ValuesView,
+)
 from re import Pattern
 from typing import (
     TYPE_CHECKING,
@@ -22,6 +30,8 @@ from typing import (
 from pydantic import ConfigDict, ImportString, SerializeAsAny, ValidationError, model_validator
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
+
+# Used for `TypeVar` default.
 from typing_extensions import TypeVar
 
 from ceres._internal import util
@@ -29,6 +39,7 @@ from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     EntityNaming,
+    EntityOutputChannel,
     EntityQuery,
     EntityTransform,
 )
@@ -55,7 +66,6 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
 
 
@@ -145,28 +155,29 @@ class ParticleData(ImmutableDataObject, Mapping[str, Any]):
 
 DynamicParticleData: TypeAlias = JSONSerializableDict | ParticleData
 
+# ruff: disable[UP046] Need `TypeVar.default` for Python 3.12 compatibility.
 
 if TYPE_CHECKING:
-    _T = TypeVar(
-        "_T",
+    DataT = TypeVar(
+        "DataT",
         bound=DynamicParticleData,
         default=DynamicParticleData,
         covariant=True,
     )
-    _O = TypeVar(
-        "_O",
+    ConvertedDataT = TypeVar(
+        "ConvertedDataT",
         bound=DynamicParticleData,
         default=DynamicParticleData,
         covariant=True,
     )
 else:
-    _T = TypeVar(
-        "_T",
+    DataT = TypeVar(
+        "DataT",
         default=DynamicParticleData,
         covariant=True,
     )
-    _O = TypeVar(
-        "_O",
+    ConvertedDataT = TypeVar(
+        "ConvertedDataT",
         default=DynamicParticleData,
         covariant=True,
     )
@@ -174,10 +185,10 @@ else:
 
 class ParticleFilterArgs(
     BaseRecordFilterArgs[ParticleField, ParticleOrder],
-    Generic[_T],
+    Generic[DataT],
     total=False,
 ):
-    cls: ImportString[type[_T]] | None
+    cls: ImportString[type[DataT]] | None
     type: MaybeSequence[str] | None
     type_contains: MaybeSequence[str] | None
     type_prefix: MaybeSequence[str] | None
@@ -189,9 +200,9 @@ class ParticleFilterArgs(
 
 class ParticleFilter(
     BaseRecordFilter["Particle", ParticleField, ParticleOrder],
-    Generic[_T],
+    Generic[DataT],
 ):
-    cls: ImportString[builtins.type[_T]] | None = None
+    cls: ImportString[builtins.type[DataT]] | None = None
     """Filter by particles being instances of a specific data class."""
     type: MaybeSequence[str] | None = None
     """Filter by `type` being equal to one or more given types."""
@@ -297,13 +308,15 @@ class ParticleUpdate(BaseRecordUpdate, total=False):
 
 class _BaseParticleQuery(
     BaseEntityQuery[
-        "Particle[_T]",
-        ParticleFilter[_T],
+        "Particle[DataT]",
+        ParticleFilter[DataT],
         ParticleUpdate,
         "ParticleQuery",
     ],
-    Generic[_T],
+    Generic[DataT],
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[ParticleQuery]:
         return ParticleQuery
@@ -314,7 +327,7 @@ class _BaseParticleQuery(
         if data_class is None:
             return None
 
-        def transform(entity: Particle[_T]) -> Particle[Any] | None:
+        def transform(entity: Particle[DataT]) -> Particle[Any] | None:
             return _convert_or_none(entity, data_class)
 
         return transform
@@ -322,9 +335,9 @@ class _BaseParticleQuery(
     @overload
     def where(
         self,
-        filter: ParticleFilter[_O] | None = None,
-        **kwargs: Unpack[ParticleFilterArgs[_O]],
-    ) -> ParticleQuery[_O]: ...
+        filter: ParticleFilter[ConvertedDataT] | None = None,
+        **kwargs: Unpack[ParticleFilterArgs[ConvertedDataT]],
+    ) -> ParticleQuery[ConvertedDataT]: ...
 
     @overload
     def where(
@@ -334,24 +347,24 @@ class _BaseParticleQuery(
     ) -> ParticleQuery[Any]: ...
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: ParticleFilter[Any] | None = None,
         **kwargs: Unpack[ParticleFilterArgs[Any]],
     ) -> ParticleQuery[Any]:
-        return super().where(filter, **kwargs)  # type: ignore
+        return super().where(filter, **kwargs)
 
 
 class ParticleQuery(  # type: ignore
-    _BaseParticleQuery[_T],
+    _BaseParticleQuery[DataT],
     EntityQuery[
-        "Particle[_T]",
-        ParticleFilter[_T],
+        "Particle[DataT]",
+        ParticleFilter[DataT],
         ParticleUpdate,
     ],
-    Generic[_T],
+    Generic[DataT],
 ):
-    pass
+    __slots__ = ()
 
 
 class ParticleManager(
@@ -365,6 +378,8 @@ class ParticleManager(
     ],
     _BaseParticleQuery[DynamicParticleData],
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Particle)
 
@@ -372,40 +387,90 @@ class ParticleManager(
     async def get(self, id: UUID, cls: None = None, /) -> Particle | None: ...
 
     @overload
-    async def get(self, id: UUID, cls: type[_O], /) -> Particle[_O] | None: ...
+    async def get(
+        self,
+        id: UUID,
+        cls: type[DataT],
+        /,
+    ) -> Particle[DataT] | None: ...
 
-    async def get(self, id: UUID, cls: type[_O] | None = None, /) -> Particle[_O] | None:
+    async def get(
+        self,
+        id: UUID,
+        cls: type[DataT] | None = None,
+        /,
+    ) -> Particle | None:
         return await self.where(id=id, cls=cls, limit=1).first()
 
 
 class BoundParticleManager(ParticleManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
-    def follow(
-        self,
-        filter: ParticleFilter[_T] | None = None,
-        **kwargs: Unpack[ParticleFilterArgs[_T]],
-    ) -> OutputChannel[Particle[_T]]:
+    def stream(self) -> ParticleOutputChannel:
         from ceres.event import ParticleEvent
 
-        assert self.__node__ is not None
-        resolved = self._get_resolved_filter_args(filter, kwargs)
-
-        if TYPE_CHECKING:
-            util.blackhole(ParticleEvent)
-
-        result = (
-            self.__node__.events.follow()
-            .every(ParticleEvent)
+        return ParticleOutputChannel(
+            self.__node__.events.stream.every(ParticleEvent)
             .map(lambda event: event.particle)
-            .filter(resolved.matches)
+            .where(lambda particle: self._get_resolved_filter().matches(particle))
         )
 
-        return result  # type: ignore
+
+class ParticleOutputChannel(
+    EntityOutputChannel[
+        "Particle",
+        ParticleFilter,
+        ParticleFilterArgs,
+    ],
+    Generic[DataT],
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[ParticleFilter]:
+        return ParticleFilter
+
+    @overload
+    def where(
+        self,
+        filter: ParticleFilter[DataT] | Callable[[Particle[DataT]], bool] | None = None,
+        /,
+        **kwargs: Unpack[ParticleFilterArgs[DataT]],
+    ) -> ParticleOutputChannel[DataT]: ...
+
+    @overload
+    def where(
+        self,
+        filter: ParticleFilter[ConvertedDataT],
+        /,
+        **kwargs: Unpack[ParticleFilterArgs[ConvertedDataT]],
+    ) -> ParticleOutputChannel[ConvertedDataT]: ...
+
+    @override
+    def where(  # type: ignore
+        self,
+        filter: ParticleFilter | Callable[[Particle], bool] | None = None,
+        /,
+        **kwargs: Unpack[ParticleFilterArgs],
+    ) -> ParticleOutputChannel:
+        data_class = _get_data_class(filter, kwargs)
+        if data_class is None:
+            return super().where(filter, **kwargs)
+
+        return ParticleOutputChannel(
+            super()
+            .map(lambda particle: particle.convert_or_none(data_class))
+            .where(
+                filter,
+                **kwargs,  # type: ignore
+            )
+        )
 
 
-class Particle(BaseRecord, ParticleCreate, Generic[_T]):
+class Particle(BaseRecord, ParticleCreate, Generic[DataT]):
     if TYPE_CHECKING:
         Manager: ClassVar[type[ParticleManager]] = ParticleManager
         BoundManager: ClassVar[type[BoundParticleManager]] = BoundParticleManager
@@ -429,7 +494,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
     __naming__: ClassVar[EntityNaming] = EntityNaming("particle")
 
     type: str = UNKNOWN_TYPE
-    data: SerializeAsAny[FromYAML[_T]]
+    data: SerializeAsAny[FromYAML[DataT]]
 
     @model_validator(mode="before")
     @classmethod
@@ -477,8 +542,8 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
 
 def _convert_or_none(
     particle: Particle | None,
-    data_class: type[_T] | None,
-) -> Particle[_T] | None:
+    data_class: type[DataT] | None,
+) -> Particle[DataT] | None:
     if particle is None:
         return None
 
@@ -492,13 +557,12 @@ def _convert_or_none(
 
 
 def _get_data_class(
-    filter: ParticleFilter[_T] | None,
-    filter_kwargs: ParticleFilterArgs[_T] | None,
-) -> type[_T] | None:
+    filter: ParticleFilter[DataT] | object | None,
+    filter_kwargs: ParticleFilterArgs[DataT] | None,
+) -> type[DataT] | None:
     data_class = filter_kwargs.get("cls") if filter_kwargs is not None else None
-    if data_class is None:
-        if filter is not None:
-            data_class = filter.cls
+    if data_class is None and isinstance(filter, ParticleFilter):
+        data_class = filter.cls
 
     return data_class
 

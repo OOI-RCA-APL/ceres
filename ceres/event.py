@@ -14,7 +14,7 @@ from pydantic import ByteSize, Field
 from ceres._internal import util
 from ceres._internal.manager import BaseNodeManager
 from ceres.address import Address
-from ceres.channel import Channel, OutputChannel
+from ceres.channel import Channel, ChannelReader, OutputChannel
 from ceres.data import (
     DateTime,
     PositiveTimeDelta,
@@ -591,14 +591,14 @@ if TYPE_CHECKING:
 
 class NodeEventManager(BaseNodeManager):
     __slots__ = (
-        "__channel",
-        "__listeners",
+        "_events",
+        "_listeners",
     )
 
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
-        self.__channel: Channel[Event] = Channel()
-        self.__listeners = (
+        self._events: Channel[Event] = Channel()
+        self._listeners = (
             []
             if self.__system__ is None
             else [
@@ -619,21 +619,37 @@ class NodeEventManager(BaseNodeManager):
 
     @property
     def settled(self) -> bool:
-        return all(listener.settled for listener in self.__listeners)
+        return all(listener.settled for listener in self._listeners)
+
+    @property
+    def stream(self) -> OutputChannel[Event]:
+        return self._events.output()
+
+    def __aiter__(self) -> ChannelReader[Event]:
+        return self._events.__aiter__()
 
     async def __run__(self) -> None:
-        if not self.__listeners:
+        if not self._listeners:
             await util.sleep_forever()
             return
 
-        await util.concurrently(listener.__run__() for listener in self.__listeners)
+        await util.concurrently(listener.__run__() for listener in self._listeners)
 
     async def settle(self) -> None:
         while not self.settled:
-            await util.concurrently(listener.settle() for listener in self.__listeners)
+            await util.concurrently(listener.settle() for listener in self._listeners)
 
-    def follow(self) -> OutputChannel[Event]:
-        return self.__channel.output()
+    def read(self) -> ChannelReader[Event]:
+        return self._events.read()
+
+    def every[O](self, cls: type[O], /, *classes: type[O]) -> OutputChannel[O]:
+        return self._events.every(cls, *classes)
+
+    def where(self, where: Callable[[Event], bool], /) -> OutputChannel[Event]:
+        return self._events.where(where)
+
+    def map[O](self, transform: Callable[[Event], O], /) -> OutputChannel[O]:
+        return self._events.map(transform)
 
     def emit[**P, T: Event](
         self,
@@ -676,7 +692,7 @@ class NodeEventManager(BaseNodeManager):
                     self.__node__.log.alert(event.alert)
 
         # Add the event to the outgoing event stream.
-        self.__channel.put(event)
+        self._events.put(event)
 
         container = self.__node__.__container__
 
@@ -703,7 +719,7 @@ class NodeEventManager(BaseNodeManager):
                     referencer.system.events.handle(event)
 
     def listening(self, event_cls: type[Event], address: Address) -> bool:
-        for listener in self.__listeners:
+        for listener in self._listeners:
             if listener.handles(event_cls, address):
                 return True
 
@@ -714,7 +730,7 @@ class NodeEventManager(BaseNodeManager):
             return False
 
         handled = False
-        for listener in self.__listeners:
+        for listener in self._listeners:
             if listener.handle(event):
                 handled = True
 
@@ -740,12 +756,12 @@ _ComponentEventHandler = (
 
 class _ComponentEventListener:
     __slots__ = (
-        "__system",
-        "__binding",
-        "__handler",
-        "__handler_arity",
-        "__queue",
-        "__running",
+        "_system",
+        "_binding",
+        "_handler",
+        "_handler_arity",
+        "_queue",
+        "_running",
     )
 
     def __init__(
@@ -754,64 +770,64 @@ class _ComponentEventListener:
         system: ComponentSystem,
         binding: ListenerBinding,
     ) -> None:
-        self.__system = system
-        self.__binding = binding
-        self.__handler: _ComponentEventHandler = getattr(system.component, binding.method)
-        self.__handler_arity = len(inspect.signature(self.__handler).parameters)
-        self.__queue: AsyncQueue[Event] = AsyncQueue()
-        self.__running = False
+        self._system = system
+        self._binding = binding
+        self._handler: _ComponentEventHandler = getattr(system.component, binding.method)
+        self._handler_arity = len(inspect.signature(self._handler).parameters)
+        self._queue: AsyncQueue[Event] = AsyncQueue()
+        self._running = False
 
     @property
     def settled(self) -> bool:
-        return self.__queue._finished.is_set()  # type: ignore
+        return self._queue._finished.is_set()  # type: ignore
 
     def would_handle(self, event: Event) -> bool:
         return self.handles(type(event), event.address)
 
     async def __run__(self) -> None:
-        self.__running = True
+        self._running = True
         try:
             while True:
-                event = await self.__queue.get()
+                event = await self._queue.get()
                 await self._process(event)
         finally:
-            self.__running = False
+            self._running = False
 
     async def settle(self) -> None:
-        if self.__queue.empty():
+        if self._queue.empty():
             return
 
         while True:
             try:
-                event = self.__queue.get_nowait()
+                event = self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
 
             await self._process(event)
 
     def clear(self) -> None:
-        while not self.__queue.empty():
-            self.__queue.get_nowait()
-            self.__queue.task_done()
+        while not self._queue.empty():
+            self._queue.get_nowait()
+            self._queue.task_done()
 
     def handles(self, event_cls: type[Event], address: Address) -> bool:
-        if not util.lenient_issubclass(event_cls, self.__binding.event):
+        if not util.lenient_issubclass(event_cls, self._binding.event):
             return False
 
-        if self.__binding.local:
-            if address == self.__system.address:
+        if self._binding.local:
+            if address == self._system.address:
                 return True
 
-        if self.__binding.reference:
-            for alias in self.__binding.reference:
+        if self._binding.reference:
+            for alias in self._binding.reference:
                 if any(
                     component.system.address == address
-                    for component in self.__system.get_referenced_components(alias)
+                    for component in self._system.get_referenced_components(alias)
                 ):
                     return True
 
-        if self.__binding.address is not None:
-            if self.__binding.address.matches(address, self.__system.address):
+        if self._binding.address is not None:
+            if self._binding.address.matches(address, self._system.address):
                 return True
 
         return False
@@ -820,17 +836,17 @@ class _ComponentEventListener:
         if not self.would_handle(event):
             return False
 
-        self.__queue.put_nowait(event)
+        self._queue.put_nowait(event)
         return True
 
     async def _process(self, event: Event) -> None:
         try:
-            result = self.__handler(*[event][: self.__handler_arity])
+            result = self._handler(*[event][: self._handler_arity])
             if inspect.iscoroutine(result):
                 await result
         except Exception:
-            self.__system.log.error(
+            self._system.log.error(
                 f"An exception occurred while processing event {event}: {traceback.format_exc()}"
             )
         finally:
-            self.__queue.task_done()
+            self._queue.task_done()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from asyncio import Task
 from typing import TYPE_CHECKING, Any, Protocol, override
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ceres.node import Node
 
 
-class BaseDatabaseManager(ABC, DatabaseSource):
+class BaseDatabaseManager(DatabaseSource):
     __slots__ = ("__source__",)
 
     def __init__(self, source: DatabaseSource, /) -> None:
@@ -31,6 +31,8 @@ class BaseDatabaseManager(ABC, DatabaseSource):
 
 
 class BaseNodeManager(BaseDatabaseManager, NodeSource):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
         self.__source__ = source
@@ -42,6 +44,8 @@ class BaseNodeManager(BaseDatabaseManager, NodeSource):
 
 
 class BaseComponentManager(BaseNodeManager, ComponentSource):
+    __slots__ = ()
+
     def __init__(self, source: ComponentSource, /) -> None:
         super().__init__(source)
         self.__source__ = source
@@ -63,45 +67,44 @@ class _Named(Protocol):
 
 class BaseComponentTaskManager[T: _Named](BaseComponentManager):
     __slots__ = (
-        "__configs",
-        "__tasks",
-        "__running",
-        "__stopping",
-        "__syncs",
+        "_objects",
+        "_tasks",
+        "_running",
+        "_stopping",
     )
 
     def __init__(self, source: ComponentSource, /) -> None:
         super().__init__(source)
         self.__source__ = source
-        self.__objects: dict[str, T] = {}
-        self.__tasks: dict[str, Task] = {}
-        self.__running = False
-        self.__stopping = False
+        self._objects: dict[str, T] = {}
+        self._tasks: dict[str, Task] = {}
+        self._running = False
+        self._stopping = False
 
     @property
     def count(self) -> int:
-        return len(self.__objects)
+        return len(self._objects)
 
     @property
     def running(self) -> bool:
-        return self.__running
+        return self._running
 
     @property
     def stopping(self) -> bool:
-        return self.__stopping
+        return self._stopping
 
     async def __run__(self) -> None:
-        self.__running = True
+        self._running = True
         try:
-            self.__sync_tasks()
+            self._sync_tasks()
             await util.sleep_forever()
         finally:
-            self.__stopping = True
+            self._stopping = True
             try:
-                await self.__clear_tasks()
+                await self._clear_tasks()
             finally:
-                self.__running = False
-                self.__stopping = False
+                self._running = False
+                self._stopping = False
 
     @abstractmethod
     async def process(self, config: T, /) -> None: ...
@@ -115,40 +118,40 @@ class BaseComponentTaskManager[T: _Named](BaseComponentManager):
                     obj.name = name
                     break
 
-        assert obj.name not in self.__objects
-        self.__objects[obj.name] = obj
-        if self.__running and not self.__stopping:
-            self.__sync_tasks()
+        assert obj.name not in self._objects
+        self._objects[obj.name] = obj
+        if self._running and not self._stopping:
+            self._sync_tasks()
 
     def get(self, name: str, /) -> T | None:
-        return self.__objects.get(name)
+        return self._objects.get(name)
 
     def all(self) -> list[T]:
-        return list(self.__objects.values())
+        return list(self._objects.values())
 
     async def remove(self, name: str, /) -> T | None:
-        runner = self.__tasks.get(name)
+        runner = self._tasks.get(name)
         if runner is not None:
             await util.cancel(runner)
-            self.__tasks.pop(name, None)
+            self._tasks.pop(name, None)
 
-        config = self.__objects.pop(name, None)
+        config = self._objects.pop(name, None)
         return config
 
     async def clear(self) -> None:
-        await self.__clear_tasks()
-        self.__objects.clear()
+        await self._clear_tasks()
+        self._objects.clear()
 
-    async def __clear_tasks(self) -> None:
-        await util.cancel(self.__tasks.values())
-        self.__tasks.clear()
+    async def _clear_tasks(self) -> None:
+        await util.cancel(self._tasks.values())
+        self._tasks.clear()
 
-    def __create_task(self, config: T) -> Task:
+    def _create_task(self, config: T) -> Task:
         assert config.name is not None
         task = asyncio.create_task(self.process(config), name=config.name + "-task")
-        self.__tasks[config.name] = task
+        self._tasks[config.name] = task
         return task
 
-    def __sync_tasks(self) -> None:
-        for config in self.__objects.values():
-            self.__create_task(config)
+    def _sync_tasks(self) -> None:
+        for config in self._objects.values():
+            self._create_task(config)

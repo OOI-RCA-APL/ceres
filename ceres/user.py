@@ -273,6 +273,8 @@ class _BaseUserQuery(
         "UserQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def where(
         self,
@@ -311,7 +313,7 @@ class UserQuery(
     ],
     _BaseUserQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class UserManager(
@@ -325,6 +327,8 @@ class UserManager(
     ],
     _BaseUserQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, User)
 
@@ -339,6 +343,8 @@ class UserManager(
 
 
 class BoundUserManager(UserManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 

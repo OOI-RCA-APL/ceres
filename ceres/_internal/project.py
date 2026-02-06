@@ -14,15 +14,15 @@ if TYPE_CHECKING:
 
 class Project:
     def __init__(self, config_path: Path) -> None:
-        self.__config_path = config_path.resolve()
+        self._config_path = config_path.resolve()
 
     @property
     def config_path(self) -> Path:
-        return self.__config_path
+        return self._config_path
 
     @property
     def directory(self) -> Directory:
-        return Directory(self.__config_path.parent)
+        return Directory(self._config_path.parent)
 
     @property
     def directory_hash(self) -> str:

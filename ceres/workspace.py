@@ -217,6 +217,8 @@ class _BaseWorkspaceMembershipQuery(
         "WorkspaceMembershipQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def where(
         self,
@@ -238,7 +240,7 @@ class WorkspaceMembershipQuery(
     ],
     _BaseWorkspaceMembershipQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class WorkspaceMembershipManager(
@@ -252,6 +254,8 @@ class WorkspaceMembershipManager(
     ],
     _BaseWorkspaceMembershipQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, WorkspaceMembership)
 
@@ -389,6 +393,8 @@ class _BaseWorkspaceEditQuery(
         "WorkspaceEditQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def where(
         self,
@@ -410,7 +416,7 @@ class WorkspaceEditQuery(
     ],
     _BaseWorkspaceEditQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class WorkspaceEditManager(
@@ -424,6 +430,8 @@ class WorkspaceEditManager(
     ],
     _BaseWorkspaceEditQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, WorkspaceEdit)
 
@@ -724,6 +732,8 @@ class _BaseWorkspaceQuery(
         "WorkspaceQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def where(
         self,
@@ -745,7 +755,7 @@ class WorkspaceQuery(
     ],
     _BaseWorkspaceQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class WorkspaceManager(
@@ -759,6 +769,8 @@ class WorkspaceManager(
     ],
     _BaseWorkspaceQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Workspace)
 

@@ -12,6 +12,7 @@ from typing import (
     TypedDict,
     Unpack,
     cast,
+    overload,
     override,
 )
 
@@ -63,12 +64,21 @@ from ceres.event import (
     ReconnectScheduledEvent,
 )
 from ceres.loaded import Loaded
-from ceres.message import BoundMessageManager, Message, MessageContent, MessageDirection
+from ceres.message import (
+    BoundMessageManager,
+    Message,
+    MessageContent,
+    MessageDirection,
+    MessageFilter,
+    MessageFilterArgs,
+)
 from ceres.schedule import IntervalSchedule, Schedule
 from ceres.tasklet import Tasklet
 from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ceres.component import ComponentSystem
 
 
@@ -163,51 +173,57 @@ class Connection(ValidatedDataclass, Tasklet):
 
     @override
     def __post_init__(self) -> None:
-        self.__connectivity = Connectivity.DISCONNECTED
-        self.__buffer = Buffer()
-        self.__system: ComponentSystem | None = None
-        self.__channel: Channel[Message] = Channel()
+        self._connectivity = Connectivity.DISCONNECTED
+        self._buffer = Buffer()
+        self._system: ComponentSystem | None = None
+        self._channel: Channel[Message] = Channel()
 
     @property
     def label(self) -> str:
         return self.source.label
 
     @property
-    def system(self) -> ComponentSystem:
+    def __system__(self) -> ComponentSystem:
         from ceres.component import Component
 
-        if self.__system is None:
-            self.__system = Component().system
+        if self._system is None:
+            self._system = Component().system
 
-        return self.__system
+        return self._system
 
-    @system.setter
-    def system(self, system: ComponentSystem | None) -> None:
-        self.__system = system
+    @__system__.setter
+    def __system__(self, system: ComponentSystem | None) -> None:
+        self._system = system
 
     @property
     def buffer(self) -> bytes:
-        return bytes(self.__buffer)
+        return bytes(self._buffer)
 
     @property
     def connectivity(self) -> Connectivity:
-        return self.__connectivity
+        return self._connectivity
 
     @property
     def connected(self) -> bool:
-        return self.__connectivity == Connectivity.CONNECTED
+        return self._connectivity == Connectivity.CONNECTED
 
     @property
     def messages(self) -> BoundMessageManager:
-        return self.system.messages
+        def filtering():
+            if self.name is None:
+                return MessageFilter(address=self.__system__.address)
+
+            return MessageFilter(address=self.__system__.address, connection=self.name)
+
+        return BoundMessageManager(self.__system__, filtering)
 
     async def connect(self) -> bool:
-        if self.__connectivity == Connectivity.CONNECTED:
+        if self._connectivity == Connectivity.CONNECTED:
             return True
 
-        self.system.events.emit(ConnectingEvent, connection=self.name)
+        self.__system__.events.emit(ConnectingEvent, connection=self.name)
 
-        self.__connectivity = Connectivity.CONNECTING
+        self._connectivity = Connectivity.CONNECTING
 
         error: str | None = None
 
@@ -220,7 +236,7 @@ class Connection(ValidatedDataclass, Tasklet):
                     connected = await self.source.connect()
             except TimeoutError:
                 if connect_timeout is not None:
-                    self.system.events.emit(
+                    self.__system__.events.emit(
                         ConnectTimeoutEvent,
                         connection=self.name,
                         timeout=connect_timeout,
@@ -232,11 +248,11 @@ class Connection(ValidatedDataclass, Tasklet):
                 error = text
 
         if connected:
-            self.__connectivity = Connectivity.CONNECTED
-            self.system.events.emit(ConnectedEvent, connection=self.name)
+            self._connectivity = Connectivity.CONNECTED
+            self.__system__.events.emit(ConnectedEvent, connection=self.name)
         else:
-            self.__connectivity = Connectivity.DISCONNECTED
-            self.system.events.emit(ConnectFailedEvent, connection=self.name, message=error)
+            self._connectivity = Connectivity.DISCONNECTED
+            self.__system__.events.emit(ConnectFailedEvent, connection=self.name, message=error)
 
         return self.connected
 
@@ -260,39 +276,102 @@ class Connection(ValidatedDataclass, Tasklet):
             sent = None
 
         if sent is None and self.connected:
-            self.system.events.emit(ConnectionLostEvent, connection=self.name)
+            self.__system__.events.emit(ConnectionLostEvent, connection=self.name)
             await self.disconnect()
             raise ConnectionLost()
 
         message = Message(
-            address=Address.ROOT if self.system is None else self.system.address,
+            address=Address.ROOT if self.__system__ is None else self.__system__.address,
             connection=self.name,
             direction=Message.Direction.SEND,
             content=data,
         )
 
-        self.system.store(message)
-        self.__channel.put(message)
-        self.system.events.emit(MessageSentEvent, message=message)
+        self.__system__.store(message)
+        self._channel.put(message)
+        self.__system__.events.emit(MessageSentEvent, message=message)
 
         return message
 
+    @overload
+    async def receive[T](
+        self,
+        *,
+        where: Callable[[Message], bool] | None = None,
+        timeout: float | timedelta | None = None,
+        default: T | Callable[[], T],
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message | T: ...
+
+    @overload
+    async def receive(
+        self,
+        *,
+        where: Callable[[Message], bool] | None = None,
+        timeout: float | timedelta | None = None,
+        default: ... = ...,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message: ...
+
+    async def receive[T](
+        self,
+        *,
+        where: Callable[[Message], bool] | None = None,
+        timeout: float | timedelta | None = None,
+        default: T | Callable[[], T] = ...,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message | T:
+        received = self._channel.read()
+
+        if isinstance(timeout, timedelta):
+            timeout = timeout.total_seconds()
+
+        if kwargs:
+            from ceres.message import MessageFilter
+
+            query = MessageFilter.model_validate(kwargs)
+        else:
+            query = None
+
+        def fail() -> T:
+            if default is ...:
+                raise TimeoutError()
+            if callable(default):
+                return default()  # type: ignore
+            return default  # type: ignore
+
+        try:
+            async with asyncio.timeout(timeout):
+                async for message in received:
+                    if where is not None:
+                        if not where(message):
+                            return fail()
+                    if query is not None:
+                        if not query.matches(message):
+                            return fail()
+
+                    return message
+        except TimeoutError:
+            pass
+
+        return fail()
+
     async def disconnect(self) -> None:
-        if self.__connectivity == Connectivity.DISCONNECTED:
+        if self._connectivity == Connectivity.DISCONNECTED:
             return
 
-        self.system.events.emit(DisconnectingEvent, connection=self.name)
+        self.__system__.events.emit(DisconnectingEvent, connection=self.name)
 
         try:
             await self.source.disconnect()
         finally:
-            self.__buffer.clear()
-            self.__connectivity = Connectivity.DISCONNECTED
-            self.system.events.emit(DisconnectedEvent, connection=self.name)
+            self._buffer.clear()
+            self._connectivity = Connectivity.DISCONNECTED
+            self.__system__.events.emit(DisconnectedEvent, connection=self.name)
 
     @override
     async def __run__(self) -> None:
-        self.system.events.emit(ConnectionStartedEvent, connection=self.name)
+        self.__system__.events.emit(ConnectionStartedEvent, connection=self.name)
 
         initialized = False
 
@@ -315,7 +394,7 @@ class Connection(ValidatedDataclass, Tasklet):
 
                         delay = next - utc()
 
-                        self.system.events.emit(
+                        self.__system__.events.emit(
                             ReconnectScheduledEvent,
                             connection=self.name,
                             delay=delay,
@@ -343,14 +422,14 @@ class Connection(ValidatedDataclass, Tasklet):
                                 received = await self.source.receive(self.buffering.read)
                         except TimeoutError:
                             if timeout is not None:
-                                self.system.events.emit(
+                                self.__system__.events.emit(
                                     ReceiveTimeoutEvent,
                                     connection=self.name,
                                     timeout=timeout,
                                 )
                             received = None
                     except Exception:
-                        self.system.log.error(traceback.format_exc())
+                        self.__system__.log.error(traceback.format_exc())
 
                         received = None
 
@@ -361,28 +440,28 @@ class Connection(ValidatedDataclass, Tasklet):
                     # connection is considered lost.
                     if not received:
                         if self.connected:
-                            self.system.events.emit(ConnectionLostEvent)
+                            self.__system__.events.emit(ConnectionLostEvent)
 
                             await self.disconnect()
 
                         break
 
                     # Keep local reference to the buffer for performance.
-                    buffer = self.__buffer
+                    buffer = self._buffer
                     # Append received data to the buffer.
                     buffer.push(received, utc())
 
                     # Drop data from the buffer if it exceeds the buffer size limit.
                     dropped = buffer.pop_to_size(self.buffering.limit, self.buffering.drop)
                     if dropped is not None:
-                        self.system.events.emit(
+                        self.__system__.events.emit(
                             BufferOverflowEvent,
                             size=ByteSize(buffer.size),
                             limit=self.buffering.limit,
                             dropped=ByteSize(len(dropped.data)),
                         )
 
-                    address = Address.ROOT if self.system is None else self.system.address
+                    address = Address.ROOT if self.__system__ is None else self.__system__.address
                     for chunk in buffer.drain(self.splitter, linearize=True):
                         message = Message(
                             address=address,
@@ -392,12 +471,12 @@ class Connection(ValidatedDataclass, Tasklet):
                             content=chunk.data,
                         )
 
-                        self.system.store(message)
-                        self.__channel.put(message)
-                        self.system.events.emit(MessageReceivedEvent, message=message)
+                        self.__system__.store(message)
+                        self._channel.put(message)
+                        self.__system__.events.emit(MessageReceivedEvent, message=message)
         finally:
             await self.disconnect()
-            self.system.events.emit(ConnectionStoppedEvent, connection=self.name)
+            self.__system__.events.emit(ConnectionStoppedEvent, connection=self.name)
 
     @override
     async def __stop__(self) -> None:
@@ -405,9 +484,11 @@ class Connection(ValidatedDataclass, Tasklet):
 
 
 class ComponentConnectionManager(BaseComponentTaskManager[Connection]):
+    __slots__ = ()
+
     @override
     def add(self, connection: Connection) -> None:
-        connection.system = self.__system__
+        connection.__system__ = self.__system__
         super().add(connection)
         if connection.name is not None:
             self.__system__.events.emit(ConnectionAddedEvent, connection=connection.name)
@@ -417,7 +498,7 @@ class ComponentConnectionManager(BaseComponentTaskManager[Connection]):
         connection = await super().remove(name)
         if connection is not None:
             self.__system__.events.emit(ConnectionRemovedEvent, connection=name)
-            connection.system = None
+            connection.__system__ = None
 
         return connection
 

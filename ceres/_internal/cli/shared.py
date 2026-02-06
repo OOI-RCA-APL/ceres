@@ -888,7 +888,7 @@ def create_entity_follow_command(Entity: type[Entity]):
         async def __run__(self) -> None:
             client = await self.use_client()
             filter = self.read(Entity.Filter)
-            return await self.put(client.follow(naming.route, params=filter, result=Entity))
+            return await self.put(client.stream(naming.route, params=filter, result=Entity))
 
     return FollowCommand
 
@@ -924,7 +924,7 @@ def create_entity_load_command(Entity: type[Entity]):
 
         @override
         async def __run__(self) -> None:
-            count = await self.__load(
+            count = await self._load(
                 self.path,
                 EntityType.from_class(Entity),
                 self.data_format,
@@ -932,7 +932,7 @@ def create_entity_load_command(Entity: type[Entity]):
             )
             self.write(count, sys.stdout)
 
-        async def __load(
+        async def _load(
             self,
             path: PathLike,
             entity_type: EntityType,

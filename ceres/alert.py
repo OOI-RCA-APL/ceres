@@ -21,6 +21,7 @@ from ceres._internal.entity import (
     BaseEntityQuery,
     ConcreteEntity,
     EntityNaming,
+    EntityOutputChannel,
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
@@ -40,14 +41,13 @@ from ceres.level import Level
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from datetime import datetime
     from uuid import UUID
 
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
 
 
@@ -239,6 +239,8 @@ class _BaseAlertQuery(
         "AlertQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[AlertQuery]:
         return AlertQuery
@@ -260,7 +262,7 @@ class AlertQuery(
     ],
     _BaseAlertQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class AlertManager(
@@ -274,6 +276,8 @@ class AlertManager(
     ],
     _BaseAlertQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Alert)
 
@@ -282,22 +286,19 @@ class AlertManager(
 
 
 class BoundAlertManager(AlertManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
-    def follow(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> OutputChannel[Alert]:
+    @property
+    def stream(self) -> AlertOutputChannel:
         from ceres.event import AlertEvent
 
-        resolved = self._get_resolved_filter_args(filter, kwargs)
-        return (
-            self.__node__.events.follow()
-            .every(AlertEvent)
+        return AlertOutputChannel(
+            self.__node__.events.stream.every(AlertEvent)
             .map(lambda event: event.alert)
-            .filter(resolved.matches)
+            .where(lambda alert: self._get_resolved_filter().matches(alert))
         )
 
     def emit(
@@ -333,6 +334,29 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
 
     def critical(self, type: str, data: dict[str, Any] | None = None) -> Alert:
         return self.emit(Level.CRITICAL, type, data)
+
+
+class AlertOutputChannel(
+    EntityOutputChannel[
+        "Alert",
+        AlertFilter,
+        AlertFilterArgs,
+    ]
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[AlertFilter]:
+        return AlertFilter
+
+    @override
+    def where(
+        self,
+        filter: AlertFilter | Callable[[Alert], bool] | None = None,
+        /,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> AlertOutputChannel:
+        return super().where(filter, **kwargs)
 
 
 class Alert(BaseRecord, AlertCreate, ConcreteEntity):

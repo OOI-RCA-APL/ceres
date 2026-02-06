@@ -4,7 +4,7 @@ import asyncio
 from abc import abstractmethod
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Final, Generic, Protocol, TypeVar, override
+from typing import Any, Final, Protocol, override
 
 import anyio
 from anyio import BrokenResourceError, ClosedResourceError, EndOfStream
@@ -27,15 +27,14 @@ from ceres.timing import utc
 
 
 class Client(Protocol):
+    __slots__ = ()
+
     async def receive(self, size: int = ...) -> bytes: ...
     async def send(self, data: bytes) -> None: ...
     async def send_eof(self) -> None: ...
 
 
-_ClientT = TypeVar("_ClientT", bound=Client)
-
-
-class Server(Component, Generic[_ClientT]):
+class Server[ClientT: Client](Component):
     auto_eof: bool = True
     """
     If `True`, ensure an EOF is sent once handler exits, provided one has not already been sent.
@@ -52,10 +51,10 @@ class Server(Component, Generic[_ClientT]):
     async def serve(self) -> None: ...
 
     @abstractmethod
-    async def handle(self, client: _ClientT) -> None: ...
+    async def handle(self, client: ClientT) -> None: ...
 
 
-class AnyIOClient[StreamT: ByteStream](Client):
+class _AnyIOClient[StreamT: ByteStream](Client):
     __slots__ = ("stream",)
 
     def __init__(self, stream: StreamT) -> None:
@@ -97,7 +96,7 @@ class AnyIOClient[StreamT: ByteStream](Client):
         await self.stream.send_eof()
 
 
-class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
+class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
     @property
     @abstractmethod
     def bind(self) -> str: ...
@@ -177,7 +176,7 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
             )
 
 
-class TCPClient(AnyIOClient[SocketStream]):
+class TCPClient(_AnyIOClient[SocketStream]):
     __slots__ = ("_host", "_port")
 
     @override
@@ -204,7 +203,7 @@ class TCPClient(AnyIOClient[SocketStream]):
         return self._port
 
 
-class TCPServer(AnyIOServer[TCPClient]):
+class TCPServer(_AnyIOServer[TCPClient]):
     host: NonEmptyStr = "0.0.0.0"
     port: NonNegativeInt
 
@@ -234,7 +233,7 @@ class TCPServer(AnyIOServer[TCPClient]):
         pass
 
 
-class UNIXSocketClient(AnyIOClient[SocketStream]):
+class UNIXSocketClient(_AnyIOClient[SocketStream]):
     __slots__ = ("_socket",)
 
     @override
@@ -255,7 +254,7 @@ class UNIXSocketClient(AnyIOClient[SocketStream]):
         return address[0] if isinstance(address, tuple) else address
 
 
-class UNIXSocketServer(AnyIOServer[UNIXSocketClient]):
+class UNIXSocketServer(_AnyIOServer[UNIXSocketClient]):
     socket: Path
     socket_mode: NonNegativeInt | None = None
 

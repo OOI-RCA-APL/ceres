@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
 
 with lazy_imports(__name__, export=True):
-    from ceres.util import azip_latest as azip_latest
+    from ceres.util import azip as azip
     from ceres.util import cancel as cancel
     from ceres.util import concurrently as concurrently
     from ceres.util import ensure_event_loop as ensure_event_loop
@@ -95,13 +95,16 @@ async def awaitify[T](value: Awaitable[T] | T, /) -> T:
 
 
 class DataclassLike(Protocol):
+    __slots__ = ()
+
     if TYPE_CHECKING:
         __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
         __dataclass_params__: ClassVar[Any]
-        __post_init__: Any
 
 
 class PydanticDataclassLike(DataclassLike, Protocol):
+    __slots__ = ()
+
     if TYPE_CHECKING:
         __pydantic_config__: ClassVar[ConfigDict]
         __pydantic_complete__: ClassVar[bool]
@@ -110,8 +113,6 @@ class PydanticDataclassLike(DataclassLike, Protocol):
         __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
         __pydantic_serializer__: ClassVar[SchemaSerializer]
         __pydantic_validator__: ClassVar[SchemaValidator]
-
-    __pydantic_fields_set__: set[str]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
@@ -1475,3 +1476,12 @@ def is_subtype(subtype: Any, supertype: Any, /) -> bool:
     return (
         isinstance(supertype, type) and isinstance(subtype, type) and issubclass(subtype, supertype)
     )
+
+
+class RequireSlots:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+
+        if cls.__module__.startswith("ceres."):
+            if "__slots__" not in cls.__dict__:
+                raise TypeError(f"{cls} must define `__slots__`.")

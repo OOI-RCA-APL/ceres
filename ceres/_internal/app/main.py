@@ -66,12 +66,12 @@ class App(FastAPI):
         config: ServerConfig | None = None,
         cli_token: str | None = None,
     ) -> None:
-        self.__cli_token = cli_token
+        self._cli_token = cli_token
 
         if config is None:
             config = engine.config.server
 
-        self.__engine = engine
+        self._engine = engine
 
         super().__init__(
             title="Ceres",
@@ -83,8 +83,8 @@ class App(FastAPI):
 
         # Middlewares are run in reverse order. IE, this `CLIAuthMiddleware` is the last to be
         # entered on the way down the middleware stack.
-        if self.__cli_token is not None:
-            self.add_middleware(CLIAuthMiddleware, self.__cli_token)
+        if self._cli_token is not None:
+            self.add_middleware(CLIAuthMiddleware, self._cli_token)
 
         self.add_middleware(ScopeModifyMiddleware)
         self.add_middleware(ErrorMiddleware, self.engine)
@@ -124,8 +124,8 @@ class App(FastAPI):
                 max_age=cors.max_age,
             )
 
-        self.exception_handler(HTTPException)(self.__http_exception_handler)
-        self.exception_handler(RequestValidationError)(self.__request_validation_error_handler)
+        self.exception_handler(HTTPException)(self._http_exception_handler)
+        self.exception_handler(RequestValidationError)(self._request_validation_error_handler)
 
         from ceres._internal.app.api import router as api
 
@@ -139,17 +139,17 @@ class App(FastAPI):
 
     @property
     def engine(self) -> Engine:
-        return self.__engine
+        return self._engine
 
     @property
     def cli(self) -> bool:
-        return self.__cli_token is not None
+        return self._cli_token is not None
 
     @property
     def cli_token(self) -> str | None:
-        return self.__cli_token
+        return self._cli_token
 
-    async def __http_exception_handler(
+    async def _http_exception_handler(
         self,
         request: HTTPConnection,
         exception: HTTPException,
@@ -157,7 +157,7 @@ class App(FastAPI):
         error = simplify(HTTPError(status=exception.status_code))
         return JSONResponse(simplify(error), exception.status_code)
 
-    async def __request_validation_error_handler(
+    async def _request_validation_error_handler(
         self,
         request: Request,
         exception: RequestValidationError,

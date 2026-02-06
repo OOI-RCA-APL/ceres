@@ -24,27 +24,36 @@ class CLIServerInfo(ImmutableDataObject):
 
 
 class Server(Tasklet):
-    def __init__(self, engine: Engine, project: LoadedProject, config: ServerConfig) -> None:
-        self.__engine: Final = engine
-        self.__project: Final = project
-        self.__config: Final = config
+    __slots__ = (
+        "_engine",
+        "_project",
+        "_config",
+        "_cli_port",
+        "_cli_token",
+        "_granian_cli",
+        "_granian_web",
+    )
 
-        self.__cli_port: int | None = None
-        self.__cli_token: str | None = None
-        self.__granian_cli: Granian | None = None
-        self.__granian_web: Granian | None = None
+    def __init__(self, engine: Engine, project: LoadedProject, config: ServerConfig) -> None:
+        self._engine: Final = engine
+        self._project: Final = project
+        self._config: Final = config
+        self._cli_port: int | None = None
+        self._cli_token: str | None = None
+        self._granian_cli: Granian | None = None
+        self._granian_web: Granian | None = None
 
     @property
     def config(self) -> ServerConfig:
-        return self.__config
+        return self._config
 
     @property
     def host(self) -> str:
-        return self.__config.host
+        return self._config.host
 
     @property
     def port(self) -> int | None:
-        return self.__config.port
+        return self._config.port
 
     @property
     def bind(self) -> str | None:
@@ -59,7 +68,7 @@ class Server(Tasklet):
 
     @property
     def cli_port(self) -> int | None:
-        return self.__cli_port
+        return self._cli_port
 
     @property
     def cli_bind(self) -> str | None:
@@ -70,13 +79,13 @@ class Server(Tasklet):
 
     @override
     async def __run__(self) -> None:
-        self.__cli_port = await self.__get_free_port()
-        self.__cli_token = str(uuid4())
+        self._cli_port = await self._get_free_port()
+        self._cli_token = str(uuid4())
 
-        self.__project.write_cli_server_info(
+        self._project.write_cli_server_info(
             CLIServerInfo(
-                port=self.__cli_port,
-                token=self.__cli_token,
+                port=self._cli_port,
+                token=self._cli_token,
             )
         )
 
@@ -90,19 +99,19 @@ class Server(Tasklet):
             "interface": Interfaces.ASGI,
         }
 
-        self.__granian_cli = Granian(
-            App(self.__engine, None, self.__cli_token),
-            address=self.__config.host,
-            port=self.__cli_port,
+        self._granian_cli = Granian(
+            App(self._engine, None, self._cli_token),
+            address=self._config.host,
+            port=self._cli_port,
             **shared,
         )
 
-        if self.__config.port is not None:
-            ssl = self.__config.ssl
-            self.__granian_web = Granian(
-                App(self.__engine),
-                address=self.__config.host,
-                port=self.__config.port,
+        if self._config.port is not None:
+            ssl = self._config.ssl
+            self._granian_web = Granian(
+                App(self._engine),
+                address=self._config.host,
+                port=self._config.port,
                 ssl_key=ssl.key if ssl else None,
                 ssl_cert=ssl.cert if ssl else None,
                 ssl_key_password=ssl.key_password if ssl else None,
@@ -111,28 +120,28 @@ class Server(Tasklet):
 
         try:
             await util.concurrently(
-                self.__granian_cli.serve() if self.__granian_cli is not None else None,
-                self.__granian_web.serve() if self.__granian_web is not None else None,
+                self._granian_cli.serve() if self._granian_cli is not None else None,
+                self._granian_web.serve() if self._granian_web is not None else None,
             )
         finally:
-            self.__granian_cli = None
-            self.__granian_web = None
+            self._granian_cli = None
+            self._granian_web = None
             try:
-                self.__project.delete_cli_server_info()
+                self._project.delete_cli_server_info()
             except Exception:
                 traceback.print_exc()
 
     @override
     async def __stop__(self) -> None:
-        cli = self.__granian_cli
+        cli = self._granian_cli
         if cli is not None:
             cli.stop()
 
-        web = self.__granian_web
+        web = self._granian_web
         if web is not None:
             web.stop()
 
-    async def __get_free_port(self) -> int:
+    async def _get_free_port(self) -> int:
         def run():
             with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as stream:
                 stream.bind(("", 0))

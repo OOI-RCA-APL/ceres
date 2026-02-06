@@ -28,6 +28,7 @@ from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     EntityNaming,
+    EntityOutputChannel,
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
@@ -35,14 +36,13 @@ from ceres._internal.util import MatchMode, get_type_adapter
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, jsonify
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
 
 
@@ -186,6 +186,8 @@ class _BaseVariableQuery(
         "VariableQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[VariableQuery]:
         return VariableQuery
@@ -207,7 +209,7 @@ class VariableQuery(
     ],
     _BaseVariableQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class VariableManager(
@@ -221,6 +223,8 @@ class VariableManager(
     ],
     _BaseVariableQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Variable)
 
@@ -229,8 +233,20 @@ class VariableManager(
 
 
 class BoundVariableManager(VariableManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
+
+    @property
+    def stream(self) -> VariableOutputChannel:
+        from ceres.event import VariableAssignedEvent
+
+        return VariableOutputChannel(
+            self.__node__.events.stream.every(VariableAssignedEvent)
+            .map(lambda event: event.variable)
+            .where(lambda variable: self._get_resolved_filter().matches(variable))
+        )
 
     def assign(self, name: str, value: Any) -> Variable:
         from ceres.event import VariableAssignedEvent
@@ -296,20 +312,28 @@ class BoundVariableManager(VariableManager, BaseNodeManager):
 
         return variable.value
 
-    def follow(
-        self,
-        filter: VariableFilter | None = None,
-        **kwargs: Unpack[VariableFilterArgs],
-    ) -> OutputChannel[Variable]:
-        from ceres.event import VariableAssignedEvent
 
-        filter = self._get_resolved_filter_args(filter, kwargs)
-        return (
-            self.__node__.events.follow()
-            .every(VariableAssignedEvent)
-            .map(lambda event: event.variable)
-            .filter(filter.matches)
-        )
+class VariableOutputChannel(
+    EntityOutputChannel[
+        "Variable",
+        VariableFilter,
+        VariableFilterArgs,
+    ]
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[VariableFilter]:
+        return VariableFilter
+
+    @override
+    def where(
+        self,
+        filter: VariableFilter | Callable[[Variable], bool] | None = None,
+        /,
+        **kwargs: Unpack[VariableFilterArgs],
+    ) -> VariableOutputChannel:
+        return super().where(filter, **kwargs)
 
 
 class Variable(BaseAddressEntity, VariableCreate):

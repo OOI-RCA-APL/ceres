@@ -30,20 +30,20 @@ class ServiceStatus(DataObject):
 
 class Service(ABC):
     def __init__(self, project: LoadedProject, silent: bool = True) -> None:
-        self.__project = project
-        self.__silent = silent
+        self._project = project
+        self._silent = silent
 
     @property
     def project(self) -> Project:
-        return self.__project
+        return self._project
 
     @property
     def config(self) -> ServiceConfig:
-        return self.__project.config.service
+        return self._project.config.service
 
     @property
     def name(self) -> str:
-        return self.config.name or "ceres-" + self.__project.directory_hash
+        return self.config.name or "ceres-" + self._project.directory_hash
 
     @property
     def user(self) -> str:
@@ -54,17 +54,17 @@ class Service(ABC):
         if self.config.stdout is None or self.config.stdout.is_absolute():
             return self.config.stdout
 
-        return self.__project.directory / self.config.stdout
+        return self._project.directory / self.config.stdout
 
     @property
     def stderr(self) -> Path | None:
         if self.config.stderr is None or self.config.stderr.is_absolute():
             return self.config.stderr
 
-        return self.__project.directory / self.config.stderr
+        return self._project.directory / self.config.stderr
 
     def _log(self, message: Any) -> None:
-        if not self.__silent:
+        if not self._silent:
             write(message)
 
     @property
@@ -160,7 +160,7 @@ WantedBy=default.target
         self._execute(["daemon-reload", "--user"])
         self._execute(["start", "--user", self.label])
         self._execute(["enable", "--user", self.label])
-        self.__enable_linger()
+        self._enable_linger()
 
     @override
     def stop(self) -> None:
@@ -197,7 +197,7 @@ WantedBy=default.target
 
         return result.returncode
 
-    def __enable_linger(self) -> None:
+    def _enable_linger(self) -> None:
         write(f"Enabling loginctl linger for user {self.user!r}...")
         result = subprocess.run(["loginctl", "enable-linger", self.user])
         if result.returncode != 0:

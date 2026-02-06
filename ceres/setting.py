@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    ClassVar,
-    Literal,
-    TypeAlias,
-    TypedDict,
-    Unpack,
-    override,
-)
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, TypedDict, Unpack, override
 from uuid import UUID
 
 from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text
@@ -170,6 +162,8 @@ class _BaseSettingQuery(
         "SettingQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[SettingQuery]:
         return SettingQuery
@@ -191,7 +185,7 @@ class SettingQuery(
     ],
     _BaseSettingQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class SettingManager(
@@ -205,6 +199,8 @@ class SettingManager(
     ],
     _BaseSettingQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Setting)
 
@@ -213,6 +209,8 @@ class SettingManager(
 
 
 class BoundSettingManager(SettingManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 

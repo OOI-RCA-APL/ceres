@@ -175,6 +175,8 @@ else:
 
 
 class Component(ValidatedDataclass, ComponentSource):
+    __slots__ = ("__system",)
+
     __with_name__: InitVar[Name | None] = field(default=None, kw_only=False)
     __with_config__: InitVar[ComponentConfig | None] = field(default=None)
     __with_container__: InitVar[_Container] = field(default=None)
@@ -191,6 +193,7 @@ class Component(ValidatedDataclass, ComponentSource):
             __with_config__=__with_config__,
             __with_container__=__with_container__,
         )
+
         self.__setup__()
 
     @final
@@ -1117,19 +1120,20 @@ warnings.filterwarnings(
 @final
 class ComponentSystem(Node, ComponentSource):
     __slots__ = (
-        "__name",
-        "__config",
-        "__referencers",
-        "__container",
-        "__children",
-        "__enabled",
-        "__database",
-        "__component",
+        "_name",
+        "_config",
+        "_referencers",
+        "_container",
+        "_children",
+        "_enabled",
+        "_database",
+        "_component",
     )
 
     def __init__(
         self,
         component: Component,
+        /,
         *,
         __with_config__: ComponentConfig | None = None,
         __with_name__: Name | None = None,
@@ -1142,19 +1146,19 @@ class ComponentSystem(Node, ComponentSource):
         if isinstance(__with_container__, Component):
             __with_container__ = __with_container__.system
 
-        self.__name = __with_name__
-        self.__config: ComponentConfig | None = __with_config__
-        self.__referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
-        self.__container: ComponentSystem | Engine | None = None
-        self.__children: Final[dict[Name, ComponentSystem]] = {}
-        self.__enabled = False
-        self.__database: Database | None = None
-        self.__component: Final[Component] = component
-        self.__component.__bind__(self)
+        self._name = __with_name__
+        self._config: ComponentConfig | None = __with_config__
+        self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
+        self._container: ComponentSystem | Engine | None = None
+        self._children: Final[dict[Name, ComponentSystem]] = {}
+        self._enabled = False
+        self._database: Database | None = None
+        self._component: Final[Component] = component
+        self._component.__bind__(self)
 
         if __with_container__ is not None:
             __with_container__.attach(self)
-            assert self.__container is __with_container__
+            assert self._container is __with_container__
 
         self.sync_references()
 
@@ -1233,12 +1237,12 @@ class ComponentSystem(Node, ComponentSource):
 
     @override
     def __repr__(self) -> str:
-        return f"{type(self).__name__}(component={util.reprify(self.component)})"
+        return f"{type(self).__name__}({util.reprify(self.component)})"
 
     @property
     @override
     def __container__(self) -> Node | None:
-        return self.__container
+        return self._container
 
     @property
     @override
@@ -1248,7 +1252,7 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def __component__(self) -> Component:
-        return self.__component
+        return self._component
 
     @property
     @override
@@ -1273,18 +1277,18 @@ class ComponentSystem(Node, ComponentSource):
         its parent, or an `Engine`. Returns `None` if the component has no parent or containing
         engine.
         """
-        return self.__container
+        return self._container
 
     @container.setter
     def container(self, container: ComponentSystem | Engine | None) -> None:
         from ceres.engine import Engine
 
-        self.__container = container
+        self._container = container
         if isinstance(container, Engine):
             if container.root is not self:
                 container.attach(self)
         elif isinstance(container, ComponentSystem):
-            if container.__children.get(self.__name) is not self:
+            if container._children.get(self._name) is not self:
                 container.attach(self)
 
     @property
@@ -1294,7 +1298,7 @@ class ComponentSystem(Node, ComponentSource):
         Get the engine this component is contained by. Returns `None` if the component is not
         contained by any engine.
         """
-        container = self.__container
+        container = self._container
         if container is None:
             return None
 
@@ -1303,13 +1307,13 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def database(self) -> Database:
-        container = self.__container
+        container = self._container
         if container is not None:
             return container.database
 
-        if self.__database is None:
-            self.__database = Database()
-        return self.__database
+        if self._database is None:
+            self._database = Database()
+        return self._database
 
     @property
     @override
@@ -1317,7 +1321,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         The configuration of the component, if available.
         """
-        return self.__config
+        return self._config
 
     @config.setter
     def config(self, config: ComponentConfig | None) -> None:
@@ -1326,7 +1330,7 @@ class ComponentSystem(Node, ComponentSource):
         the configuration. It will only indicate to the engine, that this configuration is the one
         currently applied. Generally, this is only for internal use and should not be used directly.
         """
-        self.__config = config
+        self._config = config
 
     @property
     @override
@@ -1342,7 +1346,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         Get the parent component's system if it exists, or return `None`.
         """
-        return util.as_component_system(self.__container)
+        return util.as_component_system(self._container)
 
     @cached_property
     def jobs(self) -> ComponentJobManager:
@@ -1363,33 +1367,33 @@ class ComponentSystem(Node, ComponentSource):
     @override
     async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
         await super().__node_sync__(connection)
-        self.__enabled = await self.__get_enabled_in_database()
+        self._enabled = await self.__get_enabled_in_database()
 
     @property
     def name(self) -> Name:
-        return self.__name
+        return self._name
 
     @name.setter
     def name(self, name: Name) -> None:
         if self.parent is None:
-            self.__name = name
+            self._name = name
             return
 
-        if name in self.parent.__children:
-            raise ValueError(f"parent already has child named {self.__name!r}")
+        if name in self.parent._children:
+            raise ValueError(f"parent already has child named {self._name!r}")
 
-        self.__name = name
-        self.parent.__children[name] = self
+        self._name = name
+        self.parent._children[name] = self
         self.__propagate_tree_change()
 
-        self.__name = name
+        self._name = name
 
     @property
     def component(self) -> Component:
         """
         Get the underlying component of the component system.
         """
-        return self.__component
+        return self._component
 
     @property
     def enabled(self) -> bool:
@@ -1397,7 +1401,7 @@ class ComponentSystem(Node, ComponentSource):
         `True` if the component is enabled. Enabled components start automatically when their parent
         or containing engine starts.
         """
-        return self.__enabled
+        return self._enabled
 
     async def enable(self) -> None:
         """
@@ -1405,7 +1409,7 @@ class ComponentSystem(Node, ComponentSource):
         engine starts.
         """
         await self.__set_enabled_in_database(True)
-        self.__enabled = True
+        self._enabled = True
         self.events.emit(EnabledEvent)
 
     async def disable(self) -> None:
@@ -1414,7 +1418,7 @@ class ComponentSystem(Node, ComponentSource):
         or containing engine starts.
         """
         await self.__set_enabled_in_database(False)
-        self.__enabled = False
+        self._enabled = False
         self.events.emit(DisabledEvent)
 
     async def up(self) -> None:
@@ -1453,7 +1457,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         Get all child component systems of this component.
         """
-        return list(self.__children.values())
+        return list(self._children.values())
 
     def get_listener_bindings(self) -> Sequence[ListenerBinding]:
         """
@@ -1554,16 +1558,16 @@ class ComponentSystem(Node, ComponentSource):
 
             if component is not None:
                 resolved.append(reference)
-                component.system.__referencers.add(self)
+                component.system._referencers.add(self)
             else:
                 unresolved.append(reference)
 
         discard: list[ComponentSystem] = []
-        for referencer in self.__referencers:
+        for referencer in self._referencers:
             if self.component not in referencer.get_referenced_components():
                 discard.append(referencer)
 
-        self.__referencers.difference_update(discard)
+        self._referencers.difference_update(discard)
         return resolved, unresolved
 
     def get_references(self) -> list[Reference]:
@@ -1622,7 +1626,7 @@ class ComponentSystem(Node, ComponentSource):
         if recursive:
             return self.__get_referencing_components_recursive()
 
-        return util.as_components(self.__referencers)
+        return util.as_components(self._referencers)
 
     def __get_referencing_components_recursive(self) -> list[Component]:
         seen: set[int] = set()
@@ -1654,15 +1658,15 @@ class ComponentSystem(Node, ComponentSource):
         child.detach()
 
         name = name or child.name
-        current = self.__children.get(name)
+        current = self._children.get(name)
         if current is not None:
             raise ValueError(f"child with name '{name}' already exists")
 
         if child.name != name:
             child.name = name
 
-        self.__children[child.name] = child
-        child.__container = self
+        self._children[child.name] = child
+        child._container = self
 
         self.__propagate_tree_change()
         child.events.emit(AttachedEvent)
@@ -1672,16 +1676,16 @@ class ComponentSystem(Node, ComponentSource):
         Remove the component from its container (either its parent component, or its containing
         engine). If the component has no container, this does nothing.
         """
-        if self.__container is None:
+        if self._container is None:
             return
 
-        engine = util.as_engine(self.__container)
+        engine = util.as_engine(self._container)
         if engine is not None:
             self.events.emit(WillDetachEvent)
             address_before = self.address
             logging_before = self.get_resolved_logging_config()
 
-            self.__container = None
+            self._container = None
             engine.root = None
             self.__propagate_tree_change()
 
@@ -1695,7 +1699,7 @@ class ComponentSystem(Node, ComponentSource):
         if parent is None:
             return
 
-        current = parent.__children.get(self.name)
+        current = parent._children.get(self.name)
 
         try:
             if current is not None and current is self:
@@ -1704,8 +1708,8 @@ class ComponentSystem(Node, ComponentSource):
                 address_before = self.address
                 logging_before = self.get_resolved_logging_config()
 
-                parent.__children.pop(self.name, None)
-                self.__container = None
+                parent._children.pop(self.name, None)
+                self._container = None
 
                 self.__propagate_tree_change()
                 parent.__propagate_tree_change()
@@ -1716,7 +1720,7 @@ class ComponentSystem(Node, ComponentSource):
                 )
                 self.events.emit(DetachedEvent)
         finally:
-            self.__container = None
+            self._container = None
 
     @override
     def get_component(
@@ -1738,7 +1742,7 @@ class ComponentSystem(Node, ComponentSource):
             if current is None:
                 break
 
-            current = current.__children.get(name)
+            current = current._children.get(name)
 
         if current is None:
             return None
@@ -1770,7 +1774,7 @@ class ComponentSystem(Node, ComponentSource):
             if (inclusive or current is not self) and filter.matches(current):
                 components.append(current.component)
 
-            for component in current.__children.values():
+            for component in current._children.values():
                 traverse(component)
 
         traverse(self)
@@ -1916,9 +1920,9 @@ class ComponentSystem(Node, ComponentSource):
         await super().__post_stop__()
         await self.flush()
 
-        if self.__database is not None:
-            await self.__database.dispose()
-            self.__database = None
+        if self._database is not None:
+            await self._database.dispose()
+            self._database = None
 
         self.events.emit(StoppedEvent)
 
@@ -2047,22 +2051,22 @@ class ComponentSystem(Node, ComponentSource):
             raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
     def sync_child_order(self) -> None:
-        if self.__config is None:
+        if self._config is None:
             return
 
         order: list[ComponentSystem] = []
-        for config in self.__config.components:
-            component = self.__children.get(config.name)
+        for config in self._config.components:
+            component = self._children.get(config.name)
             if component is not None:
                 order.append(component)
 
-        for component in self.__children.values():
+        for component in self._children.values():
             if not any(current is component for current in order):
                 order.append(component)
 
-        self.__children.clear()
+        self._children.clear()
         for component in order:
-            self.__children[component.name] = component
+            self._children[component.name] = component
 
 
 class Bound[T]:

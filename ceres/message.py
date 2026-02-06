@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterable, Iterable
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -24,7 +23,9 @@ from ceres._internal.entity import (
     BaseEntityQuery,
     ConcreteEntity,
     EntityNaming,
+    EntityOutputChannel,
     EntityQuery,
+    Filtering,
 )
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.record import (
@@ -42,6 +43,7 @@ from ceres.data import MaybeSequence, StrEnum
 from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
     from datetime import datetime
     from uuid import UUID
 
@@ -49,7 +51,6 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
-    from ceres.channel import ChannelReader, OutputChannel
     from ceres.database import DatabaseType
 
 
@@ -267,6 +268,8 @@ class _BaseMessageQuery(
         "MessageQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[MessageQuery]:
         return MessageQuery
@@ -288,7 +291,7 @@ class MessageQuery(
     ],
     _BaseMessageQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class MessageManager(
@@ -302,43 +305,71 @@ class MessageManager(
     ],
     _BaseMessageQuery,
 ):
-    def __init__(self, source: DatabaseSource, /) -> None:
-        super().__init__(source, Message)
+    __slots__ = ()
+
+    def __init__(
+        self,
+        source: DatabaseSource,
+        /,
+        filtering: Filtering[MessageFilter] = None,
+    ) -> None:
+        super().__init__(source, Message, filtering)
 
     async def get(self, id: UUID, /) -> Message | None:
         return await self.where(id=id).first()
 
 
-class BoundMessageManager(MessageManager, BaseNodeManager, AsyncIterable["Message"]):
-    def __init__(self, source: NodeSource, /) -> None:
-        super().__init__(source)
+class BoundMessageManager(MessageManager, BaseNodeManager):
+    __slots__ = ()
 
-    def follow(
+    def __init__(
         self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> OutputChannel[Message]:
-        from ceres.event import MessageEvent, MessageReceivedEvent
+        source: NodeSource,
+        /,
+        filtering: Filtering[MessageFilter] = None,
+    ) -> None:
+        super().__init__(source, filtering)
 
-        resolved = self._get_resolved_filter_args(filter, kwargs)
-        return (
-            self.__node__.events.follow()
-            .every(MessageEvent if not TYPE_CHECKING else MessageReceivedEvent)
+    @property
+    def stream(self) -> MessageOutputChannel:
+        from ceres.event import MessageReceivedEvent, MessageSentEvent
+
+        return MessageOutputChannel(
+            self.__node__.events.stream.every(MessageSentEvent, MessageReceivedEvent)
             .map(lambda event: event.message)
-            .filter(resolved.matches)
+            .where(lambda message: self._get_resolved_filter().matches(message))
         )
 
+
+class MessageOutputChannel(
+    EntityOutputChannel[
+        "Message",
+        MessageFilter,
+        MessageFilterArgs,
+    ]
+):
+    __slots__ = ()
+
     @override
-    def __aiter__(self) -> ChannelReader[Message]:
-        return aiter(self.follow())
+    def _get_filter_class(self) -> type[MessageFilter]:
+        return MessageFilter
 
     @property
-    def sent(self) -> OutputChannel[Message]:
-        return self.follow().filter(lambda current: current.direction == Message.Direction.SEND)
+    def received(self) -> MessageOutputChannel:
+        return self.where(lambda message: message.direction == MessageDirection.RECEIVE)
 
     @property
-    def received(self) -> OutputChannel[Message]:
-        return self.follow().filter(lambda current: current.direction == Message.Direction.RECEIVE)
+    def sent(self) -> MessageOutputChannel:
+        return self.where(lambda message: message.direction == MessageDirection.SEND)
+
+    @override
+    def where(
+        self,
+        filter: MessageFilter | Callable[[Message], bool] | None = None,
+        /,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> MessageOutputChannel:
+        return super().where(filter, **kwargs)
 
 
 class Message(BaseRecord, MessageCreate, ConcreteEntity):

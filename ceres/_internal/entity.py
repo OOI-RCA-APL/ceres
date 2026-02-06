@@ -64,6 +64,7 @@ from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.manager import BaseDatabaseManager
 from ceres._internal.util import construct_model
 from ceres.address import Address, AddressSelector
+from ceres.channel import OutputChannel
 from ceres.data import (
     DateTime,
     FromYAML,
@@ -678,6 +679,8 @@ class SelectExecutor[
     EntityT: BaseEntity,
     FilterT: BaseEntityFilter[Any, Any, Any],
 ](_BaseStatementExecutor[EntityT, FilterT, list[EntityT]]):
+    __slots__ = ()
+
     @override
     async def _await(self) -> list[EntityT]:
         return await self.all()
@@ -771,6 +774,8 @@ class DeleteExecutor[
     EntityT: BaseEntity,
     FilterT: BaseEntityFilter[Any, Any, Any],
 ](_BaseStatementExecutor[EntityT, FilterT, int]):
+    __slots__ = ()
+
     @override
     async def _await(self) -> int:
         database = self._query._get_database()
@@ -819,7 +824,7 @@ class BaseEntityQuery[
         filter: FilterT | None = None,
         **kwargs: Unpack[BaseEntityFilterArgs],
     ) -> QueryT:
-        filter = self._get_resolved_filter_args(filter, kwargs)
+        filter = self._get_resolved_filter(filter, kwargs)
         return self._get_query_class()(
             database=self._get_database(),
             entity_class=self._get_entity_class(),
@@ -875,10 +880,13 @@ class BaseEntityQuery[
     def _get_entity_class(self) -> type[EntityT]: ...
 
     @abstractmethod
-    def _get_filter(self) -> FilterT: ...
+    def _get_base_filter(self) -> FilterT: ...
 
     @abstractmethod
     def _get_filter_defaults(self) -> FilterT: ...
+
+    def _get_hard_filter(self) -> FilterT | None:
+        return None
 
     @abstractmethod
     def _get_transform(self) -> EntityTransform[EntityT] | None: ...
@@ -894,22 +902,24 @@ class BaseEntityQuery[
     def _get_row_class(self) -> type[BaseEntityRow]:
         return self._get_entity_class().Row
 
-    def _get_resolved_filter(self) -> FilterT:
-        filter = self._get_filter()
-        filter = filter.with_defaults(self._get_filter_defaults())
-        return filter
-
-    def _get_resolved_filter_args(
+    def _get_resolved_filter(
         self,
-        filter: FilterT | None,
-        kwargs: Mapping[str, Any],
+        filter: FilterT | None = None,
+        kwargs: Mapping[str, Any] | None = None,
     ) -> FilterT:
         Filter = self._get_filter_class()
-        return (
-            Filter(**cast("Any", kwargs))
+        resolved = (
+            Filter(**cast("Any", kwargs or {}))
             .with_defaults(filter)
-            .with_defaults(self._get_resolved_filter())
+            .with_defaults(self._get_base_filter())
+            .with_defaults(self._get_filter_defaults())
         )
+
+        hard = self._get_hard_filter()
+        if hard is not None:
+            resolved &= hard
+
+        return resolved
 
     async def _assign_transform(self, assign: UpdateT) -> UpdateT:
         return assign
@@ -996,7 +1006,7 @@ class EntityQuery[
         return self._entity_class
 
     @override
-    def _get_filter(self) -> FilterT:
+    def _get_base_filter(self) -> FilterT:
         if self._filter is not None:
             return self._filter
 
@@ -1012,6 +1022,9 @@ class EntityQuery[
     @override
     def _get_transform(self) -> EntityTransform[EntityT] | None:
         return None
+
+
+type Filtering[FilterT] = FilterT | Callable[[], FilterT | None] | None
 
 
 class BaseEntityManager[
@@ -1034,12 +1047,19 @@ class BaseEntityManager[
         ],
     ],
 ):
-    __slots__ = ("_entity_class",)
+    __slots__ = ("_entity_class", "_filtering")
 
     @override
-    def __init__(self, source: DatabaseSource, cls: type[EntityT], /) -> None:
+    def __init__(
+        self,
+        source: DatabaseSource,
+        cls: type[EntityT],
+        /,
+        filtering: Filtering[FilterT] = None,
+    ) -> None:
         super().__init__(source)
         self._entity_class: Final = cls
+        self._filtering: Final = filtering
 
     @override
     def _get_database(self) -> Database:
@@ -1050,13 +1070,20 @@ class BaseEntityManager[
         return self._entity_class
 
     @override
-    def _get_filter(self) -> FilterT:
+    def _get_base_filter(self) -> FilterT:
         return self._get_filter_class()()
 
     @override
     def _get_filter_defaults(self) -> FilterT:
         Filter = self._get_filter_class()
         return util.call_partial(Filter, **self.__get_filter_defaults__())
+
+    @override
+    def _get_hard_filter(self) -> FilterT | None:
+        if callable(self._filtering):
+            return self._filtering()
+
+        return self._filtering
 
     @override
     def _get_transform(self) -> EntityTransform[EntityT] | None:
@@ -1639,3 +1666,44 @@ class BaseTimestampEntity(BaseTimestampEntityCreate):
         FilterArgs: ClassVar[type[BaseTimestampEntityFilterArgs]] = BaseTimestampEntityFilterArgs
         Field: ClassVar[type[BaseTimestampEntityField]] = BaseTimestampEntityField
         Order: ClassVar[type[BaseTimestampEntityOrder]] = BaseTimestampEntityOrder
+
+
+class EntityOutputChannel[
+    EntityT: BaseEntity,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+    FilterArgsT: BaseEntityFilterArgs[Any, Any],
+](OutputChannel[EntityT], ABC):
+    __slots__ = ("_filter_class",)
+
+    def __init__(self, source: OutputChannel[EntityT], /) -> None:
+        super().__init__(source)
+
+    @abstractmethod
+    def _get_filter_class(self) -> type[FilterT]: ...
+
+    @override
+    def where(
+        self,
+        filter: FilterT | Callable[[EntityT], bool] | None = None,
+        /,
+        **kwargs: Unpack[BaseEntityFilterArgs[Any, Any]],
+    ) -> Self:
+        if callable(filter):
+            condition = filter
+            filtering = None
+        else:
+            condition = None
+            filtering = filter
+
+        if kwargs:
+            filtering = self._filter_class(**cast("Any", kwargs)).with_defaults(filtering)
+
+        def where(entity: EntityT) -> bool:
+            if condition is not None and not condition(entity):
+                return False
+            if filtering is not None and not filtering.matches(entity):
+                return False
+
+            return True
+
+        return self.__class__(super().where(where))

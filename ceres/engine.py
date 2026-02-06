@@ -91,25 +91,25 @@ class EngineActions(ImmutableDataObject):
 @final
 class Engine(Node):
     __slots__ = (
-        "__loaded",
-        "__config",
-        "__config_path",
-        "__apply_lock",
-        "__database",
-        "__root",
-        "__server",
+        "_loaded",
+        "_config",
+        "_config_path",
+        "_apply_lock",
+        "_database",
+        "_root",
+        "_server",
     )
 
     def __init__(self) -> None:
         super().__init__()
 
-        self.__loaded = False
-        self.__config = Config()
-        self.__config_path: Path | None = None
-        self.__apply_lock = asyncio.Lock()
-        self.__database = Database()
-        self.__root: ComponentSystem | None = None
-        self.__server: Server | None = None
+        self._loaded = False
+        self._config = Config()
+        self._config_path: Path | None = None
+        self._apply_lock = asyncio.Lock()
+        self._database = Database()
+        self._root: ComponentSystem | None = None
+        self._server: Server | None = None
 
     @property
     @override
@@ -119,11 +119,11 @@ class Engine(Node):
     @property
     @override
     def root(self) -> ComponentSystem | None:
-        return self.__root
+        return self._root
 
     @root.setter
     def root(self, root: Component | ComponentSystem | None) -> None:
-        self.__set_root(root)
+        self._set_root(root)
 
     @property
     @override
@@ -137,17 +137,17 @@ class Engine(Node):
 
     @property
     def server(self) -> Server | None:
-        return self.__server
+        return self._server
 
     @property
     @override
     def database(self) -> Database:
-        return self.__database
+        return self._database
 
     @property
     @override
     def config(self) -> Config:
-        return self.__config
+        return self._config
 
     @cached_property
     def users(self) -> UserManager:
@@ -174,7 +174,7 @@ class Engine(Node):
 
     @property
     def config_path(self) -> Path | None:
-        return self.__config_path
+        return self._config_path
 
     @property
     def project_directory(self) -> Directory | None:
@@ -195,9 +195,9 @@ class Engine(Node):
         if self.local_directory is not None:
             self.local_directory.create()
 
-        await self.__apply(self.config_path, self.config)
+        await self._apply(self.config_path, self.config)
 
-        await self.__load_database()
+        await self._load_database()
         await self.__node_sync__()
 
         async with await self.database.use() as connection:
@@ -219,25 +219,25 @@ class Engine(Node):
 
     @override
     async def __stop__(self) -> None:
-        await self.__stop_server()
-        if self.__root is not None:
-            await self.__root.stop()
+        await self._stop_server()
+        if self._root is not None:
+            await self._root.stop()
 
     @override
     async def __post_stop__(self) -> None:
         await super().__post_stop__()
         self.events.emit(StoppedEvent)
         await self.flush()
-        await self.__database.dispose()
+        await self._database.dispose()
 
         self.log.info("Stopped.")
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None) -> Component | None:
-        if self.__root is None:
+        if self._root is None:
             return None
 
-        return self.__root.get_component(address)
+        return self._root.get_component(address)
 
     @override
     def get_components(
@@ -248,10 +248,10 @@ class Engine(Node):
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Component]:
-        if self.__root is None:
+        if self._root is None:
             return []
 
-        return self.__root.get_components(filter, inclusive=True, **kwargs)
+        return self._root.get_components(filter, inclusive=True, **kwargs)
 
     def attach(
         self,
@@ -263,7 +263,7 @@ class Engine(Node):
         Attach a component as the root component of the engine. If there is already a root component
         set, it will be detached and returned. Otherwise returns `None`.
         """
-        return self.__set_root(root, name)
+        return self._set_root(root, name)
 
     async def load(
         self,
@@ -284,7 +284,7 @@ class Engine(Node):
             else:
                 self.log.info("Loading provided configuration.")
 
-        await self.__apply(source if isinstance(source, Path) else None, config, silent=silent)
+        await self._apply(source if isinstance(source, Path) else None, config, silent=silent)
         return Ok(config)
 
     async def reload(
@@ -306,22 +306,22 @@ class Engine(Node):
             case Fail(error):
                 return Fail(ReloadConfigInvalidError(error=error))
 
-        await self.__apply(source if isinstance(source, Path) else None, config, silent=silent)
+        await self._apply(source if isinstance(source, Path) else None, config, silent=silent)
         return Ok(config)
 
     async def hash_password(self, password: str) -> PasswordHash:
-        return await self.__database.hash_password(password)
+        return await self._database.hash_password(password)
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
-        return await self.__database.verify_password(password, hash)
+        return await self._database.verify_password(password, hash)
 
-    def __set_root(
+    def _set_root(
         self,
         root: Component | ComponentSystem | None,
         name: Name | None = None,
     ) -> Component | None:
         root = util.as_component_system(root)
-        previous = self.__root
+        previous = self._root
         if previous is root:
             return
 
@@ -333,14 +333,14 @@ class Engine(Node):
             if name is not None:
                 root.name = name
 
-        self.__root = root
+        self._root = root
         if root is not None and root.container is not self:
             root.container = self
             root.events.emit(AttachedEvent)
 
         return previous.component if previous is not None else None
 
-    async def __load_database(self) -> None:
+    async def _load_database(self) -> None:
         if not await self.database.initialized():
             self.log.info("Database appears empty, initializing database.")
             try:
@@ -350,65 +350,65 @@ class Engine(Node):
                 self.log.error("Database initialization failed.")
                 raise
 
-    def __create_server(self) -> Server | None:
+    def _create_server(self) -> Server | None:
         if self.config_path is None:
             self.log.error("Cannot create server without configuration path.")
             return None
 
         return Server(self, LoadedProject(self.config_path, self.config), self.config.server)
 
-    async def __start_server(self) -> Server | None:
-        if self.__server is None:
-            self.__server = self.__create_server()
+    async def _start_server(self) -> Server | None:
+        if self._server is None:
+            self._server = self._create_server()
 
-        if self.__server is not None and not self.__server.running:
+        if self._server is not None and not self._server.running:
             self.log.info("Starting HTTP server.")
-            self.__server.start(on_exception=self.__on_server_exception)
+            self._server.start(on_exception=self._on_server_exception)
 
             with anyio.move_on_after(1):
-                while self.__server.cli_bind is None:
+                while self._server.cli_bind is None:
                     await asyncio.sleep(0.01)
 
-            if self.__server.cli_bind:
-                self.log.info(f"HTTP CLI server listening on {self.__server.cli_bind}.")
-            if self.__server.bind:
-                self.log.info(f"HTTP web server listening on {self.__server.bind}.")
+            if self._server.cli_bind:
+                self.log.info(f"HTTP CLI server listening on {self._server.cli_bind}.")
+            if self._server.bind:
+                self.log.info(f"HTTP web server listening on {self._server.bind}.")
 
-        return self.__server
+        return self._server
 
-    async def __stop_server(self) -> None:
-        if self.__server is not None:
+    async def _stop_server(self) -> None:
+        if self._server is not None:
             self.log.info("Stopping HTTP server.")
-            await self.__server.stop()
-            self.__server = None
+            await self._server.stop()
+            self._server = None
             self.log.info("HTTP server stopped.")
 
-    def __on_server_exception(self, server: Server, exception: BaseException) -> None:
+    def _on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.log.error(f"An exception occurred while running server: {exception}")
 
-    async def __apply(
+    async def _apply(
         self,
         config_path: Path | None,
         config: Config,
         *,
         silent: bool = False,
     ) -> EngineActions:
-        async with self.__apply_lock:
-            self.__config_path = config_path
-            self.__config = config
+        async with self._apply_lock:
+            self._config_path = config_path
+            self._config = config
 
             running = [component.system.address for component in self.get_components(running=True)]
 
-            reloading = self.__loaded
+            reloading = self._loaded
 
             verb = "reload" if reloading else "load"
 
-            actions = self.get_apply_actions(config)
+            actions = self._get_apply_actions(config)
             if actions.server is None and actions.database is None and not actions.components:
                 if not silent:
                     self.log.info("Configuration appears up-to-date.")
 
-                self.__loaded = True
+                self._loaded = True
                 return actions
 
             if not silent:
@@ -419,8 +419,8 @@ class Engine(Node):
                     self.log.info(f"Server configuration will be {verb}ed.")
 
                 try:
-                    await self.__stop_server()
-                    await self.__start_server()
+                    await self._stop_server()
+                    await self._start_server()
                     if not silent:
                         self.log.info(f"Server configuration {verb}ed successfully.")
                 except Exception:
@@ -432,11 +432,11 @@ class Engine(Node):
                 if not silent:
                     self.log.info(f"Database configuration will be {verb}ed.")
                 try:
-                    if self.__root is not None:
-                        await self.__root.stop()
+                    if self._root is not None:
+                        await self._root.stop()
 
-                    await self.__database.dispose()
-                    self.__database = Database(config.database)
+                    await self._database.dispose()
+                    self._database = Database(config.database)
                     if not silent:
                         self.log.info(f"Database configuration {verb}ed successfully.")
                 except Exception:
@@ -450,7 +450,7 @@ class Engine(Node):
 
                 try:
                     root = await self._execute_component_actions(
-                        util.as_component(self.__root),
+                        util.as_component(self._root),
                         config.root,
                         actions.components,
                         silent=silent,
@@ -483,27 +483,25 @@ class Engine(Node):
                 if component is not None:
                     component.system.start()
 
-            self.__loaded = True
+            self._loaded = True
 
         if not silent:
             self.log.info(f"{verb.capitalize()} completed.")
 
         return actions
 
-    def get_apply_actions(self, config: Config) -> EngineActions:
-        if self.__database.config != config.database:
+    def _get_apply_actions(self, config: Config) -> EngineActions:
+        if self._database.config != config.database:
             database = LoadPendingDatabaseConfigEngineAction()
         else:
             database = None
 
-        if self.__server is None or self.__server.config != config.server:
+        if self._server is None or self._server.config != config.server:
             server = LoadPendingServerConfigEngineAction()
         else:
             server = None
 
-        components = self._get_pending_component_actions(
-            util.as_component(self.__root), config.root
-        )
+        components = self._get_pending_component_actions(util.as_component(self._root), config.root)
 
         return EngineActions(
             database=database,

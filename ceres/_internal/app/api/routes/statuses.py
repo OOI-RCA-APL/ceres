@@ -31,13 +31,13 @@ async def get_statuses(
 
 
 @router.websocket("")
-async def follow_statuses(
+async def stream_statuses(
     socket: CurrentSocket,
     engine: CurrentEngine,
     filter: Annotated[ComponentFilter, Query()],
 ) -> None:
     async def write() -> None:
-        async for statuses in engine.follow_statuses(filter):
+        async for statuses in engine.stream_statuses(filter):
             await socket.send(statuses)
 
     await socket.execute(write)

@@ -5,7 +5,7 @@ import math
 from abc import abstractmethod
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias, override
+from typing import Annotated, Any, Literal, TypeAlias, override
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
@@ -209,14 +209,19 @@ class Trigger:
 
 
 class CronTrigger(Trigger):
+    __slots__ = (
+        "_schedule",
+        "_inner",
+    )
+
     def __init__(self, schedule: CronSchedule) -> None:
         super().__init__()
-        self.__schedule = schedule
-        self.__inner = InternalCronTrigger.from_crontab(schedule.crontab, timezone=dt.UTC)
+        self._schedule = schedule
+        self._inner = InternalCronTrigger.from_crontab(schedule.crontab, timezone=dt.UTC)
 
     @property
     def schedule(self) -> CronSchedule:
-        return self.__schedule
+        return self._schedule
 
     @override
     def get_next_fire_time(
@@ -227,27 +232,37 @@ class CronTrigger(Trigger):
         if now is None:
             now = utc()
 
-        return self.__inner.get_next_fire_time(previous, now)
+        return self._inner.get_next_fire_time(previous, now)
 
 
 class IntervalTrigger(Trigger):
+    __slots__ = (
+        "_schedule",
+        "_inner",
+        "_start",
+    )
+
     def __init__(self, schedule: IntervalSchedule) -> None:
         super().__init__()
-        self.__schedule = schedule
-        self.__inner = InternalIntervalTrigger(
+        self._schedule = schedule
+        self._inner = _InternalIntervalTrigger(
             seconds=int(schedule.interval.total_seconds()),
-            start_date=self.__schedule.start,
-            end_date=self.__schedule.end,
-            multiplier=self.__schedule.multiplier,
-            min=self.__schedule.min,
-            max=self.__schedule.max,
+            start_date=self._schedule.start,
+            end_date=self._schedule.end,
+            multiplier=self._schedule.multiplier,
+            min=self._schedule.min,
+            max=self._schedule.max,
         )
 
-        self.start: datetime = self.__inner.start_date
+        self._start: datetime = self._inner.start_date
 
     @property
     def schedule(self) -> IntervalSchedule:
-        return self.__schedule
+        return self._schedule
+
+    @property
+    def start(self) -> datetime:
+        return self._start
 
     @override
     def get_next_fire_time(
@@ -258,18 +273,23 @@ class IntervalTrigger(Trigger):
         if now is None:
             now = utc()
 
-        return self.__inner.get_next_fire_time(previous, now)
+        return self._inner.get_next_fire_time(previous, now)
 
 
 class OrTrigger(Trigger):
+    __slots__ = (
+        "_schedule",
+        "_triggers",
+    )
+
     def __init__(self, schedule: OrSchedule) -> None:
         super().__init__()
-        self.__schedule = schedule
-        self.__triggers = [schedule.as_trigger() for schedule in self.__schedule.schedules]
+        self._schedule = schedule
+        self._triggers = [schedule.as_trigger() for schedule in self._schedule.schedules]
 
     @property
     def schedule(self) -> OrSchedule:
-        return self.__schedule
+        return self._schedule
 
     @override
     def get_next_fire_time(
@@ -281,7 +301,7 @@ class OrTrigger(Trigger):
             now = utc()
 
         minimum: datetime | None = None
-        for trigger in self.__triggers:
+        for trigger in self._triggers:
             current = trigger.get_next_fire_time(previous, now)
             if current is None:
                 continue
@@ -291,9 +311,12 @@ class OrTrigger(Trigger):
         return minimum
 
 
-class InternalIntervalTrigger(BaseInternalIntervalTrigger):
-    if TYPE_CHECKING:
-        start_date: datetime
+class _InternalIntervalTrigger(BaseInternalIntervalTrigger):
+    __slots__ = (
+        "multiplier",
+        "min",
+        "max",
+    )
 
     def __init__(
         self,

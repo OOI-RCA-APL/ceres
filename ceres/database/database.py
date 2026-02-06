@@ -3,7 +3,6 @@ from __future__ import annotations
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
-from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
@@ -24,12 +23,12 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import tokenize_bytes
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify, uuid4
-from ceres.entity import EntityType
 from ceres.error import DatabaseInitError, Failure
 from ceres.threading import spawn
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Callable, Iterable
     from uuid import UUID
 
     from sqlalchemy import Connection
@@ -59,6 +58,14 @@ with lazy_imports(__name__):
 
 
 class Database:
+    __slots__ = (
+        "_id",
+        "_config",
+        "_engine",
+        "_init_lock",
+        "_init_completed",
+    )
+
     def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
             match config:
@@ -72,11 +79,11 @@ class Database:
     def __init__(self, config: DatabaseConfig | None = None, /) -> None:
         assert config is not None
 
-        self.__id = uuid4()
-        self.__config = config
-        self.__engine = self._create_engine()
-        self.__init_lock = AsyncLock()
-        self.__completed_init_successfully = False
+        self._id = uuid4()
+        self._config = config
+        self._engine = self._create_engine()
+        self._init_lock = AsyncLock()
+        self._init_completed = False
 
     @property
     def __database__(self) -> Database:
@@ -87,26 +94,26 @@ class Database:
 
     @property
     def id(self) -> UUID:
-        return self.__id
+        return self._id
 
     @property
     def config(self) -> DatabaseConfig:
-        return self.__config
+        return self._config
 
     @property
     def type(self) -> DatabaseType:
-        return self.__config.type
+        return self._config.type
 
     @property
     def engine(self) -> AsyncEngine:
-        return self.__engine
+        return self._engine
 
     @property
     def ddl(self) -> list[str]:
         commands: list[str] = []
 
         for cls in _get_entity_row_classes():
-            commands.extend(cls.get_ddl(self.__engine.sync_engine))
+            commands.extend(cls.get_ddl(self._engine.sync_engine))
 
         return commands
 
@@ -239,10 +246,10 @@ class Database:
         yield from ()
 
     def session(self) -> AsyncSession:
-        return AsyncSession(self.__engine, expire_on_commit=False)
+        return AsyncSession(self._engine, expire_on_commit=False)
 
     def connect(self) -> AsyncConnection:
-        return self.__engine.connect()
+        return self._engine.connect()
 
     async def use(self) -> AsyncConnection:
         await self.init()
@@ -263,29 +270,29 @@ class Database:
 
     async def dispose(self) -> None:
         with util.wrap_database_errors():
-            await self.__engine.dispose()
+            await self._engine.dispose()
 
     async def init(self) -> None:
         with util.wrap_database_errors():
-            if self.__completed_init_successfully:
+            if self._init_completed:
                 return
 
-            async with self.__init_lock:
-                if self.__completed_init_successfully:
+            async with self._init_lock:
+                if self._init_completed:
                     return
 
                 try:
-                    async with self.__engine.begin() as connection:
+                    async with self._engine.begin() as connection:
                         for statement in self.ddl:
                             await connection.execute(text(statement))
                 except Exception as error:
                     raise Failure(DatabaseInitError(message=str(error))) from error
 
-                self.__completed_init_successfully = True
+                self._init_completed = True
 
     async def clear(self) -> None:
         with util.wrap_database_errors():
-            async with self.__engine.begin() as connection:
+            async with self._engine.begin() as connection:
                 for cls in reversed(_get_entity_row_classes()):
                     await connection.execute(delete(cls))
 
@@ -293,7 +300,7 @@ class Database:
 
     async def initialized(self) -> bool:
         with util.wrap_database_errors():
-            return await self.__run_sync(
+            return await self._run_sync(
                 lambda connection: bool(inspect(connection).get_table_names())
             )
 
@@ -308,20 +315,20 @@ class Database:
         return await spawn(execute)
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
-        hash = await self.__maybe_hash_password(hash)
+        hash = await self._maybe_hash_password(hash)
 
         def execute() -> bool:
             return verify_password(password, hash)
 
         return await spawn(execute)
 
-    async def __maybe_hash_password(self, password: str) -> PasswordHash:
+    async def _maybe_hash_password(self, password: str) -> PasswordHash:
         if verify_password_hash(password):
             return password
 
         return await self.hash_password(password)
 
-    async def __run_sync[T](self, callback: Callable[[Connection], T]) -> T:
+    async def _run_sync[T](self, callback: Callable[[Connection], T]) -> T:
         with util.wrap_database_errors():
             async with self.connect() as connection:
                 return await connection.run_sync(callback)
@@ -329,6 +336,8 @@ class Database:
 
 @final
 class SQLiteDatabase(Database):
+    __slots__ = ()
+
     @override
     def __new__(cls, /, config: SQLiteDatabaseConfig | None = None) -> Self:
         instance = object.__new__(cls)
@@ -362,11 +371,11 @@ class SQLiteDatabase(Database):
             return self.config.path.absolute()
 
         # Otherwise create a temporary on-disk database.
-        return self.__get_temporary_path()
+        return self._get_temporary_path()
 
     def __del__(self) -> None:
         try:
-            self.__cleanup_temporary_files()
+            self._cleanup_temporary_files()
         except Exception:
             pass
 
@@ -375,7 +384,7 @@ class SQLiteDatabase(Database):
         try:
             await super().dispose()
         finally:
-            self.__cleanup_temporary_files()
+            self._cleanup_temporary_files()
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:
@@ -442,17 +451,19 @@ class SQLiteDatabase(Database):
         # Enable a 30 second busy timeout.
         yield "PRAGMA busy_timeout = 30000"
 
-    def __get_temporary_path(self) -> Path:
+    def _get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
 
-    def __cleanup_temporary_files(self) -> None:
-        if self.config.path is None and self.__get_temporary_path().exists():
+    def _cleanup_temporary_files(self) -> None:
+        if self.config.path is None and self._get_temporary_path().exists():
             for path in Path(gettempdir()).glob(f"*{self.id}*"):
                 path.unlink(missing_ok=True)
 
 
 @final
 class PostgresDatabase(Database):
+    __slots__ = ()
+
     def __new__(cls, /, config: PostgresDatabaseConfig) -> Self:
         instance = object.__new__(cls)
         cls.__init__(instance, config)
@@ -553,41 +564,6 @@ def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
     connection.create_function("ceres_tokenize_bytes", 1, _ceres_tokenize_bytes)
     connection.create_function("date_bin", 3, _ceres_date_bin)
-
-
-_Replace = Mapping[EntityType, Mapping[str, str]]
-
-
-def _get_columns_joined(entity_type: EntityType, replace: _Replace = {}) -> str:
-    return ", ".join(_get_columns(entity_type, replace))
-
-
-def _get_columns(entity_type: EntityType, replace: _Replace = {}) -> list[str]:
-    columns = list(entity_type.cls.Row.__table__.columns.keys())
-    replaced = replace.get(entity_type, {})
-    if replaced:
-        for i, column in enumerate(columns):
-            columns[i] = replaced.get(column, column)
-
-    return columns
-
-
-async def _execute_ddl(
-    engine: AsyncEngine,
-    *,
-    tables: bool = True,
-    indexes: bool = True,
-) -> None:
-    async with engine.begin() as connection:
-        for cls in _get_entity_row_classes():
-            for statement in cls.get_ddl(
-                engine.sync_engine,
-                table=tables,
-                indexes=indexes,
-            ):
-                await connection.execute(text(statement))
-
-        await connection.commit()
 
 
 def _get_entity_row_classes() -> list[type[BaseEntityRow]]:

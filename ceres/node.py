@@ -269,7 +269,7 @@ class Node(Tasklet, NodeSource):
             for component in self.get_components(filter, **kwargs)
         ]
 
-    async def follow_statuses(
+    async def stream_statuses(
         self,
         filter: ComponentFilter | None = None,
         **kwargs: Unpack[ComponentFilterArgs],
@@ -279,13 +279,13 @@ class Node(Tasklet, NodeSource):
         """
         yield await self.get_statuses(filter, **kwargs)
 
-        async for _ in self.events.follow().every(
-            StartedEvent
-            | StoppedEvent
-            | EnabledEvent
-            | DisabledEvent
-            | ConnectedEvent
-            | DisconnectedEvent
-            | ConnectFailedEvent
+        async for _ in self.events.stream.every(
+            StartedEvent,
+            StoppedEvent,
+            EnabledEvent,
+            DisabledEvent,
+            ConnectedEvent,
+            DisconnectedEvent,
+            ConnectFailedEvent,
         ):
             yield await self.get_statuses(filter, **kwargs)

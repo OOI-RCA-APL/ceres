@@ -134,41 +134,41 @@ def ensure_event_loop(*, uvloop: bool = True, eager: bool = True) -> AbstractEve
     return loop
 
 
-_undefined = object()
+_UNDEFINED = object()
 
 
 @dataclass
-class _AZipLatestState:
+class _AsyncZipState:
     latest: list[Any]
     out: AsyncQueue[tuple[Any, ...]]
     tasks: list[Task[Any]]
 
 
-class _AsyncZipLatest[T: tuple[Any, ...]]:
+class AsyncZip[T: tuple[Any, ...]]:
     def __init__(self, iterables: Iterable[AsyncIterable[Any]]) -> None:
-        self.__iterables = tuple(iterables)
-        self.__state: _AZipLatestState | None = None
+        self._iterables = tuple(iterables)
+        self._state: _AsyncZipState | None = None
 
     async def __aenter__(self) -> AsyncIterator[T]:
-        self.__state = _AZipLatestState(
-            latest=[_undefined] * len(self.__iterables),
+        self._state = _AsyncZipState(
+            latest=[_UNDEFINED] * len(self._iterables),
             out=AsyncQueue(),
             tasks=[],
         )
 
         async def produce(
-            state: _AZipLatestState,
+            state: _AsyncZipState,
             iterator: AsyncIterator[Any],
             index: int,
         ) -> None:
             while True:
                 state.latest[index] = await anext(iterator)
-                if all(current is not _undefined for current in state.latest):
+                if all(current is not _UNDEFINED for current in state.latest):
                     state.out.put_nowait(tuple(state.latest))
 
-        self.__state.tasks = [
-            asyncio.create_task(produce(self.__state, aiter(iterable), index))
-            for index, iterable in enumerate(self.__iterables)
+        self._state.tasks = [
+            asyncio.create_task(produce(self._state, aiter(iterable), index))
+            for index, iterable in enumerate(self._iterables)
         ]
 
         async def consume(out: AsyncQueue[Any]) -> AsyncIterator[T]:
@@ -177,53 +177,53 @@ class _AsyncZipLatest[T: tuple[Any, ...]]:
                 out.task_done()
                 yield value
 
-        return consume(self.__state.out)
+        return consume(self._state.out)
 
     async def __aexit__(self, *args: Any) -> None:
         try:
-            if self.__state and self.__state.tasks:
-                await cancel(self.__state.tasks)
+            if self._state and self._state.tasks:
+                await cancel(self._state.tasks)
         finally:
-            self.__state = None
+            self._state = None
 
 
 @overload
-def azip_latest[T1, T2](
+def azip[T1, T2](
     a: AsyncIterable[T1],
     b: AsyncIterable[T2],
     /,
-) -> _AsyncZipLatest[tuple[T1, T2]]: ...
+) -> AsyncZip[tuple[T1, T2]]: ...
 
 
 @overload
-def azip_latest[T1, T2, T3](
+def azip[T1, T2, T3](
     a: AsyncIterable[T1],
     b: AsyncIterable[T2],
     c: AsyncIterable[T3],
     /,
-) -> _AsyncZipLatest[tuple[T1, T2, T3]]: ...
+) -> AsyncZip[tuple[T1, T2, T3]]: ...
 
 
 @overload
-def azip_latest[T1, T2, T3, T4](
+def azip[T1, T2, T3, T4](
     a: AsyncIterable[T1],
     b: AsyncIterable[T2],
     c: AsyncIterable[T3],
     d: AsyncIterable[T4],
     /,
-) -> _AsyncZipLatest[tuple[T1, T2, T3, T4]]: ...
+) -> AsyncZip[tuple[T1, T2, T3, T4]]: ...
 
 
 @overload
-def azip_latest[T1, T2, T3, T4, T5](
+def azip[T1, T2, T3, T4, T5](
     a: AsyncIterable[T1],
     b: AsyncIterable[T2],
     c: AsyncIterable[T3],
     d: AsyncIterable[T4],
     e: AsyncIterable[T5],
     /,
-) -> _AsyncZipLatest[tuple[T1, T2, T3, T4, T5]]: ...
+) -> AsyncZip[tuple[T1, T2, T3, T4, T5]]: ...
 
 
-def azip_latest(*streams: AsyncIterable[Any]) -> _AsyncZipLatest[tuple[Any, ...]]:
-    return _AsyncZipLatest(streams)
+def azip(*streams: AsyncIterable[Any]) -> AsyncZip[tuple[Any, ...]]:
+    return AsyncZip(streams)

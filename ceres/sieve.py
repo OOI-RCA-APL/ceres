@@ -91,6 +91,8 @@ else:
 
 
 class ComponentSieveManager(BaseComponentTaskManager[SieveConfig]):
+    __slots__ = ()
+
     @override
     def add(self, config: SieveConfig) -> None:
         super().add(config)
@@ -116,7 +118,7 @@ class ComponentSieveManager(BaseComponentTaskManager[SieveConfig]):
             while True:
                 try:
                     async for current in sieve.process(
-                        self.__system__.messages.follow(config.filter)
+                        self.__system__.messages.stream.where(config.filter)
                     ):
                         self.__system__.store(current)
                         self.__system__.events.emit(ParticleEvent, particle=current)

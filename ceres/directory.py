@@ -37,6 +37,12 @@ OpenMode: TypeAlias = OpenTextMode | OpenBinaryMode
 
 @final
 class Directory(PathLike[str]):
+    __slots__ = (
+        "_path",
+        "_parent",
+        "_temporary",
+    )
+
     def __init__(
         self,
         path: StrPath | None = None,
@@ -57,9 +63,9 @@ class Directory(PathLike[str]):
         else:
             path = path.absolute()
 
-        self.__path = path
-        self.__parent = parent
-        self.__temporary = temporary
+        self._path = path
+        self._parent = parent
+        self._temporary = temporary
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -77,26 +83,26 @@ class Directory(PathLike[str]):
 
     @property
     def path(self) -> Path:
-        return Path(self.__path)
+        return Path(self._path)
 
     @property
     def temporary(self) -> bool:
-        return self.__temporary
+        return self._temporary
 
     @override
     def __fspath__(self) -> str:
-        return self.__path.__fspath__()
+        return self._path.__fspath__()
 
     def __truediv__(self, path: StrPath) -> Path:
         return self.path / path
 
     @override
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({repr(self.__path.__fspath__())})"
+        return f"{type(self).__name__}({repr(self._path.__fspath__())})"
 
     @override
     def __str__(self) -> str:
-        return self.__path.__fspath__()
+        return self._path.__fspath__()
 
     @override
     def __eq__(self, /, other: object) -> bool:
@@ -107,7 +113,7 @@ class Directory(PathLike[str]):
         return not self.__eq__(other)
 
     def __del__(self) -> None:
-        if not self.__temporary:
+        if not self._temporary:
             return
 
         try:
@@ -115,24 +121,24 @@ class Directory(PathLike[str]):
         except Exception:
             pass
 
-    def __resolve(self, path: StrPath | None) -> Path:
+    def _resolve(self, path: StrPath | None) -> Path:
         if path is None:
             path = "."
         if not isinstance(path, Path):
             path = Path(path)
         if not path.is_absolute():
-            path = self.__path / path
+            path = self._path / path
             path = path.absolute()
 
         return path
 
-    def __setup_write_operation(
+    def _setup_write_operation(
         self,
         path: StrPath,
         mkdirs: bool | None,
         mode: OpenMode,
     ) -> Path:
-        path = self.__resolve(path)
+        path = self._resolve(path)
         if mkdirs is None:
             mkdirs = "w" in mode or "a" in mode
         if mkdirs:
@@ -184,7 +190,7 @@ class Directory(PathLike[str]):
         mkdirs: bool | None = None,
         **kwargs: Any,
     ) -> IO[str] | IO[bytes]:
-        path = self.__setup_write_operation(path, mkdirs, mode)
+        path = self._setup_write_operation(path, mkdirs, mode)
 
         return open(
             path,
@@ -198,7 +204,7 @@ class Directory(PathLike[str]):
         )
 
     def remove(self, path: StrPath | None = None, *, recursive: bool = True) -> None:
-        path = self.__resolve(path)
+        path = self._resolve(path)
         if not path.exists():
             return
 
@@ -211,8 +217,8 @@ class Directory(PathLike[str]):
             path.unlink()
 
     def exists(self, path: StrPath | None = None) -> bool:
-        path = self.__resolve(path)
-        if path == self.__path:
+        path = self._resolve(path)
+        if path == self._path:
             return path.is_dir()
 
         return path.exists()
@@ -231,7 +237,7 @@ class Directory(PathLike[str]):
         )
 
     def iter_subpaths(self, path: StrPath | None = None) -> Iterable[Path]:
-        path = self.__resolve(path)
+        path = self._resolve(path)
         for name in os.scandir(path):
             yield path / name
 
@@ -247,7 +253,7 @@ class Directory(PathLike[str]):
         return list(self.iter_subdirs(path))
 
     def touch(self, path: StrPath) -> None:
-        path = self.__resolve(path)
+        path = self._resolve(path)
         return path.touch(exist_ok=True)
 
     def move(
@@ -257,7 +263,7 @@ class Directory(PathLike[str]):
         *,
         mkdirs: bool | None = None,
     ) -> None:
-        source = self.__resolve(source)
-        destination = self.__resolve(destination)
-        self.__setup_write_operation(destination, mkdirs, "w")
+        source = self._resolve(source)
+        destination = self._resolve(destination)
+        self._setup_write_operation(destination, mkdirs, "w")
         shutil.move(source, destination)

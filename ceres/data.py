@@ -417,7 +417,7 @@ _patch_dataclass_fields()
         ConnectionField,
     ),
 )
-class ValidatedDataclass(ABC, PydanticDataclassLike):
+class ValidatedDataclass(ABC):
     __slots__ = (
         "__weakref__",
         "__pydantic_fields_set__",
@@ -462,6 +462,12 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         slots: bool = False,
         **kwargs: Any,
     ) -> None:
+        if slots:
+            raise TypeError(
+                "Use `slots=True` is not supported for `ValidatedDataclass` at this time due to "
+                "issues with Pydantic's dataclass implementation."
+            )
+
         super().__init_subclass__(**kwargs)
         inherited = ConfigDict()
 
@@ -589,6 +595,12 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
     def __str__(self) -> str:
         return self.__repr__()
 
+
+if TYPE_CHECKING:
+    # This is just to ensure that `ValidatedDataclass` is recognized as a valid Pydantic dataclass
+    # type for type checking purposes without actually inheriting from `typing.Protocol` which
+    # inherits from `typing.Generic` and causes issues with `dataclasses.dataclass`.
+    __ensure_is_pydantic_dataclass: type[PydanticDataclassLike] = ValidatedDataclass
 
 __USERNAME_PATTERN = r"[a-zA-Z\-_]+"
 

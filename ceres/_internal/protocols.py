@@ -10,6 +10,8 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class DatabaseSource(Protocol):
+    __slots__ = ()
+
     @property
     def __database__(self) -> Database: ...
 
@@ -18,14 +20,18 @@ class DatabaseSource(Protocol):
 
 @runtime_checkable
 class NodeSource(DatabaseSource, Protocol):
+    __slots__ = ()
+
     @property
     def __node__(self) -> Node: ...
 
 
 @runtime_checkable
 class ComponentSource(NodeSource, Protocol):
-    @property
-    def __component__(self) -> Component: ...
+    __slots__ = ()
 
     @property
     def __system__(self) -> ComponentSystem: ...
+
+    @property
+    def __component__(self) -> Component: ...

@@ -476,10 +476,10 @@ def create_record_count_route(router: APIRouter, Record: type[Record]):
     )(count)
 
 
-def create_record_follow_route(router: APIRouter, Record: type[Record]):
+def create_record_stream_route(router: APIRouter, Record: type[Record]):
     naming = Record.__naming__
 
-    async def follow(
+    async def stream(
         socket: CurrentSocket,
         engine: CurrentEngine,
         filter: Annotated[
@@ -493,8 +493,8 @@ def create_record_follow_route(router: APIRouter, Record: type[Record]):
 
         await socket.execute(write)
 
-    follow.__name__ = f"follow_{util.snakecase(naming.plural)}"
-    return router.websocket("", dependencies=[VIEWER])(follow)
+    stream.__name__ = f"stream_{util.snakecase(naming.plural)}"
+    return router.websocket("", dependencies=[VIEWER])(stream)
 
 
 def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
@@ -503,7 +503,7 @@ def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
     create_record_get_route(router, Record)
     create_record_get_all_route(router, Record, limit)
     create_record_count_route(router, Record)
-    create_record_follow_route(router, Record)
+    create_record_stream_route(router, Record)
 
     return router
 

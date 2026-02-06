@@ -16,7 +16,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityNaming, EntityQuery
+from ceres._internal.entity import (
+    BaseEntityManager,
+    BaseEntityQuery,
+    EntityNaming,
+    EntityOutputChannel,
+    EntityQuery,
+)
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.record import (
     BaseRecord,
@@ -34,7 +40,7 @@ from ceres.level import Level
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from datetime import datetime
     from uuid import UUID
 
@@ -43,7 +49,6 @@ if TYPE_CHECKING:
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
 
 
@@ -243,6 +248,8 @@ class _BaseLogEntryQuery(
         "LogEntryQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[LogEntryQuery]:
         return LogEntryQuery
@@ -264,7 +271,7 @@ class LogEntryQuery(
     ],
     _BaseLogEntryQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class LogManager(
@@ -278,6 +285,8 @@ class LogManager(
     ],
     _BaseLogEntryQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, LogEntry)
 
@@ -286,22 +295,19 @@ class LogManager(
 
 
 class BoundLogManager(LogManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
-    def follow(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> OutputChannel[LogEntry]:
+    @property
+    def stream(self) -> LogEntryOutputChannel:
         from ceres.event import LogEvent
 
-        filter = self._get_resolved_filter_args(filter, kwargs)
-        return (
-            self.__node__.events.follow()
-            .every(LogEvent)
+        return LogEntryOutputChannel(
+            self.__node__.events.stream.every(LogEvent)
             .map(lambda event: event.entry)
-            .filter(filter.matches)
+            .where(lambda entry: self._get_resolved_filter().matches(entry))
         )
 
     def write(self, entry: LogEntry, /) -> None:
@@ -416,6 +422,29 @@ class BoundLogManager(LogManager, BaseNodeManager):
             level = alert.level
 
         self.emit(level, "[alert] {data}", alert.address, data=jsonify(alert))
+
+
+class LogEntryOutputChannel(
+    EntityOutputChannel[
+        "LogEntry",
+        LogEntryFilter,
+        LogEntryFilterArgs,
+    ]
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[LogEntryFilter]:
+        return LogEntryFilter
+
+    @override
+    def where(
+        self,
+        filter: LogEntryFilter | Callable[[LogEntry], bool] | None = None,
+        /,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> LogEntryOutputChannel:
+        return super().where(filter, **kwargs)
 
 
 class LogEntry(BaseRecord, LogEntryCreate):
