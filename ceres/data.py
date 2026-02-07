@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from abc import ABC
+from abc import ABC, ABCMeta
 from collections.abc import Callable, Mapping, Sequence, Sized
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum as BaseStrEnum
@@ -36,6 +36,7 @@ from pydantic import (
     Field,
     ModelWrapValidatorHandler,
     PlainSerializer,
+    PrivateAttr,
     StringConstraints,
     model_validator,
 )
@@ -407,17 +408,77 @@ else:
 _patch_dataclass_fields()
 
 
+class ValidatedDataclassMeta(
+    # Inherit from `type(Protocol)` so users can use a `Protocol` type as a base class.
+    type(Protocol),
+    # Inherit from `ABCMeta` so users can use `ABC` as a base class.
+    ABCMeta,  # type: ignore
+):
+    def __new__(
+        cls,
+        name: str,
+        bases: tuple[type, ...],
+        namespace: dict[str, Any],
+        /,
+        *,
+        init: Literal[True] = True,
+        repr: Literal[True] = True,
+        eq: bool = True,
+        order: bool = False,
+        unsafe_hash: bool = False,
+        frozen: bool = False,
+        config: ConfigDict | None = None,
+        validate_on_init: bool | None = None,
+        kw_only: bool = True,
+        slots: bool = False,
+        **kwargs: Any,
+    ) -> type[ValidatedDataclass]:
+        # Initialize `Protocol` metaclass and `ABCMeta` bases.
+        cls = super().__new__(cls, name, bases, namespace, **kwargs)
+
+        # Collect inherited Pydantic config from base classes with `__pydantic_config__` defined.
+        inherited = ConfigDict()
+        for base in reversed(cls.__bases__):
+            base_config: ConfigDict | None = getattr(base, "__pydantic_config__", None)
+            if base_config:
+                inherited.update(base_config)
+
+        config = ConfigDict(
+            **{  # type: ignore
+                **DataObject.model_config,
+                **inherited,
+                **ConfigDict(title=cls.__qualname__),
+                **(config or ConfigDict()),
+            }
+        )
+
+        return cast(
+            "type[ValidatedDataclass]",
+            pydantic.dataclasses.dataclass(
+                eq=eq,
+                order=order,
+                unsafe_hash=unsafe_hash,
+                frozen=frozen,
+                config=config,
+                validate_on_init=validate_on_init,
+                kw_only=kw_only,
+                slots=slots,
+            )(cls),
+        )
+
+
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=(
-        Field,
-        FieldInfo,
         dataclasses.field,
         dataclasses.Field,
+        Field,
+        FieldInfo,
+        PrivateAttr,
         ConnectionField,
     ),
 )
-class ValidatedDataclass(ABC):
+class ValidatedDataclass(metaclass=ValidatedDataclassMeta):
     __slots__ = (
         "__weakref__",
         "__pydantic_fields_set__",
@@ -446,54 +507,6 @@ class ValidatedDataclass(ABC):
         __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
         __pydantic_serializer__: ClassVar[SchemaSerializer]
         __pydantic_validator__: ClassVar[SchemaValidator]
-
-    def __init_subclass__(
-        cls,
-        *,
-        init: Literal[True] = True,
-        repr: Literal[True] = True,
-        eq: bool = True,
-        order: bool = False,
-        unsafe_hash: bool = False,
-        frozen: bool = False,
-        config: ConfigDict | None = None,
-        validate_on_init: bool | None = None,
-        kw_only: bool = True,
-        slots: bool = False,
-        **kwargs: Any,
-    ) -> None:
-        if slots:
-            raise TypeError(
-                "Use `slots=True` is not supported for `ValidatedDataclass` at this time due to "
-                "issues with Pydantic's dataclass implementation."
-            )
-
-        super().__init_subclass__(**kwargs)
-        inherited = ConfigDict()
-
-        for base in reversed(cls.__bases__):
-            if util.is_pydantic_dataclass_type(base):
-                inherited.update(base.__pydantic_config__)
-
-        config = ConfigDict(
-            **{  # type: ignore
-                **DataObject.model_config,
-                **inherited,
-                **ConfigDict(title=cls.__qualname__),
-                **(config or ConfigDict()),
-            }
-        )
-
-        pydantic.dataclasses.dataclass(
-            eq=eq,
-            order=order,
-            unsafe_hash=unsafe_hash,
-            frozen=frozen,
-            config=config,
-            validate_on_init=validate_on_init,
-            kw_only=kw_only,
-            slots=slots,
-        )(cls)
 
     @model_validator(mode="wrap")
     @classmethod
