@@ -38,7 +38,7 @@ from ceres._internal import util
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
-    ImmutableDataObject,
+    ImmutableDataModel,
     MaybeSequence,
     Name,
     NonBlankStr,
@@ -83,7 +83,7 @@ else:
     Component = Any
 
 
-class __BaseConfigObject(ImmutableDataObject):
+class __BaseConfigObject(ImmutableDataModel):
     pass
 
 

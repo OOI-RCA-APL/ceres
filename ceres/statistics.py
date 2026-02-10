@@ -10,11 +10,11 @@ from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.manager import BaseDatabaseManager
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
-from ceres.data import DataObject, DateTime
+from ceres.data import DataModel, DateTime
 from ceres.level import Level
 
 
-class __BaseStatisticsObject(DataObject):
+class __BaseStatisticsObject(DataModel):
     pass
 
 

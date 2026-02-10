@@ -181,4 +181,4 @@ def __new_override(cls: type[EntityType], value: str) -> EntityType:
     return __new(cls, __ENTITY_TYPE_ALIASES.get(value, value))
 
 
-EntityType.__new__ = __new_override  # type: ignore
+EntityType.__new__ = __new_override

@@ -68,7 +68,7 @@ from ceres.channel import OutputChannel
 from ceres.data import (
     DateTime,
     FromYAML,
-    ImmutableDataObject,
+    ImmutableDataModel,
     MaybeSequence,
     NonNegativeTimeDelta,
     PositiveTimeDelta,
@@ -348,7 +348,7 @@ class BaseEntityFilter[
         # Because `and__` has higher precedence than `or__` within the same filter, if `or__` is
         # present, we need create a new parent filter to maintain operator precedence.
         if self.or__ or other.or__:
-            return self.__class__(and__=[self, cast("Self", other)])
+            return self.__class__(and__=cast("Any", [self, other]))
 
         # Otherwise, we can append the filter to the `and__` conditions.
         and__ = [*(self.and__ or ()), other]
@@ -447,7 +447,7 @@ class BaseEntityFilter[
         return statement.where(pk.in_(pks)).order_by(*order_by)
 
 
-class BaseEntityCreate(ImmutableDataObject):
+class BaseEntityCreate(ImmutableDataModel):
     pass
 
 
@@ -961,7 +961,7 @@ class EntityQuery[
 
     @override
     def __eq__(self, value: object, /) -> bool:
-        if type(value) is not type(self):
+        if not isinstance(value, type(self)) or type(value) is not type(self):
             return False
 
         return (
@@ -1673,7 +1673,7 @@ class EntityOutputChannel[
     FilterT: BaseEntityFilter[Any, Any, Any],
     FilterArgsT: BaseEntityFilterArgs[Any, Any],
 ](OutputChannel[EntityT], ABC):
-    __slots__ = ("_filter_class",)
+    __slots__ = ()
 
     def __init__(self, source: OutputChannel[EntityT], /) -> None:
         super().__init__(source)
@@ -1696,7 +1696,7 @@ class EntityOutputChannel[
             filtering = filter
 
         if kwargs:
-            filtering = self._filter_class(**cast("Any", kwargs)).with_defaults(filtering)
+            filtering = self._get_filter_class()(**cast("Any", kwargs)).with_defaults(filtering)
 
         def where(entity: EntityT) -> bool:
             if condition is not None and not condition(entity):

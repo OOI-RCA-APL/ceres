@@ -59,13 +59,13 @@ from ceres.config import (
     SieveConfig,
 )
 from ceres.data import (
-    ImmutableDataObject,
+    DataObject,
+    ImmutableDataModel,
     MaybeSequence,
     Name,
     OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
-    ValidatedDataclass,
     WithDefaults,
 )
 from ceres.error import (
@@ -128,7 +128,7 @@ if TYPE_CHECKING:
     from ceres.particle import Particle
     from ceres.status import Status
 else:
-    MessageFilter = ImmutableDataObject
+    MessageFilter = ImmutableDataModel
     Connection = object
     _ConnectionArgs = _EmptyDict
 
@@ -174,7 +174,7 @@ else:
     _Container = object
 
 
-class Component(ValidatedDataclass, ComponentSource):
+class Component(DataObject, ComponentSource):
     __slots__ = ("__system",)
 
     __with_name__: InitVar[Name | None] = field(default=None, kw_only=False)
@@ -368,7 +368,7 @@ def get_sieve_binding(cls: type, name: str) -> SieveBinding | None:
     return get_sieve_bindings(cls).get(name)
 
 
-class ConnectionBinding(ImmutableDataObject):
+class ConnectionBinding(ImmutableDataModel):
     name: Name
     field: Name
 
@@ -415,7 +415,7 @@ def get_connection_binding(cls: type, name: str) -> ConnectionBinding | None:
     return get_connection_bindings(cls).get(name)
 
 
-class ListenerBinding(ImmutableDataObject):
+class ListenerBinding(ImmutableDataModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: Name
@@ -504,7 +504,7 @@ class ProcedureType(StrEnum):
     ACTION = "action"
 
 
-class ProcedureSchemas(ImmutableDataObject):
+class ProcedureSchemas(ImmutableDataModel):
     arguments: Mapping[str, Any] | None
     output: Mapping[str, Any]
 
@@ -515,22 +515,22 @@ class ProcedureOutputType(StrEnum):
     FILE = "file"
 
 
-class ProcedureArgumentsInfo(ImmutableDataObject):
+class ProcedureArgumentsInfo(ImmutableDataModel):
     json_schema: Mapping[str, Any]
     required: bool
 
 
-class ProcedureValueOutputInfo(ImmutableDataObject):
+class ProcedureValueOutputInfo(ImmutableDataModel):
     type: Literal[ProcedureOutputType.VALUE] = ProcedureOutputType.VALUE
     json_schema: Mapping[str, Any]
 
 
-class ProcedureFileOutputInfo(ImmutableDataObject):
+class ProcedureFileOutputInfo(ImmutableDataModel):
     type: Literal[ProcedureOutputType.FILE] = ProcedureOutputType.FILE
     media: str | None = None
 
 
-class ProcedureStreamingOutputInfo(ImmutableDataObject):
+class ProcedureStreamingOutputInfo(ImmutableDataModel):
     type: Literal[ProcedureOutputType.STREAMING] = ProcedureOutputType.STREAMING
     media: str
 
@@ -566,7 +566,7 @@ ProcedurePermissions = ProcedureAccessLevel
 ProcedurePermissionsInput = ProcedureAccessLevelInput
 
 
-class __BaseProcedureBinding(ImmutableDataObject):
+class __BaseProcedureBinding(ImmutableDataModel):
     type: ProcedureType
     name: Name
     permissions: ProcedurePermissions
@@ -791,7 +791,7 @@ def action[**P, T](
     return action(method)
 
 
-class __ProcedureMethodInfo(ImmutableDataObject):
+class __ProcedureMethodInfo(ImmutableDataModel):
     name: str
     method: str
     arguments: ProcedureArgumentsInfo | None
@@ -891,7 +891,7 @@ RoutineRestartPolicyLiteral = Literal[
 ]
 
 
-class RoutineBinding(ImmutableDataObject):
+class RoutineBinding(ImmutableDataModel):
     method: Name
     restart: RoutineRestartPolicy
     restart_delay: PositiveTimeDelta
@@ -990,7 +990,7 @@ def get_component_method_bindings[T: _MethodBinding](
     return sorted(bindings.values(), key=lambda current: current.method)
 
 
-class SieveBinding(ImmutableDataObject):
+class SieveBinding(ImmutableDataModel):
     name: Name
     method: Name
     retries: NonNegativeInt | None
@@ -1135,8 +1135,8 @@ class ComponentSystem(Node, ComponentSource):
         component: Component,
         /,
         *,
-        __with_config__: ComponentConfig | None = None,
         __with_name__: Name | None = None,
+        __with_config__: ComponentConfig | None = None,
         __with_container__: Component | ComponentSystem | Engine | None = None,
     ) -> None:
         super().__init__()

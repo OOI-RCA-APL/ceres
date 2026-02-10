@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
 
 from ceres._internal.cli.shared import write
-from ceres.data import DataObject, StrEnum
+from ceres.data import DataModel, StrEnum
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -23,7 +23,7 @@ class ServiceState(StrEnum):
     STOPPED = "stopped"
 
 
-class ServiceStatus(DataObject):
+class ServiceStatus(DataModel):
     state: ServiceState
     location: str
 

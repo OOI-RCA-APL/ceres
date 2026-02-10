@@ -37,7 +37,6 @@ from typing import (
     Optional,
     Protocol,
     TypeAlias,
-    TypeVar,
     cast,
     get_args,
     get_origin,
@@ -46,7 +45,15 @@ from typing import (
 )
 from weakref import WeakSet, ref
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    create_model,
+    validate_call,
+)
+from typing_extensions import TypeVar
 
 from ceres._internal.lazy import lazy_imports
 
@@ -165,7 +172,10 @@ def is_dataclass_type(obj: object, /) -> TypeIs[DataclassLike]:
 
 
 def is_dataclass(obj: object, /) -> TypeIs[DataclassLike | type[DataclassLike]]:
-    return dataclasses.is_dataclass(obj)
+    if not isinstance(obj, type):
+        obj = type(obj)
+
+    return hasattr(obj, "__dataclass_params__")
 
 
 def is_pydantic_dataclass_type(obj: object, /) -> TypeIs[type[PydanticDataclassLike]]:
@@ -179,7 +189,10 @@ def is_pydantic_dataclass_instance(obj: object, /) -> TypeIs[PydanticDataclassLi
 def is_pydantic_dataclass(
     obj: object, /
 ) -> TypeIs[PydanticDataclassLike | type[PydanticDataclassLike]]:
-    return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_core_schema__")
+    if not isinstance(obj, type):
+        obj = type(obj)
+
+    return is_dataclass(obj) and hasattr(obj, "__pydantic_core_schema__")
 
 
 ModelLike = BaseModel | DataclassLike
@@ -503,8 +516,8 @@ def traverse(
 
 
 if TYPE_CHECKING:
-    from builtins import isinstance as lenient_isinstance  # type: ignore
-    from builtins import issubclass as lenient_issubclass  # type: ignore
+    from builtins import isinstance as lenient_isinstance
+    from builtins import issubclass as lenient_issubclass
 else:
 
     def lenient_isinstance(obj, cls):
@@ -1334,16 +1347,67 @@ def wrap_database_errors() -> Iterator[None]:
         raise Failure(DatabaseUnexpectedError(message=str(exception)))
 
 
-class classproperty(property):
-    fget: Callable[[Any], Any]
+def class_property[C, V](
+    fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+) -> ClassProperty[C, V]:
+    return ClassProperty(fget)
 
-    def __init__(self, fget: Callable[[Any], Any], *arg: Any, **kw: Any):
-        super().__init__(fget, *arg, **kw)
+
+def cached_class_property[C, V](
+    fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+) -> ClassProperty[C, V]:
+    return CachedClassProperty(fget)
+
+
+class ClassProperty[C, V]:
+    def __init__(
+        self,
+        fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+    ) -> None:
+        if isinstance(fget, classmethod):
+            fget = fget.__func__
+
         self.__doc__ = fget.__doc__
+        self.__name__: str = fget.__name__
+        self.fget: Callable[[type[C]], V] = fget
+
+    def __set_name__(self, definer: type[C], name: str, /) -> None:
+        self.__name__ = name
+        # Assigning the class property with an annotation in a dataclass's body will cause the class
+        # property to be computed immediately as the dataclass is being built, which is bad and will
+        # likely cause errors. Removing the annotation allows specifying a type annotation when
+        # using the assignment syntax without it causing issues.
+        definer.__annotations__.pop(name, None)
+
+    def __get__(self, obj: C | None, owner: type[C], /) -> V:
+        return self.fget(owner)
+
+    def __invert__(self) -> Any:
+        return self
+
+
+class CachedClassProperty[C, V](ClassProperty[C, V]):
+    @override
+    def __init__(
+        self,
+        fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+    ) -> None:
+        super().__init__(fget)
+
+        from threading import Lock
+
+        self._cache: dict[type, Any] = {}
+        self._lock = Lock()
 
     @override
-    def __get__(self, obj: Any, cls: type | None = None) -> Any:
-        return self.fget(cls)
+    def __get__(self, obj: C | None, owner: type[C], /) -> V:
+        value = self._cache.get(owner, Undefined)
+        if value is Undefined:
+            with self._lock:
+                value = super().__get__(obj, owner)
+                value = self._cache.setdefault(owner, value)
+
+        return value
 
 
 _object_setattr = object.__setattr__

@@ -26,7 +26,7 @@ from ceres.component import (
     ProcedureType,
     QueryBinding,
 )
-from ceres.data import DataObject, ImmutableDataObject, Name, StrEnum, jsonify
+from ceres.data import DataModel, ImmutableDataModel, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
     NotConnectedError,
@@ -49,7 +49,7 @@ class ComponentRole(StrEnum):
     INTERFACE = "interface"
 
 
-class APIComponent(ImmutableDataObject):
+class APIComponent(ImmutableDataModel):
     name: Name
     address: Address
     components: Sequence[APIComponent]
@@ -380,7 +380,7 @@ for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
     router.websocket("/{address}/" + namespace + "/{name}/subscribe")(subscribe_procedure)
 
 
-class SendMessageInput(DataObject):
+class SendMessageInput(DataModel):
     data: MessageContent
 
 

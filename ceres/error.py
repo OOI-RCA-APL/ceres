@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
 
 from pydantic import ImportString, ValidationError, computed_field, model_serializer
@@ -17,18 +16,20 @@ from starlette.status import (
 
 from ceres._internal import util
 from ceres.address import Address, DynamicAddress
-from ceres.data import DataObject, ImmutableDataObject, simplify
+from ceres.data import DataObject, simplify
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from fastapi.exceptions import RequestValidationError
 
 
 _UNDEFINED = object()
 
 
-class ValidationProblem(ImmutableDataObject):
+class ValidationProblem(DataObject):
     type: str
-    location: Sequence[str | int]
+    location: list[str | int]
     message: str
 
     @classmethod
@@ -81,7 +82,7 @@ class ValidationProblem(ImmutableDataObject):
         return problems
 
 
-class Error(ImmutableDataObject):
+class Error(DataObject):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
 
     @computed_field
@@ -101,24 +102,24 @@ class Error(ImmutableDataObject):
         return result
 
 
-class __BaseStandardError(Error):
+class _BaseStandardError(Error):
     pass
 
 
-class __BaseComponentError(__BaseStandardError):
+class _BaseComponentError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
 
 
-class ComponentValidationError(__BaseComponentError):
+class ComponentValidationError(_BaseComponentError):
     type: Literal["component-validation-error"] = "component-validation-error"
     address: Address
-    problems: Sequence[ValidationProblem]
+    problems: list[ValidationProblem]
 
 
-class ComponentInitExceptionError(__BaseComponentError):
+class ComponentInitExceptionError(_BaseComponentError):
     type: Literal["component-init-exception-error"] = "component-init-exception-error"
     address: Address
-    traceback: Sequence[str]
+    traceback: list[str]
 
 
 if TYPE_CHECKING:
@@ -127,7 +128,7 @@ else:
     Component = Any
 
 
-class ComponentReferenceInvalidError(__BaseComponentError):
+class ComponentReferenceInvalidError(_BaseComponentError):
     type: Literal["component-reference-invalid-error"] = "component-reference-invalid-error"
     address: Address
     referenced: DynamicAddress | Component
@@ -135,14 +136,14 @@ class ComponentReferenceInvalidError(__BaseComponentError):
     actual: ImportString[type]
 
 
-class ComponentJobInvalidError(__BaseComponentError):
+class ComponentJobInvalidError(_BaseComponentError):
     type: Literal["component-job-invalid-error"] = "component-job-invalid-error"
     message: str
 
 
-class ComponentCombinedError(__BaseComponentError):
+class ComponentCombinedError(_BaseComponentError):
     type: Literal["component-combined-error"] = "component-combined-error"
-    errors: Sequence[ComponentError]
+    errors: list[ComponentError]
 
 
 ComponentError: TypeAlias = (
@@ -154,40 +155,40 @@ ComponentError: TypeAlias = (
 )
 
 
-class __BaseProcedureError(__BaseStandardError):
+class _BaseProcedureError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
-class ProcedureComponentNotFoundError(__BaseProcedureError):
+class ProcedureComponentNotFoundError(_BaseProcedureError):
     type: Literal["procedure-component-not-found-error"] = "procedure-component-not-found-error"
 
 
-class ProcedureNotFoundError(__BaseProcedureError):
+class ProcedureNotFoundError(_BaseProcedureError):
     type: Literal["procedure-not-found-error"] = "procedure-not-found-error"
 
 
-class ProcedureNotPermittedError(__BaseProcedureError):
+class ProcedureNotPermittedError(_BaseProcedureError):
     type: Literal["procedure-not-permitted-error"] = "procedure-not-permitted-error"
 
 
-class ProcedureInvalidArgumentsError(__BaseProcedureError):
+class ProcedureInvalidArgumentsError(_BaseProcedureError):
     type: Literal["procedure-invalid-arguments-error"] = "procedure-invalid-arguments-error"
-    problems: Sequence[ValidationProblem]
+    problems: list[ValidationProblem]
 
 
-class ProcedureNotSubscribableError(__BaseProcedureError):
+class ProcedureNotSubscribableError(_BaseProcedureError):
     type: Literal["procedure-not-subscribable-error"] = "procedure-not-subscribable-error"
 
 
-class ProcedureCancelledError(__BaseProcedureError):
+class ProcedureCancelledError(_BaseProcedureError):
     type: Literal["procedure-cancelled-error"] = "procedure-cancelled-error"
 
 
-class ProcedureInternalError(__BaseProcedureError):
+class ProcedureInternalError(_BaseProcedureError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
 
     type: Literal["procedure-internal-error"] = "procedure-internal-error"
-    traceback: Sequence[str]
+    traceback: list[str]
 
 
 ProcedureError: TypeAlias = (
@@ -201,71 +202,71 @@ ProcedureError: TypeAlias = (
 )
 
 
-class __BaseAPIError(__BaseStandardError):
+class _BaseAPIError(_BaseStandardError):
     pass
 
 
-class NotFoundError(__BaseAPIError):
+class NotFoundError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_404_NOT_FOUND
     type: Literal["not-found-error"] = "not-found-error"
 
 
-class NotRunningError(__BaseAPIError):
+class NotRunningError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_404_NOT_FOUND
     type: Literal["not-running-error"] = "not-running-error"
 
 
-class NotConnectedError(__BaseAPIError):
+class NotConnectedError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
     type: Literal["not-connected-error"] = "not-connected-error"
     message: str | None = None
 
 
-class NotReachableError(__BaseAPIError):
+class NotReachableError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_503_SERVICE_UNAVAILABLE
     type: Literal["not-reachable-error"] = "not-reachable-error"
     message: str | None = None
 
 
-class AlreadyExistsError(__BaseAPIError):
+class AlreadyExistsError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_409_CONFLICT
     type: Literal["already-exists-error"] = "already-exists-error"
     field: str
     value: str | None = None
 
 
-class IntegrityError(__BaseAPIError):
+class IntegrityError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_409_CONFLICT
     type: Literal["integrity-error"] = "integrity-error"
 
 
-class NotAuthenticatedError(__BaseAPIError):
+class NotAuthenticatedError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_401_UNAUTHORIZED
     type: Literal["not-authenticated-error"] = "not-authenticated-error"
 
 
-class NotPermittedError(__BaseAPIError):
+class NotPermittedError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_403_FORBIDDEN
     type: Literal["not-permitted-error"] = "not-permitted-error"
 
 
-class BadCredentialsError(__BaseAPIError):
+class BadCredentialsError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_401_UNAUTHORIZED
     type: Literal["bad-credentials-error"] = "bad-credentials-error"
 
 
-class AuthenticationDisabledError(__BaseAPIError):
+class AuthenticationDisabledError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_403_FORBIDDEN
     type: Literal["authentication-disabled-error"] = "authentication-disabled-error"
 
 
-class ValidationFailedError(__BaseAPIError):
+class ValidationFailedError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_422_UNPROCESSABLE_CONTENT
     type: Literal["validation-failed-error"] = "validation-failed-error"
-    problems: Sequence[ValidationProblem]
+    problems: list[ValidationProblem]
 
 
-class HTTPError(__BaseAPIError):
+class HTTPError(_BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["http-error"] = "http-error"
     status: int
@@ -287,32 +288,32 @@ APIError: TypeAlias = (
 )
 
 
-class DatabaseUnreachableError(__BaseStandardError):
+class DatabaseUnreachableError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-unreachable-error"] = "database-unreachable-error"
     message: str
 
 
-class DatabaseProgrammingError(__BaseStandardError):
+class DatabaseProgrammingError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-programming-error"] = "database-programming-error"
     message: str
-    traceback: Sequence[str]
+    traceback: list[str]
 
 
-class DatabaseUnexpectedError(__BaseStandardError):
+class DatabaseUnexpectedError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-unexpected-error"] = "database-unexpected-error"
     message: str
 
 
-class DatabaseLoadError(__BaseStandardError):
+class DatabaseLoadError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
     type: Literal["database-load-error"] = "database-load-error"
     message: str
 
 
-class DatabaseInitError(__BaseStandardError):
+class DatabaseInitError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-init-error"] = "database-init-error"
     message: str
@@ -330,16 +331,16 @@ DatabaseError: TypeAlias = (
 )
 
 
-class __BaseConfigError(__BaseStandardError):
+class _BaseConfigError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
-class ConfigInvalidSourceError(__BaseConfigError):
+class ConfigInvalidSourceError(_BaseConfigError):
     type: Literal["config-invalid-source-error"] = "config-invalid-source-error"
     message: str
 
 
-class ConfigReadError(__BaseConfigError):
+class ConfigReadError(_BaseConfigError):
     type: Literal["config-read-error"] = "config-read-error"
     message: str
 
@@ -349,20 +350,20 @@ class ConfigParseErrorLocation(DataObject):
     column: int
 
 
-class ConfigParseError(__BaseConfigError):
+class ConfigParseError(_BaseConfigError):
     type: Literal["config-parse-error"] = "config-parse-error"
     message: str | None = None
     location: ConfigParseErrorLocation | None = None
 
 
-class ConfigValidationError(__BaseConfigError):
+class ConfigValidationError(_BaseConfigError):
     type: Literal["config-validation-error"] = "config-validation-error"
-    problems: Sequence[ValidationProblem]
+    problems: list[ValidationProblem]
 
 
-class ConfigCombinedError(__BaseConfigError):
+class ConfigCombinedError(_BaseConfigError):
     type: Literal["config-combined-error"] = "config-combined-error"
-    errors: Sequence[ConfigError]
+    errors: list[ConfigError]
 
 
 ConfigError: TypeAlias = (
@@ -376,15 +377,15 @@ ConfigError: TypeAlias = (
 )
 
 
-class __BaseReloadError(__BaseStandardError):
+class _BaseReloadError(_BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
-class ReloadConfigPathUnsetError(__BaseReloadError):
+class ReloadConfigPathUnsetError(_BaseReloadError):
     type: Literal["reload-config-path-not-set-error"] = "reload-config-path-not-set-error"
 
 
-class ReloadConfigInvalidError(__BaseReloadError):
+class ReloadConfigInvalidError(_BaseReloadError):
     type: Literal["reload-config-invalid-error"] = "reload-config-invalid-error"
     error: ConfigError
 

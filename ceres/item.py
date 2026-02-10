@@ -39,4 +39,4 @@ def __new_override(cls: type[ItemType], value: str) -> ItemType:
     return __new(cls, EntityType(value))
 
 
-ItemType.__new__ = __new_override  # type: ignore
+ItemType.__new__ = __new_override

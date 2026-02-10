@@ -75,7 +75,7 @@ class Client:
 
                     raise CLIClientError(content)
 
-                return adapter.validate_python(await response.json())  # type: ignore
+                return adapter.validate_python(await response.json())
 
     @asynccontextmanager
     async def stream[T](

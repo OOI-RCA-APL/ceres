@@ -12,7 +12,7 @@ from typing_extensions import TypeVar
 
 from ceres._internal import util
 from ceres._internal.manager import BaseComponentTaskManager
-from ceres.data import Name, ValidatedDataclass
+from ceres.data import DataObject, Name
 from ceres.event import (
     ParticleEvent,
     SieveAddedEvent,
@@ -35,7 +35,7 @@ else:
     ParticleT = TypeVar("ParticleT", covariant=True, default=Particle)
 
 
-class Sieve(ValidatedDataclass, Generic[ParticleT]):
+class Sieve(DataObject, Generic[ParticleT]):
     @abstractmethod
     def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[ParticleT]: ...
 
@@ -43,9 +43,6 @@ class Sieve(ValidatedDataclass, Generic[ParticleT]):
 MonoSieveFunction = Callable[[Message], ParticleT | None | Awaitable[ParticleT | None]]
 PolySieveFunction = Callable[[AsyncIterable[Message]], AsyncIterable[ParticleT]]
 SieveFunction: TypeAlias = MonoSieveFunction[ParticleT] | PolySieveFunction[ParticleT]
-
-
-def poly(messages: AsyncIterable[Message]) -> AsyncIterable[ParticleT]: ...
 
 
 class FunctionalSieve(Sieve[ParticleT], Generic[ParticleT]):

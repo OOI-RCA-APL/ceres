@@ -326,7 +326,7 @@ class Reference:
         if constraint in _reference_static_cls_generic_cache:
             return _reference_static_cls_generic_cache[constraint]  # type: ignore
 
-        class GenericReference(cls):  # type: ignore
+        class GenericReference(cls):
             __reference_constraint__ = constraint
 
         component_names = set(dir(constraint))
@@ -368,7 +368,7 @@ class Reference:
         return cls(
             util.get_type_adapter(cls.__reference_constraint__ or Component).validate_python(
                 value,
-            )  # type: ignore
+            )
         )
 
     def __init__(
@@ -441,7 +441,7 @@ class Reference:
     def __reference_sync_dynamic_class__(self) -> type[Reference]:
         current = self.__reference_get_dynamic_class__()
         if self.__class__ is not current:
-            self.__class__ = current  # type: ignore
+            self.__class__ = current
 
         return current
 

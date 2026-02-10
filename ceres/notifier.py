@@ -7,10 +7,10 @@ from typing import override
 from pydantic import Field, SecretStr
 
 from ceres.component import Component, action
-from ceres.data import ImmutableDataObject, NonBlankStr
+from ceres.data import ImmutableDataModel, NonBlankStr
 
 
-class Notification(ImmutableDataObject):
+class Notification(ImmutableDataModel):
     subject: NonBlankStr
     content: str | None = None
     content_type: NonBlankStr = "text/plain"

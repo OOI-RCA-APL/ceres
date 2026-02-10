@@ -14,7 +14,7 @@ from ceres._internal.app.shared import (
     RequireViewer,
     assert_found,
 )
-from ceres.data import ImmutableDataObject
+from ceres.data import ImmutableDataModel
 from ceres.error import Failure, NotFoundError, NotPermittedError
 from ceres.user import UserRole
 from ceres.workspace import (
@@ -92,7 +92,7 @@ async def _guard_membership_mutation(
                 raise Failure(NotPermittedError)
 
 
-class WorkspaceMembershipCreateData(ImmutableDataObject):
+class WorkspaceMembershipCreateData(ImmutableDataModel):
     role: WorkspaceMembershipRole
 
 

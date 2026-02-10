@@ -18,7 +18,7 @@ from pydantic import (
 from ceres._internal import util
 from ceres.address import Address
 from ceres.component import get_component_method_binding_on
-from ceres.data import Color, DataObject, Name, StrEnum
+from ceres.data import Color, DataModel, Name, StrEnum
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -62,7 +62,7 @@ class _BaseElementArgs(TypedDict, total=False):
     css_class: str | list[str] | None
 
 
-class _BaseElement(DataObject):
+class _BaseElement(DataModel):
     type: ElementType
     css_style: str | dict[str, str] | None = None
     css_class: str | list[str] | None = None
@@ -252,7 +252,7 @@ AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | Strict
 
 
 class State(_BaseElement):
-    class Option(DataObject):
+    class Option(DataModel):
         value: AtomicValue
         label: str
         color: Color
@@ -300,7 +300,7 @@ class State(_BaseElement):
 
 
 class Gauge(_BaseElement):
-    class ColorStop(DataObject):
+    class ColorStop(DataModel):
         value: float
         color: Color
 

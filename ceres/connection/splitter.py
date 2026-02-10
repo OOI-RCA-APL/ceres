@@ -6,7 +6,7 @@ from dataclasses import field
 from re import Pattern
 from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, override
 
-from ceres.data import PositiveTimeDelta, ValidatedDataclass
+from ceres.data import DataObject, PositiveTimeDelta
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from ceres.connection.buffer import Buffer
 
 
-class Splitter(ValidatedDataclass):
+class Splitter(DataObject):
     @abstractmethod
     def split(self, buffer: Buffer) -> Iterator[int]: ...
 

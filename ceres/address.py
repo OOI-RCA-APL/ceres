@@ -9,7 +9,7 @@ from pydantic_core.core_schema import no_info_after_validator_function, to_strin
 from sqlalchemy.util import LRUCache
 
 from ceres._internal import util
-from ceres._internal.util import NAME_PATTERN, classproperty
+from ceres._internal.util import NAME_PATTERN, ClassProperty
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
@@ -408,19 +408,8 @@ class DynamicAddress(AddressSelector):
 
 class Address(DynamicAddress):
     REGEX: Final = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")  # type: ignore
-
-    if TYPE_CHECKING:
-        ENGINE: Address
-        ROOT: Address
-    else:
-
-        @classproperty
-        def ENGINE(cls) -> Address:
-            return _ENGINE
-
-        @classproperty
-        def ROOT(cls) -> Address:
-            return _ROOT
+    ENGINE = ClassProperty[Self, Self](lambda cls: _ENGINE)
+    ROOT = ClassProperty[Self, Self](lambda cls: _ROOT)
 
     _cache: LRUCache[str, Self] = LRUCache(256)
 

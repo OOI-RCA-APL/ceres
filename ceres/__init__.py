@@ -37,9 +37,9 @@ with lazy_imports(__name__, export=True):
     from ceres.connection import UNIXSocketSource as UNIXSocketSource
     from ceres.connection import Unsplit as Unsplit
     from ceres.connectivity import Connectivity as Connectivity
+    from ceres.data import DataModel as DataModel
     from ceres.data import DataObject as DataObject
-    from ceres.data import ImmutableDataObject as ImmutableDataObject
-    from ceres.data import ValidatedDataclass as ValidatedDataclass
+    from ceres.data import ImmutableDataModel as ImmutableDataModel
     from ceres.data import jsonify as jsonify
     from ceres.data import simplify as simplify
     from ceres.database.enums import DatabaseType as DatabaseType

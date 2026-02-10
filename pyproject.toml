@@ -33,6 +33,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.46,<3",
     "starlette-compress>=1.7,<2",
     "starlette>=0.52.1",
+    "typing-extensions>=4.15.0",
     "uuid-utils>=0.14",
     "uvloop>=0.22.1; platform_system == 'Linux' or platform_system == 'Darwin'",
     "watchfiles>=1.1.1,<2",
@@ -76,9 +77,9 @@ runtime-evaluated-base-classes = [
     "pydantic.BaseModel",
     "sqlalchemy.orm.DeclarativeBase",
     "ceres.component.Component",
+    "ceres.data.DataModel",
+    "ceres.data.ImmutableDataModel",
     "ceres.data.DataObject",
-    "ceres.data.ImmutableDataObject",
-    "ceres.data.ValidatedDataclass",
     "ceres.server.Server",
     "ceres._internal.cli.shared.CLICommand",
     "ceres._internal.cli.shared.CLICommandGroup",
@@ -121,7 +122,9 @@ reportImplicitOverride = true
 reportIncompatibleVariableOverride = false
 reportMatchNotExhaustive = true
 reportRedeclaration = false
+reportUnnecessaryTypeIgnoreComment = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning:pytest_asyncio.*"]
+addopts = ["-vvv", "-s"]

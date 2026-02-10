@@ -15,13 +15,13 @@ from pydantic import (
 from pydantic_core.core_schema import no_info_after_validator_function
 
 from ceres._internal import util
-from ceres.data import ImmutableDataObject
+from ceres.data import ImmutableDataModel
 
 if TYPE_CHECKING:
     from pydantic_core import CoreSchema
 
 
-class Loader[T](ImmutableDataObject):
+class Loader[T](ImmutableDataModel):
     cls: ImportString[type[T]] = Field(validation_alias="class", serialization_alias="class")
     arguments: Mapping[str, Any] = Field(default_factory=dict)
 

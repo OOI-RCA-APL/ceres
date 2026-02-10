@@ -13,7 +13,7 @@ from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, Level
 from ceres.component import Component, action, routine
 from ceres.config import JobConfig
-from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
+from ceres.data import ImmutableDataModel, NonBlankStr, jsonify
 from ceres.loaded import Loaded
 from ceres.notifier import Notification, Notifier
 from ceres.reference import Ref
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
-class Dispatch(ImmutableDataObject):
+class Dispatch(ImmutableDataModel):
     subject: NonBlankStr
     description: NonBlankStr | None = None
     signature: NonBlankStr | None = None

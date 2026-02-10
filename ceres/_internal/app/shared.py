@@ -32,7 +32,7 @@ from ceres._internal.lazy import lazy_imports
 from ceres.data import (
     DateTime,
     EmailStr,
-    ImmutableDataObject,
+    ImmutableDataModel,
     StrEnum,
     UsernameStr,
     jsonify,
@@ -182,7 +182,7 @@ CurrentProcedureQueryArguments = Annotated[
 ]
 
 
-class APIUser(ImmutableDataObject):
+class APIUser(ImmutableDataModel):
     id: UUID
     username: UsernameStr
     email: EmailStr
@@ -193,7 +193,7 @@ class APIUser(ImmutableDataObject):
 APIUser.__name__ = "User"
 
 
-class APIIdentity(ImmutableDataObject):
+class APIIdentity(ImmutableDataModel):
     user: APIUser
     token: str
     expires: DateTime

@@ -55,7 +55,7 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import FromYAML, ImmutableDataObject, JSONSerializableDict, MaybeSequence, jsonify
+from ceres.data import FromYAML, ImmutableDataModel, JSONSerializableDict, MaybeSequence, jsonify
 from ceres.timing import utc
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ ParticleOrder: TypeAlias = (
 UNKNOWN_TYPE: LiteralString = "__unknown__"
 
 
-class ParticleData(ImmutableDataObject, Mapping[str, Any]):
+class ParticleData(ImmutableDataModel, Mapping[str, Any]):
     model_config = ConfigDict(extra="ignore")
 
     __abstract__: ClassVar[bool] = True
@@ -347,7 +347,7 @@ class _BaseParticleQuery(
     ) -> ParticleQuery[Any]: ...
 
     @override
-    def where(  # type: ignore
+    def where(
         self,
         filter: ParticleFilter[Any] | None = None,
         **kwargs: Unpack[ParticleFilterArgs[Any]],

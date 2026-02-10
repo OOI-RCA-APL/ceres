@@ -25,7 +25,7 @@ from ceres._internal.app.shared import OPERATOR, CurrentEngine
 from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.config import Config
-from ceres.data import ImmutableDataObject
+from ceres.data import ImmutableDataModel
 from ceres.error import Failure, NotFoundError
 from ceres.result import Fail, Ok
 
@@ -71,7 +71,7 @@ async def reload(engine: CurrentEngine) -> Config:
             raise Failure(error)
 
 
-class StartResult(ImmutableDataObject):
+class StartResult(ImmutableDataModel):
     started: Sequence[Address]
 
 
@@ -83,7 +83,7 @@ async def start(engine: CurrentEngine, filter: ComponentFilter) -> StartResult:
     return StartResult(started=sorted(current.system.address for current in stopped))
 
 
-class StopResult(ImmutableDataObject):
+class StopResult(ImmutableDataModel):
     stopped: Sequence[Address]
 
 
@@ -95,7 +95,7 @@ async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     return StopResult(stopped=sorted(current.system.address for current in running))
 
 
-class EnableResult(ImmutableDataObject):
+class EnableResult(ImmutableDataModel):
     enabled: Sequence[Address]
 
 
@@ -107,7 +107,7 @@ async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult
     return EnableResult(enabled=sorted(current.system.address for current in disabled))
 
 
-class DisableResult(ImmutableDataObject):
+class DisableResult(ImmutableDataModel):
     disabled: Sequence[Address]
 
 
@@ -119,7 +119,7 @@ async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResu
     return DisableResult(disabled=sorted(current.system.address for current in enabled))
 
 
-class UpResult(ImmutableDataObject):
+class UpResult(ImmutableDataModel):
     enabled: Sequence[Address]
     started: Sequence[Address]
 
@@ -138,7 +138,7 @@ async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     )
 
 
-class DownResult(ImmutableDataObject):
+class DownResult(ImmutableDataModel):
     disabled: Sequence[Address]
     stopped: Sequence[Address]
 

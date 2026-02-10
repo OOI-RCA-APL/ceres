@@ -53,7 +53,7 @@ from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
 from ceres._internal.util import PathLike, wrap_database_errors
-from ceres.data import DataObject, FromYAML, MaybeSequence, NonEmpty, dictify, jsonify
+from ceres.data import DataModel, FromYAML, MaybeSequence, NonEmpty, dictify, jsonify
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.result import Ok
@@ -143,7 +143,7 @@ def get_input(
                     continue
 
         try:
-            return TypeAdapter(parser).validate_python(text)  # type: ignore
+            return TypeAdapter(parser).validate_python(text)
         except ValidationError:
             pass
 
@@ -255,7 +255,7 @@ class CLIDataConflict(StrEnum):
     UPDATE = "update"
 
 
-class CLICommand(DataObject):
+class CLICommand(DataModel):
     model_config = ConfigDict(
         defer_build=True,
         use_attribute_docstrings=True,
@@ -826,7 +826,7 @@ def create_entity_update_command(Entity: type[Entity]):
         Update {naming.plural}. Return the number updated.
         """
 
-        assign: Assign[Entity.Update]  # type: ignore
+        assign: Assign[Entity.Update]
         f"""Values to assign to matched {naming.plural}. Specified as a JSON or YAML object."""
         confirm: Confirm = True
         """Confirm before updating."""

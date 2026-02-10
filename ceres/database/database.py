@@ -74,7 +74,7 @@ class Database:
                 case PostgresDatabaseConfig():
                     return PostgresDatabase(config)
 
-        return cls(config)  # type: ignore
+        return cls(config)
 
     def __init__(self, config: DatabaseConfig | None = None, /) -> None:
         assert config is not None

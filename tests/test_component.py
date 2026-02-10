@@ -472,3 +472,12 @@ async def test_routines_wait_on_cancellation() -> None:
     assert not component.system.running
     assert component.cancelled
     assert component.count == 3
+
+
+def test_component_repr() -> None:
+    component = Component()
+    assert repr(component) == "Component()"
+
+    child = Component(__with_name__="child")
+    component.system.attach(child)
+    assert repr(child) == "Component()"

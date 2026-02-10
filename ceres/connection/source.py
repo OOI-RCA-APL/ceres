@@ -1,5 +1,6 @@
 import asyncio
 from abc import abstractmethod
+from dataclasses import field
 from datetime import timedelta
 from typing import Any, override
 
@@ -9,10 +10,10 @@ from pydantic import NonNegativeInt, model_validator
 
 from ceres._internal import util
 from ceres._internal.util import UNIX
-from ceres.data import NonEmptyStr, PositiveTimeDelta, ValidatedDataclass
+from ceres.data import DataObject, NonEmptyStr, PositiveTimeDelta
 
 
-class Source(ValidatedDataclass):
+class Source(DataObject):
     @property
     @abstractmethod
     def label(self) -> str: ...
@@ -35,12 +36,12 @@ class ConnectTimeout(asyncio.TimeoutError):
     pass
 
 
-class AnyIOSource(Source):
+class AnyIOSource(Source, slots=True):
     timeout: PositiveTimeDelta = timedelta(seconds=5)
+    _stream: SocketStream | None = field(init=False)
 
-    @override
     def __post_init__(self) -> None:
-        self._stream: SocketStream | None = None
+        self._stream = None
 
     @abstractmethod
     async def _create_stream(self) -> SocketStream: ...
@@ -99,7 +100,7 @@ class AnyIOSource(Source):
             return None
 
 
-class TCPSource(AnyIOSource, kw_only=False):
+class TCPSource(AnyIOSource):
     host: NonEmptyStr
     port: NonNegativeInt
 
@@ -113,7 +114,7 @@ class TCPSource(AnyIOSource, kw_only=False):
         return await anyio.connect_tcp(self.host, self.port)
 
 
-class UNIXSocketSource(AnyIOSource, kw_only=False):
+class UNIXSocketSource(AnyIOSource):
     socket: NonEmptyStr
 
     @model_validator(mode="before")

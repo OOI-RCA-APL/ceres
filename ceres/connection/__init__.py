@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
+from dataclasses import field
 from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
@@ -37,11 +38,10 @@ from ceres.connection.splitter import Splitter as Splitter
 from ceres.connection.splitter import Unsplit as Unsplit
 from ceres.connectivity import Connectivity
 from ceres.data import (
-    ImmutableDataObject,
+    DataObject,
     Name,
     PositiveTimeDelta,
     ToBytes,
-    ValidatedDataclass,
     WithDefaults,
     to_bytes,
 )
@@ -80,6 +80,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from ceres.component import ComponentSystem
+else:
+    ComponentSystem = object
 
 
 class ConnectionException(Exception):
@@ -94,7 +96,7 @@ class ConnectionLost(ConnectionException):
     pass
 
 
-class Buffering(ImmutableDataObject):
+class Buffering(DataObject, slots=True):
     read: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("1 KB"), gt=0)
     limit: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("100 KB"), gt=0)
     drop: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("10 KB"), gt=0)
@@ -151,16 +153,16 @@ class ConnectionField[T: Connection | None](BoundField[T]):
         super().__init__(default, **cast("ConnectionFieldArgs", kwargs))
 
 
-class Connection(ValidatedDataclass, Tasklet):
+class Connection(DataObject, Tasklet, slots=True):
     name: Name | None = None
     source: Loaded[Source]
     splitter: Loaded[Splitter] | None = None
     suffix: MessageContent | None = None
 
-    buffering: Annotated[Buffering, WithDefaults(Buffering())] = Field(default_factory=Buffering)
+    buffering: Annotated[Buffering, WithDefaults(Buffering())] = field(default_factory=Buffering)
     connect_timeout: PositiveTimeDelta | None = None
     receive_timeout: PositiveTimeDelta | None = None
-    reconnect_schedule: Schedule | None = Field(
+    reconnect_schedule: Schedule | None = field(
         default_factory=lambda: IntervalSchedule(
             interval=timedelta(seconds=1),
             multiplier=2,
@@ -168,15 +170,19 @@ class Connection(ValidatedDataclass, Tasklet):
         )
     )
 
+    _connectivity: Connectivity = field(init=False)
+    _buffer: Buffer = field(init=False)
+    _system: ComponentSystem | None = field(init=False)
+    _channel: Channel[Message] = field(init=False)
+
     Field: ClassVar[type[ConnectionField]] = ConnectionField
     Defaults: ClassVar[type[ConnectionDefaults]] = ConnectionDefaults
 
-    @override
     def __post_init__(self) -> None:
         self._connectivity = Connectivity.DISCONNECTED
         self._buffer = Buffer()
-        self._system: ComponentSystem | None = None
-        self._channel: Channel[Message] = Channel()
+        self._system = None
+        self._channel = Channel()
 
     @property
     def label(self) -> str:
@@ -337,8 +343,8 @@ class Connection(ValidatedDataclass, Tasklet):
             if default is ...:
                 raise TimeoutError()
             if callable(default):
-                return default()  # type: ignore
-            return default  # type: ignore
+                return default()
+            return default
 
         try:
             async with asyncio.timeout(timeout):
