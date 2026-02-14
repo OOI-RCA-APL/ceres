@@ -22,7 +22,7 @@ class PromptedUserCreate(UserCreate):
         return value
 
 
-class CreateCommand(CLICommand, PromptedUserCreate):
+class CreateCommand(CLICommand, PromptedUserCreate.Model):
     @override
     async def __run__(self) -> None:
         create = self.read(PromptedUserCreate)

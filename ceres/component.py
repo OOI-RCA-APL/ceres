@@ -130,7 +130,6 @@ if TYPE_CHECKING:
 else:
     MessageFilter = ImmutableDataModel
     Connection = object
-    _ConnectionArgs = _EmptyDict
 
 with lazy_imports(__name__):
     from ceres.connection import ComponentConnectionManager
@@ -2129,13 +2128,17 @@ class BoundFieldArgs(TypedDict, total=False):
 
 try:
 
-    class _BaseFieldInfo(FieldInfo):  # type: ignore
+    class _FieldInfo(FieldInfo):  # type: ignore
         pass
 except Exception as exception:
     raise RuntimeError("Could not inherit from `pydantic.fields.FieldInfo`.") from exception
 
 
-class BoundField[T](_BaseFieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
+class _Empty:
+    pass
+
+
+class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
     __slots__ = ("name", "marker")
 
     @dataclass(slots=True)

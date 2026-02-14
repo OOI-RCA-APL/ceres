@@ -1394,10 +1394,10 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
     ) -> None:
         super().__init__(fget)
 
-        from threading import Lock
+        from threading import RLock
 
         self._cache: dict[type, Any] = {}
-        self._lock = Lock()
+        self._lock = RLock()
 
     @override
     def __get__(self, obj: C | None, owner: type[C], /) -> V:

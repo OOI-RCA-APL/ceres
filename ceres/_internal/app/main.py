@@ -4,7 +4,7 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, final
 
-from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.requests import HTTPConnection
 from fastapi.responses import FileResponse, JSONResponse
@@ -12,7 +12,7 @@ from starlette.exceptions import HTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
 
 from ceres._internal import util
-from ceres._internal.app.shared import CurrentEngine
+from ceres._internal.app.shared import CurrentEngine, Router
 from ceres.data import simplify
 from ceres.error import (
     Failure,
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from ceres.engine import Engine
 
 
-router = APIRouter()
+router = Router()
 
 
 @router.get("/favicon.ico")

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from ceres.address import Address
 from ceres.connectivity import Connectivity
-from ceres.data import DataModel
+from ceres.data import DataObject
 
 
-class Status(DataModel):
+class Status(DataObject, slots=True):
     address: Address
     running: bool
     enabled: bool | None = None

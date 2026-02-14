@@ -62,13 +62,12 @@ from ceres._internal import util
 from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.manager import BaseDatabaseManager
-from ceres._internal.util import construct_model
 from ceres.address import Address, AddressSelector
 from ceres.channel import OutputChannel
 from ceres.data import (
+    DataObject,
     DateTime,
     FromYAML,
-    ImmutableDataModel,
     MaybeSequence,
     NonNegativeTimeDelta,
     PositiveTimeDelta,
@@ -447,7 +446,7 @@ class BaseEntityFilter[
         return statement.where(pk.in_(pks)).order_by(*order_by)
 
 
-class BaseEntityCreate(ImmutableDataModel):
+class BaseEntityCreate(DataObject):
     pass
 
 
@@ -631,7 +630,8 @@ class _BaseStatementExecutor[
         transform = self._query._get_transform()
 
         def parse(row: Row) -> EntityT | None:
-            entity = construct_model(Entity, row._mapping)
+            values: Any = row._mapping
+            entity = Entity.__data_object_create__(values, True)
             if transform is not None:
                 entity = transform(entity)
 
@@ -1093,7 +1093,7 @@ class BaseEntityManager[
         if isinstance(data, self._entity_class):
             return data
 
-        return self._entity_class(**data.__dict__)
+        return self._entity_class(**data.__data_object_to_dict__())
 
     async def create(
         self,
@@ -1112,9 +1112,7 @@ class BaseEntityManager[
         upsert: bool = False,
     ) -> RowT:
         Row = self._get_row_class()
-        row = Row(
-            **{key: value for key, value in data.__dict__.items() if key in data.model_fields_set}
-        )
+        row = Row(**data.__data_object_to_dict__(exclude_unset=True))
         match self.__database__.type:
             case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert

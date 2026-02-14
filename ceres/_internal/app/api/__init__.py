@@ -1,7 +1,6 @@
-from collections.abc import Sequence
 from typing import Any
 
-from fastapi import APIRouter, Response
+from fastapi import Response
 from starlette.responses import RedirectResponse
 
 from ceres._internal import util
@@ -21,15 +20,15 @@ from ceres._internal.app.api.routes.workspace_memberships import (
     router as router__workspace_memberships,
 )
 from ceres._internal.app.api.routes.workspaces import router as router__workspaces
-from ceres._internal.app.shared import OPERATOR, CurrentEngine
+from ceres._internal.app.shared import OPERATOR, CurrentEngine, Router
 from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.config import Config
-from ceres.data import ImmutableDataModel
+from ceres.data import DataObject
 from ceres.error import Failure, NotFoundError
 from ceres.result import Fail, Ok
 
-router = APIRouter(prefix="/api")
+router = Router(prefix="/api")
 
 router.include_router(router__alerts)
 router.include_router(router__auth)
@@ -71,8 +70,8 @@ async def reload(engine: CurrentEngine) -> Config:
             raise Failure(error)
 
 
-class StartResult(ImmutableDataModel):
-    started: Sequence[Address]
+class StartResult(DataObject):
+    started: list[Address]
 
 
 @router.post("/start", tags=["components"], dependencies=[OPERATOR])
@@ -83,8 +82,8 @@ async def start(engine: CurrentEngine, filter: ComponentFilter) -> StartResult:
     return StartResult(started=sorted(current.system.address for current in stopped))
 
 
-class StopResult(ImmutableDataModel):
-    stopped: Sequence[Address]
+class StopResult(DataObject):
+    stopped: list[Address]
 
 
 @router.post("/stop", tags=["components"], dependencies=[OPERATOR])
@@ -95,8 +94,8 @@ async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     return StopResult(stopped=sorted(current.system.address for current in running))
 
 
-class EnableResult(ImmutableDataModel):
-    enabled: Sequence[Address]
+class EnableResult(DataObject):
+    enabled: list[Address]
 
 
 @router.post("/enable", tags=["components"], dependencies=[OPERATOR])
@@ -107,8 +106,8 @@ async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult
     return EnableResult(enabled=sorted(current.system.address for current in disabled))
 
 
-class DisableResult(ImmutableDataModel):
-    disabled: Sequence[Address]
+class DisableResult(DataObject):
+    disabled: list[Address]
 
 
 @router.post("/disable", tags=["components"], dependencies=[OPERATOR])
@@ -119,9 +118,9 @@ async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResu
     return DisableResult(disabled=sorted(current.system.address for current in enabled))
 
 
-class UpResult(ImmutableDataModel):
-    enabled: Sequence[Address]
-    started: Sequence[Address]
+class UpResult(DataObject):
+    enabled: list[Address]
+    started: list[Address]
 
 
 @router.post("/up", tags=["components"], dependencies=[OPERATOR])
@@ -138,9 +137,9 @@ async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     )
 
 
-class DownResult(ImmutableDataModel):
-    disabled: Sequence[Address]
-    stopped: Sequence[Address]
+class DownResult(DataObject):
+    disabled: list[Address]
+    stopped: list[Address]
 
 
 @router.post("/down", tags=["components"], dependencies=[OPERATOR])

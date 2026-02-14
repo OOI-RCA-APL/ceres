@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import traceback
-from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias
 
-from fastapi import APIRouter, Body, Request, Response, WebSocket, WebSocketException
+from fastapi import Body, Request, Response, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
 from ceres._internal import util
@@ -15,6 +14,7 @@ from ceres._internal.app.shared import (
     CurrentProcedureQueryArguments,
     CurrentRole,
     CurrentSocket,
+    Router,
 )
 from ceres.address import Address
 from ceres.component import (
@@ -26,7 +26,7 @@ from ceres.component import (
     ProcedureType,
     QueryBinding,
 )
-from ceres.data import DataModel, ImmutableDataModel, Name, StrEnum, jsonify
+from ceres.data import DataModel, DataObject, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
     NotConnectedError,
@@ -49,20 +49,21 @@ class ComponentRole(StrEnum):
     INTERFACE = "interface"
 
 
-class APIComponent(ImmutableDataModel):
+class ComponentInfo(DataObject, slots=True):
     name: Name
     address: Address
-    components: Sequence[APIComponent]
-    roles: Sequence[ComponentRole]
-    procedures: Sequence[ProcedureBinding]
+    components: list[ComponentInfo]
+    roles: list[ComponentRole]
+    procedures: list[ProcedureBinding]
 
 
-APIComponent.__name__ = "Component"
+ComponentInfo.__name__ = "Component"
+ComponentInfo.__qualname__ = "Component"
 
-router = APIRouter(prefix="/components", tags=["components"])
+router = Router(prefix="/components", tags=["components"])
 
 
-def _get_component_roles(component: Component | type[Component]) -> Sequence[ComponentRole]:
+def _get_component_roles(component: Component | type[Component]) -> list[ComponentRole]:
     if not isinstance(component, type):
         component = type(component)
 
@@ -76,17 +77,17 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
 
 
 @router.get("/{address}", dependencies=[VIEWER])
-async def get_component(engine: CurrentEngine, address: Address) -> APIComponent:
+async def get_component(engine: CurrentEngine, address: Address) -> ComponentInfo:
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
 
-    subcomponents: list[APIComponent] = []
+    subcomponents: list[ComponentInfo] = []
     for subcomponent in component.system.children:
         subcomponents.append(await get_component(engine, address / subcomponent.name))
 
     try:
-        info = APIComponent(
+        info = ComponentInfo(
             name=component.system.name,
             address=address,
             roles=_get_component_roles(component),
@@ -193,7 +194,7 @@ async def _call(
     role: CurrentRole,
     address: Address,
     procedure: Name,
-    arguments: Mapping[Name, object] | None = None,
+    arguments: dict[Name, object] | None = None,
 ) -> CallResult:
     access = ProcedureAccessLevel.PUBLIC if role is None else role
     namespace = namespace = _get_namespace(request)
@@ -250,7 +251,7 @@ async def call_procedure(
     role: CurrentRole,
     address: Address,
     name: Name,
-    arguments: Annotated[Mapping[Name, object] | None, Body()] = None,
+    arguments: Annotated[dict[Name, object] | None, Body()] = None,
 ) -> CallResult:
     return await _call(
         request=request,

@@ -5,11 +5,13 @@ import warnings
 from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from enum import Enum
+from typing import TYPE_CHECKING, Annotated, Any, cast, override
 from uuid import UUID
 
 import jwt.warnings
 from fastapi import (
+    APIRouter,
     Cookie,
     Depends,
     Header,
@@ -18,25 +20,19 @@ from fastapi import (
     Response,
     WebSocket,
     WebSocketDisconnect,
+    params,
 )
 from fastapi.requests import HTTPConnection
-from fastapi.routing import APIRouter
 from fastapi.websockets import WebSocketState
 from pydantic import AfterValidator, Json, ValidationError
+from pydantic.main import IncEx
 from pydantic_core import PydanticKnownError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
 from ceres._internal.entity import BaseEntityFilter
 from ceres._internal.lazy import lazy_imports
-from ceres.data import (
-    DateTime,
-    EmailStr,
-    ImmutableDataModel,
-    StrEnum,
-    UsernameStr,
-    jsonify,
-)
+from ceres.data import DataObject, DateTime, StrEnum, jsonify
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
@@ -49,7 +45,7 @@ if TYPE_CHECKING:
 
     from ceres._internal.app.main import App
     from ceres.engine import Engine
-    from ceres.message import MessageFilter
+    from ceres.message import BoundMessageManager, MessageFilter
 else:
     Engine = object
     App = object
@@ -58,6 +54,49 @@ with lazy_imports(__name__):
     from ceres._internal.server import Server
     from ceres.config import ServerAuthenticationConfig
     from ceres.record import Record
+
+
+class Router(APIRouter):
+    @override
+    def __init__(
+        self,
+        *,
+        prefix: str = "",
+        tags: list[str | Enum] | None = None,
+        dependencies: list[params.Depends] | None = None,
+        default_response_model_include: IncEx | None = None,
+        default_response_model_exclude: IncEx | None = None,
+    ) -> None:
+        super().__init__(
+            prefix=prefix,
+            tags=tags,
+            dependencies=dependencies,
+        )
+        self.default_response_model_include = default_response_model_include
+        self.default_response_model_exclude = default_response_model_exclude
+
+    @override
+    def add_api_route(
+        self,
+        path: str,
+        endpoint: Callable[..., Any],
+        *,
+        response_model_include: IncEx | None = None,
+        response_model_exclude: IncEx | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if response_model_include is None:
+            response_model_include = self.default_response_model_include
+        if response_model_exclude is None:
+            response_model_exclude = self.default_response_model_exclude
+
+        super().add_api_route(
+            path,
+            endpoint,
+            response_model_include=response_model_include,
+            response_model_exclude=response_model_exclude,
+            **kwargs,
+        )
 
 
 def _get_current_app(connection: HTTPConnection) -> App:
@@ -182,28 +221,10 @@ CurrentProcedureQueryArguments = Annotated[
 ]
 
 
-class APIUser(ImmutableDataModel):
-    id: UUID
-    username: UsernameStr
-    email: EmailStr
-    role: UserRole
-    disabled: bool
-
-
-APIUser.__name__ = "User"
-
-
-class APIIdentity(ImmutableDataModel):
-    user: APIUser
+class Identity(DataObject):
+    user: User
     token: str
     expires: DateTime
-
-
-APIIdentity.__name__ = "Identity"
-
-
-class Identity(APIIdentity):
-    user: User
 
 
 def create_identity(
@@ -418,7 +439,7 @@ def assert_found[T](value: T | None, /) -> T:
     return value
 
 
-def create_record_get_route(router: APIRouter, Record: type[Record]):
+def create_record_get_route(router: Router, Record: type[Record]):
     naming = Record.__naming__
 
     async def get(engine: CurrentEngine, id: UUID):
@@ -434,13 +455,13 @@ def create_record_get_route(router: APIRouter, Record: type[Record]):
     )(get)
 
 
-def create_record_get_all_route(router: APIRouter, Record: type[Record], limit: int):
+def create_record_get_all_route(router: Router, Record: type[Record], limit: int):
     naming = Record.__naming__
 
     async def get_all(
         engine: CurrentEngine,
         filter: Annotated[
-            Record.Filter,  # type: ignore
+            Record.Filter,
             Query(),
             Limit(limit),
         ],
@@ -456,15 +477,12 @@ def create_record_get_all_route(router: APIRouter, Record: type[Record], limit: 
     )(get_all)
 
 
-def create_record_count_route(router: APIRouter, Record: type[Record]):
+def create_record_count_route(router: Router, Record: type[Record]):
     naming = Record.__naming__
 
     async def count(
         engine: CurrentEngine,
-        filter: Annotated[
-            Record.Filter,  # type: ignore
-            Query(),
-        ],
+        filter: Annotated[Record.Filter, Query()],
     ) -> int:
         return await engine.__manager__(Record).where(filter).count()
 
@@ -476,19 +494,18 @@ def create_record_count_route(router: APIRouter, Record: type[Record]):
     )(count)
 
 
-def create_record_stream_route(router: APIRouter, Record: type[Record]):
+def create_record_stream_route(router: Router, Record: type[Record]):
     naming = Record.__naming__
 
     async def stream(
         socket: CurrentSocket,
         engine: CurrentEngine,
-        filter: Annotated[
-            Record.Filter,  # type: ignore
-            Query(),
-        ],
+        filter: Annotated[Record.Filter, Query()],
     ) -> None:
+        manager = cast("BoundMessageManager", engine.__manager__(Record))
+
         async def write() -> None:
-            async for record in engine.__manager__(Record).follow(filter):  # type: ignore
+            async for record in manager.stream.where(cast("Any", filter)):
                 await socket.send(record)
 
         await socket.execute(write)
@@ -498,7 +515,7 @@ def create_record_stream_route(router: APIRouter, Record: type[Record]):
 
 
 def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
-    router = APIRouter(prefix=f"/{name}", tags=[name])
+    router = Router(prefix=f"/{name}", tags=[name])
 
     create_record_get_route(router, Record)
     create_record_get_all_route(router, Record, limit)

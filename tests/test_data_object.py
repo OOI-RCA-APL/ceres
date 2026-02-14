@@ -18,12 +18,12 @@ from ceres._internal.util import (
     cached_class_property,
     class_property,
 )
-from ceres.data import DataModel, DataObject, FieldsSet, FrozenDataObject
+from ceres.data import DataModel, DataObject, FieldsSet, jsonify, validate
 
 
 @pytest.mark.parametrize("frozen", [False, True])
 def test_base(frozen: bool):
-    cls = FrozenDataObject if frozen else DataObject
+    cls = DataObject.Frozen if frozen else DataObject
 
     assert cls.__pydantic_fields__ == {}
     assert cls.__data_object_fields__ == {}
@@ -259,17 +259,17 @@ def test_frozen_class(mode: Literal["keyword", "class"], slots: bool):
             b: int
             _c: float = field(init=False)
 
-        assert issubclass(A, FrozenDataObject)
+        assert issubclass(A, DataObject.Frozen)
     else:
 
-        class A(FrozenDataObject, slots=slots):
+        class A(DataObject.Frozen, slots=slots):
             a: int
 
         class B(A, slots=slots):
             b: int
             _c: float = field(init=False)
 
-    assert issubclass(A, FrozenDataObject)
+    assert issubclass(A, DataObject.Frozen)
 
     instance = B(a=1, b=2)
     with pytest.raises(FrozenInstanceError):
@@ -296,7 +296,7 @@ def test_inheritance(
         a: int
 
     if frozen_base:
-        assert issubclass(A, FrozenDataObject)
+        assert issubclass(A, DataObject.Frozen)
 
     def make_b():
         class B(A, slots=slots, frozen=frozen_subclass):
@@ -507,3 +507,23 @@ def test_to_dict():
     assert instance.__data_object_to_dict__(exclude={"a"}, include={"a", "c"}) == {"c": 2.5}
     assert instance.__data_object_to_dict__(exclude={"a"}, include={"b"}) == {"b": "default"}
     assert instance.__data_object_to_dict__(exclude={"a"}, exclude_unset=True) == {"c": 2.5}
+
+
+def test_from_attributes():
+    class A(DataObject):
+        a: int
+        b: int
+
+    class C(A):
+        c: int
+
+    c = C(a=1, b=2, c=3)
+    assert validate(A, c)
+
+
+def test_exclude():
+    class A(DataObject):
+        a: int
+        b: int
+
+    assert jsonify(A(a=1, b=2), exclude={"b"}) == '{"a":1}'

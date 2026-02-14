@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from ceres._internal.protocols import NodeSource
 
 
-class Event(DataObject):
+class Event(DataObject, slots=True):
     id: UUID = Field(default_factory=uuid7)
 
     if TYPE_CHECKING:
@@ -41,41 +41,37 @@ class Event(DataObject):
     level: Level = Level.INFO
 
 
-class _BaseStandardEvent(Event):
-    pass
-
-
-class StartedEvent(_BaseStandardEvent):
+class StartedEvent(Event, slots=True):
     type: Literal["started"] = "started"
 
 
-class StoppingEvent(_BaseStandardEvent):
+class StoppingEvent(Event, slots=True):
     type: Literal["stopping"] = "stopping"
 
 
-class StoppedEvent(_BaseStandardEvent):
+class StoppedEvent(Event, slots=True):
     type: Literal["stopped"] = "stopped"
 
 
-class EnabledEvent(_BaseStandardEvent):
+class EnabledEvent(Event, slots=True):
     type: Literal["enabled"] = "enabled"
 
 
-class DisabledEvent(_BaseStandardEvent):
+class DisabledEvent(Event, slots=True):
     type: Literal["disabled"] = "disabled"
 
 
-class AttachedEvent(_BaseStandardEvent):
+class AttachedEvent(Event, slots=True):
     type: Literal["attached"] = "attached"
     level: Level = Level.DEBUG
 
 
-class WillDetachEvent(_BaseStandardEvent):
+class WillDetachEvent(Event, slots=True):
     type: Literal["will-detach"] = "will-detach"
     level: Level = Level.DEBUG
 
 
-class DetachedEvent(_BaseStandardEvent):
+class DetachedEvent(Event, slots=True):
     type: Literal["detached"] = "detached"
     level: Level = Level.DEBUG
 
@@ -91,111 +87,111 @@ LifecycleEvent: TypeAlias = (
 )
 
 
-class ConnectionAddedEvent(_BaseStandardEvent):
+class ConnectionAddedEvent(Event, slots=True):
     type: Literal["connection-added"] = "connection-added"
     connection: str | None = None
 
 
-class ConnectionRemovedEvent(_BaseStandardEvent):
+class ConnectionRemovedEvent(Event, slots=True):
     type: Literal["connection-removed"] = "connection-removed"
     connection: str | None = None
 
 
-class ConnectionStartedEvent(_BaseStandardEvent):
+class ConnectionStartedEvent(Event, slots=True):
     type: Literal["connection-started"] = "connection-started"
     connection: str | None = None
 
 
-class ConnectionStoppedEvent(_BaseStandardEvent):
+class ConnectionStoppedEvent(Event, slots=True):
     type: Literal["connection-stopped"] = "connection-stopped"
     connection: str | None = None
 
 
-class ConnectionExceptionEvent(_BaseStandardEvent):
+class ConnectionExceptionEvent(Event, slots=True):
     type: Literal["connection-exception"] = "connection-exception"
     level: Level = Level.ERROR
     connection: str | None = None
     traceback: Sequence[str]
 
 
-class ConnectingEvent(_BaseStandardEvent):
+class ConnectingEvent(Event, slots=True):
     type: Literal["connecting"] = "connecting"
     connection: str | None = None
 
 
-class ConnectedEvent(_BaseStandardEvent):
+class ConnectedEvent(Event, slots=True):
     type: Literal["connected"] = "connected"
     connection: str | None = None
 
 
-class DisconnectingEvent(_BaseStandardEvent):
+class DisconnectingEvent(Event, slots=True):
     type: Literal["disconnecting"] = "disconnecting"
     connection: str | None = None
 
 
-class DisconnectedEvent(_BaseStandardEvent):
+class DisconnectedEvent(Event, slots=True):
     type: Literal["disconnected"] = "disconnected"
     connection: str | None = None
 
 
-class ConnectTimeoutEvent(_BaseStandardEvent):
+class ConnectTimeoutEvent(Event, slots=True):
     type: Literal["connect-timeout"] = "connect-timeout"
     level: Level = Level.WARNING
     connection: str | None = None
     timeout: TimeDelta
 
 
-class ReceiveTimeoutEvent(_BaseStandardEvent):
+class ReceiveTimeoutEvent(Event, slots=True):
     type: Literal["receive-timeout"] = "receive-timeout"
     level: Level = Level.WARNING
     connection: str | None = None
     timeout: TimeDelta
 
 
-class DisconnectVerifyStartedEvent(_BaseStandardEvent):
+class DisconnectVerifyStartedEvent(Event, slots=True):
     type: Literal["disconnect-verify-started"] = "disconnect-verify-started"
     level: Level = Level.WARNING
     connection: str | None = None
 
 
-class DisconnectVerifiedEvent(_BaseStandardEvent):
+class DisconnectVerifiedEvent(Event, slots=True):
     type: Literal["disconnect-verified"] = "disconnect-verified"
     level: Level = Level.WARNING
     connection: str | None = None
 
 
-class DisconnectUnverifiedEvent(_BaseStandardEvent):
+class DisconnectUnverifiedEvent(Event, slots=True):
     type: Literal["disconnect-unverified"] = "disconnect-unverified"
     level: Level = Level.WARNING
     connection: str | None = None
 
 
-class DisconnectVerifyEndedEvent(_BaseStandardEvent):
+class DisconnectVerifyEndedEvent(Event, slots=True):
     type: Literal["disconnect-verify-ended"] = "disconnect-verify-ended"
     level: Level = Level.WARNING
     connection: str | None = None
 
 
-class ConnectionLostEvent(_BaseStandardEvent):
+class ConnectionLostEvent(Event, slots=True):
     type: Literal["connection-lost"] = "connection-lost"
     level: Level = Level.WARNING
     connection: str | None = None
 
 
-class ConnectFailedEvent(_BaseStandardEvent):
+class ConnectFailedEvent(Event, slots=True):
     type: Literal["connect-failed"] = "connect-failed"
     level: Level = Level.ERROR
     connection: str | None = None
     message: str | None = None
 
 
-class ReconnectScheduledEvent(_BaseStandardEvent):
+class ReconnectScheduledEvent(Event, slots=True):
     type: Literal["reconnect-scheduled"] = "reconnect-scheduled"
     connection: str | None = None
     delay: PositiveTimeDelta
 
 
-class BufferOverflowEvent(_BaseStandardEvent):
+class BufferOverflowEvent(Event, slots=True):
     type: Literal["buffer-overflow"] = "buffer-overflow"
     level: Level = Level.ERROR
     connection: str | None = None
@@ -225,31 +221,31 @@ ConnectionEvent: TypeAlias = (
 )
 
 
-class ServerBindEvent(_BaseStandardEvent):
+class ServerBindEvent(Event, slots=True):
     type: Literal["server-bind"] = "server-bind"
     bind: str
 
 
-class ServerBindExceptionEvent(_BaseStandardEvent):
+class ServerBindExceptionEvent(Event, slots=True):
     type: Literal["server-bind-exception"] = "server-bind-exception"
     level: Level = Level.ERROR
     bind: str
     traceback: Sequence[str]
 
 
-class ClientConnectedEvent(_BaseStandardEvent):
+class ClientConnectedEvent(Event, slots=True):
     type: Literal["client-connected"] = "client-connected"
     level: Level = Level.INFO
     client: str
 
 
-class ClientDisconnectedEvent(_BaseStandardEvent):
+class ClientDisconnectedEvent(Event, slots=True):
     type: Literal["client-disconnected"] = "client-disconnected"
     level: Level = Level.INFO
     client: str
 
 
-class ServerProcessingExceptionEvent(_BaseStandardEvent):
+class ServerProcessingExceptionEvent(Event, slots=True):
     type: Literal["server-processing-exception"] = "server-processing-exception"
     level: Level = Level.ERROR
     client: str
@@ -265,12 +261,12 @@ ServerEvent: TypeAlias = (
 )
 
 
-class MessageSentEvent(_BaseStandardEvent):
+class MessageSentEvent(Event, slots=True):
     type: Literal["message-sent"] = "message-sent"
     message: Message
 
 
-class MessageReceivedEvent(_BaseStandardEvent):
+class MessageReceivedEvent(Event, slots=True):
     type: Literal["message-received"] = "message-received"
     message: Message
 
@@ -278,23 +274,23 @@ class MessageReceivedEvent(_BaseStandardEvent):
 MessageEvent: TypeAlias = MessageSentEvent | MessageReceivedEvent
 
 
-class AlertEvent(_BaseStandardEvent):
+class AlertEvent(Event, slots=True):
     type: Literal["alert"] = "alert"
     alert: Alert
 
 
-class LogEvent(_BaseStandardEvent):
+class LogEvent(Event, slots=True):
     type: Literal["log"] = "log"
     level: Level = Level.DEBUG
     entry: LogEntry
 
 
-class ParticleEvent(_BaseStandardEvent):
+class ParticleEvent(Event, slots=True):
     type: Literal["particle"] = "particle"
     particle: Particle
 
 
-class VariableAssignedEvent(_BaseStandardEvent):
+class VariableAssignedEvent(Event, slots=True):
     type: Literal["variable-assigned"] = "variable-assigned"
     variable: Variable
 
@@ -302,7 +298,7 @@ class VariableAssignedEvent(_BaseStandardEvent):
 VariableEvent: TypeAlias = VariableAssignedEvent
 
 
-class SettingAssignedEvent(_BaseStandardEvent):
+class SettingAssignedEvent(Event, slots=True):
     type: Literal["setting-assigned"] = "setting-assigned"
     setting: Setting
 
@@ -310,40 +306,40 @@ class SettingAssignedEvent(_BaseStandardEvent):
 SettingEvent: TypeAlias = SettingAssignedEvent
 
 
-class RoutineStartedEvent(_BaseStandardEvent):
+class RoutineStartedEvent(Event, slots=True):
     type: Literal["routine-started"] = "routine-started"
     routine: str
 
 
-class RoutineStoppedEvent(_BaseStandardEvent):
+class RoutineStoppedEvent(Event, slots=True):
     type: Literal["routine-stopped"] = "routine-stopped"
     routine: str
 
 
-class RoutineCompletedEvent(_BaseStandardEvent):
+class RoutineCompletedEvent(Event, slots=True):
     type: Literal["routine-completed"] = "routine-completed"
     routine: str
 
 
-class RoutineCancelledEvent(_BaseStandardEvent):
+class RoutineCancelledEvent(Event, slots=True):
     type: Literal["routine-cancelled"] = "routine-cancelled"
     routine: str
 
 
-class RoutineExceptionEvent(_BaseStandardEvent):
+class RoutineExceptionEvent(Event, slots=True):
     type: Literal["routine-exception"] = "routine-exception"
     level: Level = Level.ERROR
     routine: str
     traceback: Sequence[str]
 
 
-class RoutineRestartingEvent(_BaseStandardEvent):
+class RoutineRestartingEvent(Event, slots=True):
     type: Literal["routine-restarting"] = "routine-restarting"
     routine: str
     delay: PositiveTimeDelta
 
 
-class RoutineRestartedEvent(_BaseStandardEvent):
+class RoutineRestartedEvent(Event, slots=True):
     type: Literal["routine-restarted"] = "routine-restarted"
     routine: str
 
@@ -357,49 +353,49 @@ RoutineEvent: TypeAlias = (
 )
 
 
-class JobAddedEvent(_BaseStandardEvent):
+class JobAddedEvent(Event, slots=True):
     type: Literal["job-added"] = "job-added"
     job: str
 
 
-class JobRemovedEvent(_BaseStandardEvent):
+class JobRemovedEvent(Event, slots=True):
     type: Literal["job-removed"] = "job-removed"
     job: str
 
 
-class JobStartedEvent(_BaseStandardEvent):
+class JobStartedEvent(Event, slots=True):
     type: Literal["job-started"] = "job-started"
     job: str
 
 
-class JobEndedEvent(_BaseStandardEvent):
+class JobEndedEvent(Event, slots=True):
     type: Literal["job-ended"] = "job-ended"
     job: str
 
 
-class JobCompletedEvent(_BaseStandardEvent):
+class JobCompletedEvent(Event, slots=True):
     type: Literal["job-completed"] = "job-completed"
     job: str
 
 
-class JobCancelledEvent(_BaseStandardEvent):
+class JobCancelledEvent(Event, slots=True):
     type: Literal["job-cancelled"] = "job-cancelled"
     job: str
 
 
-class JobExceptionEvent(_BaseStandardEvent):
+class JobExceptionEvent(Event, slots=True):
     type: Literal["job-exception"] = "job-exception"
     job: str
     traceback: Sequence[str]
 
 
-class JobRetryPendingEvent(_BaseStandardEvent):
+class JobRetryPendingEvent(Event, slots=True):
     type: Literal["job-retry-pending"] = "job-retry-pending"
     job: str
     delay: PositiveTimeDelta
 
 
-class JobRetryEvent(_BaseStandardEvent):
+class JobRetryEvent(Event, slots=True):
     type: Literal["job-retry"] = "job-retry"
     job: str
 
@@ -417,38 +413,38 @@ JobEvent: TypeAlias = (
 )
 
 
-class PrunerAddedEvent(_BaseStandardEvent):
+class PrunerAddedEvent(Event, slots=True):
     type: Literal["pruner-added"] = "pruner-added"
     pruner: str
 
 
-class PrunerRemovedEvent(_BaseStandardEvent):
+class PrunerRemovedEvent(Event, slots=True):
     type: Literal["pruner-removed"] = "pruner-removed"
     pruner: str
 
 
-class PruneStartedEvent(_BaseStandardEvent):
+class PruneStartedEvent(Event, slots=True):
     type: Literal["prune-started"] = "prune-started"
     pruner: str
 
 
-class PruneEndedEvent(_BaseStandardEvent):
+class PruneEndedEvent(Event, slots=True):
     type: Literal["prune-ended"] = "prune-ended"
     pruner: str
 
 
-class PruneCompletedEvent(_BaseStandardEvent):
+class PruneCompletedEvent(Event, slots=True):
     type: Literal["prune-completed"] = "prune-completed"
     pruner: str
     deleted: int
 
 
-class PruneCancelledEvent(_BaseStandardEvent):
+class PruneCancelledEvent(Event, slots=True):
     type: Literal["prune-cancelled"] = "prune-cancelled"
     pruner: str
 
 
-class PruneExceptionEvent(_BaseStandardEvent):
+class PruneExceptionEvent(Event, slots=True):
     type: Literal["prune-exception"] = "prune-exception"
     level: Level = Level.ERROR
     pruner: str
@@ -466,45 +462,45 @@ PrunerEvent: TypeAlias = (
 )
 
 
-class SieveAddedEvent(_BaseStandardEvent):
+class SieveAddedEvent(Event, slots=True):
     type: Literal["sieve-added"] = "sieve-added"
     sieve: str
 
 
-class SieveRemovedEvent(_BaseStandardEvent):
+class SieveRemovedEvent(Event, slots=True):
     type: Literal["sieve-removed"] = "sieve-removed"
     sieve: str
 
 
-class SieveStartedEvent(_BaseStandardEvent):
+class SieveStartedEvent(Event, slots=True):
     type: Literal["sieve-started"] = "sieve-started"
     sieve: str
 
 
-class SieveStoppedEvent(_BaseStandardEvent):
+class SieveStoppedEvent(Event, slots=True):
     type: Literal["sieve-stopped"] = "sieve-stopped"
     sieve: str
 
 
-class SieveCancelledEvent(_BaseStandardEvent):
+class SieveCancelledEvent(Event, slots=True):
     type: Literal["sieve-cancelled"] = "sieve-cancelled"
     sieve: str
 
 
-class SieveExceptionEvent(_BaseStandardEvent):
+class SieveExceptionEvent(Event, slots=True):
     type: Literal["sieve-exception"] = "sieve-exception"
     level: Level = Level.ERROR
     sieve: str
     traceback: Sequence[str]
 
 
-class SieveRetryPendingEvent(_BaseStandardEvent):
+class SieveRetryPendingEvent(Event, slots=True):
     type: Literal["sieve-retry-pending"] = "sieve-retry-pending"
     sieve: str
     delay: PositiveTimeDelta
 
 
-class SieveRetryEvent(_BaseStandardEvent):
+class SieveRetryEvent(Event, slots=True):
     type: Literal["sieve-retry"] = "sieve-retry"
     sieve: str
 
@@ -521,22 +517,22 @@ SieveEvent: TypeAlias = (
 )
 
 
-class ProcedureCalledEvent(_BaseStandardEvent):
+class ProcedureCalledEvent(Event, slots=True):
     type: Literal["procedure-called"] = "procedure-called"
     procedure: str
 
 
-class ProcedureCompletedEvent(_BaseStandardEvent):
+class ProcedureCompletedEvent(Event, slots=True):
     type: Literal["procedure-completed"] = "procedure-completed"
     procedure: str
 
 
-class ProcedureCancelledEvent(_BaseStandardEvent):
+class ProcedureCancelledEvent(Event, slots=True):
     type: Literal["procedure-cancelled"] = "procedure-cancelled"
     procedure: str
 
 
-class ProcedureExceptionEvent(_BaseStandardEvent):
+class ProcedureExceptionEvent(Event, slots=True):
     type: Literal["procedure-exception"] = "procedure-exception"
     level: Level = Level.ERROR
     procedure: str
@@ -551,7 +547,7 @@ ProcedureEvent: TypeAlias = (
 )
 
 
-class DatabaseExceptionEvent(_BaseStandardEvent):
+class DatabaseExceptionEvent(Event, slots=True):
     type: Literal["database-exception"] = "database-exception"
     level: Level = Level.ERROR
     traceback: Sequence[str]

@@ -53,7 +53,16 @@ from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
 from ceres._internal.util import PathLike, wrap_database_errors
-from ceres.data import DataModel, FromYAML, MaybeSequence, NonEmpty, dictify, jsonify
+from ceres.data import (
+    DataModel,
+    DataObject,
+    FromYAML,
+    MaybeSequence,
+    NonEmpty,
+    dictify,
+    jsonify,
+    validate_json,
+)
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.result import Ok
@@ -256,10 +265,7 @@ class CLIDataConflict(StrEnum):
 
 
 class CLICommand(DataModel):
-    model_config = ConfigDict(
-        defer_build=True,
-        use_attribute_docstrings=True,
-    )
+    model_config = ConfigDict(defer_build=True)
 
     config_path: Path | None = Field(default=None, alias="config")
     """
@@ -462,7 +468,7 @@ class CLICommand(DataModel):
         await engine.load(config_path, silent=True)
         return engine
 
-    def read[T: BaseModel](self, model_cls: type[T]) -> T:
+    def read[T: DataObject | BaseModel](self, data_object_class: type[T]) -> T:
         # We do this hackery here with an intermediate class because commands inheriting from
         # `BaseEntityFilter` can contain instances of themselves in their `and__` and `or__` fields.
         # All of these instances are instances of the command type, rather than the filter type, and
@@ -470,13 +476,20 @@ class CLICommand(DataModel):
         # `model_cls` does not have, and in the usual case that `model_cls` does not allow extra
         # inputs, we need to create an intermediate model class that does in order to strip extra
         # fields out, but preserve the defaults the command class has set on itself.
-        class IgnoreExtra(model_cls):
-            model_config = ConfigDict(extra="ignore")
+        config = ConfigDict(extra="ignore")
+        if not issubclass(data_object_class, BaseModel):
+
+            class IgnoreExtra(data_object_class, config=config):
+                pass
+        else:
+
+            class IgnoreExtra(data_object_class):
+                model_config = config
 
         # If only we could pass `extra = "ignore"` to the validation method itself, but we can't.
-        intermediate = IgnoreExtra.model_validate_json(self.model_dump_json())
+        intermediate = validate_json(IgnoreExtra, jsonify(self))
         # Convert the `IgnoreExtra` instance with exactly matching fields into `model_cls`.
-        return model_cls.model_validate_json(intermediate.model_dump_json())
+        return validate_json(data_object_class, jsonify(intermediate))
 
     def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         if output is None:
@@ -804,7 +817,7 @@ def create_entity_any_command(Entity: type[Entity]):
 def create_entity_create_command(Entity: type[Entity]):
     naming = Entity.__naming__
 
-    class CreateCommand(CLIDataOutputCommand, cast("type", Entity.Create)):
+    class CreateCommand(CLIDataOutputCommand, cast("type", Entity.Create.Model)):
         f"""
         Create a new {naming.singular}.
         """

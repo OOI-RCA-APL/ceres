@@ -21,7 +21,13 @@ class Chunk:
 
 @dataclass
 class VirtualChunk:
-    __slots__ = ("source", "start", "end", "timestamp", "_data")
+    __slots__ = (
+        "source",
+        "start",
+        "end",
+        "timestamp",
+        "_data",
+    )
 
     source: Final[bytes | bytearray]
     start: Final[int]

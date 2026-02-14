@@ -13,13 +13,11 @@ from typing import (
     Literal,
     Self,
     TypeAlias,
-    TypeVar,
     override,
 )
 
 from pydantic import (
     ByteSize,
-    ConfigDict,
     Field,
     ImportString,
     IPvAnyAddress,
@@ -32,20 +30,20 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_core import ArgsKwargs
 
 from ceres._internal import util
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
     DataObject,
-    FrozenDataObject,
-    MaybeSequence,
+    MaybeList,
     Name,
     NonBlankStr,
     NonEmptyStr,
     PositiveTimeDelta,
     StrEnum,
+    to_kwargs,
+    validate,
 )
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
@@ -84,11 +82,7 @@ else:
     Component = Any
 
 
-class _BaseConfigObject(FrozenDataObject):
-    pass
-
-
-class LoggingConfig(_BaseConfigObject):
+class LoggingConfig(DataObject):
     output: Level = Level.INFO
     store: Level = Level.DEBUG
     events: bool | Level = True
@@ -97,7 +91,7 @@ class LoggingConfig(_BaseConfigObject):
     alerts: bool | Level = False
 
 
-class JobConfig(_BaseConfigObject):
+class JobConfig(DataObject):
     name: Name
     action: Name
     arguments: Mapping[Name, Any] | None = None
@@ -106,6 +100,7 @@ class JobConfig(_BaseConfigObject):
     retry_delay: PositiveTimeDelta = timedelta(seconds=5)
 
     @model_validator(mode="before")
+    @to_kwargs
     @classmethod
     def _validate_name_as_action(cls, data: Any) -> Any:
         if isinstance(data, Mapping):
@@ -116,7 +111,7 @@ class JobConfig(_BaseConfigObject):
         return data
 
 
-class ConnectionConfig(_BaseConfigObject):
+class ConnectionConfig(DataObject):
     name: Name
     if TYPE_CHECKING:
         cls: ImportString[type[Connection]]
@@ -145,26 +140,26 @@ class ConnectionConfig(_BaseConfigObject):
         return self.cls(**self.arguments)
 
 
-class _BasePrunerConfig[TFilter](_BaseConfigObject):
+class _PrunerConfig[TFilter](DataObject):
     name: Name
     prunes: EntityType
     schedule: ScheduleExpr
     filter: TFilter
 
 
-class MessagePrunerConfig(_BasePrunerConfig[MessageFilter]):
+class MessagePrunerConfig(_PrunerConfig[MessageFilter]):
     prunes: Literal[EntityType.MESSAGE] = EntityType.MESSAGE
 
 
-class ParticlePrunerConfig(_BasePrunerConfig[ParticleFilter]):
+class ParticlePrunerConfig(_PrunerConfig[ParticleFilter]):
     prunes: Literal[EntityType.PARTICLE] = EntityType.PARTICLE
 
 
-class AlertPrunerConfig(_BasePrunerConfig[AlertFilter]):
+class AlertPrunerConfig(_PrunerConfig[AlertFilter]):
     prunes: Literal[EntityType.ALERT] = EntityType.ALERT
 
 
-class LogEntryPrunerConfig(_BasePrunerConfig[LogEntryFilter]):
+class LogEntryPrunerConfig(_PrunerConfig[LogEntryFilter]):
     prunes: Literal[EntityType.LOG_ENTRY] = EntityType.LOG_ENTRY
 
 
@@ -173,7 +168,7 @@ PrunerConfig: TypeAlias = (
 )
 
 
-class _BaseSieveConfig(_BaseConfigObject):
+class _SieveConfig(DataObject):
     type: Literal["class", "method"]
     name: Name
     retries: NonNegativeInt | None = None
@@ -184,7 +179,7 @@ class _BaseSieveConfig(_BaseConfigObject):
     def create(self, component: Component) -> Sieve: ...
 
 
-class ClassSieveConfig(_BaseSieveConfig):
+class ClassSieveConfig(_SieveConfig):
     type: Literal["class"] = "class"
     if TYPE_CHECKING:
         cls: ImportString[type[Sieve]]
@@ -218,7 +213,7 @@ class ClassSieveConfig(_BaseSieveConfig):
         return self.cls(**self.arguments)
 
 
-class MethodSieveConfig(_BaseSieveConfig):
+class MethodSieveConfig(_SieveConfig):
     type: Literal["method"] = "method"
     method: Name
 
@@ -239,22 +234,22 @@ def _get_component_class() -> type[Component]:
     return Component
 
 
-class ComponentConfig(_BaseConfigObject):
+class ComponentConfig(DataObject):
     name: Name
     cls: ImportString[type[Component]] = Field(
         default_factory=_get_component_class,
         validation_alias="class",
         serialization_alias="class",
     )
-    arguments: Mapping[str, Any] = Field(default_factory=dict)
+    arguments: dict[str, Any] = Field(default_factory=dict)
     logging: LoggingConfig | None = None
-    connections: Sequence[ConnectionConfig] = Field(default_factory=list)
-    sieves: Sequence[SieveConfig] = Field(default_factory=list)
-    jobs: Sequence[JobConfig] = Field(default_factory=list)
-    pruners: Sequence[Annotated[PrunerConfig, Field(discriminator="prunes")]] = Field(
+    connections: list[ConnectionConfig] = Field(default_factory=list)
+    sieves: list[SieveConfig] = Field(default_factory=list)
+    jobs: list[JobConfig] = Field(default_factory=list)
+    pruners: list[Annotated[PrunerConfig, Field(discriminator="prunes")]] = Field(
         default_factory=list
     )
-    components: Sequence[ComponentConfig] = Field(default_factory=list)
+    components: list[ComponentConfig] = Field(default_factory=list)
 
     @field_validator("cls")
     def _validate_cls(cls, value: ImportString[type]) -> ImportString[type[Component]]:
@@ -284,9 +279,9 @@ class ComponentConfig(_BaseConfigObject):
     @field_validator("pruners", check_fields=False)
     def _validate_pruners(
         cls,
-        pruners: Sequence[PrunerConfig],
+        pruners: list[PrunerConfig],
         info: ValidationInfo,
-    ) -> Sequence[PrunerConfig]:
+    ) -> list[PrunerConfig]:
         name: str = info.data.get("name", "<ERROR>")
         for pruner_name, group in util.group_by(pruners, lambda current: current.name):
             if len(list(group)) > 1:
@@ -297,9 +292,9 @@ class ComponentConfig(_BaseConfigObject):
     @field_validator("sieves", check_fields=False)
     def _validate_sieves(
         cls,
-        sieves: Sequence[SieveConfig],
+        sieves: list[SieveConfig],
         info: ValidationInfo,
-    ) -> Sequence[SieveConfig]:
+    ) -> list[SieveConfig]:
         name: str = info.data.get("name", "<ERROR>")
         for sieve_name, group in util.group_by(sieves, lambda current: current.name):
             if len(list(group)) > 1:
@@ -310,9 +305,9 @@ class ComponentConfig(_BaseConfigObject):
     @field_validator("components", check_fields=False)
     def _validate_components(
         cls,
-        components: Sequence[ComponentConfig],
+        components: list[ComponentConfig],
         info: ValidationInfo,
-    ) -> Sequence[ComponentConfig]:
+    ) -> list[ComponentConfig]:
         name: str = info.data.get("name", "<ERROR>")
         for component_name, group in util.group_by(components, lambda current: current.name):
             if len(list(group)) > 1:
@@ -431,14 +426,14 @@ class ComponentConfig(_BaseConfigObject):
         return config.cls
 
 
-class ServiceConfig(_BaseConfigObject):
+class ServiceConfig(DataObject):
     name: Name | None = None
     user: Name | None = None
     stdout: Path | None = None
     stderr: Path | None = None
 
 
-class ServerSSLConfig(_BaseConfigObject):
+class ServerSSLConfig(DataObject):
     key: Path | None = None
     key_password: str | None = None
     cert: Path | None = None
@@ -446,23 +441,23 @@ class ServerSSLConfig(_BaseConfigObject):
     ca_certs: Path | None = None
 
 
-class ServerAuthenticationConfig(_BaseConfigObject):
+class ServerAuthenticationConfig(DataObject):
     secret: NonEmptyStr
     duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
-class ServerCorsConfig(_BaseConfigObject):
+class ServerCorsConfig(DataObject):
     enabled: bool = True
-    allow_origins: MaybeSequence[str] = Field(default_factory=list)
+    allow_origins: MaybeList[str] = Field(default_factory=list)
     allow_origin_regex: Pattern[str] | None = None
-    allow_methods: MaybeSequence[str] = "*"
-    allow_headers: MaybeSequence[str] = "*"
+    allow_methods: MaybeList[str] = "*"
+    allow_headers: MaybeList[str] = "*"
     allow_credentials: bool = True
-    expose_headers: MaybeSequence[str] = Field(default_factory=list)
+    expose_headers: MaybeList[str] = Field(default_factory=list)
     max_age: PositiveInt = 600
 
 
-class ServerCompressionConfig(_BaseConfigObject):
+class ServerCompressionConfig(DataObject):
     enabled: bool = True
     min_size: ByteSize = ByteSize(500)
     zstd: bool = True
@@ -473,7 +468,7 @@ class ServerCompressionConfig(_BaseConfigObject):
     gzip_level: int = Field(default=1, ge=0, le=9)
 
 
-class ServerConfig(_BaseConfigObject):
+class ServerConfig(DataObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     ssl: ServerSSLConfig | None = None
@@ -487,24 +482,24 @@ class ServerConfig(_BaseConfigObject):
         return host
 
 
-class ConsoleConfig(_BaseConfigObject):
+class ConsoleConfig(DataObject):
     title: str | None = None
     favicon: Path | None = None
     # Using `SerializeAsAny` here to work around Pydantic's union serialization issues dealing with
     # `T | Sequence[T]`. It will currently choose the wrong serializer.
     # See https://github.com/pydantic/pydantic/milestone/13.
-    dashboard: SerializeAsAny[Address | Sequence[Address] | None] = None
+    dashboard: SerializeAsAny[MaybeList[Address] | None] = None
 
 
-class DatabaseRetryConfig(_BaseConfigObject):
+class DatabaseRetryConfig(DataObject):
     timeout: PositiveTimeDelta = timedelta(seconds=15)
     interval: PositiveTimeDelta = timedelta(seconds=3)
 
 
-class DatabaseConfigHooks(_BaseConfigObject):
-    init: Sequence[str] | None = None
-    connect: Sequence[str] | None = None
-    close: Sequence[str] | None = None
+class DatabaseConfigHooks(DataObject):
+    init: list[str] | None = None
+    connect: list[str] | None = None
+    close: list[str] | None = None
 
 
 class HashType(StrEnum):
@@ -512,16 +507,16 @@ class HashType(StrEnum):
     ARGON2 = "argon2"
 
 
-class __BaseHashingConfig(_BaseConfigObject):
+class _HashingConfig(DataObject):
     type: HashType
 
 
-class BCryptHashingConfig(__BaseHashingConfig):
+class BCryptHashingConfig(_HashingConfig):
     type: Literal[HashType.BCRYPT] = HashType.BCRYPT
     rounds: int = Field(default=12, ge=4)
 
 
-class Argon2HashingConfig(__BaseHashingConfig):
+class Argon2HashingConfig(_HashingConfig):
     type: Literal[HashType.ARGON2] = HashType.ARGON2
     # These default values are taken from `argon2.profiles.RFC_9106_LOW_MEMORY`.
     time_cost: PositiveInt = 3
@@ -542,20 +537,20 @@ class Argon2HashingConfig(__BaseHashingConfig):
 HashingConfig: TypeAlias = BCryptHashingConfig | Argon2HashingConfig
 
 
-class __BaseDatabaseConfig(_BaseConfigObject):
+class _DatabaseConfig(DataObject):
     type: DatabaseType
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
-    engine: Mapping[str, Any] = Field(default_factory=dict)
+    engine: dict[str, Any] = Field(default_factory=dict)
     hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
-    query: Mapping[str, MaybeSequence[str]] | None = None
+    query: dict[str, MaybeList[str]] | None = None
 
 
-class SQLiteDatabaseConfig(__BaseDatabaseConfig):
+class SQLiteDatabaseConfig(_DatabaseConfig):
     type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
     path: Path | None = None
 
 
-class PostgresDatabaseConfig(__BaseDatabaseConfig):
+class PostgresDatabaseConfig(_DatabaseConfig):
     type: Literal[DatabaseType.POSTGRES] = DatabaseType.POSTGRES
     host: NonBlankStr
     port: NonNegativeInt | None = None
@@ -572,11 +567,11 @@ class ConfigCheckType(StrEnum):
     COMPONENTS = "components"
 
     @classmethod
-    def all(cls) -> Sequence[ConfigCheckType]:
+    def all(cls) -> tuple[ConfigCheckType, ...]:
         return tuple(cls)
 
 
-class ConfigMeta(_BaseConfigObject, config=ConfigDict(extra="allow")):
+class ConfigMeta(DataObject, config={"extra": "allow"}):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
@@ -622,7 +617,7 @@ class ConfigMeta(_BaseConfigObject, config=ConfigDict(extra="allow")):
             return Fail(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
 
         try:
-            instance = cls.__data_object_validator__.validate_python(data)
+            instance = validate(cls, data)
         except ValidationError as error:
             return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 
@@ -682,14 +677,13 @@ class ConfigMeta(_BaseConfigObject, config=ConfigDict(extra="allow")):
         return []
 
 
-class Config(ConfigMeta, config=ConfigDict(extra="forbid")):
+class Config(ConfigMeta, config={"extra": "forbid"}):
     root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
 
     @model_validator(mode="before")
+    @to_kwargs
     @classmethod
-    def _validate_before(cls, values: object | Mapping[str, Any] | ArgsKwargs) -> object:
-        if isinstance(values, ArgsKwargs):
-            values = values.kwargs or {}
+    def _validate_before(cls, values: object | Mapping[str, Any]) -> object:
         if isinstance(values, Mapping):
             values = dict(values)
             if "components" in values:
@@ -719,9 +713,8 @@ class Config(ConfigMeta, config=ConfigDict(extra="forbid")):
         return self
 
     @field_validator("root", mode="before")
-    def _validate_root(cls, values: object | Mapping[str, Any] | ArgsKwargs) -> object:
-        if isinstance(values, ArgsKwargs):
-            values = values.kwargs or {}
+    @to_kwargs
+    def _validate_root(cls, values: object | Mapping[str, Any]) -> object:
         if isinstance(values, Mapping):
             if "name" not in values:
                 values = {"name": "root", **values}
@@ -764,5 +757,4 @@ class Config(ConfigMeta, config=ConfigDict(extra="forbid")):
         return config.cls
 
 
-_TConfig = TypeVar("_TConfig", bound=DataObject)
-ConfigSource: TypeAlias = Path | Mapping[str, object] | _TConfig
+type ConfigSource[T: DataObject] = Path | Mapping[str, object] | T

@@ -55,7 +55,14 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import FromYAML, ImmutableDataModel, JSONSerializableDict, MaybeSequence, jsonify
+from ceres.data import (
+    FromYAML,
+    ImmutableDataModel,
+    JSONSerializableDict,
+    MaybeSequence,
+    jsonify,
+    to_kwargs,
+)
 from ceres.timing import utc
 
 if TYPE_CHECKING:
@@ -409,6 +416,7 @@ class BoundParticleManager(ParticleManager, BaseNodeManager):
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
+    @property
     def stream(self) -> ParticleOutputChannel:
         from ceres.event import ParticleEvent
 
@@ -497,26 +505,27 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT]):
     data: SerializeAsAny[FromYAML[DataT]]
 
     @model_validator(mode="before")
+    @to_kwargs
     @classmethod
-    def _validate(cls, value: Any) -> Any:
-        if isinstance(value, MutableMapping):
-            type = value.get("type", UNKNOWN_TYPE)
-            data = value.get("data")
+    def _validate(cls, values: Any) -> Any:
+        if isinstance(values, MutableMapping):
+            type = values.get("type", UNKNOWN_TYPE)
+            data = values.get("data")
             if type == UNKNOWN_TYPE and isinstance(data, ParticleData):
                 try:
-                    value["type"] = value["data"].__type__
+                    values["type"] = values["data"].__type__
                 except Exception:
                     pass
-        elif isinstance(value, Particle):
-            type = value.type
-            data = value.data
+        elif isinstance(values, Particle):
+            type = values.type
+            data = values.data
             if type == UNKNOWN_TYPE and isinstance(data, ParticleData):
                 try:
-                    value.type = type
+                    values.type = type
                 except Exception:
                     pass
 
-        return value
+        return values
 
     def convert[D: DynamicParticleData](self, cls: builtins.type[D]) -> Particle[D]:
         data = (
@@ -525,7 +534,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT]):
             else dict(self.data)
         )
 
-        return Particle[cls].model_construct(
+        return Particle[cls].__data_object_construct__(
             id=self.id,
             address=self.address,
             timestamp=self.timestamp,
