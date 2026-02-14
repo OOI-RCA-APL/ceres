@@ -482,3 +482,28 @@ def test_validate_snake_or_kebab():
     assert TypeAdapter(Kebab).validate_python({"could-be-kebab": 5}) == expected
     with pytest.raises(ValidationError, match="unexpected"):
         assert TypeAdapter(Kebab).validate_python({"could_be-kebab": 5}) == expected
+
+
+def test_to_dict():
+    class Example(DataObject):
+        a: int
+        b: str = "default"
+        c: float = field(default=1.0)
+
+    instance = Example(a=10, c=2.5)
+    assert instance.__fields_set__ == {"a", "c"}
+    assert "a" in instance.__fields_set__
+    assert "b" not in instance.__fields_set__
+    assert "c" in instance.__fields_set__
+    assert instance.__data_object_to_dict__() == {"a": 10, "b": "default", "c": 2.5}
+    assert instance.__data_object_to_dict__(exclude_unset=True) == {"a": 10, "c": 2.5}
+    assert instance.__data_object_to_dict__(exclude={"a", "c"}) == {"b": "default"}
+    assert instance.__data_object_to_dict__(exclude={"b"}) == {"a": 10, "c": 2.5}
+    assert instance.__data_object_to_dict__(include={"a", "b"}) == {"a": 10, "b": "default"}
+    assert instance.__data_object_to_dict__(include={"a", "c"}) == {"a": 10, "c": 2.5}
+    assert instance.__data_object_to_dict__(include={"b"}) == {"b": "default"}
+    assert instance.__data_object_to_dict__(include={"b"}, exclude={"b"}) == {}
+    assert instance.__data_object_to_dict__(exclude={"a"}, include={"a", "b"}) == {"b": "default"}
+    assert instance.__data_object_to_dict__(exclude={"a"}, include={"a", "c"}) == {"c": 2.5}
+    assert instance.__data_object_to_dict__(exclude={"a"}, include={"b"}) == {"b": "default"}
+    assert instance.__data_object_to_dict__(exclude={"a"}, exclude_unset=True) == {"c": 2.5}

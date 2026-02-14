@@ -62,7 +62,8 @@ class BaseComponentManager(BaseNodeManager, ComponentSource):
 
 
 class _Named(Protocol):
-    name: Any
+    @property
+    def name(self) -> Any: ...
 
 
 class BaseComponentTaskManager[T: _Named](BaseComponentManager):
@@ -115,7 +116,10 @@ class BaseComponentTaskManager[T: _Named](BaseComponentManager):
                 number = self.count + 1
                 name = str(number)
                 if self.get(name) is None:
-                    obj.name = name
+                    try:
+                        obj.name = name  # type: ignore
+                    except Exception:
+                        pass
                     break
 
         assert obj.name not in self._objects

@@ -537,9 +537,9 @@ class Engine(Node):
         old = (
             {}
             if component.system.config is None
-            else component.system.config.model_dump(exclude=exclude)
+            else component.system.config.__data_object_to_dict__(exclude=exclude)
         )
-        new = config.model_dump(exclude=exclude)
+        new = config.__data_object_to_dict__(exclude=exclude)
 
         if old != new:
             affected = [address]

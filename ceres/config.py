@@ -18,7 +18,6 @@ from typing import (
 )
 
 from pydantic import (
-    BaseModel,
     ByteSize,
     ConfigDict,
     Field,
@@ -33,12 +32,14 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import ArgsKwargs
 
 from ceres._internal import util
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
-    ImmutableDataModel,
+    DataObject,
+    FrozenDataObject,
     MaybeSequence,
     Name,
     NonBlankStr,
@@ -83,11 +84,11 @@ else:
     Component = Any
 
 
-class __BaseConfigObject(ImmutableDataModel):
+class _BaseConfigObject(FrozenDataObject):
     pass
 
 
-class LoggingConfig(__BaseConfigObject):
+class LoggingConfig(_BaseConfigObject):
     output: Level = Level.INFO
     store: Level = Level.DEBUG
     events: bool | Level = True
@@ -96,7 +97,7 @@ class LoggingConfig(__BaseConfigObject):
     alerts: bool | Level = False
 
 
-class JobConfig(__BaseConfigObject):
+class JobConfig(_BaseConfigObject):
     name: Name
     action: Name
     arguments: Mapping[Name, Any] | None = None
@@ -115,7 +116,7 @@ class JobConfig(__BaseConfigObject):
         return data
 
 
-class ConnectionConfig(__BaseConfigObject):
+class ConnectionConfig(_BaseConfigObject):
     name: Name
     if TYPE_CHECKING:
         cls: ImportString[type[Connection]]
@@ -144,26 +145,26 @@ class ConnectionConfig(__BaseConfigObject):
         return self.cls(**self.arguments)
 
 
-class __BasePrunerConfig[TFilter](__BaseConfigObject):
+class _BasePrunerConfig[TFilter](_BaseConfigObject):
     name: Name
     prunes: EntityType
     schedule: ScheduleExpr
     filter: TFilter
 
 
-class MessagePrunerConfig(__BasePrunerConfig[MessageFilter]):
+class MessagePrunerConfig(_BasePrunerConfig[MessageFilter]):
     prunes: Literal[EntityType.MESSAGE] = EntityType.MESSAGE
 
 
-class ParticlePrunerConfig(__BasePrunerConfig[ParticleFilter]):
+class ParticlePrunerConfig(_BasePrunerConfig[ParticleFilter]):
     prunes: Literal[EntityType.PARTICLE] = EntityType.PARTICLE
 
 
-class AlertPrunerConfig(__BasePrunerConfig[AlertFilter]):
+class AlertPrunerConfig(_BasePrunerConfig[AlertFilter]):
     prunes: Literal[EntityType.ALERT] = EntityType.ALERT
 
 
-class LogEntryPrunerConfig(__BasePrunerConfig[LogEntryFilter]):
+class LogEntryPrunerConfig(_BasePrunerConfig[LogEntryFilter]):
     prunes: Literal[EntityType.LOG_ENTRY] = EntityType.LOG_ENTRY
 
 
@@ -172,7 +173,7 @@ PrunerConfig: TypeAlias = (
 )
 
 
-class __BaseSieveConfig(__BaseConfigObject):
+class _BaseSieveConfig(_BaseConfigObject):
     type: Literal["class", "method"]
     name: Name
     retries: NonNegativeInt | None = None
@@ -183,7 +184,7 @@ class __BaseSieveConfig(__BaseConfigObject):
     def create(self, component: Component) -> Sieve: ...
 
 
-class ClassSieveConfig(__BaseSieveConfig):
+class ClassSieveConfig(_BaseSieveConfig):
     type: Literal["class"] = "class"
     if TYPE_CHECKING:
         cls: ImportString[type[Sieve]]
@@ -217,7 +218,7 @@ class ClassSieveConfig(__BaseSieveConfig):
         return self.cls(**self.arguments)
 
 
-class MethodSieveConfig(__BaseSieveConfig):
+class MethodSieveConfig(_BaseSieveConfig):
     type: Literal["method"] = "method"
     method: Name
 
@@ -238,7 +239,7 @@ def _get_component_class() -> type[Component]:
     return Component
 
 
-class ComponentConfig(__BaseConfigObject):
+class ComponentConfig(_BaseConfigObject):
     name: Name
     cls: ImportString[type[Component]] = Field(
         default_factory=_get_component_class,
@@ -430,14 +431,14 @@ class ComponentConfig(__BaseConfigObject):
         return config.cls
 
 
-class ServiceConfig(__BaseConfigObject):
+class ServiceConfig(_BaseConfigObject):
     name: Name | None = None
     user: Name | None = None
     stdout: Path | None = None
     stderr: Path | None = None
 
 
-class ServerSSLConfig(__BaseConfigObject):
+class ServerSSLConfig(_BaseConfigObject):
     key: Path | None = None
     key_password: str | None = None
     cert: Path | None = None
@@ -445,12 +446,12 @@ class ServerSSLConfig(__BaseConfigObject):
     ca_certs: Path | None = None
 
 
-class ServerAuthenticationConfig(__BaseConfigObject):
+class ServerAuthenticationConfig(_BaseConfigObject):
     secret: NonEmptyStr
     duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
-class ServerCorsConfig(__BaseConfigObject):
+class ServerCorsConfig(_BaseConfigObject):
     enabled: bool = True
     allow_origins: MaybeSequence[str] = Field(default_factory=list)
     allow_origin_regex: Pattern[str] | None = None
@@ -461,7 +462,7 @@ class ServerCorsConfig(__BaseConfigObject):
     max_age: PositiveInt = 600
 
 
-class ServerCompressionConfig(__BaseConfigObject):
+class ServerCompressionConfig(_BaseConfigObject):
     enabled: bool = True
     min_size: ByteSize = ByteSize(500)
     zstd: bool = True
@@ -472,7 +473,7 @@ class ServerCompressionConfig(__BaseConfigObject):
     gzip_level: int = Field(default=1, ge=0, le=9)
 
 
-class ServerConfig(__BaseConfigObject):
+class ServerConfig(_BaseConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     ssl: ServerSSLConfig | None = None
@@ -486,7 +487,7 @@ class ServerConfig(__BaseConfigObject):
         return host
 
 
-class ConsoleConfig(__BaseConfigObject):
+class ConsoleConfig(_BaseConfigObject):
     title: str | None = None
     favicon: Path | None = None
     # Using `SerializeAsAny` here to work around Pydantic's union serialization issues dealing with
@@ -495,12 +496,12 @@ class ConsoleConfig(__BaseConfigObject):
     dashboard: SerializeAsAny[Address | Sequence[Address] | None] = None
 
 
-class DatabaseRetryConfig(__BaseConfigObject):
+class DatabaseRetryConfig(_BaseConfigObject):
     timeout: PositiveTimeDelta = timedelta(seconds=15)
     interval: PositiveTimeDelta = timedelta(seconds=3)
 
 
-class DatabaseConfigHooks(__BaseConfigObject):
+class DatabaseConfigHooks(_BaseConfigObject):
     init: Sequence[str] | None = None
     connect: Sequence[str] | None = None
     close: Sequence[str] | None = None
@@ -511,7 +512,7 @@ class HashType(StrEnum):
     ARGON2 = "argon2"
 
 
-class __BaseHashingConfig(__BaseConfigObject):
+class __BaseHashingConfig(_BaseConfigObject):
     type: HashType
 
 
@@ -541,7 +542,7 @@ class Argon2HashingConfig(__BaseHashingConfig):
 HashingConfig: TypeAlias = BCryptHashingConfig | Argon2HashingConfig
 
 
-class __BaseDatabaseConfig(__BaseConfigObject):
+class __BaseDatabaseConfig(_BaseConfigObject):
     type: DatabaseType
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
@@ -575,9 +576,7 @@ class ConfigCheckType(StrEnum):
         return tuple(cls)
 
 
-class ConfigMeta(__BaseConfigObject):
-    model_config = ConfigDict(extra="allow")
-
+class ConfigMeta(_BaseConfigObject, config=ConfigDict(extra="allow")):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
@@ -623,7 +622,7 @@ class ConfigMeta(__BaseConfigObject):
             return Fail(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
 
         try:
-            instance = cls.model_validate(data)
+            instance = cls.__data_object_validator__.validate_python(data)
         except ValidationError as error:
             return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 
@@ -683,14 +682,14 @@ class ConfigMeta(__BaseConfigObject):
         return []
 
 
-class Config(ConfigMeta):
-    model_config = ConfigDict(extra="forbid")
-
+class Config(ConfigMeta, config=ConfigDict(extra="forbid")):
     root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
 
     @model_validator(mode="before")
     @classmethod
-    def _validate_before(cls, values: object) -> object:
+    def _validate_before(cls, values: object | Mapping[str, Any] | ArgsKwargs) -> object:
+        if isinstance(values, ArgsKwargs):
+            values = values.kwargs or {}
         if isinstance(values, Mapping):
             values = dict(values)
             if "components" in values:
@@ -720,7 +719,9 @@ class Config(ConfigMeta):
         return self
 
     @field_validator("root", mode="before")
-    def _validate_root(cls, values: object) -> object:
+    def _validate_root(cls, values: object | Mapping[str, Any] | ArgsKwargs) -> object:
+        if isinstance(values, ArgsKwargs):
+            values = values.kwargs or {}
         if isinstance(values, Mapping):
             if "name" not in values:
                 values = {"name": "root", **values}
@@ -763,5 +764,5 @@ class Config(ConfigMeta):
         return config.cls
 
 
-_TConfig = TypeVar("_TConfig", bound=BaseModel)
+_TConfig = TypeVar("_TConfig", bound=DataObject)
 ConfigSource: TypeAlias = Path | Mapping[str, object] | _TConfig

@@ -3,7 +3,17 @@ from __future__ import annotations
 import dataclasses
 import sys
 from abc import ABCMeta
-from collections.abc import Callable, Iterable, Iterator, Mapping, MutableSet, Sequence, Set, Sized
+from collections.abc import (
+    Callable,
+    Container,
+    Iterable,
+    Iterator,
+    Mapping,
+    MutableSet,
+    Sequence,
+    Set,
+    Sized,
+)
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum as BaseStrEnum
 from re import RegexFlag
@@ -28,6 +38,7 @@ from typing import (
     runtime_checkable,
 )
 from uuid import UUID
+from warnings import warn
 
 import pydantic
 from pydantic import (
@@ -488,6 +499,12 @@ class DataObjectMetaclass(
         if key in _data_object_classes_being_built:
             return cls
 
+        if "model_config" in namespace:
+            warn(
+                f"Defining `model_config` is not supported in `{DataObject.__name__}` subclasses. "
+                "It will be ignored. Define the `ConfigDict` using th class keyword argument."
+            )
+
         # Collect inherited Pydantic config from base classes with `__pydantic_config__` defined.
         inherited = ConfigDict()
         for base in reversed(bases):
@@ -841,6 +858,8 @@ assert issubclass(FieldsSet, Set)
 
 def _stored_fields_of(
     obj: DataObject | DataModel | type[DataObject | DataModel],
+    *,
+    exclude_unset: bool = False,
 ) -> Iterator[tuple[str, FieldInfo]]:
     if isinstance(obj, type):
         fields = obj.__pydantic_fields__
@@ -850,7 +869,10 @@ def _stored_fields_of(
             assert isinstance(obj, DataObject | DataModel)
 
         fields = type(obj).__pydantic_fields__
-        fields_set = obj.__pydantic_fields_set__
+        if exclude_unset:
+            fields_set = obj.__pydantic_fields_set__
+        else:
+            fields_set = None
 
     for name, field in fields.items():
         if field.init_var is True:
@@ -865,7 +887,7 @@ def _repr_of(obj: DataObject | DataModel) -> str:
     tokens: list[str] = [type(obj).__name__, "("]
     append = tokens.append
 
-    for name, _ in _stored_fields_of(obj):
+    for name, _ in _stored_fields_of(obj, exclude_unset=True):
         try:
             value = getattr(obj, name)
         except Exception:
@@ -920,6 +942,16 @@ class DataObject(
     @classmethod
     def __data_object_field_names__(cls) -> tuple[str, ...]:
         return tuple(cls.__data_object_fields__)
+
+    @class_property
+    @classmethod
+    def __data_object_validator__(cls) -> SchemaValidator:
+        return cls.__pydantic_validator__
+
+    @class_property
+    @classmethod
+    def __data_object_serializer__(cls) -> SchemaSerializer:
+        return cls.__pydantic_serializer__
 
     @cached_class_property
     @classmethod
@@ -1035,6 +1067,24 @@ class DataObject(
         instance = super().__new__(cls)
         _object_setattr(instance, "__data_object_fields_set__", FieldsSet(cls))
         return instance
+
+    def __data_object_to_dict__(
+        self,
+        *,
+        include: Container[str] | None = None,
+        exclude: Container[str] | None = None,
+        exclude_unset: bool = False,
+    ) -> dict[str, Any]:
+        output: dict[str, Any] = {}
+        for field, _ in _stored_fields_of(self, exclude_unset=exclude_unset):
+            if include is not None and field not in include:
+                continue
+            if exclude is not None and field in exclude:
+                continue
+
+            output[field] = getattr(self, field)
+
+        return output
 
     if TYPE_CHECKING:
         __data_object_fields_set__: FieldsSet
