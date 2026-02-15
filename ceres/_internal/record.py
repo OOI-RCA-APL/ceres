@@ -349,6 +349,8 @@ class BaseRecordCreate(
     BaseTimestampEntityCreate,
     BaseAddressEntityCreate,
     BaseUUIDEntityCreate,
+    abstract=True,
+    slots=True,
 ):
     timestamp: DateTime = Field(default_factory=utc)
 
@@ -367,6 +369,8 @@ class BaseRecord(
     BaseAddressEntity,
     BaseUUIDEntity,
     BaseRecordCreate,
+    abstract=True,
+    slots=True,
 ):
     Row: ClassVar[type[BaseRecordRow]] = BaseRecordRow
     Create: ClassVar[type[BaseRecordCreate]] = BaseRecordCreate

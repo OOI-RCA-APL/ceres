@@ -79,6 +79,7 @@ from ceres._internal.util import (
     Undefined,
     cached_class_property,
     class_property,
+    declared_slots_of,
     get_type_adapter,
     uniquify,
 )
@@ -437,6 +438,10 @@ else:
 _data_object_classes_being_built: set[Any] = set()
 
 
+class DataObjectClassInvalid(TypeError):
+    pass
+
+
 class DataObjectMetaclass(
     type(Protocol),
     ABCMeta,  # type: ignore
@@ -457,25 +462,53 @@ class DataObjectMetaclass(
         validate_on_init: bool | None = None,
         kw_only: bool = True,
         slots: bool = False,
+        abstract: bool = False,
         **kwargs: Any,
     ) -> type[DataObject]:
-        if init is not None:
-            raise ValueError(
-                f"`{DataObject.__name__}` does support setting `init`. "
-                "The `__init__` method is always generated."
-            )
-        if repr is not None:
-            raise ValueError(
-                f"`{DataObject.__name__}` does support setting `repr`. "
-                f"The `__repr__` method is defined within the `{DataObject.__name__}` class. "
-                "To customize `__repr__`, just define a new implementation in your subclass."
-            )
+        data_object_class_name = "DataObject"
+
+        try:
+            DataObject  # type: ignore
+            is_data_object_class_defined = True
+        except NameError:
+            is_data_object_class_defined = False
 
         # `FrozenDataObject` may be undefined if it hasn't been built yet.
         try:
             Frozen = __Frozen__
         except NameError:
             Frozen = None
+
+        if init is not None:
+            raise DataObjectClassInvalid(
+                f"`{data_object_class_name}` subclasses do not support setting `init`. "
+                "The `__init__` method is always generated."
+            )
+        if repr is not None:
+            raise DataObjectClassInvalid(
+                f"`{data_object_class_name}` does support setting `repr`. "
+                f"The `__repr__` method is defined within the `{data_object_class_name}` class. "
+                "To customize `__repr__`, just define a new implementation in your subclass."
+            )
+        if "model_config" in namespace:
+            warn(
+                f"Defining `model_config` is not supported in `{data_object_class_name}` "
+                "subclasses. It will be ignored. Define `ConfigDict` using the `config` class "
+                "keyword argument."
+            )
+        if "__data_object_abstract__" in namespace:
+            raise DataObjectClassInvalid(
+                f"`{data_object_class_name}` does not support defining `__data_object_abstract__`"
+                "in the class body. Use the `abstract` class keyword argument instead."
+            )
+        if abstract and slots:
+            if "__slots__" in namespace:
+                raise DataObjectClassInvalid(
+                    f"`{data_object_class_name}` does not support defining `__slots__` when "
+                    "`abstract=True`. Abstract data objects implicitly have empty `__slots__`."
+                )
+
+            namespace["__slots__"] = ()
 
         if frozen is None:
             # Any subclass of `FrozenDataObject` is implicitly frozen.
@@ -497,12 +530,6 @@ class DataObjectMetaclass(
         key = (cls.__module__, name)
         if key in _data_object_classes_being_built:
             return cls
-
-        if "model_config" in namespace:
-            warn(
-                f"Defining `model_config` is not supported in `{DataObject.__name__}` subclasses. "
-                "It will be ignored. Define the `ConfigDict` using th class keyword argument."
-            )
 
         # Collect inherited Pydantic config from base classes with `__pydantic_config__` defined.
         inherited = ConfigDict()
@@ -532,7 +559,7 @@ class DataObjectMetaclass(
                     frozen=frozen,
                     config=config,
                     validate_on_init=validate_on_init,
-                    slots=slots,
+                    slots=slots and not abstract,
                     kw_only=kw_only,
                 )(cls),
             )
@@ -540,6 +567,23 @@ class DataObjectMetaclass(
             data_object_class.__module__ = cls.__module__
             data_object_class.__name__ = cls.__name__
             data_object_class.__qualname__ = cls.__qualname__
+            data_object_class.__data_object_abstract__ = abstract
+
+            __data_object_required_slots__: list[str] = []
+            if is_data_object_class_defined:
+                for base in reversed(bases):
+                    if issubclass(base, DataObject):
+                        __data_object_required_slots__.extend(base.__data_object_required_slots__)
+            if slots:
+                __data_object_required_slots__.extend(
+                    field
+                    for field, _ in _stored_fields_of(data_object_class)
+                    if field in data_object_class.__dataclass_fields__
+                )
+
+            data_object_class.__data_object_required_slots__ = tuple(
+                uniquify(__data_object_required_slots__)
+            )
 
             if slots:
                 # TODO: Figure out how to avoid this hack.
@@ -572,6 +616,18 @@ class DataObjectMetaclass(
         __classcell__: CellType | None = namespace.get("__classcell__")
         if __classcell__ is not None:
             __classcell__.cell_contents = data_object_class
+
+        if not abstract:
+            required = data_object_class.__data_object_required_slots__
+            defined = set(data_object_class.__data_object_defined_slots__)
+            missing = [slot for slot in required if slot not in defined]
+            if missing:
+                raise DataObjectClassInvalid(
+                    f"Concrete data object subclass `{data_object_class}` is missing slots for "
+                    f"fields: {missing}. Either define these in `__slots__`, set "
+                    "`slots=True` in the class's class keyword arguments to define them "
+                    "automatically, or set `abstract=True`."
+                )
 
         return data_object_class
 
@@ -936,10 +992,7 @@ class DataObject(
     metaclass=DataObjectMetaclass,
     config=_DATA_OBJECT_DEFAULT_CONFIG,
 ):
-    __slots__ = (
-        "__weakref__",
-        "__data_object_fields_set__",
-    )
+    __slots__ = ("__data_object_fields_set__",)
 
     if TYPE_CHECKING:
         from ceres.data import __Frozen__
@@ -964,6 +1017,9 @@ class DataObject(
         Set of field names that were explicitly set during initialization. Used for equivalent
         set/unset functionality as with Pydantic's `BaseModel`.
         """
+
+        __data_object_abstract__: ClassVar[bool] = False
+        __data_object_required_slots__: ClassVar[tuple[str, ...]] = ()
 
         # Standard dataclass class attributes.
         __dataclass_fields__: ClassVar[dict[str, Any]]
@@ -1106,25 +1162,12 @@ class DataObject(
 
     @cached_class_property
     @classmethod
-    def __data_object_reduced_slots__(cls) -> tuple[str, ...]:
-        slots: dict[str, None] = {}
-
-        for current in reversed(cls.__mro__):
-            __slots__ = getattr(current, "__slots__", ())
-            if isinstance(__slots__, str):
-                __slots__ = (__slots__,)
-            for slot in __slots__:
-                slots[slot] = None
-
-        if slots:
-            # `__weakref__` probably doesn't need to be included.
-            slots.pop("__weakref__", None)
-            # `__dict__` will be handled separately.
-            slots.pop("__dict__", None)
-            # `__data_object_fields_set__` will be handled separately.
-            slots.pop("__data_object_fields_set__", None)
-
-        return tuple(slots)
+    def __data_object_defined_slots__(cls) -> tuple[str, ...]:
+        return tuple(
+            slot
+            for slot in declared_slots_of(cls)
+            if slot not in ("__weakref__", "__dict__", "__data_object_fields_set__")
+        )
 
     @cached_class_property
     @classmethod
@@ -1244,11 +1287,13 @@ class DataObject(
 
     @model_validator(mode="wrap")
     @classmethod
-    def _init__fields_set__(
+    def __validate_data_object_init__(
         cls,
         data: object,
         handler: ModelWrapValidatorHandler[Self],
     ) -> DataObject:
+        if cls.__data_object_abstract__:
+            raise TypeError(f"Cannot instantiate abstract data object class `{cls}`.")
         if type(data) is cls:
             computed = cls.__data_object_fields_set__
         elif isinstance(data, Mapping | ArgsKwargs):
@@ -1325,7 +1370,7 @@ class DataObject(
         if dictionary:
             dictionary = dict(dictionary)
 
-        slots = self.__data_object_reduced_slots__
+        slots = self.__data_object_defined_slots__
         slots = [_object_getattribute(self, slot) for slot in slots] if slots else None
 
         return _reconstruct_data_object, (
@@ -1382,7 +1427,7 @@ def _do[T: DataObject](
         for attribute, value in dictionary.items():
             _object_setattr(instance, attribute, value)
     if slots:
-        for attribute, value in zip(cls.__data_object_reduced_slots__, slots):
+        for attribute, value in zip(cls.__data_object_defined_slots__, slots):
             _object_setattr(instance, attribute, value)
 
     _object_setattr(instance, "__data_object_fields_set__", FieldsSet(cls, fields_set_mask))

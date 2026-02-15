@@ -168,7 +168,7 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
         return ("address", "name")
 
 
-class VariableCreate(BaseAddressEntityCreate):
+class VariableCreate(BaseAddressEntityCreate, slots=True):
     name: str
     value: FromYAML[JSONSerializable]
 
@@ -336,7 +336,7 @@ class VariableOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Variable(BaseAddressEntity, VariableCreate):
+class Variable(BaseAddressEntity, VariableCreate, slots=True):
     Manager: ClassVar[type[VariableManager]] = VariableManager
     BoundManager: ClassVar[type[BoundVariableManager]] = BoundVariableManager
     Row: ClassVar[type[VariableRow]] = VariableRow

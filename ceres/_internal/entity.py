@@ -446,7 +446,7 @@ class BaseEntityFilter[
         return statement.where(pk.in_(pks)).order_by(*order_by)
 
 
-class BaseEntityCreate(DataObject):
+class BaseEntityCreate(DataObject, abstract=True, slots=True):
     pass
 
 
@@ -1140,7 +1140,7 @@ class BaseEntityManager[
                 return row  # type: ignore
 
 
-class BaseEntity(BaseEntityCreate):
+class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
     Manager: ClassVar[type[BaseEntityManager]] = BaseEntityManager
     Row: ClassVar[type[BaseEntityRow]] = BaseEntityRow
     Create: ClassVar[type[BaseEntityCreate]] = BaseEntityCreate
@@ -1171,7 +1171,7 @@ _REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, type[Any] | None] = {
 }
 
 
-class ConcreteEntity(BaseEntity):
+class ConcreteEntity(BaseEntity, abstract=True, slots=True):
     __naming__: ClassVar[EntityNaming]
 
     def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]) -> None:
@@ -1268,7 +1268,7 @@ class BaseUUIDEntityFilter[
             yield util.sql_match_value(columns.id, self.id)
 
 
-class BaseUUIDEntityCreate(BaseEntity):
+class BaseUUIDEntityCreate(BaseEntity, abstract=True, slots=True):
     id: UUID = Field(default_factory=uuid7)
 
 
@@ -1276,7 +1276,7 @@ class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
     pass
 
 
-class BaseUUIDEntity(BaseUUIDEntityCreate):
+class BaseUUIDEntity(BaseUUIDEntityCreate, abstract=True, slots=True):
     Row: ClassVar[type[BaseUUIDEntityRow]] = BaseUUIDEntityRow
     Create: ClassVar[type[BaseUUIDEntityCreate]] = BaseUUIDEntityCreate
     Update: ClassVar[type[BaseUUIDEntityUpdate]] = BaseUUIDEntityUpdate
@@ -1358,7 +1358,7 @@ class BaseAddressEntityFilter[
             yield self.address.matches_expression(columns.address, self.root)
 
 
-class BaseAddressEntityCreate(BaseEntity):
+class BaseAddressEntityCreate(BaseEntity, abstract=True, slots=True):
     address: Address
 
 
@@ -1366,7 +1366,7 @@ class BaseAddressEntityUpdate(BaseEntityUpdate, total=False):
     address: Address
 
 
-class BaseAddressEntity(BaseAddressEntityCreate):
+class BaseAddressEntity(BaseAddressEntityCreate, abstract=True, slots=True):
     Row: ClassVar[type[BaseAddressEntityRow]] = BaseAddressEntityRow
     Create: ClassVar[type[BaseAddressEntityCreate]] = BaseAddressEntityCreate
     Update: ClassVar[type[BaseAddressEntityUpdate]] = BaseAddressEntityUpdate
@@ -1641,7 +1641,7 @@ class BaseTimestampEntityFilter[
         return start, end
 
 
-class BaseTimestampEntityCreate(BaseEntity):
+class BaseTimestampEntityCreate(BaseEntity, abstract=True, slots=True):
     timestamp: DateTime = Field(default_factory=utc)
 
 
@@ -1649,7 +1649,7 @@ class BaseTimestampEntityUpdate(BaseEntityUpdate, total=False):
     timestamp: DateTime
 
 
-class BaseTimestampEntity(BaseTimestampEntityCreate):
+class BaseTimestampEntity(BaseTimestampEntityCreate, abstract=True, slots=True):
     Row: ClassVar[type[BaseTimestampEntityRow]] = BaseTimestampEntityRow
     Create: ClassVar[type[BaseTimestampEntityCreate]] = BaseTimestampEntityCreate
     Update: ClassVar[type[BaseTimestampEntityUpdate]] = BaseTimestampEntityUpdate

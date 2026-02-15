@@ -143,7 +143,7 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
         return "name"
 
 
-class SettingCreate(BaseEntityCreate):
+class SettingCreate(BaseEntityCreate, slots=True):
     user_id: UUID
     name: str
     value: FromYAML[JSONSerializable]
@@ -215,7 +215,7 @@ class BoundSettingManager(SettingManager, BaseNodeManager):
         super().__init__(source)
 
 
-class Setting(BaseEntity, SettingCreate):
+class Setting(BaseEntity, SettingCreate, slots=True):
     Manager: ClassVar[type[SettingManager]] = SettingManager
     BoundManager: ClassVar[type[BoundSettingManager]] = BoundSettingManager
     Row: ClassVar[type[SettingRow]] = SettingRow

@@ -199,7 +199,7 @@ class WorkspaceMembershipFilter(
         return "user_id", "workspace_id"
 
 
-class WorkspaceMembershipCreate(BaseEntityCreate):
+class WorkspaceMembershipCreate(BaseEntityCreate, slots=True):
     user_id: UUID
     workspace_id: UUID
     role: WorkspaceMembershipRole
@@ -263,7 +263,7 @@ class WorkspaceMembershipManager(
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
-class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate):
+class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate, slots=True):
     Manager: ClassVar[type[WorkspaceMembershipManager]] = WorkspaceMembershipManager
     Row: ClassVar[type[WorkspaceMembershipRow]] = WorkspaceMembershipRow
     Create: ClassVar[type[WorkspaceMembershipCreate]] = WorkspaceMembershipCreate
@@ -375,7 +375,7 @@ class WorkspaceEditFilter(
         return "user_id", "workspace_id"
 
 
-class WorkspaceEditCreate(BaseEntityCreate):
+class WorkspaceEditCreate(BaseEntityCreate, slots=True):
     user_id: UUID
     workspace_id: UUID
     data: FromYAML[JSONSerializableDict]
@@ -439,7 +439,7 @@ class WorkspaceEditManager(
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
-class WorkspaceEdit(BaseEntity, WorkspaceEditCreate):
+class WorkspaceEdit(BaseEntity, WorkspaceEditCreate, slots=True):
     Manager: ClassVar[type[WorkspaceEditManager]] = WorkspaceEditManager
     Row: ClassVar[type[WorkspaceEditRow]] = WorkspaceEditRow
     Create: ClassVar[type[WorkspaceEditCreate]] = WorkspaceEditCreate
@@ -686,7 +686,7 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         return "name"
 
 
-class WorkspaceCreate(BaseUUIDEntityCreate):
+class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
     name: NonEmptyStr
     general_viewership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
     general_editorship: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
@@ -778,7 +778,7 @@ class WorkspaceManager(
         return await self.where(id=id).first()
 
 
-class Workspace(BaseUUIDEntity, WorkspaceCreate):
+class Workspace(BaseUUIDEntity, WorkspaceCreate, slots=True):
     Manager: ClassVar[type[WorkspaceManager]] = WorkspaceManager
     Row: ClassVar[type[WorkspaceRow]] = WorkspaceRow
     Create: ClassVar[type[WorkspaceCreate]] = WorkspaceCreate

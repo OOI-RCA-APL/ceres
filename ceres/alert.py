@@ -219,7 +219,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
             )
 
 
-class AlertCreate(BaseRecordCreate):
+class AlertCreate(BaseRecordCreate, slots=True):
     level: Level
     type: str
     data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
@@ -359,7 +359,7 @@ class AlertOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Alert(BaseRecord, AlertCreate, ConcreteEntity):
+class Alert(BaseRecord, AlertCreate, ConcreteEntity, slots=True):
     Manager: ClassVar[type[AlertManager]] = AlertManager
     BoundManager: ClassVar[type[BoundAlertManager]] = BoundAlertManager
     Row: ClassVar[type[AlertRow]] = AlertRow

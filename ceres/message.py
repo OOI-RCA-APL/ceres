@@ -248,7 +248,7 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
             yield util.sql_match_string(hex, matches, MatchMode.SUFFIX)
 
 
-class MessageCreate(BaseRecordCreate):
+class MessageCreate(BaseRecordCreate, slots=True):
     connection: str | None = None
     direction: MessageDirection
     content: MessageContent
@@ -372,7 +372,7 @@ class MessageOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Message(BaseRecord, MessageCreate, ConcreteEntity):
+class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
     Manager: ClassVar[type[MessageManager]] = MessageManager
     BoundManager: ClassVar[type[BoundMessageManager]] = BoundMessageManager
     Row: ClassVar[type[MessageRow]] = MessageRow

@@ -25,6 +25,7 @@ from collections.abc import (
 from contextlib import contextmanager
 from datetime import timedelta
 from enum import Enum
+from functools import lru_cache
 from os import PathLike as _BasePathLike
 from pathlib import Path
 from threading import Event
@@ -573,7 +574,6 @@ def cached[T: Callable[..., Any]](
     *,
     max_size: int | None = None,
 ) -> T | Callable[[T], T]:
-    from functools import lru_cache
 
     def cached(function: T) -> T:
         return lru_cache(maxsize=max_size)(function)  # type: ignore
@@ -1549,3 +1549,16 @@ class RequireSlots:
         if cls.__module__.startswith("ceres."):
             if "__slots__" not in cls.__dict__:
                 raise TypeError(f"{cls} must define `__slots__`.")
+
+
+def declared_slots_of(cls: type) -> list[str]:
+    slots: dict[str, None] = {}
+
+    for current in reversed(cls.__mro__):
+        __slots__ = getattr(current, "__slots__", ())
+        if isinstance(__slots__, str):
+            __slots__ = (__slots__,)
+        for slot in __slots__:
+            slots[slot] = None
+
+    return list(slots)

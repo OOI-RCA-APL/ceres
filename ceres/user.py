@@ -249,7 +249,7 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         return "username"
 
 
-class UserCreate(BaseUUIDEntityCreate):
+class UserCreate(BaseUUIDEntityCreate, slots=True):
     username: UsernameStr
     email: EmailStr
     password: PasswordStr | PasswordHash
@@ -349,7 +349,7 @@ class BoundUserManager(UserManager, BaseNodeManager):
         super().__init__(source)
 
 
-class User(BaseUUIDEntity, UserCreate):
+class User(BaseUUIDEntity, UserCreate, slots=True):
     Manager: ClassVar[type[UserManager]] = UserManager
     BoundManager: ClassVar[type[BoundUserManager]] = BoundUserManager
     Row: ClassVar[type[UserRow]] = UserRow

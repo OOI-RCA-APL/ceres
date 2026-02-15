@@ -17,8 +17,9 @@ from ceres._internal.util import (
     ClassProperty,
     cached_class_property,
     class_property,
+    declared_slots_of,
 )
-from ceres.data import DataModel, DataObject, FieldsSet, jsonify, validate
+from ceres.data import DataModel, DataObject, DataObjectClassInvalid, FieldsSet, jsonify, validate
 
 
 @pytest.mark.parametrize("frozen", [False, True])
@@ -127,9 +128,9 @@ def test_can_be_pickled(Object: type[Object]):
     assert Object.__module__ == "tests.test_data_object"
 
     if Object is Slotted:
-        assert Object.__data_object_reduced_slots__ == ("a", "b", "c")
+        assert Object.__data_object_defined_slots__ == ("a", "b", "c")
     else:
-        assert Object.__data_object_reduced_slots__ == ()
+        assert Object.__data_object_defined_slots__ == ()
 
     original = Object(a=42, b="pickle")
     assert original.__data_object_fields_set__ == {"a", "b"}
@@ -527,3 +528,61 @@ def test_exclude():
         b: int
 
     assert jsonify(A(a=1, b=2), exclude={"b"}) == '{"a":1}'
+
+
+def test_abstract_slots():
+    class Abstract(DataObject, abstract=True, slots=True):
+        a: int
+
+    assert Abstract.__data_object_defined_slots__ == ()
+    assert Abstract.__data_object_required_slots__ == ("a",)
+
+    class SecondAbstract(Abstract, abstract=True, slots=True):
+        b: int
+
+    assert SecondAbstract.__data_object_defined_slots__ == ()
+    assert SecondAbstract.__data_object_required_slots__ == ("a", "b")
+
+    class ConcreteWithoutDict(SecondAbstract, slots=True):
+        pass
+
+    assert ConcreteWithoutDict.__data_object_field_names__ == ("a", "b")
+    assert ConcreteWithoutDict.__data_object_defined_slots__ == ("a", "b")
+    assert declared_slots_of(ConcreteWithoutDict) == ["__data_object_fields_set__", "a", "b"]
+
+    concrete = ConcreteWithoutDict(a=10, b=20)
+    assert concrete.a == 10
+    assert concrete.b == 20
+    with pytest.raises(AttributeError):
+        concrete.c = 30
+    with pytest.raises(AttributeError):
+        concrete.__weakref__  # type: ignore
+
+    class ThirdAbstract(SecondAbstract, abstract=True):
+        c: int
+
+    assert ThirdAbstract.__data_object_defined_slots__ == ()
+    assert ThirdAbstract.__data_object_required_slots__ == ("a", "b")
+
+    class ConcreteWithWeakrefAndDict(ThirdAbstract, slots=True):
+        pass
+
+    assert ConcreteWithWeakrefAndDict.__data_object_field_names__ == ("a", "b", "c")
+    assert ConcreteWithWeakrefAndDict.__data_object_defined_slots__ == ("a", "b", "c")
+    assert declared_slots_of(ConcreteWithWeakrefAndDict) == [
+        "__data_object_fields_set__",
+        "a",
+        "b",
+        "c",
+    ]
+    concrete = ConcreteWithWeakrefAndDict(a=10, b=20, c=30)
+    assert concrete.a == 10
+    assert concrete.b == 20
+    assert concrete.c == 30
+    concrete.d = 40  # Should work fine since this class has `__dict__`.
+    concrete.__weakref__  # type: ignore # Should work fine since this class has `__weakref__`.
+
+    with pytest.raises(DataObjectClassInvalid, match=r"missing slots for fields: \['a', 'b'\]."):
+
+        class Bad(ThirdAbstract):
+            pass

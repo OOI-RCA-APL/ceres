@@ -36,7 +36,7 @@ from ceres._internal.entity import (
     BaseUUIDEntityFilterArgs,
 )
 from ceres.config import BCryptHashingConfig
-from ceres.data import JSONDict, MaybeSequence, StrEnum, jsonify, uuid7
+from ceres.data import JSONDict, MaybeSequence, StrEnum, jsonify, uuid7, validate
 from ceres.database import Database
 from ceres.item import Item
 from ceres.record import Record
@@ -117,7 +117,7 @@ async def execute_filter_test(
         async with database.session() as session:
             for group_cls, group in util.group_by(entity_inserts, type):
                 shuffle(group)
-                values = [entity.__dict__ for entity in group]
+                values = [entity.__data_object_to_dict__() for entity in group]
                 await session.execute(insert(group_cls.Row).values(values))
                 await session.commit()
 
@@ -260,55 +260,60 @@ def unordered(values: list[Any]) -> list[Any]:
 async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
     if cls is Message:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "direction": choice(list(MessageDirection)),
                     "content": randbytes(32),
                     **values,
-                }
+                },
             )
         ]
 
     if cls is Particle or cls is Particle[Any]:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "type": util.randstr(printable, 8),
                     "data": {},
                     **values,
-                }
+                },
             )
         ]
 
     if cls is Alert:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "level": choice(list(Level)),
                     "type": util.randstr(printable, 8),
                     **values,
-                }
+                },
             )
         ]
 
     if cls is LogEntry:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "level": choice(list(Level)),
                     "content": util.randstr(printable, 32),
                     **values,
-                }
+                },
             )
         ]
 
     if cls is User:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "username": util.randstr(ascii_letters, 8),
                     "email": "email@email.com",
@@ -319,19 +324,20 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                     "role": choice(list(UserRole)),
                     "disabled": choice([True, False]),
                     **values,
-                }
+                },
             )
         ]
 
     if cls is Variable:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "name": util.randstr(printable, 8),
                     "value": 0,
                     **values,
-                }
+                },
             )
         ]
 
@@ -340,13 +346,14 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
         user = (await arbitrary(User, {"id": user_id}))[0]
         return [
             user,
-            Setting.model_validate(
+            validate(
+                cls,
                 {
                     "user_id": user_id,
                     "name": util.randstr(printable, 8),
                     "value": 0,
                     **values,
-                }
+                },
             ),
         ]
 

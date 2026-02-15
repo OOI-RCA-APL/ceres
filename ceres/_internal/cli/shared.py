@@ -969,7 +969,9 @@ def create_entity_load_command(Entity: type[Entity]):
                     case DatabaseType.SQLITE:
                         from sqlalchemy.dialects.sqlite import insert
 
-                statement = insert(cls.Row).values([entity.__dict__ for entity in batch])
+                statement = insert(cls.Row).values(
+                    [entity.__data_object_to_dict__() for entity in batch]
+                )
                 match on_conflict:
                     case CLIDataConflict.ERROR:
                         pass

@@ -128,7 +128,6 @@ reportImplicitOverride = true
 reportIncompatibleVariableOverride = false
 reportMatchNotExhaustive = true
 reportRedeclaration = false
-reportUnnecessaryTypeIgnoreComment = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

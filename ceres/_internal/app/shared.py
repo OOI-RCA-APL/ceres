@@ -461,7 +461,7 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
     async def get_all(
         engine: CurrentEngine,
         filter: Annotated[
-            Record.Filter,
+            Record.Filter,  # type: ignore
             Query(),
             Limit(limit),
         ],
@@ -482,7 +482,7 @@ def create_record_count_route(router: Router, Record: type[Record]):
 
     async def count(
         engine: CurrentEngine,
-        filter: Annotated[Record.Filter, Query()],
+        filter: Annotated[Record.Filter, Query()],  # type: ignore
     ) -> int:
         return await engine.__manager__(Record).where(filter).count()
 
@@ -500,7 +500,7 @@ def create_record_stream_route(router: Router, Record: type[Record]):
     async def stream(
         socket: CurrentSocket,
         engine: CurrentEngine,
-        filter: Annotated[Record.Filter, Query()],
+        filter: Annotated[Record.Filter, Query()],  # type: ignore
     ) -> None:
         manager = cast("BoundMessageManager", engine.__manager__(Record))
 

@@ -303,7 +303,7 @@ class ParticleFilter(
             )
 
 
-class ParticleCreate(BaseRecordCreate):
+class ParticleCreate(BaseRecordCreate, slots=True):
     type: str
     data: FromYAML[JSONSerializableDict]
 
@@ -478,7 +478,7 @@ class ParticleOutputChannel(
         )
 
 
-class Particle(BaseRecord, ParticleCreate, Generic[DataT]):
+class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
     if TYPE_CHECKING:
         Manager: ClassVar[type[ParticleManager]] = ParticleManager
         BoundManager: ClassVar[type[BoundParticleManager]] = BoundParticleManager

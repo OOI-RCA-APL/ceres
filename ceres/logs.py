@@ -178,7 +178,7 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
             yield util.sql_match_string(columns.content, self.suffix, MatchMode.SUFFIX)
 
 
-class LogEntryCreate(BaseRecordCreate):
+class LogEntryCreate(BaseRecordCreate, slots=True):
     level: Level
     content: str
 
@@ -447,7 +447,7 @@ class LogEntryOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class LogEntry(BaseRecord, LogEntryCreate):
+class LogEntry(BaseRecord, LogEntryCreate, slots=True):
     Manager: ClassVar[type[LogManager]] = LogManager
     BoundManager: ClassVar[type[BoundLogManager]] = BoundLogManager
     Row: ClassVar[type[LogEntryRow]] = LogEntryRow
