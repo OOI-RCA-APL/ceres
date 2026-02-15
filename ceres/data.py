@@ -577,7 +577,7 @@ class DataObjectMetaclass(
             if slots:
                 __data_object_required_slots__.extend(
                     field
-                    for field, _ in _stored_fields_of(data_object_class)
+                    for field in data_object_class.__data_object_stored_fields__
                     if field in data_object_class.__dataclass_fields__
                 )
 
@@ -1039,10 +1039,15 @@ class DataObject(
         @classmethod
         def __pydantic_fields_complete__(cls) -> bool: ...
 
-    @class_property
+    @cached_class_property
     @classmethod
     def __data_object_fields__(cls) -> Mapping[str, FieldInfo]:
         return MappingProxyType(cls.__pydantic_fields__)
+
+    @cached_class_property
+    @classmethod
+    def __data_object_stored_fields__(cls) -> Mapping[str, FieldInfo]:
+        return MappingProxyType(dict(_stored_fields_of(cls)))
 
     @cached_class_property
     @classmethod
@@ -1096,7 +1101,7 @@ class DataObject(
         fields_set_provided = fields_set is not None
         fields_set = FieldsSet(cls, fields_set if fields_set_provided else values.keys())
 
-        for field_name, field in _stored_fields_of(cls):
+        for field_name, field in cls.__data_object_stored_fields__.items():
             value = values.get(field_name, Undefined)
             if value is Undefined:
                 if field.is_required():
@@ -1247,7 +1252,7 @@ class DataObject(
     def __data_object_to_model__(self, *, revalidate: bool = False) -> DataModel:
         Model = self.__class__.Model
         fields_set = set(self.__data_object_fields_set__)
-        values = {field: getattr(self, field) for field, _ in _stored_fields_of(self)}
+        values = self.__data_object_to_dict__()
         if revalidate:
             model = Model.model_validate(values)
             model.__pydantic_fields_set__ = fields_set
@@ -1259,12 +1264,15 @@ class DataObject(
     def __data_object_to_dict__(
         self,
         *,
+        exclude_unset: bool = False,
         include: Container[str] | None = None,
         exclude: Container[str] | None = None,
-        exclude_unset: bool = False,
     ) -> dict[str, Any]:
         output: dict[str, Any] = {}
-        for field, _ in _stored_fields_of(self, exclude_unset=exclude_unset):
+        fields_set = self.__data_object_fields_set__
+        for field in self.__data_object_stored_fields__:
+            if exclude_unset and field not in fields_set:
+                continue
             if include is not None and field not in include:
                 continue
             if exclude is not None and field in exclude:
