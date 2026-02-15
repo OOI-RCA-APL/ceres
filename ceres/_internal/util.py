@@ -499,14 +499,17 @@ def traverse(
     if obj is None:
         return
 
+    undefined = object()
     if isinstance(obj, BaseModel):
-        for name in obj.__class__.model_fields.keys():
-            element = getattr(obj, name, None)
-            traverse(element, visit, seen)
+        for field_name, field in obj.__class__.model_fields.items():
+            element = getattr(obj, field_name, undefined)
+            if element is not undefined:
+                traverse(element, visit, seen)
     elif is_dataclass_instance(obj):
         for field in dataclasses.fields(obj):
-            element = getattr(obj, field.name, None)
-            traverse(element, visit, seen)
+            element = getattr(obj, field.name, undefined)
+            if element is not undefined:
+                traverse(element, visit, seen)
     elif is_mapping(obj):
         for key, value in obj.items():
             traverse(key, visit, seen)
