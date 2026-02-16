@@ -1093,7 +1093,7 @@ class BaseEntityManager[
         if isinstance(data, self._entity_class):
             return data
 
-        return self._entity_class(**data.__data_object_to_dict__())
+        return self._entity_class(**dict(data))
 
     async def create(
         self,

@@ -19,7 +19,15 @@ from ceres._internal.util import (
     class_property,
     declared_slots_of,
 )
-from ceres.data import DataModel, DataObject, DataObjectClassInvalid, FieldsSet, jsonify, validate
+from ceres.data import (
+    DataModel,
+    DataObject,
+    DataObjectAbstract,
+    DataObjectClassInvalid,
+    FieldsSet,
+    jsonify,
+    validate,
+)
 
 
 @pytest.mark.parametrize("frozen", [False, True])
@@ -537,6 +545,9 @@ def test_abstract_slots():
     assert Abstract.__data_object_defined_slots__ == ()
     assert Abstract.__data_object_required_slots__ == ("a",)
 
+    with pytest.raises(DataObjectAbstract):
+        Abstract(a=10)
+
     class SecondAbstract(Abstract, abstract=True, slots=True):
         b: int
 
@@ -586,3 +597,25 @@ def test_abstract_slots():
 
         class Bad(ThirdAbstract):
             pass
+
+
+def test_iteration_and_dict_conversion():
+    class Values(DataObject):
+        a: int
+        b: str = "default"
+
+    values = Values(a=10)
+    assert list(current for current in values) == [("a", 10), ("b", "default")]
+    assert dict(values) == {"a": 10, "b": "default"}
+
+
+def test_in_operator():
+    class Values(DataObject):
+        a: int
+        b: str = "default"
+
+    values = Values(a=10)
+    assert "a" in values
+    assert "b" not in values
+    assert "c" not in values
+    assert 5 not in values

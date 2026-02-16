@@ -7,6 +7,7 @@ from collections.abc import (
     Callable,
     ItemsView,
     Iterable,
+    Iterator,
     KeysView,
     Mapping,
     MutableMapping,
@@ -56,12 +57,13 @@ from ceres._internal.record import (
 )
 from ceres._internal.util import MatchMode
 from ceres.data import (
+    DataObject,
     FromYAML,
-    ImmutableDataModel,
     JSONSerializableDict,
     MaybeSequence,
     jsonify,
     to_kwargs,
+    validate,
 )
 from ceres.timing import utc
 
@@ -115,16 +117,14 @@ ParticleOrder: TypeAlias = (
 UNKNOWN_TYPE: LiteralString = "__unknown__"
 
 
-class ParticleData(ImmutableDataModel, Mapping[str, Any]):
-    model_config = ConfigDict(extra="ignore")
-
+class ParticleData(DataObject, Mapping[str, Any], config=ConfigDict(extra="ignore")):
     __abstract__: ClassVar[bool] = True
     __type__: ClassVar[LiteralString]
 
     @classmethod
     @override
-    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        super().__pydantic_init_subclass__(**kwargs)
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
 
         if "__abstract__" not in cls.__dict__:
             cls.__abstract__ = False
@@ -138,6 +138,17 @@ class ParticleData(ImmutableDataModel, Mapping[str, Any]):
     @override
     def __getitem__(self, key: str, /) -> Any:
         return self.__dict__[key]
+
+    def __setitem__(self, key: str, value: Any, /) -> None:
+        self.__dict__[key] = value
+
+    @override
+    def __contains__(self, key: object, /) -> bool:
+        return key in self.__dict__
+
+    @override
+    def __iter__(self) -> Iterator[str]:  # type: ignore
+        return iter(self.__dict__.keys())
 
     @override
     def __len__(self) -> int:
@@ -154,10 +165,6 @@ class ParticleData(ImmutableDataModel, Mapping[str, Any]):
     @override
     def items(self) -> ItemsView[str, Any]:
         return self.__dict__.items()
-
-    @override
-    def __contains__(self, value: Any, /) -> bool:
-        return value in self.__dict__
 
 
 DynamicParticleData: TypeAlias = JSONSerializableDict | ParticleData
@@ -529,7 +536,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
 
     def convert[D: DynamicParticleData](self, cls: builtins.type[D]) -> Particle[D]:
         data = (
-            cls.model_validate(self.data)
+            validate(cls, self.data)
             if util.lenient_issubclass(cls, ParticleData)
             else dict(self.data)
         )
@@ -596,8 +603,8 @@ class RegexParticleData(ParseableParticleData):
 
     @classmethod
     @override
-    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        super().__pydantic_init_subclass__(**kwargs)
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
 
         regex = getattr(cls, "__regex__", None)
         if not isinstance(regex, bytes):
@@ -613,11 +620,11 @@ class RegexParticleData(ParseableParticleData):
         except re.error as error:
             raise ValueError(f"Failed to compile `{cls}.__regex__`. {error}")
 
-        missing = sorted(set(cls.model_fields) - set(cls.__regex_compiled__.groupindex))
+        missing = sorted(set(cls.__data_object_fields__) - set(cls.__regex_compiled__.groupindex))
         if missing:
             raise ValueError(f"`{cls}.__regex__` is missing named capture groups: {missing}")
 
-        for field in cls.model_fields:
+        for field in cls.__data_object_fields__:
             if field not in cls.__regex_compiled__.groupindex:
                 raise ValueError(
                     f"Field {field!r} is not a named capturing group in `{cls}.__regex__`."
@@ -631,6 +638,6 @@ class RegexParticleData(ParseableParticleData):
             raise ParseFailed("Bytes did not match regex pattern.")
 
         try:
-            return cls.model_validate(match.groupdict())
+            return validate(cls, match.groupdict())
         except ValidationError as error:
             raise ParseFailed(f"Bytes matched, but validation failed. {error}") from error

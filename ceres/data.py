@@ -442,6 +442,10 @@ class DataObjectClassInvalid(TypeError):
     pass
 
 
+class DataObjectAbstract(RuntimeError):
+    pass
+
+
 class DataObjectMetaclass(
     type(Protocol),
     ABCMeta,  # type: ignore
@@ -1249,6 +1253,15 @@ class DataObject(
 
         return Model
 
+    def __iter__(self) -> Iterator[tuple[str, Any]]:
+        for field in self.__data_object_stored_fields__:
+            value = getattr(self, field, Undefined)
+            if value is not Undefined:
+                yield field, value
+
+    def __contains__(self, field: object, /) -> bool:
+        return field in self.__data_object_fields_set__
+
     def __data_object_to_model__(self, *, revalidate: bool = False) -> DataModel:
         Model = self.__class__.Model
         fields_set = set(self.__data_object_fields_set__)
@@ -1301,7 +1314,9 @@ class DataObject(
         handler: ModelWrapValidatorHandler[Self],
     ) -> DataObject:
         if cls.__data_object_abstract__:
-            raise TypeError(f"Cannot instantiate abstract data object class `{cls}`.")
+            raise DataObjectAbstract(
+                f"Cannot instantiate abstract `{DataObject.__name__}` subclass `{cls}`."
+            )
         if type(data) is cls:
             computed = cls.__data_object_fields_set__
         elif isinstance(data, Mapping | ArgsKwargs):
