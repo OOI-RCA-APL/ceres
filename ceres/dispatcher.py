@@ -13,7 +13,7 @@ from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, Level
 from ceres.component import Component, action, routine
 from ceres.config import JobConfig
-from ceres.data import ImmutableDataModel, NonBlankStr, jsonify
+from ceres.data import ImmutableDataModel, NonBlankStr, to_json
 from ceres.loaded import Loaded
 from ceres.notifier import Notification, Notifier
 from ceres.reference import Ref
@@ -151,7 +151,7 @@ class HTMLDispatchWriter(DispatchWriter):
         ):
             for key, by_key in util.group_by(
                 sorted(by_level, key=lambda alert: -alert.timestamp.timestamp()),
-                lambda alert: (alert.address, alert.type, jsonify(alert.data)),
+                lambda alert: (alert.address, alert.type, to_json(alert.data)),
             ):
                 group = index[level]
                 if key not in group:

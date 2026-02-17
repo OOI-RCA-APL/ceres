@@ -35,7 +35,7 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import MaybeSequence, jsonify
+from ceres.data import MaybeSequence, to_json
 from ceres.level import Level
 from ceres.timing import utc
 
@@ -403,25 +403,25 @@ class BoundLogManager(LogManager, BaseNodeManager):
         if level is None:
             level = event.level
 
-        self.emit(level, "[event] {data}", event.address, data=jsonify(event))
+        self.emit(level, "[event] {data}", event.address, data=to_json(event))
 
     def message(self, message: Message, level: Level | None = None, /) -> None:
         if level is None:
             level = Level.INFO
 
-        self.emit(level, "[message] {data}", message.address, data=jsonify(message))
+        self.emit(level, "[message] {data}", message.address, data=to_json(message))
 
     def particle(self, particle: Particle, level: Level | None = None, /) -> None:
         if level is None:
             level = Level.INFO
 
-        self.emit(level, "[particle] {data}", particle.address, data=jsonify(particle))
+        self.emit(level, "[particle] {data}", particle.address, data=to_json(particle))
 
     def alert(self, alert: Alert, level: Level | None = None, /) -> None:
         if level is None:
             level = alert.level
 
-        self.emit(level, "[alert] {data}", alert.address, data=jsonify(alert))
+        self.emit(level, "[alert] {data}", alert.address, data=to_json(alert))
 
 
 class LogEntryOutputChannel(

@@ -26,7 +26,7 @@ from ceres.component import (
     ProcedureType,
     QueryBinding,
 )
-from ceres.data import DataModel, DataObject, Name, StrEnum, jsonify
+from ceres.data import DataModel, DataObject, Name, StrEnum, to_json
 from ceres.error import (
     Failure,
     NotConnectedError,
@@ -327,33 +327,33 @@ async def subscribe_procedure(
     if component is None:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            jsonify(Fail(ProcedureComponentNotFoundError())),
+            to_json(Fail(ProcedureComponentNotFoundError())),
         )
 
     binding = component.system.get_procedure_binding(name)
     if binding is None:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            jsonify(Fail(ProcedureNotFoundError())),
+            to_json(Fail(ProcedureNotFoundError())),
         )
 
     if namespace == "queries":
         if binding.type != ProcedureType.QUERY:
             raise WebSocketException(
                 WS_1008_POLICY_VIOLATION,
-                jsonify(Fail(ProcedureNotFoundError())),
+                to_json(Fail(ProcedureNotFoundError())),
             )
     if namespace == "actions":
         if binding.type != ProcedureType.ACTION:
             raise WebSocketException(
                 WS_1008_POLICY_VIOLATION,
-                jsonify(Fail(ProcedureNotFoundError())),
+                to_json(Fail(ProcedureNotFoundError())),
             )
 
     if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            jsonify(Fail(ProcedureNotPermittedError())),
+            to_json(Fail(ProcedureNotPermittedError())),
         )
 
     async def write() -> None:
@@ -367,10 +367,10 @@ async def subscribe_procedure(
                 else:
                     code = WS_1008_POLICY_VIOLATION
 
-                reason = jsonify(Fail(exception.error))
+                reason = to_json(Fail(exception.error))
             else:
                 code = WS_1011_INTERNAL_ERROR
-                reason = jsonify(util.strify(exception)[0:100])
+                reason = to_json(util.strify(exception)[0:100])
 
             await socket.close(code, reason)
 

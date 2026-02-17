@@ -22,7 +22,7 @@ from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import tokenize_bytes
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
-from ceres.data import PasswordHash, jsonify, uuid4
+from ceres.data import PasswordHash, to_json, uuid4
 from ceres.error import DatabaseInitError, Failure
 from ceres.threading import spawn
 
@@ -393,7 +393,7 @@ class SQLiteDatabase(Database):
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
             "pool_recycle": 15 * 60,  # Recreate connections after fifteen minutes.
-            "json_serializer": jsonify,  # Serialize any Pydantic compatible object to JSON.
+            "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
 
@@ -527,7 +527,7 @@ class PostgresDatabase(Database):
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
             "pool_pre_ping": True,  # Check to see if a connection has closed before use.
             "pool_recycle": 60 * 5,  # Recreate connections after five minutes.
-            "json_serializer": jsonify,  # Serialize any Pydantic compatible object to JSON.
+            "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
 

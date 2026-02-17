@@ -32,7 +32,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 from ceres._internal import util
 from ceres._internal.entity import BaseEntityFilter
 from ceres._internal.lazy import lazy_imports
-from ceres.data import DataObject, DateTime, StrEnum, jsonify
+from ceres.data import DataObject, DateTime, StrEnum, adapt, to_json, validate
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
@@ -132,7 +132,7 @@ class Socket:
     server: Server
 
     async def send(self, data: Any) -> None:
-        await self.socket.send_text(jsonify(data))
+        await self.socket.send_text(to_json(data))
 
     async def receive(self) -> Any:
         message = cast("WebSocketReceiveEvent", await self.socket.receive())
@@ -201,7 +201,7 @@ CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 def _get_procedure_query_arguments(
     arguments: Annotated[Json[Any], Query()] = None,
 ) -> Mapping[str, object]:
-    adapter = util.get_type_adapter(Mapping[str, object])
+    adapter = adapt(Mapping[str, object])
 
     try:
         if arguments is None:
@@ -313,9 +313,7 @@ async def _get_current_identity(
             return None
 
         try:
-            expires = util.get_type_adapter(
-                datetime if TYPE_CHECKING else DateTime
-            ).validate_python(expires)
+            expires = validate(datetime if TYPE_CHECKING else DateTime, expires)
         except ValidationError:
             return None
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import inspect
 import os
 import platform
 import re
@@ -19,24 +20,23 @@ from collections.abc import (
     Iterable,
     Iterator,
     Mapping,
+    MutableMapping,
     Sequence,
     Set,
 )
 from contextlib import contextmanager
 from datetime import timedelta
 from enum import Enum
-from functools import lru_cache
+from functools import wraps
 from os import PathLike as _BasePathLike
 from pathlib import Path
-from threading import Event
+from threading import Event, RLock
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    ClassVar,
     Optional,
-    Protocol,
     TypeAlias,
     cast,
     get_args,
@@ -44,13 +44,12 @@ from typing import (
     overload,
     override,
 )
-from weakref import WeakSet, ref
+from weakref import WeakKeyDictionary, WeakSet, ref
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    TypeAdapter,
     create_model,
     validate_call,
 )
@@ -59,8 +58,6 @@ from typing_extensions import TypeVar
 from ceres._internal.lazy import lazy_imports
 
 if TYPE_CHECKING:
-    from pydantic.fields import FieldInfo
-    from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
     from sqlalchemy import SQLColumnExpression
     from typing_extensions import TypeIs
 
@@ -100,103 +97,6 @@ async def awaitify[T](value: Awaitable[T] | T, /) -> T:
         return cast("T", await value)
 
     return cast("T", value)
-
-
-class DataclassLike(Protocol):
-    __slots__ = ()
-
-    if TYPE_CHECKING:
-        __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
-        __dataclass_params__: ClassVar[Any]
-
-
-class PydanticDataclassLike(DataclassLike, Protocol):
-    __slots__ = ()
-
-    if TYPE_CHECKING:
-        __pydantic_config__: ClassVar[ConfigDict]
-        __pydantic_complete__: ClassVar[bool]
-        __pydantic_core_schema__: ClassVar[CoreSchema]
-        __pydantic_decorators__: ClassVar[Any]
-        __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
-        __pydantic_serializer__: ClassVar[SchemaSerializer]
-        __pydantic_validator__: ClassVar[SchemaValidator]
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-
-
-def is_dataclass_instance(obj: object, /) -> TypeIs[DataclassLike]:
-    """
-    >>> from dataclasses import dataclass
-    >>>
-    >>> @dataclass
-    ... class Dataclass:
-    ...    pass
-    >>>
-    >>> is_dataclass_instance(Dataclass())
-    True
-    >>> is_dataclass_instance(Dataclass)
-    False
-    >>>
-    >>> class Normal:
-    ...    pass
-    >>>
-    >>> is_dataclass_instance(Normal())
-    False
-    >>> is_dataclass_instance(Normal)
-    False
-    """
-    return not isinstance(obj, type) and is_dataclass(obj)
-
-
-def is_dataclass_type(obj: object, /) -> TypeIs[DataclassLike]:
-    """
-    >>> from dataclasses import dataclass
-    >>>
-    >>> @dataclass
-    ... class Dataclass:
-    ...    pass
-    >>>
-    >>> is_dataclass_type(Dataclass)
-    True
-    >>> is_dataclass_type(Dataclass())
-    False
-    >>>
-    >>> class Normal:
-    ...    pass
-    >>> is_dataclass_type(Normal)
-    False
-    >>> is_dataclass_type(Normal())
-    False
-    """
-    return isinstance(obj, type) and is_dataclass(obj)
-
-
-def is_dataclass(obj: object, /) -> TypeIs[DataclassLike | type[DataclassLike]]:
-    if not isinstance(obj, type):
-        obj = type(obj)
-
-    return hasattr(obj, "__dataclass_params__")
-
-
-def is_pydantic_dataclass_type(obj: object, /) -> TypeIs[type[PydanticDataclassLike]]:
-    return isinstance(obj, type) and is_pydantic_dataclass(obj)
-
-
-def is_pydantic_dataclass_instance(obj: object, /) -> TypeIs[PydanticDataclassLike]:
-    return not isinstance(obj, type) and is_pydantic_dataclass(obj)
-
-
-def is_pydantic_dataclass(
-    obj: object, /
-) -> TypeIs[PydanticDataclassLike | type[PydanticDataclassLike]]:
-    if not isinstance(obj, type):
-        obj = type(obj)
-
-    return is_dataclass(obj) and hasattr(obj, "__pydantic_core_schema__")
-
-
-ModelLike = BaseModel | DataclassLike
 
 
 def snakecase(text: str, /) -> str:
@@ -324,6 +224,8 @@ def encode_td(
 
 
 def decode_td(value: str | timedelta | int | float | Any, /) -> timedelta:
+    from ceres.data import validate
+
     if isinstance(value, timedelta):
         return value
 
@@ -335,7 +237,7 @@ def decode_td(value: str | timedelta | int | float | Any, /) -> timedelta:
 
     if isinstance(value, str):
         try:
-            return get_type_adapter(timedelta).validate_python(value)
+            return validate(timedelta, value)
         except Exception:
             pass
 
@@ -485,6 +387,8 @@ def traverse(
     visit: Callable[[object], bool | None],
     seen: set[int] | None = None,
 ) -> None:
+    from ceres.data import is_dataclass_instance
+
     if seen is None:
         seen = set()
     if id(obj) in seen:
@@ -562,8 +466,8 @@ def dbg[T](value: T, /) -> T:
 def cached[T: Callable[..., Any]](
     function: None = None,
     /,
-    *,
-    max_size: int | None = None,
+    storage: MutableMapping[Any, Any] | None = None,
+    weak: bool = False,
 ) -> Callable[[T], T]: ...
 
 
@@ -574,12 +478,63 @@ def cached[T: Callable[..., Any]](function: T, /) -> T: ...
 def cached[T: Callable[..., Any]](
     function: T | None = None,
     /,
-    *,
-    max_size: int | None = None,
+    storage: MutableMapping[Any, Any] | None = None,
+    weak: bool = False,
 ) -> T | Callable[[T], T]:
+    if weak:
+        if storage is not None:
+            raise ValueError("Cannot use custom storage with weak-key caching.")
+
+        storage = WeakKeyDictionary()
+    elif storage is None:
+        storage = {}
+
+    lock = RLock()
 
     def cached(function: T) -> T:
-        return lru_cache(maxsize=max_size)(function)  # type: ignore
+        parameters = inspect.signature(function).parameters
+        if len(parameters) == 0:
+            value: Any = Undefined
+
+            def wrapper():
+                nonlocal value
+                if value is Undefined:
+                    with lock:
+                        value = function()
+
+                return value
+
+            return cast("T", wrapper)
+
+        if len(parameters) == 1 and list(parameters.values())[0].kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+
+            def wrapper(arg: Any):
+                cached = storage.get(arg, Undefined)
+                if cached is not Undefined:
+                    return cached
+
+                with lock:
+                    return storage.setdefault(arg, function(arg))
+        else:
+
+            def wrapper(*args, **kwargs):
+                key = (
+                    args,
+                    None
+                    if not kwargs
+                    else tuple((key, value) for key, value in sorted(kwargs.items())),
+                )
+                cached = storage.get(key, Undefined)
+                if cached is not Undefined:
+                    return cached
+
+                with lock:
+                    return storage.setdefault(key, function(*args, **kwargs))
+
+        return cast("T", wraps(function)(wrapper))
 
     if function is None:
         return cached
@@ -925,19 +880,6 @@ def validated_function[T: Callable[..., Any]](
     return validate_call(config=config, validate_return=validate_return)(function)  # type: ignore
 
 
-@overload
-def get_type_adapter[T](ty: type[T], /) -> TypeAdapter[T]: ...
-
-
-@overload
-def get_type_adapter[T](ty: T, /) -> TypeAdapter[T]: ...
-
-
-@cached(max_size=500)
-def get_type_adapter[T](ty: type[T] | T, /) -> TypeAdapter[T]:
-    return TypeAdapter(ty)
-
-
 def get_traceback(exception: BaseException) -> list[str]:
     import traceback
 
@@ -959,7 +901,11 @@ def seq[T](value: T | Sequence[T], /) -> Sequence[T]:
     return (value,)
 
 
-Undefined = object()
+class UndefinedType(Enum):
+    Instance = 0
+
+
+Undefined = UndefinedType.Instance
 
 PathLike = str | _BasePathLike[str]
 
@@ -1259,23 +1205,6 @@ def model_apply_overrides[T: BaseModel](model: T, overrides: T | None) -> T:
     return model.model_copy(update=update)
 
 
-def model_apply_defaults[T: BaseModel](model: T, defaults: T | None) -> T:
-    if defaults is None:
-        return model
-
-    update: dict[str, Any] = {}
-
-    for attribute in defaults.model_fields_set:
-        if attribute not in model.model_fields_set:
-            update[attribute] = getattr(defaults, attribute)
-
-    return model.model_copy(update=update)
-
-
-def model_is_empty(model: BaseModel) -> bool:
-    return not all(getattr(model, field, None) is None for field in model.model_fields_set)
-
-
 _SQLITE_UNIQUE_ERROR_REGEX = re.compile(
     r"UNIQUE constraint failed: (.+?)\.(?P<column>.+?)",
     re.MULTILINE | re.DOTALL,
@@ -1414,22 +1343,6 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
 
 
 _object_setattr = object.__setattr__
-
-
-def construct_model[T: BaseModel](cls: type[T], values: Mapping[Any, Any]) -> T:
-    instance = cls.__new__(cls)
-    _object_setattr(instance, "__dict__", dict(values))
-    _object_setattr(instance, "__pydantic_fields_set__", set(values.keys()))
-    _object_setattr(instance, "__pydantic_extra__", None)
-
-    if cls.__pydantic_post_init__:
-        instance.model_post_init(None)
-        if hasattr(instance, "__pydantic_private__") and instance.__pydantic_private__ is not None:
-            for key, value in values.items():
-                if key in instance.__private_attributes__:
-                    instance.__pydantic_private__[key] = value
-
-    return instance
 
 
 async def run_in_loop[T](

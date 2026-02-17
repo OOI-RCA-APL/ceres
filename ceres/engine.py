@@ -16,7 +16,7 @@ from ceres._internal.project import LoadedProject
 from ceres._internal.server import Server
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
-from ceres.data import ImmutableDataModel, Name, PasswordHash, jsonify
+from ceres.data import ImmutableDataModel, Name, PasswordHash, dump, to_json
 from ceres.directory import Directory
 from ceres.error import ConfigError, Failure, ReloadConfigInvalidError, ReloadError
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
@@ -412,7 +412,7 @@ class Engine(Node):
                 return actions
 
             if not silent:
-                self.log.debug("Actions pending: " + jsonify(actions))
+                self.log.debug("Actions pending: " + to_json(actions))
 
             if actions.server is not None:
                 if not silent:
@@ -537,9 +537,9 @@ class Engine(Node):
         old = (
             {}
             if component.system.config is None
-            else component.system.config.__data_object_to_dict__(exclude=exclude)
+            else dump(component.system.config, exclude=exclude)
         )
-        new = config.__data_object_to_dict__(exclude=exclude)
+        new = dump(config, exclude=exclude)
 
         if old != new:
             affected = [address]
@@ -615,7 +615,7 @@ class Engine(Node):
                         case Fail(errors):
                             if not silent:
                                 self.log.error(
-                                    f"Failed to create '{action.address}'. Errors: {jsonify(errors, indent=2)}"
+                                    f"Failed to create '{action.address}'. Errors: {to_json(errors, indent=2)}"
                                 )
                 case RecreateComponentEngineAction():
                     self.log.info(f"Recreating '{action.address}'.")
@@ -649,7 +649,7 @@ class Engine(Node):
                         case Fail(errors):
                             if not silent:
                                 self.log.error(
-                                    f"Failed to recreate '{action.address}'. Errors: {jsonify(errors, indent=2)}"
+                                    f"Failed to recreate '{action.address}'. Errors: {to_json(errors, indent=2)}"
                                 )
                 case RemoveComponentEngineAction():
                     if component is not None:

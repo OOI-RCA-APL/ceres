@@ -32,7 +32,7 @@ from ceres._internal.cli.shared import (
 from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import Address, AddressSelector
-from ceres.data import jsonify
+from ceres.data import to_json
 from ceres.error import Failure
 from ceres.result import Fail, Ok
 
@@ -350,7 +350,7 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
             await self.__run__()
             return 0
         except Failure as failure:
-            self.write(jsonify(failure.error, indent=2))
+            self.write(to_json(failure.error, indent=2))
             return 1
         except CLICommandExit as exception:
             if exception.message is not None:
@@ -493,7 +493,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                     pass
                 case Fail() as fail:
                     raise CLICommandFailed(
-                        f"Failed to load engine with current configuration. {jsonify(fail, indent=2)}"
+                        f"Failed to load engine with current configuration. {to_json(fail, indent=2)}"
                     )
 
             exiting = AsyncEvent()

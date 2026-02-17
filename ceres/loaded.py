@@ -15,7 +15,7 @@ from pydantic import (
 from pydantic_core.core_schema import no_info_after_validator_function
 
 from ceres._internal import util
-from ceres.data import ImmutableDataModel
+from ceres.data import ImmutableDataModel, is_pydantic_dataclass_type
 
 if TYPE_CHECKING:
     from pydantic_core import CoreSchema
@@ -54,7 +54,7 @@ class Loader[T](ImmutableDataModel):
         if arguments is None:
             arguments = {}
 
-        if util.lenient_issubclass(target, BaseModel) or util.is_pydantic_dataclass_type(target):
+        if util.lenient_issubclass(target, BaseModel) or is_pydantic_dataclass_type(target):
             if util.is_mapping(arguments):
                 instance = target(**arguments)
             else:

@@ -61,7 +61,7 @@ from ceres.data import (
     FromYAML,
     JSONSerializableDict,
     MaybeSequence,
-    jsonify,
+    to_json,
     to_kwargs,
     validate,
 )
@@ -257,7 +257,7 @@ class ParticleFilter(
             or self.data_prefix is not None
             or self.data_suffix is not None
         ):
-            data_json = jsonify(obj.data)
+            data_json = to_json(obj.data)
             if not util.match_string(data_json, self.data_contains, MatchMode.CONTAINS):
                 return False
             if not util.match_string(data_json, self.data_prefix, MatchMode.PREFIX):

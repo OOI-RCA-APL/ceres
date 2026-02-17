@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ceres._internal import util
+from ceres.data import adapt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -143,7 +144,7 @@ class Writer:
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
-        values: list[dict[str, Any]] = util.get_type_adapter(list[cls]).dump_python(entities)
+        values: list[dict[str, Any]] = adapt(list[cls]).dump_python(entities)
 
         statement = insert(cls.Row)
         pk = cls.Row.get_primary_key_columns()

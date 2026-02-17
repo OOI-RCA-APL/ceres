@@ -36,7 +36,7 @@ from ceres._internal.entity import (
     BaseUUIDEntityFilterArgs,
 )
 from ceres.config import BCryptHashingConfig
-from ceres.data import JSONDict, MaybeSequence, StrEnum, jsonify, uuid7, validate
+from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
 from ceres.database import Database
 from ceres.item import Item
 from ceres.record import Record
@@ -117,7 +117,7 @@ async def execute_filter_test(
         async with database.session() as session:
             for group_cls, group in util.group_by(entity_inserts, type):
                 shuffle(group)
-                values = [entity.__data_object_to_dict__() for entity in group]
+                values = [dict(entity) for entity in group]
                 await session.execute(insert(group_cls.Row).values(values))
                 await session.commit()
 
@@ -245,7 +245,7 @@ async def execute_filter_test(
 def unordered(values: list[Any]) -> list[Any]:
     copy = values.copy()
     keys = [
-        (i, getattr(current, "id", None) or jsonify(current)) for i, current in enumerate(values)
+        (i, getattr(current, "id", None) or to_json(current)) for i, current in enumerate(values)
     ]
     keys.sort(key=lambda x: x[1])
     indexes = [i for i, _ in keys]

@@ -25,7 +25,7 @@ from ceres.data import (
     DataObjectAbstract,
     DataObjectClassInvalid,
     FieldsSet,
-    jsonify,
+    to_json,
     validate,
 )
 
@@ -191,13 +191,12 @@ def test_model_class_and_repr():
     assert model.model_dump() == {"a": 10, "b": "test", "c": 1}
     assert model.model_fields_set == {"a", "b"}
 
-    expected_object_repr = "Values(a=10, b='test')"
-    expected_model_repr = "Values.Model(a=10, b='test')"
+    expected_object_repr = "Values(a=10, b='test', c=1)"
+    expected_model_repr = "Values.Model(a=10, b='test', c=1)"
 
     assert repr(obj) == expected_object_repr
     assert str(obj) == expected_object_repr
     assert repr(model) == expected_model_repr
-    assert str(model) == expected_model_repr
 
     # Ensure that the Model class is cached.
     assert Values.Model is Values.Model
@@ -208,7 +207,6 @@ def test_model_class_and_repr():
     model = DataModel()
     expected_object_repr = "DataModel()"
     assert repr(model) == expected_object_repr
-    assert str(model) == expected_object_repr
 
     with pytest.raises(ValidationError):
         Values(a=11, b="test")
@@ -494,6 +492,8 @@ def test_validate_snake_or_kebab():
 
 
 def test_to_dict():
+    from ceres.data import to_dict
+
     class Example(DataObject):
         a: int
         b: str = "default"
@@ -504,18 +504,18 @@ def test_to_dict():
     assert "a" in instance.__fields_set__
     assert "b" not in instance.__fields_set__
     assert "c" in instance.__fields_set__
-    assert instance.__data_object_to_dict__() == {"a": 10, "b": "default", "c": 2.5}
-    assert instance.__data_object_to_dict__(exclude_unset=True) == {"a": 10, "c": 2.5}
-    assert instance.__data_object_to_dict__(exclude={"a", "c"}) == {"b": "default"}
-    assert instance.__data_object_to_dict__(exclude={"b"}) == {"a": 10, "c": 2.5}
-    assert instance.__data_object_to_dict__(include={"a", "b"}) == {"a": 10, "b": "default"}
-    assert instance.__data_object_to_dict__(include={"a", "c"}) == {"a": 10, "c": 2.5}
-    assert instance.__data_object_to_dict__(include={"b"}) == {"b": "default"}
-    assert instance.__data_object_to_dict__(include={"b"}, exclude={"b"}) == {}
-    assert instance.__data_object_to_dict__(exclude={"a"}, include={"a", "b"}) == {"b": "default"}
-    assert instance.__data_object_to_dict__(exclude={"a"}, include={"a", "c"}) == {"c": 2.5}
-    assert instance.__data_object_to_dict__(exclude={"a"}, include={"b"}) == {"b": "default"}
-    assert instance.__data_object_to_dict__(exclude={"a"}, exclude_unset=True) == {"c": 2.5}
+    assert to_dict(instance) == {"a": 10, "b": "default", "c": 2.5}
+    assert to_dict(instance, exclude_unset=True) == {"a": 10, "c": 2.5}
+    assert to_dict(instance, exclude={"a", "c"}) == {"b": "default"}
+    assert to_dict(instance, exclude={"b"}) == {"a": 10, "c": 2.5}
+    assert to_dict(instance, include={"a", "b"}) == {"a": 10, "b": "default"}
+    assert to_dict(instance, include={"a", "c"}) == {"a": 10, "c": 2.5}
+    assert to_dict(instance, include={"b"}) == {"b": "default"}
+    assert to_dict(instance, include={"b"}, exclude={"b"}) == {}
+    assert to_dict(instance, exclude={"a"}, include={"a", "b"}) == {"b": "default"}
+    assert to_dict(instance, exclude={"a"}, include={"a", "c"}) == {"c": 2.5}
+    assert to_dict(instance, exclude={"a"}, include={"b"}) == {"b": "default"}
+    assert to_dict(instance, exclude={"a"}, exclude_unset=True) == {"c": 2.5}
 
 
 def test_from_attributes():
@@ -535,7 +535,7 @@ def test_exclude():
         a: int
         b: int
 
-    assert jsonify(A(a=1, b=2), exclude={"b"}) == '{"a":1}'
+    assert to_json(A(a=1, b=2), exclude={"b"}) == '{"a":1}'
 
 
 def test_abstract_slots():

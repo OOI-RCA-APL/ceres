@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypeGuard
 
-from ceres._internal import util
 from ceres.config import Argon2HashingConfig, BCryptHashingConfig, HashingConfig
 from ceres.config import HashType as HashType
-from ceres.data import Argon2Hash, BCryptHash, PasswordHash, PasswordStr
+from ceres.data import Argon2Hash, BCryptHash, PasswordHash, PasswordStr, validate
 
 if TYPE_CHECKING:
     from argon2 import PasswordHasher
@@ -13,13 +12,13 @@ if TYPE_CHECKING:
 
 def get_password_hash_type(hash: str) -> HashType | None:
     try:
-        util.get_type_adapter(BCryptHash).validate_python(hash)
+        validate(BCryptHash, hash)
         return HashType.BCRYPT
     except ValueError:
         pass
 
     try:
-        util.get_type_adapter(Argon2Hash).validate_python(hash)
+        validate(Argon2Hash, hash)
         return HashType.ARGON2
     except ValueError:
         pass

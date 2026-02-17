@@ -48,7 +48,7 @@ from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.protocols import ComponentSource
-from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, is_subtype
+from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, cached, is_subtype
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import (
     ComponentConfig,
@@ -67,6 +67,7 @@ from ceres.data import (
     PositiveTimeDelta,
     StrEnum,
     WithDefaults,
+    adapt,
 )
 from ceres.error import (
     Failure,
@@ -256,7 +257,7 @@ class Component(DataObject, ComponentSource):
         return self
 
 
-@util.cached
+@cached(weak=True)
 def get_listener_bindings(cls: type) -> Sequence[ListenerBinding]:
     """
     Get all listener bindings for this component class.
@@ -264,7 +265,7 @@ def get_listener_bindings(cls: type) -> Sequence[ListenerBinding]:
     return get_component_method_bindings(cls, ListenerBinding)
 
 
-@util.cached
+@cached(weak=True)
 def get_routine_bindings(cls: type) -> Sequence[RoutineBinding]:
     """
     Get all routine bindings for this component class.
@@ -272,7 +273,7 @@ def get_routine_bindings(cls: type) -> Sequence[RoutineBinding]:
     return get_component_method_bindings(cls, RoutineBinding)
 
 
-@util.cached
+@cached(weak=True)
 def get_query_bindings(cls: type) -> Mapping[str, QueryBinding]:
     """
     Get all query bindings for this component class. Returns a mapping of query names to query
@@ -299,7 +300,7 @@ def get_query_binding(cls: type, name: str) -> QueryBinding | None:
     return procedure
 
 
-@util.cached
+@cached(weak=True)
 def get_action_bindings(cls: type) -> Mapping[str, ActionBinding]:
     """
     Get all action bindings for this component class. Returns a mapping of action names to
@@ -326,7 +327,7 @@ def get_action_binding(cls: type, name: str) -> ActionBinding | None:
     return procedure
 
 
-@util.cached
+@cached(weak=True)
 def get_procedure_bindings(cls: type) -> Mapping[Name, ProcedureBinding]:
     """
     Get all procedure bindings (actions and queries) for this component class. Returns a mapping
@@ -348,7 +349,7 @@ def get_procedure_binding(cls: type, name: str) -> ProcedureBinding | None:
     return get_procedure_bindings(cls).get(name)
 
 
-@util.cached
+@cached(weak=True)
 def get_sieve_bindings(cls: type) -> Mapping[Name, SieveBinding]:
     """
     Get all sieve bindings for this component class.
@@ -372,7 +373,7 @@ class ConnectionBinding(ImmutableDataModel):
     field: Name
 
 
-@util.cached
+@cached(weak=True)
 def get_connection_bindings(cls: type) -> Mapping[Name, ConnectionBinding]:
     """
     Get all connection bindings for this component class.
@@ -855,7 +856,7 @@ def __get_procedure_method_info(
             )
     else:
         try:
-            output_json_schema = util.get_type_adapter(output_annotation).json_schema()
+            output_json_schema = adapt(output_annotation).json_schema()
             output = ProcedureValueOutputInfo(json_schema=output_json_schema)
         except Exception as exception:
             raise ValueError(

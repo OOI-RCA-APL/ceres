@@ -5,9 +5,8 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 from pydantic import BaseModel, ValidationError
 
-from ceres._internal import util
 from ceres._internal.cli.shared import CLIClientError
-from ceres.data import simplify
+from ceres.data import adapt, simplify
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -57,7 +56,7 @@ class Client:
             result = cast("type[T]", Any)
 
         params = simplify(params, exclude_defaults=True)
-        adapter = util.get_type_adapter(result)
+        adapter = adapt(result)
 
         async with self._get_session() as session:
             async with session.request(
@@ -91,7 +90,7 @@ class Client:
             result = cast("type[T]", Any)
 
         params = simplify(params, exclude_defaults=True)
-        adapter = util.get_type_adapter(result)
+        adapter = adapt(result)
 
         async with self._get_session() as session:
             async with session.ws_connect(

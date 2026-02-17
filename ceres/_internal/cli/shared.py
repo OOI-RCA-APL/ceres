@@ -59,9 +59,10 @@ from ceres.data import (
     FromYAML,
     MaybeSequence,
     NonEmpty,
-    dictify,
-    jsonify,
-    validate_json,
+    adapt,
+    from_json,
+    to_dict,
+    to_json,
 )
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
@@ -336,14 +337,14 @@ class CLICommand(DataModel):
             case Ok(config):
                 return config
             case fail:
-                raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+                raise CLICommandFailed(f"Failed to load configuration. {to_json(fail, indent=2)}")
 
     async def use_config(self, checks: Sequence[ConfigCheckType] = ()) -> Config:
         match await Config.load(self.use_config_path(), checks=checks):
             case Ok(config):
                 return config
             case fail:
-                raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+                raise CLICommandFailed(f"Failed to load configuration. {to_json(fail, indent=2)}")
 
     async def use_project(self) -> Project:
         config_path = self.use_config_path()
@@ -487,15 +488,15 @@ class CLICommand(DataModel):
                 model_config = config
 
         # If only we could pass `extra = "ignore"` to the validation method itself, but we can't.
-        intermediate = validate_json(IgnoreExtra, jsonify(self))
+        intermediate = from_json(IgnoreExtra, to_json(self))
         # Convert the `IgnoreExtra` instance with exactly matching fields into `model_cls`.
-        return validate_json(data_object_class, jsonify(intermediate))
+        return from_json(data_object_class, to_json(intermediate))
 
     def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         if output is None:
             output = []
 
-        for value in dictify(self).values():
+        for value in to_dict(self).values():
             if isinstance(value, CLICommand):
                 output.append(value)
 
@@ -515,24 +516,24 @@ class _CallbackWriter:
 _CSV_ATOMIC_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
     NoneType: lambda value: "",
     str: lambda value: value,
-    int: jsonify,
-    float: jsonify,
-    bool: jsonify,
+    int: to_json,
+    float: to_json,
+    bool: to_json,
     bytes: lambda value: value.decode("latin-1"),
     bytearray: lambda value: value.decode("latin-1"),
-    datetime: lambda value: jsonify(value)[1:-1],
-    timedelta: lambda value: jsonify(value)[1:-1],
-    date: lambda value: jsonify(value)[1:-1],
+    datetime: lambda value: to_json(value)[1:-1],
+    timedelta: lambda value: to_json(value)[1:-1],
+    date: lambda value: to_json(value)[1:-1],
     UUID: lambda value: str(value),
 }
 
 _CSV_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
     **_CSV_ATOMIC_STRINGIFIERS,
-    list: jsonify,
-    dict: jsonify,
-    tuple: jsonify,
-    set: jsonify,
-    frozenset: jsonify,
+    list: to_json,
+    dict: to_json,
+    tuple: to_json,
+    set: to_json,
+    frozenset: to_json,
 }
 
 
@@ -553,13 +554,13 @@ def _csv_stringify(value: object) -> str | None:
     if stringify is not None:
         return stringify(value)
     if isinstance(value, Collection):
-        return jsonify(value)
+        return to_json(value)
 
     return str(value)
 
 
 def _json_stringify(value: object) -> str:
-    return jsonify(value)
+    return to_json(value)
 
 
 _EMPTY_DICT = {}
@@ -623,11 +624,11 @@ class CLICommandExit(SettingsError):
         if message is not None:
             try:
                 content = json.loads(message)
-                message = jsonify(content, indent=2)
+                message = to_json(content, indent=2)
             except Exception:
                 if not isinstance(message, str):
                     try:
-                        message = jsonify(message, indent=2)
+                        message = to_json(message, indent=2)
                     except Exception:
                         message = str(message)
 
@@ -998,7 +999,7 @@ def create_entity_load_command(Entity: type[Entity]):
                             try:
                                 match data_format:
                                     case CLIDataFormat.JSON:
-                                        adapter = util.get_type_adapter(
+                                        adapter = adapt(
                                             cast(
                                                 "Iterable[Json[Entity]]",
                                                 Iterable[Json[cls]],
@@ -1015,7 +1016,7 @@ def create_entity_load_command(Entity: type[Entity]):
                                     case CLIDataFormat.CSV:
                                         from csv import DictReader
 
-                                        adapter = util.get_type_adapter(
+                                        adapter = adapt(
                                             cast(
                                                 "Iterable[Entity]",
                                                 Iterable[cls],

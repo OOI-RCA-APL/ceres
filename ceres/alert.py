@@ -36,7 +36,7 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, jsonify
+from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, to_json
 from ceres.level import Level
 from ceres.timing import utc
 
@@ -163,7 +163,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
             or self.data_prefix is not None
             or self.data_suffix is not None
         ):
-            data_json = jsonify(obj.data)
+            data_json = to_json(obj.data)
             if not util.match_string(data_json, self.data_contains, MatchMode.CONTAINS):
                 return False
             if not util.match_string(data_json, self.data_prefix, MatchMode.PREFIX):

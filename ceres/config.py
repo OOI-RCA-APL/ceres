@@ -478,7 +478,7 @@ class ServerConfig(DataObject):
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:
-        util.get_type_adapter(IPvAnyAddress).validate_python(host)
+        validate(IPvAnyAddress, host)
         return host
 
 

@@ -32,8 +32,8 @@ from ceres._internal.entity import (
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import MatchMode, get_type_adapter
-from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, jsonify
+from ceres._internal.util import MatchMode
+from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, to_json, validate
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -131,7 +131,7 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
                 return False
 
         if "value" in self.model_fields_set:
-            if jsonify(obj.value) != jsonify(self.value):
+            if to_json(obj.value) != to_json(self.value):
                 return False
 
         return True
@@ -161,7 +161,7 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
             yield internal if self.internal else ~internal
 
         if "value" in self.model_fields_set:
-            yield util.sql_match_value(cast(columns.value, Text), jsonify(self.value))
+            yield util.sql_match_value(cast(columns.value, Text), to_json(self.value))
 
     @override
     def _get_default_order(self) -> MaybeSequence[VariableOrder]:
@@ -306,7 +306,7 @@ class BoundVariableManager(VariableManager, BaseNodeManager):
 
         if parse is not None:
             try:
-                return get_type_adapter(parse).validate_python(variable.value)
+                return validate(parse, variable.value)
             except ValidationError:
                 return default
 

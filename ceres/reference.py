@@ -365,11 +365,9 @@ class Reference:
         if isinstance(value, Component | DynamicAddress | str):
             return cls(value)
 
-        return cls(
-            util.get_type_adapter(cls.__reference_constraint__ or Component).validate_python(
-                value,
-            )
-        )
+        import ceres.data
+
+        return cls(ceres.data.validate(cls.__reference_constraint__ or Component, value))
 
     def __init__(
         self,
