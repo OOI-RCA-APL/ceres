@@ -478,7 +478,7 @@ class ServerConfig(DataObject):
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:
-        validate(IPvAnyAddress, host)
+        validate(host, IPvAnyAddress)
         return host
 
 
@@ -617,7 +617,7 @@ class ConfigMeta(DataObject, config={"extra": "allow"}):
             return Fail(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
 
         try:
-            instance = validate(cls, data)
+            instance = validate(data, cls)
         except ValidationError as error:
             return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 

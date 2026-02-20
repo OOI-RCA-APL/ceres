@@ -36,7 +36,6 @@ from typing import (
     final,
     overload,
     override,
-    runtime_checkable,
 )
 from uuid import UUID
 from warnings import warn
@@ -71,7 +70,6 @@ from pydantic_core import (
 )
 from pydantic_extra_types.color import Color as Color
 from pydantic_settings import NoDecode
-from sqlalchemy.util import defaultdict
 from typing_extensions import TypeIs, TypeVar
 
 from ceres._internal import util
@@ -95,11 +93,48 @@ if TYPE_CHECKING:
     from pydantic.main import IncEx
 
 
+_cached_type_adapters: dict[type, TypeAdapter[Any]] = {}
+_cached_dataclasses = WeakKeyDictionary[type, type["PydanticDataclass"]]()
+_cached_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
+_cached_init_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
+_cached_computed_fields = WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]]()
+
+
+@overload
+def _is_dataclass(obj: type, /) -> TypeIs[type[Dataclass]]: ...
+@overload
+def _is_dataclass(obj: object, /) -> TypeIs[MaybeType[Dataclass]]: ...
+def _is_dataclass(obj: object, /) -> TypeIs[MaybeType[Dataclass]]:
+    return dataclasses.is_dataclass(obj)
+
+
+def _supports_pydantic_fields(obj: object, /) -> TypeIs[MaybeType[SupportsPydanticFields]]:
+    return hasattr(obj, "__pydantic_fields__")
+
+
+def _supports_fields_set(obj: object, /) -> TypeIs[SupportsPydanticFieldsSet]:
+    return hasattr(obj, "__pydantic_fields_set__")
+
+
+@cached(storage=_cached_dataclasses)
+def _as_pydantic_dataclass(cls: type[Dataclass]) -> type[PydanticDataclass]:
+    if pydantic.dataclasses.is_pydantic_dataclass(cls):
+        return cls
+
+    return pydantic.dataclasses.dataclass(cls, config={"arbitrary_types_allowed": True})
+
+
 def _as_class[T](obj: MaybeType[T]) -> type[T]:
     return obj if isinstance(obj, type) else type(obj)
 
 
-@cached(weak=True)
+def _decorators_of(cls: type[PydanticDataclass]) -> Iterable[tuple[str, Decorator]]:
+    for _, decorators in items_of(cls.__pydantic_decorators__):
+        if isinstance(decorators, Mapping):
+            yield from decorators.items()
+
+
+@cached(storage=_cached_type_adapters)
 def adapt[T](ty: type[T] | Any, /) -> TypeAdapter[T]:
     return TypeAdapter(ty)
 
@@ -115,6 +150,13 @@ if TYPE_CHECKING:
     class PydanticDataclass(__PydanticDataclass, Protocol):
         __slots__ = ()
 
+    class SupportsPydanticFields(Protocol):
+        if TYPE_CHECKING:
+            __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
+
+    class SupportsPydanticFieldsSet(SupportsPydanticFields, Protocol):
+        @property
+        def __pydantic_fields_set__(self) -> Set[str]: ...
 else:
 
     class Dataclass:
@@ -124,198 +166,87 @@ else:
         __slots__ = ()
 
 
-DataclassField: TypeAlias = dataclasses.Field
-DataclassLike: TypeAlias = Dataclass | BaseModel
-DataclassFieldLike: TypeAlias = dataclasses.Field | FieldInfo | ComputedFieldInfo
-
-
-def is_dataclass_instance(obj: object, /) -> TypeIs[Dataclass]:
-    return not isinstance(obj, type) and is_dataclass(obj)
-
-
-def is_dataclass_type(obj: object, /) -> TypeIs[type[Dataclass]]:
-    return isinstance(obj, type) and is_dataclass(obj)
-
-
-@overload
-def is_dataclass(obj: type, /) -> TypeIs[type[Dataclass]]: ...
-@overload
-def is_dataclass(obj: object, /) -> TypeIs[MaybeType[Dataclass]]: ...
-def is_dataclass(obj: object, /) -> TypeIs[MaybeType[Dataclass]]:
-    return dataclasses.is_dataclass(obj)
-
-
-@overload
-def is_pydantic_dataclass(obj: type, /) -> TypeIs[type[PydanticDataclass]]: ...
-@overload
-def is_pydantic_dataclass(obj: object, /) -> TypeIs[MaybeType[PydanticDataclass]]: ...
-def is_pydantic_dataclass(obj: object, /) -> TypeIs[MaybeType[PydanticDataclass]]:
-    if not isinstance(obj, type):
-        obj = type(obj)
-
-    return pydantic.dataclasses.is_pydantic_dataclass(obj)
-
-
-def is_pydantic_dataclass_type(obj: object, /) -> TypeIs[type[PydanticDataclass]]:
-    return isinstance(obj, type) and is_pydantic_dataclass(obj)
-
-
-def is_pydantic_dataclass_instance(obj: object, /) -> TypeIs[PydanticDataclass]:
-    return not isinstance(obj, type) and is_pydantic_dataclass(obj)
-
-
-class SupportsPydanticFields(Protocol):
-    if TYPE_CHECKING:
-        __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
-
-
-def _supports_pydantic_fields(obj: object, /) -> TypeIs[MaybeType[SupportsPydanticFields]]:
-    return hasattr(obj, "__pydantic_fields__")
-
-
-@runtime_checkable
-class SupportsFieldsSet(SupportsPydanticFields, Protocol):
-    @property
-    def __pydantic_fields_set__(self) -> Set[str]: ...
-
-
-def _supports_fields_set(obj: object, /) -> TypeIs[MaybeType[SupportsFieldsSet]]:
-    return hasattr(obj, "__pydantic_fields_set__")
-
-
-def fields_set_on(obj: SupportsFieldsSet, /) -> Set[str]:
-    return obj.__pydantic_fields_set__
-
-
-_field_caches = defaultdict[
-    tuple[bool, bool],
-    WeakKeyDictionary[type, Mapping[str, DataclassFieldLike]],
-](WeakKeyDictionary)
-
 type MaybeType[T] = T | type[T]
 
 
-_EMPTY_MAPPING: Final[Mapping[str, Any]] = MappingProxyType({})
-
-
-@overload
 def fields_of(
-    obj: MaybeType[PydanticDataclass | BaseModel],
+    obj: MaybeType[Dataclass | BaseModel],
     /,
-    include_computed: Literal[True],
-    include_init_vars: bool = False,
+    init: bool = False,
     cache: bool = True,
-) -> Mapping[str, FieldInfo | ComputedFieldInfo]: ...
-
-
-@overload
-def fields_of(
-    obj: MaybeType[PydanticDataclass | BaseModel],
-    /,
-    include_computed: Literal[False] = False,
-    include_init_vars: bool = False,
-    cache: bool = True,
-) -> Mapping[str, FieldInfo]: ...
-
-
-@overload
-def fields_of(
-    obj: MaybeType[Dataclass],
-    /,
-    include_computed: bool = False,
-    include_init_vars: bool = False,
-    cache: bool = True,
-) -> Mapping[str, DataclassField]: ...
-
-
-def fields_of(
-    obj: MaybeType[Dataclass | PydanticDataclass | BaseModel],
-    /,
-    include_computed: bool = False,
-    include_init_vars: bool = False,
-    cache: bool = True,
-) -> Mapping[str, FieldInfo | ComputedFieldInfo | DataclassField]:
+) -> Mapping[str, FieldInfo]:
     cls = _as_class(obj)
-    key = (include_computed, include_init_vars)
+    storage = _cached_init_fields if init else _cached_fields
     if cache:
-        cached = _field_caches[key].get(cls, Undefined)
+        cached = storage.get(cls, Undefined)
         if cached is not Undefined:
             return cached
 
-    if _supports_pydantic_fields(cls):
-        fields: Mapping[str, DataclassFieldLike] = {}
-        for field, info in cls.__pydantic_fields__.items():
-            if not include_init_vars and info.init_var:
-                continue
+    if not _supports_pydantic_fields(cls):
+        if _is_dataclass(cls):
+            cls = _as_pydantic_dataclass(cls)
+        else:
+            raise TypeError(f"Unsupported type for `fields_of`: {cls}")
 
-            fields[field] = info
+    fields: Mapping[str, FieldInfo] = {}
+    for field, info in cls.__pydantic_fields__.items():
+        if not init and info.init_var:
+            continue
 
-        if include_computed:
-            fields.update(computed_fields_of(cls))
+        fields[field] = info
 
-        fields = MappingProxyType(fields)
-    elif is_dataclass_type(cls):
-        fields = MappingProxyType({field.name: field for field in dataclasses.fields(cls)})
-    else:
-        raise TypeError(f"Unsupported type for `fields_of`: {cls}")
-
+    fields = MappingProxyType(fields)
     if cache:
-        fields = _field_caches[key].setdefault(cls, fields)
+        fields = storage.setdefault(cls, fields)
 
     return fields
 
 
-_computed_fields_cache: WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]] = (
-    WeakKeyDictionary()
-)
-
-
 def computed_fields_of(
-    obj: MaybeType[Dataclass | PydanticDataclass | BaseModel],
+    obj: MaybeType[Dataclass | BaseModel],
     /,
     *,
     cache: bool = True,
 ) -> Mapping[str, ComputedFieldInfo]:
     cls = _as_class(obj)
     if cache:
-        cached = _computed_fields_cache.get(cls, Undefined)
+        cached = _cached_computed_fields.get(cls, Undefined)
         if cached is not Undefined:
             return cached
 
-    if is_pydantic_dataclass_type(cls):
+    if isinstance(obj, BaseModel):
+        fields = MappingProxyType(obj.__pydantic_computed_fields__)
+    elif _is_dataclass(obj):
+        cls = _as_pydantic_dataclass(cls)
         fields = MappingProxyType(
             {
                 name: decorator.info
                 for name, decorator in cls.__pydantic_decorators__.computed_fields.items()
             }
         )
-    elif isinstance(obj, BaseModel):
-        fields = MappingProxyType(obj.__pydantic_computed_fields__)
-    elif is_dataclass_type(cls):
-        fields = _EMPTY_MAPPING
     else:
         raise TypeError(f"Unsupported type for `computed_fields_of`: {cls}")
 
     if cache:
-        fields = _computed_fields_cache.setdefault(cls, fields)
+        fields = _cached_computed_fields.setdefault(cls, fields)
 
     return fields
 
 
 def items_of(
-    obj: DataclassLike,
+    obj: Dataclass | BaseModel,
     *,
     include: set[str] | None = None,
     exclude: set[str] | None = None,
     exclude_unset: bool = False,
     exclude_computed_fields: bool = True,
 ) -> Iterator[tuple[str, Any]]:
-    if not _supports_fields_set(obj):
+    if not exclude_unset or not _supports_fields_set(obj):
         fields_set = None
     else:
-        fields_set = fields_set_on(obj) if exclude_unset else None
+        fields_set = fields_set_on(obj)
 
-    for field in fields_of(obj, include_computed=not exclude_computed_fields):
+    for field in fields_of(obj):
         if include is not None and field not in include:
             continue
         if exclude is not None and field in exclude:
@@ -328,9 +259,29 @@ def items_of(
 
         yield field, value
 
+    if not exclude_computed_fields:
+        for field in computed_fields_of(obj):
+            if include is not None and field not in include:
+                continue
+            if exclude is not None and field in exclude:
+                continue
+
+            value = getattr(obj, field, Undefined)
+            if value is Undefined:
+                continue
+
+            yield field, value
+
+
+def fields_set_on(obj: SupportsPydanticFieldsSet, /) -> Set[str]:
+    try:
+        return obj.__pydantic_fields_set__
+    except AttributeError:
+        raise TypeError(f"Unsupported type for `{fields_set_on.__name__}`: {type(obj)}")
+
 
 def to_dict(
-    obj: DataclassLike,
+    obj: Dataclass | BaseModel,
     *,
     include: set[str] | None = None,
     exclude: set[str] | None = None,
@@ -364,8 +315,16 @@ class DumpKwargs(TypedDict, total=False):
     context: Any | None
 
 
-def dump(obj: object, /, **kwargs: Unpack[DumpKwargs]) -> Any:
-    return adapt(type(obj)).dump_python(obj, **kwargs)
+def dump(
+    obj: object,
+    as_type: type | Any | None = None,
+    /,
+    **kwargs: Unpack[DumpKwargs],
+) -> Any:
+    if as_type is None:
+        as_type = type(obj)
+
+    return adapt(as_type).dump_python(obj, **kwargs)
 
 
 class ToJSONKwargs(TypedDict, total=False):
@@ -386,28 +345,46 @@ class ToJSONKwargs(TypedDict, total=False):
     indent: int | None
 
 
-def to_json(obj: object, /, **kwargs: Unpack[ToJSONKwargs]) -> str:
-    return adapt(type(obj)).dump_json(obj, **kwargs).decode()
+def to_json(
+    obj: object,
+    as_type: type | Any | None = None,
+    /,
+    **kwargs: Unpack[ToJSONKwargs],
+) -> str:
+    if as_type is None:
+        as_type = type(obj)
+
+    return adapt(as_type).dump_json(obj, **kwargs).decode()
 
 
 class ToYAMLKwargs(ToJSONKwargs):
     pass
 
 
-def to_yaml(obj: object, /, **kwargs: Unpack[ToYAMLKwargs]) -> str:
+def to_yaml(
+    obj: object,
+    as_type: type | Any | None = None,
+    /,
+    **kwargs: Unpack[ToYAMLKwargs],
+) -> str:
     import yaml
 
-    return yaml.safe_dump(simplify(obj, **kwargs), indent=kwargs.get("indent", None))
+    return yaml.safe_dump(simplify(obj, as_type, **kwargs), indent=kwargs.get("indent", None))
 
 
 class SimplifyKwargs(ToJSONKwargs):
     pass
 
 
-def simplify(obj: object, /, **kwargs: Unpack[SimplifyKwargs]) -> Any:
+def simplify(
+    obj: object,
+    as_type: type | Any | None = None,
+    /,
+    **kwargs: Unpack[SimplifyKwargs],
+) -> Any:
     import json
 
-    return json.loads(to_json(obj, **kwargs))
+    return json.loads(to_json(obj, as_type, **kwargs))
 
 
 class ValidateKwargs(TypedDict, total=False):
@@ -422,11 +399,11 @@ class ValidateKwargs(TypedDict, total=False):
 
 
 @overload
-def validate[T](type: type[T], data: Any, /, **kwargs: Unpack[ValidateKwargs]) -> T: ...
+def validate[T](data: Any, as_type: type[T], /, **kwargs: Unpack[ValidateKwargs]) -> T: ...
 @overload
-def validate(type: Any, data: Any, /, **kwargs: Unpack[ValidateKwargs]) -> Any: ...
-def validate(type: Any, data: Any, /, **kwargs: Unpack[ValidateKwargs]) -> Any:
-    return adapt(type).validate_python(data, **kwargs)
+def validate(data: Any, as_type: Any, /, **kwargs: Unpack[ValidateKwargs]) -> Any: ...
+def validate(data: Any, as_type: Any, /, **kwargs: Unpack[ValidateKwargs]) -> Any:
+    return adapt(as_type).validate_python(data, **kwargs)
 
 
 class FromJSONKwargs(TypedDict, total=False):
@@ -439,11 +416,11 @@ class FromJSONKwargs(TypedDict, total=False):
 
 
 @overload
-def from_json[T](type: type[T], data: str, /, **kwargs: Unpack[FromJSONKwargs]) -> T: ...
+def from_json[T](data: str, to_type: type[T], /, **kwargs: Unpack[FromJSONKwargs]) -> T: ...
 @overload
-def from_json(type: Any, data: str, /, **kwargs: Unpack[FromJSONKwargs]) -> Any: ...
-def from_json(type: Any, data: str, /, **kwargs: Unpack[FromJSONKwargs]) -> Any:
-    return adapt(type).validate_json(data, **kwargs)
+def from_json(data: str, to_type: Any, /, **kwargs: Unpack[FromJSONKwargs]) -> Any: ...
+def from_json(data: str, to_type: Any, /, **kwargs: Unpack[FromJSONKwargs]) -> Any:
+    return adapt(to_type).validate_json(data, **kwargs)
 
 
 class FromYAMLKwargs(FromJSONKwargs, total=False):
@@ -451,10 +428,10 @@ class FromYAMLKwargs(FromJSONKwargs, total=False):
 
 
 @overload
-def from_yaml[T](type: type[T], data: str, /, **kwargs: Unpack[FromYAMLKwargs]) -> T: ...
+def from_yaml[T](data: str, to_type: type[T], /, **kwargs: Unpack[FromYAMLKwargs]) -> T: ...
 @overload
-def from_yaml(type: Any, data: str, /, **kwargs: Unpack[FromYAMLKwargs]) -> Any: ...
-def from_yaml(type: Any, data: str, /, **kwargs: Unpack[FromYAMLKwargs]) -> Any:
+def from_yaml(data: str, to_type: Any, /, **kwargs: Unpack[FromYAMLKwargs]) -> Any: ...
+def from_yaml(data: str, to_type: Any, /, **kwargs: Unpack[FromYAMLKwargs]) -> Any:
     import json
 
     try:
@@ -464,227 +441,10 @@ def from_yaml(type: Any, data: str, /, **kwargs: Unpack[FromYAMLKwargs]) -> Any:
 
         parsed = yaml.safe_load(data)
 
-    return validate(type, parsed, **kwargs)
+    return validate(parsed, to_type, **kwargs)
 
 
-BytesLike: TypeAlias = bytes | bytearray
-
-if TYPE_CHECKING:
-    from typing import SupportsBytes
-
-    ToBytes: TypeAlias = bytes | bytearray | memoryview | str | SupportsBytes
-else:
-    ToBytes: TypeAlias = bytes | bytearray | str
-
-
-def to_bytes(
-    data: ToBytes,
-    /,
-    encoding: str = "utf-8",
-    errors: str = "strict",
-) -> bytes:
-    if isinstance(data, str):
-        return bytes(data, encoding, errors)
-
-    return bytes(data)
-
-
-Name: TypeAlias = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
-NonEmptyStr: TypeAlias = Annotated[str, StringConstraints(min_length=1)]
-NonBlankStr: TypeAlias = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
-
-
-def __validate_date(value: date | None) -> date | None:
-    return value
-
-
-Date: TypeAlias = Annotated[date, AfterValidator(__validate_date)]
-
-
-def __validate_datetime(value: object) -> datetime | None:
-    if value is None:
-        return None
-
-    if isinstance(value, datetime):
-        instance = value
-    else:
-        instance: datetime | date = util.adapt(datetime | date).validate_python(value)  # type: ignore
-        if not isinstance(instance, datetime):
-            return datetime(
-                year=instance.year,
-                month=instance.month,
-                day=instance.day,
-                tzinfo=UTC,
-            )
-
-    if instance.tzinfo is None:
-        return instance.replace(tzinfo=UTC)
-
-    return instance.astimezone(UTC)
-
-
-DateTime: TypeAlias = Annotated[datetime, AfterValidator(__validate_datetime)]
-
-
-def __validate_timedelta(value: Any) -> timedelta | None:
-    if value is None:
-        return None
-
-    return util.decode_td(value)
-
-
-TimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_timedelta)]
-
-__ZERO_TIMEDELTA = timedelta()
-
-
-def __validate_positive_timedelta(value: object) -> timedelta | None:
-    delta = __validate_timedelta(value)
-    if delta is None:
-        return None
-
-    assert delta > __ZERO_TIMEDELTA, "must be greater than zero"
-    return delta
-
-
-PositiveTimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_positive_timedelta)]
-
-
-def __validate_non_negative_timedelta(value: object) -> timedelta | None:
-    delta = __validate_timedelta(value)
-    if delta is None:
-        return None
-
-    assert delta >= __ZERO_TIMEDELTA, "must be greater than or equal to zero"
-    return delta
-
-
-NonNegativeTimeDelta: TypeAlias = Annotated[
-    timedelta,
-    BeforeValidator(__validate_non_negative_timedelta),
-]
-
-
-def uuid4() -> UUID:
-    """Generate a version 4 UUID."""
-    try:
-        from uuid_utils import uuid4
-
-        return UUID(int=uuid4().int)
-    except ImportError:
-        from uuid import uuid4
-
-        return uuid4()
-
-
-def uuid7(
-    timestamp: int | None = None,
-    nanoseconds: int | None = None,
-) -> UUID:
-    """Generate a version 7 UUID using a time value and random bytes."""
-    from uuid_utils import uuid7
-
-    return UUID(int=uuid7(timestamp, nanoseconds).int)
-
-
-def __pre_validate_from_json(value: object) -> object:
-    if isinstance(value, str | bytes):
-        import json
-
-        try:
-            return json.loads(value)
-        except Exception as error:
-            raise ValueError(f"invalid JSON: {error}")
-
-    return value
-
-
-def __pre_validate_from_yaml(value: object) -> object:
-    if isinstance(value, str | bytes):
-        import json
-
-        try:
-            return json.loads(value)
-        except Exception:
-            pass
-
-        import yaml
-
-        try:
-            return yaml.safe_load(value)
-        except Exception as error:
-            raise ValueError(f"invalid YAML: {error}")
-
-    return value
-
-
-_T = TypeVar("_T")
-
-FromJSON: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json), NoDecode]
-FromYAML: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml), NoDecode]
-
-
-def __validate_number(value: object) -> object:
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-
-    return value
-
-
-def __serialize_number(value: object) -> object:
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-
-    return value
-
-
-Number: TypeAlias = Annotated[
-    int | float,
-    Field(union_mode="left_to_right"),
-    BeforeValidator(__validate_number),
-    PlainSerializer(__serialize_number),
-]
-
-type JSONValue = None | bool | Number | str | JSONList | JSONDict
-JSONDict: TypeAlias = dict[str, JSONValue]
-JSONList: TypeAlias = list[JSONValue]
-
-
-def __validate_jsonable(value: object) -> object:
-    try:
-        to_json(value)
-    except Exception as error:
-        raise ValueError(f"not serializable to JSON: {error}")
-
-    return value
-
-
-_TAny = TypeVar("_TAny", default=Any)
-JSONSerializable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
-
-_TValue = TypeVar("_TValue", default=Any)
-JSONSerializableDict: TypeAlias = JSONSerializable[dict[str, _TValue]]
-JSONSerializableList: TypeAlias = JSONSerializable[list[_TValue]]
-
-MaybeList: TypeAlias = _T | list[_T]
-
-if TYPE_CHECKING:
-    MaybeSequence: TypeAlias = _T | Sequence[_T]
-else:
-    MaybeSequence: TypeAlias = MaybeList
-
-
-def __validate_non_empty(value: object) -> object:
-    if isinstance(value, Sized):
-        assert len(value) > 0, "cannot not be empty"
-
-    return value
-
-
-NonEmpty: TypeAlias = Annotated[_T, AfterValidator(__validate_non_empty)]
-
-
-def __generate_validation_aliases(field: str) -> str | AliasChoices:
+def _generate_validation_aliases(field: str) -> str | AliasChoices:
     if "_" not in field:
         return field
 
@@ -692,7 +452,7 @@ def __generate_validation_aliases(field: str) -> str | AliasChoices:
 
 
 _DATA_OBJECT_ALIAS_GENERATOR = AliasGenerator(
-    validation_alias=__generate_validation_aliases,
+    validation_alias=_generate_validation_aliases,
 )
 
 _DATA_OBJECT_DEFAULT_CONFIG = ConfigDict(
@@ -742,6 +502,26 @@ class DataObjectAbstract(RuntimeError):
     pass
 
 
+class DataModel(BaseModel):
+    model_config = {**_DATA_OBJECT_DEFAULT_CONFIG}
+
+    __data_object_origin__: ClassVar[type[DataObject]]
+
+    if TYPE_CHECKING:
+
+        def __init__(self, **data: Any) -> None: ...
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        try:
+            super().__init_subclass__(**kwargs)
+        except Exception:
+            super().__init_subclass__()
+
+
+_is_data_object_class_defined = False
+_is_data_object_frozen_class_defined = False
+
+
 class DataObjectMetaclass(
     type(Protocol),
     ABCMeta,  # type: ignore
@@ -759,25 +539,12 @@ class DataObjectMetaclass(
         unsafe_hash: bool = False,
         frozen: bool | None = None,
         config: ConfigDict | None = None,
-        validate_on_init: bool | None = None,
         kw_only: bool = True,
         slots: bool = False,
         abstract: bool = False,
         **kwargs: Any,
     ) -> type[DataObject]:
         data_object_class_name = "DataObject"
-
-        try:
-            DataObject  # type: ignore
-            is_data_object_class_defined = True
-        except NameError:
-            is_data_object_class_defined = False
-
-        # `FrozenDataObject` may be undefined if it hasn't been built yet.
-        try:
-            Frozen = __Frozen__
-        except NameError:
-            Frozen = None
 
         if init is not None:
             raise DataObjectClassInvalid(
@@ -796,7 +563,7 @@ class DataObjectMetaclass(
                 "subclasses. It will be ignored. Define `ConfigDict` using the `config` class "
                 "keyword argument."
             )
-        if "__data_object_abstract__" in namespace:
+        if "__data_object_abstract__" in namespace and _is_data_object_class_defined:
             raise DataObjectClassInvalid(
                 f"`{data_object_class_name}` does not support defining `__data_object_abstract__`"
                 "in the class body. Use the `abstract` class keyword argument instead."
@@ -811,25 +578,26 @@ class DataObjectMetaclass(
             namespace["__slots__"] = ()
 
         if frozen is None:
-            # Any subclass of `FrozenDataObject` is implicitly frozen.
-            if Frozen is not None:
-                frozen = any(issubclass(base, Frozen) for base in bases)
-            else:
+            if not _is_data_object_frozen_class_defined:
                 frozen = False
+            else:
+                # Any subclass of `FrozenDataObject` is implicitly frozen.
+                if __Frozen__ is not None:
+                    frozen = any(issubclass(base, __Frozen__) for base in bases)
+                else:
+                    frozen = False
 
-        if frozen:
-            # If `frozen` is set make sure `FrozenDataObject` is set the base classes.
-            if Frozen is not None:
-                # If `DataObject` is in the bases already, replace it with `FrozenDataObject`.
-                bases = tuple(uniquify((Frozen if base is DataObject else base) for base in bases))
-                # Ensure `FrozenDataObject` is in the bases if no subclass of it is already.
-                if not any(issubclass(base, Frozen) for base in bases):
-                    bases = tuple((Frozen, *bases))
+        if frozen and _is_data_object_frozen_class_defined:
+            # If `DataObject` is in the bases already, replace it with `__Frozen__`.
+            bases = tuple(uniquify((__Frozen__ if base is DataObject else base) for base in bases))
+            # Ensure `FrozenDataObject` is in the bases if no subclass of it is already.
+            if not any(issubclass(base, __Frozen__) for base in bases):
+                bases = tuple((__Frozen__, *bases))
 
-        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
-        key = (cls.__module__, name)
+        inner_class = super().__new__(mcs, name, bases, namespace, **kwargs)
+        key = (inner_class.__module__, name)
         if key in _data_object_classes_being_built:
-            return cls
+            return inner_class
 
         # Collect inherited Pydantic config from base classes with `__pydantic_config__` defined.
         inherited = ConfigDict()
@@ -840,15 +608,14 @@ class DataObjectMetaclass(
 
         config: ConfigDict = {
             **inherited,
-            "title": cls.__qualname__,
+            "title": inner_class.__qualname__,
             **(config or {}),
         }
 
         # TODO: Use a more robust way to detect this.
         _data_object_classes_being_built.add(key)
-
-        # Convert the class into a Pydantic dataclass.
         try:
+            # Convert the class into a Pydantic dataclass.
             data_object_class = cast(
                 "type[DataObject]",
                 pydantic.dataclasses.dataclass(
@@ -858,56 +625,48 @@ class DataObjectMetaclass(
                     unsafe_hash=unsafe_hash,
                     frozen=frozen,
                     config=config,
-                    validate_on_init=validate_on_init,
                     slots=slots and not abstract,
                     kw_only=kw_only,
-                )(cls),
+                )(inner_class),
             )
-
-            data_object_class.__module__ = cls.__module__
-            data_object_class.__name__ = cls.__name__
-            data_object_class.__qualname__ = cls.__qualname__
-            data_object_class.__data_object_abstract__ = abstract
-
-            __data_object_required_slots__: list[str] = []
-            if is_data_object_class_defined:
-                for base in reversed(bases):
-                    if issubclass(base, DataObject):
-                        __data_object_required_slots__.extend(base.__data_object_required_slots__)
-            if slots:
-                __data_object_required_slots__.extend(
-                    field
-                    for field in data_object_class.__data_object_fields__
-                    if field in data_object_class.__dataclass_fields__
-                )
-
-            data_object_class.__data_object_required_slots__ = tuple(
-                uniquify(__data_object_required_slots__)
-            )
-
-            if slots:
-                # TODO: Figure out how to avoid this hack.
-                #
-                # The generated Pydantic dataclass validator ends up being an entirely different
-                # class, for some reason, when the dataclass has `slots=True`, and that class gets
-                # passed as `cls` to all the field/model validators but misses all the class
-                # attributes defined on the dataclass. So we copy them over here, for now.
-                assert cls.__class__ is type(data_object_class)
-                for attribute, value in data_object_class.__dict__.items():
-                    if (
-                        # Copy dataclass attributes.
-                        attribute.startswith("__dataclass_")
-                        # Copy Pydantic attributes.
-                        or attribute.startswith("__pydantic_")
-                        # Copy data object attributes.
-                        or (attribute.startswith("__data_object_"))
-                        or attribute == "__signature__"
-                    ):
-                        setattr(cls, attribute, value)
         finally:
-            # if data_object_parameters is not None:
-            #     data_object_parameters.frozen = False
             _data_object_classes_being_built.discard(key)
+
+        data_object_class.__module__ = inner_class.__module__
+        data_object_class.__name__ = inner_class.__name__
+        data_object_class.__qualname__ = inner_class.__qualname__
+        data_object_class.__doc__ = inner_class.__doc__
+        data_object_class.__data_object_abstract__ = abstract
+
+        __data_object_required_slots__: list[str] = []
+        if _is_data_object_class_defined:
+            for base in reversed(bases):
+                if issubclass(base, DataObject):
+                    __data_object_required_slots__.extend(base.__data_object_required_slots__)
+        if slots:
+            __data_object_required_slots__.extend(
+                field
+                for field in data_object_class.__data_object_fields__
+                if field in data_object_class.__dataclass_fields__
+            )
+
+        data_object_class.__data_object_required_slots__ = tuple(
+            uniquify(__data_object_required_slots__)
+        )
+
+        if slots:
+            # The generated Pydantic dataclass validator ends up being an entirely different
+            # class instance when the dataclass has `slots=True`. That class gets passed as
+            # `cls` to all the field/model validators but misses a lot of attributes defined on
+            # the dataclass. So we just copy them back to the inner class for now.
+            inner_class__dict__ = inner_class.__dict__
+            for attribute, value in data_object_class.__dict__.items():
+                try:
+                    inner_class_value = inner_class__dict__.get(attribute, Undefined)
+                    if inner_class_value is Undefined or inner_class_value is not value:
+                        setattr(inner_class, attribute, value)
+                except AttributeError:
+                    pass
 
         # Reassign the `__classcell__` of the class body to the dataclass we've created rather
         # than the original `cls` that was created and assigned by `type.__new__`. Failing to do so
@@ -1266,6 +1025,32 @@ class DataObject(
     __slots__ = ("__data_object_fields_set__",)
 
     if TYPE_CHECKING:
+        # This isn't actually a field, but type-checking wise it behaves just like a non-init field
+        # on a dataclass so we define this here anyway.
+        __data_object_fields_set__: FieldsSet = dataclasses.field(
+            init=False,
+            repr=False,
+            compare=False,
+        )
+        """
+        Set of field names explicitly set during initialization, or assigned to the field at some
+        point following. Used for equivalent set/unset functionality as Pydantic's `BaseModel`.
+        """
+
+    else:
+
+        @override
+        def __setattr__(self, name: str, value: object, /) -> None:
+            super().__setattr__(name, value)
+            # If `__data_object_fields_set__` isn't assigned yet, then we're probably still
+            # assigning regular attributes on the instance, and shouldn't consider assignments to
+            # fields as "setting" them just yet.
+            if hasattr(self, "__data_object_fields_set__"):
+                # `FieldSet` ignores insertions of fields which aren't actually in the data object
+                # class so we don't need to check for that here.
+                self.__data_object_fields_set__.add(name)
+
+    if TYPE_CHECKING:
         from ceres.data import __Frozen__
 
         @dataclass_transform(
@@ -1282,16 +1067,10 @@ class DataObject(
         def Frozen(cls) -> type[DataObject]:
             return __Frozen__
 
+    __data_object_abstract__: ClassVar[bool] = False
+    __data_object_required_slots__: ClassVar[tuple[str, ...]] = ()
+
     if TYPE_CHECKING:
-        __data_object_fields_set__: FieldsSet
-        """
-        Set of field names that were explicitly set during initialization. Used for equivalent
-        set/unset functionality as with Pydantic's `BaseModel`.
-        """
-
-        __data_object_abstract__: ClassVar[bool] = False
-        __data_object_required_slots__: ClassVar[tuple[str, ...]] = ()
-
         # Standard dataclass class attributes.
         __dataclass_fields__: ClassVar[dict[str, Any]]
         __dataclass_params__: ClassVar[Any]
@@ -1313,7 +1092,17 @@ class DataObject(
     @cached_class_property
     @classmethod
     def __data_object_fields__(cls) -> Mapping[str, FieldInfo]:
-        return fields_of(cls)
+        return fields_of(cls, cache=False)
+
+    @cached_class_property
+    @classmethod
+    def __data_object_init_fields__(cls) -> Mapping[str, FieldInfo]:
+        return fields_of(cls, cache=False)
+
+    @cached_class_property
+    @classmethod
+    def __data_object_computed_fields__(cls) -> Mapping[str, ComputedFieldInfo]:
+        return computed_fields_of(cls, cache=False)
 
     @cached_class_property
     @classmethod
@@ -1326,16 +1115,6 @@ class DataObject(
     @classmethod
     def __data_object_field_names__(cls) -> tuple[str, ...]:
         return tuple(cls.__data_object_fields__)
-
-    @class_property
-    @classmethod
-    def __data_object_validator__(cls) -> SchemaValidator:
-        return cls.__pydantic_validator__
-
-    @class_property
-    @classmethod
-    def __data_object_serializer__(cls) -> SchemaSerializer:
-        return cls.__pydantic_serializer__
 
     @cached_class_property
     @classmethod
@@ -1362,7 +1141,7 @@ class DataObject(
         values: Mapping[str, Any],
         fields_set: Iterable[str] | int | bool | None = None,
     ) -> Self:
-        instance = super().__new__(cls)
+        instance = object.__new__(cls)
 
         fields_set_provided = fields_set is not None
         fields_set = FieldsSet(cls, fields_set if fields_set_provided else values.keys())
@@ -1440,9 +1219,14 @@ class DataObject(
             if slot not in ("__weakref__", "__dict__", "__data_object_fields_set__")
         )
 
-    @cached_class_property
+    @class_property
     @classmethod
     def Model(cls) -> type[DataModel]:
+        return cls.__data_object_model_class__
+
+    @cached_class_property
+    @classmethod
+    def __data_object_model_class__(cls) -> type[DataModel]:
         return cls.__data_object_create_model_class__()
 
     @classmethod
@@ -1453,22 +1237,26 @@ class DataObject(
         else:
             __qualname__ = None
 
-        bases: tuple[type[Any], ...] = tuple(
-            [
-                *(
-                    base.Model
-                    for base in cls.__bases__
-                    if issubclass(base, DataObject) and base not in (object, DataObject, __Frozen__)
-                )
-            ]
-        )
+        try:
+            bases: tuple[type[Any], ...] = tuple(
+                [
+                    *(
+                        base.__data_object_model_class__
+                        for base in cls.__bases__
+                        if issubclass(base, DataObject)
+                        and base not in (object, DataObject, __Frozen__)
+                    )
+                ]
+            )
+        except NameError:
+            bases = ()
 
         if not any(base for base in bases if issubclass(base, DataModel)):
             bases = tuple([DataModel, *bases])
 
         def get_copied_validator(name: str) -> Any:
             for current in cls.__mro__:
-                if current is DataObject:
+                if _is_data_object_class_defined and current is DataObject:
                     break
 
                 value = current.__dict__.get(name, PydanticUndefined)
@@ -1478,18 +1266,15 @@ class DataObject(
             return None
 
         decorator_descriptors: dict[str, Any] = {}
-        decorator_infos = cls.__pydantic_decorators__
-        for decorator_type in fields_of(cls.__pydantic_decorators__):
-            decorators: dict[str, Decorator] = getattr(decorator_infos, decorator_type, {})
-            for decorator_name, decorator in decorators.items():
-                function = get_copied_validator(decorator_name)
-                if function is None:
-                    continue
+        for decorator_name, decorator in _decorators_of(cls):
+            function = get_copied_validator(decorator_name)
+            if function is None:
+                continue
 
-                from pydantic._internal._decorators import PydanticDescriptorProxy
+            from pydantic._internal._decorators import PydanticDescriptorProxy
 
-                descriptor = PydanticDescriptorProxy(function, decorator.info)
-                decorator_descriptors[decorator_name] = descriptor
+            descriptor = PydanticDescriptorProxy(function, decorator.info)
+            decorator_descriptors[decorator_name] = descriptor
 
         namespace = {
             "model_config": {**cls.__pydantic_config__},
@@ -1565,11 +1350,16 @@ class DataObject(
     def __pydantic_fields_set__(self) -> FieldsSet:
         return self.__data_object_fields_set__
 
+    @__pydantic_fields_set__.setter
+    def __pydantic_fields_set__(self, value: Set[str]) -> None:
+        self.__data_object_fields_set__ = FieldsSet(self.__class__, value)
+
     @model_serializer(mode="wrap")
     def __serialize_data_object__(
         self,
         handler: ModelWrapValidatorHandler,
         info: SerializationInfo,
+        /,
     ) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
         if info.exclude_unset:
@@ -1587,71 +1377,74 @@ class DataObject(
         cls,
         data: object,
         handler: ModelWrapValidatorHandler[Self],
+        /,
     ) -> DataObject:
         if cls.__data_object_abstract__:
             raise DataObjectAbstract(
                 f"Cannot instantiate abstract `{DataObject.__name__}` subclass `{cls}`."
             )
-        if type(data) is cls:
-            computed = cls.__data_object_fields_set__
-        elif isinstance(data, Mapping | ArgsKwargs):
-            computed = cls._compute_fields_set(data)
-        else:
-            fields_set: Set[str] | None = getattr(data, "__pydantic_fields_set__", None)
-            if fields_set is not None:
-                computed = cls._compute_fields_set(fields_set)
+
+        self = handler(data)
+        if not hasattr(self, "__data_object_fields_set__"):
+            if isinstance(data, (dict, ArgsKwargs)):
+                __data_object_fields_set__ = cls.__data_object_compute_fields_set__(data)
             else:
-                computed = FieldsSet(cls, cls.__data_object_fields__.keys())
+                __pydantic_fields_set__: Set[str] | None = getattr(
+                    data,
+                    "__pydantic_fields_set__",
+                    None,
+                )
+                if __pydantic_fields_set__ is not None:
+                    __data_object_fields_set__ = FieldsSet(cls, __pydantic_fields_set__)
+                else:
+                    __data_object_fields_set__ = FieldsSet(cls, cls.__data_object_fields__)
 
-        instance = handler(data)
-        if instance is not data:
-            _object_setattr(instance, "__data_object_fields_set__", computed)
+            # Only assign fields set if the object returned from the inner handler isn't the same object
+            # which was initially passed in. If it's the same object, we can assume it's already a
+            # constructed instance of this class, so no need to assign the fields again.
+            _object_setattr(self, "__data_object_fields_set__", __data_object_fields_set__)
 
-        return instance
+        return self
 
     @classmethod
-    def _compute_fields_set(cls, values: Set[str] | Mapping[str, Any] | ArgsKwargs) -> FieldsSet:
-        output = FieldsSet(cls)
+    def __data_object_compute_fields_set__(
+        cls,
+        data: dict[str, Any] | ArgsKwargs,
+        /,
+    ) -> FieldsSet:
+        if isinstance(data, ArgsKwargs):
+            data = cls.__data_object_resolve_args_kwargs__(data)
 
-        if isinstance(values, ArgsKwargs):
-            values = cls.__data_object_resolve_args_kwargs__(values.args, values.kwargs)
+        fields_set = FieldsSet(cls)
+        for name, field in cls.__data_object_fields__.items():
+            # Check if the field name itself is in the data.
+            if name in data:
+                fields_set.add(name)
+                continue
 
-        # Taken from Pydantic's implementation.
-        for name, field in cls.__pydantic_fields__.items():
-            if field.alias is not None and field.alias in values:
-                output.add(name)
+            if field.alias is not None and field.alias in data:
+                fields_set.add(name)
+                continue
 
-            if (name not in output) and (field.validation_alias is not None):
-                aliases: list[str | AliasPath] = (
+            if field.validation_alias is not None:
+                aliases: Sequence[str | AliasPath] = (
                     field.validation_alias.choices
                     if isinstance(field.validation_alias, AliasChoices)
-                    else [field.validation_alias]
+                    else (field.validation_alias,)
                 )
 
                 for alias in aliases:
-                    if isinstance(alias, str) and alias in values:
-                        output.add(name)
+                    if isinstance(alias, str) and alias in data:
+                        fields_set.add(name)
                         break
 
                     if isinstance(alias, AliasPath):
-                        value = alias.search_dict_for_path(cast("dict[str, Any]", values))
+                        value = alias.search_dict_for_path(cast("dict[str, Any]", data))
                         if value is not PydanticUndefined:
-                            output.add(name)
+                            fields_set.add(name)
                             break
 
-            if name not in output:
-                if name in values:
-                    output.add(name)
-                elif not field.is_required():
-                    pass
-
-        return output
-
-    @override
-    def __setattr__(self, name: str, value: Any, /) -> None:
-        super().__setattr__(name, value)
-        if name in self.__pydantic_fields__:
-            self.__data_object_fields_set__.add(name)
+        return fields_set
 
     @override
     def __reduce__(self) -> _ReducedDataObject:
@@ -1670,6 +1463,8 @@ class DataObject(
             self.__pydantic_fields_set__.mask,
         )
 
+
+_is_data_object_class_defined = True
 
 if TYPE_CHECKING:
     DataObject()  # Ensure class meets abstract class requirements.
@@ -1690,7 +1485,8 @@ finally:
     if sys.version_info < (3, 13):
         DataObject.__dataclass_params__.frozen = False
 
-thing: type[DataObject.Frozen] = DataObject.Frozen
+_is_data_object_frozen_class_defined = True
+
 
 _ReducedDataObjectValues: TypeAlias = tuple[
     type[object],
@@ -1711,7 +1507,7 @@ def _do[T: DataObject](
     fields_set_mask: int,
     /,
 ) -> T:
-    instance = cls.__new__(cls)
+    instance = object.__new__(cls)
 
     if dictionary:
         for attribute, value in dictionary.items():
@@ -1731,20 +1527,7 @@ def _is_data_object_type(obj: object, /) -> TypeIs[type[DataObject]]:
     return isinstance(obj, type) and hasattr(obj, "__data_object_fields__")
 
 
-class DataModel(BaseModel):
-    model_config = {**_DATA_OBJECT_DEFAULT_CONFIG}
-
-    __data_object_origin__: ClassVar[type[DataObject]] = DataObject
-
-    if TYPE_CHECKING:
-
-        def __init__(self, **data: Any) -> None: ...
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        try:
-            super().__init_subclass__(**kwargs)
-        except Exception:
-            super().__init_subclass__()
+DataModel.__data_object_origin__ = DataObject
 
 
 def __proxy_data_object_class_item(
@@ -1922,11 +1705,11 @@ class OrderedStrEnum(StrEnum):
         return super().__ge__(__x)
 
 
-def get_assigned_fields(obj: SupportsFieldsSet, /) -> Set[str]:
+def get_assigned_fields(obj: SupportsPydanticFieldsSet, /) -> Set[str]:
     return obj.__pydantic_fields_set__
 
 
-def defaulting[T: SupportsFieldsSet](
+def defaulting[T: SupportsPydanticFieldsSet](
     original: T,
     defaults: T | dict[str, Any] | None = None,
     /,
@@ -1958,7 +1741,7 @@ def defaulting[T: SupportsFieldsSet](
         return dataclasses.replace(original, **update)  # type: ignore
 
 
-def replacing[T: DataclassLike](
+def replacing[T: Dataclass | BaseModel](
     original: T,
     overrides: T | dict[str, Any] | None = None,
     /,
@@ -1980,7 +1763,7 @@ def replacing[T: DataclassLike](
 
 
 def WithDefaults(
-    defaults: SupportsFieldsSet | Callable[[], SupportsFieldsSet] | None = None,
+    defaults: SupportsPydanticFieldsSet | Callable[[], SupportsPydanticFieldsSet] | None = None,
     /,
     **kwargs: Any,
 ) -> AfterValidator:
@@ -1988,7 +1771,7 @@ def WithDefaults(
         defaults = defaults()
 
     def WithDefaults(obj: object) -> Any:
-        if not isinstance(obj, SupportsFieldsSet):
+        if not _supports_fields_set(obj):
             raise TypeError(
                 "`WithDefaults` can only be applied to types with set fields tracking, such as `BaseModel` or `DataObject` instances."
             )
@@ -2038,10 +1821,10 @@ def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
             assert issubclass(cls, DataObject)
 
         if args:
-            values = args[0]
-            if isinstance(values, ArgsKwargs):
-                values = cls.__data_object_resolve_args_kwargs__(values)
-                args = (values, *args[1:])
+            first = args[0]
+            if isinstance(first, ArgsKwargs):
+                first = cls.__data_object_resolve_args_kwargs__(first)
+                args = (first, *args[1:])
 
         return function(cls, *args, **kwargs)
 
@@ -2049,3 +1832,220 @@ def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
         wrapper = classmethod(wrapper)  # type: ignore
 
     return wrapper  # type: ignore
+
+
+BytesLike: TypeAlias = bytes | bytearray
+
+if TYPE_CHECKING:
+    from typing import SupportsBytes
+
+    ToBytes: TypeAlias = bytes | bytearray | memoryview | str | SupportsBytes
+else:
+    ToBytes: TypeAlias = bytes | bytearray | str
+
+
+def to_bytes(
+    data: ToBytes,
+    /,
+    encoding: str = "utf-8",
+    errors: str = "strict",
+) -> bytes:
+    if isinstance(data, str):
+        return bytes(data, encoding, errors)
+
+    return bytes(data)
+
+
+Name: TypeAlias = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
+NonEmptyStr: TypeAlias = Annotated[str, StringConstraints(min_length=1)]
+NonBlankStr: TypeAlias = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
+
+
+def __validate_date(value: date | None) -> date | None:
+    return value
+
+
+Date: TypeAlias = Annotated[date, AfterValidator(__validate_date)]
+
+
+def __validate_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        instance = value
+    else:
+        instance: datetime | date = util.adapt(datetime | date).validate_python(value)  # type: ignore
+        if not isinstance(instance, datetime):
+            return datetime(
+                year=instance.year,
+                month=instance.month,
+                day=instance.day,
+                tzinfo=UTC,
+            )
+
+    if instance.tzinfo is None:
+        return instance.replace(tzinfo=UTC)
+
+    return instance.astimezone(UTC)
+
+
+DateTime: TypeAlias = Annotated[datetime, AfterValidator(__validate_datetime)]
+
+
+def __validate_timedelta(value: Any) -> timedelta | None:
+    if value is None:
+        return None
+
+    return util.decode_td(value)
+
+
+TimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_timedelta)]
+
+__ZERO_TIMEDELTA = timedelta()
+
+
+def __validate_positive_timedelta(value: object) -> timedelta | None:
+    delta = __validate_timedelta(value)
+    if delta is None:
+        return None
+
+    assert delta > __ZERO_TIMEDELTA, "must be greater than zero"
+    return delta
+
+
+PositiveTimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_positive_timedelta)]
+
+
+def __validate_non_negative_timedelta(value: object) -> timedelta | None:
+    delta = __validate_timedelta(value)
+    if delta is None:
+        return None
+
+    assert delta >= __ZERO_TIMEDELTA, "must be greater than or equal to zero"
+    return delta
+
+
+NonNegativeTimeDelta: TypeAlias = Annotated[
+    timedelta,
+    BeforeValidator(__validate_non_negative_timedelta),
+]
+
+
+def uuid4() -> UUID:
+    """Generate a version 4 UUID."""
+    try:
+        from uuid_utils import uuid4
+
+        return UUID(int=uuid4().int)
+    except ImportError:
+        from uuid import uuid4
+
+        return uuid4()
+
+
+def uuid7(
+    timestamp: int | None = None,
+    nanoseconds: int | None = None,
+) -> UUID:
+    """Generate a version 7 UUID using a time value and random bytes."""
+    from uuid_utils import uuid7
+
+    return UUID(int=uuid7(timestamp, nanoseconds).int)
+
+
+def __pre_validate_from_json(value: object) -> object:
+    if isinstance(value, str | bytes):
+        import json
+
+        try:
+            return json.loads(value)
+        except Exception as error:
+            raise ValueError(f"invalid JSON: {error}")
+
+    return value
+
+
+def __pre_validate_from_yaml(value: object) -> object:
+    if isinstance(value, str | bytes):
+        import json
+
+        try:
+            return json.loads(value)
+        except Exception:
+            pass
+
+        import yaml
+
+        try:
+            return yaml.safe_load(value)
+        except Exception as error:
+            raise ValueError(f"invalid YAML: {error}")
+
+    return value
+
+
+_T = TypeVar("_T")
+
+FromJSON: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json), NoDecode]
+FromYAML: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml), NoDecode]
+
+
+def __validate_number(value: object) -> object:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+
+    return value
+
+
+def __serialize_number(value: object) -> object:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+
+    return value
+
+
+Number: TypeAlias = Annotated[
+    int | float,
+    Field(union_mode="left_to_right"),
+    BeforeValidator(__validate_number),
+    PlainSerializer(__serialize_number),
+]
+
+type JSONValue = None | bool | Number | str | JSONList | JSONDict
+JSONDict: TypeAlias = dict[str, JSONValue]
+JSONList: TypeAlias = list[JSONValue]
+
+
+def __validate_jsonable(value: object) -> object:
+    try:
+        to_json(value)
+    except Exception as error:
+        raise ValueError(f"not serializable to JSON: {error}")
+
+    return value
+
+
+_TAny = TypeVar("_TAny", default=Any)
+JSONSerializable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
+
+_TValue = TypeVar("_TValue", default=Any)
+JSONSerializableDict: TypeAlias = JSONSerializable[dict[str, _TValue]]
+JSONSerializableList: TypeAlias = JSONSerializable[list[_TValue]]
+
+MaybeList: TypeAlias = _T | list[_T]
+
+if TYPE_CHECKING:
+    MaybeSequence: TypeAlias = _T | Sequence[_T]
+else:
+    MaybeSequence: TypeAlias = MaybeList
+
+
+def __validate_non_empty(value: object) -> object:
+    if isinstance(value, Sized):
+        assert len(value) > 0, "cannot not be empty"
+
+    return value
+
+
+NonEmpty: TypeAlias = Annotated[_T, AfterValidator(__validate_non_empty)]

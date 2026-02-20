@@ -313,7 +313,7 @@ async def _get_current_identity(
             return None
 
         try:
-            expires = validate(datetime if TYPE_CHECKING else DateTime, expires)
+            expires = validate(expires, datetime if TYPE_CHECKING else DateTime)
         except ValidationError:
             return None
 

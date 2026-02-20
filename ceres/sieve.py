@@ -101,7 +101,6 @@ class ComponentSieveManager(BaseComponentTaskManager[SieveConfig]):
         config = await super().remove(name)
         if config is not None:
             self.__system__.events.emit(SieveRemovedEvent, sieve=name)
-            config.system = None
 
         return config
 

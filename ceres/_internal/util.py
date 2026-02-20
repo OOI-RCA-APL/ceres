@@ -237,7 +237,7 @@ def decode_td(value: str | timedelta | int | float | Any, /) -> timedelta:
 
     if isinstance(value, str):
         try:
-            return validate(timedelta, value)
+            return validate(value, timedelta)
         except Exception:
             pass
 
@@ -387,7 +387,6 @@ def traverse(
     visit: Callable[[object], bool | None],
     seen: set[int] | None = None,
 ) -> None:
-    from ceres.data import is_dataclass_instance
 
     if seen is None:
         seen = set()
@@ -409,7 +408,7 @@ def traverse(
             element = getattr(obj, field_name, undefined)
             if element is not undefined:
                 traverse(element, visit, seen)
-    elif is_dataclass_instance(obj):
+    elif not isinstance(obj, type) and dataclasses.is_dataclass(obj):
         for field in dataclasses.fields(obj):
             element = getattr(obj, field.name, undefined)
             if element is not undefined:

@@ -261,59 +261,58 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
     if cls is Message:
         return [
             validate(
-                cls,
                 {
                     "address": Address.ROOT,
                     "direction": choice(list(MessageDirection)),
                     "content": randbytes(32),
                     **values,
                 },
+                cls,
             )
         ]
 
     if cls is Particle or cls is Particle[Any]:
         return [
             validate(
-                cls,
                 {
                     "address": Address.ROOT,
                     "type": util.randstr(printable, 8),
                     "data": {},
                     **values,
                 },
+                cls,
             )
         ]
 
     if cls is Alert:
         return [
             validate(
-                cls,
                 {
                     "address": Address.ROOT,
                     "level": choice(list(Level)),
                     "type": util.randstr(printable, 8),
                     **values,
                 },
+                cls,
             )
         ]
 
     if cls is LogEntry:
         return [
             validate(
-                cls,
                 {
                     "address": Address.ROOT,
                     "level": choice(list(Level)),
                     "content": util.randstr(printable, 32),
                     **values,
                 },
+                cls,
             )
         ]
 
     if cls is User:
         return [
             validate(
-                cls,
                 {
                     "username": util.randstr(ascii_letters, 8),
                     "email": "email@email.com",
@@ -325,19 +324,20 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                     "disabled": choice([True, False]),
                     **values,
                 },
+                cls,
             )
         ]
 
     if cls is Variable:
         return [
             validate(
-                cls,
                 {
                     "address": Address.ROOT,
                     "name": util.randstr(printable, 8),
                     "value": 0,
                     **values,
                 },
+                cls,
             )
         ]
 
@@ -347,13 +347,13 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
         return [
             user,
             validate(
-                cls,
                 {
                     "user_id": user_id,
                     "name": util.randstr(printable, 8),
                     "value": 0,
                     **values,
                 },
+                cls,
             ),
         ]
 

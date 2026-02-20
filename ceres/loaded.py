@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Self, TypeVar
 
+import pydantic
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -15,7 +16,7 @@ from pydantic import (
 from pydantic_core.core_schema import no_info_after_validator_function
 
 from ceres._internal import util
-from ceres.data import ImmutableDataModel, is_pydantic_dataclass_type
+from ceres.data import ImmutableDataModel
 
 if TYPE_CHECKING:
     from pydantic_core import CoreSchema
@@ -54,7 +55,9 @@ class Loader[T](ImmutableDataModel):
         if arguments is None:
             arguments = {}
 
-        if util.lenient_issubclass(target, BaseModel) or is_pydantic_dataclass_type(target):
+        if util.lenient_issubclass(target, BaseModel) or pydantic.dataclasses.is_pydantic_dataclass(
+            target
+        ):
             if util.is_mapping(arguments):
                 instance = target(**arguments)
             else:

@@ -306,7 +306,7 @@ class BoundVariableManager(VariableManager, BaseNodeManager):
 
         if parse is not None:
             try:
-                return validate(parse, variable.value)
+                return validate(variable.value, parse)
             except ValidationError:
                 return default
 

@@ -71,6 +71,7 @@ from ceres.data import (
     MaybeSequence,
     NonNegativeTimeDelta,
     PositiveTimeDelta,
+    to_dict,
     uuid7,
 )
 from ceres.database import DatabaseType
@@ -1112,7 +1113,7 @@ class BaseEntityManager[
         upsert: bool = False,
     ) -> RowT:
         Row = self._get_row_class()
-        row = Row(**data.__data_object_to_dict__(exclude_unset=True))
+        row = Row(**to_dict(data, exclude_unset=True))
         match self.__database__.type:
             case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert

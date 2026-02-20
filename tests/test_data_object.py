@@ -2,6 +2,7 @@ import dataclasses
 from dataclasses import FrozenInstanceError, field
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 
+import pydantic
 import pytest
 from pydantic import (
     ConfigDict,
@@ -58,8 +59,6 @@ class Slotted(DataObject, slots=True):
     b: str = "default"
     c: float = field(default=1.0)
 
-
-assert set(Slotted.__pydantic_fields__) == {"a", "b", "c"}
 
 Object = Normal | Slotted
 
@@ -143,7 +142,7 @@ def test_can_be_pickled(Object: type[Object]):
     original = Object(a=42, b="pickle")
     assert original.__data_object_fields_set__ == {"a", "b"}
     assert original.__data_object_fields_set__ == FieldsSet(Object, {"a", "b"})
-    assert tuple(original.__data_object_fields_set__._get_set_indexes()) == (0, 1)
+    assert original.__data_object_fields_set__.mask == 0b11
     assert tuple(original.__data_object_fields__) == ("a", "b", "c")
     if Object is Slotted:
         assert original.__reduce__() == (
@@ -249,8 +248,12 @@ def test_private_slots():
             self._c: float = 1.0
 
     assert PrivateSlots.__slots__ == ("a", "b", "_c")
+    assert hasattr(PrivateSlots, "__data_object_fields_set__")
+    assert declared_slots_of(PrivateSlots) == ["__data_object_fields_set__", "a", "b", "_c"]
     assert set(PrivateSlots.__pydantic_fields__) == {"a", "b"}
     instance = PrivateSlots(a=10, b="test")
+    assert hasattr(instance, "__data_object_fields_set__")
+    assert instance.__data_object_fields_set__ == {"a", "b"}
     instance.__data_object_to_model__()
 
 
@@ -451,7 +454,6 @@ def test_default_config():
 
 
 def test_config_inheritance():
-    import pydantic
 
     class A(DataObject, config=ConfigDict(validate_assignment=False)):
         value: int
@@ -527,7 +529,7 @@ def test_from_attributes():
         c: int
 
     c = C(a=1, b=2, c=3)
-    assert validate(A, c)
+    assert validate(c, A)
 
 
 def test_exclude():
@@ -565,7 +567,7 @@ def test_abstract_slots():
     assert concrete.a == 10
     assert concrete.b == 20
     with pytest.raises(AttributeError):
-        concrete.c = 30
+        concrete.c = 30  # type: ignore
     with pytest.raises(AttributeError):
         concrete.__weakref__  # type: ignore
 
@@ -590,7 +592,7 @@ def test_abstract_slots():
     assert concrete.a == 10
     assert concrete.b == 20
     assert concrete.c == 30
-    concrete.d = 40  # Should work fine since this class has `__dict__`.
+    concrete.d = 40  # type: ignore  # Should work fine since this class has `__dict__`.
     concrete.__weakref__  # type: ignore # Should work fine since this class has `__weakref__`.
 
     with pytest.raises(DataObjectClassInvalid, match=r"missing slots for fields: \['a', 'b'\]."):
