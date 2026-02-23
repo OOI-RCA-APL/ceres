@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, TypeGuard
 
 from ceres.config import Argon2HashingConfig, BCryptHashingConfig, HashingConfig
 from ceres.config import HashType as HashType
-from ceres.data import Argon2Hash, BCryptHash, PasswordHash, PasswordStr, validate
+from ceres.data import Argon2Hash, BCryptHash, Password, PasswordHash, validate
 
 if TYPE_CHECKING:
     from argon2 import PasswordHasher
@@ -30,7 +30,7 @@ def verify_password_hash(hash: str) -> TypeGuard[PasswordHash]:
     return get_password_hash_type(hash) is not None
 
 
-def get_password_hash(password: PasswordStr, config: HashingConfig) -> PasswordHash:
+def get_password_hash(password: Password, config: HashingConfig) -> PasswordHash:
     import bcrypt
 
     match config:

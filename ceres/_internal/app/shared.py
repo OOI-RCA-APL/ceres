@@ -2,7 +2,7 @@
 
 import json
 import warnings
-from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -54,6 +54,15 @@ with lazy_imports(__name__):
     from ceres._internal.server import Server
     from ceres.config import ServerAuthenticationConfig
     from ceres.record import Record
+
+
+def exclude_recursively(fields: Iterable[str]) -> IncEx:
+    exclude: dict[str, Any] = {field: True for field in fields}
+    exclude["__all__"] = exclude
+    return exclude
+
+
+EXCLUDE_PASSWORDS: IncEx = exclude_recursively(["password"])
 
 
 class Router(APIRouter):
@@ -222,9 +231,9 @@ CurrentProcedureQueryArguments = Annotated[
 
 
 class Identity(DataObject):
-    user: User
     token: str
     expires: DateTime
+    user: User
 
 
 def create_identity(
@@ -322,9 +331,9 @@ async def _get_current_identity(
             return None
 
         return Identity(
-            user=user,
             token=token,
             expires=expires,
+            user=user,
         )
 
 

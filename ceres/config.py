@@ -18,6 +18,7 @@ from typing import (
 
 from pydantic import (
     ByteSize,
+    ConfigDict,
     Field,
     ImportString,
     IPvAnyAddress,
@@ -36,7 +37,7 @@ from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
     DataObject,
-    MaybeList,
+    MaybeSequence,
     Name,
     NonBlankStr,
     NonEmptyStr,
@@ -448,12 +449,12 @@ class ServerAuthenticationConfig(DataObject):
 
 class ServerCorsConfig(DataObject):
     enabled: bool = True
-    allow_origins: MaybeList[str] = Field(default_factory=list)
+    allow_origins: MaybeSequence[str] = Field(default_factory=list)
     allow_origin_regex: Pattern[str] | None = None
-    allow_methods: MaybeList[str] = "*"
-    allow_headers: MaybeList[str] = "*"
+    allow_methods: MaybeSequence[str] = "*"
+    allow_headers: MaybeSequence[str] = "*"
     allow_credentials: bool = True
-    expose_headers: MaybeList[str] = Field(default_factory=list)
+    expose_headers: MaybeSequence[str] = Field(default_factory=list)
     max_age: PositiveInt = 600
 
 
@@ -488,7 +489,7 @@ class ConsoleConfig(DataObject):
     # Using `SerializeAsAny` here to work around Pydantic's union serialization issues dealing with
     # `T | Sequence[T]`. It will currently choose the wrong serializer.
     # See https://github.com/pydantic/pydantic/milestone/13.
-    dashboard: SerializeAsAny[MaybeList[Address] | None] = None
+    dashboard: SerializeAsAny[MaybeSequence[Address] | None] = None
 
 
 class DatabaseRetryConfig(DataObject):
@@ -542,7 +543,7 @@ class _DatabaseConfig(DataObject):
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: dict[str, Any] = Field(default_factory=dict)
     hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
-    query: dict[str, MaybeList[str]] | None = None
+    query: dict[str, MaybeSequence[str]] | None = None
 
 
 class SQLiteDatabaseConfig(_DatabaseConfig):
@@ -571,7 +572,7 @@ class ConfigCheckType(StrEnum):
         return tuple(cls)
 
 
-class ConfigMeta(DataObject, config={"extra": "allow"}):
+class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)

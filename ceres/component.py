@@ -60,7 +60,6 @@ from ceres.config import (
 )
 from ceres.data import (
     DataObject,
-    ImmutableDataModel,
     MaybeSequence,
     Name,
     OrderedStrEnum,
@@ -98,18 +97,10 @@ from ceres.event import (
     StoppingEvent,
     WillDetachEvent,
 )
+from ceres.message import Message, MessageContent, MessageDirectionInput, MessageFilter
 from ceres.node import Node
 from ceres.util import concurrently
 from ceres.variable import InternalVariableName, Variable
-
-
-class _Empty:
-    pass
-
-
-class _EmptyDict(TypedDict):
-    pass
-
 
 if TYPE_CHECKING:
     from pydantic.config import JsonDict
@@ -120,16 +111,9 @@ if TYPE_CHECKING:
     from ceres.connection import Connection, ConnectionField
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
-    from ceres.message import (
-        Message,
-        MessageContent,
-        MessageDirectionInput,
-        MessageFilter,
-    )
     from ceres.particle import Particle
     from ceres.status import Status
 else:
-    MessageFilter = ImmutableDataModel
     Connection = object
 
 with lazy_imports(__name__):
@@ -368,7 +352,7 @@ def get_sieve_binding(cls: type, name: str) -> SieveBinding | None:
     return get_sieve_bindings(cls).get(name)
 
 
-class ConnectionBinding(ImmutableDataModel):
+class ConnectionBinding(DataObject.Frozen):
     name: Name
     field: Name
 
@@ -415,14 +399,12 @@ def get_connection_binding(cls: type, name: str) -> ConnectionBinding | None:
     return get_connection_bindings(cls).get(name)
 
 
-class ListenerBinding(ImmutableDataModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
+class ListenerBinding(DataObject, config=ConfigDict(arbitrary_types_allowed=True)):
     name: Name
     method: Name
     event: type | UnionType
     local: bool
-    reference: Sequence[str]
+    reference: tuple[str, ...]
     address: AddressSelector | None
 
 
@@ -504,33 +486,28 @@ class ProcedureType(StrEnum):
     ACTION = "action"
 
 
-class ProcedureSchemas(ImmutableDataModel):
-    arguments: Mapping[str, Any] | None
-    output: Mapping[str, Any]
-
-
 class ProcedureOutputType(StrEnum):
     VALUE = "value"
     STREAMING = "streaming"
     FILE = "file"
 
 
-class ProcedureArgumentsInfo(ImmutableDataModel):
+class ProcedureArgumentsInfo(DataObject.Frozen):
     json_schema: Mapping[str, Any]
     required: bool
 
 
-class ProcedureValueOutputInfo(ImmutableDataModel):
+class ProcedureValueOutputInfo(DataObject.Frozen):
     type: Literal[ProcedureOutputType.VALUE] = ProcedureOutputType.VALUE
     json_schema: Mapping[str, Any]
 
 
-class ProcedureFileOutputInfo(ImmutableDataModel):
+class ProcedureFileOutputInfo(DataObject.Frozen):
     type: Literal[ProcedureOutputType.FILE] = ProcedureOutputType.FILE
     media: str | None = None
 
 
-class ProcedureStreamingOutputInfo(ImmutableDataModel):
+class ProcedureStreamingOutputInfo(DataObject.Frozen):
     type: Literal[ProcedureOutputType.STREAMING] = ProcedureOutputType.STREAMING
     media: str
 
@@ -566,7 +543,7 @@ ProcedurePermissions = ProcedureAccessLevel
 ProcedurePermissionsInput = ProcedureAccessLevelInput
 
 
-class __BaseProcedureBinding(ImmutableDataModel):
+class __BaseProcedureBinding(DataObject.Frozen):
     type: ProcedureType
     name: Name
     permissions: ProcedurePermissions
@@ -791,7 +768,7 @@ def action[**P, T](
     return action(method)
 
 
-class __ProcedureMethodInfo(ImmutableDataModel):
+class __ProcedureMethodInfo(DataObject.Frozen):
     name: str
     method: str
     arguments: ProcedureArgumentsInfo | None
@@ -891,7 +868,7 @@ RoutineRestartPolicyLiteral = Literal[
 ]
 
 
-class RoutineBinding(ImmutableDataModel):
+class RoutineBinding(DataObject.Frozen):
     method: Name
     restart: RoutineRestartPolicy
     restart_delay: PositiveTimeDelta
@@ -941,7 +918,8 @@ def routine(
 
 @runtime_checkable
 class _MethodBinding(Protocol):
-    method: str
+    @property
+    def method(self) -> str: ...
 
 
 def get_component_method_bindings_on[T: _MethodBinding](
@@ -990,13 +968,13 @@ def get_component_method_bindings[T: _MethodBinding](
     return sorted(bindings.values(), key=lambda current: current.method)
 
 
-class SieveBinding(ImmutableDataModel):
+class SieveBinding(DataObject.Frozen):
     name: Name
     method: Name
     retries: NonNegativeInt | None
     retry_delay: PositiveTimeDelta
     filter: MessageFilter | None
-    connections: Sequence[Name] | None = None
+    connections: tuple[Name, ...] | None = None
 
 
 type SieveMethod[S, T: Particle] = (
@@ -1044,11 +1022,13 @@ def sieve[S, T: Particle](
         connections = None
     else:
         method = None
-        connections = [
-            current.name
-            for current in cast("Sequence[ConnectionField]", util.seq(first))
-            if current.name is not None
-        ]
+        connections = tuple(
+            [
+                current.name
+                for current in cast("Sequence[ConnectionField]", util.seq(first))
+                if current.name is not None
+            ]
+        )
 
     from ceres.message import Message
 
@@ -1094,12 +1074,9 @@ def _add_binding(method: Callable[..., object], binding: _MethodBinding) -> None
     if not isinstance(bindings, Sequence):
         bindings = []
 
-    if isinstance(bindings, list):
-        bindings.append(binding)
-    else:
-        bindings = [*bindings, binding]
-
-    setattr(method, _BINDINGS_ATTRIBUTE, bindings)
+    bindings = list(bindings)
+    bindings.append(binding)
+    setattr(method, _BINDINGS_ATTRIBUTE, tuple(bindings))
 
 
 def _get_bound_name(function: Callable[..., Any]) -> str:

@@ -5,6 +5,7 @@ import asyncio
 from fastapi import Response
 
 from ceres._internal.app.shared import (
+    EXCLUDE_PASSWORDS,
     VIEWER,
     AuthorizationCookieType,
     CurrentEngine,
@@ -15,7 +16,7 @@ from ceres._internal.app.shared import (
     assign_authorization_cookie,
     create_identity,
 )
-from ceres.data import DataObject, NonEmptyStr, PasswordStr
+from ceres.data import DataObject, Password
 from ceres.error import (
     AuthenticationDisabledError,
     BadCredentialsError,
@@ -28,11 +29,7 @@ from ceres.user import User
 router = Router(
     prefix="/auth",
     tags=["auth"],
-    default_response_model_exclude={
-        "password": True,
-        "user": {"password"},
-        "users": {"__all__": {"password"}},
-    },
+    default_response_model_exclude=EXCLUDE_PASSWORDS,
 )
 
 WRONG_PASSWORD_DELAY_SECONDS = 2.5
@@ -99,7 +96,7 @@ async def logout(response: Response, identity: CurrentIdentity) -> Identity:
     return identity
 
 
-@router.get("/me", tags=["auth"])
+@router.get("/me")
 async def get_me(identity: CurrentIdentity) -> Identity:
     if identity is None:
         raise Failure(NotAuthenticatedError)
@@ -108,8 +105,8 @@ async def get_me(identity: CurrentIdentity) -> Identity:
 
 
 class ChangePasswordInput(DataObject):
-    old_password: NonEmptyStr
-    new_password: PasswordStr
+    old_password: str
+    new_password: Password
 
 
 @router.post("/change-password", dependencies=[VIEWER])

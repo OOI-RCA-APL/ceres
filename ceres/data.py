@@ -1300,11 +1300,13 @@ class DataObject(
     def __repr__(self) -> str:
         tokens = [type(self).__name__, "("]
         for field in self.__data_object_fields__:
+            value = getattr(self, field, Undefined)
+            if value is Undefined:
+                continue
+
             tokens.append(field)
             tokens.append("=")
-            value = getattr(self, field, Undefined)
-            if value is not Undefined:
-                tokens.append(repr(value))
+            tokens.append(repr(value))
             tokens.append(", ")
 
         if tokens[-1] == ", ":
@@ -1329,13 +1331,13 @@ class DataObject(
 
     def __data_object_to_model__(self, *, revalidate: bool = False) -> DataModel:
         Model = self.__class__.Model
-        fields_set = set(self.__data_object_fields_set__)
-        values = to_dict(self)
+        __dict__ = to_dict(self)
+        __pydantic_fields_set__ = set(self.__data_object_fields_set__)
         if revalidate:
-            model = Model.model_validate(values)
-            model.__pydantic_fields_set__ = fields_set
+            model = Model.model_validate(__dict__)
+            model.__pydantic_fields_set__ = __pydantic_fields_set__
         else:
-            model = Model.model_construct(fields_set, **values)
+            model = Model.model_construct(__pydantic_fields_set__, **__dict__)
 
         return model
 
@@ -1363,10 +1365,9 @@ class DataObject(
     ) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
         if info.exclude_unset:
-            fields_set = self.__data_object_fields_set__
-            if not fields_set.is_full():
-                fields_unset = ~fields_set
-                for field in fields_unset:
+            __data_object_fields_set__ = self.__data_object_fields_set__
+            if not __data_object_fields_set__.is_full():
+                for field in ~__data_object_fields_set__:
                     data.pop(field, None)
 
         return data
@@ -1569,19 +1570,18 @@ if TYPE_CHECKING:
     # inherits from `typing.Generic` and causes issues with `dataclasses.dataclass`.
     __ensure_is_pydantic_dataclass: type[PydanticDataclass] = DataObject
 
-__USERNAME_PATTERN = r"[a-zA-Z\-_]+"
 
-UsernameStr: TypeAlias = Annotated[
+Username: TypeAlias = Annotated[
     str,
     StringConstraints(
-        pattern=__USERNAME_PATTERN,
+        pattern=r"[a-zA-Z\-_]+",
         min_length=1,
         max_length=64,
     ),
 ]
 
 
-def __validate_password_str(value: str) -> str:
+def __validate_password(value: str) -> str:
     bytes = len(value.encode())
     if bytes > 72:
         raise ValueError("password cannot exceed 72 bytes")
@@ -1589,43 +1589,48 @@ def __validate_password_str(value: str) -> str:
     return value
 
 
-PasswordStr: TypeAlias = Annotated[
+Password: TypeAlias = Annotated[
     str,
     StringConstraints(min_length=1, max_length=32),
-    AfterValidator(__validate_password_str),
+    AfterValidator(__validate_password),
 ]
 
 
-def __validate_email_str(value: str) -> str:
+def __validate_email_address(value: str) -> str:
     from email_validator import validate_email
 
     validated = validate_email(value, check_deliverability=False)
     return validated.normalized.lower()
 
 
-EmailStr: TypeAlias = Annotated[
+EmailAddress: TypeAlias = Annotated[
     str,
-    AfterValidator(__validate_email_str),
+    AfterValidator(__validate_email_address),
 ]
-
-__BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
-
-if TYPE_CHECKING:
-    util.blackhole(__BCRYPT_HASH_PATTERN)
 
 BCryptHash = NewType(
     "BCryptHash",
-    str if TYPE_CHECKING else Annotated[str, StringConstraints(pattern=__BCRYPT_HASH_PATTERN)],
+    str
+    if TYPE_CHECKING
+    else Annotated[
+        str,
+        StringConstraints(
+            pattern=r"^\$2[ayb]\$.{56}$",
+        ),
+    ],
 )
 
-__ARGON2_HASH_PATTERN = r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
-
-if TYPE_CHECKING:
-    util.blackhole(__ARGON2_HASH_PATTERN)
 
 Argon2Hash = NewType(
     "Argon2Hash",
-    str if TYPE_CHECKING else Annotated[str, StringConstraints(pattern=__ARGON2_HASH_PATTERN)],
+    str
+    if TYPE_CHECKING
+    else Annotated[
+        str,
+        StringConstraints(
+            pattern=r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
+        ),
+    ],
 )
 
 PasswordHash: TypeAlias = BCryptHash | Argon2Hash
@@ -1705,10 +1710,6 @@ class OrderedStrEnum(StrEnum):
         return super().__ge__(__x)
 
 
-def get_assigned_fields(obj: SupportsPydanticFieldsSet, /) -> Set[str]:
-    return obj.__pydantic_fields_set__
-
-
 def defaulting[T: SupportsPydanticFieldsSet](
     original: T,
     defaults: T | dict[str, Any] | None = None,
@@ -1721,8 +1722,8 @@ def defaulting[T: SupportsPydanticFieldsSet](
     is_mapping = util.is_mapping(defaults)
 
     update: dict[str, Any] = {}
-    original_fields = get_assigned_fields(original)
-    defaults_fields = get_assigned_fields(defaults) if not is_mapping else defaults.keys()
+    original_fields = original.__pydantic_fields_set__
+    defaults_fields = defaults.__pydantic_fields_set__ if not is_mapping else defaults.keys()
 
     for field in defaults_fields:
         if field not in original_fields:
@@ -1781,10 +1782,10 @@ def WithDefaults(
     return AfterValidator(WithDefaults)
 
 
-_REGEX_FLAG_CHARACTERS = set(member for member in RegexFlag.__members__ if len(member) == 1)
+__REGEX_FLAG_CHARACTERS = set(member for member in RegexFlag.__members__ if len(member) == 1)
 
 
-def _pre_validate_regex_flags(value: object) -> object:
+def __pre_validate_regex_flags(value: object) -> object:
     if isinstance(value, str):
         value = value.upper()
         try:
@@ -1798,7 +1799,7 @@ def _pre_validate_regex_flags(value: object) -> object:
                 summed |= RegexFlag[character]
             except KeyError:
                 raise ValueError(
-                    f"invalid regex flag character '{character}', must be one of: {_REGEX_FLAG_CHARACTERS}"
+                    f"invalid regex flag character '{character}', must be one of: {__REGEX_FLAG_CHARACTERS}"
                 )
 
         return summed
@@ -1806,7 +1807,7 @@ def _pre_validate_regex_flags(value: object) -> object:
     return value
 
 
-RegexFlags = Annotated[RegexFlag, BeforeValidator(_pre_validate_regex_flags)]
+RegexFlags = Annotated[RegexFlag, BeforeValidator(__pre_validate_regex_flags)]
 
 
 def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
@@ -1893,20 +1894,20 @@ def __validate_datetime(value: object) -> datetime | None:
 DateTime: TypeAlias = Annotated[datetime, AfterValidator(__validate_datetime)]
 
 
-def __validate_timedelta(value: Any) -> timedelta | None:
+def _validate_timedelta(value: Any) -> timedelta | None:
     if value is None:
         return None
 
     return util.decode_td(value)
 
 
-TimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_timedelta)]
+TimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(_validate_timedelta)]
 
 __ZERO_TIMEDELTA = timedelta()
 
 
 def __validate_positive_timedelta(value: object) -> timedelta | None:
-    delta = __validate_timedelta(value)
+    delta = _validate_timedelta(value)
     if delta is None:
         return None
 
@@ -1918,7 +1919,7 @@ PositiveTimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_p
 
 
 def __validate_non_negative_timedelta(value: object) -> timedelta | None:
-    delta = __validate_timedelta(value)
+    delta = _validate_timedelta(value)
     if delta is None:
         return None
 

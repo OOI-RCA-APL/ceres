@@ -49,12 +49,18 @@ class ComponentRole(StrEnum):
     INTERFACE = "interface"
 
 
-class ComponentInfo(DataObject, slots=True):
+class ConnectionInfo(DataObject):
+    name: Name
+    label: str
+
+
+class ComponentInfo(DataObject):
     name: Name
     address: Address
-    components: list[ComponentInfo]
     roles: list[ComponentRole]
     procedures: list[ProcedureBinding]
+    connections: list[ConnectionInfo]
+    components: list[ComponentInfo]
 
 
 ComponentInfo.__name__ = "Component"
@@ -86,12 +92,21 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
     for subcomponent in component.system.children:
         subcomponents.append(await get_component(engine, address / subcomponent.name))
 
+    roles = _get_component_roles(component)
+    procedures = list(component.system.get_procedure_bindings().values())
+    connections = [
+        ConnectionInfo(name=connection.name, label=connection.label)
+        for connection in component.system.connections.all()
+        if connection.name is not None
+    ]
+
     try:
         info = ComponentInfo(
             name=component.system.name,
             address=address,
-            roles=_get_component_roles(component),
-            procedures=list(component.system.get_procedure_bindings().values()),
+            roles=roles,
+            procedures=procedures,
+            connections=connections,
             components=subcomponents,
         )
         return info

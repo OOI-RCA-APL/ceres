@@ -167,7 +167,7 @@ class ParticleData(DataObject, Mapping[str, Any], config=ConfigDict(extra="ignor
         return self.__dict__.items()
 
 
-DynamicParticleData: TypeAlias = JSONSerializableDict | ParticleData
+DynamicParticleData: TypeAlias = ParticleData | JSONSerializableDict
 
 # ruff: disable[UP046] Need `TypeVar.default` for Python 3.12 compatibility.
 
@@ -180,8 +180,8 @@ if TYPE_CHECKING:
     )
     ConvertedDataT = TypeVar(
         "ConvertedDataT",
-        bound=DynamicParticleData,
-        default=DynamicParticleData,
+        bound=ParticleData,
+        default=ParticleData,
         covariant=True,
     )
 else:
@@ -192,7 +192,8 @@ else:
     )
     ConvertedDataT = TypeVar(
         "ConvertedDataT",
-        default=DynamicParticleData,
+        bound=ParticleData,
+        default=ParticleData,
         covariant=True,
     )
 
@@ -436,7 +437,7 @@ class BoundParticleManager(ParticleManager, BaseNodeManager):
 
 class ParticleOutputChannel(
     EntityOutputChannel[
-        "Particle",
+        "Particle[DataT]",
         ParticleFilter,
         ParticleFilterArgs,
     ],
@@ -451,18 +452,24 @@ class ParticleOutputChannel(
     @overload
     def where(
         self,
-        filter: ParticleFilter[DataT] | Callable[[Particle[DataT]], bool] | None = None,
-        /,
-        **kwargs: Unpack[ParticleFilterArgs[DataT]],
-    ) -> ParticleOutputChannel[DataT]: ...
+        **kwargs: Unpack[ParticleFilterArgs[ConvertedDataT]],
+    ) -> ParticleOutputChannel[ConvertedDataT]: ...
 
     @overload
     def where(
         self,
-        filter: ParticleFilter[ConvertedDataT],
+        filter: ParticleFilter[ConvertedDataT] | None = None,
         /,
         **kwargs: Unpack[ParticleFilterArgs[ConvertedDataT]],
     ) -> ParticleOutputChannel[ConvertedDataT]: ...
+
+    @overload
+    def where(
+        self,
+        filter: ParticleFilter[DataT] | Callable[[Particle[DataT]], bool] | None = None,
+        /,
+        **kwargs: Unpack[ParticleFilterArgs[DataT]],
+    ) -> ParticleOutputChannel[DataT]: ...
 
     @override
     def where(  # type: ignore

@@ -2,15 +2,15 @@ import asyncio
 from abc import abstractmethod
 from dataclasses import field
 from datetime import timedelta
-from typing import Any, override
+from typing import override
 
 import anyio
 from anyio.abc import SocketStream
-from pydantic import NonNegativeInt, model_validator
+from pydantic import NonNegativeInt
 
 from ceres._internal import util
 from ceres._internal.util import UNIX
-from ceres.data import DataObject, NonEmptyStr, PositiveTimeDelta
+from ceres.data import DataObject, NonBlankStr, PositiveTimeDelta
 
 
 class Source(DataObject):
@@ -100,35 +100,31 @@ class AnyIOSource(Source, slots=True):
             return None
 
 
-class TCPSource(AnyIOSource):
-    host: NonEmptyStr
+class TCPSource(AnyIOSource, slots=True):
+    host: NonBlankStr
     port: NonNegativeInt
 
     @property
     @override
     def label(self) -> str:
-        return f"{self.host}:{self.port}"
+        return f"tcp://{self.host}:{self.port}"
 
     @override
     async def _create_stream(self) -> SocketStream:
         return await anyio.connect_tcp(self.host, self.port)
 
 
-class UNIXSocketSource(AnyIOSource):
-    socket: NonEmptyStr
+class UNIXSocketSource(AnyIOSource, slots=True):
+    socket: NonBlankStr
 
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_os(cls, value: Any) -> Any:
+    def __post_init__(self) -> None:
         if not UNIX:
-            raise ValueError(f"`{cls}` is not supported on the current operating system.")
-
-        return value
+            raise ValueError(f"`{type(self)}` is not supported on the current operating system.")
 
     @property
     @override
     def label(self) -> str:
-        return self.socket
+        return f"unix://{self.socket}"
 
     @override
     async def _create_stream(self) -> SocketStream:

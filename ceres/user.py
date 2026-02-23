@@ -33,12 +33,12 @@ from ceres._internal.entity import (
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.util import MatchMode
 from ceres.data import (
-    EmailStr,
+    EmailAddress,
     MaybeSequence,
     OrderedStrEnum,
+    Password,
     PasswordHash,
-    PasswordStr,
-    UsernameStr,
+    Username,
 )
 
 if TYPE_CHECKING:
@@ -60,8 +60,8 @@ class UserRole(OrderedStrEnum):
 class UserRow(BaseUUIDEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "users"
 
-    username: Mapped[UsernameStr] = mapped_column(Text)
-    email: Mapped[EmailStr] = mapped_column(Text)
+    username: Mapped[Username] = mapped_column(Text)
+    email: Mapped[EmailAddress] = mapped_column(Text)
     password: Mapped[PasswordHash] = mapped_column(Text)
     role: Mapped[UserRole] = mapped_column(
         EnumMapper(UserRole),
@@ -109,7 +109,7 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
     username_contains: MaybeSequence[str] | None
     username_prefix: MaybeSequence[str] | None
     username_suffix: MaybeSequence[str] | None
-    email: MaybeSequence[EmailStr] | None
+    email: MaybeSequence[EmailAddress] | None
     email_contains: MaybeSequence[str] | None
     email_prefix: MaybeSequence[str] | None
     email_suffix: MaybeSequence[str] | None
@@ -130,7 +130,7 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     """Filter by `username` starting with one or more given prefixes."""
     username_suffix: MaybeSequence[str] | None = None
     """Filter by `username` ending with one or more given suffixes."""
-    email: MaybeSequence[EmailStr] | None = None
+    email: MaybeSequence[EmailAddress] | None = None
     """Filter by `email` being equal to one or more given email addresses."""
     email_contains: MaybeSequence[str] | None = None
     """Filter by `email` containing one or more given substrings."""
@@ -250,17 +250,17 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
 
 
 class UserCreate(BaseUUIDEntityCreate, slots=True):
-    username: UsernameStr
-    email: EmailStr
-    password: PasswordStr | PasswordHash
+    username: Username
+    email: EmailAddress
+    password: Password | PasswordHash
     role: UserRole = UserRole.OPERATOR
     disabled: bool = False
 
 
 class UserUpdate(TypedDict, total=False):
-    username: UsernameStr
-    email: EmailStr
-    password: PasswordStr | PasswordHash
+    username: Username
+    email: EmailAddress
+    password: Password | PasswordHash
     role: UserRole
     disabled: bool
 

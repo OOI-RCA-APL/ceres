@@ -8,6 +8,7 @@ from starlette.status import HTTP_201_CREATED
 
 from ceres._internal.app.shared import (
     ADMIN,
+    EXCLUDE_PASSWORDS,
     SELF_OR_ADMIN,
     VIEWER,
     CurrentEngine,
@@ -22,10 +23,7 @@ from ceres.user import User, UserCreate, UserFilter, UserRole, UserUpdate
 router = Router(
     prefix="/users",
     tags=["users"],
-    default_response_model_exclude={
-        "password": True,
-        "__all__": {"password"},
-    },
+    default_response_model_exclude=EXCLUDE_PASSWORDS,
 )
 
 

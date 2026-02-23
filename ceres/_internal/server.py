@@ -6,7 +6,7 @@ from contextlib import closing
 from typing import TYPE_CHECKING, Any, Final, override
 
 from ceres._internal import util
-from ceres.data import ImmutableDataModel, uuid4
+from ceres.data import DataObject, uuid4
 from ceres.tasklet import Tasklet
 from ceres.threading import spawn
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from ceres.engine import Engine
 
 
-class CLIServerInfo(ImmutableDataModel):
+class CLIServerInfo(DataObject):
     port: int
     token: str
 

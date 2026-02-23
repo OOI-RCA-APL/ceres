@@ -4,13 +4,13 @@ from abc import abstractmethod
 from collections.abc import Iterable
 from typing import override
 
-from pydantic import Field, SecretStr
+from pydantic import Field, NonNegativeInt, SecretStr
 
 from ceres.component import Component, action
-from ceres.data import ImmutableDataModel, NonBlankStr
+from ceres.data import DataObject, NonBlankStr
 
 
-class Notification(ImmutableDataModel):
+class Notification(DataObject):
     subject: NonBlankStr
     content: str | None = None
     content_type: NonBlankStr = "text/plain"
@@ -28,7 +28,7 @@ class Notifier(Component):
 
 class SMTPNotifier(Notifier):
     host: NonBlankStr
-    port: int = Field(ge=0)
+    port: NonNegativeInt
     sender: NonBlankStr
     username: NonBlankStr | None = None
     password: SecretStr | None = Field(None, min_length=1)

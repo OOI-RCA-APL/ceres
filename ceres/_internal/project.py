@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ceres._internal import util
+from ceres.data import from_json, to_json
 from ceres.directory import Directory
 
 if TYPE_CHECKING:
@@ -56,13 +57,13 @@ class LoadedProject(Project):
         try:
             from ceres._internal.server import CLIServerInfo
 
-            return CLIServerInfo.model_validate_json(self.cli_server_info_path.read_text())
+            return from_json(self.cli_server_info_path.read_text(), CLIServerInfo)
         except Exception:
             return None
 
     def write_cli_server_info(self, info: CLIServerInfo) -> None:
         self.cli_server_info_path.touch(0o600)
-        self.cli_server_info_path.write_text(info.model_dump_json())
+        self.cli_server_info_path.write_text(to_json(info))
         self.cli_server_info_path.chmod(0o600)
 
     def delete_cli_server_info(self) -> None:
