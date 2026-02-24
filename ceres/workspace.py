@@ -5,7 +5,6 @@ from typing import (
     ClassVar,
     Literal,
     Self,
-    TypeAlias,
     TypedDict,
     Unpack,
     override,
@@ -121,13 +120,13 @@ class WorkspaceMembershipRow(BaseEntityRow, kw_only=True):
         )
 
 
-WorkspaceMembershipField: TypeAlias = Literal[
+type WorkspaceMembershipField = Literal[
     "user_id",
     "workspace_id",
     "role",
     "data",
 ]
-WorkspaceMembershipOrder: TypeAlias = Literal[
+type WorkspaceMembershipOrder = Literal[
     "user_id",
     "user_id:asc",
     "user_id:desc",
@@ -220,7 +219,7 @@ class _BaseWorkspaceMembershipQuery(
     __slots__ = ()
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: WorkspaceMembershipFilter | None = None,
         **kwargs: Unpack[WorkspaceMembershipFilterArgs],
@@ -264,15 +263,15 @@ class WorkspaceMembershipManager(
 
 
 class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate, slots=True):
-    Manager: ClassVar[type[WorkspaceMembershipManager]] = WorkspaceMembershipManager
-    Row: ClassVar[type[WorkspaceMembershipRow]] = WorkspaceMembershipRow
-    Create: ClassVar[type[WorkspaceMembershipCreate]] = WorkspaceMembershipCreate
-    Update: ClassVar[type[WorkspaceMembershipUpdate]] = WorkspaceMembershipUpdate
-    Filter: ClassVar[type[WorkspaceMembershipFilter]] = WorkspaceMembershipFilter
-    FilterArgs: ClassVar[type[WorkspaceMembershipFilterArgs]] = WorkspaceMembershipFilterArgs
+    Manager = WorkspaceMembershipManager
+    Row = WorkspaceMembershipRow
+    Create = WorkspaceMembershipCreate
+    Update = WorkspaceMembershipUpdate
+    Filter = WorkspaceMembershipFilter
+    FilterArgs = WorkspaceMembershipFilterArgs
     Field = WorkspaceMembershipField
     Order = WorkspaceMembershipOrder
-    Role: ClassVar[type[WorkspaceMembershipRole]] = WorkspaceMembershipRole
+    Role = WorkspaceMembershipRole
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("workspace membership")
 
@@ -307,12 +306,12 @@ class WorkspaceEditRow(BaseEntityRow, kw_only=True):
         )
 
 
-WorkspaceEditField: TypeAlias = Literal[
+type WorkspaceEditField = Literal[
     "user_id",
     "workspace_id",
     "data",
 ]
-WorkspaceEditOrder: TypeAlias = Literal[
+type WorkspaceEditOrder = Literal[
     "user_id",
     "user_id:asc",
     "user_id:desc",
@@ -396,7 +395,7 @@ class _BaseWorkspaceEditQuery(
     __slots__ = ()
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: WorkspaceEditFilter | None = None,
         **kwargs: Unpack[WorkspaceEditFilterArgs],
@@ -440,12 +439,12 @@ class WorkspaceEditManager(
 
 
 class WorkspaceEdit(BaseEntity, WorkspaceEditCreate, slots=True):
-    Manager: ClassVar[type[WorkspaceEditManager]] = WorkspaceEditManager
-    Row: ClassVar[type[WorkspaceEditRow]] = WorkspaceEditRow
-    Create: ClassVar[type[WorkspaceEditCreate]] = WorkspaceEditCreate
-    Update: ClassVar[type[WorkspaceEditUpdate]] = WorkspaceEditUpdate
-    Filter: ClassVar[type[WorkspaceEditFilter]] = WorkspaceEditFilter
-    FilterArgs: ClassVar[type[WorkspaceEditFilterArgs]] = WorkspaceEditFilterArgs
+    Manager = WorkspaceEditManager
+    Row = WorkspaceEditRow
+    Create = WorkspaceEditCreate
+    Update = WorkspaceEditUpdate
+    Filter = WorkspaceEditFilter
+    FilterArgs = WorkspaceEditFilterArgs
     Field = WorkspaceEditField
     Order = WorkspaceEditOrder
 
@@ -520,7 +519,7 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
         )
 
 
-WorkspaceField: TypeAlias = (
+type WorkspaceField = (
     BaseUUIDEntityField
     | Literal[
         "name",
@@ -530,7 +529,7 @@ WorkspaceField: TypeAlias = (
         "data",
     ]
 )
-WorkspaceOrder: TypeAlias = (
+type WorkspaceOrder = (
     BaseUUIDEntityOrder
     | Literal[
         "name",
@@ -735,7 +734,7 @@ class _BaseWorkspaceQuery(
     __slots__ = ()
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: WorkspaceFilter | None = None,
         **kwargs: Unpack[WorkspaceFilterArgs],
@@ -779,16 +778,16 @@ class WorkspaceManager(
 
 
 class Workspace(BaseUUIDEntity, WorkspaceCreate, slots=True):
-    Manager: ClassVar[type[WorkspaceManager]] = WorkspaceManager
-    Row: ClassVar[type[WorkspaceRow]] = WorkspaceRow
-    Create: ClassVar[type[WorkspaceCreate]] = WorkspaceCreate
-    Update: ClassVar[type[WorkspaceUpdate]] = WorkspaceUpdate
-    Filter: ClassVar[type[WorkspaceFilter]] = WorkspaceFilter
-    FilterArgs: ClassVar[type[WorkspaceFilterArgs]] = WorkspaceFilterArgs
+    Manager = WorkspaceManager
+    Row = WorkspaceRow
+    Create = WorkspaceCreate
+    Update = WorkspaceUpdate
+    Filter = WorkspaceFilter
+    FilterArgs = WorkspaceFilterArgs
     Field = WorkspaceField
     Order = WorkspaceOrder
 
-    Edit: ClassVar[type[WorkspaceEdit]] = WorkspaceEdit
-    Membership: ClassVar[type[WorkspaceMembership]] = WorkspaceMembership
+    Edit = WorkspaceEdit
+    Membership = WorkspaceMembership
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("workspace")

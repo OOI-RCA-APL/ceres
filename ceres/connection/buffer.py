@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias, overload, override
+from typing import TYPE_CHECKING, Final, NamedTuple, overload, override
 
 from ceres.timing import utc
 
@@ -54,7 +54,7 @@ class VirtualChunk:
         return Chunk(self.data, self.timestamp)
 
 
-ChunkInput: TypeAlias = "tuple[BytesLike, datetime | timedelta]"
+type ChunkInput = tuple[BytesLike, datetime | timedelta]
 
 
 class _Entry(NamedTuple):

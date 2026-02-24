@@ -23,6 +23,7 @@ from typing import (
     LiteralString,
     Self,
     TypeAlias,
+    TypeVar,
     Unpack,
     overload,
     override,
@@ -31,9 +32,6 @@ from typing import (
 from pydantic import ConfigDict, ImportString, SerializeAsAny, ValidationError, model_validator
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
-
-# Used for `TypeVar` default.
-from typing_extensions import TypeVar
 
 from ceres._internal import util
 from ceres._internal.entity import (
@@ -98,14 +96,14 @@ class ParticleRow(BaseRecordRow, kw_only=True):
         )
 
 
-ParticleField: TypeAlias = (
+type ParticleField = (
     BaseRecordField
     | Literal[
         "type",
         "data",
     ]
 )
-ParticleOrder: TypeAlias = (
+type ParticleOrder = (
     BaseRecordOrder
     | Literal[
         "type",
@@ -118,6 +116,7 @@ UNKNOWN_TYPE: LiteralString = "__unknown__"
 
 
 class ParticleData(DataObject, Mapping[str, Any], config=ConfigDict(extra="ignore")):
+    __slots__ = ("__dict__",)
     __abstract__: ClassVar[bool] = True
     __type__: ClassVar[LiteralString]
 
@@ -140,7 +139,7 @@ class ParticleData(DataObject, Mapping[str, Any], config=ConfigDict(extra="ignor
         return self.__dict__[key]
 
     def __setitem__(self, key: str, value: Any, /) -> None:
-        self.__dict__[key] = value
+        self.__dict__[key] = value  # type: ignore
 
     @override
     def __contains__(self, key: object, /) -> bool:
@@ -362,7 +361,7 @@ class _BaseParticleQuery(
     ) -> ParticleQuery[Any]: ...
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: ParticleFilter[Any] | None = None,
         **kwargs: Unpack[ParticleFilterArgs[Any]],
@@ -541,7 +540,10 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
 
         return values
 
-    def convert[D: DynamicParticleData](self, cls: builtins.type[D]) -> Particle[D]:
+    def convert[ConvertedDataT: DynamicParticleData](
+        self,
+        cls: builtins.type[ConvertedDataT],
+    ) -> Particle[ConvertedDataT]:
         data = (
             validate(self.data, cls)
             if util.lenient_issubclass(cls, ParticleData)
@@ -556,14 +558,17 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
             data=data,
         )
 
-    def convert_or_none[D: DynamicParticleData](self, cls: builtins.type[D]) -> Particle[D] | None:
+    def convert_or_none[ConvertedDataT: DynamicParticleData](
+        self,
+        cls: builtins.type[ConvertedDataT],
+    ) -> Particle[ConvertedDataT] | None:
         try:
             return self.convert(cls)
         except ValidationError:
             return None
 
 
-def _convert_or_none(
+def _convert_or_none[DataT: DynamicParticleData = DynamicParticleData](
     particle: Particle | None,
     data_class: type[DataT] | None,
 ) -> Particle[DataT] | None:

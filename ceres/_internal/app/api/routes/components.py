@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import traceback
-from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastapi import Body, Request, Response, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
@@ -197,9 +197,9 @@ async def get_action(
 
 
 if TYPE_CHECKING:
-    CallResult: TypeAlias = Any | Response | None | ProcedureError
+    type CallResult = Any | Response | None | ProcedureError
 else:
-    CallResult = Any
+    type CallResult = Any
 
 
 async def _call(
@@ -400,23 +400,23 @@ class SendMessageInput(DataModel):
     data: MessageContent
 
 
-@router.post("/{address}/connections/{name}/send", dependencies=[OPERATOR])
+@router.post("/{address}/connections/{connection}/send", dependencies=[OPERATOR])
 async def send_message(
     engine: CurrentEngine,
     address: Address,
     connection: str,
     input: Annotated[SendMessageInput, Body()],
-) -> Message | NotFoundError | NotConnectedError:
+) -> Message:
     from ceres.connection import ConnectionInactive
 
     component = engine.get_component(address)
     if component is None:
-        return NotFoundError()
+        raise Failure(NotFoundError)
     target = component.system.connections.get(connection)
     if target is None:
-        return NotFoundError()
+        raise Failure(NotFoundError)
 
     try:
         return await target.send(input.data)
     except ConnectionInactive:
-        return NotConnectedError()
+        raise Failure(NotConnectedError)

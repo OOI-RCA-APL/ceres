@@ -58,14 +58,6 @@ with lazy_imports(__name__):
 
 
 class Database:
-    __slots__ = (
-        "_id",
-        "_config",
-        "_engine",
-        "_init_lock",
-        "_init_completed",
-    )
-
     def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
             match config:
@@ -336,8 +328,6 @@ class Database:
 
 @final
 class SQLiteDatabase(Database):
-    __slots__ = ()
-
     @override
     def __new__(cls, /, config: SQLiteDatabaseConfig | None = None) -> Self:
         instance = object.__new__(cls)
@@ -462,8 +452,6 @@ class SQLiteDatabase(Database):
 
 @final
 class PostgresDatabase(Database):
-    __slots__ = ()
-
     def __new__(cls, /, config: PostgresDatabaseConfig) -> Self:
         instance = object.__new__(cls)
         cls.__init__(instance, config)

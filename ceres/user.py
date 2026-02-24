@@ -4,7 +4,6 @@ from typing import (
     TYPE_CHECKING,
     ClassVar,
     Literal,
-    TypeAlias,
     TypedDict,
     Unpack,
     override,
@@ -84,8 +83,16 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
         )
 
 
-UserField: TypeAlias = BaseUUIDEntityField | Literal["username", "email", "role", "disabled"]
-UserOrder: TypeAlias = (
+type UserField = (
+    BaseUUIDEntityField
+    | Literal[
+        "username",
+        "email",
+        "role",
+        "disabled",
+    ]
+)
+type UserOrder = (
     BaseUUIDEntityOrder
     | Literal[
         "username",
@@ -276,7 +283,7 @@ class _BaseUserQuery(
     __slots__ = ()
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: UserFilter | None = None,
         **kwargs: Unpack[UserFilterArgs],
@@ -337,7 +344,7 @@ class UserManager(
 
     @override
     async def _create_transform(self, data: UserCreate) -> User:
-        fields = {**data.__dict__}
+        fields = dict(data)
         fields["password"] = await self._maybe_hash_password(fields["password"])
         return User(**fields)
 
@@ -350,16 +357,16 @@ class BoundUserManager(UserManager, BaseNodeManager):
 
 
 class User(BaseUUIDEntity, UserCreate, slots=True):
-    Manager: ClassVar[type[UserManager]] = UserManager
-    BoundManager: ClassVar[type[BoundUserManager]] = BoundUserManager
-    Row: ClassVar[type[UserRow]] = UserRow
-    Create: ClassVar[type[UserCreate]] = UserCreate
-    Update: ClassVar[type[UserUpdate]] = UserUpdate
-    Filter: ClassVar[type[UserFilter]] = UserFilter
-    FilterArgs: ClassVar[type[UserFilterArgs]] = UserFilterArgs
+    Manager = UserManager
+    BoundManager = BoundUserManager
+    Row = UserRow
+    Create = UserCreate
+    Update = UserUpdate
+    Filter = UserFilter
+    FilterArgs = UserFilterArgs
     Field = UserField
     Order = UserOrder
-    Role: ClassVar[type[UserRole]] = UserRole
+    Role = UserRole
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("user")
 

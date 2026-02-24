@@ -5,7 +5,6 @@ from typing import (
     Any,
     ClassVar,
     Literal,
-    TypeAlias,
     TypedDict,
     Unpack,
     overload,
@@ -65,14 +64,14 @@ class VariableRow(BaseAddressEntityRow, kw_only=True):
         )
 
 
-VariableField: TypeAlias = (
+type VariableField = (
     BaseAddressEntityField
     | Literal[
         "name",
         "value",
     ]
 )
-VariableOrder: TypeAlias = (
+type VariableOrder = (
     BaseAddressEntityOrder
     | Literal[
         "name",
@@ -193,7 +192,7 @@ class _BaseVariableQuery(
         return VariableQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: VariableFilter | None = None,
         **kwargs: Unpack[VariableFilterArgs],
@@ -327,7 +326,7 @@ class VariableOutputChannel(
         return VariableFilter
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: VariableFilter | Callable[[Variable], bool] | None = None,
         /,
@@ -337,13 +336,13 @@ class VariableOutputChannel(
 
 
 class Variable(BaseAddressEntity, VariableCreate, slots=True):
-    Manager: ClassVar[type[VariableManager]] = VariableManager
-    BoundManager: ClassVar[type[BoundVariableManager]] = BoundVariableManager
-    Row: ClassVar[type[VariableRow]] = VariableRow
-    Create: ClassVar[type[VariableCreate]] = VariableCreate
-    Update: ClassVar[type[VariableUpdate]] = VariableUpdate
-    Filter: ClassVar[type[VariableFilter]] = VariableFilter
-    FilterArgs: ClassVar[type[VariableFilterArgs]] = VariableFilterArgs
+    Manager = VariableManager
+    BoundManager = BoundVariableManager
+    Row = VariableRow
+    Create = VariableCreate
+    Update = VariableUpdate
+    Filter = VariableFilter
+    FilterArgs = VariableFilterArgs
     Field = VariableField
     Order = VariableOrder
 

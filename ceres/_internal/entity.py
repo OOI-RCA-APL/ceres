@@ -1142,21 +1142,14 @@ class BaseEntityManager[
 
 
 class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
-    Manager: ClassVar[type[BaseEntityManager]] = BaseEntityManager
-    Row: ClassVar[type[BaseEntityRow]] = BaseEntityRow
-    Create: ClassVar[type[BaseEntityCreate]] = BaseEntityCreate
-    Update: ClassVar[type[BaseEntityUpdate]] = BaseEntityUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseEntityFilter
-        FilterArgs: ClassVar = BaseEntityFilterArgs
-        Field: ClassVar = str
-        Order: ClassVar = str
-    else:
-        Filter: ClassVar[type[BaseEntityFilter]] = BaseEntityFilter
-        FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs
-        Field: ClassVar[type[str]] = str
-        Order: ClassVar[type[str]] = str
+    Manager = BaseEntityManager
+    Row = BaseEntityRow
+    Create = BaseEntityCreate
+    Update = BaseEntityUpdate
+    Filter = BaseEntityFilter
+    FilterArgs = BaseEntityFilterArgs
+    Field = str
+    Order = str
 
 
 _REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, type[Any] | None] = {
@@ -1222,8 +1215,8 @@ class BaseUUIDEntityRow(BaseEntityRow):
         )
 
 
-BaseUUIDEntityField: TypeAlias = Literal["id"]
-BaseUUIDEntityOrder: TypeAlias = Literal[
+type BaseUUIDEntityField = Literal["id"]
+type BaseUUIDEntityOrder = Literal[
     "id",
     "id:asc",
     "id:desc",
@@ -1278,20 +1271,13 @@ class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
 
 
 class BaseUUIDEntity(BaseUUIDEntityCreate, abstract=True, slots=True):
-    Row: ClassVar[type[BaseUUIDEntityRow]] = BaseUUIDEntityRow
-    Create: ClassVar[type[BaseUUIDEntityCreate]] = BaseUUIDEntityCreate
-    Update: ClassVar[type[BaseUUIDEntityUpdate]] = BaseUUIDEntityUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseUUIDEntityFilter
-        FilterArgs: ClassVar = BaseUUIDEntityFilterArgs
-        Field: ClassVar = BaseUUIDEntityField
-        Order: ClassVar = BaseUUIDEntityOrder
-    else:
-        Filter: ClassVar[type[BaseUUIDEntityFilter]] = BaseUUIDEntityFilter
-        FilterArgs: ClassVar[type[BaseUUIDEntityFilterArgs]] = BaseUUIDEntityFilterArgs
-        Field: ClassVar[type[BaseUUIDEntityField]] = BaseUUIDEntityField
-        Order: ClassVar[type[BaseUUIDEntityOrder]] = BaseUUIDEntityOrder
+    Row = BaseUUIDEntityRow
+    Create = BaseUUIDEntityCreate
+    Update = BaseUUIDEntityUpdate
+    Filter = BaseUUIDEntityFilter
+    FilterArgs = BaseUUIDEntityFilterArgs
+    Field = BaseUUIDEntityField
+    Order = BaseUUIDEntityOrder
 
 
 class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
@@ -1308,8 +1294,8 @@ class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
         )
 
 
-BaseAddressEntityField: TypeAlias = Literal["address"]
-BaseAddressEntityOrder: TypeAlias = Literal[
+type BaseAddressEntityField = Literal["address"]
+type BaseAddressEntityOrder = Literal[
     "address",
     "address:asc",
     "address:desc",
@@ -1368,20 +1354,13 @@ class BaseAddressEntityUpdate(BaseEntityUpdate, total=False):
 
 
 class BaseAddressEntity(BaseAddressEntityCreate, abstract=True, slots=True):
-    Row: ClassVar[type[BaseAddressEntityRow]] = BaseAddressEntityRow
-    Create: ClassVar[type[BaseAddressEntityCreate]] = BaseAddressEntityCreate
-    Update: ClassVar[type[BaseAddressEntityUpdate]] = BaseAddressEntityUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseAddressEntityFilter
-        FilterArgs: ClassVar = BaseAddressEntityFilterArgs
-        Field: ClassVar = BaseAddressEntityField
-        Order: ClassVar = BaseAddressEntityOrder
-    else:
-        Filter: ClassVar[type[BaseAddressEntityFilter]] = BaseAddressEntityFilter
-        FilterArgs: ClassVar[type[BaseAddressEntityFilterArgs]] = BaseAddressEntityFilterArgs
-        Field: ClassVar[type[BaseAddressEntityField]] = BaseAddressEntityField
-        Order: ClassVar[type[BaseAddressEntityOrder]] = BaseAddressEntityOrder
+    Row = BaseAddressEntityRow
+    Create = BaseAddressEntityCreate
+    Update = BaseAddressEntityUpdate
+    Filter = BaseAddressEntityFilter
+    FilterArgs = BaseAddressEntityFilterArgs
+    Field = BaseAddressEntityField
+    Order = BaseAddressEntityOrder
 
 
 class BaseTimestampEntityRow(BaseEntityRow):
@@ -1403,8 +1382,8 @@ class BaseTimestampEntityRow(BaseEntityRow):
         )
 
 
-BaseTimestampEntityField: TypeAlias = Literal["timestamp"]
-BaseTimestampEntityOrder: TypeAlias = Literal[
+type BaseTimestampEntityField = Literal["timestamp"]
+type BaseTimestampEntityOrder = Literal[
     "timestamp",
     "timestamp:asc",
     "timestamp:desc",
@@ -1651,20 +1630,13 @@ class BaseTimestampEntityUpdate(BaseEntityUpdate, total=False):
 
 
 class BaseTimestampEntity(BaseTimestampEntityCreate, abstract=True, slots=True):
-    Row: ClassVar[type[BaseTimestampEntityRow]] = BaseTimestampEntityRow
-    Create: ClassVar[type[BaseTimestampEntityCreate]] = BaseTimestampEntityCreate
-    Update: ClassVar[type[BaseTimestampEntityUpdate]] = BaseTimestampEntityUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseTimestampEntityFilter
-        FilterArgs: ClassVar = BaseTimestampEntityFilterArgs
-        Field: ClassVar = BaseTimestampEntityField
-        Order: ClassVar = BaseTimestampEntityOrder
-    else:
-        Filter: ClassVar[type[BaseTimestampEntityFilter]] = BaseTimestampEntityFilter
-        FilterArgs: ClassVar[type[BaseTimestampEntityFilterArgs]] = BaseTimestampEntityFilterArgs
-        Field: ClassVar[type[BaseTimestampEntityField]] = BaseTimestampEntityField
-        Order: ClassVar[type[BaseTimestampEntityOrder]] = BaseTimestampEntityOrder
+    Row = BaseTimestampEntityRow
+    Create = BaseTimestampEntityCreate
+    Update = BaseTimestampEntityUpdate
+    Filter = BaseTimestampEntityFilter
+    FilterArgs = BaseTimestampEntityFilterArgs
+    Field = BaseTimestampEntityField
+    Order = BaseTimestampEntityOrder
 
 
 class EntityOutputChannel[

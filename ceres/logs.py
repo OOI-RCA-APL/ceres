@@ -255,7 +255,7 @@ class _BaseLogEntryQuery(
         return LogEntryQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: LogEntryFilter | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
@@ -438,7 +438,7 @@ class LogEntryOutputChannel(
         return LogEntryFilter
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: LogEntryFilter | Callable[[LogEntry], bool] | None = None,
         /,
@@ -448,16 +448,16 @@ class LogEntryOutputChannel(
 
 
 class LogEntry(BaseRecord, LogEntryCreate, slots=True):
-    Manager: ClassVar[type[LogManager]] = LogManager
-    BoundManager: ClassVar[type[BoundLogManager]] = BoundLogManager
-    Row: ClassVar[type[LogEntryRow]] = LogEntryRow
-    Create: ClassVar[type[LogEntryCreate]] = LogEntryCreate
-    Update: ClassVar[type[LogEntryUpdate]] = LogEntryUpdate
-    Filter: ClassVar[type[LogEntryFilter]] = LogEntryFilter
-    FilterArgs: ClassVar[type[LogEntryFilterArgs]] = LogEntryFilterArgs
+    Manager = LogManager
+    BoundManager = BoundLogManager
+    Row = LogEntryRow
+    Create = LogEntryCreate
+    Update = LogEntryUpdate
+    Filter = LogEntryFilter
+    FilterArgs = LogEntryFilterArgs
     Field = LogEntryField
     Order = LogEntryOrder
-    Level: ClassVar[type[Level]] = Level
+    Level = Level
 
     __naming__: ClassVar[EntityNaming] = EntityNaming(
         singular="log entry",

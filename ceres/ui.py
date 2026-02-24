@@ -434,7 +434,7 @@ class Display(_BaseRenderer):
         )
 
 
-Element: TypeAlias = Annotated[
+type Element = Annotated[
     Button | Row | Column | Carousel | Text | HTML | State | Gauge | Chart | Render | Display,
     Field(discriminator="type"),
 ]

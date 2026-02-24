@@ -20,7 +20,7 @@ with lazy_imports(__name__, export=True):
     from ceres.workspace import WorkspaceEdit as WorkspaceEdit
     from ceres.workspace import WorkspaceMembership as WorkspaceMembership
 
-__Entity: object = None
+_Entity: object = None
 
 if TYPE_CHECKING:
     Entity: TypeAlias = (
@@ -36,14 +36,14 @@ if TYPE_CHECKING:
         | WorkspaceEdit
     )
 
-__lazy_getattr = sys.modules[__name__].__getattr__
+_lazy_getattr = sys.modules[__name__].__getattr__
 
 
 def __getattr__(name: str):
-    global __Entity
+    global _Entity
 
     if name == "Entity":
-        if __Entity is None:
+        if _Entity is None:
             from ceres.alert import Alert
             from ceres.logs import LogEntry
             from ceres.message import Message
@@ -53,7 +53,7 @@ def __getattr__(name: str):
             from ceres.variable import Variable
             from ceres.workspace import Workspace, WorkspaceEdit, WorkspaceMembership
 
-            __Entity = (
+            _Entity = (
                 Message
                 | Particle
                 | Alert
@@ -66,9 +66,9 @@ def __getattr__(name: str):
                 | WorkspaceEdit
             )
 
-        return __Entity
+        return _Entity
 
-    return __lazy_getattr(name)
+    return _lazy_getattr(name)
 
 
 class EntityType(StrEnum):
@@ -156,7 +156,7 @@ class EntityType(StrEnum):
                 raise ValueError(f"Unknown entity type: {source}")
 
 
-__ENTITY_TYPE_ALIASES = {
+_ENTITY_TYPE_ALIASES = {
     "messages": "message",
     "particles": "particle",
     "alerts": "alert",
@@ -170,15 +170,15 @@ __ENTITY_TYPE_ALIASES = {
     "workspace-edits": "workspace-edit",
 }
 
-__new = EntityType.__new__
+_base__new__ = EntityType.__new__
 
 
-@wraps(__new)
-def __new_override(cls: type[EntityType], value: str) -> EntityType:
+@wraps(_base__new__)
+def _override__new__(cls: type[EntityType], value: str) -> EntityType:
     if isinstance(value, EntityType):
         return value
 
-    return __new(cls, __ENTITY_TYPE_ALIASES.get(value, value))
+    return _base__new__(cls, _ENTITY_TYPE_ALIASES.get(value, value))
 
 
-EntityType.__new__ = __new_override
+EntityType.__new__ = _override__new__

@@ -3,11 +3,9 @@ from __future__ import annotations
 import operator
 from typing import (
     TYPE_CHECKING,
-    Annotated,
     Any,
     NoReturn,
     Self,
-    TypeVar,
     cast,
     overload,
     override,
@@ -439,7 +437,7 @@ class Reference:
     def __reference_sync_dynamic_class__(self) -> type[Reference]:
         current = self.__reference_get_dynamic_class__()
         if self.__class__ is not current:
-            self.__class__ = current
+            self.__class__ = cast("Any", current)
 
         return current
 
@@ -553,7 +551,6 @@ def ref[T: Component](
 
 
 if TYPE_CHECKING:
-    _T = TypeVar("_T")
-    Ref = Annotated[_T, ()]
+    type Ref[T] = T
 else:
     Ref = Reference

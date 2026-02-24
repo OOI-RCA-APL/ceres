@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, ClassVar, Self, TypeAlias, override
+from typing import TYPE_CHECKING, ClassVar, Self, override
 
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 from sqlalchemy import Integer, cast, func, literal, select
@@ -53,8 +53,8 @@ class BaseRecordRow(
     __abstract__: ClassVar[bool] = True
 
 
-BaseRecordField: TypeAlias = BaseUUIDEntityField | BaseAddressEntityField | BaseTimestampEntityField
-BaseRecordOrder: TypeAlias = BaseUUIDEntityOrder | BaseAddressEntityOrder | BaseTimestampEntityOrder
+type BaseRecordField = BaseUUIDEntityField | BaseAddressEntityField | BaseTimestampEntityField
+type BaseRecordOrder = BaseUUIDEntityOrder | BaseAddressEntityOrder | BaseTimestampEntityOrder
 
 
 class SubsampleSelect(StrEnum):
@@ -372,17 +372,10 @@ class BaseRecord(
     abstract=True,
     slots=True,
 ):
-    Row: ClassVar[type[BaseRecordRow]] = BaseRecordRow
-    Create: ClassVar[type[BaseRecordCreate]] = BaseRecordCreate
-    Update: ClassVar[type[BaseRecordUpdate]] = BaseRecordUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseRecordFilter
-        FilterArgs: ClassVar = BaseRecordFilterArgs
-        Field: ClassVar = BaseRecordField
-        Order: ClassVar = BaseRecordOrder
-    else:
-        Filter: ClassVar[type[BaseRecordFilter]] = BaseRecordFilter
-        FilterArgs: ClassVar[type[BaseRecordFilterArgs]] = BaseRecordFilterArgs
-        Field: ClassVar[type[BaseRecordField]] = BaseRecordField
-        Order: ClassVar[type[BaseRecordOrder]] = BaseRecordOrder
+    Row = BaseRecordRow
+    Create = BaseRecordCreate
+    Update = BaseRecordUpdate
+    Filter = BaseRecordFilter
+    FilterArgs = BaseRecordFilterArgs
+    Field = BaseRecordField
+    Order = BaseRecordOrder

@@ -7,7 +7,7 @@ name = "ceres"
 version = "0.37.0"
 description = "APL - Ceres"
 authors = [{ name = "Jake Ploskey", email = "jploskey@uw.edu" }]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "aiohttp>=3.13.3,<4",
     "aiosmtplib>=5.1,<6",
@@ -42,7 +42,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pyright==1.1.380",
+    "pyright==1.1.408",
     "pytest==7.4.0",
     "pytest-asyncio==0.21.1",
     "ruff==0.15",

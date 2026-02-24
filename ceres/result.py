@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, TypeVar, override
+from typing import TYPE_CHECKING, Any, Literal, override
 
 from ceres.data import ImmutableDataModel
 
@@ -57,8 +57,6 @@ class Fail[ErrorT](ImmutableDataModel, _Result, frozen=True):  # type: ignore
 
 
 if TYPE_CHECKING:
-    _ValueT = TypeVar("_ValueT", covariant=True)
-    _ErrorT = TypeVar("_ErrorT", covariant=True)
-    Result = Ok[_ValueT] | Fail[_ErrorT]
+    type Result[V, E] = Ok[V] | Fail[E]
 else:
     Result = _Result

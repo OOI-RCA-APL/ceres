@@ -30,12 +30,12 @@ class RecordType(StrEnum):
 assert set(ItemType).issubset(ItemType)
 
 
-__new = RecordType.__new__
+_base__new__ = RecordType.__new__
 
 
-@wraps(__new)
-def __new_override(cls: type[RecordType], alias: str) -> RecordType:
-    return __new(cls, ItemType(alias))
+@wraps(_base__new__)
+def _override__new__(cls: type[RecordType], alias: str) -> RecordType:
+    return _base__new__(cls, ItemType(alias))
 
 
-RecordType.__new__ = __new_override  # type: ignore
+RecordType.__new__ = _override__new__  # type: ignore

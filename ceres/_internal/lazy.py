@@ -112,8 +112,8 @@ _LAZY_EXPORTS_NAME: Final = "__lazy_exports__"
 
 def __lazy_import__(
     name: str,
-    globals: Mapping[str, object] | None = None,
-    locals: Mapping[str, object] | None = None,
+    globals: Mapping[str, Any] | None = None,
+    locals: Mapping[str, Any] | None = None,
     fromlist: Sequence[str] = (),
     level: int = 0,
 ) -> ModuleType | LazyImportProxy:

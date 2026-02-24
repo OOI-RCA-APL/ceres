@@ -1,23 +1,22 @@
 from __future__ import annotations
 
 import dataclasses
-import sys
 from abc import ABCMeta
 from collections.abc import (
     Callable,
     Iterable,
     Iterator,
     Mapping,
+    MutableMapping,
     MutableSet,
     Sequence,
     Set,
-    Sized,
 )
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum as BaseStrEnum
 from functools import wraps
 from re import RegexFlag
-from types import MappingProxyType
+from types import FunctionType, GenericAlias, MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -30,6 +29,7 @@ from typing import (
     Self,
     TypeAlias,
     TypedDict,
+    TypeIs,
     Unpack,
     cast,
     dataclass_transform,
@@ -70,7 +70,7 @@ from pydantic_core import (
 )
 from pydantic_extra_types.color import Color as Color
 from pydantic_settings import NoDecode
-from typing_extensions import TypeIs, TypeVar
+from typing_extensions import TypeForm
 
 from ceres._internal import util
 from ceres._internal.util import (
@@ -92,8 +92,19 @@ if TYPE_CHECKING:
     from pydantic.config import ExtraValues
     from pydantic.main import IncEx
 
+if TYPE_CHECKING:
+    from typing import _SpecialForm
+else:
+    type _SpecialForm = Any
 
-_cached_type_adapters: dict[type, TypeAdapter[Any]] = {}
+
+type TypeInput[T = Any] = (
+    type[T] | TypeForm[T] | UnionType | GenericAlias | FunctionType | _SpecialForm
+)
+type MaybeClass[T] = T | type[T]
+
+_cached_class_type_adapters = WeakKeyDictionary[type, TypeAdapter[type]]()
+_cached_type_form_type_adapters = dict[Any, TypeAdapter[Any]]()
 _cached_dataclasses = WeakKeyDictionary[type, type["PydanticDataclass"]]()
 _cached_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
 _cached_init_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
@@ -103,12 +114,12 @@ _cached_computed_fields = WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo
 @overload
 def _is_dataclass(obj: type, /) -> TypeIs[type[Dataclass]]: ...
 @overload
-def _is_dataclass(obj: object, /) -> TypeIs[MaybeType[Dataclass]]: ...
-def _is_dataclass(obj: object, /) -> TypeIs[MaybeType[Dataclass]]:
+def _is_dataclass(obj: object, /) -> TypeIs[MaybeClass[Dataclass]]: ...
+def _is_dataclass(obj: object, /) -> TypeIs[MaybeClass[Dataclass]]:
     return dataclasses.is_dataclass(obj)
 
 
-def _supports_pydantic_fields(obj: object, /) -> TypeIs[MaybeType[SupportsPydanticFields]]:
+def _supports_pydantic_fields(obj: object, /) -> TypeIs[MaybeClass[SupportsPydanticFields]]:
     return hasattr(obj, "__pydantic_fields__")
 
 
@@ -124,7 +135,7 @@ def _as_pydantic_dataclass(cls: type[Dataclass]) -> type[PydanticDataclass]:
     return pydantic.dataclasses.dataclass(cls, config={"arbitrary_types_allowed": True})
 
 
-def _as_class[T](obj: MaybeType[T]) -> type[T]:
+def _as_class[T](obj: MaybeClass[T]) -> type[T]:
     return obj if isinstance(obj, type) else type(obj)
 
 
@@ -134,9 +145,209 @@ def _decorators_of(cls: type[PydanticDataclass]) -> Iterable[tuple[str, Decorato
             yield from decorators.items()
 
 
-@cached(storage=_cached_type_adapters)
-def adapt[T](ty: type[T] | Any, /) -> TypeAdapter[T]:
-    return TypeAdapter(ty)
+def adapt[T](
+    ty: TypeInput[T],
+    /,
+    *,
+    _namespace: int = 3,
+) -> TypeAdapter[T]:
+    key = cast("Any", ty)
+    cache: MutableMapping[Any, Any]
+    if isinstance(ty, type):
+        cache = _cached_class_type_adapters
+    else:
+        cache = _cached_type_form_type_adapters
+
+    adapter = cache.get(key)
+    if adapter is None:
+        adapter = TypeAdapter(ty, _parent_depth=_namespace)
+        adapter = cache.setdefault(key, adapter)
+
+    return cast("TypeAdapter[T]", adapter)
+
+
+def to_dict(
+    obj: Dataclass | BaseModel,
+    *,
+    include: set[str] | None = None,
+    exclude: set[str] | None = None,
+    exclude_unset: bool = False,
+    exclude_computed_fields: bool = True,
+) -> dict[str, Any]:
+    return dict(
+        items_of(
+            obj,
+            include=include,
+            exclude=exclude,
+            exclude_unset=exclude_unset,
+            exclude_computed_fields=exclude_computed_fields,
+        )
+    )
+
+
+class DumpKwargs(TypedDict, total=False):
+    mode: Literal["json", "python"]
+    include: IncEx | None
+    exclude: IncEx | None
+    by_alias: bool | None
+    exclude_unset: bool
+    exclude_defaults: bool
+    exclude_none: bool
+    exclude_computed_fields: bool
+    round_trip: bool
+    warnings: bool | Literal["none", "warn", "error"]
+    fallback: Callable[[Any], Any] | None
+    serialize_as_any: bool
+    context: Any | None
+
+
+def dump(
+    obj: object,
+    as_type: TypeInput | None = None,
+    /,
+    *,
+    _namespace: int = -4,
+    **kwargs: Unpack[DumpKwargs],
+) -> Any:
+    if as_type is None:
+        as_type = type(obj)
+
+    return adapt(as_type, _namespace=_namespace).dump_python(obj, **kwargs)
+
+
+class ToJSONKwargs(TypedDict, total=False):
+    indent: int | None
+    ensure_ascii: bool
+    include: IncEx | None
+    exclude: IncEx | None
+    by_alias: bool | None
+    exclude_unset: bool
+    exclude_defaults: bool
+    exclude_none: bool
+    exclude_computed_fields: bool
+    round_trip: bool
+    warnings: bool | Literal["none", "warn", "error"]
+    fallback: Callable[[Any], Any] | None
+    serialize_as_any: bool
+    context: Any | None
+    indent: int | None
+
+
+def to_json(
+    obj: object,
+    as_type: TypeInput | None = None,
+    /,
+    *,
+    _namespace: int = -4,
+    **kwargs: Unpack[ToJSONKwargs],
+) -> str:
+    if as_type is None:
+        as_type = type(obj)
+
+    return adapt(as_type, _namespace=_namespace).dump_json(obj, **kwargs).decode()
+
+
+class ToYAMLKwargs(ToJSONKwargs):
+    pass
+
+
+def to_yaml(
+    obj: object,
+    as_type: TypeInput | None = None,
+    /,
+    *,
+    _namespace: int = -5,
+    **kwargs: Unpack[ToYAMLKwargs],
+) -> str:
+    import yaml
+
+    return yaml.safe_dump(
+        simplify(obj, as_type, _namespace=_namespace, **kwargs),
+        indent=kwargs.get("indent", None),
+    )
+
+
+class SimplifyKwargs(ToJSONKwargs):
+    pass
+
+
+def simplify(
+    obj: object,
+    as_type: TypeInput | None = None,
+    /,
+    *,
+    _namespace: int = -4,
+    **kwargs: Unpack[SimplifyKwargs],
+) -> Any:
+    import json
+
+    return json.loads(to_json(obj, as_type, _namespace=_namespace, **kwargs))
+
+
+class ValidateKwargs(TypedDict, total=False):
+    from_attributes: bool | None
+    strict: bool | None
+    extra: ExtraValues | None
+    from_attributes: bool | None
+    context: Any | None
+    experimental_allow_partial: bool | Literal["off", "on", "trailing-strings"]
+    by_alias: bool | None
+    by_name: bool | None
+
+
+def validate[T](
+    data: Any,
+    as_type: TypeInput[T],
+    /,
+    *,
+    _namespace: int = -4,
+    **kwargs: Unpack[ValidateKwargs],
+) -> Any:
+    return adapt(as_type, _namespace=_namespace).validate_python(data, **kwargs)
+
+
+class ValidateJSONKwargs(TypedDict, total=False):
+    strict: bool | None
+    extra: ExtraValues | None
+    experimental_allow_partial: bool | Literal["off", "on", "trailing-strings"]
+    context: Any | None
+    by_alias: bool | None
+    by_name: bool | None
+
+
+def validate_json[T](
+    data: str,
+    as_type: TypeInput[T],
+    /,
+    *,
+    _namespace: int = -4,
+    **kwargs: Unpack[ValidateJSONKwargs],
+) -> T:
+    return adapt(as_type, _namespace=_namespace).validate_json(data, **kwargs)
+
+
+class ValidateYAMLKwargs(ValidateJSONKwargs, total=False):
+    pass
+
+
+def validate_yaml[T](
+    data: str,
+    as_type: TypeInput[T],
+    /,
+    *,
+    _namespace: int = -4,
+    **kwargs: Unpack[ValidateYAMLKwargs],
+) -> T:
+    import json
+
+    try:
+        parsed = json.loads(data)
+    except Exception:
+        import yaml
+
+        parsed = yaml.safe_load(data)
+
+    return validate(parsed, as_type, _namespace=_namespace, **kwargs)
 
 
 if TYPE_CHECKING:
@@ -166,11 +377,8 @@ else:
         __slots__ = ()
 
 
-type MaybeType[T] = T | type[T]
-
-
 def fields_of(
-    obj: MaybeType[Dataclass | BaseModel],
+    obj: MaybeClass[Dataclass | BaseModel],
     /,
     init: bool = False,
     cache: bool = True,
@@ -203,7 +411,7 @@ def fields_of(
 
 
 def computed_fields_of(
-    obj: MaybeType[Dataclass | BaseModel],
+    obj: MaybeClass[Dataclass | BaseModel],
     /,
     *,
     cache: bool = True,
@@ -216,7 +424,7 @@ def computed_fields_of(
 
     if isinstance(obj, BaseModel):
         fields = MappingProxyType(obj.__pydantic_computed_fields__)
-    elif _is_dataclass(obj):
+    elif _is_dataclass(cls):
         cls = _as_pydantic_dataclass(cls)
         fields = MappingProxyType(
             {
@@ -278,170 +486,6 @@ def fields_set_on(obj: SupportsPydanticFieldsSet, /) -> Set[str]:
         return obj.__pydantic_fields_set__
     except AttributeError:
         raise TypeError(f"Unsupported type for `{fields_set_on.__name__}`: {type(obj)}")
-
-
-def to_dict(
-    obj: Dataclass | BaseModel,
-    *,
-    include: set[str] | None = None,
-    exclude: set[str] | None = None,
-    exclude_unset: bool = False,
-    exclude_computed_fields: bool = True,
-) -> dict[str, Any]:
-    return dict(
-        items_of(
-            obj,
-            include=include,
-            exclude=exclude,
-            exclude_unset=exclude_unset,
-            exclude_computed_fields=exclude_computed_fields,
-        )
-    )
-
-
-class DumpKwargs(TypedDict, total=False):
-    mode: Literal["json", "python"]
-    include: IncEx | None
-    exclude: IncEx | None
-    by_alias: bool | None
-    exclude_unset: bool
-    exclude_defaults: bool
-    exclude_none: bool
-    exclude_computed_fields: bool
-    round_trip: bool
-    warnings: bool | Literal["none", "warn", "error"]
-    fallback: Callable[[Any], Any] | None
-    serialize_as_any: bool
-    context: Any | None
-
-
-def dump(
-    obj: object,
-    as_type: type | Any | None = None,
-    /,
-    **kwargs: Unpack[DumpKwargs],
-) -> Any:
-    if as_type is None:
-        as_type = type(obj)
-
-    return adapt(as_type).dump_python(obj, **kwargs)
-
-
-class ToJSONKwargs(TypedDict, total=False):
-    indent: int | None
-    ensure_ascii: bool
-    include: IncEx | None
-    exclude: IncEx | None
-    by_alias: bool | None
-    exclude_unset: bool
-    exclude_defaults: bool
-    exclude_none: bool
-    exclude_computed_fields: bool
-    round_trip: bool
-    warnings: bool | Literal["none", "warn", "error"]
-    fallback: Callable[[Any], Any] | None
-    serialize_as_any: bool
-    context: Any | None
-    indent: int | None
-
-
-def to_json(
-    obj: object,
-    as_type: type | Any | None = None,
-    /,
-    **kwargs: Unpack[ToJSONKwargs],
-) -> str:
-    if as_type is None:
-        as_type = type(obj)
-
-    return adapt(as_type).dump_json(obj, **kwargs).decode()
-
-
-class ToYAMLKwargs(ToJSONKwargs):
-    pass
-
-
-def to_yaml(
-    obj: object,
-    as_type: type | Any | None = None,
-    /,
-    **kwargs: Unpack[ToYAMLKwargs],
-) -> str:
-    import yaml
-
-    return yaml.safe_dump(simplify(obj, as_type, **kwargs), indent=kwargs.get("indent", None))
-
-
-class SimplifyKwargs(ToJSONKwargs):
-    pass
-
-
-def simplify(
-    obj: object,
-    as_type: type | Any | None = None,
-    /,
-    **kwargs: Unpack[SimplifyKwargs],
-) -> Any:
-    import json
-
-    return json.loads(to_json(obj, as_type, **kwargs))
-
-
-class ValidateKwargs(TypedDict, total=False):
-    from_attributes: bool | None
-    strict: bool | None
-    extra: ExtraValues | None
-    from_attributes: bool | None
-    context: Any | None
-    experimental_allow_partial: bool | Literal["off", "on", "trailing-strings"]
-    by_alias: bool | None
-    by_name: bool | None
-
-
-@overload
-def validate[T](data: Any, as_type: type[T], /, **kwargs: Unpack[ValidateKwargs]) -> T: ...
-@overload
-def validate(data: Any, as_type: Any, /, **kwargs: Unpack[ValidateKwargs]) -> Any: ...
-def validate(data: Any, as_type: Any, /, **kwargs: Unpack[ValidateKwargs]) -> Any:
-    return adapt(as_type).validate_python(data, **kwargs)
-
-
-class FromJSONKwargs(TypedDict, total=False):
-    strict: bool | None
-    extra: ExtraValues | None
-    experimental_allow_partial: bool | Literal["off", "on", "trailing-strings"]
-    context: Any | None
-    by_alias: bool | None
-    by_name: bool | None
-
-
-@overload
-def from_json[T](data: str, to_type: type[T], /, **kwargs: Unpack[FromJSONKwargs]) -> T: ...
-@overload
-def from_json(data: str, to_type: Any, /, **kwargs: Unpack[FromJSONKwargs]) -> Any: ...
-def from_json(data: str, to_type: Any, /, **kwargs: Unpack[FromJSONKwargs]) -> Any:
-    return adapt(to_type).validate_json(data, **kwargs)
-
-
-class FromYAMLKwargs(FromJSONKwargs, total=False):
-    pass
-
-
-@overload
-def from_yaml[T](data: str, to_type: type[T], /, **kwargs: Unpack[FromYAMLKwargs]) -> T: ...
-@overload
-def from_yaml(data: str, to_type: Any, /, **kwargs: Unpack[FromYAMLKwargs]) -> Any: ...
-def from_yaml(data: str, to_type: Any, /, **kwargs: Unpack[FromYAMLKwargs]) -> Any:
-    import json
-
-    try:
-        parsed = json.loads(data)
-    except Exception:
-        import yaml
-
-        parsed = yaml.safe_load(data)
-
-    return validate(parsed, to_type, **kwargs)
 
 
 def _generate_validation_aliases(field: str) -> str | AliasChoices:
@@ -522,9 +566,13 @@ _is_data_object_class_defined = False
 _is_data_object_frozen_class_defined = False
 
 
+class _Empty:
+    pass
+
+
 class DataObjectMetaclass(
-    type(Protocol),
-    ABCMeta,  # type: ignore
+    type(Protocol) if not TYPE_CHECKING else _Empty,
+    ABCMeta,
 ):
     def __new__(
         mcs,
@@ -543,7 +591,7 @@ class DataObjectMetaclass(
         slots: bool = False,
         abstract: bool = False,
         **kwargs: Any,
-    ) -> type[DataObject]:
+    ):
         data_object_class_name = "DataObject"
 
         if init is not None:
@@ -819,7 +867,7 @@ class FieldsSet(MutableSet[str]):
         return self
 
     @override
-    def __ixor__(self, it: Set[_T]) -> Self:
+    def __ixor__(self, it: Set[Any]) -> Self:
         self._mask ^= self._to_mask(it)
         return self
 
@@ -924,7 +972,7 @@ class FieldsSet(MutableSet[str]):
         return self._remask(self._mask & ~self._to_mask(other))
 
     @override
-    def __xor__(self, other: Set[_T]) -> Self:
+    def __xor__(self, other: Set[Any]) -> Self:
         return self._remask(self._mask ^ self._to_mask(other))
 
     @override
@@ -1400,9 +1448,6 @@ class DataObject(
                 else:
                     __data_object_fields_set__ = FieldsSet(cls, cls.__data_object_fields__)
 
-            # Only assign fields set if the object returned from the inner handler isn't the same object
-            # which was initially passed in. If it's the same object, we can assume it's already a
-            # constructed instance of this class, so no need to assign the fields again.
             _object_setattr(self, "__data_object_fields_set__", __data_object_fields_set__)
 
         return self
@@ -1470,32 +1515,26 @@ _is_data_object_class_defined = True
 if TYPE_CHECKING:
     DataObject()  # Ensure class meets abstract class requirements.
 
-if sys.version_info < (3, 13):
-    DataObject.__dataclass_params__.frozen = True
-else:
-    DataObject.__dataclass_params__.frozen = None
+DataObject.__dataclass_params__.frozen = None
 
-try:
 
-    class __Frozen__(DataObject, frozen=True):
-        __slots__ = ()
+class __Frozen__(DataObject, frozen=True):
+    __slots__ = ()
 
-    __Frozen__.__name__ = "Frozen"
-    __Frozen__.__qualname__ = f"{DataObject.__name__}.{__Frozen__.__name__}"
-finally:
-    if sys.version_info < (3, 13):
-        DataObject.__dataclass_params__.frozen = False
+
+__Frozen__.__name__ = "Frozen"
+__Frozen__.__qualname__ = f"{DataObject.__name__}.{__Frozen__.__name__}"
 
 _is_data_object_frozen_class_defined = True
 
 
-_ReducedDataObjectValues: TypeAlias = tuple[
+type _ReducedDataObjectValues = tuple[
     type[object],
     dict[str, Any] | None,
     list[Any] | None,
     int,
 ]
-_ReducedDataObject: TypeAlias = tuple[Callable[..., Any], _ReducedDataObjectValues]
+type _ReducedDataObject = tuple[Callable[..., Any], _ReducedDataObjectValues]
 
 _object_getattribute: Final = object.__getattribute__
 _object_setattr: Final = object.__setattr__
@@ -1571,7 +1610,7 @@ if TYPE_CHECKING:
     __ensure_is_pydantic_dataclass: type[PydanticDataclass] = DataObject
 
 
-Username: TypeAlias = Annotated[
+type Username = Annotated[
     str,
     StringConstraints(
         pattern=r"[a-zA-Z\-_]+",
@@ -1581,7 +1620,7 @@ Username: TypeAlias = Annotated[
 ]
 
 
-def __validate_password(value: str) -> str:
+def _validate_password(value: str) -> str:
     bytes = len(value.encode())
     if bytes > 72:
         raise ValueError("password cannot exceed 72 bytes")
@@ -1589,51 +1628,47 @@ def __validate_password(value: str) -> str:
     return value
 
 
-Password: TypeAlias = Annotated[
+type Password = Annotated[
     str,
     StringConstraints(min_length=1, max_length=32),
-    AfterValidator(__validate_password),
+    AfterValidator(_validate_password),
 ]
 
 
-def __validate_email_address(value: str) -> str:
+def _validate_email_address(value: str) -> str:
     from email_validator import validate_email
 
     validated = validate_email(value, check_deliverability=False)
     return validated.normalized.lower()
 
 
-EmailAddress: TypeAlias = Annotated[
+type EmailAddress = Annotated[
     str,
-    AfterValidator(__validate_email_address),
+    AfterValidator(_validate_email_address),
 ]
 
-BCryptHash = NewType(
-    "BCryptHash",
-    str
-    if TYPE_CHECKING
-    else Annotated[
-        str,
-        StringConstraints(
-            pattern=r"^\$2[ayb]\$.{56}$",
-        ),
-    ],
-)
+BCryptHash: Final = NewType("BCryptHash", str)
+_ValidatedBCryptHash = Annotated[
+    BCryptHash,
+    StringConstraints(pattern=r"^\$2[ayb]\$.{56}$"),
+]
+
+if not TYPE_CHECKING:
+    BCryptHash = _ValidatedBCryptHash
+
+Argon2Hash: Final = NewType("Argon2Hash", str)
+_ValidatedArgon2Hash = Annotated[
+    Argon2Hash,
+    StringConstraints(
+        pattern=r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
+    ),
+]
+
+if not TYPE_CHECKING:
+    Argon2Hash = _ValidatedArgon2Hash
 
 
-Argon2Hash = NewType(
-    "Argon2Hash",
-    str
-    if TYPE_CHECKING
-    else Annotated[
-        str,
-        StringConstraints(
-            pattern=r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
-        ),
-    ],
-)
-
-PasswordHash: TypeAlias = BCryptHash | Argon2Hash
+type PasswordHash = BCryptHash | Argon2Hash
 
 
 class StrEnum(BaseStrEnum):
@@ -1782,10 +1817,10 @@ def WithDefaults(
     return AfterValidator(WithDefaults)
 
 
-__REGEX_FLAG_CHARACTERS = set(member for member in RegexFlag.__members__ if len(member) == 1)
+_REGEX_FLAG_CHARACTERS = set(member for member in RegexFlag.__members__ if len(member) == 1)
 
 
-def __pre_validate_regex_flags(value: object) -> object:
+def _pre_validate_regex_flags(value: object) -> object:
     if isinstance(value, str):
         value = value.upper()
         try:
@@ -1799,7 +1834,7 @@ def __pre_validate_regex_flags(value: object) -> object:
                 summed |= RegexFlag[character]
             except KeyError:
                 raise ValueError(
-                    f"invalid regex flag character '{character}', must be one of: {__REGEX_FLAG_CHARACTERS}"
+                    f"invalid regex flag character '{character}', must be one of: {_REGEX_FLAG_CHARACTERS}"
                 )
 
         return summed
@@ -1807,7 +1842,7 @@ def __pre_validate_regex_flags(value: object) -> object:
     return value
 
 
-RegexFlags = Annotated[RegexFlag, BeforeValidator(__pre_validate_regex_flags)]
+type RegexFlags = Annotated[RegexFlag, BeforeValidator(_pre_validate_regex_flags)]
 
 
 def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
@@ -1835,7 +1870,7 @@ def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
     return wrapper  # type: ignore
 
 
-BytesLike: TypeAlias = bytes | bytearray
+type BytesLike = bytes | bytearray
 
 if TYPE_CHECKING:
     from typing import SupportsBytes
@@ -1857,26 +1892,29 @@ def to_bytes(
     return bytes(data)
 
 
-Name: TypeAlias = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
-NonEmptyStr: TypeAlias = Annotated[str, StringConstraints(min_length=1)]
-NonBlankStr: TypeAlias = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
+type Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
+type NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
+type NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
 
 
-def __validate_date(value: date | None) -> date | None:
+def _validate_date(value: date | None) -> date | None:
     return value
 
 
-Date: TypeAlias = Annotated[date, AfterValidator(__validate_date)]
+type Date = Annotated[
+    date,
+    AfterValidator(_validate_date),
+]
 
 
-def __validate_datetime(value: object) -> datetime | None:
+def _validate_datetime(value: object) -> datetime | None:
     if value is None:
         return None
 
     if isinstance(value, datetime):
         instance = value
     else:
-        instance: datetime | date = util.adapt(datetime | date).validate_python(value)  # type: ignore
+        instance: datetime | date = validate(value, datetime | date)
         if not isinstance(instance, datetime):
             return datetime(
                 year=instance.year,
@@ -1891,7 +1929,10 @@ def __validate_datetime(value: object) -> datetime | None:
     return instance.astimezone(UTC)
 
 
-DateTime: TypeAlias = Annotated[datetime, AfterValidator(__validate_datetime)]
+type DateTime = Annotated[
+    datetime,
+    AfterValidator(_validate_datetime),
+]
 
 
 def _validate_timedelta(value: Any) -> timedelta | None:
@@ -1901,35 +1942,41 @@ def _validate_timedelta(value: Any) -> timedelta | None:
     return util.decode_td(value)
 
 
-TimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(_validate_timedelta)]
-
-__ZERO_TIMEDELTA = timedelta()
-
-
-def __validate_positive_timedelta(value: object) -> timedelta | None:
-    delta = _validate_timedelta(value)
-    if delta is None:
-        return None
-
-    assert delta > __ZERO_TIMEDELTA, "must be greater than zero"
-    return delta
-
-
-PositiveTimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_positive_timedelta)]
-
-
-def __validate_non_negative_timedelta(value: object) -> timedelta | None:
-    delta = _validate_timedelta(value)
-    if delta is None:
-        return None
-
-    assert delta >= __ZERO_TIMEDELTA, "must be greater than or equal to zero"
-    return delta
-
-
-NonNegativeTimeDelta: TypeAlias = Annotated[
+type TimeDelta = Annotated[
     timedelta,
-    BeforeValidator(__validate_non_negative_timedelta),
+    BeforeValidator(_validate_timedelta),
+]
+
+_ZERO_TIMEDELTA = timedelta()
+
+
+def _validate_positive_timedelta(value: object) -> timedelta | None:
+    delta = _validate_timedelta(value)
+    if delta is None:
+        return None
+
+    assert delta > _ZERO_TIMEDELTA, "must be greater than zero"
+    return delta
+
+
+type PositiveTimeDelta = Annotated[
+    timedelta,
+    BeforeValidator(_validate_positive_timedelta),
+]
+
+
+def _validate_non_negative_timedelta(value: object) -> timedelta | None:
+    delta = _validate_timedelta(value)
+    if delta is None:
+        return None
+
+    assert delta >= _ZERO_TIMEDELTA, "must be greater than or equal to zero"
+    return delta
+
+
+type NonNegativeTimeDelta = Annotated[
+    timedelta,
+    BeforeValidator(_validate_non_negative_timedelta),
 ]
 
 
@@ -1955,7 +2002,7 @@ def uuid7(
     return UUID(int=uuid7(timestamp, nanoseconds).int)
 
 
-def __pre_validate_from_json(value: object) -> object:
+def _pre_validate_from_json(value: object) -> object:
     if isinstance(value, str | bytes):
         import json
 
@@ -1967,8 +2014,11 @@ def __pre_validate_from_json(value: object) -> object:
     return value
 
 
-def __pre_validate_from_yaml(value: object) -> object:
-    if isinstance(value, str | bytes):
+type FromJSON[T] = Annotated[T, BeforeValidator(_pre_validate_from_json), NoDecode]
+
+
+def _pre_validate_from_yaml(value: object) -> object:
+    if isinstance(value, (str, bytes)):
         import json
 
         try:
@@ -1986,39 +2036,36 @@ def __pre_validate_from_yaml(value: object) -> object:
     return value
 
 
-_T = TypeVar("_T")
-
-FromJSON: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json), NoDecode]
-FromYAML: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml), NoDecode]
+type FromYAML[T] = Annotated[T, BeforeValidator(_pre_validate_from_yaml), NoDecode]
 
 
-def __validate_number(value: object) -> object:
+def _validate_number(value: object) -> object:
     if isinstance(value, float) and value.is_integer():
         return int(value)
 
     return value
 
 
-def __serialize_number(value: object) -> object:
+def _serialize_number(value: object) -> object:
     if isinstance(value, float) and value.is_integer():
         return int(value)
 
     return value
 
 
-Number: TypeAlias = Annotated[
+type Number = Annotated[
     int | float,
     Field(union_mode="left_to_right"),
-    BeforeValidator(__validate_number),
-    PlainSerializer(__serialize_number),
+    BeforeValidator(_validate_number),
+    PlainSerializer(_serialize_number),
 ]
 
 type JSONValue = None | bool | Number | str | JSONList | JSONDict
-JSONDict: TypeAlias = dict[str, JSONValue]
-JSONList: TypeAlias = list[JSONValue]
+type JSONDict = dict[str, JSONValue]
+type JSONList = list[JSONValue]
 
 
-def __validate_jsonable(value: object) -> object:
+def _validate_json_serializable(value: object) -> object:
     try:
         to_json(value)
     except Exception as error:
@@ -2027,26 +2074,13 @@ def __validate_jsonable(value: object) -> object:
     return value
 
 
-_TAny = TypeVar("_TAny", default=Any)
-JSONSerializable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
+type JSONSerializable[T = Any] = Annotated[T, AfterValidator(_validate_json_serializable)]
+type JSONSerializableDict[T = Any] = JSONSerializable[dict[str, T]]
+type JSONSerializableList[T = Any] = JSONSerializable[list[T]]
 
-_TValue = TypeVar("_TValue", default=Any)
-JSONSerializableDict: TypeAlias = JSONSerializable[dict[str, _TValue]]
-JSONSerializableList: TypeAlias = JSONSerializable[list[_TValue]]
-
-MaybeList: TypeAlias = _T | list[_T]
+type MaybeList[T] = T | list[T]
 
 if TYPE_CHECKING:
-    MaybeSequence: TypeAlias = _T | Sequence[_T]
+    type MaybeSequence[T] = T | Sequence[T]
 else:
-    MaybeSequence: TypeAlias = MaybeList
-
-
-def __validate_non_empty(value: object) -> object:
-    if isinstance(value, Sized):
-        assert len(value) > 0, "cannot not be empty"
-
-    return value
-
-
-NonEmpty: TypeAlias = Annotated[_T, AfterValidator(__validate_non_empty)]
+    type MaybeSequence[T] = T | list[T]

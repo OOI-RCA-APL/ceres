@@ -5,7 +5,6 @@ from typing import (
     Any,
     ClassVar,
     Literal,
-    TypeAlias,
     Unpack,
     override,
 )
@@ -77,7 +76,7 @@ class AlertRow(BaseRecordRow, kw_only=True):
         )
 
 
-AlertField: TypeAlias = (
+type AlertField = (
     BaseRecordField
     | Literal[
         "level",
@@ -85,7 +84,7 @@ AlertField: TypeAlias = (
         "data",
     ]
 )
-AlertOrder: TypeAlias = (
+type AlertOrder = (
     BaseRecordOrder
     | Literal[
         "level",
@@ -246,7 +245,7 @@ class _BaseAlertQuery(
         return AlertQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
@@ -350,7 +349,7 @@ class AlertOutputChannel(
         return AlertFilter
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: AlertFilter | Callable[[Alert], bool] | None = None,
         /,
@@ -360,15 +359,15 @@ class AlertOutputChannel(
 
 
 class Alert(BaseRecord, AlertCreate, ConcreteEntity, slots=True):
-    Manager: ClassVar[type[AlertManager]] = AlertManager
-    BoundManager: ClassVar[type[BoundAlertManager]] = BoundAlertManager
-    Row: ClassVar[type[AlertRow]] = AlertRow
-    Create: ClassVar[type[AlertCreate]] = AlertCreate
-    Update: ClassVar[type[AlertUpdate]] = AlertUpdate
-    Filter: ClassVar[type[AlertFilter]] = AlertFilter
-    FilterArgs: ClassVar[type[AlertFilterArgs]] = AlertFilterArgs
+    Manager = AlertManager
+    BoundManager = BoundAlertManager
+    Row = AlertRow
+    Create = AlertCreate
+    Update = AlertUpdate
+    Filter = AlertFilter
+    FilterArgs = AlertFilterArgs
     Field = AlertField
     Order = AlertOrder
-    Level: ClassVar[type[Level]] = Level
+    Level = Level
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("alert")

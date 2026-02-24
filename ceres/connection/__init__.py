@@ -8,7 +8,6 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    ClassVar,
     Self,
     TypedDict,
     Unpack,
@@ -127,7 +126,7 @@ class ConnectionFieldArgs(BoundFieldArgs, ConnectionDefaults, total=False):
     defaults: ConnectionDefaults | None
 
 
-class ConnectionField[T: Connection | None](BoundField[T]):
+class ConnectionField[T: Connection | None = Connection | None](BoundField[T]):
     __slots__ = ()
 
     def __init__(
@@ -175,8 +174,8 @@ class Connection(DataObject, Tasklet, slots=True):
     _system: ComponentSystem | None = field(init=False)
     _channel: Channel[Message] = field(init=False)
 
-    Field: ClassVar[type[ConnectionField]] = ConnectionField
-    Defaults: ClassVar[type[ConnectionDefaults]] = ConnectionDefaults
+    Field = ConnectionField
+    Defaults = ConnectionDefaults
 
     def __post_init__(self) -> None:
         self._connectivity = Connectivity.DISCONNECTED
@@ -343,7 +342,7 @@ class Connection(DataObject, Tasklet, slots=True):
             if default is ...:
                 raise TimeoutError()
             if callable(default):
-                return default()
+                return cast("Callable[[], T]", default)()
             return default
 
         try:

@@ -275,7 +275,7 @@ class _BaseMessageQuery(
         return MessageQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
@@ -363,7 +363,7 @@ class MessageOutputChannel(
         return self.where(lambda message: message.direction == MessageDirection.SEND)
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: MessageFilter | Callable[[Message], bool] | None = None,
         /,
@@ -373,15 +373,15 @@ class MessageOutputChannel(
 
 
 class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
-    Manager: ClassVar[type[MessageManager]] = MessageManager
-    BoundManager: ClassVar[type[BoundMessageManager]] = BoundMessageManager
-    Row: ClassVar[type[MessageRow]] = MessageRow
-    Create: ClassVar[type[MessageCreate]] = MessageCreate
-    Update: ClassVar[type[MessageUpdate]] = MessageUpdate
-    Filter: ClassVar[type[MessageFilter]] = MessageFilter
-    FilterArgs: ClassVar[type[MessageFilterArgs]] = MessageFilterArgs
+    Manager = MessageManager
+    BoundManager = BoundMessageManager
+    Row = MessageRow
+    Create = MessageCreate
+    Update = MessageUpdate
+    Filter = MessageFilter
+    FilterArgs = MessageFilterArgs
     Field = MessageField
     Order = MessageOrder
-    Direction: ClassVar[type[MessageDirection]] = MessageDirection
+    Direction = MessageDirection
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("message")

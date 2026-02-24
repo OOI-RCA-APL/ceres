@@ -53,13 +53,13 @@ from pydantic import (
     create_model,
     validate_call,
 )
-from typing_extensions import TypeVar
 
 from ceres._internal.lazy import lazy_imports
 
 if TYPE_CHECKING:
+    from typing import TypeIs
+
     from sqlalchemy import SQLColumnExpression
-    from typing_extensions import TypeIs
 
     from ceres.data import MaybeSequence
 
@@ -825,8 +825,6 @@ else:
     Database = object
 
 
-_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
-
 if TYPE_CHECKING:
     from pydantic._internal._validate_call import ValidateCallWrapper
 else:
@@ -932,42 +930,39 @@ def call_partial[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kw
     return function(*applied_args, **applied_kwargs)  # type: ignore
 
 
-_T = TypeVar("_T")
-_S = TypeVar("_S")
-
-
-class OrderedSet(set[_T]):
+class OrderedSet[T](set[T]):
     __slots__ = ("_list",)
 
-    _list: list[_T]
+    _list: list[T]
 
-    def __init__(self, d: Iterable[_T] | None = None) -> None:
-        if d is not None:
-            self._list = list(uniquify(d))
+    @override
+    def __init__(self, values: Iterable[T] | None = None, /) -> None:
+        if values is not None:
+            self._list = list(uniquify(values))
             super().update(self._list)
         else:
             self._list = []
 
     @override
-    def copy(self) -> OrderedSet[_T]:
+    def copy(self) -> OrderedSet[T]:
         cp = self.__class__()
         cp._list = self._list.copy()
         set.update(cp, cp._list)
         return cp
 
     @override
-    def add(self, element: _T) -> None:
+    def add(self, element: T) -> None:
         if element not in self:
             self._list.append(element)
         super().add(element)
 
     @override
-    def remove(self, element: _T) -> None:
+    def remove(self, element: T) -> None:
         super().remove(element)
         self._list.remove(element)
 
     @override
-    def pop(self) -> _T:
+    def pop(self) -> T:
         try:
             value = self._list.pop()
         except IndexError:
@@ -975,13 +970,13 @@ class OrderedSet(set[_T]):
         super().remove(value)
         return value
 
-    def insert(self, pos: int, element: _T) -> None:
+    def insert(self, pos: int, element: T) -> None:
         if element not in self:
             self._list.insert(pos, element)
         super().add(element)
 
     @override
-    def discard(self, element: _T) -> None:
+    def discard(self, element: T) -> None:
         if element in self:
             self._list.remove(element)
             super().remove(element)
@@ -991,14 +986,14 @@ class OrderedSet(set[_T]):
         super().clear()
         self._list = []
 
-    def __getitem__(self, key: int) -> _T:
+    def __getitem__(self, key: int) -> T:
         return self._list[key]
 
     @override
-    def __iter__(self) -> Iterator[_T]:
+    def __iter__(self) -> Iterator[T]:
         return iter(self._list)
 
-    def __add__(self, other: Iterator[_T]) -> OrderedSet[_T]:
+    def __add__(self, other: Iterator[T]) -> OrderedSet[T]:
         return self.union(other)
 
     @override
@@ -1008,7 +1003,7 @@ class OrderedSet(set[_T]):
     __str__ = __repr__
 
     @override
-    def update(self, *iterables: Iterable[_T]) -> None:
+    def update(self, *iterables: Iterable[T]) -> None:
         for iterable in iterables:
             for e in iterable:
                 if e not in self:
@@ -1016,33 +1011,33 @@ class OrderedSet(set[_T]):
                     super().add(e)
 
     @override
-    def __ior__(self, other: Set[_S]) -> OrderedSet[_T | _S]:  # type: ignore
+    def __ior__[O](self, other: Set[O]) -> OrderedSet[T | O]:  # type: ignore
         self.update(other)  # type: ignore
         return self  # type: ignore
 
     @override
-    def union(self, *other: Iterable[_S]) -> OrderedSet[_T | _S]:
-        result: OrderedSet[_T | _S] = self.copy()  # type: ignore
+    def union[O](self, *other: Iterable[O]) -> OrderedSet[T | O]:
+        result: OrderedSet[T | O] = self.copy()  # type: ignore
         result.update(*other)
         return result
 
     @override
-    def __or__(self, other: Set[_S]) -> OrderedSet[_T | _S]:
+    def __or__[O](self, other: Set[O]) -> OrderedSet[T | O]:
         return self.union(other)
 
     @override
-    def intersection(self, *other: Iterable[Any]) -> OrderedSet[_T]:
+    def intersection(self, *other: Iterable[Any]) -> OrderedSet[T]:
         other_set: set[Any] = set()
         other_set.update(*other)
         return self.__class__(a for a in self if a in other_set)
 
     @override
-    def __and__(self, other: Set[object]) -> OrderedSet[_T]:
+    def __and__(self, other: Set[Any]) -> OrderedSet[T]:
         return self.intersection(other)
 
     @override
-    def symmetric_difference(self, other: Iterable[_T]) -> OrderedSet[_T]:
-        collection: Collection[_T]
+    def symmetric_difference(self, other: Iterable[T]) -> OrderedSet[T]:
+        collection: Collection[T]
         if isinstance(other, set):
             collection = other_set = other
         elif isinstance(other, Collection):
@@ -1056,16 +1051,16 @@ class OrderedSet(set[_T]):
         return result
 
     @override
-    def __xor__(self, other: Set[_S]) -> OrderedSet[_T | _S]:
-        return cast("OrderedSet[_T | _S]", self).symmetric_difference(other)
+    def __xor__[O](self, other: Set[O]) -> OrderedSet[T | O]:
+        return cast("OrderedSet[T | O]", self).symmetric_difference(other)
 
     @override
-    def difference(self, *other: Iterable[Any]) -> OrderedSet[_T]:
+    def difference(self, *other: Iterable[Any]) -> OrderedSet[T]:
         other_set = super().difference(*other)
         return self.__class__(a for a in self._list if a in other_set)
 
     @override
-    def __sub__(self, other: Set[_T | None]) -> OrderedSet[_T]:
+    def __sub__(self, other: Set[T | None]) -> OrderedSet[T]:
         return self.difference(other)
 
     @override
@@ -1074,7 +1069,7 @@ class OrderedSet(set[_T]):
         self._list = [a for a in self._list if a in self]
 
     @override
-    def __iand__(self, other: Set[object]) -> OrderedSet[_T]:
+    def __iand__(self, other: Set[object]) -> OrderedSet[T]:
         self.intersection_update(other)
         return self
 
@@ -1086,16 +1081,16 @@ class OrderedSet(set[_T]):
         self._list += [a for a in collection if a in self]
 
     @override
-    def __ixor__(self, other: Set[_S]) -> OrderedSet[_T | _S]:  # type: ignore
+    def __ixor__[O](self, other: Set[O]) -> OrderedSet[T | O]:  # type: ignore
         self.symmetric_difference_update(other)
-        return cast("OrderedSet[_T | _S]", self)
+        return cast("OrderedSet[T | O]", self)
 
     @override
     def difference_update(self, *other: Iterable[Any]) -> None:
         super().difference_update(*other)
         self._list = [a for a in self._list if a in self]
 
-    def __isub__(self, other: Set[_T | None]) -> OrderedSet[_T]:  # type: ignore  # noqa: E501
+    def __isub__(self, other: Set[T | None]) -> OrderedSet[T]:  # type: ignore  # noqa: E501
         self.difference_update(other)
         return self
 

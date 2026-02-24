@@ -6,7 +6,7 @@ import sys
 import time
 import warnings
 from abc import abstractmethod
-from collections.abc import AsyncIterable, Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterable, Callable, Collection, Iterable, Mapping, Sequence, Sized
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from datetime import date, datetime, timedelta
 from enum import StrEnum
@@ -19,8 +19,6 @@ from typing import (
     Any,
     Literal,
     Self,
-    TypeAlias,
-    TypeVar,
     cast,
     overload,
     override,
@@ -29,6 +27,7 @@ from uuid import UUID
 
 from aiohttp import ClientError
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -58,11 +57,10 @@ from ceres.data import (
     DataObject,
     FromYAML,
     MaybeSequence,
-    NonEmpty,
     adapt,
-    from_json,
     to_dict,
     to_json,
+    validate_json,
 )
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
@@ -235,9 +233,18 @@ def __validate_non_empty(value: Any) -> Any:
 
 Confirm = Annotated[CliImplicitFlag[bool], Field(description="Ask before executing.")]
 
-_TFields = TypeVar("_TFields", bound=Mapping[str, Any])
-Assign: TypeAlias = Annotated[
-    NonEmpty[FromYAML[_TFields]],
+
+def _validate_non_empty(value: object) -> object:
+    if isinstance(value, Sized):
+        assert len(value) > 0, "cannot not be empty"
+
+    return value
+
+
+type NonEmpty[T] = Annotated[T, AfterValidator(_validate_non_empty)]
+
+type Assign[T: Mapping[str, Any] = Mapping[str, Any]] = Annotated[
+    NonEmpty[FromYAML[T]],
     NoDecode,
     Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
 ]
@@ -488,9 +495,9 @@ class CLICommand(DataModel):
                 model_config = config
 
         # If only we could pass `extra = "ignore"` to the validation method itself, but we can't.
-        intermediate = from_json(to_json(self), IgnoreExtra)
+        intermediate = validate_json(to_json(self), IgnoreExtra)
         # Convert the `IgnoreExtra` instance with exactly matching fields into `model_cls`.
-        return from_json(to_json(intermediate), data_object_class)
+        return validate_json(to_json(intermediate), data_object_class)
 
     def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         if output is None:
@@ -652,9 +659,6 @@ class CLICommandFailed(CLICommandExit):
 
 class CLIClientError(CLICommandFailed, ClientError):
     pass
-
-
-_T = TypeVar("_T")
 
 
 class CLIDataOutputCommand(CLICommand):
@@ -999,12 +1003,7 @@ def create_entity_load_command(Entity: type[Entity]):
                             try:
                                 match data_format:
                                     case CLIDataFormat.JSON:
-                                        adapter = adapt(
-                                            cast(
-                                                "Iterable[Json[Entity]]",
-                                                Iterable[Json[cls]],
-                                            )
-                                        )
+                                        adapter = adapt(Iterable[Json[cls]])
 
                                         for entity in adapter.validate_python(open(path)):
                                             batch.append(entity)
@@ -1016,12 +1015,7 @@ def create_entity_load_command(Entity: type[Entity]):
                                     case CLIDataFormat.CSV:
                                         from csv import DictReader
 
-                                        adapter = adapt(
-                                            cast(
-                                                "Iterable[Entity]",
-                                                Iterable[cls],
-                                            )
-                                        )
+                                        adapter = adapt(Iterable[cls])
 
                                         with open(path) as stream:
                                             reader = DictReader(stream)

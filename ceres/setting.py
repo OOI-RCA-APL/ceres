@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, TypedDict, Unpack, override
+from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
 from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text
@@ -57,14 +57,14 @@ class SettingRow(BaseEntityRow, kw_only=True):
         )
 
 
-SettingField: TypeAlias = Literal[
+type SettingField = Literal[
     "user_id",
     "user_id:asc",
     "user_id:desc",
     "name",
     "value",
 ]
-SettingOrder: TypeAlias = Literal[
+type SettingOrder = Literal[
     "user_id",
     "user_id:asc",
     "user_id:desc",
@@ -169,7 +169,7 @@ class _BaseSettingQuery(
         return SettingQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: SettingFilter | None = None,
         **kwargs: Unpack[SettingFilterArgs],
@@ -216,13 +216,13 @@ class BoundSettingManager(SettingManager, BaseNodeManager):
 
 
 class Setting(BaseEntity, SettingCreate, slots=True):
-    Manager: ClassVar[type[SettingManager]] = SettingManager
-    BoundManager: ClassVar[type[BoundSettingManager]] = BoundSettingManager
-    Row: ClassVar[type[SettingRow]] = SettingRow
-    Create: ClassVar[type[SettingCreate]] = SettingCreate
-    Update: ClassVar[type[SettingUpdate]] = SettingUpdate
-    Filter: ClassVar[type[SettingFilter]] = SettingFilter
-    FilterArgs: ClassVar[type[SettingFilterArgs]] = SettingFilterArgs
+    Manager = SettingManager
+    BoundManager = BoundSettingManager
+    Row = SettingRow
+    Create = SettingCreate
+    Update = SettingUpdate
+    Filter = SettingFilter
+    FilterArgs = SettingFilterArgs
     Field = SettingField
     Order = SettingOrder
 

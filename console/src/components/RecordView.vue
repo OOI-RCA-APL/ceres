@@ -61,7 +61,7 @@ const columns = $computed(() => [
         widget.filter.before_minute) != null,
     minWidth: 88,
   },
-  { label: 'Address', name: 'address', filtered: widget.filter.address != null, minWidth: 72 },
+  { label: 'Address', name: 'address', filtered: widget.filter.address != null, minWidth: 64 },
   ...appendedColumns,
 ])
 

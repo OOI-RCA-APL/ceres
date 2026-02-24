@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Annotated, Any, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Self
 
 import pydantic
 from pydantic import (
@@ -124,7 +124,6 @@ class LoadedType:
 
 
 if TYPE_CHECKING:
-    _T = TypeVar("_T")
-    Loaded = Annotated[_T, ()]
+    type Loaded[T] = T
 else:
     Loaded = LoadedType

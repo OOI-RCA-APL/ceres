@@ -5,18 +5,7 @@ import shutil
 from os import PathLike
 from pathlib import Path
 from tempfile import gettempdir
-from typing import (
-    IO,
-    TYPE_CHECKING,
-    Any,
-    Self,
-    TypeAlias,
-    final,
-    overload,
-    override,
-)
-
-from pydantic_core.core_schema import no_info_after_validator_function
+from typing import IO, TYPE_CHECKING, Any, Self, final, overload, override
 
 from ceres.data import uuid4
 
@@ -27,12 +16,9 @@ if TYPE_CHECKING:
     from _typeshed import OpenTextMode as OpenTextMode
     from pydantic import GetCoreSchemaHandler
     from pydantic_core import CoreSchema
-else:
-    OpenBinaryMode = object
-    OpenTextMode = object
 
-StrPath: TypeAlias = str | PathLike[str]
-OpenMode: TypeAlias = OpenTextMode | OpenBinaryMode
+type StrPath = str | PathLike[str]
+type OpenMode = OpenTextMode | OpenBinaryMode
 
 
 @final
@@ -73,6 +59,8 @@ class Directory(PathLike[str]):
         source_type: Any,
         handler: GetCoreSchemaHandler,
     ) -> CoreSchema:
+        from pydantic_core.core_schema import no_info_after_validator_function
+
         def validate(value: str | PathLike[str]) -> Self:
             if isinstance(value, cls):
                 return value

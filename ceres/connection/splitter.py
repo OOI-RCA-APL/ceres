@@ -4,7 +4,7 @@ import re
 from abc import abstractmethod
 from dataclasses import field
 from re import Pattern
-from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, override
+from typing import TYPE_CHECKING, Literal, override
 
 from ceres.data import DataObject, PositiveTimeDelta
 
@@ -52,14 +52,11 @@ class SplitByLine(Splitter):
                 yield match.end()
 
 
-SplitByRegexMode: TypeAlias = Literal["prefix", "suffix", "infix"]
+type SplitByRegexMode = Literal["prefix", "suffix", "infix"]
 
 
 class SplitByRegex(Splitter):
-    if TYPE_CHECKING:
-        Mode: TypeAlias = SplitByRegexMode
-    else:
-        Mode: ClassVar = SplitByRegexMode
+    type Mode = SplitByRegexMode
 
     pattern: Pattern[bytes] = field(kw_only=False)
     mode: Mode = "suffix"

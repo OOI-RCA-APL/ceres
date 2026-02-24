@@ -13,7 +13,7 @@ from packaging.version import Version
 from ceres._internal.util import uniquify
 from ceres.util import proj
 
-SUPPORTED_VERSIONS = ["3.12", "3.12", "3.13", "3.14"]
+SUPPORTED_VERSIONS = ["3.12", "3.13", "3.14"]
 
 # ruff: disable[T201] # Allow print statements.
 

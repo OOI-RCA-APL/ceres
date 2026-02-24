@@ -35,7 +35,7 @@ const directionColor = $computed(() => {
 
 <style lang="scss" module>
 .connectionColumn {
-  min-width: 89px;
+  min-width: 80px;
 }
 
 .connection {
@@ -45,7 +45,7 @@ const directionColor = $computed(() => {
 }
 
 .directionColumn {
-  width: 76px;
+  width: 68px;
   text-align: center;
 }
 

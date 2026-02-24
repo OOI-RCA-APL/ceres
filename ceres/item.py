@@ -31,12 +31,12 @@ class ItemType(StrEnum):
 
 assert set(ItemType).issubset(EntityType)
 
-__new = ItemType.__new__
+_base__new__ = ItemType.__new__
 
 
-@wraps(__new)
-def __new_override(cls: type[ItemType], value: str) -> ItemType:
-    return __new(cls, EntityType(value))
+@wraps(_base__new__)
+def _override__new__(cls: type[ItemType], value: str) -> ItemType:
+    return _base__new__(cls, EntityType(value))
 
 
-ItemType.__new__ = __new_override
+ItemType.__new__ = _override__new__

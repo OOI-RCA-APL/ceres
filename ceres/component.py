@@ -153,9 +153,9 @@ class ComponentFilter(BaseFilter):
 
 
 if TYPE_CHECKING:
-    _Container: TypeAlias = "Component | ComponentSystem | Engine | None"
+    type Container = Component | ComponentSystem | Engine | None
 else:
-    _Container = object
+    type Container = Any
 
 
 class Component(DataObject, ComponentSource):
@@ -163,7 +163,7 @@ class Component(DataObject, ComponentSource):
 
     __with_name__: InitVar[Name | None] = field(default=None, kw_only=False)
     __with_config__: InitVar[ComponentConfig | None] = field(default=None)
-    __with_container__: InitVar[_Container] = field(default=None)
+    __with_container__: InitVar[Container] = field(default=None)
 
     def __post_init__(
         self,
@@ -543,7 +543,7 @@ ProcedurePermissions = ProcedureAccessLevel
 ProcedurePermissionsInput = ProcedureAccessLevelInput
 
 
-class __BaseProcedureBinding(DataObject.Frozen):
+class _ProcedureBinding(DataObject.Frozen):
     type: ProcedureType
     name: Name
     permissions: ProcedurePermissions
@@ -553,20 +553,20 @@ class __BaseProcedureBinding(DataObject.Frozen):
     output: ProcedureOutputInfo
 
 
-class QueryBinding(__BaseProcedureBinding):
+class QueryBinding(_ProcedureBinding):
     type: Literal[ProcedureType.QUERY] = ProcedureType.QUERY
     poll: PositiveTimeDelta = timedelta(seconds=1)
 
 
-class ActionBinding(__BaseProcedureBinding):
+class ActionBinding(_ProcedureBinding):
     type: Literal[ProcedureType.ACTION] = ProcedureType.ACTION
 
 
-ProcedureBinding = QueryBinding | ActionBinding
+ProcedureBinding: TypeAlias = QueryBinding | ActionBinding
 
 
-OutputResponse: TypeAlias = "Response"
-OutputMediaType: TypeAlias = str
+type OutputResponse = Response
+type OutputMediaType = str
 
 
 class BaseOutput:
@@ -621,10 +621,8 @@ class FileOutput(BaseOutput):
         )
 
 
-DataStreamChunk: TypeAlias = bytes | memoryview
-DataStream: TypeAlias = (
-    AsyncIterable[DataStreamChunk] | Callable[[], AsyncIterable[DataStreamChunk]]
-)
+type DataStreamChunk = bytes | memoryview
+type DataStream = AsyncIterable[DataStreamChunk] | Callable[[], AsyncIterable[DataStreamChunk]]
 
 
 class StreamingOutput(BaseOutput):
@@ -706,7 +704,7 @@ def query[**P, T](
     permit: ProcedurePermissionsInput = ProcedureAccessLevel.PUBLIC,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def query(method: Callable[P, T]) -> Callable[P, T]:
-        info = __get_procedure_method_info(method, ProcedureType.QUERY, media)
+        info = _get_procedure_method_info(method, ProcedureType.QUERY, media)
         _add_binding(
             method,
             QueryBinding(
@@ -747,7 +745,7 @@ def action[**P, T](
     permit: ProcedurePermissionsInput = ProcedureAccessLevel.OPERATORS,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def action(method: Callable[P, T]) -> Callable[P, T]:
-        validated = __get_procedure_method_info(method, ProcedureType.ACTION, media)
+        validated = _get_procedure_method_info(method, ProcedureType.ACTION, media)
         _add_binding(
             method,
             ActionBinding(
@@ -768,7 +766,7 @@ def action[**P, T](
     return action(method)
 
 
-class __ProcedureMethodInfo(DataObject.Frozen):
+class _ProcedureMethodInfo(DataObject.Frozen):
     name: str
     method: str
     arguments: ProcedureArgumentsInfo | None
@@ -776,12 +774,12 @@ class __ProcedureMethodInfo(DataObject.Frozen):
     live: bool
 
 
-def __get_procedure_method_info(
+def _get_procedure_method_info(
     method: Callable[..., Any],
     type_: ProcedureType,
     media: str | None,
     /,
-) -> __ProcedureMethodInfo:
+) -> _ProcedureMethodInfo:
     method = util.get_inner_function(method)
     signature = inspect.signature(method)
 
@@ -841,7 +839,7 @@ def __get_procedure_method_info(
                 f"{exception}"
             )
 
-    return __ProcedureMethodInfo(
+    return _ProcedureMethodInfo(
         name=_get_bound_name(method),
         method=util.get_function_name(method),
         arguments=arguments,

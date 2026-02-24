@@ -7,6 +7,7 @@ import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { ElementModel } from '@/api/elements'
+import { MessageModel } from '@/api/messages'
 import { AnyResultModel, ResultModel } from '@/api/shared'
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
@@ -67,11 +68,18 @@ export const ProcedureInfoModel = Zod.discriminatedUnion('type', [QueryInfoModel
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
 export const ComponentRoleModel = Zod.enum(['interface'])
 
+export type ConnectionInfo = Zod.infer<typeof ConnectionInfoModel>
+export const ConnectionInfoModel = Zod.object({
+  name: Zod.string(),
+  label: Zod.string(),
+})
+
 export type ComponentInfo = {
   name: string
   address: Address
   roles: ComponentRole[]
   procedures: ProcedureInfo[]
+  connections: ConnectionInfo[]
   components: ComponentInfo[]
 }
 
@@ -80,6 +88,7 @@ export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   address: AddressModel,
   roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),
+  connections: Zod.array(ConnectionInfoModel),
   components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
 }) as any
 
@@ -108,6 +117,19 @@ export const useComponents = defineStore('components', () => {
     return await client.post(`/api/components/${address}/procedures/${procedure}/call`, {
       data: unref(args),
       parse: AnyResultModel,
+    })
+  }
+
+  async function send(
+    address: Address,
+    connection: string,
+    args: {
+      data: string
+    }
+  ) {
+    return await client.post(`/api/components/${address}/connections/${connection}/send`, {
+      data: args,
+      parse: MessageModel,
     })
   }
 
@@ -239,6 +261,7 @@ export const useComponents = defineStore('components', () => {
     getQuery: computed(() => getQuery),
     getAction: computed(() => getAction),
     call,
+    send,
     useElementStream,
     render,
   }
