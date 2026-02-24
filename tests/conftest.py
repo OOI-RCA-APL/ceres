@@ -3,10 +3,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+pytest.register_assert_rewrite("tests.testing")
+
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
-
-pytest.register_assert_rewrite("tests.testing")
 
 
 @pytest.fixture(scope="session")
