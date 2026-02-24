@@ -1,6 +1,8 @@
+import builtins
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
 
+import pydantic
 from pydantic import ImportString, ValidationError, computed_field, model_serializer
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
@@ -123,8 +125,11 @@ class ComponentReferenceInvalidError(_ComponentError, slots=True):
     type: Literal["component-reference-invalid-error"] = "component-reference-invalid-error"
     address: Address
     referenced: DynamicAddress | Component
-    expected: ImportString[type]
-    actual: ImportString[type]
+    expected: ImportString[builtins.type]
+    actual: ImportString[builtins.type]
+
+
+pydantic.dataclasses.rebuild_dataclass(ComponentReferenceInvalidError)
 
 
 class ComponentJobInvalidError(_ComponentError, slots=True):

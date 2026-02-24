@@ -108,7 +108,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
         )
 
 
-MessageField: TypeAlias = (
+type MessageField = (
     BaseRecordField
     | Literal[
         "connection",
@@ -116,7 +116,7 @@ MessageField: TypeAlias = (
         "content",
     ]
 )
-MessageOrder: TypeAlias = (
+type MessageOrder = (
     BaseRecordOrder
     | Literal[
         "connection",

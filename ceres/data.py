@@ -779,7 +779,6 @@ class FieldsSet(MutableSet[str]):
 
             self._cls = value._cls
             self._mask = value._mask
-            return
         else:
             raise TypeError(
                 f"Expected subclass of `{DataObject.__name__}` or `{type(self).__name__} instance` "
@@ -1038,6 +1037,19 @@ class FieldsSet(MutableSet[str]):
     def _get_index(self, field: str) -> int | None:
         return self._cls.__data_object_field_indexes__.get(field)
 
+    @override
+    def __reduce__(self) -> Any:
+        return _reconstruct_fields_set, (self._cls, self._mask)
+
+
+def _rfs(cls: type[DataObject], mask: int, /) -> FieldsSet:
+    instance = object.__new__(FieldsSet)
+    instance._cls = cls
+    instance._mask = mask
+    return instance
+
+
+_reconstruct_fields_set = _rfs
 
 assert issubclass(FieldsSet, Set)
 
@@ -1184,36 +1196,37 @@ class DataObject(
     @classmethod
     def __data_object_create__(
         cls,
-        values: Mapping[str, Any],
+        field_values: Mapping[str, Any],
         fields_set: Iterable[str] | int | bool | None = None,
+        /,
     ) -> Self:
         instance = object.__new__(cls)
 
-        fields_set_provided = fields_set is not None
-        fields_set = FieldsSet(cls, fields_set if fields_set_provided else values.keys())
+        if fields_set is None:
+            fields_set = FieldsSet(cls, field_values)
+        else:
+            fields_set = FieldsSet(cls, fields_set)
 
         for field_name, field in cls.__data_object_fields__.items():
-            value = values.get(field_name, Undefined)
+            value = field_values.get(field_name, Undefined)
             if value is Undefined:
                 if field.is_required():
                     raise AttributeError(f"Missing value for required field '{field_name}'.")
 
                 value = field.get_default(
                     call_default_factory=True,
-                    validated_data=values,  # type: ignore
+                    validated_data=field_values,  # type: ignore
                 )
 
             _object_setattr(instance, field_name, value)
-            if not fields_set_provided:
-                fields_set.add(field_name)
 
         _object_setattr(instance, "__data_object_fields_set__", fields_set)
         return instance
 
     @classmethod
     def __data_object_construct__(cls, *args: Any, **kwargs: Any) -> Self:
-        values = cls.__data_object_resolve_args_kwargs__(args, kwargs, True)
-        return cls.__data_object_create__(values)
+        kwargs = cls.__data_object_resolve_args_kwargs__(args, kwargs, True)
+        return cls.__data_object_create__(kwargs)
 
     @classmethod
     @overload
@@ -1491,20 +1504,11 @@ class DataObject(
         return fields_set
 
     @override
-    def __reduce__(self) -> _ReducedDataObject:
-        cls = type(self)
-        dictionary: dict | None = getattr(self, "__dict__", None)
-        if dictionary:
-            dictionary = dict(dictionary)
-
-        slots = self.__data_object_defined_slots__
-        slots = [_object_getattribute(self, slot) for slot in slots] if slots else None
-
+    def __reduce__(self) -> Any:
         return _reconstruct_data_object, (
-            cls,
-            dictionary,
-            slots,
-            self.__pydantic_fields_set__.mask,
+            self.__class__,
+            [getattr(self, field) for field in self.__data_object_fields__],
+            self.__data_object_fields_set__.mask,
         )
 
 
@@ -1525,40 +1529,28 @@ __Frozen__.__qualname__ = f"{DataObject.__name__}.{__Frozen__.__name__}"
 
 _is_data_object_frozen_class_defined = True
 
-
-type _ReducedDataObjectValues = tuple[
-    type[object],
-    dict[str, Any] | None,
-    list[Any] | None,
-    int,
-]
-type _ReducedDataObject = tuple[Callable[..., Any], _ReducedDataObjectValues]
-
-_object_getattribute: Final = object.__getattribute__
 _object_setattr: Final = object.__setattr__
 
 
-def _do[T: DataObject](
+def _rdo[T: DataObject](
     cls: type[T],
-    dictionary: dict[str, Any] | None,
-    slots: list[Any] | None,
+    field_values: list[Any],
     fields_set_mask: int,
     /,
 ) -> T:
     instance = object.__new__(cls)
+    for field, value in zip(cls.__data_object_fields__, field_values):
+        _object_setattr(instance, field, value)
 
-    if dictionary:
-        for attribute, value in dictionary.items():
-            _object_setattr(instance, attribute, value)
-    if slots:
-        for attribute, value in zip(cls.__data_object_defined_slots__, slots):
-            _object_setattr(instance, attribute, value)
-
-    _object_setattr(instance, "__data_object_fields_set__", FieldsSet(cls, fields_set_mask))
+    _object_setattr(
+        instance,
+        "__data_object_fields_set__",
+        _reconstruct_fields_set(cls, fields_set_mask),
+    )
     return instance
 
 
-_reconstruct_data_object: Final = _do
+_reconstruct_data_object: Final = _rdo
 
 
 def _is_data_object_type(obj: object, /) -> TypeIs[type[DataObject]]:

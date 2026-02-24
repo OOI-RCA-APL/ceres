@@ -129,8 +129,6 @@ def test_positional_values_are_added_to_fields_set(slots: bool):
 def test_can_be_pickled(Object: type[Object]):
     import pickle
 
-    from ceres.data import _reconstruct_data_object
-
     assert Object.__qualname__ == Object.__name__
     assert Object.__module__ == "tests.test_data_object"
 
@@ -144,16 +142,6 @@ def test_can_be_pickled(Object: type[Object]):
     assert original.__data_object_fields_set__ == FieldsSet(Object, {"a", "b"})
     assert original.__data_object_fields_set__.mask == 0b11
     assert tuple(original.__data_object_fields__) == ("a", "b", "c")
-    if Object is Slotted:
-        assert original.__reduce__() == (
-            _reconstruct_data_object,
-            (Object, None, [42, "pickle", 1.0], original.__fields_set__.mask),
-        )
-    elif Object is Normal:
-        assert original.__reduce__() == (
-            _reconstruct_data_object,
-            (Object, {"a": 42, "b": "pickle", "c": 1.0}, None, original.__fields_set__.mask),
-        )
 
     dumped = pickle.dumps(original)
     reconstructed = pickle.loads(dumped)
