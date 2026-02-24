@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, final

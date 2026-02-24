@@ -1,17 +1,13 @@
-from __future__ import annotations
-
 import asyncio
 import traceback
 from abc import ABC, abstractmethod
 from asyncio import Event as AsyncEvent
 from asyncio import Task
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Self, cast
+from typing import Self, cast
 
 from ceres._internal import util
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 @dataclass

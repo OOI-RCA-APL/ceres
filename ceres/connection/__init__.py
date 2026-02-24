@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 import asyncio
 import traceback
+from collections.abc import Callable
 from dataclasses import field
 from datetime import timedelta
 from typing import (
@@ -76,8 +75,6 @@ from ceres.tasklet import Tasklet
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from ceres.component import ComponentSystem
 else:
     ComponentSystem = object

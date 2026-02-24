@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Final, Literal, Self, override

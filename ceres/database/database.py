@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
@@ -28,7 +27,6 @@ from ceres.threading import spawn
 
 if TYPE_CHECKING:
     import sqlite3
-    from collections.abc import Callable, Iterable
     from uuid import UUID
 
     from sqlalchemy import Connection

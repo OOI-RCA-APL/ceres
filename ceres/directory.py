@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 import os
 import shutil
+from collections.abc import Iterable
 from os import PathLike
 from pathlib import Path
 from tempfile import gettempdir
@@ -10,8 +9,6 @@ from typing import IO, TYPE_CHECKING, Any, Self, final, overload, override
 from ceres.data import uuid4
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from _typeshed import OpenBinaryMode as OpenBinaryMode
     from _typeshed import OpenTextMode as OpenTextMode
     from pydantic import GetCoreSchemaHandler

@@ -1,11 +1,8 @@
-# MODULE DOES NOT WORK WITH: from __future__ import annotations
-
 import json
 import warnings
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any, cast, override
 from uuid import UUID
 
@@ -25,13 +22,11 @@ from fastapi import (
 from fastapi.requests import HTTPConnection
 from fastapi.websockets import WebSocketState
 from pydantic import AfterValidator, Json, ValidationError
-from pydantic.main import IncEx
 from pydantic_core import PydanticKnownError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
 from ceres._internal.entity import BaseEntityFilter
-from ceres._internal.lazy import lazy_imports
 from ceres.data import DataObject, DateTime, StrEnum, adapt, to_json, validate
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
@@ -41,19 +36,20 @@ from ceres.user import User, UserRole
 warnings.filterwarnings("ignore", category=jwt.warnings.InsecureKeyLengthWarning, module="jwt")
 
 if TYPE_CHECKING:
+    from enum import Enum
+
     from asgiref.typing import WebSocketReceiveEvent
+    from pydantic.main import IncEx
 
     from ceres._internal.app.main import App
+    from ceres._internal.server import Server
+    from ceres.config import ServerAuthenticationConfig
     from ceres.engine import Engine
     from ceres.message import BoundMessageManager, MessageFilter
+    from ceres.record import Record
 else:
     Engine = object
     App = object
-
-with lazy_imports(__name__):
-    from ceres._internal.server import Server
-    from ceres.config import ServerAuthenticationConfig
-    from ceres.record import Record
 
 
 def exclude_recursively(fields: Iterable[str]) -> IncEx:
@@ -119,14 +115,14 @@ def _get_current_engine(app: CurrentApp) -> Engine:
     return app.engine
 
 
-CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
+type CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
 
 
 def _get_current_cli(app: CurrentApp) -> bool:
     return app.cli
 
 
-CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
+type CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
 
 
 class SocketDirection(StrEnum):
@@ -204,7 +200,7 @@ async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> Async
             await socket.close()
 
 
-CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
+type CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 
 
 def _get_procedure_query_arguments(
@@ -225,7 +221,7 @@ def _get_procedure_query_arguments(
         )
 
 
-CurrentProcedureQueryArguments = Annotated[
+type CurrentProcedureQueryArguments = Annotated[
     Mapping[str, object] | None, Depends(_get_procedure_query_arguments)
 ]
 
@@ -279,8 +275,8 @@ def assign_authorization_cookie(
     )
 
 
-CurrentAuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
-CurrentAuthorizationCookie = Annotated[str | None, Cookie(alias="Authorization")]
+type CurrentAuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
+type CurrentAuthorizationCookie = Annotated[str | None, Cookie(alias="Authorization")]
 
 
 async def _get_current_identity(
@@ -337,7 +333,7 @@ async def _get_current_identity(
         )
 
 
-CurrentIdentity = Annotated[Identity | None, Depends(_get_current_identity)]
+type CurrentIdentity = Annotated[Identity | None, Depends(_get_current_identity)]
 
 
 def _get_required_identity(identity: CurrentIdentity) -> Identity:
@@ -347,7 +343,7 @@ def _get_required_identity(identity: CurrentIdentity) -> Identity:
     return identity
 
 
-RequireIdentity = Annotated[Identity, Depends(_get_required_identity)]
+type RequireIdentity = Annotated[Identity, Depends(_get_required_identity)]
 
 
 async def _get_current_user(identity: CurrentIdentity) -> User | None:
@@ -357,7 +353,7 @@ async def _get_current_user(identity: CurrentIdentity) -> User | None:
     return identity.user
 
 
-CurrentUser = Annotated[User | None, Depends(_get_current_user)]
+type CurrentUser = Annotated[User | None, Depends(_get_current_user)]
 
 
 async def _require_current_user(user: CurrentUser) -> User:
@@ -367,7 +363,7 @@ async def _require_current_user(user: CurrentUser) -> User:
     return user
 
 
-RequireUser = Annotated[User, Depends(_require_current_user)]
+type RequireUser = Annotated[User, Depends(_require_current_user)]
 
 
 def _get_current_role(user: CurrentUser, cli: CurrentCLI) -> UserRole | None:
@@ -378,7 +374,7 @@ def _get_current_role(user: CurrentUser, cli: CurrentCLI) -> UserRole | None:
     return user.role
 
 
-CurrentRole = Annotated[UserRole | None, Depends(_get_current_role)]
+type CurrentRole = Annotated[UserRole | None, Depends(_get_current_role)]
 
 
 def _restrict(
@@ -403,7 +399,7 @@ def _restrict(
     return user
 
 
-def __require_viewer(
+def _require_viewer(
     engine: CurrentEngine,
     user: CurrentUser,
     cli: CurrentCLI,
@@ -412,7 +408,7 @@ def __require_viewer(
     return _restrict(UserRole.VIEWER, engine, user, cli, role)
 
 
-def __require_operator(
+def _require_operator(
     engine: CurrentEngine,
     user: CurrentUser,
     cli: CurrentCLI,
@@ -421,7 +417,7 @@ def __require_operator(
     return _restrict(UserRole.OPERATOR, engine, user, cli, role)
 
 
-def __require_admin(
+def _require_admin(
     engine: CurrentEngine,
     user: CurrentUser,
     cli: CurrentCLI,
@@ -430,13 +426,13 @@ def __require_admin(
     return _restrict(UserRole.ADMIN, engine, user, cli, role)
 
 
-VIEWER = Depends(__require_viewer)
-OPERATOR = Depends(__require_operator)
-ADMIN = Depends(__require_admin)
+VIEWER = Depends(_require_viewer)
+OPERATOR = Depends(_require_operator)
+ADMIN = Depends(_require_admin)
 
-RequireViewer = Annotated[User | None, VIEWER]
-RequireOperator = Annotated[User | None, OPERATOR]
-RequireAdmin = Annotated[User | None, ADMIN]
+type RequireViewer = Annotated[User | None, VIEWER]
+type RequireOperator = Annotated[User | None, OPERATOR]
+type RequireAdmin = Annotated[User | None, ADMIN]
 
 
 def assert_found[T](value: T | None, /) -> T:
@@ -532,7 +528,7 @@ def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
     return router
 
 
-def __require_self_or_admin(
+def _require_self_or_admin(
     connection: HTTPConnection,
     user: RequireViewer,
     role: CurrentRole,
@@ -553,7 +549,7 @@ def __require_self_or_admin(
     return user_id
 
 
-SELF_OR_ADMIN = Depends(__require_self_or_admin)
+SELF_OR_ADMIN = Depends(_require_self_or_admin)
 
 
 def Limit[FilterT: BaseEntityFilter](max: int) -> AfterValidator:

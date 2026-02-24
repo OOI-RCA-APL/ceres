@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import socket
 import traceback
 from contextlib import closing

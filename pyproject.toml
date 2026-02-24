@@ -7,7 +7,7 @@ name = "ceres"
 version = "0.37.0"
 description = "APL - Ceres"
 authors = [{ name = "Jake Ploskey", email = "jploskey@uw.edu" }]
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "aiohttp>=3.13.3,<4",
     "aiosmtplib>=5.1,<6",
@@ -74,6 +74,7 @@ ignore = ["F402", "UP022", "UP040"]
 extend-select = ["I", "TC", "T201", "UP"]
 
 [tool.ruff.lint.flake8-type-checking]
+exempt-modules = ["typing", "typing_extensions", "fastapi", "collections.abc"]
 runtime-evaluated-base-classes = [
     "pydantic.BaseModel",
     "sqlalchemy.orm.DeclarativeBase",
@@ -100,6 +101,7 @@ runtime-evaluated-base-classes = [
     "ceres._internal.record.BaseRecordFilter",
     "ceres._internal.record.BaseRecordFilterArgs",
     "ceres._internal.record.BaseRecordRow",
+    "fastapi.HTTPConnection",
 ]
 runtime-evaluated-decorators = [
     "fastapi.FastAPI.delete",
@@ -118,6 +120,8 @@ runtime-evaluated-decorators = [
     "ceres._internal.app.shared.Router.post",
     "ceres._internal.app.shared.Router.put",
     "pydantic.validate_call",
+    "pydantic.model_serializer",
+    "pydantic.field_serializer",
     "ceres.component.action",
     "ceres.component.query",
 ]

@@ -1,9 +1,8 @@
-from __future__ import annotations
-
 import subprocess
 import sys
 import traceback
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from getpass import getuser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
@@ -12,8 +11,6 @@ from ceres._internal.cli.shared import write
 from ceres.data import DataModel, StrEnum
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from ceres._internal.project import LoadedProject, Project
     from ceres.config import ServiceConfig
 

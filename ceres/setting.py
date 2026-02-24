@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
@@ -25,8 +24,6 @@ from ceres.data import FromYAML, JSONSerializable, MaybeSequence, uuid7
 from ceres.user import UserRow
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 

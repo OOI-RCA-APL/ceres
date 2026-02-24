@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from collections.abc import Callable, Iterable
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -43,7 +42,6 @@ from ceres.data import MaybeSequence, StrEnum
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
     from datetime import datetime
     from uuid import UUID
 

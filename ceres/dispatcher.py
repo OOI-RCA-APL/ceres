@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import traceback
 from abc import abstractmethod
 from collections import defaultdict

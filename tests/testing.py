@@ -5,12 +5,7 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    NotRequired,
-    TypedDict,
-)
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from sqlalchemy import insert
 
@@ -38,15 +33,15 @@ from ceres._internal.entity import (
 from ceres.config import BCryptHashingConfig
 from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
 from ceres.database import Database
-from ceres.item import Item
-from ceres.record import Record
 from ceres.timing import _now_context_var
 from ceres.user import UserRole
 
 if TYPE_CHECKING:
     from ceres._internal.record import BaseRecordFilterArgs
     from ceres.alert import AlertFilterArgs
+    from ceres.item import Item
     from ceres.particle import ParticleFilterArgs
+    from ceres.record import Record
 
 
 async def wait_for_condition(

@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 import asyncio
 import json
 import signal
 import sys
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
 
@@ -37,8 +36,6 @@ from ceres.error import Failure
 from ceres.result import Fail, Ok
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from ceres.database import Database
 
 with lazy_imports(__name__):
@@ -356,7 +353,7 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
             if exception.message is not None:
                 self.write(exception.message)
             return exception.status
-        except (KeyboardInterrupt, CancelledError):
+        except KeyboardInterrupt, CancelledError:
             self.write("Interrupted. Exiting...")
             return 0
 

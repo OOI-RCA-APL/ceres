@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import ssl
 from abc import abstractmethod
 from collections.abc import Mapping, Sequence

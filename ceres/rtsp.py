@@ -1,16 +1,13 @@
-from __future__ import annotations
-
 import asyncio
 import subprocess
 import sys
+from collections.abc import AsyncIterator
 from shutil import which
 from typing import TYPE_CHECKING
 
 from ceres.component import StreamingOutput
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from ceres._internal.util import PathLike
 
 

@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Final, NamedTuple, overload, override
@@ -7,8 +6,6 @@ from typing import TYPE_CHECKING, Final, NamedTuple, overload, override
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
-
     from ceres.connection.splitter import Splitter
     from ceres.data import BytesLike
 

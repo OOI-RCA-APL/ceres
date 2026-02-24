@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from uuid import UUID
 
 from ceres._internal.app.shared import CurrentEngine, CurrentRole, CurrentUser, Router

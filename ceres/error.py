@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
 
 from pydantic import ImportString, ValidationError, computed_field, model_serializer
@@ -20,8 +19,6 @@ from ceres.address import Address, DynamicAddress
 from ceres.data import DataObject, simplify
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from fastapi.exceptions import RequestValidationError
 
 

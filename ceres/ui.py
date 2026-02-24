@@ -1,10 +1,9 @@
-from __future__ import annotations
-
+from collections.abc import Callable, Sequence
 from decimal import Decimal
 from enum import Enum
 from textwrap import dedent
 from types import MethodType
-from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias, TypedDict, Unpack
+from typing import Annotated, Any, Literal, TypeAlias, TypedDict, Unpack
 
 from pydantic import (
     Field,
@@ -19,9 +18,6 @@ from ceres._internal import util
 from ceres.address import Address
 from ceres.component import get_component_method_binding_on
 from ceres.data import Color, DataModel, Name, StrEnum
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
 
 
 class ElementType(StrEnum):

@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import datetime as dt
 import math
 from abc import abstractmethod
+from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeAlias, override
+from typing import Annotated, Any, Literal, TypeAlias, override
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
@@ -21,9 +20,6 @@ from pydantic import (
 from ceres._internal.util import decode_td
 from ceres.data import DataObject, DateTime, PositiveTimeDelta, StrEnum
 from ceres.timing import utc
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
 
 
 class ScheduleType(StrEnum):

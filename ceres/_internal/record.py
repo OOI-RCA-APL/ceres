@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 from abc import abstractmethod
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Self, override
 
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
@@ -38,7 +37,6 @@ from ceres.database import DatabaseType
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
     from datetime import datetime
 
     from sqlalchemy import SQLColumnExpression

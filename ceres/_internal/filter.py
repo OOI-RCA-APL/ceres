@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Self, TypedDict
 
 from ceres.data import ImmutableDataModel, defaulting, replacing

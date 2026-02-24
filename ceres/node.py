@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 import asyncio
 from abc import abstractmethod
+from collections.abc import AsyncIterable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Unpack, dataclass_transform, override
 
@@ -26,8 +25,6 @@ from ceres.event import (
 from ceres.tasklet import Tasklet
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterable
-
     from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem

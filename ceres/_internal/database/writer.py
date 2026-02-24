@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 from asyncio import Event as AsyncEvent
 from collections import defaultdict, deque
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -9,8 +8,6 @@ from ceres._internal import util
 from ceres.data import adapt
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
-
     from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.database import Database

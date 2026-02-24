@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 import logging
+from collections.abc import Callable, Iterable
 from typing import (
     TYPE_CHECKING,
     ClassVar,
@@ -40,7 +39,6 @@ from ceres.level import Level
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
     from datetime import datetime
     from uuid import UUID
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from asyncio import CancelledError
 from datetime import UTC
 from threading import Lock

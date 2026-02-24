@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 import re
 from abc import abstractmethod
+from collections.abc import Iterator
 from dataclasses import field
 from re import Pattern
 from typing import TYPE_CHECKING, Literal, override
@@ -9,7 +8,6 @@ from typing import TYPE_CHECKING, Literal, override
 from ceres.data import DataObject, PositiveTimeDelta
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from datetime import datetime
 
     from pydantic import PositiveInt

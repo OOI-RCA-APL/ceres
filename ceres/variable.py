@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from collections.abc import Callable, Iterable
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -35,8 +34,6 @@ from ceres._internal.util import MatchMode
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, to_json, validate
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
-
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 

@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -9,8 +8,6 @@ from ceres._internal.cli.shared import CLIClientError
 from ceres.data import adapt, simplify
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from aiohttp import ClientSession
 
     from ceres._internal.project import LoadedProject

@@ -1,11 +1,6 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from collections.abc import Callable
 
 from ceres._internal import util
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 async def spawn[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:

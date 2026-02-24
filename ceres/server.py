@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from abc import abstractmethod
 from datetime import timedelta
@@ -161,7 +159,7 @@ class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
                             await client.send_eof()
                     except Exception:
                         pass
-        except (EndOfStream, BrokenResourceError, ClosedResourceError):
+        except EndOfStream, BrokenResourceError, ClosedResourceError:
             pass
         except Exception as exception:
             self.system.events.emit(

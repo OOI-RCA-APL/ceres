@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import builtins
 import re
 from abc import abstractmethod
@@ -16,6 +14,7 @@ from collections.abc import (
 from re import Pattern
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     ClassVar,
     Generic,
@@ -29,7 +28,14 @@ from typing import (
     override,
 )
 
-from pydantic import ConfigDict, ImportString, SerializeAsAny, ValidationError, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    ImportString,
+    SerializeAsAny,
+    ValidationError,
+    model_validator,
+)
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -166,7 +172,10 @@ class ParticleData(DataObject, Mapping[str, Any], config=ConfigDict(extra="ignor
         return self.__dict__.items()
 
 
-DynamicParticleData: TypeAlias = ParticleData | JSONSerializableDict
+DynamicParticleData: TypeAlias = Annotated[
+    SerializeAsAny[JSONSerializableDict | ParticleData],
+    Field(union_mode="left_to_right"),
+]
 
 # ruff: disable[UP046] Need `TypeVar.default` for Python 3.12 compatibility.
 
@@ -515,7 +524,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
     __naming__: ClassVar[EntityNaming] = EntityNaming("particle")
 
     type: str = UNKNOWN_TYPE
-    data: SerializeAsAny[FromYAML[DataT]]
+    data: FromYAML[DataT]
 
     @model_validator(mode="before")
     @to_kwargs

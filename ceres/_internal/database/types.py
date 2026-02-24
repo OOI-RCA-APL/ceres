@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, override
 from uuid import UUID
@@ -10,7 +9,6 @@ from ceres._internal import util
 from ceres.address import Address
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from enum import Enum as BaseEnum
 
     from sqlalchemy.orm import InstrumentedAttribute

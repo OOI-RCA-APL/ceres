@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import dataclasses
 import inspect
@@ -9,6 +7,7 @@ import re
 import sys
 import traceback
 import typing
+from annotationlib import Format
 from asyncio import AbstractEventLoop, Future
 from collections import defaultdict
 from collections.abc import (
@@ -491,7 +490,7 @@ def cached[T: Callable[..., Any]](
     lock = RLock()
 
     def cached(function: T) -> T:
-        parameters = inspect.signature(function).parameters
+        parameters = inspect.signature(function, annotation_format=Format.FORWARDREF).parameters
         if len(parameters) == 0:
             value: Any = Undefined
 

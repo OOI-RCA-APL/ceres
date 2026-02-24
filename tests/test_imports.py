@@ -1,10 +1,13 @@
 # Make sure we can import everything in the root module.
 
 import warnings
-from types import ModuleType
+from typing import TYPE_CHECKING
 
 import ceres
 from ceres import *  # noqa: F403
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 
 def import_submodules(package: str | ModuleType, recursive: bool = True) -> dict[str, ModuleType]:

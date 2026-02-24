@@ -3,11 +3,13 @@ from asyncio import AbstractEventLoop, CancelledError, Task, TaskGroup
 from asyncio import Queue as AsyncQueue
 from collections.abc import AsyncIterable, AsyncIterator, Coroutine, Iterable, Sequence
 from dataclasses import dataclass
-from os import PathLike
 from pathlib import Path
-from typing import Any, cast, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from ceres._internal.util import MaybeRecursiveIterable, flatten
+
+if TYPE_CHECKING:
+    from os import PathLike
 
 
 async def cancel(*tasks: MaybeRecursiveIterable[Task[Any]]) -> None:

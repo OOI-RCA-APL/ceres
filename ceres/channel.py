@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from asyncio import AbstractEventLoop, QueueEmpty
 from asyncio import Queue as AsyncQueue
