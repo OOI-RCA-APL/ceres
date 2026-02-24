@@ -1,8 +1,7 @@
-from typing import Annotated
+from typing import Annotated, TypedDict
 from uuid import UUID
 
 from fastapi import Query
-from sqlalchemy.util.typing import TypedDict
 
 from ceres._internal.app.shared import (
     SELF_OR_ADMIN,

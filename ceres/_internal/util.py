@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 import inspect
+import operator
 import os
 import platform
 import re
@@ -22,6 +23,7 @@ from collections.abc import (
     MutableMapping,
     Sequence,
     Set,
+    ValuesView,
 )
 from contextlib import contextmanager
 from datetime import timedelta
@@ -1471,3 +1473,103 @@ def declared_slots_of(cls: type) -> list[str]:
             slots[slot] = None
 
     return list(slots)
+
+
+class LRUCache[K, V](MutableMapping[K, V]):
+    __slots__ = (
+        "capacity",
+        "threshold",
+        "size_alert",
+        "_data",
+        "_counter",
+        "_mutex",
+    )
+
+    capacity: int
+    threshold: float
+    size_alert: Callable[[LRUCache[K, V]], None] | None
+
+    def __init__(
+        self,
+        capacity: int = 100,
+        threshold: float = 0.5,
+        size_alert: Callable[..., None] | None = None,
+    ):
+        import threading
+
+        self.capacity = capacity
+        self.threshold = threshold
+        self.size_alert = size_alert
+        self._counter = 0
+        self._mutex = threading.Lock()
+        self._data: dict[K, tuple[K, V, list[int]]] = {}
+
+    def _inc_counter(self):
+        self._counter += 1
+        return self._counter
+
+    @overload
+    def get(self, key: K) -> V | None: ...
+    @overload
+    def get[T](self, key: K, default: V | T) -> V | T: ...
+    @override
+    def get[T](self, key: K, default: V | T | None = None) -> V | T | None:
+        item = self._data.get(key)
+        if item is not None:
+            item[2][0] = self._inc_counter()
+            return item[1]
+        else:
+            return default
+
+    @override
+    def __getitem__(self, key: K) -> V:
+        item = self._data[key]
+        item[2][0] = self._inc_counter()
+        return item[1]
+
+    @override
+    def __iter__(self) -> Iterator[K]:
+        return iter(self._data)
+
+    @override
+    def __len__(self) -> int:
+        return len(self._data)
+
+    @override
+    def values(self) -> ValuesView[V]:
+        return ValuesView({k: i[1] for k, i in self._data.items()})
+
+    @override
+    def __setitem__(self, key: K, value: V, /) -> None:
+        self._data[key] = (key, value, [self._inc_counter()])
+        self._manage_size()
+
+    @override
+    def __delitem__(self, key: K, /) -> None:
+        del self._data[key]
+
+    @property
+    def size_threshold(self) -> float:
+        return self.capacity + self.capacity * self.threshold
+
+    def _manage_size(self) -> None:
+        if not self._mutex.acquire(False):
+            return
+        try:
+            size_alert = bool(self.size_alert)
+            while len(self) > self.capacity + self.capacity * self.threshold:
+                if size_alert:
+                    size_alert = False
+                    self.size_alert(self)  # type: ignore
+                by_counter = sorted(
+                    self._data.values(),
+                    key=operator.itemgetter(2),
+                    reverse=True,
+                )
+                for item in by_counter[self.capacity :]:
+                    try:
+                        del self._data[item[0]]
+                    except KeyError:
+                        continue
+        finally:
+            self._mutex.release()

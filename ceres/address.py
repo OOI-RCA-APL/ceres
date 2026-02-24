@@ -4,10 +4,9 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Self, override
 
 from pydantic_core import CoreSchema, SchemaSerializer
 from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
-from sqlalchemy.util import LRUCache
 
 from ceres._internal import util
-from ceres._internal.util import NAME_PATTERN, ClassProperty
+from ceres._internal.util import NAME_PATTERN, ClassProperty, LRUCache
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
