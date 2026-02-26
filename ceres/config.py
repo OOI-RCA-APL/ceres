@@ -132,11 +132,11 @@ class ConnectionConfig(DataObject):
 
     @model_validator(mode="after")
     def _validate_arguments(self) -> Self:
-        validate(self.arguments, self.cls)
+        validate(self.cls, self.arguments)
         return self
 
     def create(self) -> Connection:
-        return validate(self.arguments, self.cls)
+        return validate(self.cls, self.arguments)
 
 
 class _PrunerConfig[TFilter](DataObject):
@@ -204,12 +204,12 @@ class ClassSieveConfig(_SieveConfig):
 
     @model_validator(mode="after")
     def _validate_arguments(self) -> Self:
-        validate(self.arguments, self.cls)
+        validate(self.cls, self.arguments)
         return self
 
     @override
     def create(self, component: Component) -> Sieve:
-        return validate(self.arguments, self.cls)
+        return validate(self.cls, self.arguments)
 
 
 class MethodSieveConfig(_SieveConfig):
@@ -265,7 +265,7 @@ class ComponentConfig(DataObject):
             if argument.startswith("__with"):
                 raise ValueError(f"arguments starting with '__with' are reserved, got '{argument}'")
 
-        validate(self.arguments, self.cls)
+        validate(self.cls, self.arguments)
         return self
 
     @field_validator("name")
@@ -375,13 +375,13 @@ class ComponentConfig(DataObject):
     ) -> Component | None:
         try:
             instance = validate(
+                self.cls,
                 {
                     **self.arguments,
                     "__with_name__": self.name,
                     "__with_config__": self,
                     "__with_container__": container,
                 },
-                self.cls,
             )
         except ValidationError as error:
             errors.append(
@@ -480,7 +480,7 @@ class ServerConfig(DataObject):
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:
-        validate(host, IPvAnyAddress)
+        validate(IPvAnyAddress, host)
         return host
 
 
@@ -619,7 +619,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             return Fail(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
 
         try:
-            instance = validate(data, cls)
+            instance = validate(cls, data)
         except ValidationError as error:
             return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 

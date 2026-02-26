@@ -548,7 +548,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
         cls: builtins.type[ConvertedDataT],
     ) -> Particle[ConvertedDataT]:
         data = (
-            validate(self.data, cls)
+            validate(cls, self.data)
             if util.lenient_issubclass(cls, ParticleData)
             else dict(self.data)
         )
@@ -653,6 +653,6 @@ class RegexParticleData(ParseableParticleData):
             raise ParseFailed("Bytes did not match regex pattern.")
 
         try:
-            return validate(match.groupdict(), cls)
+            return validate(cls, match.groupdict())
         except ValidationError as error:
             raise ParseFailed(f"Bytes matched, but validation failed. {error}") from error

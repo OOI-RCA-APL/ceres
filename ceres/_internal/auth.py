@@ -10,13 +10,13 @@ if TYPE_CHECKING:
 
 def get_password_hash_type(hash: str) -> HashType | None:
     try:
-        validate(hash, BCryptHash)
+        validate(BCryptHash, hash)
         return HashType.BCRYPT
     except ValueError:
         pass
 
     try:
-        validate(hash, Argon2Hash)
+        validate(Argon2Hash, hash)
         return HashType.ARGON2
     except ValueError:
         pass

@@ -493,9 +493,9 @@ class CLICommand(DataModel):
                 model_config = config
 
         # If only we could pass `extra = "ignore"` to the validation method itself, but we can't.
-        intermediate = validate_json(to_json(self), IgnoreExtra)
+        intermediate = validate_json(IgnoreExtra, to_json(self))
         # Convert the `IgnoreExtra` instance with exactly matching fields into `model_cls`.
-        return validate_json(to_json(intermediate), data_object_class)
+        return validate_json(data_object_class, to_json(intermediate))
 
     def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         if output is None:

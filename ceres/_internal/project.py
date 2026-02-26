@@ -55,7 +55,7 @@ class LoadedProject(Project):
         try:
             from ceres._internal.server import CLIServerInfo
 
-            return validate_json(self.cli_server_info_path.read_text(), CLIServerInfo)
+            return validate_json(CLIServerInfo, self.cli_server_info_path.read_text())
         except Exception:
             return None
 

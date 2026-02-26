@@ -238,7 +238,7 @@ def decode_td(value: str | timedelta | int | float | Any, /) -> timedelta:
 
     if isinstance(value, str):
         try:
-            return validate(value, timedelta)
+            return validate(timedelta, value)
         except Exception:
             pass
 

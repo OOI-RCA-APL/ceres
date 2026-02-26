@@ -260,14 +260,14 @@ class ValidateKwargs(TypedDict, total=False):
 
 
 def validate[T](
+    ty: TypeInput[T],
     data: Any,
-    as_type: TypeInput[T],
     /,
     *,
     _namespace: int = -4,
     **kwargs: Unpack[ValidateKwargs],
 ) -> Any:
-    return adapt(as_type, _namespace=_namespace).validate_python(data, **kwargs)
+    return adapt(ty, _namespace=_namespace).validate_python(data, **kwargs)
 
 
 class ValidateJSONKwargs(TypedDict, total=False):
@@ -280,14 +280,14 @@ class ValidateJSONKwargs(TypedDict, total=False):
 
 
 def validate_json[T](
+    ty: TypeInput[T],
     data: str,
-    as_type: TypeInput[T],
     /,
     *,
     _namespace: int = -4,
     **kwargs: Unpack[ValidateJSONKwargs],
 ) -> T:
-    return adapt(as_type, _namespace=_namespace).validate_json(data, **kwargs)
+    return adapt(ty, _namespace=_namespace).validate_json(data, **kwargs)
 
 
 class ValidateYAMLKwargs(ValidateJSONKwargs, total=False):
@@ -295,8 +295,8 @@ class ValidateYAMLKwargs(ValidateJSONKwargs, total=False):
 
 
 def validate_yaml[T](
+    ty: TypeInput[T],
     data: str,
-    as_type: TypeInput[T],
     /,
     *,
     _namespace: int = -4,
@@ -311,7 +311,7 @@ def validate_yaml[T](
 
         parsed = yaml.safe_load(data)
 
-    return validate(parsed, as_type, _namespace=_namespace, **kwargs)
+    return validate(parsed, ty, _namespace=_namespace, **kwargs)
 
 
 if TYPE_CHECKING:
@@ -1905,7 +1905,7 @@ def _validate_datetime(value: object) -> datetime | None:
     if isinstance(value, datetime):
         instance = value
     else:
-        instance: datetime | date = validate(value, datetime | date)
+        instance: datetime | date = validate(datetime | date, value)
         if not isinstance(instance, datetime):
             return datetime(
                 year=instance.year,

@@ -517,7 +517,7 @@ def test_from_attributes():
         c: int
 
     c = C(a=1, b=2, c=3)
-    assert validate(c, A)
+    assert validate(A, c)
 
 
 def test_exclude():
