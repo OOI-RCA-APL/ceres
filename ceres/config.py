@@ -132,11 +132,11 @@ class ConnectionConfig(DataObject):
 
     @model_validator(mode="after")
     def _validate_arguments(self) -> Self:
-        self.cls(**self.arguments)
+        validate(self.arguments, self.cls)
         return self
 
     def create(self) -> Connection:
-        return self.cls(**self.arguments)
+        return validate(self.arguments, self.cls)
 
 
 class _PrunerConfig[TFilter](DataObject):
@@ -204,12 +204,12 @@ class ClassSieveConfig(_SieveConfig):
 
     @model_validator(mode="after")
     def _validate_arguments(self) -> Self:
-        self.cls(**self.arguments)
+        validate(self.arguments, self.cls)
         return self
 
     @override
     def create(self, component: Component) -> Sieve:
-        return self.cls(**self.arguments)
+        return validate(self.arguments, self.cls)
 
 
 class MethodSieveConfig(_SieveConfig):
@@ -265,7 +265,7 @@ class ComponentConfig(DataObject):
             if argument.startswith("__with"):
                 raise ValueError(f"arguments starting with '__with' are reserved, got '{argument}'")
 
-        self.cls(**self.arguments)
+        validate(self.arguments, self.cls)
         return self
 
     @field_validator("name")
@@ -374,11 +374,14 @@ class ComponentConfig(DataObject):
         errors: list[ComponentError],
     ) -> Component | None:
         try:
-            instance = self.cls(
-                **self.arguments,
-                __with_name__=self.name,
-                __with_config__=self,
-                __with_container__=container,
+            instance = validate(
+                {
+                    **self.arguments,
+                    "__with_name__": self.name,
+                    "__with_config__": self,
+                    "__with_container__": container,
+                },
+                self.cls,
             )
         except ValidationError as error:
             errors.append(

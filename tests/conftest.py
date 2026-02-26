@@ -1,20 +1,11 @@
-from collections.abc import Iterable
-from typing import TYPE_CHECKING
-
 import pytest
+
+from ceres.util import ensure_event_loop
 
 pytest.register_assert_rewrite("tests.testing")
 
-if TYPE_CHECKING:
-    from asyncio import AbstractEventLoop
 
-
-@pytest.fixture(scope="session")
-def event_loop() -> Iterable[AbstractEventLoop]:
-    from ceres._internal.util import ensure_event_loop
-
-    loop = ensure_event_loop()
-    try:
-        yield loop
-    finally:
-        loop.close()
+# Install `uvloop` and enable eager task factory for all tests if possible.
+@pytest.fixture(scope="session", autouse=True)
+def setup() -> None:
+    ensure_event_loop()

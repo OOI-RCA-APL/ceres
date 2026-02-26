@@ -109,40 +109,6 @@ _cached_init_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
 _cached_computed_fields = WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]]()
 
 
-@overload
-def _is_dataclass(obj: type, /) -> TypeIs[type[Dataclass]]: ...
-@overload
-def _is_dataclass(obj: object, /) -> TypeIs[MaybeClass[Dataclass]]: ...
-def _is_dataclass(obj: object, /) -> TypeIs[MaybeClass[Dataclass]]:
-    return dataclasses.is_dataclass(obj)
-
-
-def _supports_pydantic_fields(obj: object, /) -> TypeIs[MaybeClass[SupportsPydanticFields]]:
-    return hasattr(obj, "__pydantic_fields__")
-
-
-def _supports_fields_set(obj: object, /) -> TypeIs[SupportsPydanticFieldsSet]:
-    return hasattr(obj, "__pydantic_fields_set__")
-
-
-@cached(storage=_cached_dataclasses)
-def _as_pydantic_dataclass(cls: type[Dataclass]) -> type[PydanticDataclass]:
-    if pydantic.dataclasses.is_pydantic_dataclass(cls):
-        return cls
-
-    return pydantic.dataclasses.dataclass(cls, config={"arbitrary_types_allowed": True})
-
-
-def _as_class[T](obj: MaybeClass[T]) -> type[T]:
-    return obj if isinstance(obj, type) else type(obj)
-
-
-def _decorators_of(cls: type[PydanticDataclass]) -> Iterable[tuple[str, Decorator]]:
-    for _, decorators in items_of(cls.__pydantic_decorators__):
-        if isinstance(decorators, Mapping):
-            yield from decorators.items()
-
-
 def adapt[T](
     ty: TypeInput[T],
     /,
@@ -486,6 +452,40 @@ def fields_set_on(obj: SupportsPydanticFieldsSet, /) -> Set[str]:
         raise TypeError(f"Unsupported type for `{fields_set_on.__name__}`: {type(obj)}")
 
 
+@overload
+def _is_dataclass(obj: type, /) -> TypeIs[type[Dataclass]]: ...
+@overload
+def _is_dataclass(obj: object, /) -> TypeIs[MaybeClass[Dataclass]]: ...
+def _is_dataclass(obj: object, /) -> TypeIs[MaybeClass[Dataclass]]:
+    return dataclasses.is_dataclass(obj)
+
+
+def _supports_pydantic_fields(obj: object, /) -> TypeIs[MaybeClass[SupportsPydanticFields]]:
+    return hasattr(obj, "__pydantic_fields__")
+
+
+def _supports_fields_set(obj: object, /) -> TypeIs[SupportsPydanticFieldsSet]:
+    return hasattr(obj, "__pydantic_fields_set__")
+
+
+@cached(storage=_cached_dataclasses)
+def _as_pydantic_dataclass(cls: type[Dataclass]) -> type[PydanticDataclass]:
+    if pydantic.dataclasses.is_pydantic_dataclass(cls):
+        return cls
+
+    return pydantic.dataclasses.dataclass(cls, config={"arbitrary_types_allowed": True})
+
+
+def _as_class[T](obj: MaybeClass[T]) -> type[T]:
+    return obj if isinstance(obj, type) else type(obj)
+
+
+def _decorators_of(cls: type[PydanticDataclass]) -> Iterable[tuple[str, Decorator]]:
+    for _, decorators in items_of(cls.__pydantic_decorators__):
+        if isinstance(decorators, Mapping):
+            yield from decorators.items()
+
+
 def _generate_validation_aliases(field: str) -> str | AliasChoices:
     if "_" not in field:
         return field
@@ -493,15 +493,15 @@ def _generate_validation_aliases(field: str) -> str | AliasChoices:
     return AliasChoices(field, field.replace("_", "-"))
 
 
-_DATA_OBJECT_ALIAS_GENERATOR = AliasGenerator(
-    validation_alias=_generate_validation_aliases,
-)
+_object_setattr: Final = object.__setattr__
 
+_DATA_OBJECT_ALIAS_GENERATOR = AliasGenerator(validation_alias=_generate_validation_aliases)
 _DATA_OBJECT_DEFAULT_CONFIG = ConfigDict(
     extra="forbid",
     from_attributes=True,
     use_attribute_docstrings=True,
     alias_generator=_DATA_OBJECT_ALIAS_GENERATOR,
+    arbitrary_types_allowed=True,
     validate_by_name=True,
     validate_by_alias=True,
 )
@@ -526,6 +526,7 @@ def _patch_dataclass_fields() -> None:
 
 
 _patch_dataclass_fields()
+
 
 if TYPE_CHECKING:
     from ceres.component import ConnectionField
@@ -646,14 +647,14 @@ class DataObjectMetaclass(
             return inner_class
 
         # Collect inherited Pydantic config from base classes with `__pydantic_config__` defined.
-        inherited = ConfigDict()
+        inherited_config = ConfigDict()
         for base in reversed(bases):
             current: ConfigDict | None = getattr(base, "__pydantic_config__", None)
             if current:
-                inherited.update(current)
+                inherited_config.update(current)
 
         config: ConfigDict = {
-            **inherited,
+            **inherited_config,
             "title": inner_class.__qualname__,
             **(config or {}),
         }
@@ -675,6 +676,7 @@ class DataObjectMetaclass(
                     kw_only=kw_only,
                 )(inner_class),
             )
+
         finally:
             _data_object_classes_being_built.discard(key)
 
@@ -1517,7 +1519,7 @@ _is_data_object_class_defined = True
 if TYPE_CHECKING:
     DataObject()  # Ensure class meets abstract class requirements.
 
-DataObject.__dataclass_params__.frozen = None
+DataObject.__dataclass_params__.frozen = True
 
 
 class __Frozen__(DataObject, frozen=True):
@@ -1527,9 +1529,8 @@ class __Frozen__(DataObject, frozen=True):
 __Frozen__.__name__ = "Frozen"
 __Frozen__.__qualname__ = f"{DataObject.__name__}.{__Frozen__.__name__}"
 
+DataObject.__dataclass_params__.frozen = None
 _is_data_object_frozen_class_defined = True
-
-_object_setattr: Final = object.__setattr__
 
 
 def _rdo[T: DataObject](

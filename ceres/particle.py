@@ -501,23 +501,13 @@ class ParticleOutputChannel(
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
-    if TYPE_CHECKING:
-        Manager: ClassVar[type[ParticleManager]] = ParticleManager
-        BoundManager: ClassVar[type[BoundParticleManager]] = BoundParticleManager
-        Row: ClassVar[type[ParticleRow]] = ParticleRow
-        Create: ClassVar[type[ParticleCreate]] = ParticleCreate
-        Update: ClassVar[type[ParticleUpdate]] = ParticleUpdate
-        Filter: ClassVar[type[ParticleFilter]] = ParticleFilter
-        FilterArgs: ClassVar[type[ParticleFilterArgs]] = ParticleFilterArgs
-    else:
-        Manager: ClassVar[type] = ParticleManager
-        BoundManager: ClassVar[type] = BoundParticleManager
-        Row: ClassVar[type] = ParticleRow
-        Create: ClassVar[type] = ParticleCreate
-        Update: ClassVar[type] = ParticleUpdate
-        Filter: ClassVar[type] = ParticleFilter
-        FilterArgs: ClassVar[type] = ParticleFilterArgs
-
+    Manager = ParticleManager
+    BoundManager = BoundParticleManager
+    Row = ParticleRow
+    Create = ParticleCreate
+    Update = ParticleUpdate
+    Filter = ParticleFilter
+    FilterArgs = ParticleFilterArgs
     Field = ParticleField
     Order = ParticleOrder
 
@@ -525,6 +515,10 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
 
     type: str = UNKNOWN_TYPE
     data: FromYAML[DataT]
+
+    def __post_init__(self) -> None:
+        if self.type == UNKNOWN_TYPE and isinstance(self.data, ParticleData):
+            self.type = self.data.__type__
 
     @model_validator(mode="before")
     @to_kwargs
