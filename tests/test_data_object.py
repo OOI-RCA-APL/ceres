@@ -149,6 +149,11 @@ def test_can_be_pickled(Object: type[Object]):
     assert reconstructed == original
     assert original.__fields_set__ == reconstructed.__fields_set__
 
+    assert (
+        pickle.loads(pickle.dumps(original.__data_object_fields_set__))
+        == original.__data_object_fields_set__
+    )
+
 
 def test_model_class_and_repr():
     class Values(DataObject):

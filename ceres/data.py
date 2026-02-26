@@ -629,7 +629,7 @@ class DataObjectAbstract(RuntimeError):
 class DataModel(BaseModel):
     model_config = {**_DATA_OBJECT_DEFAULT_CONFIG}
 
-    __data_object_origin__: ClassVar[type[DataObject]]
+    __data_object_class__: ClassVar[type[DataObject] | None] = None
 
     if TYPE_CHECKING:
 
@@ -652,7 +652,7 @@ class _Empty:
 
 class DataObjectMetaclass(
     type(Protocol) if not TYPE_CHECKING else _Empty,
-    ABCMeta,
+    ABCMeta,  # Allow data objects to inherit from `ABC`.
 ):
     def __new__(
         mcs,
@@ -766,6 +766,7 @@ class DataObjectMetaclass(
         data_object_class.__qualname__ = inner_class.__qualname__
         data_object_class.__doc__ = inner_class.__doc__
         data_object_class.__data_object_abstract__ = abstract
+        data_object_class.__data_object_class__ = data_object_class
 
         __data_object_required_slots__: list[str] = []
         if _is_data_object_class_defined:
@@ -1186,14 +1187,14 @@ class DataObject(
                 self.__data_object_fields_set__.add(name)
 
     if TYPE_CHECKING:
-        from ceres.data import __Frozen__
+        from ceres.data import __Frozen__ as __Frozen
 
         @dataclass_transform(
             kw_only_default=True,
             frozen_default=True,
             field_specifiers=_FIELD_SPECIFIERS,
         )
-        class Frozen(__Frozen__, frozen=True):
+        class Frozen(__Frozen, frozen=True):
             __slots__ = ()
     else:
 
@@ -1206,6 +1207,10 @@ class DataObject(
     __data_object_required_slots__: ClassVar[tuple[str, ...]] = ()
 
     if TYPE_CHECKING:
+        from ceres.data import DataObject as __DataObject
+
+        __data_object_class__: ClassVar[type[DataObject]] = __DataObject
+
         # Standard dataclass class attributes.
         __dataclass_fields__: ClassVar[dict[str, Any]]
         __dataclass_params__: ClassVar[Any]
@@ -1425,7 +1430,7 @@ class DataObject(
 
         ModelMetaclass: Any = type(BaseModel)
         Model: type[DataModel] = ModelMetaclass(name, bases, namespace)
-        Model.__data_object_origin__ = cls
+        Model.__data_object_class__ = cls
         Model.__qualname__ = __qualname__ or name
         Model.__module__ = cls.__module__
         Model.__doc__ = cls.__doc__
@@ -1516,6 +1521,8 @@ class DataObject(
         handler: ModelWrapValidatorHandler[Self],
         /,
     ) -> DataObject:
+        # Workaround for `cls` being incorrect in Pydantic dataclasses with slots.
+        cls = cls.__data_object_class__
         if cls.__data_object_abstract__:
             raise DataObjectAbstract(
                 f"Cannot instantiate abstract `{DataObject.__name__}` subclass `{cls}`."
@@ -1546,6 +1553,8 @@ class DataObject(
         data: dict[str, Any] | ArgsKwargs,
         /,
     ) -> FieldsSet:
+        # Workaround for `cls` being incorrect in Pydantic dataclasses with slots.
+        cls: type[DataObject] = cls.__data_object_class__
         if isinstance(data, ArgsKwargs):
             data = cls.__data_object_resolve_args_kwargs__(data)
 
@@ -1629,15 +1638,12 @@ def _is_data_object_type(obj: object, /) -> TypeIs[type[DataObject]]:
     return isinstance(obj, type) and hasattr(obj, "__data_object_fields__")
 
 
-DataModel.__data_object_origin__ = DataObject
-
-
 def __proxy_data_object_class_item(
     item: Callable[..., Any] | classmethod | ClassProperty,
 ) -> Callable[..., Any] | ClassProperty:
     if isinstance(item, ClassProperty):
         proxy = ClassProperty[DataModel, Any](
-            lambda cls: getattr(cls.__data_object_origin__, item.__name__)
+            lambda cls: getattr(cls.__data_object_class__, item.__name__)
         )
         proxy.__name__ = item.__name__
         proxy.__doc__ = item.__doc__
@@ -1650,8 +1656,9 @@ def __proxy_data_object_class_item(
 
     @classmethod
     @wraps(function)
-    def wrapper(cls, *args, **kwargs):
-        return function(cls.__data_object_origin__, *args, **kwargs)
+    def wrapper(cls: type[DataModel], *args, **kwargs):
+        assert cls.__data_object_class__ is not None
+        return function(cls.__data_object_class__, *args, **kwargs)
 
     return wrapper
 
