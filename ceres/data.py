@@ -259,6 +259,87 @@ class ValidateKwargs(TypedDict, total=False):
     by_name: bool | None
 
 
+def create[T: DataObject | BaseModel](
+    cls: type[T],
+    field_values: Mapping[str, Any],
+    fields_set: Iterable[str] | bool | None = None,
+    /,
+) -> T:
+    """Construct an instance of `cls` with the provided field values without running validation.
+
+    Args:
+        cls: The `DataObject` or `BaseModel` subclass to instantiate.
+        field_values: A mapping of field names to pre-validated values.
+        fields_set: Fields to mark as explicitly set. Can be an iterable of field names, `True` to mark all fields as set, `False` to mark no fields as set, or `None` to infer set fields from `field_values`.
+    Returns:
+        An instance of the specified class with the provided field values.
+
+    Raises:
+        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, or if a required field value is missing from `field_values`.
+    """
+    instance: DataObject | BaseModel | None = None
+
+    if isinstance(cls, type):
+        if _is_data_object(cls):
+            instance = cls.__data_object_create__(field_values, fields_set)
+        elif issubclass(cls, BaseModel):
+            if fields_set is not None and not isinstance(fields_set, set):
+                if isinstance(fields_set, bool):
+                    fields_set = set(cls.__pydantic_fields__) if fields_set else set()
+                else:
+                    fields_set = set(fields_set)
+
+            instance = cls.model_construct(fields_set, **field_values)
+
+    if instance is None:
+        raise ValueError(
+            f"`create` can only be used with subclasses of {DataObject.__name__} or "
+            f"{BaseModel.__name__}, got {_as_class(cls)}."
+        )
+
+    return instance  # type: ignore
+
+
+def construct[T: DataObject | BaseModel, **P](
+    cls: Callable[P, T],
+    /,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> T:
+    """Construct an instance of a `cls` with the provided arguments without running validation.
+
+    Args:
+        cls: The `DataObject` or `BaseModel` subclass to construct.
+        *args: Positional arguments to pass to the constructor.
+        **kwargs: Keyword arguments to pass to the constructor.
+
+    Returns:
+        An instance of `cls` constructed with the provided arguments.
+
+    Raises:
+        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, a required field is missing, or positional arguments are passed to a `BaseModel` subclass.
+    """
+    instance: DataObject | BaseModel | None = None
+
+    if isinstance(cls, type):
+        if _is_data_object_type(cls):
+            instance = cls.__data_object_construct__(*args, **kwargs)
+        elif isinstance(cls, type) and issubclass(cls, BaseModel):
+            if args:
+                raise ValueError(
+                    f"cannot construct `BaseModel` subclass `{cls}` with positional arguments"
+                )
+            instance = cls.model_construct(**kwargs)
+
+    if instance is None:
+        raise ValueError(
+            f"`construct` can only be used with subclasses of {DataObject.__name__} or "
+            f"{BaseModel.__name__}, got {_as_class(cls)}."
+        )
+
+    return instance  # type: ignore
+
+
 def validate[T](
     ty: TypeInput[T],
     data: Any,
@@ -1040,18 +1121,12 @@ class FieldsSet(MutableSet[str]):
         return self._cls.__data_object_field_indexes__.get(field)
 
     @override
-    def __reduce__(self) -> Any:
-        return _reconstruct_fields_set, (self._cls, self._mask)
+    def __getstate__(self) -> tuple[type[DataObject], int]:
+        return (self._cls, self._mask)
 
+    def __setstate__(self, state: tuple[type[DataObject], int]) -> None:
+        self._cls, self._mask = state
 
-def _rfs(cls: type[DataObject], mask: int, /) -> FieldsSet:
-    instance = object.__new__(FieldsSet)
-    instance._cls = cls
-    instance._mask = mask
-    return instance
-
-
-_reconstruct_fields_set = _rfs
 
 assert issubclass(FieldsSet, Set)
 
@@ -1506,12 +1581,21 @@ class DataObject(
         return fields_set
 
     @override
-    def __reduce__(self) -> Any:
-        return _reconstruct_data_object, (
-            self.__class__,
+    def __getstate__(self) -> tuple[Sequence[Any], int]:
+        return (
             [getattr(self, field) for field in self.__data_object_fields__],
             self.__data_object_fields_set__.mask,
         )
+
+    def __setstate__(self, state: tuple[Sequence[Any], int], /) -> None:
+        values, mask = state
+        for field, value in zip(self.__data_object_fields__, values):
+            _object_setattr(self, field, value)
+
+        fields_set = object.__new__(FieldsSet)
+        fields_set._cls = self.__class__
+        fields_set._mask = mask
+        _object_setattr(self, "__data_object_fields_set__", fields_set)
 
 
 _is_data_object_class_defined = True
@@ -1533,25 +1617,12 @@ DataObject.__dataclass_params__.frozen = None
 _is_data_object_frozen_class_defined = True
 
 
-def _rdo[T: DataObject](
-    cls: type[T],
-    field_values: list[Any],
-    fields_set_mask: int,
-    /,
-) -> T:
-    instance = object.__new__(cls)
-    for field, value in zip(cls.__data_object_fields__, field_values):
-        _object_setattr(instance, field, value)
-
-    _object_setattr(
-        instance,
-        "__data_object_fields_set__",
-        _reconstruct_fields_set(cls, fields_set_mask),
-    )
-    return instance
-
-
-_reconstruct_data_object: Final = _rdo
+@overload
+def _is_data_object(obj: type, /) -> TypeIs[type[DataObject]]: ...  # type: ignore
+@overload
+def _is_data_object(obj: object, /) -> TypeIs[MaybeClass[DataObject]]: ...
+def _is_data_object(obj: object, /) -> bool:
+    return hasattr(obj, "__data_object_fields__")
 
 
 def _is_data_object_type(obj: object, /) -> TypeIs[type[DataObject]]:

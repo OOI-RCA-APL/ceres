@@ -69,6 +69,7 @@ from ceres.data import (
     MaybeSequence,
     NonNegativeTimeDelta,
     PositiveTimeDelta,
+    create,
     to_dict,
     uuid7,
 )
@@ -628,13 +629,20 @@ class _BaseStatementExecutor[
         Entity = self._query._get_entity_class()
         transform = self._query._get_transform()
 
-        def parse(row: Row) -> EntityT | None:
-            values: Any = row._mapping
-            entity = Entity.__data_object_create__(values, True)
-            if transform is not None:
-                entity = transform(entity)
+        if transform is None:
 
-            return entity  # type: ignore
+            def parse(row: Row) -> EntityT | None:
+                values: Mapping[str, Any] = row._mapping  # type: ignore
+                entity = create(Entity, values, True)
+                return entity
+
+        else:
+
+            def parse(row: Row) -> EntityT | None:
+                values: Mapping[str, Any] = row._mapping  # type: ignore
+                entity: Any = create(Entity, values, True)
+                entity = transform(entity)
+                return entity
 
         return parse
 
