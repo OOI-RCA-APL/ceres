@@ -1,7 +1,7 @@
 import asyncio
 import traceback
 from collections.abc import Callable
-from dataclasses import field
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
@@ -137,8 +137,12 @@ class ConnectionFieldArgs(BoundFieldArgs, ConnectionDefaults, total=False):
     defaults: ConnectionDefaults | None
 
 
-class ConnectionField[T: Connection | None = Connection](BoundField[T]):
+class ConnectionField(BoundField["Connection"]):
     __slots__ = ()
+
+    @dataclass(slots=True)
+    class Marker(BoundField.Marker):
+        pass
 
     def __init__(
         self,
@@ -151,7 +155,7 @@ class ConnectionField[T: Connection | None = Connection](BoundField[T]):
 
         for field in Connection.__pydantic_fields__:
             if field in kwargs:
-                assigned = kwargs.pop(field)  # type: ignore
+                assigned: Any = kwargs.pop(field)  # type: ignore
                 if defaults is None:
                     defaults = {}
 

@@ -37,7 +37,10 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    ClassVar,
+    NotRequired,
     Optional,
+    Required,
     TypeAlias,
     cast,
     get_args,
@@ -1416,40 +1419,60 @@ if __name__ == "__main__":
 
     testmod()
 
+_TRANSPARENT_TYPES = frozenset(
+    {
+        Optional,
+        Annotated,
+        ClassVar,
+        Required,
+        NotRequired,
+    }
+)
 
-def is_subtype(subtype: Any, supertype: Any, /) -> bool:
-    # If the supertype is a union, check if any of the contained types are subtypes.
-    if isinstance(supertype, UnionType):
-        for current in get_args(supertype):
-            if is_subtype(subtype, current):
-                return True
 
-        return False
+def is_assignable(
+    variable_type: Any,
+    assigned_type: Any,
+    /,
+) -> bool:
+    if assigned_type is Any or variable_type is Any:
+        return True
+    if assigned_type is object:
+        return True
 
-    origin = get_origin(supertype)
+    if isinstance(assigned_type, UnionType):
+        # Ensure all options in the assigned type are assignable to the variable type.
+        return all(is_assignable(variable_type, option) for option in get_args(assigned_type))
+    if isinstance(variable_type, UnionType):
+        # Ensure at least one option in the variable type is assignable to the assigned type.
+        return any(is_assignable(option, assigned_type) for option in get_args(variable_type))
+
+    origin = get_origin(variable_type)
     try:
-        args = get_args(supertype)
+        args = get_args(variable_type)
     except Exception:
         args = ()
 
-    # If the supertype is `Annotated` or `Optional`, check if the inner type is assignable.
-    if args and (origin is Annotated or origin is Optional):
+    # If the variable type is transparent, check if the contained type is assignable.
+    if args and (origin in _TRANSPARENT_TYPES):
         inner = args[0]
-        if is_subtype(subtype, inner):
+        if is_assignable(inner, assigned_type):
             return True
 
-    # If the supertype is a type alias, check if the contained type is assignable.
+    # If the variable type is a type alias, check if the contained type is assignable.
     try:
         from typing import TypeAliasType
 
-        if isinstance(supertype, TypeAliasType):
-            return is_subtype(supertype.__value__, subtype)
+        if isinstance(variable_type, TypeAliasType):
+            return is_assignable(variable_type.__value__, assigned_type)
     except ImportError:
         pass
 
-    # Finally, check if the subtype is a just class that is a subclass of the supertype.
+    # Finally, check if the assigned type is a just class that is a subclass of the variable type.
     return (
-        isinstance(supertype, type) and isinstance(subtype, type) and issubclass(subtype, supertype)
+        isinstance(variable_type, type)
+        and isinstance(assigned_type, type)
+        and issubclass(variable_type, assigned_type)
     )
 
 

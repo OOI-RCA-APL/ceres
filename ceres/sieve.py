@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, cast, override
 
 from pydantic import SkipValidation
 
-from ceres._internal import util
 from ceres._internal.manager import BaseComponentTaskManager
+from ceres._internal.util import awaitify, get_traceback, is_assignable
 from ceres.data import DataObject, Name
 from ceres.event import (
     ParticleEvent,
@@ -59,14 +59,14 @@ class FunctionalSieve[T: Particle = Particle](Sieve[T]):
             raise ValueError("Sieve method must take exactly one parameter.")
 
         annotation = annotations.get(parameters[0].name)
-        mono = util.is_subtype(annotation, Message)
+        mono = is_assignable(annotation, Message)
 
         if mono:
             inner = cast("MonoSieveFunction", self.function)
 
             async def poly(messages: AsyncIterable[Message]) -> AsyncIterator[T]:
                 async for message in messages:
-                    result = await util.awaitify(inner(message))
+                    result = await awaitify(inner(message))
                     if result is not None:
                         yield cast("T", result)
 
@@ -129,7 +129,7 @@ class ComponentSieveManager(BaseComponentTaskManager[SieveConfig]):
                     self.__system__.events.emit(
                         SieveExceptionEvent,
                         sieve=config.name,
-                        traceback=util.get_traceback(exception),
+                        traceback=get_traceback(exception),
                     )
                     await asyncio.sleep(config.retry_delay.total_seconds())
                     self.__system__.events.emit(SieveRetryEvent, sieve=config.name)

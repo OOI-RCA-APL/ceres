@@ -6,14 +6,15 @@ from ceres import (
     Component,
     Connection,
     Message,
+    ParseFailed,
     Particle,
-    ParticleData,
+    RegexParticleData,
     SplitByLine,
+    TCPClient,
+    TCPServer,
     sieve,
 )
 from ceres.data import Number, TimeDelta
-from ceres.particle import ParseFailed, RegexParticleData
-from ceres.server import TCPClient, TCPServer
 
 
 class SensorParticleData(RegexParticleData):
@@ -39,7 +40,7 @@ class SensorParticleData(RegexParticleData):
     humidity: Number  # Percentage
 
 
-SensorParticle: TypeAlias = Particle[ParticleData]
+SensorParticle: TypeAlias = Particle[SensorParticleData]
 
 
 class SensorDriver(Component):
@@ -49,7 +50,7 @@ class SensorDriver(Component):
     See `SensorParticleData` for the expected data format.
     """
 
-    connection: Bound[Connection] = Connection.Field(
+    connection: Bound[Connection] | None = Connection.Field(
         splitter=SplitByLine(),
         suffix=b"\n",
         receive_timeout=30,

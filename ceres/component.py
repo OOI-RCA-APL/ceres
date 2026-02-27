@@ -46,7 +46,7 @@ from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import ComponentSource
-from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, cached, is_subtype
+from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, cached
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import (
     ComponentConfig,
@@ -360,30 +360,55 @@ def get_connection_bindings(cls: type) -> Mapping[Name, ConnectionBinding]:
     """
     Get all connection bindings for this component class.
     """
-
-    from ceres.connection import Connection
+    from ceres.connection import ConnectionField
 
     __pydantic_fields__: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
 
     bindings: Mapping[Name, ConnectionBinding] = {}
 
-    for field, info in __pydantic_fields__.items():
-        marker = next(
-            (current for current in info.metadata if isinstance(current, BoundField.Marker)), None
-        )
+    def get_marker[T: BoundField.Marker](
+        metadata: Sequence[Any],
+        marker_class: type[T],
+    ) -> T | None:
+        return next((current for current in metadata if isinstance(current, marker_class)), None)
 
+    for field, info in __pydantic_fields__.items():
+        if info.init_var:
+            continue
+
+        if get_marker(info.metadata, BoundField.Marker) is None:
+            continue
+
+        exact = []
+        connection = get_marker(info.metadata, ConnectionField.Marker)
+        if connection is not None:
+            exact.append(connection)
+
+        if not exact:
+            raise TypeError(
+                f"Field '{field}' in component '{cls}' is marked as bound but does not have a "
+                "specific bound object type."
+            )
+        if len(exact) > 1:
+            raise TypeError(
+                f"Field '{field}' in component '{cls}' has multiple possible bound types."
+                f"{', '.join(type(marker).__name__ for marker in exact)}."
+            )
+
+        marker = exact[0]
+        name: str | None = None
         if marker is not None:
             name = marker.name
-        else:
-            name = None
-
         if name is None:
-            name = _get_normalized_name(field)
+            name = field
 
-        if is_subtype(info.annotation, Connection):
+        if isinstance(marker, ConnectionField.Marker):
             bindings[name] = ConnectionBinding(name=name, field=field)
         else:
-            continue
+            raise TypeError(
+                f"Field '{field}' in component '{cls}' is marked as bound but is not of a "
+                "known object type."
+            )
 
     return MappingProxyType(bindings)
 
@@ -2046,30 +2071,31 @@ class Bound[T]:
     if TYPE_CHECKING:
 
         @overload
-        def __get__(self, instance: None, owner: type[Connection]) -> ConnectionField: ...
+        def __get__(self, instance: None, owner: type[T]) -> Self: ...
         @overload
-        def __get__(self, instance: Any, owner: type[Connection]) -> ConnectionField | T: ...
+        def __get__(self, instance: Any, owner: type[T]) -> Self | T: ...
         @overload
-        def __get__(self, instance: Any, owner: type[Connection]) -> T: ...
+        def __get__(self, instance: Any, owner: type[T]) -> T: ...
 
         @overload
-        def __get__(self, instance: None, owner: type[Any]) -> BoundField: ...
+        def __get__(self, instance: None, owner: type[Any]) -> Self: ...
         @overload
         def __get__(self, instance: Any, owner: type[Any]) -> T: ...
-        def __get__(self, instance: Any, owner: type[Any]) -> BoundField | T: ...
+        def __get__(self, instance: Any, owner: type[Any]) -> Self | T: ...
 
         def __set__(self, instance: Any, value: T) -> None: ...
 
 
 @classmethod
-def __class_getitem__(cls: Any, args: Any | tuple[Any]) -> Any:
+def _bound__class_getitem__(cls: type[Bound], args: Any | tuple[Any]) -> Any:
     if not isinstance(args, tuple):
         args = (args,)
 
     return Annotated[args[0], BoundField.Marker(), *args[1:]]
 
 
-Bound.__class_getitem__ = __class_getitem__  # type: ignore
+_bound__class_getitem__.__name__ = "__class_getitem__"
+Bound.__class_getitem__ = _bound__class_getitem__  # type: ignore
 
 
 class BoundFieldArgs(TypedDict, total=False):
@@ -2117,11 +2143,6 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
 
     @dataclass(slots=True)
     class Marker:
-        """
-        Metadata marker for a bound object. Currently only `Connection` objects can be bound to a
-        component.
-        """
-
         name: str | None = None
 
     def __init__(
@@ -2138,7 +2159,7 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
         super().__init__(default=default, **kwargs)
 
         self.name = name
-        self.marker = BoundField.Marker(name=name)
+        self.marker = self.Marker(name=name)
         self.metadata.append(self.marker)
 
         if defaults:
