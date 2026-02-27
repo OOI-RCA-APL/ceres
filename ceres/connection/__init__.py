@@ -35,14 +35,7 @@ from ceres.connection.splitter import SplitByRegex as SplitByRegex
 from ceres.connection.splitter import Splitter as Splitter
 from ceres.connection.splitter import Unsplit as Unsplit
 from ceres.connectivity import Connectivity
-from ceres.data import (
-    DataObject,
-    Name,
-    PositiveTimeDelta,
-    ToBytes,
-    WithDefaults,
-    to_bytes,
-)
+from ceres.data import DataObject, Name, PositiveTimeDelta, ToBytes, WithDefaults
 from ceres.event import (
     BufferOverflowEvent,
     ConnectedEvent,
@@ -78,6 +71,27 @@ if TYPE_CHECKING:
     from ceres.component import ComponentSystem
 else:
     ComponentSystem = object
+
+__all__ = (
+    # Local
+    "Connection",
+    "ConnectionField",
+    "ConnectionDefaults",
+    # Re-exports
+    "ConnectionInactive",
+    "ConnectionLost",
+    "Source",
+    "ConnectFailed",
+    "ConnectTimeout",
+    "TCPSource",
+    "UNIXSocketSource",
+    "Splitter",
+    "SplitByChunk",
+    "SplitByDelay",
+    "SplitByLine",
+    "SplitByRegex",
+    "Unsplit",
+)
 
 
 class ConnectionException(Exception):
@@ -123,7 +137,7 @@ class ConnectionFieldArgs(BoundFieldArgs, ConnectionDefaults, total=False):
     defaults: ConnectionDefaults | None
 
 
-class ConnectionField[T: Connection | None = Connection | None](BoundField[T]):
+class ConnectionField[T: Connection | None = Connection](BoundField[T]):
     __slots__ = ()
 
     def __init__(
@@ -268,7 +282,7 @@ class Connection(DataObject, Tasklet, slots=True):
         if not self.connected:
             raise ConnectionInactive()
 
-        data = to_bytes(data, "latin-1")
+        data = bytes(data)
         if self.suffix and not data.endswith(self.suffix):
             data += self.suffix
 

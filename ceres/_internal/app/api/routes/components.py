@@ -17,8 +17,8 @@ from ceres._internal.app.shared import (
 from ceres.address import Address
 from ceres.component import (
     ActionBinding,
-    BaseOutput,
     Component,
+    Output,
     ProcedureAccessLevel,
     ProcedureBinding,
     ProcedureType,
@@ -232,7 +232,7 @@ async def _call(
             return Fail(ProcedureNotPermittedError())
 
         output = await component.system.call(procedure, arguments)
-        if isinstance(output, BaseOutput):
+        if isinstance(output, Output):
             return output.to_response()
 
         return output

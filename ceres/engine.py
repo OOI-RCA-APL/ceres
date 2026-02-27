@@ -9,7 +9,7 @@ import anyio
 from pydantic import Field
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.project import LoadedProject
 from ceres._internal.server import Server
 from ceres.address import Address, AddressSelector, DynamicAddress
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.entity import Entity
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres.database import Database
     from ceres.setting import SettingManager
     from ceres.user import UserManager

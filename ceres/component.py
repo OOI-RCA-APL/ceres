@@ -44,7 +44,7 @@ from pydantic.fields import Deprecated, FieldInfo
 
 from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import ComponentSource
 from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, cached, is_subtype
 from ceres.address import Address, AddressSelector, DynamicAddress
@@ -114,7 +114,7 @@ if TYPE_CHECKING:
 else:
     Connection = object
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres.connection import ComponentConnectionManager
     from ceres.database import Database
     from ceres.job import ComponentJobManager

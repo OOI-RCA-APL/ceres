@@ -1,13 +1,19 @@
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Final, NamedTuple, overload, override
+from typing import TYPE_CHECKING, NamedTuple, overload, override
 
+from ceres.data import ToBytes
 from ceres.timing import utc
 
 if TYPE_CHECKING:
     from ceres.connection.splitter import Splitter
-    from ceres.data import BytesLike
+
+__all__ = [
+    "Chunk",
+    "VirtualChunk",
+    "Buffer",
+]
 
 
 @dataclass(slots=True)
@@ -16,23 +22,17 @@ class Chunk:
     timestamp: datetime
 
 
-@dataclass
+type ChunkInput = Chunk | tuple[ToBytes, datetime | timedelta]
+
+
+@dataclass(slots=True)
 class VirtualChunk:
-    __slots__ = (
-        "source",
-        "start",
-        "end",
-        "timestamp",
-        "_data",
-    )
+    source: bytes | bytearray | memoryview
+    start: int
+    end: int
+    timestamp: datetime
 
-    source: Final[bytes | bytearray]
-    start: Final[int]
-    end: Final[int]
-    timestamp: Final[datetime]
-
-    def __post_init__(self) -> None:
-        self._data: bytes | None = None
+    _data: bytes | None = field(default=None, init=False)
 
     @property
     def span(self) -> tuple[int, int]:
@@ -51,10 +51,7 @@ class VirtualChunk:
         return Chunk(self.data, self.timestamp)
 
 
-type ChunkInput = tuple[BytesLike, datetime | timedelta]
-
-
-class _Entry(NamedTuple):
+class _BufferEntry(NamedTuple):
     end_position: int
     timestamp: datetime
 
@@ -77,7 +74,7 @@ class Buffer:
         self._data = bytearray()
         self._data_bytes: bytes | None = None  # Cache for bytes representation.
         self._start_position = 0
-        self._entries: list[_Entry] = []  # A list of (end position, timestamp) tuples.
+        self._entries: list[_BufferEntry] = []  # A list of (end position, timestamp) tuples.
         self._latest_timestamp: datetime | None = None
 
         if chunks is not None:
@@ -217,7 +214,29 @@ class Buffer:
     def latest_timestamp(self) -> datetime | None:
         return self._latest_timestamp
 
-    def push(self, data: BytesLike, time: datetime | timedelta | None = None, /) -> None:
+    @overload
+    def push(self, data: ToBytes, time: datetime | timedelta | None = None, /) -> None: ...
+    @overload
+    def push(self, data: ChunkInput, /) -> None: ...
+    @overload
+    def push(self, data: ChunkInput, time: datetime | timedelta | None = None, /) -> None: ...
+    def push(
+        self,
+        data: ToBytes | ChunkInput,
+        time: datetime | timedelta | None = None,
+        /,
+    ) -> None:
+        if isinstance(data, tuple):
+            data, data_time = data
+            if time is None:
+                time = data_time
+        if isinstance(data, Chunk):
+            data_time = data.timestamp
+            data = data.data
+            if time is None:
+                time = data_time
+
+        data = bytes(data)
         if not data:
             return
 
@@ -245,18 +264,19 @@ class Buffer:
         if timestamp == latest:
             if self._entries:
                 last_entry = self._entries[-1]
-                self._entries[-1] = _Entry(
-                    last_entry.end_position + len(data), last_entry.timestamp
+                self._entries[-1] = _BufferEntry(
+                    last_entry.end_position + len(data),
+                    last_entry.timestamp,
                 )
                 return
         else:
-            self._entries.append(_Entry(end, timestamp))
+            self._entries.append(_BufferEntry(end, timestamp))
 
         self._latest_timestamp = timestamp
 
     def extend(self, records: Iterable[ChunkInput]) -> None:
-        for data, timestamp in records:
-            self.push(data, timestamp)
+        for current in records:
+            self.push(current)
 
     def pop(self, count: int) -> Chunk | None:
         if count <= 0:
@@ -343,7 +363,7 @@ class Buffer:
             key=lambda x: x.end_position,
         )
 
-    def _get_entry_at(self, index: int) -> _Entry | None:
+    def _get_entry_at(self, index: int) -> _BufferEntry | None:
         entry_index = self._get_entry_index_at(index)
         if entry_index is None:
             return None

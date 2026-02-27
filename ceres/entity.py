@@ -5,10 +5,10 @@ import sys
 from functools import wraps
 from typing import TYPE_CHECKING, TypeAlias
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres.data import StrEnum
 
-with lazy_imports(__name__, export=True):
+with __lazy_imports__(__name__, export=True):
     from ceres.alert import Alert as Alert
     from ceres.logs import LogEntry as LogEntry
     from ceres.message import Message as Message

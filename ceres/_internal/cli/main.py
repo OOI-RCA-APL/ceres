@@ -29,7 +29,7 @@ from ceres._internal.cli.shared import (
     write_table,
 )
 from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
-from ceres._internal.lazy import lazy_imports, unlazy
+from ceres._internal.lazy import __lazy_imports__, unlazy
 from ceres.address import Address, AddressSelector
 from ceres.data import to_json
 from ceres.error import Failure
@@ -38,7 +38,7 @@ from ceres.result import Fail, Ok
 if TYPE_CHECKING:
     from ceres.database import Database
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres._internal.app.api import DisableResult, EnableResult
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
@@ -387,7 +387,7 @@ class MainCliSettingsSource(CliSettingsSource):
         super().__init__(settings_cls, cli_parse_args=list(args))
 
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres._internal.cli.subcommands.alerts import AlertsCommand
     from ceres._internal.cli.subcommands.console import ConsoleCommand
     from ceres._internal.cli.subcommands.database import DatabaseCommand

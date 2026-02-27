@@ -10,7 +10,8 @@ from collections.abc import (
     Sequence,
     Set,
 )
-from datetime import UTC, date, datetime, timedelta
+from dataclasses import field
+from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum as BaseStrEnum
 from functools import wraps
 from re import RegexFlag
@@ -25,6 +26,7 @@ from typing import (
     NewType,
     Protocol,
     Self,
+    SupportsBytes,
     TypeAlias,
     TypedDict,
     TypeIs,
@@ -94,6 +96,47 @@ if TYPE_CHECKING:
     from typing import _SpecialForm
 else:
     type _SpecialForm = Any
+
+__all__ = (
+    # Local
+    "adapt",
+    "to_dict",
+    "dump",
+    "to_json",
+    "to_yaml",
+    "simplify",
+    "validate",
+    "validate_json",
+    "validate_yaml",
+    "create",
+    "construct",
+    "fields_of",
+    "computed_fields_of",
+    "items_of",
+    "fields_set_on",
+    "replacing",
+    "defaulting",
+    "WithDefaults",
+    "DataObject",
+    "DataModel",
+    "Date",
+    "Time",
+    "DateTime",
+    "TimeDelta",
+    "uuid4",
+    "uuid7",
+    "Name",
+    "Number",
+    "JSONValue",
+    "JSONDict",
+    "JSONList",
+    "JSONSerializable",
+    # Re-exports
+    "Color",
+    "TypeAdapter",
+    "Field",
+    "field",
+)
 
 
 type TypeInput[T = Any] = (
@@ -533,6 +576,78 @@ def fields_set_on(obj: SupportsPydanticFieldsSet, /) -> Set[str]:
         raise TypeError(f"Unsupported type for `{fields_set_on.__name__}`: {type(obj)}")
 
 
+def defaulting[T: SupportsPydanticFieldsSet](
+    original: T,
+    defaults: T | dict[str, Any] | None = None,
+    /,
+    **kwargs: Any,
+) -> T:
+    if defaults is None:
+        return original
+
+    is_mapping = util.is_mapping(defaults)
+
+    update: dict[str, Any] = {}
+    original_fields = original.__pydantic_fields_set__
+    defaults_fields = defaults.__pydantic_fields_set__ if not is_mapping else defaults.keys()
+
+    for field in defaults_fields:
+        if field not in original_fields:
+            try:
+                update[field] = getattr(defaults, field) if not is_mapping else defaults[field]
+            except AttributeError:
+                pass
+
+    for key, value in kwargs.items():
+        if key not in original_fields and key not in update:
+            update[key] = value
+
+    if isinstance(original, BaseModel):
+        return original.model_copy(update=update)
+    else:
+        return dataclasses.replace(original, **update)  # type: ignore
+
+
+def replacing[T: Dataclass | BaseModel](
+    original: T,
+    overrides: T | dict[str, Any] | None = None,
+    /,
+    **kwargs: Any,
+) -> T:
+    if overrides is None:
+        return original
+
+    update = overrides if util.is_mapping(overrides) else to_dict(overrides, exclude_unset=True)
+    update.update(kwargs)
+
+    if isinstance(original, BaseModel):
+        return original.model_copy(update=update)
+    else:
+        return dataclasses.replace(
+            original,  # type: ignore
+            **update,
+        )
+
+
+def WithDefaults(
+    defaults: SupportsPydanticFieldsSet | Callable[[], SupportsPydanticFieldsSet] | None = None,
+    /,
+    **kwargs: Any,
+) -> AfterValidator:
+    if callable(defaults):
+        defaults = defaults()
+
+    def WithDefaults(obj: object) -> Any:
+        if not _supports_fields_set(obj):
+            raise TypeError(
+                "`WithDefaults` can only be applied to types with set fields tracking, such as `BaseModel` or `DataObject` instances."
+            )
+
+        return defaulting(obj, defaults, **kwargs)
+
+    return AfterValidator(WithDefaults)
+
+
 @overload
 def _is_dataclass(obj: type, /) -> TypeIs[type[Dataclass]]: ...
 @overload
@@ -609,15 +724,6 @@ def _patch_dataclass_fields() -> None:
 _patch_dataclass_fields()
 
 
-if TYPE_CHECKING:
-    from ceres.component import ConnectionField
-else:
-    ConnectionField = object
-
-
-_data_object_classes_being_built: set[Any] = set()
-
-
 class DataObjectClassInvalid(TypeError):
     pass
 
@@ -626,22 +732,7 @@ class DataObjectAbstract(RuntimeError):
     pass
 
 
-class DataModel(BaseModel):
-    model_config = {**_DATA_OBJECT_DEFAULT_CONFIG}
-
-    __data_object_class__: ClassVar[type[DataObject] | None] = None
-
-    if TYPE_CHECKING:
-
-        def __init__(self, **data: Any) -> None: ...
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        try:
-            super().__init_subclass__(**kwargs)
-        except Exception:
-            super().__init_subclass__()
-
-
+_data_object_classes_being_built: set[Any] = set()
 _is_data_object_class_defined = False
 _is_data_object_frozen_class_defined = False
 
@@ -1138,6 +1229,11 @@ if TYPE_CHECKING:
         pass
 else:
     _DataObjectProtocols = object
+
+if TYPE_CHECKING:
+    from ceres.component import ConnectionField
+else:
+    ConnectionField = object
 
 _FIELD_SPECIFIERS = (
     dataclasses.field,
@@ -1638,6 +1734,47 @@ def _is_data_object_type(obj: object, /) -> TypeIs[type[DataObject]]:
     return isinstance(obj, type) and hasattr(obj, "__data_object_fields__")
 
 
+def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
+    if isinstance(method, classmethod):
+        function = method.__func__
+    else:
+        function = method
+
+    @wraps(function)
+    def wrapper(cls, *args, **kwargs):
+        if TYPE_CHECKING:
+            assert issubclass(cls, DataObject)
+
+        if args:
+            first = args[0]
+            if isinstance(first, ArgsKwargs):
+                first = cls.__data_object_resolve_args_kwargs__(first)
+                args = (first, *args[1:])
+
+        return function(cls, *args, **kwargs)
+
+    if isinstance(method, classmethod):
+        wrapper = classmethod(wrapper)  # type: ignore
+
+    return wrapper  # type: ignore
+
+
+class DataModel(BaseModel):
+    model_config = {**_DATA_OBJECT_DEFAULT_CONFIG}
+
+    __data_object_class__: ClassVar[type[DataObject] | None] = None
+
+    if TYPE_CHECKING:
+
+        def __init__(self, **data: Any) -> None: ...
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        try:
+            super().__init_subclass__(**kwargs)
+        except Exception:
+            super().__init_subclass__()
+
+
 def __proxy_data_object_class_item(
     item: Callable[..., Any] | classmethod | ClassProperty,
 ) -> Callable[..., Any] | ClassProperty:
@@ -1814,78 +1951,6 @@ class OrderedStrEnum(StrEnum):
         return super().__ge__(__x)
 
 
-def defaulting[T: SupportsPydanticFieldsSet](
-    original: T,
-    defaults: T | dict[str, Any] | None = None,
-    /,
-    **kwargs: Any,
-) -> T:
-    if defaults is None:
-        return original
-
-    is_mapping = util.is_mapping(defaults)
-
-    update: dict[str, Any] = {}
-    original_fields = original.__pydantic_fields_set__
-    defaults_fields = defaults.__pydantic_fields_set__ if not is_mapping else defaults.keys()
-
-    for field in defaults_fields:
-        if field not in original_fields:
-            try:
-                update[field] = getattr(defaults, field) if not is_mapping else defaults[field]
-            except AttributeError:
-                pass
-
-    for key, value in kwargs.items():
-        if key not in original_fields and key not in update:
-            update[key] = value
-
-    if isinstance(original, BaseModel):
-        return original.model_copy(update=update)
-    else:
-        return dataclasses.replace(original, **update)  # type: ignore
-
-
-def replacing[T: Dataclass | BaseModel](
-    original: T,
-    overrides: T | dict[str, Any] | None = None,
-    /,
-    **kwargs: Any,
-) -> T:
-    if overrides is None:
-        return original
-
-    update = overrides if util.is_mapping(overrides) else to_dict(overrides, exclude_unset=True)
-    update.update(kwargs)
-
-    if isinstance(original, BaseModel):
-        return original.model_copy(update=update)
-    else:
-        return dataclasses.replace(
-            original,  # type: ignore
-            **update,
-        )
-
-
-def WithDefaults(
-    defaults: SupportsPydanticFieldsSet | Callable[[], SupportsPydanticFieldsSet] | None = None,
-    /,
-    **kwargs: Any,
-) -> AfterValidator:
-    if callable(defaults):
-        defaults = defaults()
-
-    def WithDefaults(obj: object) -> Any:
-        if not _supports_fields_set(obj):
-            raise TypeError(
-                "`WithDefaults` can only be applied to types with set fields tracking, such as `BaseModel` or `DataObject` instances."
-            )
-
-        return defaulting(obj, defaults, **kwargs)
-
-    return AfterValidator(WithDefaults)
-
-
 _REGEX_FLAG_CHARACTERS = set(member for member in RegexFlag.__members__ if len(member) == 1)
 
 
@@ -1914,51 +1979,12 @@ def _pre_validate_regex_flags(value: object) -> object:
 type RegexFlags = Annotated[RegexFlag, BeforeValidator(_pre_validate_regex_flags)]
 
 
-def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
-    if isinstance(method, classmethod):
-        function = method.__func__
-    else:
-        function = method
-
-    @wraps(function)
-    def wrapper(cls, *args, **kwargs):
-        if TYPE_CHECKING:
-            assert issubclass(cls, DataObject)
-
-        if args:
-            first = args[0]
-            if isinstance(first, ArgsKwargs):
-                first = cls.__data_object_resolve_args_kwargs__(first)
-                args = (first, *args[1:])
-
-        return function(cls, *args, **kwargs)
-
-    if isinstance(method, classmethod):
-        wrapper = classmethod(wrapper)  # type: ignore
-
-    return wrapper  # type: ignore
-
-
-type BytesLike = bytes | bytearray
-
 if TYPE_CHECKING:
-    from typing import SupportsBytes
+    from _typeshed import ReadableBuffer
 
-    ToBytes: TypeAlias = bytes | bytearray | memoryview | str | SupportsBytes
+    ToBytes: TypeAlias = bytes | bytearray | memoryview | SupportsBytes | ReadableBuffer
 else:
-    ToBytes: TypeAlias = bytes | bytearray | str
-
-
-def to_bytes(
-    data: ToBytes,
-    /,
-    encoding: str = "utf-8",
-    errors: str = "strict",
-) -> bytes:
-    if isinstance(data, str):
-        return bytes(data, encoding, errors)
-
-    return bytes(data)
+    ToBytes: TypeAlias = bytes | bytearray
 
 
 type Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
@@ -1966,14 +1992,8 @@ type NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 type NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
 
 
-def _validate_date(value: date | None) -> date | None:
-    return value
-
-
-type Date = Annotated[
-    date,
-    AfterValidator(_validate_date),
-]
+type Date = date
+type Time = time
 
 
 def _validate_datetime(value: object) -> datetime | None:

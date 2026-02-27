@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.util import tokenize_bytes
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
@@ -42,7 +42,7 @@ else:
     _SQLiteConnection = object
 
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
     from ceres.alert import AlertManager
     from ceres.logs import LogManager

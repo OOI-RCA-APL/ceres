@@ -8,7 +8,7 @@ from pydantic import Field
 from pydantic.fields import FieldInfo
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.data import replacing
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from ceres.engine import Engine
     from ceres.item import Item
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres.alert import BoundAlertManager
     from ceres.event import NodeEventManager
     from ceres.logs import BoundLogManager

@@ -8,9 +8,9 @@ from ceres import (
     Message,
     Particle,
     ParticleData,
+    SplitByLine,
     sieve,
 )
-from ceres.connection.splitter import SplitByRegex
 from ceres.data import Number, TimeDelta
 from ceres.particle import ParseFailed, RegexParticleData
 from ceres.server import TCPClient, TCPServer
@@ -50,7 +50,7 @@ class SensorDriver(Component):
     """
 
     connection: Bound[Connection] = Connection.Field(
-        splitter=SplitByRegex(b"\n"),
+        splitter=SplitByLine(),
         suffix=b"\n",
         receive_timeout=30,
     )

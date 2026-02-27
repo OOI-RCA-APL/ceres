@@ -55,7 +55,7 @@ from pydantic import (
     validate_call,
 )
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 
 if TYPE_CHECKING:
     from typing import TypeIs
@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from ceres.data import MaybeSequence
 
 
-with lazy_imports(__name__, export=True):
+with __lazy_imports__(__name__, export=True):
     from ceres.util import azip as azip
     from ceres.util import cancel as cancel
     from ceres.util import concurrently as concurrently

@@ -12,6 +12,15 @@ from ceres._internal import util
 from ceres._internal.util import UNIX
 from ceres.data import DataObject, NonBlankStr, PositiveTimeDelta
 
+__all__ = [
+    "Source",
+    "ConnectFailed",
+    "ConnectTimeout",
+    "AnyIOSource",
+    "TCPSource",
+    "UNIXSocketSource",
+]
+
 
 class Source(DataObject):
     @property
@@ -36,7 +45,7 @@ class ConnectTimeout(asyncio.TimeoutError):
     pass
 
 
-class AnyIOSource(Source, slots=True):
+class AnyIOSource(Source):
     timeout: PositiveTimeDelta = timedelta(seconds=5)
     _stream: SocketStream | None = field(init=False)
 
@@ -100,7 +109,7 @@ class AnyIOSource(Source, slots=True):
             return None
 
 
-class TCPSource(AnyIOSource, slots=True):
+class TCPSource(AnyIOSource):
     host: NonBlankStr
     port: NonNegativeInt
 
@@ -114,7 +123,7 @@ class TCPSource(AnyIOSource, slots=True):
         return await anyio.connect_tcp(self.host, self.port)
 
 
-class UNIXSocketSource(AnyIOSource, slots=True):
+class UNIXSocketSource(AnyIOSource):
     socket: NonBlankStr
 
     def __post_init__(self) -> None:

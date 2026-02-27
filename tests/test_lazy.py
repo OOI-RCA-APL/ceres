@@ -1,9 +1,9 @@
 import sys
 from collections.abc import Iterable
 
-from ceres._internal.lazy import LazyImportProxy, lazy_imports, unlazy
+from ceres._internal.lazy import LazyImportProxy, __lazy_imports__, unlazy
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from tests.lazy_module import SomeIterable, SomeObject, imported_iterable
 
 assert "tests.lazy_module" not in sys.modules

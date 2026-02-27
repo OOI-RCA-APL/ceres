@@ -14,8 +14,17 @@ if TYPE_CHECKING:
 
     from ceres.connection.buffer import Buffer
 
+__all__ = [
+    "Splitter",
+    "Unsplit",
+    "SplitByChunk",
+    "SplitByLine",
+    "SplitByRegex",
+    "SplitByDelay",
+]
 
-class Splitter(DataObject):
+
+class Splitter(DataObject.Frozen, abstract=True):
     @abstractmethod
     def split(self, buffer: Buffer) -> Iterator[int]: ...
 
@@ -35,13 +44,13 @@ class SplitByChunk(Splitter):
                 yield chunk.end
 
 
-_LINE_PATTERN = re.compile(b"\n")
+_SPLIT_BY_LINE_PATTERN = re.compile(b"\n")
 
 
 class SplitByLine(Splitter):
     @property
     def pattern(self) -> Pattern[bytes]:
-        return _LINE_PATTERN
+        return _SPLIT_BY_LINE_PATTERN
 
     @override
     def split(self, buffer: Buffer) -> Iterator[int]:

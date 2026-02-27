@@ -47,7 +47,7 @@ from pydantic_settings import (
 from pydantic_settings.sources import CliPositionalArg
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.project import LoadedProject, Project
 from ceres._internal.util import PathLike, wrap_database_errors
 from ceres.data import (
@@ -64,7 +64,7 @@ from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.result import Ok
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres._internal.cli.client import Client
     from ceres.config import Config, ConfigCheckType, ConfigMeta
     from ceres.engine import Engine
