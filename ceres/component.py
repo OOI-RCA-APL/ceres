@@ -270,18 +270,6 @@ def get_query_bindings(cls: type) -> Mapping[str, QueryBinding]:
     )
 
 
-def get_query_binding(cls: type, name: str) -> QueryBinding | None:
-    """
-    Get a query binding for this component class by name. Returns `None` if the query binding
-    does not exist.
-    """
-    procedure = get_procedure_binding(cls, name)
-    if not isinstance(procedure, QueryBinding):
-        return None
-
-    return procedure
-
-
 @cached(weak=True)
 def get_action_bindings(cls: type) -> Mapping[str, ActionBinding]:
     """
@@ -297,18 +285,6 @@ def get_action_bindings(cls: type) -> Mapping[str, ActionBinding]:
     )
 
 
-def get_action_binding(cls: type, name: str) -> ActionBinding | None:
-    """
-    Get an action binding for this component class by name. Returns `None` if the action binding
-    does not exist.
-    """
-    procedure = get_procedure_binding(cls, name)
-    if not isinstance(procedure, ActionBinding):
-        return None
-
-    return procedure
-
-
 @cached(weak=True)
 def get_procedure_bindings(cls: type) -> Mapping[Name, ProcedureBinding]:
     """
@@ -322,15 +298,6 @@ def get_procedure_bindings(cls: type) -> Mapping[Name, ProcedureBinding]:
     return MappingProxyType({binding.name: binding for binding in procedures})
 
 
-def get_procedure_binding(cls: type, name: str) -> ProcedureBinding | None:
-    """
-    Get a procedure binding (action or query) for this component class by name. Returns `None`
-    if the procedure does not exist.
-    """
-    name = _get_normalized_name(name)
-    return get_procedure_bindings(cls).get(name)
-
-
 @cached(weak=True)
 def get_sieve_bindings(cls: type) -> Mapping[Name, SieveBinding]:
     """
@@ -339,15 +306,6 @@ def get_sieve_bindings(cls: type) -> Mapping[Name, SieveBinding]:
     return MappingProxyType(
         {binding.name: binding for binding in get_component_method_bindings(cls, SieveBinding)}
     )
-
-
-def get_sieve_binding(cls: type, name: str) -> SieveBinding | None:
-    """
-    Get a sieve binding for this component class by name. Returns `None` if the sieve binding
-    does not exist.
-    """
-    name = _get_normalized_name(name)
-    return get_sieve_bindings(cls).get(name)
 
 
 class ConnectionBinding(DataObject.Frozen):
@@ -1164,9 +1122,11 @@ class ComponentSystem(Node, ComponentSource):
         connections: dict[str, Connection] = {}
 
         # Load connections from bindings.
+        from ceres.connection import Connection
+
         for connection in self.get_connection_bindings().values():
             instance = getattr(self.component, connection.field, None)
-            if instance is not None:
+            if isinstance(instance, Connection):
                 if instance.name is None:
                     instance.name = connection.name
 
@@ -1476,26 +1436,12 @@ class ComponentSystem(Node, ComponentSource):
         """
         return get_query_bindings(type(self.component))
 
-    def get_query_binding(self, name: str) -> QueryBinding | None:
-        """
-        Get a query binding for this component by name. Returns `None` if the query binding does not
-        exist.
-        """
-        return get_query_binding(type(self.component), name)
-
     def get_action_bindings(self) -> Mapping[Name, ActionBinding]:
         """
         Get all action bindings for this component. Returns a mapping of action names to action
         bindings.
         """
         return get_action_bindings(type(self.component))
-
-    def get_action_binding(self, name: str) -> ActionBinding | None:
-        """
-        Get an action binding for this component by name. Returns `None` if the action binding does
-        not exist.
-        """
-        return get_action_binding(type(self.component), name)
 
     def get_procedure_bindings(self) -> Mapping[Name, ProcedureBinding]:
         """
@@ -1504,38 +1450,17 @@ class ComponentSystem(Node, ComponentSource):
         """
         return get_procedure_bindings(type(self.component))
 
-    def get_procedure_binding(self, name: str) -> ProcedureBinding | None:
-        """
-        Get a procedure binding (action or query) for this component by name. Returns `None` if the
-        procedure does not exist.
-        """
-        return get_procedure_binding(type(self.component), name)
-
     def get_sieve_bindings(self) -> Mapping[Name, SieveBinding]:
         """
         Get all sieve bindings for this component.
         """
         return get_sieve_bindings(type(self.component))
 
-    def get_sieve_binding(self, name: str) -> SieveBinding | None:
-        """
-        Get a sieve binding for this component by name. Returns `None` if the sieve binding does not
-        exist.
-        """
-        return get_sieve_binding(type(self.component), name)
-
     def get_connection_bindings(self) -> Mapping[Name, ConnectionBinding]:
         """
         Get all connection bindings for this component.
         """
         return get_connection_bindings(type(self.component))
-
-    def get_connection_binding(self, name: str) -> ConnectionBinding | None:
-        """
-        Get a connection binding for this component by name. Returns `None` if the connection
-        binding does not exist.
-        """
-        return get_connection_binding(type(self.component), name)
 
     def __propagate_tree_change(self) -> None:
         for component in self.root.get_components():
@@ -1933,7 +1858,7 @@ class ComponentSystem(Node, ComponentSource):
             arguments = {}
 
         if (
-            (binding := self.get_procedure_binding(procedure)) is None
+            (binding := self.get_procedure_bindings().get(procedure)) is None
             or (method := getattr(self.component, binding.method, None)) is None
             or not inspect.ismethod(method)
         ):
@@ -1969,7 +1894,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         Call a procedure with the given `arguments`.
         """
-        binding = self.get_procedure_binding(procedure)
+        binding = self.get_procedure_bindings().get(procedure)
         if binding is None:
             raise Failure(ProcedureNotFoundError)
 
@@ -2013,7 +1938,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         Subscribe to a procedure with the given `arguments`. Not all procedures are subscribable.
         """
-        binding = self.get_procedure_binding(procedure)
+        binding = self.get_procedure_bindings().get(procedure)
         if binding is None:
             raise Failure(ProcedureNotFoundError)
 

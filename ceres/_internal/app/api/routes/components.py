@@ -131,7 +131,7 @@ async def get_procedure(
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
-    binding = component.system.get_procedure_binding(procedure)
+    binding = component.system.get_procedure_bindings().get(procedure)
     if binding is None:
         raise Failure(NotFoundError)
 
@@ -159,7 +159,7 @@ async def get_query_info(
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
-    binding = component.system.get_query_binding(query)
+    binding = component.system.get_query_bindings().get(query)
     if binding is None:
         raise Failure(NotFoundError)
 
@@ -187,7 +187,7 @@ async def get_action(
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
-    binding = component.system.get_action_binding(action)
+    binding = component.system.get_action_bindings().get(action)
     if binding is None:
         raise Failure(NotFoundError)
 
@@ -215,7 +215,7 @@ async def _call(
         component = engine.get_component(address)
         if component is None:
             return Fail(ProcedureComponentNotFoundError())
-        binding = component.system.get_procedure_binding(procedure)
+        binding = component.system.get_procedure_bindings().get(procedure)
         if binding is None:
             return Fail(ProcedureNotFoundError())
         if namespace == "queries":
@@ -343,7 +343,7 @@ async def subscribe_procedure(
             to_json(Fail(ProcedureComponentNotFoundError())),
         )
 
-    binding = component.system.get_procedure_binding(name)
+    binding = component.system.get_procedure_bindings().get(name)
     if binding is None:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,

@@ -90,7 +90,7 @@ class ComponentJobManager(BaseComponentManager):
         """
         Register a job to be executed according to its defined schedule.
         """
-        binding = self.__system__.get_action_binding(job.action)
+        binding = self.__system__.get_action_bindings().get(job.action)
         if binding is None:
             registered = list(self.__system__.get_action_bindings().keys())
             raise AssertionError(
