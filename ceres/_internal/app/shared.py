@@ -1,4 +1,3 @@
-import json
 import warnings
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterable, Mapping
 from dataclasses import dataclass
@@ -28,7 +27,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 from ceres._internal import util
 from ceres._internal.entity import BaseEntityFilter
 from ceres.concurrency import race
-from ceres.data import DataObject, DateTime, StrEnum, adapt, to_json, validate
+from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
@@ -148,7 +147,7 @@ class Socket:
         if data is None:
             raise ValueError("Invalid message format.")
 
-        return json.loads(data)
+        return from_json(data)
 
     async def execute(
         self,

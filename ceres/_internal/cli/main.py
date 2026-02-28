@@ -1,5 +1,4 @@
 import asyncio
-import json
 import signal
 import sys
 from asyncio import CancelledError
@@ -380,7 +379,7 @@ class MainCliSettingsSource(CliSettingsSource):
         # like "abc,def" to a field of the form `T | Sequence[T]` would parse the value as
         # `["abc", "def"]` instead of "abc,def", which occurs commonly when searching things like
         # messages and alerts which often contain commas.
-        return json.dumps(parsed_list)
+        return to_json(parsed_list)
 
     @override
     def __init__(self, settings_cls: type[BaseSettings], args: Sequence[str]) -> None:

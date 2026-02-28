@@ -1,4 +1,3 @@
-import json
 import os
 import sys
 import time
@@ -56,6 +55,7 @@ from ceres.data import (
     FromYAML,
     MaybeSequence,
     adapt,
+    from_json,
     to_dict,
     to_json,
     validate_json,
@@ -628,7 +628,7 @@ class CLICommandExit(SettingsError):
     def __init__(self, status: int = 0, message: str | None = None) -> None:
         if message is not None:
             try:
-                content = json.loads(message)
+                content = from_json(message)
                 message = to_json(content, indent=2)
             except Exception:
                 if not isinstance(message, str):
