@@ -71,6 +71,7 @@ from pydantic_core import (
     SchemaSerializer,
     SchemaValidator,
 )
+from pydantic_core import from_json as _from_json
 from pydantic_extra_types.color import Color as Color
 from pydantic_settings import NoDecode
 from typing_extensions import TypeForm
@@ -157,12 +158,7 @@ _cached_init_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
 _cached_computed_fields = WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]]()
 
 
-def adapt[T](
-    ty: TypeInput[T],
-    /,
-    *,
-    _namespace: int = 3,
-) -> TypeAdapter[T]:
+def adapt[T](ty: TypeInput[T], /, *, _namespace: int = 3) -> TypeAdapter[T]:
     key = cast("Any", ty)
     cache: MutableMapping[Any, Any]
     if isinstance(ty, type):
@@ -170,28 +166,12 @@ def adapt[T](
     else:
         cache = _cached_type_form_type_adapters
 
-    adapter = cache.get(key)
+    adapter: TypeAdapter[Any] | None = cache.get(key)
     if adapter is None:
         adapter = TypeAdapter(ty, _parent_depth=_namespace)
         adapter = cache.setdefault(key, adapter)
 
-    return cast("TypeAdapter[T]", adapter)
-
-
-class DumpKwargs(TypedDict, total=False):
-    mode: Literal["json", "python"]
-    include: IncEx | None
-    exclude: IncEx | None
-    by_alias: bool | None
-    exclude_unset: bool
-    exclude_defaults: bool
-    exclude_none: bool
-    exclude_computed_fields: bool
-    round_trip: bool
-    warnings: bool | Literal["none", "warn", "error"]
-    fallback: Callable[[Any], Any] | None
-    serialize_as_any: bool
-    context: Any | None
+    return adapter
 
 
 def dump(
@@ -199,13 +179,43 @@ def dump(
     as_type: TypeInput | None = None,
     /,
     *,
+    mode: Literal["json", "python"] = "python",
+    include: IncEx | None = None,
+    exclude: IncEx | None = None,
+    by_alias: bool | None = None,
+    exclude_unset: bool = False,
+    exclude_defaults: bool = False,
+    exclude_none: bool = False,
+    exclude_computed_fields: bool = False,
+    round_trip: bool = False,
+    warnings: bool | Literal["none", "warn", "error"] = True,
+    fallback: Callable[[Any], Any] | None = None,
+    serialize_as_any: bool = False,
+    context: Any | None = None,
     _namespace: int = -4,
-    **kwargs: Unpack[DumpKwargs],
 ) -> Any:
     if as_type is None:
         as_type = type(obj)
 
-    return adapt(as_type, _namespace=_namespace).dump_python(obj, **kwargs)
+    return adapt(
+        as_type,
+        _namespace=_namespace,
+    ).dump_python(
+        obj,
+        mode=mode,
+        include=include,
+        exclude=exclude,
+        by_alias=by_alias,
+        exclude_unset=exclude_unset,
+        exclude_defaults=exclude_defaults,
+        exclude_none=exclude_none,
+        exclude_computed_fields=exclude_computed_fields,
+        round_trip=round_trip,
+        warnings=warnings,
+        fallback=fallback,
+        serialize_as_any=serialize_as_any,
+        context=context,
+    )
 
 
 def to_dict(
@@ -227,40 +237,54 @@ def to_dict(
     )
 
 
-class ToJSONKwargs(TypedDict, total=False):
-    indent: int | None
-    ensure_ascii: bool
-    include: IncEx | None
-    exclude: IncEx | None
-    by_alias: bool | None
-    exclude_unset: bool
-    exclude_defaults: bool
-    exclude_none: bool
-    exclude_computed_fields: bool
-    round_trip: bool
-    warnings: bool | Literal["none", "warn", "error"]
-    fallback: Callable[[Any], Any] | None
-    serialize_as_any: bool
-    context: Any | None
-    indent: int | None
-
-
 def to_json(
     obj: object,
     as_type: TypeInput | None = None,
     /,
     *,
+    indent: int | None = None,
+    ensure_ascii: bool = False,
+    include: IncEx | None = None,
+    exclude: IncEx | None = None,
+    by_alias: bool | None = None,
+    exclude_unset: bool = False,
+    exclude_defaults: bool = False,
+    exclude_none: bool = False,
+    exclude_computed_fields: bool = False,
+    round_trip: bool = False,
+    warnings: bool | Literal["none", "warn", "error"] = True,
+    fallback: Callable[[Any], Any] | None = None,
+    serialize_as_any: bool = False,
+    context: Any | None = None,
     _namespace: int = -4,
-    **kwargs: Unpack[ToJSONKwargs],
 ) -> str:
     if as_type is None:
         as_type = type(obj)
 
-    return adapt(as_type, _namespace=_namespace).dump_json(obj, **kwargs).decode()
-
-
-class ToYAMLKwargs(ToJSONKwargs):
-    pass
+    return (
+        adapt(
+            as_type,
+            _namespace=_namespace,
+        )
+        .dump_json(
+            obj,
+            indent=indent,
+            ensure_ascii=ensure_ascii,
+            include=include,
+            exclude=exclude,
+            by_alias=by_alias,
+            exclude_unset=exclude_unset,
+            exclude_defaults=exclude_defaults,
+            exclude_none=exclude_none,
+            exclude_computed_fields=exclude_computed_fields,
+            round_trip=round_trip,
+            warnings=warnings,
+            fallback=fallback,
+            serialize_as_any=serialize_as_any,
+            context=context,
+        )
+        .decode()
+    )
 
 
 def to_yaml(
@@ -268,19 +292,64 @@ def to_yaml(
     as_type: TypeInput | None = None,
     /,
     *,
+    # Pydantic
+    include: IncEx | None = None,
+    exclude: IncEx | None = None,
+    by_alias: bool | None = None,
+    exclude_unset: bool = False,
+    exclude_defaults: bool = False,
+    exclude_none: bool = False,
+    exclude_computed_fields: bool = False,
+    warnings: bool | Literal["none", "warn", "error"] = True,
+    fallback: Callable[[Any], Any] | None = None,
+    serialize_as_any: bool = False,
+    context: Any | None = None,
+    # YAML-specific Options
+    indent: int | None = None,
+    default_style: str | None = None,
+    default_flow_style: bool | None = False,
+    canonical: bool | None = None,
+    width: int | None = None,
+    line_break: str | None = None,
+    explicit_start: bool | None = None,
+    explicit_end: bool | None = None,
+    version: tuple[int, int] | None = None,
+    tags: Mapping[str, str] | None = None,
+    sort_keys: bool = False,
+    # Type Adapter
     _namespace: int = -5,
-    **kwargs: Unpack[ToYAMLKwargs],
 ) -> str:
     import yaml
 
     return yaml.safe_dump(
-        simplify(obj, as_type, _namespace=_namespace, **kwargs),
-        indent=kwargs.get("indent", None),
+        simplify(
+            obj,
+            as_type,
+            include=include,
+            exclude=exclude,
+            by_alias=by_alias,
+            exclude_unset=exclude_unset,
+            exclude_defaults=exclude_defaults,
+            exclude_none=exclude_none,
+            exclude_computed_fields=exclude_computed_fields,
+            warnings=warnings,
+            fallback=fallback,
+            serialize_as_any=serialize_as_any,
+            context=context,
+            _namespace=_namespace,
+        ),
+        indent=indent,
+        default_style=default_style,
+        default_flow_style=default_flow_style,
+        canonical=canonical,
+        width=width,
+        line_break=line_break,
+        explicit_start=explicit_start,
+        explicit_end=explicit_end,
+        version=version,
+        tags=tags,
+        sort_keys=sort_keys,
     )
-
-
-class SimplifyKwargs(ToJSONKwargs):
-    pass
 
 
 def simplify(
@@ -288,23 +357,53 @@ def simplify(
     as_type: TypeInput | None = None,
     /,
     *,
+    include: IncEx | None = None,
+    exclude: IncEx | None = None,
+    by_alias: bool | None = None,
+    exclude_unset: bool = False,
+    exclude_defaults: bool = False,
+    exclude_none: bool = False,
+    exclude_computed_fields: bool = False,
+    warnings: bool | Literal["none", "warn", "error"] = True,
+    fallback: Callable[[Any], Any] | None = None,
+    serialize_as_any: bool = False,
+    context: Any | None = None,
     _namespace: int = -4,
-    **kwargs: Unpack[SimplifyKwargs],
 ) -> Any:
-    from pydantic_core import from_json
+    return from_json(
+        to_json(
+            obj,
+            as_type,
+            include=include,
+            exclude=exclude,
+            by_alias=by_alias,
+            exclude_unset=exclude_unset,
+            exclude_defaults=exclude_defaults,
+            exclude_none=exclude_none,
+            exclude_computed_fields=exclude_computed_fields,
+            warnings=warnings,
+            fallback=fallback,
+            serialize_as_any=serialize_as_any,
+            context=context,
+            _namespace=_namespace,
+        )
+    )
 
-    return from_json(to_json(obj, as_type, _namespace=_namespace, **kwargs))
 
-
-class ValidateKwargs(TypedDict, total=False):
-    from_attributes: bool | None
-    strict: bool | None
-    extra: ExtraValues | None
-    from_attributes: bool | None
-    context: Any | None
-    experimental_allow_partial: bool | Literal["off", "on", "trailing-strings"]
-    by_alias: bool | None
-    by_name: bool | None
+def from_json(
+    data: str | bytes | bytearray,
+    /,
+    *,
+    allow_inf_nan: bool = True,
+    cache_strings: bool | Literal["all", "keys", "none"] = True,
+    allow_partial: bool | Literal["off", "on", "trailing-strings"] = False,
+) -> Any:
+    return _from_json(
+        data,
+        allow_inf_nan=allow_inf_nan,
+        cache_strings=cache_strings,
+        allow_partial=allow_partial,
+    )
 
 
 def create[T: DataObject | BaseModel](
@@ -394,9 +493,24 @@ def validate[T](
     /,
     *,
     _namespace: int = -4,
-    **kwargs: Unpack[ValidateKwargs],
+    strict: bool | None = None,
+    extra: ExtraValues | None = None,
+    from_attributes: bool | None = None,
+    context: Any | None = None,
+    experimental_allow_partial: bool | Literal["off", "on", "trailing-strings"] = False,
+    by_alias: bool | None = None,
+    by_name: bool | None = None,
 ) -> Any:
-    return adapt(ty, _namespace=_namespace).validate_python(data, **kwargs)
+    return adapt(ty, _namespace=_namespace).validate_python(
+        data,
+        strict=strict,
+        extra=extra,
+        from_attributes=from_attributes,
+        context=context,
+        experimental_allow_partial=experimental_allow_partial,
+        by_alias=by_alias,
+        by_name=by_name,
+    )
 
 
 class ValidateJSONKwargs(TypedDict, total=False):
@@ -646,10 +760,11 @@ def WithDefaults(
     if callable(defaults):
         defaults = defaults()
 
-    def WithDefaults(obj: object) -> Any:
+    def WithDefaults(obj: object, /) -> Any:
         if not _supports_fields_set(obj):
             raise TypeError(
-                "`WithDefaults` can only be applied to types with set fields tracking, such as `BaseModel` or `DataObject` instances."
+                "`WithDefaults` can only be applied to types with set fields tracking, such as "
+                "`BaseModel` or `DataObject` instances."
             )
 
         return defaulting(obj, defaults, **kwargs)
@@ -658,18 +773,18 @@ def WithDefaults(
 
 
 @overload
-def _is_dataclass(obj: type, /) -> TypeIs[type[Dataclass]]: ...
+def _is_dataclass(obj: type) -> TypeIs[type[Dataclass]]: ...
 @overload
-def _is_dataclass(obj: object, /) -> TypeIs[MaybeClass[Dataclass]]: ...
-def _is_dataclass(obj: object, /) -> TypeIs[MaybeClass[Dataclass]]:
+def _is_dataclass(obj: object) -> TypeIs[MaybeClass[Dataclass]]: ...
+def _is_dataclass(obj: object) -> TypeIs[MaybeClass[Dataclass]]:
     return dataclasses.is_dataclass(obj)
 
 
-def _supports_pydantic_fields(obj: object, /) -> TypeIs[MaybeClass[SupportsPydanticFields]]:
+def _supports_pydantic_fields(obj: object) -> TypeIs[MaybeClass[SupportsPydanticFields]]:
     return hasattr(obj, "__pydantic_fields__")
 
 
-def _supports_fields_set(obj: object, /) -> TypeIs[SupportsPydanticFieldsSet]:
+def _supports_fields_set(obj: object) -> TypeIs[SupportsPydanticFieldsSet]:
     return hasattr(obj, "__pydantic_fields_set__")
 
 
