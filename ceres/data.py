@@ -291,9 +291,9 @@ def simplify(
     _namespace: int = -4,
     **kwargs: Unpack[SimplifyKwargs],
 ) -> Any:
-    import json
+    from pydantic_core import from_json
 
-    return json.loads(to_json(obj, as_type, _namespace=_namespace, **kwargs))
+    return from_json(to_json(obj, as_type, _namespace=_namespace, **kwargs))
 
 
 class ValidateKwargs(TypedDict, total=False):
