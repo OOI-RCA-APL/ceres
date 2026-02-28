@@ -58,7 +58,6 @@ from pydantic import (
     SerializationInfo,
     StringConstraints,
     TypeAdapter,
-    ValidationError,
     model_serializer,
     model_validator,
 )
@@ -2008,25 +2007,25 @@ _REGEX_FLAG_CHARACTERS = set(member for member in RegexFlag.__members__ if len(m
 
 
 def _pre_validate_regex_flags(value: object) -> object:
-    if isinstance(value, str):
-        value = value.upper()
+    if not isinstance(value, str):
+        return value
+
+    value = value.upper()
+    try:
+        return RegexFlag[value]
+    except KeyError:
+        pass
+
+    summed = RegexFlag.NOFLAG
+    for character in value:
         try:
-            return RegexFlag[value]
+            summed |= RegexFlag[character]
         except KeyError:
-            pass
+            raise ValueError(
+                f"invalid regex flag character '{character}', must be one of: {_REGEX_FLAG_CHARACTERS}"
+            )
 
-        summed = RegexFlag.NOFLAG
-        for character in value:
-            try:
-                summed |= RegexFlag[character]
-            except KeyError:
-                raise ValueError(
-                    f"invalid regex flag character '{character}', must be one of: {_REGEX_FLAG_CHARACTERS}"
-                )
-
-        return summed
-
-    return value
+    return summed
 
 
 type RegexFlags = Annotated[RegexFlag, BeforeValidator(_pre_validate_regex_flags)]
@@ -2048,46 +2047,38 @@ type NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S
 type Date = date
 type Time = time
 
-_DATETIME_TYPE_ADAPTER = TypeAdapter(datetime)
-_DATE_TYPE_ADAPTER = TypeAdapter(date)
+_DATETIME_OR_DATE_TYPE_ADAPTER: TypeAdapter[datetime | date] = TypeAdapter(
+    Annotated[datetime | date, Field(union_mode="left_to_right")]
+)
 
 
 def _pre_validate_datetime(value: object | None) -> object | None:
     if value is None:
         return None
 
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        try:
-            parsed = _DATETIME_TYPE_ADAPTER.validate_python(value)
-        except ValidationError:
-            try:
-                # Attempt to parse as a date without a time component.
-                date_value = _DATE_TYPE_ADAPTER.validate_python(value)
-            except ValidationError:
-                # Return the original value, run default validation.
-                return value
+    value = _DATETIME_OR_DATE_TYPE_ADAPTER.validate_python(value)
+    # If the value is a date and not a date-time, convert it to a date-time at midnight UTC. Don't
+    # change this to `isinstance(value, date)` because `datetime` is a subclass of `date`.
+    if not isinstance(value, datetime):
+        return datetime(
+            value.year,
+            value.month,
+            value.day,
+            tzinfo=UTC,
+        )
 
-            # Assume midnight UTC.
-            return datetime(
-                date_value.year,
-                date_value.month,
-                date_value.day,
-                tzinfo=UTC,
-            )
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-
-    return parsed.astimezone(UTC)
+    # If the value is already timezone-aware and in UTC, return it as is.
+    if value.tzinfo is UTC:
+        return value
+    # If the value is missing timezone information, assume it's UTC.
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    # Otherwise, convert the value from its current timezone to UTC.
+    return value.astimezone(UTC)
 
 
 type DateTimeInput = datetime | date | int | float | str
-type DateTime = Annotated[
-    datetime,
-    BeforeValidator(_pre_validate_datetime),
-]
+type DateTime = Annotated[datetime, BeforeValidator(_pre_validate_datetime)]
 
 _TIMEDELTA_TYPE_ADAPTER = TypeAdapter(timedelta)
 
@@ -2118,32 +2109,20 @@ def _pre_validate_timedelta(value: object) -> timedelta | None:
 
 
 type TimeDeltaInput = timedelta | int | float | str
-type TimeDelta = Annotated[
-    timedelta,
-    BeforeValidator(_pre_validate_timedelta),
-]
+type TimeDelta = Annotated[timedelta, BeforeValidator(_pre_validate_timedelta)]
 
 _ZERO_TIMEDELTA = timedelta()
 
 
-def _validate_positive_timedelta(value: timedelta | None) -> timedelta | None:
-    if value is None:
-        return None
-
+def _validate_positive_timedelta(value: timedelta) -> timedelta | None:
     assert value > _ZERO_TIMEDELTA, "must be greater than zero"
     return value
 
 
-type PositiveTimeDelta = Annotated[
-    TimeDelta,
-    AfterValidator(_validate_positive_timedelta),
-]
+type PositiveTimeDelta = Annotated[TimeDelta, AfterValidator(_validate_positive_timedelta)]
 
 
-def _validate_non_negative_timedelta(value: timedelta | None) -> timedelta | None:
-    if value is None:
-        return None
-
+def _validate_non_negative_timedelta(value: timedelta) -> timedelta | None:
     assert value >= _ZERO_TIMEDELTA, "must be greater than or equal to zero"
     return value
 
@@ -2177,37 +2156,37 @@ def uuid7(
 
 
 def _pre_validate_from_json(value: object) -> object:
-    if isinstance(value, str | bytes):
-        import json
+    if not isinstance(value, (str, bytes)):
+        return value
 
-        try:
-            return json.loads(value)
-        except Exception as error:
-            raise ValueError(f"invalid JSON: {error}")
+    import json
 
-    return value
+    try:
+        return json.loads(value)
+    except Exception as error:
+        raise ValueError(f"invalid JSON: {error}")
 
 
 type FromJSON[T] = Annotated[T, BeforeValidator(_pre_validate_from_json), NoDecode]
 
 
 def _pre_validate_from_yaml(value: object) -> object:
-    if isinstance(value, (str, bytes)):
-        import json
+    if not isinstance(value, (str, bytes)):
+        return value
 
-        try:
-            return json.loads(value)
-        except Exception:
-            pass
+    import json
 
-        import yaml
+    try:
+        return json.loads(value)
+    except Exception:
+        pass
 
-        try:
-            return yaml.safe_load(value)
-        except Exception as error:
-            raise ValueError(f"invalid YAML: {error}")
+    import yaml
 
-    return value
+    try:
+        return yaml.safe_load(value)
+    except Exception as error:
+        raise ValueError(f"invalid YAML: {error}")
 
 
 type FromYAML[T] = Annotated[T, BeforeValidator(_pre_validate_from_yaml), NoDecode]
