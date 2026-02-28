@@ -103,8 +103,8 @@ else:
 __all__ = (
     # Local
     "adapt",
-    "to_dict",
     "dump",
+    "to_dict",
     "to_json",
     "to_yaml",
     "simplify",
@@ -130,6 +130,8 @@ __all__ = (
     "uuid7",
     "Name",
     "Number",
+    "FromJSON",
+    "FromYAML",
     "JSONValue",
     "JSONDict",
     "JSONList",
@@ -176,25 +178,6 @@ def adapt[T](
     return cast("TypeAdapter[T]", adapter)
 
 
-def to_dict(
-    obj: Dataclass | BaseModel,
-    *,
-    include: set[str] | None = None,
-    exclude: set[str] | None = None,
-    exclude_unset: bool = False,
-    exclude_computed_fields: bool = True,
-) -> dict[str, Any]:
-    return dict(
-        items_of(
-            obj,
-            include=include,
-            exclude=exclude,
-            exclude_unset=exclude_unset,
-            exclude_computed_fields=exclude_computed_fields,
-        )
-    )
-
-
 class DumpKwargs(TypedDict, total=False):
     mode: Literal["json", "python"]
     include: IncEx | None
@@ -223,6 +206,25 @@ def dump(
         as_type = type(obj)
 
     return adapt(as_type, _namespace=_namespace).dump_python(obj, **kwargs)
+
+
+def to_dict(
+    obj: Dataclass | BaseModel,
+    *,
+    include: set[str] | None = None,
+    exclude: set[str] | None = None,
+    exclude_unset: bool = False,
+    exclude_computed_fields: bool = True,
+) -> dict[str, Any]:
+    return dict(
+        items_of(
+            obj,
+            include=include,
+            exclude=exclude,
+            exclude_unset=exclude_unset,
+            exclude_computed_fields=exclude_computed_fields,
+        )
+    )
 
 
 class ToJSONKwargs(TypedDict, total=False):
