@@ -33,7 +33,7 @@ from ceres._internal.entity import (
 from ceres.config import BCryptHashingConfig
 from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
 from ceres.database import Database
-from ceres.timing import _now_context_var
+from ceres.timing import set_fake_now
 from ceres.user import UserRole
 
 if TYPE_CHECKING:
@@ -159,7 +159,7 @@ async def execute_filter_test(
                 update
             )
 
-        assert await manager.where(filter) == expected
+        assert unordered(await manager.where(filter)) == unordered(expected)
         assert await manager.where(filter).select() == expected
         assert await manager.where(filter).count() == len(expected)
         assert bool(expected) == await manager.where(filter).any()
@@ -363,8 +363,13 @@ async def fake_now[T](value: datetime, coroutine: Awaitable[T]) -> T:
     context = contextvars.copy_context()
 
     async def run() -> T:
-        _now_context_var.set(value)
-        return await coroutine
+        set_fake_now(value)
+        try:
+            result = await coroutine
+        finally:
+            set_fake_now(None)
+
+        return result
 
     return await asyncio.create_task(run(), context=context)
 

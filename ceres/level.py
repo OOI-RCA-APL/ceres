@@ -4,6 +4,10 @@ from typing import Final
 
 from ceres.data import OrderedStrEnum
 
+__all__ = [
+    "Level",
+]
+
 
 class Level(OrderedStrEnum):
     DEBUG = "debug"

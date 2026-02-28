@@ -51,6 +51,10 @@ if TYPE_CHECKING:
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
+__all__ = [
+    "Message",
+]
+
 
 class MessageDirection(StrEnum):
     SEND = "send"

@@ -23,6 +23,41 @@ from ceres.data import DataObject, simplify
 if TYPE_CHECKING:
     from fastapi.exceptions import RequestValidationError
 
+__all__ = [
+    "Error",
+    "Failure",
+    "ValidationProblem",
+]
+
+
+class Error(DataObject, slots=True):
+    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+
+    @computed_field
+    @property
+    def __error__(self) -> Literal[True]:
+        return True
+
+    type: str
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, inner: Callable[[Any], Any]) -> Any:
+        result = inner(self)
+        if isinstance(result, dict):
+            result.pop("__error__", None)
+            result = {"__error__": True, **result}
+
+        return result
+
+
+class Failure(Exception):
+    def __init__(self, error: Error | Callable[[], Error]) -> None:
+        if not util.lenient_isinstance(error, Error) and callable(error):
+            error = error()
+
+        self.error = error
+        self.message = str(error.type)
+
 
 class ValidationProblem(DataObject, slots=True):
     type: str
@@ -77,26 +112,6 @@ class ValidationProblem(DataObject, slots=True):
             )
 
         return problems
-
-
-class Error(DataObject, slots=True):
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
-
-    @computed_field
-    @property
-    def __error__(self) -> Literal[True]:
-        return True
-
-    type: str
-
-    @model_serializer(mode="wrap")
-    def _serialize(self, inner: Callable[[Any], Any]) -> Any:
-        result = inner(self)
-        if isinstance(result, dict):
-            result.pop("__error__", None)
-            result = {"__error__": True, **result}
-
-        return result
 
 
 class _ComponentError(Error, slots=True):
@@ -387,12 +402,3 @@ class ReloadConfigInvalidError(_ReloadError, slots=True):
 
 
 ReloadError: TypeAlias = ReloadConfigPathUnsetError | ReloadConfigInvalidError
-
-
-class Failure(Exception):
-    def __init__(self, error: Error | Callable[[], Error]) -> None:
-        if not util.lenient_isinstance(error, Error) and callable(error):
-            error = error()
-
-        self.error = error
-        self.message = str(error.type)

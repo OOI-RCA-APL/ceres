@@ -110,13 +110,13 @@ class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
 
     @override
     async def serve(self) -> None:
-        trigger = self.rebind_on.as_trigger()
+        trigger = self.rebind_on.create_trigger()
 
         while True:
             try:
                 async with await self._create_listener() as listener:
                     # Reset rebind schedule on success.
-                    trigger = self.rebind_on.as_trigger()
+                    trigger = self.rebind_on.create_trigger()
                     self.system.events.emit(
                         ServerBindEvent,
                         bind=self.bind,

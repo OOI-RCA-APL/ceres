@@ -75,10 +75,14 @@ if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
     from ceres.connection import Connection
     from ceres.engine import Engine
-    from ceres.sieve import FunctionalSieve, Sieve
+    from ceres.sieve import FunctionSieve, Sieve
 else:
     Sieve = Any
     Component = Any
+
+__all__ = [
+    "Config",
+]
 
 
 class LoggingConfig(DataObject):
@@ -217,11 +221,11 @@ class MethodSieveConfig(_SieveConfig):
     method: Name
 
     @override
-    def create(self, component: Component) -> FunctionalSieve:
-        from ceres.sieve import FunctionalSieve
+    def create(self, component: Component) -> FunctionSieve:
+        from ceres.sieve import FunctionSieve
 
         method = getattr(component, self.method)
-        return FunctionalSieve(function=method)
+        return FunctionSieve(function=method)
 
 
 SieveConfig: TypeAlias = ClassSieveConfig | MethodSieveConfig

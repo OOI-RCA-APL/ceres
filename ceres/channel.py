@@ -7,12 +7,11 @@ from weakref import WeakSet
 
 from ceres._internal import util
 
-
-def _get_loop() -> AbstractEventLoop | None:
-    try:
-        return asyncio.get_running_loop()
-    except Exception:
-        return None
+__all__ = [
+    "Channel",
+    "OutputChannel",
+    "ChannelReader",
+]
 
 
 class OutputChannel[T](AsyncIterable[T]):
@@ -209,3 +208,10 @@ class ChannelReader[T](AsyncIterator[T]):
             raise RuntimeError("No event loop is running.")
 
         return bound
+
+
+def _get_loop() -> AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except Exception:
+        return None

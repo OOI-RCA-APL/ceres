@@ -26,7 +26,6 @@ from collections.abc import (
     ValuesView,
 )
 from contextlib import contextmanager
-from datetime import timedelta
 from enum import Enum
 from functools import wraps
 from os import PathLike as _BasePathLike
@@ -50,15 +49,7 @@ from typing import (
 )
 from weakref import WeakKeyDictionary, WeakSet, ref
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    create_model,
-    validate_call,
-)
-
-from ceres._internal.lazy import __lazy_imports__
+from pydantic import BaseModel, ConfigDict, Field, create_model, validate_call
 
 if TYPE_CHECKING:
     from typing import TypeIs
@@ -66,15 +57,6 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
 
     from ceres.data import MaybeSequence
-
-
-with __lazy_imports__(__name__, export=True):
-    from ceres.util import azip as azip
-    from ceres.util import cancel as cancel
-    from ceres.util import concurrently as concurrently
-    from ceres.util import ensure_event_loop as ensure_event_loop
-    from ceres.util import wait_all as wait_all
-    from ceres.util import wait_any as wait_any
 
 
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
@@ -185,118 +167,6 @@ def randstr(characters: str, length: int, /) -> str:
     import random
 
     return "".join(random.choice(characters) for _ in range(length))
-
-
-_DELTA_MS = timedelta(milliseconds=1)
-_DELTA_S = timedelta(seconds=1)
-_DELTA_M = timedelta(minutes=1)
-_DELTA_H = timedelta(hours=1)
-_DELTA_D = timedelta(days=1)
-
-
-def encode_td(
-    value: timedelta,
-    /,
-    *,
-    decimals: int | None = None,
-    space: bool = False,
-) -> str:
-    if value < _DELTA_MS:
-        number, unit = float(value.microseconds), "us"
-    elif value < _DELTA_S:
-        number, unit = value.microseconds / 1000, "ms"
-    elif value < _DELTA_M:
-        number, unit = value.total_seconds(), "s"
-    elif value < _DELTA_H:
-        number, unit = value.total_seconds() / 60, "m"
-    elif value < _DELTA_D:
-        number, unit = value.total_seconds() / (60 * 60), "h"
-    else:
-        number, unit = value.total_seconds() / (60 * 60 * 24), "d"
-
-    if decimals is not None:
-        number_text = f"{number:.{decimals}f}"
-    else:
-        number_text = f"{number}"
-
-    number_text = number_text.rstrip("0").rstrip(".")
-
-    if space:
-        return f"{number_text} {unit}"
-    else:
-        return f"{number_text}{unit}"
-
-
-def decode_td(value: str | timedelta | int | float | Any, /) -> timedelta:
-    from ceres.data import validate
-
-    if isinstance(value, timedelta):
-        return value
-
-    def get_exception() -> ValueError:
-        return ValueError(
-            "invalid timedelta value, must be a ISO formatted interval or number with suffix 'us', "
-            "'ms', 's', 'm', 'h' or 'd'."
-        )
-
-    if isinstance(value, str):
-        try:
-            return validate(timedelta, value)
-        except Exception:
-            pass
-
-        try:
-            value = int(value)
-            return timedelta(seconds=value)
-        except Exception:
-            pass
-
-        try:
-            value = float(value)
-            return timedelta(seconds=value)
-        except Exception:
-            pass
-
-        value = str(value).strip().lower()
-
-        if value.endswith("us"):
-            decoded_unit = "us"
-        elif value.endswith("ms"):
-            decoded_unit = "ms"
-        elif value.endswith("s"):
-            decoded_unit = "s"
-        elif value.endswith("m"):
-            decoded_unit = "m"
-        elif value.endswith("h"):
-            decoded_unit = "h"
-        elif value.endswith("d"):
-            decoded_unit = "d"
-        else:
-            raise get_exception()
-
-        try:
-            decoded_value = float(value[: -len(decoded_unit)].strip())
-        except Exception:
-            raise get_exception()
-
-        match decoded_unit:
-            case "us":
-                return timedelta(microseconds=decoded_value)
-            case "ms":
-                return timedelta(milliseconds=decoded_value)
-            case "s":
-                return timedelta(seconds=decoded_value)
-            case "m":
-                return timedelta(minutes=decoded_value)
-            case "h":
-                return timedelta(hours=decoded_value)
-            case "d":
-                return timedelta(days=decoded_value)
-
-    if isinstance(value, int | float):
-        return timedelta(seconds=value)
-
-    raise get_exception()
 
 
 Stringy: TypeAlias = str | bytes | bytearray | memoryview
@@ -449,13 +319,6 @@ async def sleep_forever() -> None:
 
     while True:
         await asyncio.sleep(math.inf)
-
-
-def get_event_loop_or_none() -> AbstractEventLoop | None:
-    try:
-        return asyncio.get_running_loop()
-    except RuntimeError:
-        return None
 
 
 def dbg[T](value: T, /) -> T:

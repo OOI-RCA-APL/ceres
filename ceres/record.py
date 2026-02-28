@@ -8,6 +8,11 @@ from ceres.logs import LogEntry as LogEntry
 from ceres.message import Message as Message
 from ceres.particle import Particle as Particle
 
+__all__ = [
+    "Record",
+    "RecordType",
+]
+
 Record: TypeAlias = Message | Particle[Any] | Alert | LogEntry
 
 

@@ -8,10 +8,11 @@ from uuid import UUID
 
 from pydantic import ByteSize, Field
 
-from ceres._internal import util
 from ceres._internal.manager import BaseNodeManager
+from ceres._internal.util import lenient_issubclass, sleep_forever
 from ceres.address import Address
 from ceres.channel import Channel, ChannelReader, OutputChannel
+from ceres.concurrency import concurrently
 from ceres.data import (
     DataObject,
     DateTime,
@@ -24,6 +25,11 @@ from ceres.timing import utc
 
 if TYPE_CHECKING:
     from ceres._internal.protocols import NodeSource
+
+__all__ = [
+    "Event",
+    "EventManager",
+]
 
 
 class Event(DataObject, slots=True):
@@ -582,7 +588,7 @@ if TYPE_CHECKING:
     from ceres.node import Node
 
 
-class NodeEventManager(BaseNodeManager):
+class EventManager(BaseNodeManager):
     __slots__ = (
         "_events",
         "_listeners",
@@ -623,14 +629,14 @@ class NodeEventManager(BaseNodeManager):
 
     async def __run__(self) -> None:
         if not self._listeners:
-            await util.sleep_forever()
+            await sleep_forever()
             return
 
-        await util.concurrently(listener.__run__() for listener in self._listeners)
+        await concurrently(listener.__run__() for listener in self._listeners)
 
     async def settle(self) -> None:
         while not self.settled:
-            await util.concurrently(listener.settle() for listener in self._listeners)
+            await concurrently(listener.settle() for listener in self._listeners)
 
     def read(self) -> ChannelReader[Event]:
         return self._events.read()
@@ -804,7 +810,7 @@ class _ComponentEventListener:
             self._queue.task_done()
 
     def handles(self, event_cls: type[Event], address: Address) -> bool:
-        if not util.lenient_issubclass(event_cls, self._binding.event):
+        if not lenient_issubclass(event_cls, self._binding.event):
             return False
 
         if self._binding.local:

@@ -27,6 +27,10 @@ if TYPE_CHECKING:
     from ceres.config import JobConfig
     from ceres.schedule import Trigger
 
+__all__ = [
+    "JobManager",
+]
+
 
 @lru_cache(maxsize=1)
 def _get_trigger_adapter_class():
@@ -49,7 +53,7 @@ def _get_trigger_adapter_class():
     return TriggerAdapter
 
 
-class ComponentJobManager(BaseComponentManager):
+class JobManager(BaseComponentManager):
     __slots__ = (
         "_scheduler",
         "_jobs",
@@ -138,7 +142,7 @@ class ComponentJobManager(BaseComponentManager):
                 continue
 
             TriggerAdapter = _get_trigger_adapter_class()
-            trigger = job.schedule.as_trigger()
+            trigger = job.schedule.create_trigger()
             internal = self._scheduler.add_job(
                 self._run_job,
                 args=[job],

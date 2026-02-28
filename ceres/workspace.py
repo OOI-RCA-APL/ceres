@@ -46,13 +46,7 @@ from ceres._internal.entity import (
     EntityQuery,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import (
-    FromYAML,
-    JSONSerializableDict,
-    MaybeSequence,
-    NonEmptyStr,
-    OrderedStrEnum,
-)
+from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, NonEmptyStr, OrderedStrEnum
 from ceres.user import UserRole, UserRow
 
 if TYPE_CHECKING:
@@ -61,6 +55,12 @@ if TYPE_CHECKING:
 
     from ceres._internal.protocols import DatabaseSource
     from ceres.database import DatabaseType
+
+__all__ = [
+    "Workspace",
+    "WorkspaceEdit",
+    "WorkspaceMembership",
+]
 
 
 class WorkspaceAccessLevel(OrderedStrEnum):

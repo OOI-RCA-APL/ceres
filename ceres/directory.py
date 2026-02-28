@@ -14,6 +14,10 @@ if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
     from pydantic_core import CoreSchema
 
+__all__ = [
+    "Directory",
+]
+
 type StrPath = str | PathLike[str]
 type OpenMode = OpenTextMode | OpenBinaryMode
 

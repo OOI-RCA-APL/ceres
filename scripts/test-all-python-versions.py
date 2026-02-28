@@ -11,7 +11,7 @@ from typing import Literal
 from packaging.version import Version
 
 from ceres._internal.util import uniquify
-from ceres.util import proj
+from ceres.paths import proj
 
 SUPPORTED_VERSIONS = ["3.14"]
 

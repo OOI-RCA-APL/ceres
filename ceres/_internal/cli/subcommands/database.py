@@ -12,7 +12,7 @@ from ceres._internal.cli.shared import (
     CLICommandGroup,
     get_confirmation,
 )
-from ceres.timing import utc
+from ceres.timing import sdelta, utc
 
 
 class InitCommand(CLICommand):
@@ -140,7 +140,7 @@ class ClearCommand(CLICommand):
             await database.clear()
 
             duration = utc() - start
-            self.write(f"Cleared all data from database in {util.encode_td(duration)}.")
+            self.write(f"Cleared all data from database in {sdelta(duration, decimals=2)}.")
 
 
 class DatabaseCommand(CLICommandGroup):

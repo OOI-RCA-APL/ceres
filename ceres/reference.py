@@ -1,13 +1,5 @@
 import operator
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    NoReturn,
-    Self,
-    cast,
-    overload,
-    override,
-)
+from typing import TYPE_CHECKING, Any, NoReturn, Self, cast, overload, override
 
 from pydantic_core.core_schema import no_info_after_validator_function
 
@@ -15,15 +7,22 @@ from ceres._internal import util
 from ceres.address import Address, DynamicAddress
 from ceres.component import Component
 
-_reference_static_cls_generic_cache: dict[type | None, type[Reference]] = {}
-_reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type[Reference]] = {}
-
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
     from pydantic_core import CoreSchema
 
+__all__ = [
+    "Reference",
+    "Ref",
+    "unref",
+    "ref",
+]
 
-class ReferenceProxiedMethods:
+_reference_static_cls_generic_cache: dict[type | None, type[Reference]] = {}
+_reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type[Reference]] = {}
+
+
+class _ReferenceProxiedMethods:
     if TYPE_CHECKING:
 
         def __reference_access__(self) -> Any: ...
@@ -330,7 +329,7 @@ class Reference:
 
         for name in component_names:
             if name not in reference_names:
-                proxy = ReferenceProxiedMethods.__dict__.get(name)
+                proxy = _ReferenceProxiedMethods.__dict__.get(name)
                 if proxy is not None:
                     setattr(GenericReference, name, proxy)
 
@@ -454,7 +453,7 @@ class Reference:
 
         for name in component_names:
             if name not in reference_names:
-                proxy = ReferenceProxiedMethods.__dict__.get(name)
+                proxy = _ReferenceProxiedMethods.__dict__.get(name)
                 if proxy is not None:
                     setattr(SpecializedReference, name, proxy)
 

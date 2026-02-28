@@ -11,6 +11,7 @@ from ceres._internal import util
 from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.concurrency import concurrently
 from ceres.data import replacing
 from ceres.event import (
     ConnectedEvent,
@@ -35,13 +36,18 @@ if TYPE_CHECKING:
 
 with __lazy_imports__(__name__):
     from ceres.alert import BoundAlertManager
-    from ceres.event import NodeEventManager
+    from ceres.event import EventManager
     from ceres.logs import BoundLogManager
     from ceres.message import BoundMessageManager
     from ceres.particle import BoundParticleManager
     from ceres.statistics import StatisticsManager
     from ceres.status import Status
     from ceres.variable import BoundVariableManager
+
+
+__all__ = [
+    "Node",
+]
 
 
 @dataclass_transform(
@@ -127,8 +133,8 @@ class Node(Tasklet, NodeSource):
         return BoundVariableManager(self)
 
     @cached_property
-    def events(self) -> NodeEventManager:
-        return NodeEventManager(self)
+    def events(self) -> EventManager:
+        return EventManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:
@@ -177,17 +183,17 @@ class Node(Tasklet, NodeSource):
     async def flush(self) -> None:
         container = self.__container__
         if container is not None:
-            await util.concurrently(self.__writer.flush(), container.flush())
+            await concurrently(self.__writer.flush(), container.flush())
         else:
             await self.__writer.flush()
 
     async def settle(self) -> None:
-        await util.concurrently(self.__writer.settle(), self.events.settle())
+        await concurrently(self.__writer.settle(), self.events.settle())
 
     @override
     async def __run__(self) -> None:
         self.events.emit(StartedEvent)
-        await util.concurrently(self.__process_flush(), self.events.__run__())
+        await concurrently(self.__process_flush(), self.events.__run__())
 
     async def __process_flush(self) -> None:
         while True:

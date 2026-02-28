@@ -8,9 +8,9 @@ import anyio
 from anyio.abc import SocketStream
 from pydantic import NonNegativeInt
 
-from ceres._internal import util
 from ceres._internal.util import UNIX
 from ceres.data import DataObject, NonBlankStr, PositiveTimeDelta
+from ceres.timing import sdelta
 
 __all__ = [
     "Source",
@@ -67,7 +67,7 @@ class AnyIOSource(Source):
             )
         except TimeoutError:
             raise ConnectTimeout(
-                f"Connection attempt timed out after {util.encode_td(self.timeout, decimals=2)}."
+                f"Connection attempt timed out after {sdelta(self.timeout, decimals=2)}."
             )
         except Exception as exception:
             raise ConnectFailed(f"Connection attempt failed. {exception}") from exception

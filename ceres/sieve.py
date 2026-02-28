@@ -27,6 +27,15 @@ if TYPE_CHECKING:
 else:
     Message = object
 
+__all__ = [
+    "Sieve",
+    "MonoSieveFunction",
+    "PolySieveFunction",
+    "SieveFunction",
+    "FunctionSieve",
+    "SieveManager",
+]
+
 
 class Sieve[T = Particle](DataObject):
     @abstractmethod
@@ -40,7 +49,7 @@ type PolySieveFunction[T: Particle = Particle] = Callable[
 type SieveFunction[T: Particle = Particle] = MonoSieveFunction[T] | PolySieveFunction[T]
 
 
-class FunctionalSieve[T: Particle = Particle](Sieve[T]):
+class FunctionSieve[T: Particle = Particle](Sieve[T]):
     function: SkipValidation[SieveFunction[T]] = field(kw_only=False)
 
     @override
@@ -82,7 +91,7 @@ else:
     SieveConfig = object
 
 
-class ComponentSieveManager(BaseComponentTaskManager[SieveConfig]):
+class SieveManager(BaseComponentTaskManager[SieveConfig]):
     __slots__ = ()
 
     @override

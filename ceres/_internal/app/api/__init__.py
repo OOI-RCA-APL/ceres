@@ -23,6 +23,7 @@ from ceres._internal.app.api.routes.workspaces import router as router__workspac
 from ceres._internal.app.shared import OPERATOR, CurrentEngine, Router
 from ceres.address import Address
 from ceres.component import ComponentFilter
+from ceres.concurrency import concurrently
 from ceres.config import Config
 from ceres.data import DataObject
 from ceres.error import Failure, NotFoundError
@@ -89,7 +90,7 @@ class StopResult(DataObject):
 @router.post("/stop", tags=["components"], dependencies=[OPERATOR])
 async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     running = engine.get_components(filter, running=True)
-    await util.concurrently(component.system.stop() for component in running)
+    await concurrently(component.system.stop() for component in running)
 
     return StopResult(stopped=sorted(current.system.address for current in running))
 
@@ -101,7 +102,7 @@ class EnableResult(DataObject):
 @router.post("/enable", tags=["components"], dependencies=[OPERATOR])
 async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult:
     disabled = engine.get_components(filter, enabled=False)
-    await util.concurrently(component.system.enable() for component in disabled)
+    await concurrently(component.system.enable() for component in disabled)
 
     return EnableResult(enabled=sorted(current.system.address for current in disabled))
 
@@ -113,7 +114,7 @@ class DisableResult(DataObject):
 @router.post("/disable", tags=["components"], dependencies=[OPERATOR])
 async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResult:
     enabled = engine.get_components(filter, enabled=True)
-    await util.concurrently(system.system.disable() for system in enabled)
+    await concurrently(system.system.disable() for system in enabled)
 
     return DisableResult(disabled=sorted(current.system.address for current in enabled))
 
@@ -127,7 +128,7 @@ class UpResult(DataObject):
 async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     disabled = engine.get_components(filter, enabled=False)
     stopped = engine.get_components(filter, running=False)
-    await util.concurrently(
+    await concurrently(
         system.system.up() for system in util.uniquify([*disabled, *stopped], key=id)
     )
 
@@ -146,7 +147,7 @@ class DownResult(DataObject):
 async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     enabled = engine.get_components(filter, enabled=True)
     running = engine.get_components(filter, running=True)
-    await util.concurrently(
+    await concurrently(
         system.system.down() for system in util.uniquify([*enabled, *running], key=id)
     )
 

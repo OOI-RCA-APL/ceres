@@ -20,6 +20,11 @@ with __lazy_imports__(__name__, export=True):
     from ceres.workspace import WorkspaceEdit as WorkspaceEdit
     from ceres.workspace import WorkspaceMembership as WorkspaceMembership
 
+__all__ = [
+    "Entity",
+    "EntityType",
+]
+
 _Entity: object = None
 
 if TYPE_CHECKING:

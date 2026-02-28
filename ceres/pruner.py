@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from ceres.config import PrunerConfig
 
 
-class ComponentPrunerManager(BaseComponentManager):
+class PrunerManager(BaseComponentManager):
     __slots__ = (
         "__scheduler",
         "__pruners",
@@ -108,7 +108,7 @@ class ComponentPrunerManager(BaseComponentManager):
             from ceres.job import _get_trigger_adapter_class
 
             TriggerAdapter = _get_trigger_adapter_class()
-            trigger = job.schedule.as_trigger()
+            trigger = job.schedule.create_trigger()
             internal = self.__scheduler.add_job(
                 self.__run,
                 args=[job],

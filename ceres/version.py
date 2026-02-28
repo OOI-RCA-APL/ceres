@@ -1,3 +1,8 @@
+__all__ = [
+    "__version__",
+]
+
+
 def __get_version() -> str:
     import importlib.metadata
 

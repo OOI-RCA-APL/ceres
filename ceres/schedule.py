@@ -17,9 +17,20 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal.util import decode_td
 from ceres.data import DataObject, DateTime, PositiveTimeDelta, StrEnum
-from ceres.timing import utc
+from ceres.timing import delta, utc
+
+___all__ = [
+    "Schedule",
+    "ScheduleExpr",
+    "CronSchedule",
+    "IntervalSchedule",
+    "OrSchedule",
+    "Trigger",
+    "CronTrigger",
+    "IntervalTrigger",
+    "OrTrigger",
+]
 
 
 class ScheduleType(StrEnum):
@@ -28,17 +39,17 @@ class ScheduleType(StrEnum):
     OR = "or"
 
 
-class __BaseSchedule(DataObject.Frozen):
+class _BaseSchedule(DataObject.Frozen):
     def __or__(self, other: Schedule) -> OrSchedule:
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
         return OrSchedule(schedules=[self, other])
 
     @abstractmethod
-    def as_trigger(self) -> Trigger: ...
+    def create_trigger(self) -> Trigger: ...
 
 
-class CronSchedule(__BaseSchedule):
+class CronSchedule(_BaseSchedule):
     type: Literal[ScheduleType.CRON] = ScheduleType.CRON
     crontab: str
 
@@ -64,11 +75,11 @@ class CronSchedule(__BaseSchedule):
         return value
 
     @override
-    def as_trigger(self) -> CronTrigger:
+    def create_trigger(self) -> CronTrigger:
         return CronTrigger(self)
 
 
-class IntervalSchedule(__BaseSchedule):
+class IntervalSchedule(_BaseSchedule):
     type: Literal[ScheduleType.INTERVAL] = ScheduleType.INTERVAL
     interval: PositiveTimeDelta
     start: DateTime | None = None
@@ -81,7 +92,7 @@ class IntervalSchedule(__BaseSchedule):
     @classmethod
     def _validate_before(cls, value: Any) -> Any:
         try:
-            interval = decode_td(value)
+            interval = delta(value)
             cls(interval=interval)
         except Exception:
             pass
@@ -124,11 +135,11 @@ class IntervalSchedule(__BaseSchedule):
         return max
 
     @override
-    def as_trigger(self) -> IntervalTrigger:
+    def create_trigger(self) -> IntervalTrigger:
         return IntervalTrigger(self)
 
 
-class OrSchedule(__BaseSchedule):
+class OrSchedule(_BaseSchedule):
     type: Literal[ScheduleType.OR] = ScheduleType.OR
     schedules: list[Schedule]
 
@@ -140,14 +151,14 @@ class OrSchedule(__BaseSchedule):
         return OrSchedule(schedules=[*self.schedules, other])
 
     @override
-    def as_trigger(self) -> OrTrigger:
+    def create_trigger(self) -> OrTrigger:
         return OrTrigger(self)
 
 
 Schedule: TypeAlias = CronSchedule | IntervalSchedule | OrSchedule
 
 
-def __pre_validate_schedule_expression(value: Any) -> Any:
+def _pre_validate_schedule_expression(value: Any) -> Any:
     if isinstance(value, str | int | float):
         try:
             InternalCronTrigger.from_crontab(value)
@@ -156,7 +167,7 @@ def __pre_validate_schedule_expression(value: Any) -> Any:
             pass
 
         try:
-            interval = decode_td(value)
+            interval = delta(value)
             return IntervalSchedule(interval=interval)
         except Exception:
             pass
@@ -167,7 +178,7 @@ def __pre_validate_schedule_expression(value: Any) -> Any:
 ScheduleExpr: TypeAlias = Annotated[
     Schedule,
     Field(discriminator="type"),
-    BeforeValidator(__pre_validate_schedule_expression),
+    BeforeValidator(_pre_validate_schedule_expression),
 ]
 
 
@@ -283,7 +294,7 @@ class OrTrigger(Trigger):
     def __init__(self, schedule: OrSchedule) -> None:
         super().__init__()
         self._schedule = schedule
-        self._triggers = [schedule.as_trigger() for schedule in self._schedule.schedules]
+        self._triggers = [schedule.create_trigger() for schedule in self._schedule.schedules]
 
     @property
     def schedule(self) -> OrSchedule:

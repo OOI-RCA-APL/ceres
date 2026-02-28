@@ -119,8 +119,6 @@ __all__ = [
     "Statistics",
     # .status
     "Status",
-    # .threading
-    "spawn",
     # .timing
     "utc",
     # .user
@@ -210,7 +208,6 @@ with __lazy_imports__(__name__, export=True):
     from ceres.sieve import Sieve
     from ceres.statistics import Statistics
     from ceres.status import Status
-    from ceres.threading import spawn
     from ceres.timing import utc
     from ceres.user import User, UserRole
     from ceres.variable import Variable

@@ -3,10 +3,9 @@ import traceback
 from contextlib import closing
 from typing import TYPE_CHECKING, Any, Final, override
 
-from ceres._internal import util
+from ceres.concurrency import concurrently, spawn
 from ceres.data import DataObject, uuid4
 from ceres.tasklet import Tasklet
-from ceres.threading import spawn
 
 if TYPE_CHECKING:
     from granian.server.embed import Server as Granian
@@ -117,7 +116,7 @@ class Server(Tasklet):
             )
 
         try:
-            await util.concurrently(
+            await concurrently(
                 self._granian_cli.serve() if self._granian_cli is not None else None,
                 self._granian_web.serve() if self._granian_web is not None else None,
             )

@@ -32,6 +32,9 @@ with __lazy_imports__(__name__):
     from ceres.user import UserManager
     from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
 
+__all__ = [
+    "Engine",
+]
 
 SyncActionType = Literal[
     "load-pending-database-config",
@@ -42,41 +45,38 @@ SyncActionType = Literal[
 ]
 
 
-class __BaseEngineAction(DataObject):
+class _EngineAction(DataObject):
     type: SyncActionType
 
 
-class LoadPendingDatabaseConfigEngineAction(__BaseEngineAction):
+class LoadPendingDatabaseConfigEngineAction(_EngineAction):
     type: Literal["load-pending-database-config"] = "load-pending-database-config"
 
 
-class LoadPendingServerConfigEngineAction(__BaseEngineAction):
+class LoadPendingServerConfigEngineAction(_EngineAction):
     type: Literal["load-pending-server-config"] = "load-pending-server-config"
 
 
-class CreateComponentEngineAction(__BaseEngineAction):
+class CreateComponentEngineAction(_EngineAction):
     type: Literal["create-component"] = "create-component"
     address: Address
 
 
-class RecreateComponentEngineAction(__BaseEngineAction):
+class RecreateComponentEngineAction(_EngineAction):
     type: Literal["recreate-component"] = "recreate-component"
     address: Address
 
 
-class RemoveComponentEngineAction(__BaseEngineAction):
+class RemoveComponentEngineAction(_EngineAction):
     type: Literal["remove-component"] = "remove-component"
     address: Address
 
 
 EngineDatabaseAction = LoadPendingDatabaseConfigEngineAction
-
 EngineServerAction = LoadPendingServerConfigEngineAction
-
 EngineComponentAction = (
     CreateComponentEngineAction | RecreateComponentEngineAction | RemoveComponentEngineAction
 )
-
 EngineAction = EngineDatabaseAction | EngineServerAction | EngineComponentAction
 
 

@@ -49,6 +49,18 @@ if TYPE_CHECKING:
     from ceres.address import Address
     from ceres.database import DatabaseType
 
+__all__ = [
+    "LogEntry",
+    "LogEntryField",
+    "LogEntryOrder",
+    "LogEntryFilterArgs",
+    "LogEntryFilter",
+    "LogEntryCreate",
+    "LogEntryUpdate",
+    "LogManager",
+    "BoundLogManager",
+]
+
 
 class LogEntryRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "logs"

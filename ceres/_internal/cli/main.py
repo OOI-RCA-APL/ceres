@@ -31,6 +31,7 @@ from ceres._internal.cli.shared import (
 from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
 from ceres._internal.lazy import __lazy_imports__, unlazy
 from ceres.address import Address, AddressSelector
+from ceres.concurrency import cancel, el, race, spawn
 from ceres.data import to_json
 from ceres.error import Failure
 from ceres.result import Fail, Ok
@@ -43,7 +44,6 @@ with __lazy_imports__(__name__):
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
     from ceres.engine import Engine
-    from ceres.threading import spawn
 
 _watching = False
 """
@@ -471,7 +471,7 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
         traceback.print_exc()
         return 1
 
-    return asyncio.run(command.execute(), loop_factory=util.ensure_event_loop)
+    return asyncio.run(command.execute(), loop_factory=el)
 
 
 async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch: bool) -> None:
@@ -495,23 +495,16 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
 
             exiting = AsyncEvent()
 
-            async def run() -> None:
+            async def main() -> None:
                 engine.start()
                 if address is not None:
                     for component in engine.get_components(address):
                         component.system.start()
 
-                await engine.wait_until_stopped()
-
-            async def main() -> None:
-                task_run = asyncio.create_task(run())
-                task_exit = asyncio.create_task(exiting.wait())
-                await util.wait_any(task_run, task_exit)
-
                 try:
-                    await engine.stop()
+                    await race(engine.wait_until_stopped(), exiting.wait())
                 finally:
-                    await util.cancel(task_run, task_exit)
+                    await engine.stop()
 
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
@@ -597,7 +590,7 @@ async def _run_watch(
         except CancelledError:
             pass
         finally:
-            await util.cancel(task)
+            await cancel(task)
 
 
 def _set_current_process_name(name: str) -> None:

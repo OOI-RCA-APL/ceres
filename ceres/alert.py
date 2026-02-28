@@ -47,6 +47,10 @@ if TYPE_CHECKING:
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
+__all__ = [
+    "Alert",
+]
+
 
 class AlertRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "alerts"

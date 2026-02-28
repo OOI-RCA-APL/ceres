@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Protocol, override
 
 from ceres._internal import util
 from ceres._internal.protocols import ComponentSource, DatabaseSource, NodeSource
+from ceres.concurrency import cancel
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
@@ -134,7 +135,7 @@ class BaseComponentTaskManager[T: _Named](BaseComponentManager):
     async def remove(self, name: str, /) -> T | None:
         runner = self._tasks.get(name)
         if runner is not None:
-            await util.cancel(runner)
+            await cancel(runner)
             self._tasks.pop(name, None)
 
         config = self._objects.pop(name, None)
@@ -145,7 +146,7 @@ class BaseComponentTaskManager[T: _Named](BaseComponentManager):
         self._objects.clear()
 
     async def _clear_tasks(self) -> None:
-        await util.cancel(self._tasks.values())
+        await cancel(self._tasks.values())
         self._tasks.clear()
 
     def _create_task(self, config: T) -> Task:

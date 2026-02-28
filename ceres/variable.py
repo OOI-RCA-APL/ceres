@@ -41,6 +41,10 @@ if TYPE_CHECKING:
     from ceres.address import Address
     from ceres.database import DatabaseType
 
+__all__ = [
+    "Variable",
+]
+
 
 class VariableRow(BaseAddressEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "variables"

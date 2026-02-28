@@ -81,6 +81,10 @@ if TYPE_CHECKING:
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
+__all__ = [
+    "Particle",
+]
+
 
 class ParticleRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "particles"

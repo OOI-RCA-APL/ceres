@@ -10,6 +10,7 @@ from collections.abc import (
     Sequence,
     Set,
 )
+from copy import replace
 from dataclasses import field
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum as BaseStrEnum
@@ -28,6 +29,7 @@ from typing import (
     Self,
     SupportsBytes,
     TypeAlias,
+    TypeAliasType,
     TypedDict,
     TypeIs,
     Unpack,
@@ -56,12 +58,14 @@ from pydantic import (
     SerializationInfo,
     StringConstraints,
     TypeAdapter,
+    ValidationError,
     model_serializer,
     model_validator,
 )
 from pydantic.aliases import AliasChoices
 from pydantic.fields import ComputedFieldInfo, FieldInfo
 from pydantic_core import (
+    MISSING,
     ArgsKwargs,
     CoreSchema,
     PydanticUndefined,
@@ -140,7 +144,7 @@ __all__ = (
 
 
 type TypeInput[T = Any] = (
-    type[T] | TypeForm[T] | UnionType | GenericAlias | FunctionType | _SpecialForm
+    type[T] | TypeForm[T] | UnionType | GenericAlias | FunctionType | TypeAliasType | _SpecialForm
 )
 type MaybeClass[T] = T | type[T]
 
@@ -602,13 +606,13 @@ def defaulting[T: SupportsPydanticFieldsSet](
         if key not in original_fields and key not in update:
             update[key] = value
 
-    if isinstance(original, BaseModel):
-        return original.model_copy(update=update)
-    else:
-        return dataclasses.replace(original, **update)  # type: ignore
+    return replace(
+        original,  # type: ignore
+        **update,
+    )
 
 
-def replacing[T: Dataclass | BaseModel](
+def replacing[T: DataObject | BaseModel](
     original: T,
     overrides: T | dict[str, Any] | None = None,
     /,
@@ -620,13 +624,10 @@ def replacing[T: Dataclass | BaseModel](
     update = overrides if util.is_mapping(overrides) else to_dict(overrides, exclude_unset=True)
     update.update(kwargs)
 
-    if isinstance(original, BaseModel):
-        return original.model_copy(update=update)
-    else:
-        return dataclasses.replace(
-            original,  # type: ignore
-            **update,
-        )
+    return replace(
+        original,  # type: ignore
+        **update,
+    )
 
 
 def WithDefaults(
@@ -831,6 +832,12 @@ class DataObjectMetaclass(
             **(config or {}),
         }
 
+        # Keep a reference to the original class's `__replace__` method. The `dataclass` decorator
+        # overrides it, and we'll need to put it back.
+        __replace__ = inner_class.__dict__.get("__replace__")
+        if __replace__ is None:
+            __replace__ = getattr(inner_class, "__replace__", None)
+
         # TODO: Use a more robust way to detect this.
         _data_object_classes_being_built.add(key)
         try:
@@ -859,6 +866,11 @@ class DataObjectMetaclass(
         data_object_class.__data_object_abstract__ = abstract
         data_object_class.__data_object_class__ = data_object_class
 
+        # Add `__replace__` back into the class.
+        if __replace__ is not None:
+            setattr(data_object_class, "__replace__", __replace__)
+
+        # Handle required slots logic.
         __data_object_required_slots__: list[str] = []
         if _is_data_object_class_defined:
             for base in reversed(bases):
@@ -1325,6 +1337,8 @@ class DataObject(
         @classmethod
         def __pydantic_fields_complete__(cls) -> bool: ...
 
+        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
     @cached_class_property
     @classmethod
     def __data_object_fields__(cls) -> Mapping[str, FieldInfo]:
@@ -1535,10 +1549,23 @@ class DataObject(
 
     @override
     def __repr__(self) -> str:
-        tokens = [type(self).__name__, "("]
-        for field in self.__data_object_fields__:
+        fields = self.__data_object_fields__
+        fields_set = self.__data_object_fields_set__
+
+        tokens = [self.__class__.__name__, "("]
+
+        for field, info in fields.items():
             value = getattr(self, field, Undefined)
+            # Omit fields which inexplicably unset in attributes.
             if value is Undefined:
+                continue
+
+            if (
+                not info.is_required()
+                and value is info.default
+                and (value is None or value is MISSING)
+                and field not in fields_set
+            ):
                 continue
 
             tokens.append(field)
@@ -1556,6 +1583,32 @@ class DataObject(
     @override
     def __str__(self) -> str:
         return self.__repr__()
+
+    def __copy__(self) -> Self:
+        return self.__data_object_create__(
+            {field: getattr(self, field) for field in self.__data_object_fields__},
+            self.__data_object_fields_set__.mask,
+        )
+
+    def _replace_impl(self, **changes: Any) -> Self:
+        fields_set = self.__fields_set__.copy()
+        fields_set |= changes.keys()
+
+        field_values = changes
+        for field, value in items_of(self):
+            field_values.setdefault(field, value)
+
+        copy = self.__class__(**field_values)
+        copy.__data_object_fields_set__ = fields_set
+        return copy
+
+    if not TYPE_CHECKING:
+        # The `__replace__` method is special-cased by some type-checkers, where for
+        # dataclass-transformed classes the kwargs of `__replace`` will match that of `__init__`.
+        # So hide this from type-checkers to avoid messing with that.
+        __replace__ = _replace_impl
+
+    del _replace_impl
 
     def __iter__(self) -> Iterator[tuple[str, Any]]:
         for field in self.__data_object_fields__:
@@ -1995,77 +2048,109 @@ type NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S
 type Date = date
 type Time = time
 
+_DATETIME_TYPE_ADAPTER = TypeAdapter(datetime)
+_DATE_TYPE_ADAPTER = TypeAdapter(date)
 
-def _validate_datetime(value: object) -> datetime | None:
+
+def _pre_validate_datetime(value: object | None) -> object | None:
     if value is None:
         return None
 
     if isinstance(value, datetime):
-        instance = value
+        parsed = value
     else:
-        instance: datetime | date = validate(datetime | date, value)
-        if not isinstance(instance, datetime):
+        try:
+            parsed = _DATETIME_TYPE_ADAPTER.validate_python(value)
+        except ValidationError:
+            try:
+                # Attempt to parse as a date without a time component.
+                date_value = _DATE_TYPE_ADAPTER.validate_python(value)
+            except ValidationError:
+                # Return the original value, run default validation.
+                return value
+
+            # Assume midnight UTC.
             return datetime(
-                year=instance.year,
-                month=instance.month,
-                day=instance.day,
+                date_value.year,
+                date_value.month,
+                date_value.day,
                 tzinfo=UTC,
             )
 
-    if instance.tzinfo is None:
-        return instance.replace(tzinfo=UTC)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
 
-    return instance.astimezone(UTC)
+    return parsed.astimezone(UTC)
 
 
+type DateTimeInput = datetime | date | int | float | str
 type DateTime = Annotated[
     datetime,
-    AfterValidator(_validate_datetime),
+    BeforeValidator(_pre_validate_datetime),
 ]
 
+_TIMEDELTA_TYPE_ADAPTER = TypeAdapter(timedelta)
 
-def _validate_timedelta(value: Any) -> timedelta | None:
+
+def _pre_validate_timedelta(value: object) -> timedelta | None:
     if value is None:
         return None
+    if isinstance(value, timedelta):
+        return value
 
-    return util.decode_td(value)
+    if isinstance(value, str):
+        try:
+            return _TIMEDELTA_TYPE_ADAPTER.validate_python(value)
+        except Exception:
+            pass
+
+        from ceres.timing import _parse_sdelta
+
+        return _parse_sdelta(value)
+
+    if isinstance(value, (int, float)):
+        return timedelta(seconds=value)
+
+    raise ValueError(
+        "invalid timedelta value, must be a ISO formatted interval or number with suffix 'us', "
+        "'ms', 's', 'm', 'h' or 'd'."
+    )
 
 
+type TimeDeltaInput = timedelta | int | float | str
 type TimeDelta = Annotated[
     timedelta,
-    BeforeValidator(_validate_timedelta),
+    BeforeValidator(_pre_validate_timedelta),
 ]
 
 _ZERO_TIMEDELTA = timedelta()
 
 
-def _validate_positive_timedelta(value: object) -> timedelta | None:
-    delta = _validate_timedelta(value)
-    if delta is None:
+def _validate_positive_timedelta(value: timedelta | None) -> timedelta | None:
+    if value is None:
         return None
 
-    assert delta > _ZERO_TIMEDELTA, "must be greater than zero"
-    return delta
+    assert value > _ZERO_TIMEDELTA, "must be greater than zero"
+    return value
 
 
 type PositiveTimeDelta = Annotated[
-    timedelta,
-    BeforeValidator(_validate_positive_timedelta),
+    TimeDelta,
+    AfterValidator(_validate_positive_timedelta),
 ]
 
 
-def _validate_non_negative_timedelta(value: object) -> timedelta | None:
-    delta = _validate_timedelta(value)
-    if delta is None:
+def _validate_non_negative_timedelta(value: timedelta | None) -> timedelta | None:
+    if value is None:
         return None
 
-    assert delta >= _ZERO_TIMEDELTA, "must be greater than or equal to zero"
-    return delta
+    assert value >= _ZERO_TIMEDELTA, "must be greater than or equal to zero"
+    return value
 
 
 type NonNegativeTimeDelta = Annotated[
-    timedelta,
-    BeforeValidator(_validate_non_negative_timedelta),
+    TimeDelta,
+    AfterValidator(_validate_non_negative_timedelta),
 ]
 
 
@@ -2128,7 +2213,7 @@ def _pre_validate_from_yaml(value: object) -> object:
 type FromYAML[T] = Annotated[T, BeforeValidator(_pre_validate_from_yaml), NoDecode]
 
 
-def _validate_number(value: object) -> object:
+def _pre_validate_number(value: object) -> object:
     if isinstance(value, float) and value.is_integer():
         return int(value)
 
@@ -2145,7 +2230,7 @@ def _serialize_number(value: object) -> object:
 type Number = Annotated[
     int | float,
     Field(union_mode="left_to_right"),
-    BeforeValidator(_validate_number),
+    BeforeValidator(_pre_validate_number),
     PlainSerializer(_serialize_number),
 ]
 

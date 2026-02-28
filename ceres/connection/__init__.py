@@ -73,11 +73,10 @@ else:
     ComponentSystem = object
 
 __all__ = (
-    # Local
     "Connection",
     "ConnectionField",
     "ConnectionDefaults",
-    # Re-exports
+    # .source
     "ConnectionInactive",
     "ConnectionLost",
     "Source",
@@ -85,6 +84,7 @@ __all__ = (
     "ConnectTimeout",
     "TCPSource",
     "UNIXSocketSource",
+    # .splitter
     "Splitter",
     "SplitByChunk",
     "SplitByDelay",
@@ -398,7 +398,7 @@ class Connection(DataObject, Tasklet, slots=True):
         try:
             while True:
                 reconnect_trigger = (
-                    self.reconnect_schedule.as_trigger()
+                    self.reconnect_schedule.create_trigger()
                     if self.reconnect_schedule is not None
                     else None
                 )

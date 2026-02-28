@@ -27,6 +27,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
 from ceres._internal.entity import BaseEntityFilter
+from ceres.concurrency import race
 from ceres.data import DataObject, DateTime, StrEnum, adapt, to_json, validate
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
@@ -172,12 +173,11 @@ class Socket:
                 # Otherwise, do nothing.
                 await util.sleep_forever()
 
-        await util.wait_any(
+        await race(
             run(),
             wait_disconnect(),
             self.server.wait_until_stopping(),
-            cancelling=True,
-            raised=True,
+            raise_exceptions=True,
         )
 
     async def close(self, code: int = 1000, reason: str | None = None) -> None:

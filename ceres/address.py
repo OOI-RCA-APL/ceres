@@ -16,6 +16,12 @@ _NAME = NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
 _SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@({_MODIFIER})?|{_MODIFIER}"
 
+__all__ = [
+    "AddressSelector",
+    "DynamicAddress",
+    "Address",
+]
+
 
 class AddressSelector:
     __slots__ = ("_text",)

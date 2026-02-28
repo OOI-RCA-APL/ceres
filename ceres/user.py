@@ -46,6 +46,19 @@ if TYPE_CHECKING:
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
+__all__ = [
+    "User",
+    "UserRole",
+    "UserField",
+    "UserOrder",
+    "UserFilterArgs",
+    "UserFilter",
+    "UserCreate",
+    "UserUpdate",
+    "UserManager",
+    "BoundUserManager",
+]
+
 
 class UserRole(OrderedStrEnum):
     VIEWER = "viewer"

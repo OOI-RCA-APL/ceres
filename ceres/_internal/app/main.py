@@ -19,7 +19,7 @@ from ceres.error import (
     ValidationFailedError,
     ValidationProblem,
 )
-from ceres.timing import utc
+from ceres.timing import sdelta, utc
 from ceres.version import __version__
 
 if TYPE_CHECKING:
@@ -183,7 +183,7 @@ class LoggingMiddleware:
             if connected_at is None:
                 return ""
 
-            duration = util.encode_td(utc() - connected_at, decimals=2, space=True)
+            duration = sdelta(utc() - connected_at, decimals=2, space=True)
             return f" ({duration})" if connected_at is not None else ""
 
         def handle(event: ASGIReceiveEvent | ASGISendEvent) -> None:
