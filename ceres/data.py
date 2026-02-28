@@ -10,7 +10,7 @@ from collections.abc import (
     Sequence,
     Set,
 )
-from copy import replace
+from copy import deepcopy, replace
 from dataclasses import field
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum as BaseStrEnum
@@ -1586,6 +1586,12 @@ class DataObject(
     def __copy__(self) -> Self:
         return self.__data_object_create__(
             {field: getattr(self, field) for field in self.__data_object_fields__},
+            self.__data_object_fields_set__.mask,
+        )
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Self:
+        return self.__data_object_create__(
+            {field: deepcopy(getattr(self, field), memo) for field in self.__data_object_fields__},
             self.__data_object_fields_set__.mask,
         )
 
