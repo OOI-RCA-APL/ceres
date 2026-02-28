@@ -410,7 +410,7 @@ class ValidateJSONKwargs(TypedDict, total=False):
 
 def validate_json[T](
     ty: TypeInput[T],
-    data: str,
+    data: str | bytes | bytearray,
     /,
     *,
     _namespace: int = -4,
@@ -425,22 +425,29 @@ class ValidateYAMLKwargs(ValidateJSONKwargs, total=False):
 
 def validate_yaml[T](
     ty: TypeInput[T],
-    data: str,
+    data: str | bytes | bytearray,
     /,
     *,
     _namespace: int = -4,
     **kwargs: Unpack[ValidateYAMLKwargs],
 ) -> T:
-    import json
+    from pydantic_core import from_json
 
     try:
-        parsed = json.loads(data)
+        # Attempt to parse the data as JSON first. YAML is a superset of JSON, and parsing parsing
+        # is mcuh faster, so this is a fast-path if the input is actually valid JSON data.
+        parsed = from_json(data)
     except Exception:
+        # Otherwise, actually parse the input as YAML.
         import yaml
+
+        if isinstance(data, bytearray):
+            data = bytes(data)
 
         parsed = yaml.safe_load(data)
 
-    return validate(parsed, ty, _namespace=_namespace, **kwargs)
+    # Validate the parsed data using the standard validation logic.
+    return validate(ty, parsed, _namespace=_namespace, **kwargs)
 
 
 if TYPE_CHECKING:
@@ -2164,12 +2171,10 @@ def _pre_validate_from_json(value: object) -> object:
     if not isinstance(value, (str, bytes)):
         return value
 
-    import json
-
     try:
-        return json.loads(value)
-    except Exception as error:
-        raise ValueError(f"invalid JSON: {error}")
+        return validate_json(Any, value)
+    except Exception as exception:
+        raise ValueError(f"invalid JSON: {exception}")
 
 
 type FromJSON[T] = Annotated[T, BeforeValidator(_pre_validate_from_json), NoDecode]
@@ -2179,19 +2184,10 @@ def _pre_validate_from_yaml(value: object) -> object:
     if not isinstance(value, (str, bytes)):
         return value
 
-    import json
-
     try:
-        return json.loads(value)
-    except Exception:
-        pass
-
-    import yaml
-
-    try:
-        return yaml.safe_load(value)
-    except Exception as error:
-        raise ValueError(f"invalid YAML: {error}")
+        return validate_yaml(Any, value)
+    except Exception as exception:
+        raise ValueError(f"invalid YAML: {exception}")
 
 
 type FromYAML[T] = Annotated[T, BeforeValidator(_pre_validate_from_yaml), NoDecode]
