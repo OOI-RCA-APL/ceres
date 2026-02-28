@@ -1589,25 +1589,22 @@ class DataObject(
             self.__data_object_fields_set__.mask,
         )
 
-    def _replace_impl(self, **changes: Any) -> Self:
-        fields_set = self.__fields_set__.copy()
-        fields_set |= changes.keys()
-
-        field_values = changes
-        for field, value in items_of(self):
-            field_values.setdefault(field, value)
-
-        copy = self.__class__(**field_values)
-        copy.__data_object_fields_set__ = fields_set
-        return copy
-
+    # The `__replace__` method is special-cased by some type-checkers, where for
+    # dataclass-transformed classes the keyword arguments of `__replace__` will match that of
+    # `__init__`, so hide this from type-checkers to preserve that behavior.
     if not TYPE_CHECKING:
-        # The `__replace__` method is special-cased by some type-checkers, where for
-        # dataclass-transformed classes the kwargs of `__replace`` will match that of `__init__`.
-        # So hide this from type-checkers to avoid messing with that.
-        __replace__ = _replace_impl
 
-    del _replace_impl
+        def __replace__(self, **changes: Any) -> Self:
+            fields_set = self.__data_object_fields_set__.copy()
+            fields_set |= changes.keys()
+
+            field_values = changes
+            for field, value in items_of(self):
+                field_values.setdefault(field, value)
+
+            copy = self.__class__(**field_values)
+            copy.__data_object_fields_set__ = fields_set
+            return copy
 
     def __iter__(self) -> Iterator[tuple[str, Any]]:
         for field in self.__data_object_fields__:
