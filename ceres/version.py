@@ -1,4 +1,6 @@
-from __future__ import annotations
+__all__ = [
+    "__version__",
+]
 
 
 def __get_version() -> str:

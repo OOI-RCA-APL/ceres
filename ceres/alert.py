@@ -1,12 +1,9 @@
-from __future__ import annotations
-
+from collections.abc import Callable, Iterable
 from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Iterable,
     Literal,
-    TypeAlias,
     Unpack,
     override,
 )
@@ -22,6 +19,7 @@ from ceres._internal.entity import (
     BaseEntityQuery,
     ConcreteEntity,
     EntityNaming,
+    EntityOutputChannel,
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
@@ -36,7 +34,7 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, jsonify
+from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, to_json
 from ceres.level import Level
 from ceres.timing import utc
 
@@ -47,8 +45,11 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
+
+__all__ = [
+    "Alert",
+]
 
 
 class AlertRow(BaseRecordRow, kw_only=True):
@@ -77,7 +78,7 @@ class AlertRow(BaseRecordRow, kw_only=True):
         )
 
 
-AlertField: TypeAlias = (
+type AlertField = (
     BaseRecordField
     | Literal[
         "level",
@@ -85,7 +86,7 @@ AlertField: TypeAlias = (
         "data",
     ]
 )
-AlertOrder: TypeAlias = (
+type AlertOrder = (
     BaseRecordOrder
     | Literal[
         "level",
@@ -163,7 +164,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
             or self.data_prefix is not None
             or self.data_suffix is not None
         ):
-            data_json = jsonify(obj.data)
+            data_json = to_json(obj.data)
             if not util.match_string(data_json, self.data_contains, MatchMode.CONTAINS):
                 return False
             if not util.match_string(data_json, self.data_prefix, MatchMode.PREFIX):
@@ -219,7 +220,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
             )
 
 
-class AlertCreate(BaseRecordCreate):
+class AlertCreate(BaseRecordCreate, slots=True):
     level: Level
     type: str
     data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
@@ -239,12 +240,14 @@ class _BaseAlertQuery(
         "AlertQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[AlertQuery]:
         return AlertQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
@@ -260,7 +263,7 @@ class AlertQuery(
     ],
     _BaseAlertQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class AlertManager(
@@ -274,6 +277,8 @@ class AlertManager(
     ],
     _BaseAlertQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Alert)
 
@@ -282,22 +287,19 @@ class AlertManager(
 
 
 class BoundAlertManager(AlertManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
-    def follow(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> OutputChannel[Alert]:
+    @property
+    def stream(self) -> AlertOutputChannel:
         from ceres.event import AlertEvent
 
-        resolved = self._get_resolved_filter_args(filter, kwargs)
-        return (
-            self.__node__.events.follow()
-            .every(AlertEvent)
+        return AlertOutputChannel(
+            self.__node__.events.stream.every(AlertEvent)
             .map(lambda event: event.alert)
-            .filter(resolved.matches)
+            .where(lambda alert: self._get_resolved_filter().matches(alert))
         )
 
     def emit(
@@ -335,16 +337,39 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
         return self.emit(Level.CRITICAL, type, data)
 
 
-class Alert(BaseRecord, AlertCreate, ConcreteEntity):
-    Manager: ClassVar[type[AlertManager]] = AlertManager
-    BoundManager: ClassVar[type[BoundAlertManager]] = BoundAlertManager
-    Row: ClassVar[type[AlertRow]] = AlertRow
-    Create: ClassVar[type[AlertCreate]] = AlertCreate
-    Update: ClassVar[type[AlertUpdate]] = AlertUpdate
-    Filter: ClassVar[type[AlertFilter]] = AlertFilter
-    FilterArgs: ClassVar[type[AlertFilterArgs]] = AlertFilterArgs
+class AlertOutputChannel(
+    EntityOutputChannel[
+        "Alert",
+        AlertFilter,
+        AlertFilterArgs,
+    ]
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[AlertFilter]:
+        return AlertFilter
+
+    @override
+    def where(  # type: ignore
+        self,
+        filter: AlertFilter | Callable[[Alert], bool] | None = None,
+        /,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> AlertOutputChannel:
+        return super().where(filter, **kwargs)
+
+
+class Alert(BaseRecord, AlertCreate, ConcreteEntity, slots=True):
+    Manager = AlertManager
+    BoundManager = BoundAlertManager
+    Row = AlertRow
+    Create = AlertCreate
+    Update = AlertUpdate
+    Filter = AlertFilter
+    FilterArgs = AlertFilterArgs
     Field = AlertField
     Order = AlertOrder
-    Level: ClassVar[type[Level]] = Level
+    Level = Level
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("alert")

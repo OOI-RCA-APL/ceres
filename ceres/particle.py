@@ -1,35 +1,50 @@
-from __future__ import annotations
-
-from collections.abc import Mapping
+import builtins
+import re
+from abc import abstractmethod
+from collections.abc import (
+    Callable,
+    ItemsView,
+    Iterable,
+    Iterator,
+    KeysView,
+    Mapping,
+    MutableMapping,
+    ValuesView,
+)
+from re import Pattern
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     ClassVar,
     Generic,
-    ItemsView,
-    Iterable,
-    KeysView,
     Literal,
     LiteralString,
-    MutableMapping,
-    Type,
+    Self,
     TypeAlias,
+    TypeVar,
     Unpack,
-    ValuesView,
     overload,
     override,
 )
 
-from pydantic import ConfigDict, ImportString, SerializeAsAny, ValidationError, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    ImportString,
+    SerializeAsAny,
+    ValidationError,
+    model_validator,
+)
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
-from typing_extensions import TypeVar
 
 from ceres._internal import util
 from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     EntityNaming,
+    EntityOutputChannel,
     EntityQuery,
     EntityTransform,
 )
@@ -45,7 +60,15 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import FromYAML, ImmutableDataObject, JSONSerializableDict, MaybeSequence, jsonify
+from ceres.data import (
+    DataObject,
+    FromYAML,
+    JSONSerializableDict,
+    MaybeSequence,
+    to_json,
+    to_kwargs,
+    validate,
+)
 from ceres.timing import utc
 
 if TYPE_CHECKING:
@@ -56,8 +79,11 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
+
+__all__ = [
+    "Particle",
+]
 
 
 class ParticleRow(BaseRecordRow, kw_only=True):
@@ -80,14 +106,14 @@ class ParticleRow(BaseRecordRow, kw_only=True):
         )
 
 
-ParticleField: TypeAlias = (
+type ParticleField = (
     BaseRecordField
     | Literal[
         "type",
         "data",
     ]
 )
-ParticleOrder: TypeAlias = (
+type ParticleOrder = (
     BaseRecordOrder
     | Literal[
         "type",
@@ -99,19 +125,39 @@ ParticleOrder: TypeAlias = (
 UNKNOWN_TYPE: LiteralString = "__unknown__"
 
 
-class ParticleData(ImmutableDataObject, Mapping[str, Any]):
-    model_config = ConfigDict(extra="allow")
-
+class ParticleData(DataObject, Mapping[str, Any], config=ConfigDict(extra="ignore")):
+    __slots__ = ("__dict__",)
+    __abstract__: ClassVar[bool] = True
     __type__: ClassVar[LiteralString]
 
     @classmethod
-    def __init_subclass__(cls) -> None:
-        if not hasattr(cls, "__type__") or not isinstance(cls.__type__, str):
-            raise ValueError(f"{cls} must define `__type__` as a class attribute")
+    @override
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+
+        if "__abstract__" not in cls.__dict__:
+            cls.__abstract__ = False
+
+        if not cls.__abstract__:
+            if "__type__" not in cls.__dict__ or not isinstance(cls.__type__, str):
+                raise TypeError(
+                    f"{cls} must define `__type__` as a class attribute unless `__abstract__` is set to `True`."
+                )
 
     @override
     def __getitem__(self, key: str, /) -> Any:
         return self.__dict__[key]
+
+    def __setitem__(self, key: str, value: Any, /) -> None:
+        self.__dict__[key] = value  # type: ignore
+
+    @override
+    def __contains__(self, key: object, /) -> bool:
+        return key in self.__dict__
+
+    @override
+    def __iter__(self) -> Iterator[str]:  # type: ignore
+        return iter(self.__dict__.keys())
 
     @override
     def __len__(self) -> int:
@@ -129,45 +175,47 @@ class ParticleData(ImmutableDataObject, Mapping[str, Any]):
     def items(self) -> ItemsView[str, Any]:
         return self.__dict__.items()
 
-    @override
-    def __contains__(self, value: Any, /) -> bool:
-        return value in self.__dict__
 
+DynamicParticleData: TypeAlias = Annotated[
+    SerializeAsAny[JSONSerializableDict | ParticleData],
+    Field(union_mode="left_to_right"),
+]
 
-DynamicParticleData: TypeAlias = JSONSerializableDict | ParticleData
+# ruff: disable[UP046] Need `TypeVar.default` for Python 3.12 compatibility.
 
 if TYPE_CHECKING:
-    _T = TypeVar(
-        "_T",
+    DataT = TypeVar(
+        "DataT",
         bound=DynamicParticleData,
         default=DynamicParticleData,
         covariant=True,
     )
-    _O = TypeVar(
-        "_O",
-        bound=DynamicParticleData,
-        default=DynamicParticleData,
+    ConvertedDataT = TypeVar(
+        "ConvertedDataT",
+        bound=ParticleData,
+        default=ParticleData,
         covariant=True,
     )
 else:
-    _T = TypeVar(
-        "_T",
+    DataT = TypeVar(
+        "DataT",
         default=DynamicParticleData,
         covariant=True,
     )
-    _O = TypeVar(
-        "_O",
-        default=DynamicParticleData,
+    ConvertedDataT = TypeVar(
+        "ConvertedDataT",
+        bound=ParticleData,
+        default=ParticleData,
         covariant=True,
     )
 
 
 class ParticleFilterArgs(
     BaseRecordFilterArgs[ParticleField, ParticleOrder],
-    Generic[_T],
+    Generic[DataT],
     total=False,
 ):
-    cls: ImportString[Type[_T]] | None
+    cls: ImportString[type[DataT]] | None
     type: MaybeSequence[str] | None
     type_contains: MaybeSequence[str] | None
     type_prefix: MaybeSequence[str] | None
@@ -179,9 +227,9 @@ class ParticleFilterArgs(
 
 class ParticleFilter(
     BaseRecordFilter["Particle", ParticleField, ParticleOrder],
-    Generic[_T],
+    Generic[DataT],
 ):
-    cls: ImportString[Type[_T]] | None = None
+    cls: ImportString[builtins.type[DataT]] | None = None
     """Filter by particles being instances of a specific data class."""
     type: MaybeSequence[str] | None = None
     """Filter by `type` being equal to one or more given types."""
@@ -222,7 +270,7 @@ class ParticleFilter(
             or self.data_prefix is not None
             or self.data_suffix is not None
         ):
-            data_json = jsonify(obj.data)
+            data_json = to_json(obj.data)
             if not util.match_string(data_json, self.data_contains, MatchMode.CONTAINS):
                 return False
             if not util.match_string(data_json, self.data_prefix, MatchMode.PREFIX):
@@ -275,7 +323,7 @@ class ParticleFilter(
             )
 
 
-class ParticleCreate(BaseRecordCreate):
+class ParticleCreate(BaseRecordCreate, slots=True):
     type: str
     data: FromYAML[JSONSerializableDict]
 
@@ -287,13 +335,15 @@ class ParticleUpdate(BaseRecordUpdate, total=False):
 
 class _BaseParticleQuery(
     BaseEntityQuery[
-        "Particle[_T]",
-        ParticleFilter[_T],
+        "Particle[DataT]",
+        ParticleFilter[DataT],
         ParticleUpdate,
         "ParticleQuery",
     ],
-    Generic[_T],
+    Generic[DataT],
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[ParticleQuery]:
         return ParticleQuery
@@ -304,7 +354,7 @@ class _BaseParticleQuery(
         if data_class is None:
             return None
 
-        def transform(entity: Particle[_T]) -> Particle[Any] | None:
+        def transform(entity: Particle[DataT]) -> Particle[Any] | None:
             return _convert_or_none(entity, data_class)
 
         return transform
@@ -312,9 +362,9 @@ class _BaseParticleQuery(
     @overload
     def where(
         self,
-        filter: ParticleFilter[_O] | None = None,
-        **kwargs: Unpack[ParticleFilterArgs[_O]],
-    ) -> ParticleQuery[_O]: ...
+        filter: ParticleFilter[ConvertedDataT] | None = None,
+        **kwargs: Unpack[ParticleFilterArgs[ConvertedDataT]],
+    ) -> ParticleQuery[ConvertedDataT]: ...
 
     @overload
     def where(
@@ -324,24 +374,24 @@ class _BaseParticleQuery(
     ) -> ParticleQuery[Any]: ...
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: ParticleFilter[Any] | None = None,
         **kwargs: Unpack[ParticleFilterArgs[Any]],
     ) -> ParticleQuery[Any]:
-        return super().where(filter, **kwargs)  # type: ignore
+        return super().where(filter, **kwargs)
 
 
 class ParticleQuery(  # type: ignore
-    _BaseParticleQuery[_T],
+    _BaseParticleQuery[DataT],
     EntityQuery[
-        "Particle[_T]",
-        ParticleFilter[_T],
+        "Particle[DataT]",
+        ParticleFilter[DataT],
         ParticleUpdate,
     ],
-    Generic[_T],
+    Generic[DataT],
 ):
-    pass
+    __slots__ = ()
 
 
 class ParticleManager(
@@ -355,6 +405,8 @@ class ParticleManager(
     ],
     _BaseParticleQuery[DynamicParticleData],
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Particle)
 
@@ -362,95 +414,150 @@ class ParticleManager(
     async def get(self, id: UUID, cls: None = None, /) -> Particle | None: ...
 
     @overload
-    async def get(self, id: UUID, cls: type[_O], /) -> Particle[_O] | None: ...
+    async def get(
+        self,
+        id: UUID,
+        cls: type[DataT],
+        /,
+    ) -> Particle[DataT] | None: ...
 
-    async def get(self, id: UUID, cls: type[_O] | None = None, /) -> Particle[_O] | None:
+    async def get(
+        self,
+        id: UUID,
+        cls: type[DataT] | None = None,
+        /,
+    ) -> Particle | None:
         return await self.where(id=id, cls=cls, limit=1).first()
 
 
 class BoundParticleManager(ParticleManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
-    def follow(
-        self,
-        filter: ParticleFilter[_T] | None = None,
-        **kwargs: Unpack[ParticleFilterArgs[_T]],
-    ) -> OutputChannel[Particle[_T]]:
+    @property
+    def stream(self) -> ParticleOutputChannel:
         from ceres.event import ParticleEvent
 
-        assert self.__node__ is not None
-        resolved = self._get_resolved_filter_args(filter, kwargs)
-
-        if TYPE_CHECKING:
-            util.blackhole(ParticleEvent)
-
-        result = (
-            self.__node__.events.follow()
-            .every(ParticleEvent)
+        return ParticleOutputChannel(
+            self.__node__.events.stream.every(ParticleEvent)
             .map(lambda event: event.particle)
-            .filter(resolved.matches)
+            .where(lambda particle: self._get_resolved_filter().matches(particle))
         )
 
-        return result  # type: ignore
+
+class ParticleOutputChannel(
+    EntityOutputChannel[
+        "Particle[DataT]",
+        ParticleFilter,
+        ParticleFilterArgs,
+    ],
+    Generic[DataT],
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[ParticleFilter]:
+        return ParticleFilter
+
+    @overload
+    def where(
+        self,
+        **kwargs: Unpack[ParticleFilterArgs[ConvertedDataT]],
+    ) -> ParticleOutputChannel[ConvertedDataT]: ...
+
+    @overload
+    def where(
+        self,
+        filter: ParticleFilter[ConvertedDataT] | None = None,
+        /,
+        **kwargs: Unpack[ParticleFilterArgs[ConvertedDataT]],
+    ) -> ParticleOutputChannel[ConvertedDataT]: ...
+
+    @overload
+    def where(
+        self,
+        filter: ParticleFilter[DataT] | Callable[[Particle[DataT]], bool] | None = None,
+        /,
+        **kwargs: Unpack[ParticleFilterArgs[DataT]],
+    ) -> ParticleOutputChannel[DataT]: ...
+
+    @override
+    def where(  # type: ignore
+        self,
+        filter: ParticleFilter | Callable[[Particle], bool] | None = None,
+        /,
+        **kwargs: Unpack[ParticleFilterArgs],
+    ) -> ParticleOutputChannel:
+        data_class = _get_data_class(filter, kwargs)
+        if data_class is None:
+            return super().where(filter, **kwargs)
+
+        return ParticleOutputChannel(
+            super()
+            .map(lambda particle: particle.convert_or_none(data_class))
+            .where(
+                filter,
+                **kwargs,  # type: ignore
+            )
+        )
 
 
-class Particle(BaseRecord, ParticleCreate, Generic[_T]):
-    if TYPE_CHECKING:
-        Manager: ClassVar[type[ParticleManager]] = ParticleManager
-        BoundManager: ClassVar[type[BoundParticleManager]] = BoundParticleManager
-        Row: ClassVar[type[ParticleRow]] = ParticleRow
-        Create: ClassVar[type[ParticleCreate]] = ParticleCreate
-        Update: ClassVar[type[ParticleUpdate]] = ParticleUpdate
-        Filter: ClassVar[type[ParticleFilter]] = ParticleFilter
-        FilterArgs: ClassVar[type[ParticleFilterArgs]] = ParticleFilterArgs
-    else:
-        Manager: ClassVar[type] = ParticleManager
-        BoundManager: ClassVar[type] = BoundParticleManager
-        Row: ClassVar[type] = ParticleRow
-        Create: ClassVar[type] = ParticleCreate
-        Update: ClassVar[type] = ParticleUpdate
-        Filter: ClassVar[type] = ParticleFilter
-        FilterArgs: ClassVar[type] = ParticleFilterArgs
-
+class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
+    Manager = ParticleManager
+    BoundManager = BoundParticleManager
+    Row = ParticleRow
+    Create = ParticleCreate
+    Update = ParticleUpdate
+    Filter = ParticleFilter
+    FilterArgs = ParticleFilterArgs
     Field = ParticleField
     Order = ParticleOrder
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("particle")
 
     type: str = UNKNOWN_TYPE
-    data: SerializeAsAny[FromYAML[_T]]
+    data: FromYAML[DataT]
+
+    def __post_init__(self) -> None:
+        if self.type == UNKNOWN_TYPE and isinstance(self.data, ParticleData):
+            self.type = self.data.__type__
 
     @model_validator(mode="before")
+    @to_kwargs
     @classmethod
-    def _validate(cls, value: Any) -> Any:
-        if isinstance(value, MutableMapping):
-            type = value.get("type", UNKNOWN_TYPE)
-            data = value.get("data")
+    def _validate(cls, values: Any) -> Any:
+        if isinstance(values, MutableMapping):
+            type = values.get("type", UNKNOWN_TYPE)
+            data = values.get("data")
             if type == UNKNOWN_TYPE and isinstance(data, ParticleData):
                 try:
-                    value["type"] = value["data"].__type__
+                    values["type"] = values["data"].__type__
                 except Exception:
                     pass
-        elif isinstance(value, Particle):
-            type = value.type
-            data = value.data
+        elif isinstance(values, Particle):
+            type = values.type
+            data = values.data
             if type == UNKNOWN_TYPE and isinstance(data, ParticleData):
                 try:
-                    value.type = type
+                    values.type = type
                 except Exception:
                     pass
 
-        return value
+        return values
 
-    def convert[D: DynamicParticleData](self, cls: Type[D]) -> Particle[D]:
+    def convert[ConvertedDataT: DynamicParticleData](
+        self,
+        cls: builtins.type[ConvertedDataT],
+    ) -> Particle[ConvertedDataT]:
         data = (
-            cls.model_validate(self.data)
+            validate(cls, self.data)
             if util.lenient_issubclass(cls, ParticleData)
             else dict(self.data)
         )
 
-        return Particle[cls].model_construct(
+        return Particle[cls].__data_object_construct__(
             id=self.id,
             address=self.address,
             timestamp=self.timestamp,
@@ -458,17 +565,20 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
             data=data,
         )
 
-    def convert_or_none[D: DynamicParticleData](self, cls: Type[D]) -> Particle[D] | None:
+    def convert_or_none[ConvertedDataT: DynamicParticleData](
+        self,
+        cls: builtins.type[ConvertedDataT],
+    ) -> Particle[ConvertedDataT] | None:
         try:
             return self.convert(cls)
         except ValidationError:
             return None
 
 
-def _convert_or_none(
+def _convert_or_none[DataT: DynamicParticleData = DynamicParticleData](
     particle: Particle | None,
-    data_class: type[_T] | None,
-) -> Particle[_T] | None:
+    data_class: type[DataT] | None,
+) -> Particle[DataT] | None:
     if particle is None:
         return None
 
@@ -482,12 +592,71 @@ def _convert_or_none(
 
 
 def _get_data_class(
-    filter: ParticleFilter[_T] | None,
-    filter_kwargs: ParticleFilterArgs[_T] | None,
-) -> type[_T] | None:
+    filter: ParticleFilter[DataT] | object | None,
+    filter_kwargs: ParticleFilterArgs[DataT] | None,
+) -> type[DataT] | None:
     data_class = filter_kwargs.get("cls") if filter_kwargs is not None else None
-    if data_class is None:
-        if filter is not None:
-            data_class = filter.cls
+    if data_class is None and isinstance(filter, ParticleFilter):
+        data_class = filter.cls
 
     return data_class
+
+
+class ParseFailed(Exception):
+    """Raised when `ParseableParticleData.parse` fails."""
+
+
+class ParseableParticleData(ParticleData):
+    __abstract__: ClassVar[bool] = True
+
+    @classmethod
+    @abstractmethod
+    def parse(cls, content: bytes) -> Self: ...
+
+
+class RegexParticleData(ParseableParticleData):
+    __abstract__: ClassVar[bool] = True
+    __regex__: ClassVar[bytes | Pattern[bytes]]
+    __regex_flags__: ClassVar[int] = re.MULTILINE | re.DOTALL
+    __regex_compiled__: ClassVar[Pattern[bytes]]
+
+    @classmethod
+    @override
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+
+        regex = getattr(cls, "__regex__", None)
+        if not isinstance(regex, bytes):
+            raise ValueError(
+                f"`{cls}.__regex__` must be defined as `bytes` or `re.Pattern[bytes]`."
+            )
+
+        try:
+            if isinstance(regex, Pattern):
+                cls.__regex_compiled__ = regex
+            else:
+                cls.__regex_compiled__ = re.compile(cls.__regex__, cls.__regex_flags__)
+        except re.error as error:
+            raise ValueError(f"Failed to compile `{cls}.__regex__`. {error}")
+
+        missing = sorted(set(cls.__data_object_fields__) - set(cls.__regex_compiled__.groupindex))
+        if missing:
+            raise ValueError(f"`{cls}.__regex__` is missing named capture groups: {missing}")
+
+        for field in cls.__data_object_fields__:
+            if field not in cls.__regex_compiled__.groupindex:
+                raise ValueError(
+                    f"Field {field!r} is not a named capturing group in `{cls}.__regex__`."
+                )
+
+    @classmethod
+    @override
+    def parse(cls, content: bytes) -> Self:
+        match = cls.__regex_compiled__.match(content)
+        if match is None:
+            raise ParseFailed("Bytes did not match regex pattern.")
+
+        try:
+            return validate(cls, match.groupdict())
+        except ValidationError as error:
+            raise ParseFailed(f"Bytes matched, but validation failed. {error}") from error

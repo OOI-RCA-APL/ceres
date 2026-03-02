@@ -1,15 +1,18 @@
-from __future__ import annotations
-
 import asyncio
 import subprocess
 import sys
+from collections.abc import AsyncIterator
 from shutil import which
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING
 
 from ceres.component import StreamingOutput
 
 if TYPE_CHECKING:
     from ceres._internal.util import PathLike
+
+__all__ = [
+    "rtsp",
+]
 
 
 async def rtsp(
@@ -29,18 +32,25 @@ async def rtsp(
     and output the live video into a `StreamingOutput` object. This object can be returned directly
     from component queries/actions to proxy video from the external RTSP source.
 
-    :param url: The URL of the RTSP stream to read from.
-    :param ffmpeg: Optional command or path of the `ffmpeg` executable. Defaults to "ffmpeg".
-    :param copy: Whether to copy the video stream without re-encoding. If the video stream is already in MP4 format, this will use far less resources than re-encoding.
-    :param loglevel: The `ffmpeg` `-loglevel` to use. Defaults to "error". Set to `None` to omit `-loglevel`.
-    :param transport: The `ffmpeg` `-rtsp_transport` protocol to use. Defaults to "tcp".
-    :param tune: The `ffmpeg` encoding `-tune` to use. Defaults to "zerolatency". This has no effect if `copy` is `True`. Set to `None` to omit `-tune`.
-    :param preset: The`ffmpeg`  encoding `-preset` to use. Defaults to "ultrafast". This has no effect if `copy` is `True`. Set to `None` to omit `-preset`.
-    :param fragment_duration: The interval in seconds at which new video fragments will be sent. Defaults to 1/20th of a second to reduce latency.
-    :param dash: Whether to use DASH streaming for the output.
-
     This function requires `ffmpeg` to be installed. If this command is not available in the system
-    path, provide its location through the `ffmpeg_path` argument.
+    path, provide its location through the `ffmpeg` argument.
+
+    Args:
+        url: The URL of the RTSP stream to read from.
+        ffmpeg: Optional command or path of the `ffmpeg` executable. Defaults to "ffmpeg".
+        copy: Whether to copy the video stream without re-encoding. If the video stream is already in MP4 format, this will use far less resources than re-encoding.
+        loglevel: The `ffmpeg` `-loglevel` to use. Defaults to "error". Set to `None` to omit `-loglevel`.
+        transport: The `ffmpeg` `-rtsp_transport` protocol to use. Defaults to "tcp".
+        tune: The `ffmpeg` encoding `-tune` to use. Defaults to "zerolatency". This has no effect if `copy` is `True`. Set to `None` to omit `-tune`.
+        preset: The `ffmpeg` encoding `-preset` to use. Defaults to "ultrafast". This has no effect if `copy` is `True`. Set to `None` to omit `-preset`.
+        fragment_duration: The interval in seconds at which new video fragments will be sent. Defaults to 1/20th of a second to reduce latency.
+        dash: Whether to use DASH streaming for the output.
+
+    Returns:
+        A StreamingOutput object containing the MP4 video stream.
+
+    Raises:
+        SystemError: If `ffmpeg` executable is not found in system path and no custom path is provided.
     """
     if ffmpeg is not None:
         ffmpeg = str(ffmpeg)

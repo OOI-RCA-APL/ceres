@@ -1,6 +1,7 @@
 import sys
 from typing import override
 
+import anyio
 from pydantic_settings import CliSubCommand
 
 from ceres._internal import util
@@ -11,7 +12,7 @@ from ceres._internal.cli.shared import (
     CLICommandGroup,
     get_confirmation,
 )
-from ceres.timing import utc
+from ceres.timing import sdelta, utc
 
 
 class InitCommand(CLICommand):
@@ -108,8 +109,6 @@ class ShellCommand(CLICommand):
 
             from signal import SIGTERM
 
-            import anyio
-
             process = await anyio.open_process(
                 command,
                 env=env,
@@ -141,7 +140,7 @@ class ClearCommand(CLICommand):
             await database.clear()
 
             duration = utc() - start
-            self.write(f"Cleared all data from database in {util.encode_td(duration)}.")
+            self.write(f"Cleared all data from database in {sdelta(duration, decimals=2)}.")
 
 
 class DatabaseCommand(CLICommandGroup):

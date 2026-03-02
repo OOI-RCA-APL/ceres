@@ -19,3 +19,6 @@ yarn-error.log*
 
 # MacOS
 .DS_Store
+
+# Examples
+/examples/**/local/

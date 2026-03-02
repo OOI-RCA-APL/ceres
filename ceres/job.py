@@ -1,14 +1,11 @@
-from __future__ import annotations
-
 import asyncio
 from asyncio import CancelledError
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from threading import Lock
 from typing import TYPE_CHECKING
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseComponentManager
 from ceres.event import (
     JobAddedEvent,
@@ -23,17 +20,16 @@ from ceres.event import (
 )
 
 if TYPE_CHECKING:
-    from ceres._internal.protocols import ComponentSource
-
-with lazy_imports(__name__):
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-
-if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
+    from apscheduler.schedulers.base import BaseScheduler
 
+    from ceres._internal.protocols import ComponentSource
     from ceres.config import JobConfig
     from ceres.schedule import Trigger
+
+__all__ = [
+    "JobManager",
+]
 
 
 @lru_cache(maxsize=1)
@@ -41,87 +37,91 @@ def _get_trigger_adapter_class():
     from apscheduler.job import BaseTrigger
 
     class TriggerAdapter(BaseTrigger):
+        __slots__ = ("_inner",)
+
         def __init__(self, inner: Trigger) -> None:
             super().__init__()
-            self.__inner = inner
+            self._inner = inner
 
         def get_next_fire_time(  # type: ignore
             self,
             previous_fire_time: datetime | None,
             now: datetime,
         ) -> datetime | None:
-            return self.__inner.get_next_fire_time(previous_fire_time, now)
+            return self._inner.get_next_fire_time(previous_fire_time, now)
 
     return TriggerAdapter
 
 
-class ComponentJobManager(BaseComponentManager):
+class JobManager(BaseComponentManager):
     __slots__ = (
-        "__scheduler",
-        "__jobs",
-        "__lock",
+        "_scheduler",
+        "_jobs",
+        "_lock",
     )
 
     def __init__(self, source: ComponentSource, /) -> None:
         super().__init__(source)
-        self.__scheduler = self.__create_scheduler()
-        self.__jobs: dict[str, JobConfig] = {}
-        self.__lock = Lock()
+        self._scheduler = self._create_scheduler()
+        self._jobs: dict[str, JobConfig] = {}
+        self._lock = Lock()
 
     @classmethod
-    def __create_scheduler(cls) -> AsyncIOScheduler:
-        return AsyncIOScheduler(timezone=timezone.utc)
+    def _create_scheduler(cls) -> BaseScheduler:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+        return AsyncIOScheduler(timezone=UTC)
 
     @property
     def count(self) -> int:
-        return len(self.__jobs)
+        return len(self._jobs)
 
     async def __run__(self) -> None:
         try:
-            with self.__lock:
-                self.__sync_jobs()
-            self.__scheduler.start()
+            with self._lock:
+                self._sync_jobs()
+            self._scheduler.start()
             await util.sleep_forever()
         finally:
-            if self.__scheduler.running:
-                self.__scheduler.shutdown()
+            if self._scheduler.running:
+                self._scheduler.shutdown()
 
-            with self.__lock:
-                self.__scheduler.remove_all_jobs()
-                self.__scheduler = self.__create_scheduler()
+            with self._lock:
+                self._scheduler.remove_all_jobs()
+                self._scheduler = self._create_scheduler()
 
     def add(self, job: JobConfig) -> None:
         """
         Register a job to be executed according to its defined schedule.
         """
-        binding = self.__system__.get_action_binding(job.action)
+        binding = self.__system__.get_action_bindings().get(job.action)
         if binding is None:
             registered = list(self.__system__.get_action_bindings().keys())
             raise AssertionError(
                 f"action {job.action!r} does not exist on {util.strify(type(self.__system__.component))}, registered actions: {registered!r}"
             )
 
-        with self.__lock:
-            self.__jobs[job.name] = job
+        with self._lock:
+            self._jobs[job.name] = job
             self.__system__.events.emit(JobAddedEvent, job=job.name)
-            self.__sync_jobs()
+            self._sync_jobs()
 
     def get(self, name: str) -> JobConfig | None:
-        return self.__jobs.get(name)
+        return self._jobs.get(name)
 
     def get_all(self) -> list[JobConfig]:
-        return list(self.__jobs.values())
+        return list(self._jobs.values())
 
     def remove(self, name: str) -> JobConfig | None:
         from apscheduler.jobstores.base import JobLookupError
 
-        with self.__lock:
+        with self._lock:
             try:
-                self.__scheduler.remove_job(name)
+                self._scheduler.remove_job(name)
             except JobLookupError:
                 pass
 
-            job = self.__jobs.pop(name, None)
+            job = self._jobs.pop(name, None)
 
         if job is not None:
             self.__system__.events.emit(JobRemovedEvent, job=job.name)
@@ -129,29 +129,29 @@ class ComponentJobManager(BaseComponentManager):
         return job
 
     def clear(self) -> None:
-        with self.__lock:
-            self.__jobs.clear()
-            for job in self.__scheduler.get_jobs():
+        with self._lock:
+            self._jobs.clear()
+            for job in self._scheduler.get_jobs():
                 job: InternalJob = job
-                self.__scheduler.remove_job(job.id)
+                self._scheduler.remove_job(job.id)
 
-    def __sync_jobs(self) -> None:
-        for name, job in self.__jobs.items():
-            internal: InternalJob | None = self.__scheduler.get_job(name)
+    def _sync_jobs(self) -> None:
+        for name, job in self._jobs.items():
+            internal: InternalJob | None = self._scheduler.get_job(name)
             if internal is not None:
                 continue
 
             TriggerAdapter = _get_trigger_adapter_class()
-            trigger = job.schedule.as_trigger()
-            internal = self.__scheduler.add_job(
-                self.__run,
+            trigger = job.schedule.create_trigger()
+            internal = self._scheduler.add_job(
+                self._run_job,
                 args=[job],
                 trigger=TriggerAdapter(trigger),
                 name=name,
                 id=name,
             )
 
-    async def __run(self, job: JobConfig) -> None:
+    async def _run_job(self, job: JobConfig) -> None:
         self.__system__.events.emit(JobStartedEvent, job=job.name)
         retry = 0
 

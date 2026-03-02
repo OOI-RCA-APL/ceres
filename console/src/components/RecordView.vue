@@ -61,7 +61,7 @@ const columns = $computed(() => [
         widget.filter.before_minute) != null,
     minWidth: 88,
   },
-  { label: 'Address', name: 'address', filtered: widget.filter.address != null, minWidth: 72 },
+  { label: 'Address', name: 'address', filtered: widget.filter.address != null, minWidth: 64 },
   ...appendedColumns,
 ])
 
@@ -486,7 +486,7 @@ useStream(debouncedFilter, async (record: Record) => {
                     column.filtered && $style.headerColumnGearIconEdited,
                   ]"
                   :name="icons.settings"
-                  size="10px"
+                  size="9.5px"
                 />
               </div>
               <q-menu
@@ -702,7 +702,7 @@ useStream(debouncedFilter, async (record: Record) => {
 <style lang="scss" module>
 .headerTable {
   width: 100%;
-  height: 22px;
+  height: 19px;
   overflow: hidden;
   contain: size;
 }
@@ -714,7 +714,8 @@ useStream(debouncedFilter, async (record: Record) => {
 .headerColumn {
   padding: 2px 8px !important;
   text-align: left;
-  height: 22px;
+  font-size: 10px;
+  height: 19px;
 }
 
 .headerColumn:hover {

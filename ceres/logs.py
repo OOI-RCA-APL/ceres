@@ -1,11 +1,9 @@
-from __future__ import annotations
-
 import logging
+from collections.abc import Callable, Iterable
 from typing import (
     TYPE_CHECKING,
     ClassVar,
     Final,
-    Iterable,
     Literal,
     TypeAlias,
     Unpack,
@@ -17,7 +15,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityNaming, EntityQuery
+from ceres._internal.entity import (
+    BaseEntityManager,
+    BaseEntityQuery,
+    EntityNaming,
+    EntityOutputChannel,
+    EntityQuery,
+)
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.record import (
     BaseRecord,
@@ -30,7 +34,7 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import MaybeSequence
+from ceres.data import MaybeSequence, to_json
 from ceres.level import Level
 from ceres.timing import utc
 
@@ -43,8 +47,19 @@ if TYPE_CHECKING:
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
+
+__all__ = [
+    "LogEntry",
+    "LogEntryField",
+    "LogEntryOrder",
+    "LogEntryFilterArgs",
+    "LogEntryFilter",
+    "LogEntryCreate",
+    "LogEntryUpdate",
+    "LogManager",
+    "BoundLogManager",
+]
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):
@@ -173,7 +188,7 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
             yield util.sql_match_string(columns.content, self.suffix, MatchMode.SUFFIX)
 
 
-class LogEntryCreate(BaseRecordCreate):
+class LogEntryCreate(BaseRecordCreate, slots=True):
     level: Level
     content: str
 
@@ -243,12 +258,14 @@ class _BaseLogEntryQuery(
         "LogEntryQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[LogEntryQuery]:
         return LogEntryQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: LogEntryFilter | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
@@ -264,7 +281,7 @@ class LogEntryQuery(
     ],
     _BaseLogEntryQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class LogManager(
@@ -278,6 +295,8 @@ class LogManager(
     ],
     _BaseLogEntryQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, LogEntry)
 
@@ -286,22 +305,19 @@ class LogManager(
 
 
 class BoundLogManager(LogManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
-    def follow(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> OutputChannel[LogEntry]:
+    @property
+    def stream(self) -> LogEntryOutputChannel:
         from ceres.event import LogEvent
 
-        filter = self._get_resolved_filter_args(filter, kwargs)
-        return (
-            self.__node__.events.follow()
-            .every(LogEvent)
+        return LogEntryOutputChannel(
+            self.__node__.events.stream.every(LogEvent)
             .map(lambda event: event.entry)
-            .filter(filter.matches)
+            .where(lambda entry: self._get_resolved_filter().matches(entry))
         )
 
     def write(self, entry: LogEntry, /) -> None:
@@ -309,17 +325,18 @@ class BoundLogManager(LogManager, BaseNodeManager):
 
         config = self.__node__.get_resolved_logging_config()
 
-        # If the log entry's level reaches the `output` threshold, write to the Python logger, and
-        # subsequently stderr. The `output` threshold is `Level.INFO` by default.
-        if entry.level >= config.output:
-            logger = get_logger(str(self.__node__.address))
-            logger.log(entry.level.to_int(), entry.content)
+        if config is not None:
+            # If the log entry's level reaches the `output` threshold, write to the Python logger, and
+            # subsequently stderr. The `output` threshold is `Level.INFO` by default.
+            if entry.level >= config.output:
+                logger = get_logger(str(self.__node__.address))
+                logger.log(entry.level.to_int(), entry.content)
 
-        # If the log entry's level reaches the `store` threshold, write the log entry to the project
-        # database. The `store` threshold is `Level.DEBUG` by default, meaning all log entries are
-        # persisted.
-        if entry.level >= config.store:
-            self.__node__.store(entry)
+            # If the log entry's level reaches the `store` threshold, write the log entry to the project
+            # database. The `store` threshold is `Level.DEBUG` by default, meaning all log entries are
+            # persisted.
+            if entry.level >= config.store:
+                self.__node__.store(entry)
 
         # Log events are always emitted.
         self.__node__.events.emit(LogEvent, entry=entry)
@@ -396,38 +413,61 @@ class BoundLogManager(LogManager, BaseNodeManager):
         if level is None:
             level = event.level
 
-        self.emit(level, "[event] {data}", event.address, data=event.model_dump_json())
+        self.emit(level, "[event] {data}", event.address, data=to_json(event))
 
     def message(self, message: Message, level: Level | None = None, /) -> None:
         if level is None:
             level = Level.INFO
 
-        self.emit(level, "[message] {data}", message.address, data=message.model_dump_json())
+        self.emit(level, "[message] {data}", message.address, data=to_json(message))
 
     def particle(self, particle: Particle, level: Level | None = None, /) -> None:
         if level is None:
             level = Level.INFO
 
-        self.emit(level, "[particle] {data}", particle.address, data=particle.model_dump_json())
+        self.emit(level, "[particle] {data}", particle.address, data=to_json(particle))
 
     def alert(self, alert: Alert, level: Level | None = None, /) -> None:
         if level is None:
             level = alert.level
 
-        self.emit(level, "[alert] {data}", alert.address, data=alert.model_dump_json())
+        self.emit(level, "[alert] {data}", alert.address, data=to_json(alert))
 
 
-class LogEntry(BaseRecord, LogEntryCreate):
-    Manager: ClassVar[type[LogManager]] = LogManager
-    BoundManager: ClassVar[type[BoundLogManager]] = BoundLogManager
-    Row: ClassVar[type[LogEntryRow]] = LogEntryRow
-    Create: ClassVar[type[LogEntryCreate]] = LogEntryCreate
-    Update: ClassVar[type[LogEntryUpdate]] = LogEntryUpdate
-    Filter: ClassVar[type[LogEntryFilter]] = LogEntryFilter
-    FilterArgs: ClassVar[type[LogEntryFilterArgs]] = LogEntryFilterArgs
+class LogEntryOutputChannel(
+    EntityOutputChannel[
+        "LogEntry",
+        LogEntryFilter,
+        LogEntryFilterArgs,
+    ]
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[LogEntryFilter]:
+        return LogEntryFilter
+
+    @override
+    def where(  # type: ignore
+        self,
+        filter: LogEntryFilter | Callable[[LogEntry], bool] | None = None,
+        /,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> LogEntryOutputChannel:
+        return super().where(filter, **kwargs)
+
+
+class LogEntry(BaseRecord, LogEntryCreate, slots=True):
+    Manager = LogManager
+    BoundManager = BoundLogManager
+    Row = LogEntryRow
+    Create = LogEntryCreate
+    Update = LogEntryUpdate
+    Filter = LogEntryFilter
+    FilterArgs = LogEntryFilterArgs
     Field = LogEntryField
     Order = LogEntryOrder
-    Level: ClassVar[type[Level]] = Level
+    Level = Level
 
     __naming__: ClassVar[EntityNaming] = EntityNaming(
         singular="log entry",

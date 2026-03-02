@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import traceback
 from abc import abstractmethod
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import field
-from typing import TYPE_CHECKING, Any, Iterable, Sequence, final, override
+from typing import TYPE_CHECKING, Any, final, override
 
 from ceres._internal import util
 from ceres._internal.templates import templates
@@ -12,7 +11,7 @@ from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, Level
 from ceres.component import Component, action, routine
 from ceres.config import JobConfig
-from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
+from ceres.data import DataObject, NonBlankStr, to_json
 from ceres.loaded import Loaded
 from ceres.notifier import Notification, Notifier
 from ceres.reference import Ref
@@ -21,13 +20,20 @@ from ceres.schedule import ScheduleExpr
 if TYPE_CHECKING:
     from datetime import datetime
 
+__all__ = [
+    "Dispatch",
+    "DispatchWriter",
+    "Dispatcher",
+    "HTMLDispatchWriter",
+]
 
-class Dispatch(ImmutableDataObject):
+
+class Dispatch(DataObject):
     subject: NonBlankStr
     description: NonBlankStr | None = None
     signature: NonBlankStr | None = None
     alerts: AlertFilter
-    recipients: Sequence[str]
+    recipients: list[str]
     schedule: ScheduleExpr | None = None
 
 
@@ -129,7 +135,7 @@ class HTMLDispatchWriter(DispatchWriter):
             count = 0
 
             for value in values:
-                if isinstance(value, (dict, list)):
+                if isinstance(value, dict | list):
                     count += get_size(value)
                 else:
                     count += 1
@@ -150,7 +156,7 @@ class HTMLDispatchWriter(DispatchWriter):
         ):
             for key, by_key in util.group_by(
                 sorted(by_level, key=lambda alert: -alert.timestamp.timestamp()),
-                lambda alert: (alert.address, alert.type, jsonify(alert.data)),
+                lambda alert: (alert.address, alert.type, to_json(alert.data)),
             ):
                 group = index[level]
                 if key not in group:

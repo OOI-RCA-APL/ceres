@@ -1,11 +1,9 @@
-from __future__ import annotations
-
-from abc import ABC
+from collections.abc import Callable, Sequence
 from decimal import Decimal
 from enum import Enum
 from textwrap import dedent
 from types import MethodType
-from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias, TypedDict, Unpack
+from typing import Annotated, Any, Literal, TypeAlias, TypedDict, Unpack
 
 from pydantic import (
     Field,
@@ -18,7 +16,8 @@ from pydantic import (
 
 from ceres._internal import util
 from ceres.address import Address
-from ceres.data import Color, DataObject, DeferBuild, Name, StrEnum
+from ceres.component import get_component_method_binding_on
+from ceres.data import Color, DataModel, Name, StrEnum
 
 
 class ElementType(StrEnum):
@@ -59,7 +58,7 @@ class _BaseElementArgs(TypedDict, total=False):
     css_class: str | list[str] | None
 
 
-class _BaseElement(DataObject, DeferBuild, ABC):
+class _BaseElement(DataModel):
     type: ElementType
     css_style: str | dict[str, str] | None = None
     css_class: str | list[str] | None = None
@@ -92,9 +91,9 @@ class Button(_BaseElement):
             address = action.__self__.system.address
 
         if not isinstance(action, str):
-            from ceres.component import ActionBinding, get_component_method_binding
+            from ceres.component import ActionBinding
 
-            binding = get_component_method_binding(action, ActionBinding)
+            binding = get_component_method_binding_on(action, ActionBinding)
             if not binding:
                 raise ValueError(f"function {util.strify(action)} has no action binding")
 
@@ -249,7 +248,7 @@ AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | Strict
 
 
 class State(_BaseElement):
-    class Option(DataObject, DeferBuild):
+    class Option(DataModel):
         value: AtomicValue
         label: str
         color: Color
@@ -297,7 +296,7 @@ class State(_BaseElement):
 
 
 class Gauge(_BaseElement):
-    class ColorStop(DataObject, DeferBuild):
+    class ColorStop(DataModel):
         value: float
         color: Color
 
@@ -388,9 +387,9 @@ class _BaseRenderer(_BaseElement):
             address = query.__self__.system.address
 
         if not isinstance(query, str):
-            from ceres.component import QueryBinding, get_component_method_binding
+            from ceres.component import QueryBinding
 
-            binding = get_component_method_binding(query, QueryBinding)
+            binding = get_component_method_binding_on(query, QueryBinding)
             if not binding:
                 raise ValueError(f"function {util.strify(query)} has no query binding")
 
@@ -431,7 +430,7 @@ class Display(_BaseRenderer):
         )
 
 
-Element: TypeAlias = Annotated[
+type Element = Annotated[
     Button | Row | Column | Carousel | Text | HTML | State | Gauge | Chart | Render | Display,
     Field(discriminator="type"),
 ]

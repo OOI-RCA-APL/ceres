@@ -1,11 +1,7 @@
-from __future__ import annotations
-
-from fastapi import APIRouter
-
-from ceres._internal.app.shared import OPERATOR, CurrentEngine
+from ceres._internal.app.shared import OPERATOR, CurrentEngine, Router
 from ceres.config import Config, ConsoleConfig, DatabaseConfig, ServerConfig, ServiceConfig
 
-router = APIRouter(prefix="/config", tags=["config"])
+router = Router(prefix="/config", tags=["config"])
 
 
 @router.get("", dependencies=[OPERATOR])

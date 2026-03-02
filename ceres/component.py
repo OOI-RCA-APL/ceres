@@ -1,12 +1,11 @@
-from __future__ import annotations
-
 import asyncio
 import inspect
 import traceback
 import warnings
 from abc import abstractmethod
 from asyncio import CancelledError, TaskGroup
-from dataclasses import InitVar, field
+from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping, Sequence
+from dataclasses import InitVar, dataclass, field
 from datetime import timedelta
 from functools import cached_property
 from inspect import Parameter
@@ -15,19 +14,16 @@ from string import ascii_lowercase
 from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
-    AsyncIterable,
-    Awaitable,
-    Callable,
     Final,
-    Iterable,
     Literal,
-    Mapping,
     Protocol,
     Self,
-    Sequence,
     TypeAlias,
+    TypedDict,
     Unpack,
+    cast,
     final,
     get_args,
     get_type_hints,
@@ -36,22 +32,40 @@ from typing import (
     runtime_checkable,
 )
 
-from pydantic import ConfigDict, PositiveFloat, ValidationError
+from pydantic import (
+    AliasChoices,
+    AliasPath,
+    ConfigDict,
+    NonNegativeInt,
+    PositiveFloat,
+    ValidationError,
+)
+from pydantic.fields import Deprecated, FieldInfo
 
 from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import ComponentSource
-from ceres._internal.util import OrderedWeakSet, PathLike, Undefined
+from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, cached
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.config import ComponentConfig, JobConfig, PrunerConfig, SieveConfig
+from ceres.concurrency import concurrently
+from ceres.config import (
+    ComponentConfig,
+    ConnectionConfig,
+    JobConfig,
+    MethodSieveConfig,
+    PrunerConfig,
+    SieveConfig,
+)
 from ceres.data import (
-    ImmutableDataObject,
+    DataObject,
+    MaybeSequence,
     Name,
     OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
-    ValidatedDataclass,
+    WithDefaults,
+    adapt,
 )
 from ceres.error import (
     Failure,
@@ -82,30 +96,41 @@ from ceres.event import (
     StoppingEvent,
     WillDetachEvent,
 )
+from ceres.message import Message, MessageContent, MessageDirectionInput, MessageFilter
 from ceres.node import Node
+from ceres.timing import delta
 from ceres.variable import InternalVariableName, Variable
 
 if TYPE_CHECKING:
+    from pydantic.config import JsonDict
+    from pydantic.types import Discriminator
     from sqlalchemy.ext.asyncio import AsyncConnection
     from starlette.responses import FileResponse, Response, StreamingResponse
 
+    from ceres.connection import Connection, ConnectionField
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
+    from ceres.particle import Particle
     from ceres.status import Status
+else:
+    Connection = object
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
+    from ceres.connection import ComponentConnectionManager
     from ceres.database import Database
-    from ceres.job import ComponentJobManager
-    from ceres.pruner import ComponentPrunerManager
+    from ceres.job import JobManager
+    from ceres.pruner import PrunerManager
     from ceres.reference import Reference, unref
-    from ceres.sieve import ComponentSieveManager
+    from ceres.sieve import SieveManager
 
-
-warnings.filterwarnings(
-    action="ignore",
-    module="apscheduler",
-    message=r".*localize method is no longer necessary.*",
-)
+__all__ = [
+    "Component",
+    "listener",
+    "query",
+    "action",
+    "routine",
+    "sieve",
+]
 
 
 class ComponentFilterArgs(BaseFilterArgs, total=False):
@@ -136,15 +161,17 @@ class ComponentFilter(BaseFilter):
 
 
 if TYPE_CHECKING:
-    _Container: TypeAlias = "Component | ComponentSystem | Engine | None"
+    type Container = Component | ComponentSystem | Engine | None
 else:
-    _Container = object
+    type Container = Any
 
 
-class Component(ValidatedDataclass, ComponentSource):
+class Component(DataObject, ComponentSource):
+    __slots__ = ("__system",)
+
     __with_name__: InitVar[Name | None] = field(default=None, kw_only=False)
     __with_config__: InitVar[ComponentConfig | None] = field(default=None)
-    __with_container__: InitVar[_Container] = field(default=None)
+    __with_container__: InitVar[Container] = field(default=None)
 
     def __post_init__(
         self,
@@ -158,6 +185,7 @@ class Component(ValidatedDataclass, ComponentSource):
             __with_config__=__with_config__,
             __with_container__=__with_container__,
         )
+
         self.__setup__()
 
     @final
@@ -200,13 +228,16 @@ class Component(ValidatedDataclass, ComponentSource):
     def __connectivity__(self) -> Connectivity | None:
         return None
 
+    def __static_connections__(self) -> Iterable[ConnectionConfig]:
+        return ()
+
+    def __static_sieves__(self) -> Iterable[SieveConfig]:
+        return ()
+
     def __static_jobs__(self) -> Iterable[JobConfig]:
         return ()
 
     def __static_pruners__(self) -> Iterable[PrunerConfig]:
-        return ()
-
-    def __static_sieves__(self) -> Iterable[SieveConfig]:
         return ()
 
     @final
@@ -218,102 +249,144 @@ class Component(ValidatedDataclass, ComponentSource):
         return self
 
 
-@util.cached
-def get_component_listener_bindings(cls: type[Component]) -> Sequence[ListenerBinding]:
+@cached(weak=True)
+def get_listener_bindings(cls: type) -> Sequence[ListenerBinding]:
     """
     Get all listener bindings for this component class.
     """
-    return get_component_bindings(cls, ListenerBinding)
+    return _get_component_method_bindings(cls, ListenerBinding)
 
 
-@util.cached
-def get_component_routine_bindings(cls: type[Component]) -> Sequence[RoutineBinding]:
+@cached(weak=True)
+def get_routine_bindings(cls: type, /) -> Sequence[RoutineBinding]:
     """
     Get all routine bindings for this component class.
     """
-    return get_component_bindings(cls, RoutineBinding)
+    return _get_component_method_bindings(cls, RoutineBinding)
 
 
-@util.cached
-def get_component_query_bindings(cls: type[Component]) -> Mapping[str, QueryBinding]:
+@cached(weak=True)
+def get_query_bindings(cls: type, /) -> Mapping[str, QueryBinding]:
     """
     Get all query bindings for this component class. Returns a mapping of query names to query
     bindings.
     """
-    return {
-        name: binding
-        for name, binding in get_component_procedure_bindings(cls).items()
-        if isinstance(binding, QueryBinding)
-    }
+    return MappingProxyType(
+        {
+            name: binding
+            for name, binding in get_procedure_bindings(cls).items()
+            if isinstance(binding, QueryBinding)
+        }
+    )
 
 
-def get_component_query_binding(cls: type[Component], name: str) -> QueryBinding | None:
-    """
-    Get a query binding for this component class by name. Returns `None` if the query binding
-    does not exist.
-    """
-    procedure = get_component_procedure_binding(cls, name)
-    if not isinstance(procedure, QueryBinding):
-        return None
-
-    return procedure
-
-
-@util.cached
-def get_component_action_bindings(cls: type[Component]) -> Mapping[str, ActionBinding]:
+@cached(weak=True)
+def get_action_bindings(cls: type, /) -> Mapping[str, ActionBinding]:
     """
     Get all action bindings for this component class. Returns a mapping of action names to
     action bindings.
     """
-    return {
-        name: binding
-        for name, binding in get_component_procedure_bindings(cls).items()
-        if isinstance(binding, ActionBinding)
-    }
+    return MappingProxyType(
+        {
+            name: binding
+            for name, binding in get_procedure_bindings(cls).items()
+            if isinstance(binding, ActionBinding)
+        }
+    )
 
 
-def get_component_action_binding(cls: type[Component], name: str) -> ActionBinding | None:
-    """
-    Get an action binding for this component class by name. Returns `None` if the action binding
-    does not exist.
-    """
-    procedure = get_component_procedure_binding(cls, name)
-    if not isinstance(procedure, ActionBinding):
-        return None
-
-    return procedure
-
-
-@util.cached
-def get_component_procedure_bindings(cls: type[Component]) -> Mapping[Name, ProcedureBinding]:
+@cached(weak=True)
+def get_procedure_bindings(cls: type, /) -> Mapping[Name, ProcedureBinding]:
     """
     Get all procedure bindings (actions and queries) for this component class. Returns a mapping
     of procedure names to procedure bindings.
     """
-    queries = get_component_bindings(cls, QueryBinding)
-    actions = get_component_bindings(cls, ActionBinding)
+    queries = _get_component_method_bindings(cls, QueryBinding)
+    actions = _get_component_method_bindings(cls, ActionBinding)
     procedures = sorted([*queries, *actions], key=lambda current: current.name)
 
     return MappingProxyType({binding.name: binding for binding in procedures})
 
 
-def get_component_procedure_binding(cls: type[Component], name: str) -> ProcedureBinding | None:
+@cached(weak=True)
+def get_sieve_bindings(cls: type, /) -> Mapping[Name, SieveBinding]:
     """
-    Get a procedure binding (action or query) for this component class by name. Returns `None`
-    if the procedure does not exist.
+    Get all sieve bindings for this component class.
     """
-    name = _get_normalized_name(name)
-    return get_component_procedure_bindings(cls).get(name)
+    return MappingProxyType(
+        {binding.name: binding for binding in _get_component_method_bindings(cls, SieveBinding)}
+    )
 
 
-class ListenerBinding(ImmutableDataObject):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class ConnectionBinding(DataObject.Frozen):
+    name: Name
+    field: Name
 
+
+@cached(weak=True)
+def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
+    """
+    Get all connection bindings for this component class.
+    """
+    from ceres.connection import ConnectionField
+
+    __pydantic_fields__: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
+
+    bindings: Mapping[Name, ConnectionBinding] = {}
+
+    def get_marker[T: BoundField.Marker](
+        metadata: Sequence[Any],
+        marker_class: type[T],
+    ) -> T | None:
+        return next((current for current in metadata if isinstance(current, marker_class)), None)
+
+    for field, info in __pydantic_fields__.items():
+        if info.init_var:
+            continue
+
+        if get_marker(info.metadata, BoundField.Marker) is None:
+            continue
+
+        exact = []
+        connection = get_marker(info.metadata, ConnectionField.Marker)
+        if connection is not None:
+            exact.append(connection)
+
+        if not exact:
+            raise TypeError(
+                f"Field '{field}' in component '{cls}' is marked as bound but does not have a "
+                "specific bound object type."
+            )
+        if len(exact) > 1:
+            raise TypeError(
+                f"Field '{field}' in component '{cls}' has multiple possible bound types."
+                f"{', '.join(type(marker).__name__ for marker in exact)}."
+            )
+
+        marker = exact[0]
+        name: str | None = None
+        if marker is not None:
+            name = marker.name
+        if name is None:
+            name = field
+
+        if isinstance(marker, ConnectionField.Marker):
+            bindings[name] = ConnectionBinding(name=name, field=field)
+        else:
+            raise TypeError(
+                f"Field '{field}' in component '{cls}' is marked as bound but is not of a "
+                "known object type."
+            )
+
+    return MappingProxyType(bindings)
+
+
+class ListenerBinding(DataObject.Frozen, config=ConfigDict(arbitrary_types_allowed=True)):
     name: Name
     method: Name
     event: type | UnionType
     local: bool
-    reference: Sequence[str]
+    reference: tuple[str, ...]
     address: AddressSelector | None
 
 
@@ -370,7 +443,7 @@ def listener(
         if assigned_event_type is None:
             assigned_event_type = Event
 
-        _bind(
+        _add_binding(
             method,
             ListenerBinding(
                 name=_get_bound_name(method),
@@ -395,33 +468,28 @@ class ProcedureType(StrEnum):
     ACTION = "action"
 
 
-class ProcedureSchemas(ImmutableDataObject):
-    arguments: Mapping[str, Any] | None
-    output: Mapping[str, Any]
-
-
 class ProcedureOutputType(StrEnum):
     VALUE = "value"
     STREAMING = "streaming"
     FILE = "file"
 
 
-class ProcedureArgumentsInfo(ImmutableDataObject):
+class ProcedureArgumentsInfo(DataObject.Frozen):
     json_schema: Mapping[str, Any]
     required: bool
 
 
-class ProcedureValueOutputInfo(ImmutableDataObject):
+class ProcedureValueOutputInfo(DataObject.Frozen):
     type: Literal[ProcedureOutputType.VALUE] = ProcedureOutputType.VALUE
     json_schema: Mapping[str, Any]
 
 
-class ProcedureFileOutputInfo(ImmutableDataObject):
+class ProcedureFileOutputInfo(DataObject.Frozen):
     type: Literal[ProcedureOutputType.FILE] = ProcedureOutputType.FILE
     media: str | None = None
 
 
-class ProcedureStreamingOutputInfo(ImmutableDataObject):
+class ProcedureStreamingOutputInfo(DataObject.Frozen):
     type: Literal[ProcedureOutputType.STREAMING] = ProcedureOutputType.STREAMING
     media: str
 
@@ -457,7 +525,7 @@ ProcedurePermissions = ProcedureAccessLevel
 ProcedurePermissionsInput = ProcedureAccessLevelInput
 
 
-class __BaseProcedureBinding(ImmutableDataObject):
+class _ProcedureBinding(DataObject.Frozen):
     type: ProcedureType
     name: Name
     permissions: ProcedurePermissions
@@ -467,20 +535,20 @@ class __BaseProcedureBinding(ImmutableDataObject):
     output: ProcedureOutputInfo
 
 
-class QueryBinding(__BaseProcedureBinding):
+class QueryBinding(_ProcedureBinding):
     type: Literal[ProcedureType.QUERY] = ProcedureType.QUERY
     poll: PositiveTimeDelta = timedelta(seconds=1)
 
 
-class ActionBinding(__BaseProcedureBinding):
+class ActionBinding(_ProcedureBinding):
     type: Literal[ProcedureType.ACTION] = ProcedureType.ACTION
 
 
-ProcedureBinding = QueryBinding | ActionBinding
+ProcedureBinding: TypeAlias = QueryBinding | ActionBinding
 
 
-OutputResponse: TypeAlias = "Response"
-OutputMediaType: TypeAlias = str
+type OutputResponse = Response
+type OutputMediaType = str
 
 
 class BaseOutput:
@@ -535,10 +603,8 @@ class FileOutput(BaseOutput):
         )
 
 
-DataStreamChunk: TypeAlias = bytes | memoryview
-DataStream: TypeAlias = (
-    AsyncIterable[DataStreamChunk] | Callable[[], AsyncIterable[DataStreamChunk]]
-)
+type DataStreamChunk = bytes | memoryview
+type DataStream = AsyncIterable[DataStreamChunk] | Callable[[], AsyncIterable[DataStreamChunk]]
 
 
 class StreamingOutput(BaseOutput):
@@ -620,8 +686,8 @@ def query[**P, T](
     permit: ProcedurePermissionsInput = ProcedureAccessLevel.PUBLIC,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def query(method: Callable[P, T]) -> Callable[P, T]:
-        info = __get_procedure_method_info(method, ProcedureType.QUERY, media)
-        _bind(
+        info = _get_procedure_method_info(method, ProcedureType.QUERY, media)
+        _add_binding(
             method,
             QueryBinding(
                 name=_get_bound_name(method),
@@ -661,8 +727,8 @@ def action[**P, T](
     permit: ProcedurePermissionsInput = ProcedureAccessLevel.OPERATORS,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def action(method: Callable[P, T]) -> Callable[P, T]:
-        validated = __get_procedure_method_info(method, ProcedureType.ACTION, media)
-        _bind(
+        validated = _get_procedure_method_info(method, ProcedureType.ACTION, media)
+        _add_binding(
             method,
             ActionBinding(
                 name=_get_bound_name(method),
@@ -682,7 +748,7 @@ def action[**P, T](
     return action(method)
 
 
-class __ProcedureMethodInfo(ImmutableDataObject):
+class _ProcedureMethodInfo(DataObject.Frozen):
     name: str
     method: str
     arguments: ProcedureArgumentsInfo | None
@@ -690,12 +756,12 @@ class __ProcedureMethodInfo(ImmutableDataObject):
     live: bool
 
 
-def __get_procedure_method_info(
+def _get_procedure_method_info(
     method: Callable[..., Any],
     type_: ProcedureType,
     media: str | None,
     /,
-) -> __ProcedureMethodInfo:
+) -> _ProcedureMethodInfo:
     method = util.get_inner_function(method)
     signature = inspect.signature(method)
 
@@ -747,7 +813,7 @@ def __get_procedure_method_info(
             )
     else:
         try:
-            output_json_schema = util.get_type_adapter(output_annotation).json_schema()
+            output_json_schema = adapt(output_annotation).json_schema()
             output = ProcedureValueOutputInfo(json_schema=output_json_schema)
         except Exception as exception:
             raise ValueError(
@@ -755,7 +821,7 @@ def __get_procedure_method_info(
                 f"{exception}"
             )
 
-    return __ProcedureMethodInfo(
+    return _ProcedureMethodInfo(
         name=_get_bound_name(method),
         method=util.get_function_name(method),
         arguments=arguments,
@@ -782,7 +848,7 @@ RoutineRestartPolicyLiteral = Literal[
 ]
 
 
-class RoutineBinding(ImmutableDataObject):
+class RoutineBinding(DataObject.Frozen):
     method: Name
     restart: RoutineRestartPolicy
     restart_delay: PositiveTimeDelta
@@ -813,12 +879,12 @@ def routine(
     restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
 ) -> _RoutineMethod | _RoutineMethodHandler:
     def routine(method: _RoutineMethod) -> _RoutineMethod:
-        _bind(
+        _add_binding(
             method,
             RoutineBinding(
                 method=util.get_function_name(method),
                 restart=RoutineRestartPolicy(restart),
-                restart_delay=util.decode_td(restart_delay),
+                restart_delay=delta(restart_delay),
             ),
         )
 
@@ -831,13 +897,15 @@ def routine(
 
 
 @runtime_checkable
-class Binding(Protocol):
-    method: str
+class _MethodBinding(Protocol):
+    @property
+    def method(self) -> str: ...
 
 
-def get_component_method_bindings[T: Binding](
+def get_component_method_bindings_on[T: _MethodBinding](
     method: Callable[..., Any],
     binding_cls: type[T],
+    /,
 ) -> Sequence[T]:
     method = util.get_inner_function(method)
     output: list[T] = []
@@ -851,18 +919,22 @@ def get_component_method_bindings[T: Binding](
     return tuple(output)
 
 
-def get_component_method_binding[T: Binding](
+def get_component_method_binding_on[T: _MethodBinding](
     method: Callable[..., Any],
     binding_cls: type[T],
+    /,
 ) -> T | None:
-    bindings = get_component_method_bindings(method, binding_cls)
+    bindings = get_component_method_bindings_on(method, binding_cls)
     if bindings:
         return bindings[0]
 
     return None
 
 
-def get_component_bindings[T: Binding](cls: type[Component], binding_cls: type[T]) -> Sequence[T]:
+def _get_component_method_bindings[T: _MethodBinding](
+    cls: type,
+    binding_cls: type[T],
+) -> Sequence[T]:
     bindings: dict[str, T] = {}
 
     for cls in reversed(cls.__mro__):
@@ -870,25 +942,121 @@ def get_component_bindings[T: Binding](cls: type[Component], binding_cls: type[T
             if not callable(member):
                 continue
 
-            for binding in get_component_method_bindings(member, binding_cls):
+            for binding in get_component_method_bindings_on(member, binding_cls):
                 bindings[binding.method] = binding
 
     return sorted(bindings.values(), key=lambda current: current.method)
 
 
-def _bind(method: Callable[..., object], binding: Binding) -> None:
+class SieveBinding(DataObject.Frozen):
+    name: Name
+    method: Name
+    retries: NonNegativeInt | None
+    retry_delay: PositiveTimeDelta
+    filter: MessageFilter | None
+    connections: tuple[Name, ...] | None = None
+
+
+type SieveMethod[S, T: Particle] = (
+    Callable[[S, Message], T | None | Awaitable[T | None]]
+    | Callable[[S, AsyncIterable[Message]], AsyncIterable[T]]
+)
+
+
+@overload
+def sieve[S, T: Particle](method: SieveMethod[S, T], /) -> SieveMethod[S, T]: ...
+
+
+@overload
+def sieve[S, T: Particle](
+    connection: MaybeSequence[ConnectionField] | None = None,
+    /,
+    direction: MaybeSequence[MessageDirectionInput] | None = "receive",
+    *,
+    name: Name | None = None,
+    retries: NonNegativeInt | None = None,
+    retry_delay: PositiveTimeDelta = timedelta(seconds=5),
+    contains: MaybeSequence[MessageContent] | None = None,
+    prefix: MaybeSequence[MessageContent] | None = None,
+    suffix: MaybeSequence[MessageContent] | None = None,
+) -> Callable[[SieveMethod[S, T]], SieveMethod[S, T]]: ...
+
+
+def sieve[S, T: Particle](
+    first: SieveMethod[S, T] | MaybeSequence[ConnectionField] | None = None,
+    /,
+    direction: MaybeSequence[MessageDirectionInput] | None = "receive",
+    *,
+    name: Name | None = None,
+    retries: NonNegativeInt | None = None,
+    retry_delay: PositiveTimeDelta = timedelta(seconds=5),
+    contains: MaybeSequence[MessageContent] | None = None,
+    prefix: MaybeSequence[MessageContent] | None = None,
+    suffix: MaybeSequence[MessageContent] | None = None,
+) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
+    if first is None:
+        method = None
+        connections = None
+    elif inspect.ismethod(first):
+        method = first
+        connections = None
+    else:
+        method = None
+        connections = tuple(
+            [
+                current.name
+                for current in cast("Sequence[ConnectionField]", util.seq(first))
+                if current.name is not None
+            ]
+        )
+
+    from ceres.message import Message
+
+    filtering = Message.FilterArgs()
+    if direction is not None:
+        filtering["direction"] = direction
+    if contains is not None:
+        filtering["contains"] = contains
+    if suffix is not None:
+        filtering["suffix"] = suffix
+    if prefix is not None:
+        filtering["prefix"] = prefix
+
+    if filtering:
+        filter = Message.Filter.model_validate(filtering)
+    else:
+        filter = None
+
+    def sieve(method: SieveMethod[S, T]) -> SieveMethod[S, T]:
+        _add_binding(
+            method,
+            SieveBinding(
+                name=name or _get_bound_name(method),
+                method=util.get_function_name(method),
+                retries=retries,
+                retry_delay=retry_delay,
+                filter=filter,
+                connections=connections,
+            ),
+        )
+        return method
+
+    if method is None:
+        return sieve
+
+    return sieve(method)
+
+
+def _add_binding(method: Callable[..., object], binding: _MethodBinding) -> None:
     method = util.get_inner_function(method)
-    bindings: Sequence[Binding] | None = getattr(method, _BINDINGS_ATTRIBUTE, None)
+    bindings: Sequence[_MethodBinding] | None = getattr(method, _BINDINGS_ATTRIBUTE, None)
 
     if not isinstance(bindings, Sequence):
         bindings = []
 
-    if isinstance(bindings, list):
-        bindings.append(binding)
-    else:
-        bindings = [*bindings, binding]
-
-    setattr(method, _BINDINGS_ATTRIBUTE, bindings)
+    bindings = list(bindings)
+    bindings.append(binding)
+    setattr(method, _BINDINGS_ATTRIBUTE, tuple(bindings))
 
 
 def _get_bound_name(function: Callable[..., Any]) -> str:
@@ -909,22 +1077,23 @@ warnings.filterwarnings(
 @final
 class ComponentSystem(Node, ComponentSource):
     __slots__ = (
-        "__name",
-        "__config",
-        "__referencers",
+        "_name",
+        "_config",
+        "_referencers",
         "_container",
-        "__children",
-        "__enabled",
-        "__database",
-        "__component",
+        "_children",
+        "_enabled",
+        "_database",
+        "_component",
     )
 
     def __init__(
         self,
         component: Component,
+        /,
         *,
-        __with_config__: ComponentConfig | None = None,
         __with_name__: Name | None = None,
+        __with_config__: ComponentConfig | None = None,
         __with_container__: Component | ComponentSystem | Engine | None = None,
     ) -> None:
         super().__init__()
@@ -934,38 +1103,92 @@ class ComponentSystem(Node, ComponentSource):
         if isinstance(__with_container__, Component):
             __with_container__ = __with_container__.system
 
-        self.__name = __with_name__
-        self.__config: ComponentConfig | None = __with_config__
-        self.__referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
-        self.__container: ComponentSystem | Engine | None = None
-        self.__children: Final[dict[Name, ComponentSystem]] = {}
-        self.__enabled = False
-        self.__database: Database | None = None
-        self.__component: Final[Component] = component
-        self.__component.__bind__(self)
+        self._name = __with_name__
+        self._config: ComponentConfig | None = __with_config__
+        self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
+        self._container: ComponentSystem | Engine | None = None
+        self._children: Final[dict[Name, ComponentSystem]] = {}
+        self._enabled = False
+        self._database: Database | None = None
+        self._component: Final[Component] = component
+        self._component.__bind__(self)
 
         if __with_container__ is not None:
             __with_container__.attach(self)
-            assert self.__container is __with_container__
+            assert self._container is __with_container__
 
         self.sync_references()
 
+        # Add connections from bindings, static connections, then configuration.
+        connections: dict[str, Connection] = {}
+
+        # Load connections from bindings.
+        from ceres.connection import Connection
+
+        for connection in self.get_connection_bindings().values():
+            instance = getattr(self.component, connection.field, None)
+            if isinstance(instance, Connection):
+                if instance.name is None:
+                    instance.name = connection.name
+
+                connections[instance.name] = instance
+
+        # Load connections from static connections.
+        connections.update(
+            {
+                connection.name: connection.create()
+                for connection in self.component.__static_connections__()
+            }
+        )
+
+        # Load connections from configuration.
+        if self.config is not None:
+            for config in self.config.connections:
+                connections[config.name] = config.create()
+
+        # Add loaded connections to manager.
+        for connection in connections.values():
+            self.connections.add(connection)
+
+        # Load sieves from static sieves.
+        sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
+        # Load sieves from bindings.
+        sieves.update(
+            {
+                binding.name: MethodSieveConfig(
+                    name=binding.name,
+                    method=binding.method,
+                    retries=binding.retries,
+                    retry_delay=binding.retry_delay,
+                    filter=binding.filter,
+                )
+                for binding in self.get_sieve_bindings().values()
+            }
+        )
+        # Load sieves from configuration.
+        if self.config is not None:
+            sieves.update({sieve.name: sieve for sieve in self.config.sieves})
+        # Add loaded sieves to manager.
+        for sieve in sieves.values():
+            self.sieves.add(sieve)
+
+        # Load jobs from static jobs.
         jobs = {job.name: job for job in self.component.__static_jobs__()}
-        jobs.update({job.name: job for job in (self.config.jobs if self.config else ())})
+        # Load jobs from configuration.
+        if self.config is not None:
+            jobs.update({job.name: job for job in self.config.jobs})
+        # Add loaded jobs to manager.
         for job in jobs.values():
             self.jobs.add(job)
 
+        # Load pruners from static pruners.
         pruners = {pruner.name: pruner for pruner in self.component.__static_pruners__()}
-        pruners.update(
-            {pruner.name: pruner for pruner in (self.config.pruners if self.config else ())}
-        )
+        # Load pruners from configuration.
+        if self.config is not None:
+            pruners.update({pruner.name: pruner for pruner in self.config.pruners})
+        # Add loaded pruners to manager.
         for pruner in pruners.values():
             self.pruners.add(pruner)
-
-        sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
-        sieves.update({sieve.name: sieve for sieve in (self.config.sieves if self.config else ())})
-        for sieve in sieves.values():
-            self.sieves.add(sieve)
 
     @override
     def __str__(self) -> str:
@@ -973,12 +1196,12 @@ class ComponentSystem(Node, ComponentSource):
 
     @override
     def __repr__(self) -> str:
-        return f"{type(self).__name__}(component={util.reprify(self.component)})"
+        return f"{type(self).__name__}({util.reprify(self.component)})"
 
     @property
     @override
     def __container__(self) -> Node | None:
-        return self.__container
+        return self._container
 
     @property
     @override
@@ -988,7 +1211,7 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def __component__(self) -> Component:
-        return self.__component
+        return self._component
 
     @property
     @override
@@ -1013,18 +1236,18 @@ class ComponentSystem(Node, ComponentSource):
         its parent, or an `Engine`. Returns `None` if the component has no parent or containing
         engine.
         """
-        return self.__container
+        return self._container
 
     @container.setter
     def container(self, container: ComponentSystem | Engine | None) -> None:
         from ceres.engine import Engine
 
-        self.__container = container
+        self._container = container
         if isinstance(container, Engine):
             if container.root is not self:
                 container.attach(self)
         elif isinstance(container, ComponentSystem):
-            if container.__children.get(self.__name) is not self:
+            if container._children.get(self._name) is not self:
                 container.attach(self)
 
     @property
@@ -1034,7 +1257,7 @@ class ComponentSystem(Node, ComponentSource):
         Get the engine this component is contained by. Returns `None` if the component is not
         contained by any engine.
         """
-        container = self.__container
+        container = self._container
         if container is None:
             return None
 
@@ -1043,13 +1266,13 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def database(self) -> Database:
-        container = self.__container
+        container = self._container
         if container is not None:
             return container.database
 
-        if self.__database is None:
-            self.__database = Database()
-        return self.__database
+        if self._database is None:
+            self._database = Database()
+        return self._database
 
     @property
     @override
@@ -1057,7 +1280,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         The configuration of the component, if available.
         """
-        return self.__config
+        return self._config
 
     @config.setter
     def config(self, config: ComponentConfig | None) -> None:
@@ -1066,7 +1289,7 @@ class ComponentSystem(Node, ComponentSource):
         the configuration. It will only indicate to the engine, that this configuration is the one
         currently applied. Generally, this is only for internal use and should not be used directly.
         """
-        self.__config = config
+        self._config = config
 
     @property
     @override
@@ -1082,50 +1305,54 @@ class ComponentSystem(Node, ComponentSource):
         """
         Get the parent component's system if it exists, or return `None`.
         """
-        return util.as_component_system(self.__container)
+        return util.as_component_system(self._container)
 
     @cached_property
-    def jobs(self) -> ComponentJobManager:
-        return ComponentJobManager(self)
+    def jobs(self) -> JobManager:
+        return JobManager(self)
 
     @cached_property
-    def pruners(self) -> ComponentPrunerManager:
-        return ComponentPrunerManager(self)
+    def connections(self) -> ComponentConnectionManager:
+        return ComponentConnectionManager(self)
 
     @cached_property
-    def sieves(self) -> ComponentSieveManager:
-        return ComponentSieveManager(self)
+    def sieves(self) -> SieveManager:
+        return SieveManager(self)
+
+    @cached_property
+    def pruners(self) -> PrunerManager:
+        return PrunerManager(self)
 
     @override
     async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
         await super().__node_sync__(connection)
-        self.__enabled = await self.__get_enabled_in_database()
+        self._enabled = await self.__get_enabled_in_database()
 
     @property
     def name(self) -> Name:
-        return self.__name
+        return self._name
 
     @name.setter
     def name(self, name: Name) -> None:
         if self.parent is None:
-            self.__name = name
+            self._name = name
             return
 
-        if name in self.parent.__children:
-            raise ValueError(f"parent already has child named {self.__name!r}")
+        if name in self.parent._children:
+            raise ValueError(f"parent already has child named {self._name!r}")
 
-        self.__name = name
-        self.parent.__children[name] = self
+        self._name = name
+        self.parent._children[name] = self
         self.__propagate_tree_change()
 
-        self.__name = name
+        self._name = name
 
     @property
     def component(self) -> Component:
         """
         Get the underlying component of the component system.
         """
-        return self.__component
+        return self._component
 
     @property
     def enabled(self) -> bool:
@@ -1133,7 +1360,7 @@ class ComponentSystem(Node, ComponentSource):
         `True` if the component is enabled. Enabled components start automatically when their parent
         or containing engine starts.
         """
-        return self.__enabled
+        return self._enabled
 
     async def enable(self) -> None:
         """
@@ -1141,7 +1368,7 @@ class ComponentSystem(Node, ComponentSource):
         engine starts.
         """
         await self.__set_enabled_in_database(True)
-        self.__enabled = True
+        self._enabled = True
         self.events.emit(EnabledEvent)
 
     async def disable(self) -> None:
@@ -1150,7 +1377,7 @@ class ComponentSystem(Node, ComponentSource):
         or containing engine starts.
         """
         await self.__set_enabled_in_database(False)
-        self.__enabled = False
+        self._enabled = False
         self.events.emit(DisabledEvent)
 
     async def up(self) -> None:
@@ -1189,61 +1416,52 @@ class ComponentSystem(Node, ComponentSource):
         """
         Get all child component systems of this component.
         """
-        return list(self.__children.values())
+        return list(self._children.values())
 
     def get_listener_bindings(self) -> Sequence[ListenerBinding]:
         """
         Get all listener bindings for this component.
         """
-        return get_component_listener_bindings(type(self.component))
+        return get_listener_bindings(type(self.component))
 
     def get_routine_bindings(self) -> Sequence[RoutineBinding]:
         """
         Get all routine bindings for this component.
         """
-        return get_component_routine_bindings(type(self.component))
+        return get_routine_bindings(type(self.component))
 
-    def get_query_bindings(self) -> Mapping[str, QueryBinding]:
+    def get_query_bindings(self) -> Mapping[Name, QueryBinding]:
         """
         Get all query bindings for this component. Returns a mapping of query names to query
         bindings.
         """
-        return get_component_query_bindings(type(self.component))
+        return get_query_bindings(type(self.component))
 
-    def get_query_binding(self, name: str) -> QueryBinding | None:
-        """
-        Get a query binding for this component by name. Returns `None` if the query binding does not
-        exist.
-        """
-        return get_component_query_binding(type(self.component), name)
-
-    def get_action_bindings(self) -> Mapping[str, ActionBinding]:
+    def get_action_bindings(self) -> Mapping[Name, ActionBinding]:
         """
         Get all action bindings for this component. Returns a mapping of action names to action
         bindings.
         """
-        return get_component_action_bindings(type(self.component))
-
-    def get_action_binding(self, name: str) -> ActionBinding | None:
-        """
-        Get an action binding for this component by name. Returns `None` if the action binding does
-        not exist.
-        """
-        return get_component_action_binding(type(self.component), name)
+        return get_action_bindings(type(self.component))
 
     def get_procedure_bindings(self) -> Mapping[Name, ProcedureBinding]:
         """
         Get all procedure bindings (actions and queries) for this component. Returns a mapping of
         procedure names to procedure bindings.
         """
-        return get_component_procedure_bindings(type(self.component))
+        return get_procedure_bindings(type(self.component))
 
-    def get_procedure_binding(self, name: str) -> ProcedureBinding | None:
+    def get_sieve_bindings(self) -> Mapping[Name, SieveBinding]:
         """
-        Get a procedure binding (action or query) for this component by name. Returns `None` if the
-        procedure does not exist.
+        Get all sieve bindings for this component.
         """
-        return get_component_procedure_binding(type(self.component), name)
+        return get_sieve_bindings(type(self.component))
+
+    def get_connection_bindings(self) -> Mapping[Name, ConnectionBinding]:
+        """
+        Get all connection bindings for this component.
+        """
+        return get_connection_bindings(type(self.component))
 
     def __propagate_tree_change(self) -> None:
         for component in self.root.get_components():
@@ -1264,16 +1482,16 @@ class ComponentSystem(Node, ComponentSource):
 
             if component is not None:
                 resolved.append(reference)
-                component.system.__referencers.add(self)
+                component.system._referencers.add(self)
             else:
                 unresolved.append(reference)
 
         discard: list[ComponentSystem] = []
-        for referencer in self.__referencers:
+        for referencer in self._referencers:
             if self.component not in referencer.get_referenced_components():
                 discard.append(referencer)
 
-        self.__referencers.difference_update(discard)
+        self._referencers.difference_update(discard)
         return resolved, unresolved
 
     def get_references(self) -> list[Reference]:
@@ -1332,7 +1550,7 @@ class ComponentSystem(Node, ComponentSource):
         if recursive:
             return self.__get_referencing_components_recursive()
 
-        return util.as_components(self.__referencers)
+        return util.as_components(self._referencers)
 
     def __get_referencing_components_recursive(self) -> list[Component]:
         seen: set[int] = set()
@@ -1364,15 +1582,15 @@ class ComponentSystem(Node, ComponentSource):
         child.detach()
 
         name = name or child.name
-        current = self.__children.get(name)
+        current = self._children.get(name)
         if current is not None:
             raise ValueError(f"child with name '{name}' already exists")
 
         if child.name != name:
             child.name = name
 
-        self.__children[child.name] = child
-        child.__container = self
+        self._children[child.name] = child
+        child._container = self
 
         self.__propagate_tree_change()
         child.events.emit(AttachedEvent)
@@ -1382,16 +1600,16 @@ class ComponentSystem(Node, ComponentSource):
         Remove the component from its container (either its parent component, or its containing
         engine). If the component has no container, this does nothing.
         """
-        if self.__container is None:
+        if self._container is None:
             return
 
-        engine = util.as_engine(self.__container)
+        engine = util.as_engine(self._container)
         if engine is not None:
             self.events.emit(WillDetachEvent)
             address_before = self.address
             logging_before = self.get_resolved_logging_config()
 
-            self.__container = None
+            self._container = None
             engine.root = None
             self.__propagate_tree_change()
 
@@ -1405,7 +1623,7 @@ class ComponentSystem(Node, ComponentSource):
         if parent is None:
             return
 
-        current = parent.__children.get(self.name)
+        current = parent._children.get(self.name)
 
         try:
             if current is not None and current is self:
@@ -1414,8 +1632,8 @@ class ComponentSystem(Node, ComponentSource):
                 address_before = self.address
                 logging_before = self.get_resolved_logging_config()
 
-                parent.__children.pop(self.name, None)
-                self.__container = None
+                parent._children.pop(self.name, None)
+                self._container = None
 
                 self.__propagate_tree_change()
                 parent.__propagate_tree_change()
@@ -1426,7 +1644,7 @@ class ComponentSystem(Node, ComponentSource):
                 )
                 self.events.emit(DetachedEvent)
         finally:
-            self.__container = None
+            self._container = None
 
     @override
     def get_component(
@@ -1448,7 +1666,7 @@ class ComponentSystem(Node, ComponentSource):
             if current is None:
                 break
 
-            current = current.__children.get(name)
+            current = current._children.get(name)
 
         if current is None:
             return None
@@ -1480,7 +1698,7 @@ class ComponentSystem(Node, ComponentSource):
             if (inclusive or current is not self) and filter.matches(current):
                 components.append(current.component)
 
-            for component in current.__children.values():
+            for component in current._children.values():
                 traverse(component)
 
         traverse(self)
@@ -1553,12 +1771,13 @@ class ComponentSystem(Node, ComponentSource):
 
             await self.__node_sync__()
 
-            await util.concurrently(
+            await concurrently(
                 super().__run__(),
                 self.__run_routines(),
                 self.jobs.__run__(),
-                self.pruners.__run__(),
+                self.connections.__run__(),
                 self.sieves.__run__(),
+                self.pruners.__run__(),
             )
         except Exception:
             self.log.error("An error occurred during component system execution.", exc_info=True)
@@ -1616,9 +1835,7 @@ class ComponentSystem(Node, ComponentSource):
     @override
     async def __stop__(self) -> None:
         while any(child.running for child in self.children):
-            for system in reversed(self.children):
-                if system.running:
-                    await system.stop()
+            await concurrently(child.stop() for child in self.children if child.running)
 
         await self.settle()
 
@@ -1627,9 +1844,9 @@ class ComponentSystem(Node, ComponentSource):
         await super().__post_stop__()
         await self.flush()
 
-        if self.__database is not None:
-            await self.__database.dispose()
-            self.__database = None
+        if self._database is not None:
+            await self._database.dispose()
+            self._database = None
 
         self.events.emit(StoppedEvent)
 
@@ -1642,7 +1859,7 @@ class ComponentSystem(Node, ComponentSource):
             arguments = {}
 
         if (
-            (binding := self.get_procedure_binding(procedure)) is None
+            (binding := self.get_procedure_bindings().get(procedure)) is None
             or (method := getattr(self.component, binding.method, None)) is None
             or not inspect.ismethod(method)
         ):
@@ -1678,7 +1895,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         Call a procedure with the given `arguments`.
         """
-        binding = self.get_procedure_binding(procedure)
+        binding = self.get_procedure_bindings().get(procedure)
         if binding is None:
             raise Failure(ProcedureNotFoundError)
 
@@ -1722,7 +1939,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         Subscribe to a procedure with the given `arguments`. Not all procedures are subscribable.
         """
-        binding = self.get_procedure_binding(procedure)
+        binding = self.get_procedure_bindings().get(procedure)
         if binding is None:
             raise Failure(ProcedureNotFoundError)
 
@@ -1758,19 +1975,122 @@ class ComponentSystem(Node, ComponentSource):
             raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
     def sync_child_order(self) -> None:
-        if self.__config is None:
+        if self._config is None:
             return
 
         order: list[ComponentSystem] = []
-        for config in self.__config.components:
-            component = self.__children.get(config.name)
+        for config in self._config.components:
+            component = self._children.get(config.name)
             if component is not None:
                 order.append(component)
 
-        for component in self.__children.values():
+        for component in self._children.values():
             if not any(current is component for current in order):
                 order.append(component)
 
-        self.__children.clear()
+        self._children.clear()
         for component in order:
-            self.__children[component.name] = component
+            self._children[component.name] = component
+
+
+class Bound[T]:
+    if TYPE_CHECKING:
+
+        @overload
+        def __get__(self, instance: None, owner: type[T]) -> Self: ...
+        @overload
+        def __get__(self, instance: Any, owner: type[T]) -> Self | T: ...
+        @overload
+        def __get__(self, instance: Any, owner: type[T]) -> T: ...
+
+        @overload
+        def __get__(self, instance: None, owner: type[Any]) -> Self: ...
+        @overload
+        def __get__(self, instance: Any, owner: type[Any]) -> T: ...
+        def __get__(self, instance: Any, owner: type[Any]) -> Self | T: ...
+
+        def __set__(self, instance: Any, value: T) -> None: ...
+
+
+@classmethod
+def _bound__class_getitem__(cls: type[Bound], args: Any | tuple[Any]) -> Any:
+    if not isinstance(args, tuple):
+        args = (args,)
+
+    return Annotated[args[0], BoundField.Marker(), *args[1:]]
+
+
+_bound__class_getitem__.__name__ = "__class_getitem__"
+Bound.__class_getitem__ = _bound__class_getitem__  # type: ignore
+
+
+class BoundFieldArgs(TypedDict, total=False):
+    name: Name
+    defaults: Mapping[str, Any] | None
+
+    # Common Pydantic arguments for `FieldInfo`.
+    annotation: type[Any] | None
+    default_factory: Callable[[], Any] | Callable[[dict[str, Any]], Any] | None
+    alias: str | None
+    alias_priority: int | None
+    validation_alias: str | AliasPath | AliasChoices | None
+    serialization_alias: str | None
+    title: str | None
+    field_title_generator: Callable[[str, FieldInfo], str] | None
+    description: str | None
+    examples: list[Any] | None
+    discriminator: str | Discriminator | None
+    deprecated: Deprecated | str | bool | None
+    json_schema_extra: JsonDict | Callable[[JsonDict], None] | None
+    frozen: bool | None
+    validate_default: bool | None
+    repr: bool
+    init: bool | None
+    init_var: bool | None
+    kw_only: bool | None
+    coerce_numbers_to_str: bool | None
+    fail_fast: bool | None
+
+
+try:
+
+    class _FieldInfo(FieldInfo):  # type: ignore
+        pass
+except Exception as exception:
+    raise RuntimeError("Could not inherit from `pydantic.fields.FieldInfo`.") from exception
+
+
+class _Empty:
+    pass
+
+
+class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
+    __slots__ = ("name", "marker")
+
+    @dataclass(slots=True)
+    class Marker:
+        name: str | None = None
+
+    def __init__(
+        self,
+        default: Any = Undefined,
+        **kwargs: Unpack[BoundFieldArgs],
+    ) -> None:
+        name = kwargs.pop("name", None)
+        defaults = kwargs.pop("defaults", None)
+
+        if name is None and defaults is not None and "name" in defaults:
+            name = defaults["name"]
+
+        super().__init__(default=default, **kwargs)
+
+        self.name = name
+        self.marker = self.Marker(name=name)
+        self.metadata.append(self.marker)
+
+        if defaults:
+            self.metadata.append(WithDefaults(**defaults))
+
+    def __set_name__(self, owner: type[Any], name: str) -> None:
+        if self.marker.name is None:
+            self.marker.name = name

@@ -1,15 +1,5 @@
-from __future__ import annotations
-
-from typing import (
-    TYPE_CHECKING,
-    ClassVar,
-    Iterable,
-    Literal,
-    TypeAlias,
-    TypedDict,
-    Unpack,
-    override,
-)
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
 from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text
@@ -40,6 +30,18 @@ if TYPE_CHECKING:
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
+__all__ = [
+    "Setting",
+    "SettingField",
+    "SettingOrder",
+    "SettingFilterArgs",
+    "SettingFilter",
+    "SettingCreate",
+    "SettingUpdate",
+    "SettingManager",
+    "BoundSettingManager",
+]
+
 
 class SettingRow(BaseEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "settings"
@@ -64,14 +66,14 @@ class SettingRow(BaseEntityRow, kw_only=True):
         )
 
 
-SettingField: TypeAlias = Literal[
+type SettingField = Literal[
     "user_id",
     "user_id:asc",
     "user_id:desc",
     "name",
     "value",
 ]
-SettingOrder: TypeAlias = Literal[
+type SettingOrder = Literal[
     "user_id",
     "user_id:asc",
     "user_id:desc",
@@ -150,7 +152,7 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
         return "name"
 
 
-class SettingCreate(BaseEntityCreate):
+class SettingCreate(BaseEntityCreate, slots=True):
     user_id: UUID
     name: str
     value: FromYAML[JSONSerializable]
@@ -169,12 +171,14 @@ class _BaseSettingQuery(
         "SettingQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[SettingQuery]:
         return SettingQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: SettingFilter | None = None,
         **kwargs: Unpack[SettingFilterArgs],
@@ -190,7 +194,7 @@ class SettingQuery(
     ],
     _BaseSettingQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class SettingManager(
@@ -204,6 +208,8 @@ class SettingManager(
     ],
     _BaseSettingQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Setting)
 
@@ -212,18 +218,20 @@ class SettingManager(
 
 
 class BoundSettingManager(SettingManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
 
-class Setting(BaseEntity, SettingCreate):
-    Manager: ClassVar[type[SettingManager]] = SettingManager
-    BoundManager: ClassVar[type[BoundSettingManager]] = BoundSettingManager
-    Row: ClassVar[type[SettingRow]] = SettingRow
-    Create: ClassVar[type[SettingCreate]] = SettingCreate
-    Update: ClassVar[type[SettingUpdate]] = SettingUpdate
-    Filter: ClassVar[type[SettingFilter]] = SettingFilter
-    FilterArgs: ClassVar[type[SettingFilterArgs]] = SettingFilterArgs
+class Setting(BaseEntity, SettingCreate, slots=True):
+    Manager = SettingManager
+    BoundManager = BoundSettingManager
+    Row = SettingRow
+    Create = SettingCreate
+    Update = SettingUpdate
+    Filter = SettingFilter
+    FilterArgs = SettingFilterArgs
     Field = SettingField
     Order = SettingOrder
 

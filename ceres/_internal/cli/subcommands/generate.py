@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import sys
 from typing import override
 
@@ -7,7 +5,7 @@ from pydantic import FilePath, NewPath, NonNegativeInt
 from pydantic_settings import CliSubCommand
 
 from ceres._internal.cli.shared import CLICommand, CLICommandGroup
-from ceres.data import StrEnum, jsonify, yamlify
+from ceres.data import StrEnum, to_json, to_yaml
 
 
 class OpenAPISchemaFormat(StrEnum):
@@ -37,9 +35,9 @@ class OpenApiCommand(CLICommand):
 
         match self.format:
             case OpenAPISchemaFormat.YAML:
-                text = yamlify(schema, indent=self.indent)
+                text = to_yaml(schema, indent=self.indent)
             case OpenAPISchemaFormat.JSON:
-                text = jsonify(schema, indent=self.indent)
+                text = to_json(schema, indent=self.indent)
 
         if self.output is not None:
             self.output.write_text(text)

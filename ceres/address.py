@@ -1,14 +1,12 @@
-from __future__ import annotations
-
 import re
-from typing import TYPE_CHECKING, Any, Final, Literal, Self, Sequence, override
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Final, Literal, Self, override
 
 from pydantic_core import CoreSchema, SchemaSerializer
 from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
-from sqlalchemy.util import LRUCache
 
 from ceres._internal import util
-from ceres._internal.util import NAME_PATTERN, classproperty
+from ceres._internal.util import NAME_PATTERN, ClassProperty, LRUCache
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
@@ -17,6 +15,12 @@ if TYPE_CHECKING:
 _NAME = NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
 _SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@({_MODIFIER})?|{_MODIFIER}"
+
+__all__ = [
+    "AddressSelector",
+    "DynamicAddress",
+    "Address",
+]
 
 
 class AddressSelector:
@@ -265,7 +269,7 @@ class DynamicAddress(AddressSelector):
         super().__init__(value)
 
     def __new__(cls, value: str | AddressSelector, /) -> Self:
-        if not isinstance(value, (str, AddressSelector)):
+        if not isinstance(value, str | AddressSelector):
             raise ValueError(f"{value!r} must be an instance of {str} or {AddressSelector}")
 
         if isinstance(value, str):
@@ -407,19 +411,8 @@ class DynamicAddress(AddressSelector):
 
 class Address(DynamicAddress):
     REGEX: Final = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")  # type: ignore
-
-    if TYPE_CHECKING:
-        ENGINE: Self
-        ROOT: Self
-    else:
-
-        @classproperty
-        def ENGINE(cls) -> Address:
-            return _ENGINE
-
-        @classproperty
-        def ROOT(cls) -> Address:
-            return _ROOT
+    ENGINE = ClassProperty[Self, Self](lambda cls: _ENGINE)
+    ROOT = ClassProperty[Self, Self](lambda cls: _ROOT)
 
     _cache: LRUCache[str, Self] = LRUCache(256)
 

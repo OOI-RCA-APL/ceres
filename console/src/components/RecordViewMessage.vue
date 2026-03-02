@@ -19,11 +19,12 @@ const directionColor = $computed(() => {
 
 <template>
   <record-view-record :record="message">
+    <q-td auto-width :class="$style.connectionColumn">
+      <span :class="$style.connection"> {{ message.connection ?? '' }} </span>
+    </q-td>
     <q-td :class="$style.directionColumn">
       <q-chip :class="$style.directionChip" :color="directionColor" dense>
-        <span :class="$style.directionText">
-          {{ message.direction }}
-        </span>
+        <span :class="$style.directionText"> {{ message.direction }} </span>
       </q-chip>
     </q-td>
     <q-td>
@@ -33,8 +34,18 @@ const directionColor = $computed(() => {
 </template>
 
 <style lang="scss" module>
+.connectionColumn {
+  min-width: 80px;
+}
+
+.connection {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .directionColumn {
-  min-width: 76px;
+  width: 68px;
   text-align: center;
 }
 

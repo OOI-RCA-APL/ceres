@@ -1,22 +1,22 @@
-from __future__ import annotations
-
 import asyncio
 import dataclasses
 from abc import ABC, abstractmethod
-from typing import (
-    TYPE_CHECKING,
-    Any,
+from collections.abc import (
     AsyncIterator,
     Awaitable,
     Callable,
-    ClassVar,
-    Final,
     Generator,
     Iterable,
-    Literal,
     Mapping,
-    Self,
     Sequence,
+)
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Final,
+    Literal,
+    Self,
     TypeAlias,
     TypedDict,
     Unpack,
@@ -29,14 +29,19 @@ from uuid import UUID
 
 from pydantic import ConfigDict, Field, NonNegativeInt, model_validator
 from sqlalchemy import (
+    ClauseElement,
+    ColumnElement,
     Delete,
     Dialect,
     Engine,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     Result,
     Row,
     Select,
+    SQLColumnExpression,
+    Table,
     Update,
     and_,
     delete,
@@ -47,24 +52,25 @@ from sqlalchemy import (
     tuple_,
     update,
 )
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncResult
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncResult
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_attr, mapped_column
-from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
+from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
 
 from ceres._internal import util
 from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseDatabaseManager
 from ceres.address import Address, AddressSelector
+from ceres.channel import OutputChannel
 from ceres.data import (
+    DataObject,
     DateTime,
-    DeferBuild,
     FromYAML,
-    ImmutableDataObject,
     MaybeSequence,
     NonNegativeTimeDelta,
     PositiveTimeDelta,
+    create,
+    to_dict,
     uuid7,
 )
 from ceres.database import DatabaseType
@@ -73,8 +79,6 @@ from ceres.timing import utc
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from sqlalchemy import ClauseElement, ColumnElement, SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
 
@@ -82,9 +86,6 @@ if TYPE_CHECKING:
 
     _Rows = Result[tuple[object, ...]]
     _AsyncRows: TypeAlias = AsyncResult[tuple[object, ...]]
-
-with lazy_imports(__name__):
-    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 class BaseEntityRow(
@@ -161,7 +162,7 @@ class BaseEntityRow(
         *,
         if_not_exists: bool = True,
     ) -> Iterable[str]:
-        if isinstance(dialect, (Engine, AsyncEngine)):
+        if isinstance(dialect, Engine | AsyncEngine):
             dialect = dialect.dialect
 
         for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name or "")):
@@ -346,7 +347,7 @@ class BaseEntityFilter[
         # Because `and__` has higher precedence than `or__` within the same filter, if `or__` is
         # present, we need create a new parent filter to maintain operator precedence.
         if self.or__ or other.or__:
-            return self.__class__(and__=[self, cast("Self", other)])
+            return self.__class__(and__=cast("Any", [self, other]))
 
         # Otherwise, we can append the filter to the `and__` conditions.
         and__ = [*(self.and__ or ()), other]
@@ -439,13 +440,13 @@ class BaseEntityFilter[
 
         pk = pk[0] if len(pk) == 1 else tuple_(*pk)
 
-        if isinstance(statement, (Update, Delete)):
+        if isinstance(statement, Update | Delete):
             return statement.where(pk.in_(pks))
 
         return statement.where(pk.in_(pks)).order_by(*order_by)
 
 
-class BaseEntityCreate(ImmutableDataObject, DeferBuild):
+class BaseEntityCreate(DataObject, abstract=True, slots=True):
     pass
 
 
@@ -625,17 +626,23 @@ class _BaseStatementExecutor[
     ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
 
     def _get_parser(self) -> Callable[[Row], EntityT | None]:
-        from ceres._internal.util import construct_model
-
         Entity = self._query._get_entity_class()
         transform = self._query._get_transform()
 
-        def parse(row: Row) -> EntityT | None:
-            entity = construct_model(Entity, row._mapping)
-            if transform is not None:
-                entity = transform(entity)
+        if transform is None:
 
-            return entity  # type: ignore
+            def parse(row: Row) -> EntityT | None:
+                values: Mapping[str, Any] = row._mapping  # type: ignore
+                entity = create(Entity, values, True)
+                return entity
+
+        else:
+
+            def parse(row: Row) -> EntityT | None:
+                values: Mapping[str, Any] = row._mapping  # type: ignore
+                entity: Any = create(Entity, values, True)
+                entity = transform(entity)
+                return entity
 
         return parse
 
@@ -679,6 +686,8 @@ class SelectExecutor[
     EntityT: BaseEntity,
     FilterT: BaseEntityFilter[Any, Any, Any],
 ](_BaseStatementExecutor[EntityT, FilterT, list[EntityT]]):
+    __slots__ = ()
+
     @override
     async def _await(self) -> list[EntityT]:
         return await self.all()
@@ -772,6 +781,8 @@ class DeleteExecutor[
     EntityT: BaseEntity,
     FilterT: BaseEntityFilter[Any, Any, Any],
 ](_BaseStatementExecutor[EntityT, FilterT, int]):
+    __slots__ = ()
+
     @override
     async def _await(self) -> int:
         database = self._query._get_database()
@@ -820,7 +831,7 @@ class BaseEntityQuery[
         filter: FilterT | None = None,
         **kwargs: Unpack[BaseEntityFilterArgs],
     ) -> QueryT:
-        filter = self._get_resolved_filter_args(filter, kwargs)
+        filter = self._get_resolved_filter(filter, kwargs)
         return self._get_query_class()(
             database=self._get_database(),
             entity_class=self._get_entity_class(),
@@ -876,10 +887,13 @@ class BaseEntityQuery[
     def _get_entity_class(self) -> type[EntityT]: ...
 
     @abstractmethod
-    def _get_filter(self) -> FilterT: ...
+    def _get_base_filter(self) -> FilterT: ...
 
     @abstractmethod
     def _get_filter_defaults(self) -> FilterT: ...
+
+    def _get_hard_filter(self) -> FilterT | None:
+        return None
 
     @abstractmethod
     def _get_transform(self) -> EntityTransform[EntityT] | None: ...
@@ -895,22 +909,24 @@ class BaseEntityQuery[
     def _get_row_class(self) -> type[BaseEntityRow]:
         return self._get_entity_class().Row
 
-    def _get_resolved_filter(self) -> FilterT:
-        filter = self._get_filter()
-        filter = filter.with_defaults(self._get_filter_defaults())
-        return filter
-
-    def _get_resolved_filter_args(
+    def _get_resolved_filter(
         self,
-        filter: FilterT | None,
-        kwargs: Mapping[str, Any],
+        filter: FilterT | None = None,
+        kwargs: Mapping[str, Any] | None = None,
     ) -> FilterT:
         Filter = self._get_filter_class()
-        return (
-            Filter(**cast("Any", kwargs))
+        resolved = (
+            Filter(**cast("Any", kwargs or {}))
             .with_defaults(filter)
-            .with_defaults(self._get_resolved_filter())
+            .with_defaults(self._get_base_filter())
+            .with_defaults(self._get_filter_defaults())
         )
+
+        hard = self._get_hard_filter()
+        if hard is not None:
+            resolved &= hard
+
+        return resolved
 
     async def _assign_transform(self, assign: UpdateT) -> UpdateT:
         return assign
@@ -952,7 +968,7 @@ class EntityQuery[
 
     @override
     def __eq__(self, value: object, /) -> bool:
-        if type(value) is not type(self):
+        if not isinstance(value, type(self)) or type(value) is not type(self):
             return False
 
         return (
@@ -997,7 +1013,7 @@ class EntityQuery[
         return self._entity_class
 
     @override
-    def _get_filter(self) -> FilterT:
+    def _get_base_filter(self) -> FilterT:
         if self._filter is not None:
             return self._filter
 
@@ -1013,6 +1029,9 @@ class EntityQuery[
     @override
     def _get_transform(self) -> EntityTransform[EntityT] | None:
         return None
+
+
+type Filtering[FilterT] = FilterT | Callable[[], FilterT | None] | None
 
 
 class BaseEntityManager[
@@ -1035,12 +1054,19 @@ class BaseEntityManager[
         ],
     ],
 ):
-    __slots__ = ("_entity_class",)
+    __slots__ = ("_entity_class", "_filtering")
 
     @override
-    def __init__(self, source: DatabaseSource, cls: type[EntityT], /) -> None:
+    def __init__(
+        self,
+        source: DatabaseSource,
+        cls: type[EntityT],
+        /,
+        filtering: Filtering[FilterT] = None,
+    ) -> None:
         super().__init__(source)
         self._entity_class: Final = cls
+        self._filtering: Final = filtering
 
     @override
     def _get_database(self) -> Database:
@@ -1051,13 +1077,20 @@ class BaseEntityManager[
         return self._entity_class
 
     @override
-    def _get_filter(self) -> FilterT:
+    def _get_base_filter(self) -> FilterT:
         return self._get_filter_class()()
 
     @override
     def _get_filter_defaults(self) -> FilterT:
         Filter = self._get_filter_class()
         return util.call_partial(Filter, **self.__get_filter_defaults__())
+
+    @override
+    def _get_hard_filter(self) -> FilterT | None:
+        if callable(self._filtering):
+            return self._filtering()
+
+        return self._filtering
 
     @override
     def _get_transform(self) -> EntityTransform[EntityT] | None:
@@ -1067,7 +1100,7 @@ class BaseEntityManager[
         if isinstance(data, self._entity_class):
             return data
 
-        return self._entity_class(**data.__dict__)
+        return self._entity_class(**dict(data))
 
     async def create(
         self,
@@ -1086,9 +1119,7 @@ class BaseEntityManager[
         upsert: bool = False,
     ) -> RowT:
         Row = self._get_row_class()
-        row = Row(
-            **{key: value for key, value in data.__dict__.items() if key in data.model_fields_set}
-        )
+        row = Row(**to_dict(data, exclude_unset=True))
         match self.__database__.type:
             case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert
@@ -1116,22 +1147,15 @@ class BaseEntityManager[
                 return row  # type: ignore
 
 
-class BaseEntity(BaseEntityCreate):
-    Manager: ClassVar[type[BaseEntityManager]] = BaseEntityManager
-    Row: ClassVar[type[BaseEntityRow]] = BaseEntityRow
-    Create: ClassVar[type[BaseEntityCreate]] = BaseEntityCreate
-    Update: ClassVar[type[BaseEntityUpdate]] = BaseEntityUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseEntityFilter
-        FilterArgs: ClassVar = BaseEntityFilterArgs
-        Field: ClassVar = str
-        Order: ClassVar = str
-    else:
-        Filter: ClassVar[type[BaseEntityFilter]] = BaseEntityFilter
-        FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs
-        Field: ClassVar[type[str]] = str
-        Order: ClassVar[type[str]] = str
+class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
+    Manager = BaseEntityManager
+    Row = BaseEntityRow
+    Create = BaseEntityCreate
+    Update = BaseEntityUpdate
+    Filter = BaseEntityFilter
+    FilterArgs = BaseEntityFilterArgs
+    Field = str
+    Order = str
 
 
 _REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, type[Any] | None] = {
@@ -1147,7 +1171,7 @@ _REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, type[Any] | None] = {
 }
 
 
-class ConcreteEntity(BaseEntity):
+class ConcreteEntity(BaseEntity, abstract=True, slots=True):
     __naming__: ClassVar[EntityNaming]
 
     def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]) -> None:
@@ -1197,8 +1221,8 @@ class BaseUUIDEntityRow(BaseEntityRow):
         )
 
 
-BaseUUIDEntityField: TypeAlias = Literal["id"]
-BaseUUIDEntityOrder: TypeAlias = Literal[
+type BaseUUIDEntityField = Literal["id"]
+type BaseUUIDEntityOrder = Literal[
     "id",
     "id:asc",
     "id:desc",
@@ -1244,7 +1268,7 @@ class BaseUUIDEntityFilter[
             yield util.sql_match_value(columns.id, self.id)
 
 
-class BaseUUIDEntityCreate(BaseEntity):
+class BaseUUIDEntityCreate(BaseEntity, abstract=True, slots=True):
     id: UUID = Field(default_factory=uuid7)
 
 
@@ -1252,21 +1276,14 @@ class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
     pass
 
 
-class BaseUUIDEntity(BaseUUIDEntityCreate):
-    Row: ClassVar[type[BaseUUIDEntityRow]] = BaseUUIDEntityRow
-    Create: ClassVar[type[BaseUUIDEntityCreate]] = BaseUUIDEntityCreate
-    Update: ClassVar[type[BaseUUIDEntityUpdate]] = BaseUUIDEntityUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseUUIDEntityFilter
-        FilterArgs: ClassVar = BaseUUIDEntityFilterArgs
-        Field: ClassVar = BaseUUIDEntityField
-        Order: ClassVar = BaseUUIDEntityOrder
-    else:
-        Filter: ClassVar[type[BaseUUIDEntityFilter]] = BaseUUIDEntityFilter
-        FilterArgs: ClassVar[type[BaseUUIDEntityFilterArgs]] = BaseUUIDEntityFilterArgs
-        Field: ClassVar[type[BaseUUIDEntityField]] = BaseUUIDEntityField
-        Order: ClassVar[type[BaseUUIDEntityOrder]] = BaseUUIDEntityOrder
+class BaseUUIDEntity(BaseUUIDEntityCreate, abstract=True, slots=True):
+    Row = BaseUUIDEntityRow
+    Create = BaseUUIDEntityCreate
+    Update = BaseUUIDEntityUpdate
+    Filter = BaseUUIDEntityFilter
+    FilterArgs = BaseUUIDEntityFilterArgs
+    Field = BaseUUIDEntityField
+    Order = BaseUUIDEntityOrder
 
 
 class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
@@ -1283,8 +1300,8 @@ class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
         )
 
 
-BaseAddressEntityField: TypeAlias = Literal["address"]
-BaseAddressEntityOrder: TypeAlias = Literal[
+type BaseAddressEntityField = Literal["address"]
+type BaseAddressEntityOrder = Literal[
     "address",
     "address:asc",
     "address:desc",
@@ -1334,7 +1351,7 @@ class BaseAddressEntityFilter[
             yield self.address.matches_expression(columns.address, self.root)
 
 
-class BaseAddressEntityCreate(BaseEntity):
+class BaseAddressEntityCreate(BaseEntity, abstract=True, slots=True):
     address: Address
 
 
@@ -1342,21 +1359,14 @@ class BaseAddressEntityUpdate(BaseEntityUpdate, total=False):
     address: Address
 
 
-class BaseAddressEntity(BaseAddressEntityCreate):
-    Row: ClassVar[type[BaseAddressEntityRow]] = BaseAddressEntityRow
-    Create: ClassVar[type[BaseAddressEntityCreate]] = BaseAddressEntityCreate
-    Update: ClassVar[type[BaseAddressEntityUpdate]] = BaseAddressEntityUpdate
-
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseAddressEntityFilter
-        FilterArgs: ClassVar = BaseAddressEntityFilterArgs
-        Field: ClassVar = BaseAddressEntityField
-        Order: ClassVar = BaseAddressEntityOrder
-    else:
-        Filter: ClassVar[type[BaseAddressEntityFilter]] = BaseAddressEntityFilter
-        FilterArgs: ClassVar[type[BaseAddressEntityFilterArgs]] = BaseAddressEntityFilterArgs
-        Field: ClassVar[type[BaseAddressEntityField]] = BaseAddressEntityField
-        Order: ClassVar[type[BaseAddressEntityOrder]] = BaseAddressEntityOrder
+class BaseAddressEntity(BaseAddressEntityCreate, abstract=True, slots=True):
+    Row = BaseAddressEntityRow
+    Create = BaseAddressEntityCreate
+    Update = BaseAddressEntityUpdate
+    Filter = BaseAddressEntityFilter
+    FilterArgs = BaseAddressEntityFilterArgs
+    Field = BaseAddressEntityField
+    Order = BaseAddressEntityOrder
 
 
 class BaseTimestampEntityRow(BaseEntityRow):
@@ -1378,8 +1388,8 @@ class BaseTimestampEntityRow(BaseEntityRow):
         )
 
 
-BaseTimestampEntityField: TypeAlias = Literal["timestamp"]
-BaseTimestampEntityOrder: TypeAlias = Literal[
+type BaseTimestampEntityField = Literal["timestamp"]
+type BaseTimestampEntityOrder = Literal[
     "timestamp",
     "timestamp:asc",
     "timestamp:desc",
@@ -1477,9 +1487,6 @@ class BaseTimestampEntityFilter[
                 return False
 
         if self.after_hour is not None or self.before_hour is not None:
-            if obj.timestamp is None:
-                return False
-
             min_hour = self.after_hour if self.after_hour is not None else 0
             max_hour = self.before_hour if self.before_hour is not None else 24
             within_min = obj.timestamp.hour >= min_hour
@@ -1523,8 +1530,6 @@ class BaseTimestampEntityFilter[
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
-        from sqlalchemy import cast
-
         if self.timestamp is not None:
             yield util.sql_match_value(columns.timestamp, self.timestamp)
         if self.after is not None:
@@ -1557,6 +1562,8 @@ class BaseTimestampEntityFilter[
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
                 case DatabaseType.SQLITE:
+                    from sqlalchemy import cast
+
                     hour = cast(func.strftime("%H", columns.timestamp), Integer)
 
             within_min = hour >= min_hour
@@ -1576,6 +1583,8 @@ class BaseTimestampEntityFilter[
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
                 case DatabaseType.SQLITE:
+                    from sqlalchemy import cast
+
                     minute = cast(func.strftime("%M", columns.timestamp), Integer)
 
             within_min = minute >= min_minute
@@ -1618,7 +1627,7 @@ class BaseTimestampEntityFilter[
         return start, end
 
 
-class BaseTimestampEntityCreate(BaseEntity):
+class BaseTimestampEntityCreate(BaseEntity, abstract=True, slots=True):
     timestamp: DateTime = Field(default_factory=utc)
 
 
@@ -1626,18 +1635,52 @@ class BaseTimestampEntityUpdate(BaseEntityUpdate, total=False):
     timestamp: DateTime
 
 
-class BaseTimestampEntity(BaseTimestampEntityCreate):
-    Row: ClassVar[type[BaseTimestampEntityRow]] = BaseTimestampEntityRow
-    Create: ClassVar[type[BaseTimestampEntityCreate]] = BaseTimestampEntityCreate
-    Update: ClassVar[type[BaseTimestampEntityUpdate]] = BaseTimestampEntityUpdate
+class BaseTimestampEntity(BaseTimestampEntityCreate, abstract=True, slots=True):
+    Row = BaseTimestampEntityRow
+    Create = BaseTimestampEntityCreate
+    Update = BaseTimestampEntityUpdate
+    Filter = BaseTimestampEntityFilter
+    FilterArgs = BaseTimestampEntityFilterArgs
+    Field = BaseTimestampEntityField
+    Order = BaseTimestampEntityOrder
 
-    if TYPE_CHECKING:
-        Filter: ClassVar = BaseTimestampEntityFilter
-        FilterArgs: ClassVar = BaseTimestampEntityFilterArgs
-        Field: ClassVar = BaseTimestampEntityField
-        Order: ClassVar = BaseTimestampEntityOrder
-    else:
-        Filter: ClassVar[type[BaseTimestampEntityFilter]] = BaseTimestampEntityFilter
-        FilterArgs: ClassVar[type[BaseTimestampEntityFilterArgs]] = BaseTimestampEntityFilterArgs
-        Field: ClassVar[type[BaseTimestampEntityField]] = BaseTimestampEntityField
-        Order: ClassVar[type[BaseTimestampEntityOrder]] = BaseTimestampEntityOrder
+
+class EntityOutputChannel[
+    EntityT: BaseEntity,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+    FilterArgsT: BaseEntityFilterArgs[Any, Any],
+](OutputChannel[EntityT], ABC):
+    __slots__ = ()
+
+    def __init__(self, source: OutputChannel[EntityT], /) -> None:
+        super().__init__(source)
+
+    @abstractmethod
+    def _get_filter_class(self) -> type[FilterT]: ...
+
+    @override
+    def where(
+        self,
+        filter: FilterT | Callable[[EntityT], bool] | None = None,
+        /,
+        **kwargs: Unpack[BaseEntityFilterArgs[Any, Any]],
+    ) -> Self:
+        if callable(filter):
+            condition = filter
+            filtering = None
+        else:
+            condition = None
+            filtering = filter
+
+        if kwargs:
+            filtering = self._get_filter_class()(**cast("Any", kwargs)).with_defaults(filtering)
+
+        def where(entity: EntityT) -> bool:
+            if condition is not None and not condition(entity):
+                return False
+            if filtering is not None and not filtering.matches(entity):
+                return False
+
+            return True
+
+        return self.__class__(super().where(where))

@@ -7,6 +7,7 @@ import { Address } from '@/api/address'
 import { useClient, StreamOptions } from '@/api/client'
 import { RecordFilterModel, RecordModel } from '@/api/entity'
 import { ResultModel } from '@/api/shared'
+import { Failure } from '@/errors'
 import { dataloader } from '@/utilities'
 
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>
@@ -14,12 +15,15 @@ export const MessageDirectionModel = Zod.enum(['send', 'receive'])
 
 export type Message = Zod.infer<typeof MessageModel>
 export const MessageModel = RecordModel.extend({
+  connection: Zod.string().nullable(),
   direction: MessageDirectionModel,
   content: Zod.string(),
 }).readonly()
 
 export type MessageFilter = Zod.infer<typeof MessageFilterModel>
 export const MessageFilterModel = RecordFilterModel.extend({
+  connection: Zod.string().nullish(),
+  connection_contains: Zod.string().nullish(),
   direction: MessageDirectionModel.nullish(),
   contains: Zod.string().nullish(),
   prefix: Zod.string().nullish(),
@@ -56,10 +60,13 @@ export const useMessages = defineStore('messages', () => {
     })
   }
 
-  async function send(address: Address, data: string): Promise<SendMessageResult> {
-    return await client.post(`/api/components/${address}/procedures/send/call`, {
+  async function send(
+    address: Address,
+    connection: string,
+    data: string
+  ): Promise<Message | Failure> {
+    return await client.post(`/api/components/${address}/connections/${connection}/send`, {
       data: { data },
-      parse: SendMessageResultModel,
     })
   }
 

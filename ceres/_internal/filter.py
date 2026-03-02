@@ -1,18 +1,15 @@
-from __future__ import annotations
-
 from typing import Self, TypedDict
 
-from ceres._internal import util
-from ceres.data import DeferBuild, ImmutableDataObject
+from ceres.data import ImmutableDataModel, defaulting, replacing
 
 
 class BaseFilterArgs(TypedDict, total=False):
     pass
 
 
-class BaseFilter(ImmutableDataObject, DeferBuild):
+class BaseFilter(ImmutableDataModel):
     def with_overrides(self, overrides: Self | None) -> Self:
-        return util.model_apply_overrides(self, overrides)
+        return replacing(self, overrides)
 
     def with_defaults(self, defaults: Self | None) -> Self:
-        return util.model_apply_defaults(self, defaults)
+        return defaulting(self, defaults)

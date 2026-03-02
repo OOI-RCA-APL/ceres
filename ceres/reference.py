@@ -1,18 +1,5 @@
-from __future__ import annotations
-
 import operator
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    NoReturn,
-    Self,
-    TypeVar,
-    Union,
-    cast,
-    overload,
-    override,
-)
+from typing import TYPE_CHECKING, Any, NoReturn, Self, cast, overload, override
 
 from pydantic_core.core_schema import no_info_after_validator_function
 
@@ -20,15 +7,22 @@ from ceres._internal import util
 from ceres.address import Address, DynamicAddress
 from ceres.component import Component
 
-_reference_static_cls_generic_cache: dict[type | None, type[Reference]] = {}
-_reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type[Reference]] = {}
-
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
     from pydantic_core import CoreSchema
 
+__all__ = [
+    "Reference",
+    "Ref",
+    "unref",
+    "ref",
+]
 
-class ReferenceProxiedMethods:
+_reference_static_cls_generic_cache: dict[type | None, type[Reference]] = {}
+_reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type[Reference]] = {}
+
+
+class _ReferenceProxiedMethods:
     if TYPE_CHECKING:
 
         def __reference_access__(self) -> Any: ...
@@ -327,7 +321,7 @@ class Reference:
         if constraint in _reference_static_cls_generic_cache:
             return _reference_static_cls_generic_cache[constraint]  # type: ignore
 
-        class GenericReference(cls):  # type: ignore
+        class GenericReference(cls):
             __reference_constraint__ = constraint
 
         component_names = set(dir(constraint))
@@ -335,7 +329,7 @@ class Reference:
 
         for name in component_names:
             if name not in reference_names:
-                proxy = ReferenceProxiedMethods.__dict__.get(name)
+                proxy = _ReferenceProxiedMethods.__dict__.get(name)
                 if proxy is not None:
                     setattr(GenericReference, name, proxy)
 
@@ -363,21 +357,19 @@ class Reference:
             return value
         if isinstance(value, Reference):
             return cls(value.__reference_target__, value.__reference_root__)
-        if isinstance(value, (Component, DynamicAddress, str)):
+        if isinstance(value, Component | DynamicAddress | str):
             return cls(value)
 
-        return cls(
-            util.get_type_adapter(cls.__reference_constraint__ or Component).validate_python(
-                value,
-            )  # type: ignore
-        )
+        import ceres.data
+
+        return cls(ceres.data.validate(cls.__reference_constraint__ or Component, value))
 
     def __init__(
         self,
-        target: Union[Component, "Reference", DynamicAddress, str],
-        root: Union[Component, "Reference"] | None = None,
+        target: Component | Reference | DynamicAddress | str,
+        root: Component | Reference | None = None,
     ) -> None:
-        if not isinstance(target, (Component, Reference, Address, str)):
+        if not isinstance(target, Component | Reference | Address | str):
             raise ValueError(
                 f"first argument must be a component, another reference, an address or string, got "
                 f"{util.strify(type(target))}"
@@ -388,7 +380,7 @@ class Reference:
         elif isinstance(target, str):
             target = DynamicAddress(target)
         else:
-            if not isinstance(target, (Component, Reference)):
+            if not isinstance(target, Component | Reference):
                 raise ValueError(f"expected component, got {util.strify(type(target))}")
 
             if self.__reference_constraint__ is not None:
@@ -442,7 +434,7 @@ class Reference:
     def __reference_sync_dynamic_class__(self) -> type[Reference]:
         current = self.__reference_get_dynamic_class__()
         if self.__class__ is not current:
-            self.__class__ = current  # type: ignore
+            self.__class__ = cast("Any", current)
 
         return current
 
@@ -461,7 +453,7 @@ class Reference:
 
         for name in component_names:
             if name not in reference_names:
-                proxy = ReferenceProxiedMethods.__dict__.get(name)
+                proxy = _ReferenceProxiedMethods.__dict__.get(name)
                 if proxy is not None:
                     setattr(SpecializedReference, name, proxy)
 
@@ -556,7 +548,6 @@ def ref[T: Component](
 
 
 if TYPE_CHECKING:
-    _T = TypeVar("_T")
-    Ref = Annotated[_T, ()]
+    type Ref[T] = T
 else:
     Ref = Reference

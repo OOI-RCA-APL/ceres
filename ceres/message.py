@@ -1,11 +1,9 @@
-from __future__ import annotations
-
+from collections.abc import Callable, Iterable
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     ClassVar,
-    Iterable,
     Literal,
     TypeAlias,
     Unpack,
@@ -13,8 +11,9 @@ from typing import (
 )
 
 from pydantic import BeforeValidator, PlainSerializer
-from sqlalchemy import Index, LargeBinary, func
+from sqlalchemy import Index, LargeBinary, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import expression
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -23,7 +22,9 @@ from ceres._internal.entity import (
     BaseEntityQuery,
     ConcreteEntity,
     EntityNaming,
+    EntityOutputChannel,
     EntityQuery,
+    Filtering,
 )
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.record import (
@@ -48,13 +49,20 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
+
+__all__ = [
+    "Message",
+]
 
 
 class MessageDirection(StrEnum):
     SEND = "send"
     RECEIVE = "receive"
+
+
+MessageDirectionRaw: TypeAlias = Literal["send", "receive"]
+MessageDirectionInput: TypeAlias = MessageDirection | MessageDirectionRaw
 
 
 def _serialize_message_content_json(value: bytes) -> str:
@@ -78,6 +86,12 @@ MessageContent = Annotated[
 class MessageRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "messages"
 
+    connection: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        default=None,
+        server_default=expression.null(),
+    )
     direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
@@ -86,6 +100,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__connection", cls.connection),
             EnumConstraint(cls.direction, MessageDirection, f"ck_{cls.__tablename__}__direction"),
             Index(f"ix_{cls.__tablename__}__content", cls.content).ddl_if("sqlite"),
             Index(
@@ -97,16 +112,20 @@ class MessageRow(BaseRecordRow, kw_only=True):
         )
 
 
-MessageField: TypeAlias = (
+type MessageField = (
     BaseRecordField
     | Literal[
+        "connection",
         "direction",
         "content",
     ]
 )
-MessageOrder: TypeAlias = (
+type MessageOrder = (
     BaseRecordOrder
     | Literal[
+        "connection",
+        "connection:asc",
+        "connection:desc",
         "direction",
         "direction:asc",
         "direction:desc",
@@ -118,7 +137,7 @@ MessageOrder: TypeAlias = (
 
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
-    direction: MaybeSequence[MessageDirection] | None
+    direction: MaybeSequence[MessageDirectionInput] | None
     content: MaybeSequence[MessageContent] | None
     contains: MaybeSequence[MessageContent] | None
     prefix: MaybeSequence[MessageContent] | None
@@ -126,6 +145,14 @@ class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=
 
 
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
+    connection: MaybeSequence[str] | None = None
+    """Filter by `connection` being equal to one or more given strings."""
+    connection_contains: MaybeSequence[str] | None = None
+    """Filter by `connection` containing one or more given substrings."""
+    connection_prefix: MaybeSequence[str] | None = None
+    """Filter by `connection` starting with one or more given substrings."""
+    connection_suffix: MaybeSequence[str] | None = None
+    """Filter by `connection` ending with one or more given substrings."""
     direction: MaybeSequence[MessageDirection] | None = None
     """Filter by `direction`."""
     content: MaybeSequence[MessageContent] | None = None
@@ -143,8 +170,19 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if not super()._matches(obj, now=now):
             return False
 
+        if self.connection is not None:
+            if obj.connection is None or not util.match_value(obj.connection, self.connection):
+                return False
+        if not util.match_string(obj.connection, self.connection_contains, MatchMode.CONTAINS):
+            return False
+        if not util.match_string(obj.connection, self.connection_prefix, MatchMode.PREFIX):
+            return False
+        if not util.match_string(obj.connection, self.connection_suffix, MatchMode.SUFFIX):
+            return False
+
         if not util.match_value(obj.direction, self.direction):
             return False
+
         if not util.match_value(obj.content, self.content):
             return False
         if not util.match_string(obj.content, self.contains, MatchMode.CONTAINS):
@@ -172,6 +210,28 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         yield from super()._get_where(dialect, now=now)
         columns = self._get_row_cls()
 
+        if self.connection is not None:
+            yield util.sql_match_value(columns.connection, self.connection)
+
+        if self.connection_contains is not None:
+            yield util.sql_match_string(
+                columns.connection,
+                self.connection_contains,
+                MatchMode.CONTAINS,
+            )
+        if self.connection_prefix is not None:
+            yield util.sql_match_string(
+                columns.connection,
+                self.connection_prefix,
+                MatchMode.PREFIX,
+            )
+        if self.connection_suffix is not None:
+            yield util.sql_match_string(
+                columns.connection,
+                self.connection_suffix,
+                MatchMode.SUFFIX,
+            )
+
         if self.direction is not None:
             yield util.sql_match_value(columns.direction, self.direction)
 
@@ -190,12 +250,14 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
             yield util.sql_match_string(hex, matches, MatchMode.SUFFIX)
 
 
-class MessageCreate(BaseRecordCreate):
+class MessageCreate(BaseRecordCreate, slots=True):
+    connection: str | None = None
     direction: MessageDirection
     content: MessageContent
 
 
 class MessageUpdate(BaseRecordUpdate, total=False):
+    connection: str | None
     direction: MessageDirection
     content: MessageContent
 
@@ -208,12 +270,14 @@ class _BaseMessageQuery(
         "MessageQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[MessageQuery]:
         return MessageQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
@@ -229,7 +293,7 @@ class MessageQuery(
     ],
     _BaseMessageQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class MessageManager(
@@ -243,43 +307,83 @@ class MessageManager(
     ],
     _BaseMessageQuery,
 ):
-    def __init__(self, source: DatabaseSource, /) -> None:
-        super().__init__(source, Message)
+    __slots__ = ()
+
+    def __init__(
+        self,
+        source: DatabaseSource,
+        /,
+        filtering: Filtering[MessageFilter] = None,
+    ) -> None:
+        super().__init__(source, Message, filtering)
 
     async def get(self, id: UUID, /) -> Message | None:
         return await self.where(id=id).first()
 
 
 class BoundMessageManager(MessageManager, BaseNodeManager):
-    def __init__(self, source: NodeSource, /) -> None:
-        super().__init__(source)
+    __slots__ = ()
 
-    def follow(
+    def __init__(
         self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> OutputChannel[Message]:
-        from ceres.event import MessageEvent, MessageReceivedEvent
+        source: NodeSource,
+        /,
+        filtering: Filtering[MessageFilter] = None,
+    ) -> None:
+        super().__init__(source, filtering)
 
-        resolved = self._get_resolved_filter_args(filter, kwargs)
-        return (
-            self.__node__.events.follow()
-            .every(MessageEvent if not TYPE_CHECKING else MessageReceivedEvent)
+    @property
+    def stream(self) -> MessageOutputChannel:
+        from ceres.event import MessageReceivedEvent, MessageSentEvent
+
+        return MessageOutputChannel(
+            self.__node__.events.stream.every(MessageSentEvent, MessageReceivedEvent)
             .map(lambda event: event.message)
-            .filter(resolved.matches)
+            .where(lambda message: self._get_resolved_filter().matches(message))
         )
 
 
-class Message(BaseRecord, MessageCreate, ConcreteEntity):
-    Manager: ClassVar[type[MessageManager]] = MessageManager
-    BoundManager: ClassVar[type[BoundMessageManager]] = BoundMessageManager
-    Row: ClassVar[type[MessageRow]] = MessageRow
-    Create: ClassVar[type[MessageCreate]] = MessageCreate
-    Update: ClassVar[type[MessageUpdate]] = MessageUpdate
-    Filter: ClassVar[type[MessageFilter]] = MessageFilter
-    FilterArgs: ClassVar[type[MessageFilterArgs]] = MessageFilterArgs
+class MessageOutputChannel(
+    EntityOutputChannel[
+        "Message",
+        MessageFilter,
+        MessageFilterArgs,
+    ]
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[MessageFilter]:
+        return MessageFilter
+
+    @property
+    def received(self) -> MessageOutputChannel:
+        return self.where(lambda message: message.direction == MessageDirection.RECEIVE)
+
+    @property
+    def sent(self) -> MessageOutputChannel:
+        return self.where(lambda message: message.direction == MessageDirection.SEND)
+
+    @override
+    def where(  # type: ignore
+        self,
+        filter: MessageFilter | Callable[[Message], bool] | None = None,
+        /,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> MessageOutputChannel:
+        return super().where(filter, **kwargs)
+
+
+class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
+    Manager = MessageManager
+    BoundManager = BoundMessageManager
+    Row = MessageRow
+    Create = MessageCreate
+    Update = MessageUpdate
+    Filter = MessageFilter
+    FilterArgs = MessageFilterArgs
     Field = MessageField
     Order = MessageOrder
-    Direction: ClassVar[type[MessageDirection]] = MessageDirection
+    Direction = MessageDirection
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("message")

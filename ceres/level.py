@@ -1,10 +1,12 @@
-from __future__ import annotations
-
 import logging
 from types import MappingProxyType
 from typing import Final
 
 from ceres.data import OrderedStrEnum
+
+__all__ = [
+    "Level",
+]
 
 
 class Level(OrderedStrEnum):

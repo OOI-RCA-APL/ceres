@@ -76,7 +76,7 @@ from ceres.schedule import IntervalSchedule
     ],
 )
 def test_interval_schedule(schedule: IntervalSchedule, expected: list[timedelta]) -> None:
-    trigger = schedule.as_trigger()
+    trigger = schedule.create_trigger()
     start = trigger.start
     now = start - timedelta(seconds=1)
     assert trigger.get_next_fire_time(now=now) == start

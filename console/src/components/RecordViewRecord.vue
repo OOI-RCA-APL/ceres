@@ -82,6 +82,6 @@ onBeforeUnmount(() => {
 }
 
 .addressColumn {
-  min-width: 72px;
+  min-width: 64px;
 }
 </style>

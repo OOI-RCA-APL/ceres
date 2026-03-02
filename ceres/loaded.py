@@ -1,7 +1,7 @@
-from __future__ import annotations
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Self
 
-from typing import TYPE_CHECKING, Annotated, Any, Mapping, Self, Sequence, TypeVar
-
+import pydantic
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -14,13 +14,71 @@ from pydantic import (
 from pydantic_core.core_schema import no_info_after_validator_function
 
 from ceres._internal import util
-from ceres.data import ImmutableDataObject
+from ceres.data import DataObject, validate
 
 if TYPE_CHECKING:
     from pydantic_core import CoreSchema
 
+__all__ = [
+    "Loaded",
+    "Loader",
+]
 
-class Loader[T](ImmutableDataObject):
+
+_loaded_type_cache: dict[type, type[_LoadedType]] = {}
+
+
+class _LoadedType:
+    cls: type = object
+
+    def __class_getitem__(cls, target_cls: type, /) -> type[_LoadedType]:
+        if target_cls in _loaded_type_cache:
+            return _loaded_type_cache[target_cls]
+
+        class Specialized(_LoadedType):
+            cls = target_cls
+
+        Specialized.__name__ = f"{_LoadedType.__name__}[{target_cls.__name__}]"
+        Specialized.__qualname__ = _LoadedType.__qualname__.replace(
+            _LoadedType.__name__,
+            Specialized.__name__,
+        )
+
+        _loaded_type_cache[target_cls] = Specialized
+        return Specialized
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return no_info_after_validator_function(cls.validate, handler(Any))
+
+    @classmethod
+    def validate(cls, value: Any) -> Any:
+        if util.lenient_isinstance(value, cls.cls):
+            return value
+
+        if util.lenient_isinstance(value, Loader):
+            loader = value
+        else:
+            loader = validate(Loader, value)
+
+        instance = loader.create()
+        if not util.lenient_isinstance(instance, cls.cls):
+            raise ValueError(f"must be an instance of {cls.cls}, got {type(instance)}")
+
+        return instance
+
+
+if TYPE_CHECKING:
+    type Loaded[T] = T
+else:
+    Loaded = _LoadedType
+
+
+class Loader[T](DataObject):
     cls: ImportString[type[T]] = Field(validation_alias="class", serialization_alias="class")
     arguments: Mapping[str, Any] = Field(default_factory=dict)
 
@@ -53,7 +111,9 @@ class Loader[T](ImmutableDataObject):
         if arguments is None:
             arguments = {}
 
-        if util.lenient_issubclass(target, BaseModel) or util.is_pydantic_dataclass_type(target):
+        if util.lenient_issubclass(target, BaseModel) or pydantic.dataclasses.is_pydantic_dataclass(
+            target
+        ):
             if util.is_mapping(arguments):
                 instance = target(**arguments)
             else:
@@ -70,57 +130,3 @@ class Loader[T](ImmutableDataObject):
                     init(instance, *arguments)
 
         return instance  # type: ignore
-
-
-_loaded_type_cache: dict[type, type[LoadedType]] = {}
-
-
-class LoadedType:
-    cls: type = object
-
-    def __class_getitem__(cls, target_cls: type, /) -> type[LoadedType]:
-        if target_cls in _loaded_type_cache:
-            return _loaded_type_cache[target_cls]
-
-        class Specialized(LoadedType):
-            cls = target_cls
-
-        Specialized.__name__ = f"{LoadedType.__name__}[{target_cls.__name__}]"
-        Specialized.__qualname__ = LoadedType.__qualname__.replace(
-            LoadedType.__name__,
-            Specialized.__name__,
-        )
-
-        _loaded_type_cache[target_cls] = Specialized
-        return Specialized
-
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls,
-        source_type: Any,
-        handler: GetCoreSchemaHandler,
-    ) -> CoreSchema:
-        return no_info_after_validator_function(cls.validate, handler(Any))
-
-    @classmethod
-    def validate(cls, value: Any) -> Any:
-        if util.lenient_isinstance(value, cls.cls):
-            return value
-
-        if util.lenient_isinstance(value, Loader):
-            loader = value
-        else:
-            loader = Loader.model_validate(value)
-
-        instance = loader.create()
-        if not util.lenient_isinstance(instance, cls.cls):
-            raise ValueError(f"must be an instance of {cls.cls}, got {type(instance)}")
-
-        return instance
-
-
-if TYPE_CHECKING:
-    _T = TypeVar("_T")
-    Loaded = Annotated[_T, ()]
-else:
-    Loaded = LoadedType

@@ -1,19 +1,13 @@
-import json
+import warnings
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    AsyncIterator,
-    Callable,
-    Coroutine,
-    Mapping,
-    cast,
-)
+from typing import TYPE_CHECKING, Annotated, Any, cast, override
 from uuid import UUID
 
+import jwt.warnings
 from fastapi import (
+    APIRouter,
     Cookie,
     Depends,
     Header,
@@ -22,9 +16,9 @@ from fastapi import (
     Response,
     WebSocket,
     WebSocketDisconnect,
+    params,
 )
 from fastapi.requests import HTTPConnection
-from fastapi.routing import APIRouter
 from fastapi.websockets import WebSocketState
 from pydantic import AfterValidator, Json, ValidationError
 from pydantic_core import PydanticKnownError
@@ -32,34 +26,82 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
 from ceres._internal.entity import BaseEntityFilter
-from ceres._internal.lazy import lazy_imports
-from ceres.data import (
-    DateTime,
-    DeferBuild,
-    EmailStr,
-    ImmutableDataObject,
-    StrEnum,
-    UsernameStr,
-    jsonify,
-)
+from ceres.concurrency import race
+from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
 
+# Allow using short JWT secrets without warnings.
+warnings.filterwarnings("ignore", category=jwt.warnings.InsecureKeyLengthWarning, module="jwt")
+
 if TYPE_CHECKING:
+    from enum import Enum
+
     from asgiref.typing import WebSocketReceiveEvent
+    from pydantic.main import IncEx
 
     from ceres._internal.app.main import App
+    from ceres._internal.server import Server
+    from ceres.config import ServerAuthenticationConfig
     from ceres.engine import Engine
-    from ceres.message import MessageFilter
+    from ceres.message import BoundMessageManager, MessageFilter
+    from ceres.record import Record
 else:
     Engine = object
     App = object
 
-with lazy_imports(__name__):
-    from ceres._internal.server import Server
-    from ceres.config import ServerAuthenticationConfig
-    from ceres.record import Record
+
+def exclude_recursively(fields: Iterable[str]) -> IncEx:
+    exclude: dict[str, Any] = {field: True for field in fields}
+    exclude["__all__"] = exclude
+    return exclude
+
+
+EXCLUDE_PASSWORDS: IncEx = exclude_recursively(["password"])
+
+
+class Router(APIRouter):
+    @override
+    def __init__(
+        self,
+        *,
+        prefix: str = "",
+        tags: list[str | Enum] | None = None,
+        dependencies: list[params.Depends] | None = None,
+        default_response_model_include: IncEx | None = None,
+        default_response_model_exclude: IncEx | None = None,
+    ) -> None:
+        super().__init__(
+            prefix=prefix,
+            tags=tags,
+            dependencies=dependencies,
+        )
+        self.default_response_model_include = default_response_model_include
+        self.default_response_model_exclude = default_response_model_exclude
+
+    @override
+    def add_api_route(
+        self,
+        path: str,
+        endpoint: Callable[..., Any],
+        *,
+        response_model_include: IncEx | None = None,
+        response_model_exclude: IncEx | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if response_model_include is None:
+            response_model_include = self.default_response_model_include
+        if response_model_exclude is None:
+            response_model_exclude = self.default_response_model_exclude
+
+        super().add_api_route(
+            path,
+            endpoint,
+            response_model_include=response_model_include,
+            response_model_exclude=response_model_exclude,
+            **kwargs,
+        )
 
 
 def _get_current_app(connection: HTTPConnection) -> App:
@@ -73,14 +115,14 @@ def _get_current_engine(app: CurrentApp) -> Engine:
     return app.engine
 
 
-CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
+type CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
 
 
 def _get_current_cli(app: CurrentApp) -> bool:
     return app.cli
 
 
-CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
+type CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
 
 
 class SocketDirection(StrEnum):
@@ -95,7 +137,7 @@ class Socket:
     server: Server
 
     async def send(self, data: Any) -> None:
-        await self.socket.send_text(jsonify(data))
+        await self.socket.send_text(to_json(data))
 
     async def receive(self) -> Any:
         message = cast("WebSocketReceiveEvent", await self.socket.receive())
@@ -105,7 +147,7 @@ class Socket:
         if data is None:
             raise ValueError("Invalid message format.")
 
-        return json.loads(data)
+        return from_json(data)
 
     async def execute(
         self,
@@ -130,12 +172,11 @@ class Socket:
                 # Otherwise, do nothing.
                 await util.sleep_forever()
 
-        await util.wait_any(
+        await race(
             run(),
             wait_disconnect(),
             self.server.wait_until_stopping(),
-            cancelling=True,
-            raised=True,
+            raise_exceptions=True,
         )
 
     async def close(self, code: int = 1000, reason: str | None = None) -> None:
@@ -158,13 +199,13 @@ async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> Async
             await socket.close()
 
 
-CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
+type CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 
 
 def _get_procedure_query_arguments(
     arguments: Annotated[Json[Any], Query()] = None,
 ) -> Mapping[str, object]:
-    adapter = util.get_type_adapter(Mapping[str, object])
+    adapter = adapt(Mapping[str, object])
 
     try:
         if arguments is None:
@@ -179,32 +220,14 @@ def _get_procedure_query_arguments(
         )
 
 
-CurrentProcedureQueryArguments = Annotated[
+type CurrentProcedureQueryArguments = Annotated[
     Mapping[str, object] | None, Depends(_get_procedure_query_arguments)
 ]
 
 
-class APIUser(ImmutableDataObject, DeferBuild):
-    id: UUID
-    username: UsernameStr
-    email: EmailStr
-    role: UserRole
-    disabled: bool
-
-
-APIUser.__name__ = "User"
-
-
-class APIIdentity(ImmutableDataObject, DeferBuild):
-    user: APIUser
+class Identity(DataObject):
     token: str
     expires: DateTime
-
-
-APIIdentity.__name__ = "Identity"
-
-
-class Identity(APIIdentity):
     user: User
 
 
@@ -251,8 +274,8 @@ def assign_authorization_cookie(
     )
 
 
-CurrentAuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
-CurrentAuthorizationCookie = Annotated[str | None, Cookie(alias="Authorization")]
+type CurrentAuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
+type CurrentAuthorizationCookie = Annotated[str | None, Cookie(alias="Authorization")]
 
 
 async def _get_current_identity(
@@ -294,9 +317,7 @@ async def _get_current_identity(
             return None
 
         try:
-            expires = util.get_type_adapter(
-                datetime if TYPE_CHECKING else DateTime
-            ).validate_python(expires)
+            expires = validate(datetime if TYPE_CHECKING else DateTime, expires)
         except ValidationError:
             return None
 
@@ -305,13 +326,13 @@ async def _get_current_identity(
             return None
 
         return Identity(
-            user=user,
             token=token,
             expires=expires,
+            user=user,
         )
 
 
-CurrentIdentity = Annotated[Identity | None, Depends(_get_current_identity)]
+type CurrentIdentity = Annotated[Identity | None, Depends(_get_current_identity)]
 
 
 def _get_required_identity(identity: CurrentIdentity) -> Identity:
@@ -321,7 +342,7 @@ def _get_required_identity(identity: CurrentIdentity) -> Identity:
     return identity
 
 
-RequireIdentity = Annotated[Identity, Depends(_get_required_identity)]
+type RequireIdentity = Annotated[Identity, Depends(_get_required_identity)]
 
 
 async def _get_current_user(identity: CurrentIdentity) -> User | None:
@@ -331,7 +352,7 @@ async def _get_current_user(identity: CurrentIdentity) -> User | None:
     return identity.user
 
 
-CurrentUser = Annotated[User | None, Depends(_get_current_user)]
+type CurrentUser = Annotated[User | None, Depends(_get_current_user)]
 
 
 async def _require_current_user(user: CurrentUser) -> User:
@@ -341,7 +362,7 @@ async def _require_current_user(user: CurrentUser) -> User:
     return user
 
 
-RequireUser = Annotated[User, Depends(_require_current_user)]
+type RequireUser = Annotated[User, Depends(_require_current_user)]
 
 
 def _get_current_role(user: CurrentUser, cli: CurrentCLI) -> UserRole | None:
@@ -352,7 +373,7 @@ def _get_current_role(user: CurrentUser, cli: CurrentCLI) -> UserRole | None:
     return user.role
 
 
-CurrentRole = Annotated[UserRole | None, Depends(_get_current_role)]
+type CurrentRole = Annotated[UserRole | None, Depends(_get_current_role)]
 
 
 def _restrict(
@@ -377,7 +398,7 @@ def _restrict(
     return user
 
 
-def __require_viewer(
+def _require_viewer(
     engine: CurrentEngine,
     user: CurrentUser,
     cli: CurrentCLI,
@@ -386,7 +407,7 @@ def __require_viewer(
     return _restrict(UserRole.VIEWER, engine, user, cli, role)
 
 
-def __require_operator(
+def _require_operator(
     engine: CurrentEngine,
     user: CurrentUser,
     cli: CurrentCLI,
@@ -395,7 +416,7 @@ def __require_operator(
     return _restrict(UserRole.OPERATOR, engine, user, cli, role)
 
 
-def __require_admin(
+def _require_admin(
     engine: CurrentEngine,
     user: CurrentUser,
     cli: CurrentCLI,
@@ -404,13 +425,13 @@ def __require_admin(
     return _restrict(UserRole.ADMIN, engine, user, cli, role)
 
 
-VIEWER = Depends(__require_viewer)
-OPERATOR = Depends(__require_operator)
-ADMIN = Depends(__require_admin)
+VIEWER = Depends(_require_viewer)
+OPERATOR = Depends(_require_operator)
+ADMIN = Depends(_require_admin)
 
-RequireViewer = Annotated[User | None, VIEWER]
-RequireOperator = Annotated[User | None, OPERATOR]
-RequireAdmin = Annotated[User | None, ADMIN]
+type RequireViewer = Annotated[User | None, VIEWER]
+type RequireOperator = Annotated[User | None, OPERATOR]
+type RequireAdmin = Annotated[User | None, ADMIN]
 
 
 def assert_found[T](value: T | None, /) -> T:
@@ -420,7 +441,7 @@ def assert_found[T](value: T | None, /) -> T:
     return value
 
 
-def create_record_get_route(router: APIRouter, Record: type[Record]):
+def create_record_get_route(router: Router, Record: type[Record]):
     naming = Record.__naming__
 
     async def get(engine: CurrentEngine, id: UUID):
@@ -436,7 +457,7 @@ def create_record_get_route(router: APIRouter, Record: type[Record]):
     )(get)
 
 
-def create_record_get_all_route(router: APIRouter, Record: type[Record], limit: int):
+def create_record_get_all_route(router: Router, Record: type[Record], limit: int):
     naming = Record.__naming__
 
     async def get_all(
@@ -458,15 +479,12 @@ def create_record_get_all_route(router: APIRouter, Record: type[Record], limit: 
     )(get_all)
 
 
-def create_record_count_route(router: APIRouter, Record: type[Record]):
+def create_record_count_route(router: Router, Record: type[Record]):
     naming = Record.__naming__
 
     async def count(
         engine: CurrentEngine,
-        filter: Annotated[
-            Record.Filter,  # type: ignore
-            Query(),
-        ],
+        filter: Annotated[Record.Filter, Query()],  # type: ignore
     ) -> int:
         return await engine.__manager__(Record).where(filter).count()
 
@@ -478,39 +496,38 @@ def create_record_count_route(router: APIRouter, Record: type[Record]):
     )(count)
 
 
-def create_record_follow_route(router: APIRouter, Record: type[Record]):
+def create_record_stream_route(router: Router, Record: type[Record]):
     naming = Record.__naming__
 
-    async def follow(
+    async def stream(
         socket: CurrentSocket,
         engine: CurrentEngine,
-        filter: Annotated[
-            Record.Filter,  # type: ignore
-            Query(),
-        ],
+        filter: Annotated[Record.Filter, Query()],  # type: ignore
     ) -> None:
+        manager = cast("BoundMessageManager", engine.__manager__(Record))
+
         async def write() -> None:
-            async for record in engine.__manager__(Record).follow(filter):  # type: ignore
+            async for record in manager.stream.where(cast("Any", filter)):
                 await socket.send(record)
 
         await socket.execute(write)
 
-    follow.__name__ = f"follow_{util.snakecase(naming.plural)}"
-    return router.websocket("", dependencies=[VIEWER])(follow)
+    stream.__name__ = f"stream_{util.snakecase(naming.plural)}"
+    return router.websocket("", dependencies=[VIEWER])(stream)
 
 
 def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
-    router = APIRouter(prefix=f"/{name}", tags=[name])
+    router = Router(prefix=f"/{name}", tags=[name])
 
     create_record_get_route(router, Record)
     create_record_get_all_route(router, Record, limit)
     create_record_count_route(router, Record)
-    create_record_follow_route(router, Record)
+    create_record_stream_route(router, Record)
 
     return router
 
 
-def __require_self_or_admin(
+def _require_self_or_admin(
     connection: HTTPConnection,
     user: RequireViewer,
     role: CurrentRole,
@@ -531,7 +548,7 @@ def __require_self_or_admin(
     return user_id
 
 
-SELF_OR_ADMIN = Depends(__require_self_or_admin)
+SELF_OR_ADMIN = Depends(_require_self_or_admin)
 
 
 def Limit[FilterT: BaseEntityFilter](max: int) -> AfterValidator:

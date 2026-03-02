@@ -14,13 +14,45 @@ const { widget } = defineProps<{
 }>()
 
 const engine = useEngine()
+const connectionEntries = $computed(() =>
+  engine.components.all.flatMap((component) =>
+    component.connections.map((connection) => [component.address, connection.name])
+  )
+)
+const connectionModelValue = $computed(() => {
+  if (widget.commandAddress == null || widget.commandConnection == null) {
+    return null
+  }
+
+  return `${widget.commandAddress}::connections::${widget.commandConnection}`
+})
+const connectionOptions = $computed(() =>
+  connectionEntries.map(([address, name]) => `${address}::connections::${name}`)
+)
+
+function onConnectionModelUpdate(option: string | null) {
+  const [address, namespace, name] = option?.split('::') ?? []
+  if (address == null || namespace !== 'connections' || name == null) {
+    widget.commandAddress = null
+    widget.commandConnection = null
+  } else {
+    widget.commandAddress = new Address(address)
+    widget.commandConnection = name
+  }
+}
 
 const columns = $computed(() => [
+  {
+    label: 'Connection',
+    name: 'connection',
+    filtered: widget.filter.connection != null,
+    minWidth: 80,
+  },
   {
     label: 'Direction',
     name: 'direction',
     filtered: widget.filter.direction != null,
-    minWidth: 76,
+    minWidth: 68,
   },
   {
     label: 'Content',
@@ -98,7 +130,7 @@ async function submit() {
     return
   }
 
-  await engine.components.call(widget.commandAddress, 'send', {
+  await engine.components.send(widget.commandAddress, widget.commandConnection, {
     data: widget.commandText,
   })
 
@@ -116,6 +148,18 @@ async function submit() {
 
 <template>
   <record-view :columns="columns" :filter="widget.filter" :widget>
+    <template #column-filter-connection>
+      <div style="min-width: 200px">
+        <schema-form-value
+          v-model="widget.filter.connection"
+          :schema="{
+            title: 'Connection',
+            type: 'string',
+            optional: true,
+          }"
+        />
+      </div>
+    </template>
     <template #column-filter-direction>
       <div style="min-width: 200px">
         <schema-form-value
@@ -172,17 +216,10 @@ async function submit() {
               dense
               hide-dropdown-icon
               label="To"
-              :model-value="widget.commandAddress?.toString() ?? null"
-              :options="
-                engine.components.all
-                  .filter((current) => current.roles.includes('connection'))
-                  .map((current) => current.address.toString())
-              "
+              :model-value="connectionModelValue"
+              :options="connectionOptions"
               options-dense
-              @update:model-value="
-                (value) =>
-                  (widget.commandAddress = value == null ? null : new Address(String(value)))
-              "
+              @update:model-value="onConnectionModelUpdate"
             />
           </div>
         </div>

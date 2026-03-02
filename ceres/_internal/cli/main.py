@@ -1,13 +1,11 @@
-from __future__ import annotations
-
 import asyncio
-import json
 import signal
 import sys
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence, override
+from typing import TYPE_CHECKING, Any, override
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -30,21 +28,21 @@ from ceres._internal.cli.shared import (
     write_table,
 )
 from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
-from ceres._internal.lazy import lazy_imports, unlazy
+from ceres._internal.lazy import __lazy_imports__, unlazy
 from ceres.address import Address, AddressSelector
-from ceres.data import jsonify
+from ceres.concurrency import cancel, el, race, spawn
+from ceres.data import to_json
 from ceres.error import Failure
 from ceres.result import Fail, Ok
 
 if TYPE_CHECKING:
     from ceres.database import Database
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres._internal.app.api import DisableResult, EnableResult
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
     from ceres.engine import Engine
-    from ceres.threading import spawn
 
 _watching = False
 """
@@ -348,13 +346,13 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
             await self.__run__()
             return 0
         except Failure as failure:
-            self.write(jsonify(failure.error, indent=2))
+            self.write(to_json(failure.error, indent=2))
             return 1
         except CLICommandExit as exception:
             if exception.message is not None:
                 self.write(exception.message)
             return exception.status
-        except (KeyboardInterrupt, CancelledError):
+        except KeyboardInterrupt, CancelledError:
             self.write("Interrupted. Exiting...")
             return 0
 
@@ -381,14 +379,14 @@ class MainCliSettingsSource(CliSettingsSource):
         # like "abc,def" to a field of the form `T | Sequence[T]` would parse the value as
         # `["abc", "def"]` instead of "abc,def", which occurs commonly when searching things like
         # messages and alerts which often contain commas.
-        return json.dumps(parsed_list)
+        return to_json(parsed_list)
 
     @override
     def __init__(self, settings_cls: type[BaseSettings], args: Sequence[str]) -> None:
         super().__init__(settings_cls, cli_parse_args=list(args))
 
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres._internal.cli.subcommands.alerts import AlertsCommand
     from ceres._internal.cli.subcommands.console import ConsoleCommand
     from ceres._internal.cli.subcommands.database import DatabaseCommand
@@ -472,7 +470,7 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
         traceback.print_exc()
         return 1
 
-    return asyncio.run(command.execute(), loop_factory=util.ensure_event_loop)
+    return asyncio.run(command.execute(), loop_factory=el)
 
 
 async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch: bool) -> None:
@@ -491,28 +489,21 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                     pass
                 case Fail() as fail:
                     raise CLICommandFailed(
-                        f"Failed to load engine with current configuration. {jsonify(fail, indent=2)}"
+                        f"Failed to load engine with current configuration. {to_json(fail.error, indent=2)}"
                     )
 
             exiting = AsyncEvent()
 
-            async def run() -> None:
+            async def main() -> None:
                 engine.start()
                 if address is not None:
                     for component in engine.get_components(address):
                         component.system.start()
 
-                await engine.wait_until_stopped()
-
-            async def main() -> None:
-                task_run = asyncio.create_task(run())
-                task_exit = asyncio.create_task(exiting.wait())
-                await util.wait_any(task_run, task_exit)
-
                 try:
-                    await engine.stop()
+                    await race(engine.wait_until_stopped(), exiting.wait())
                 finally:
-                    await util.cancel(task_run, task_exit)
+                    await engine.stop()
 
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
@@ -598,7 +589,7 @@ async def _run_watch(
         except CancelledError:
             pass
         finally:
-            await util.cancel(task)
+            await cancel(task)
 
 
 def _set_current_process_name(name: str) -> None:

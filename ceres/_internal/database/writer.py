@@ -1,20 +1,17 @@
-from __future__ import annotations
-
 from asyncio import Event as AsyncEvent
 from collections import defaultdict, deque
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres.data import adapt
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
 
+    from ceres.database import Database
     from ceres.entity import Entity
-
-with lazy_imports(__name__):
-    from ceres.database import Database, DatabaseType
 
 
 @dataclass(slots=True)
@@ -86,7 +83,7 @@ class Writer:
 
             database = self._database()
             async with await database.use() as connection:
-                await self.__write_entities(database, connection, flush.entities)
+                await self._write_entities(database, connection, flush.entities)
                 await connection.commit()
         except DatabaseError:
             if len(self._flushes) > 1:
@@ -112,7 +109,7 @@ class Writer:
 
         await self._settled.wait()
 
-    async def __write_entities(
+    async def _write_entities(
         self,
         database: Database,
         connection: AsyncConnection,
@@ -123,9 +120,9 @@ class Writer:
             by_type[cls] = list(group)
 
         for cls, entities in by_type.items():
-            await self.__write_entities_of_cls(database, connection, cls, entities)
+            await self._write_entities_of_cls(database, connection, cls, entities)
 
-    async def __write_entities_of_cls(
+    async def _write_entities_of_cls(
         self,
         database: Database,
         connection: AsyncConnection,
@@ -135,6 +132,8 @@ class Writer:
         if not entities:
             return
 
+        from ceres.database import DatabaseType
+
         match database.type:
             case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert
@@ -142,7 +141,7 @@ class Writer:
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
-        values: list[dict[str, Any]] = util.get_type_adapter(list[cls]).dump_python(entities)
+        values: list[dict[str, Any]] = adapt(list[cls]).dump_python(entities)
 
         statement = insert(cls.Row)
         pk = cls.Row.get_primary_key_columns()

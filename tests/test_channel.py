@@ -1,7 +1,7 @@
 import asyncio
 
 from ceres.channel import Channel, OutputChannel
-from ceres.threading import spawn
+from ceres.concurrency import spawn
 
 
 async def _get_using_reader(stream: OutputChannel[str], count: int) -> list[str]:

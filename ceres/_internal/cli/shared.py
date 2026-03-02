@@ -1,12 +1,10 @@
-from __future__ import annotations
-
-import json
 import os
 import sys
 import time
 import warnings
 from abc import abstractmethod
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import AsyncIterable, Callable, Collection, Iterable, Mapping, Sequence, Sized
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -16,17 +14,8 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncContextManager,
-    AsyncIterable,
-    Callable,
-    Collection,
-    Iterable,
     Literal,
-    Mapping,
     Self,
-    Sequence,
-    TypeAlias,
-    TypeVar,
     cast,
     overload,
     override,
@@ -35,6 +24,7 @@ from uuid import UUID
 
 from aiohttp import ClientError
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -56,15 +46,25 @@ from pydantic_settings import (
 from pydantic_settings.sources import CliPositionalArg
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.project import LoadedProject, Project
 from ceres._internal.util import PathLike, wrap_database_errors
-from ceres.data import DataObject, DeferBuild, FromYAML, MaybeSequence, NonEmpty, jsonify
+from ceres.data import (
+    DataModel,
+    DataObject,
+    FromYAML,
+    MaybeSequence,
+    adapt,
+    from_json,
+    to_dict,
+    to_json,
+    validate_json,
+)
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.result import Ok
 
-with lazy_imports(__name__):
+with __lazy_imports__(__name__):
     from ceres._internal.cli.client import Client
     from ceres.config import Config, ConfigCheckType, ConfigMeta
     from ceres.engine import Engine
@@ -145,11 +145,11 @@ def get_input(
                 return default
 
             if isinstance(parser, type):
-                if issubclass(parser, (bool, int, float)):
+                if issubclass(parser, bool | int | float):
                     continue
 
         try:
-            return TypeAdapter(parser).validate_python(text)  # type: ignore
+            return TypeAdapter(parser).validate_python(text)
         except ValidationError:
             pass
 
@@ -231,9 +231,18 @@ def __validate_non_empty(value: Any) -> Any:
 
 Confirm = Annotated[CliImplicitFlag[bool], Field(description="Ask before executing.")]
 
-_TFields = TypeVar("_TFields", bound=Mapping[str, Any])
-Assign: TypeAlias = Annotated[
-    NonEmpty[FromYAML[_TFields]],
+
+def _validate_non_empty(value: object) -> object:
+    if isinstance(value, Sized):
+        assert len(value) > 0, "cannot not be empty"
+
+    return value
+
+
+type NonEmpty[T] = Annotated[T, AfterValidator(_validate_non_empty)]
+
+type Assign[T: Mapping[str, Any] = Mapping[str, Any]] = Annotated[
+    NonEmpty[FromYAML[T]],
     NoDecode,
     Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
 ]
@@ -261,11 +270,8 @@ class CLIDataConflict(StrEnum):
     UPDATE = "update"
 
 
-class CLICommand(DataObject, DeferBuild):
-    model_config = ConfigDict(
-        defer_build=True,
-        use_attribute_docstrings=True,
-    )
+class CLICommand(DataModel):
+    model_config = ConfigDict(defer_build=True)
 
     config_path: Path | None = Field(default=None, alias="config")
     """
@@ -336,14 +342,14 @@ class CLICommand(DataObject, DeferBuild):
             case Ok(config):
                 return config
             case fail:
-                raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+                raise CLICommandFailed(f"Failed to load configuration. {to_json(fail, indent=2)}")
 
     async def use_config(self, checks: Sequence[ConfigCheckType] = ()) -> Config:
         match await Config.load(self.use_config_path(), checks=checks):
             case Ok(config):
                 return config
             case fail:
-                raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+                raise CLICommandFailed(f"Failed to load configuration. {to_json(fail, indent=2)}")
 
     async def use_project(self) -> Project:
         config_path = self.use_config_path()
@@ -425,7 +431,7 @@ class CLICommand(DataObject, DeferBuild):
 
                     started = True
 
-        if isinstance(data, AsyncContextManager):
+        if isinstance(data, AbstractAsyncContextManager):
             async with data as values:
                 if isinstance(values, AsyncIterable):
                     async for current in values:
@@ -468,7 +474,7 @@ class CLICommand(DataObject, DeferBuild):
         await engine.load(config_path, silent=True)
         return engine
 
-    def read[T: BaseModel](self, model_cls: type[T]) -> T:
+    def read[T: DataObject | BaseModel](self, data_object_class: type[T]) -> T:
         # We do this hackery here with an intermediate class because commands inheriting from
         # `BaseEntityFilter` can contain instances of themselves in their `and__` and `or__` fields.
         # All of these instances are instances of the command type, rather than the filter type, and
@@ -476,19 +482,26 @@ class CLICommand(DataObject, DeferBuild):
         # `model_cls` does not have, and in the usual case that `model_cls` does not allow extra
         # inputs, we need to create an intermediate model class that does in order to strip extra
         # fields out, but preserve the defaults the command class has set on itself.
-        class IgnoreExtra(model_cls):
-            model_config = ConfigDict(extra="ignore")
+        config = ConfigDict(extra="ignore")
+        if not issubclass(data_object_class, BaseModel):
+
+            class IgnoreExtra(data_object_class, config=config):
+                pass
+        else:
+
+            class IgnoreExtra(data_object_class):
+                model_config = config
 
         # If only we could pass `extra = "ignore"` to the validation method itself, but we can't.
-        intermediate = IgnoreExtra.model_validate_json(self.model_dump_json())
+        intermediate = validate_json(IgnoreExtra, to_json(self))
         # Convert the `IgnoreExtra` instance with exactly matching fields into `model_cls`.
-        return model_cls.model_validate_json(intermediate.model_dump_json())
+        return validate_json(data_object_class, to_json(intermediate))
 
     def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         if output is None:
             output = []
 
-        for value in util.dictify(self).values():
+        for value in to_dict(self).values():
             if isinstance(value, CLICommand):
                 output.append(value)
 
@@ -508,24 +521,24 @@ class _CallbackWriter:
 _CSV_ATOMIC_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
     NoneType: lambda value: "",
     str: lambda value: value,
-    int: jsonify,
-    float: jsonify,
-    bool: jsonify,
+    int: to_json,
+    float: to_json,
+    bool: to_json,
     bytes: lambda value: value.decode("latin-1"),
     bytearray: lambda value: value.decode("latin-1"),
-    datetime: lambda value: jsonify(value)[1:-1],
-    timedelta: lambda value: jsonify(value)[1:-1],
-    date: lambda value: jsonify(value)[1:-1],
+    datetime: lambda value: to_json(value)[1:-1],
+    timedelta: lambda value: to_json(value)[1:-1],
+    date: lambda value: to_json(value)[1:-1],
     UUID: lambda value: str(value),
 }
 
 _CSV_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
     **_CSV_ATOMIC_STRINGIFIERS,
-    list: jsonify,
-    dict: jsonify,
-    tuple: jsonify,
-    set: jsonify,
-    frozenset: jsonify,
+    list: to_json,
+    dict: to_json,
+    tuple: to_json,
+    set: to_json,
+    frozenset: to_json,
 }
 
 
@@ -546,13 +559,13 @@ def _csv_stringify(value: object) -> str | None:
     if stringify is not None:
         return stringify(value)
     if isinstance(value, Collection):
-        return jsonify(value)
+        return to_json(value)
 
     return str(value)
 
 
 def _json_stringify(value: object) -> str:
-    return jsonify(value)
+    return to_json(value)
 
 
 _EMPTY_DICT = {}
@@ -615,12 +628,12 @@ class CLICommandExit(SettingsError):
     def __init__(self, status: int = 0, message: str | None = None) -> None:
         if message is not None:
             try:
-                content = json.loads(message)
-                message = jsonify(content, indent=2)
+                content = from_json(message)
+                message = to_json(content, indent=2)
             except Exception:
                 if not isinstance(message, str):
                     try:
-                        message = jsonify(message, indent=2)
+                        message = to_json(message, indent=2)
                     except Exception:
                         message = str(message)
 
@@ -644,9 +657,6 @@ class CLICommandFailed(CLICommandExit):
 
 class CLIClientError(CLICommandFailed, ClientError):
     pass
-
-
-_T = TypeVar("_T")
 
 
 class CLIDataOutputCommand(CLICommand):
@@ -810,7 +820,7 @@ def create_entity_any_command(Entity: type[Entity]):
 def create_entity_create_command(Entity: type[Entity]):
     naming = Entity.__naming__
 
-    class CreateCommand(CLIDataOutputCommand, cast("type", Entity.Create)):
+    class CreateCommand(CLIDataOutputCommand, cast("type", Entity.Create.Model)):
         f"""
         Create a new {naming.singular}.
         """
@@ -832,7 +842,7 @@ def create_entity_update_command(Entity: type[Entity]):
         Update {naming.plural}. Return the number updated.
         """
 
-        assign: Assign[Entity.Update]  # type: ignore
+        assign: Assign[Entity.Update]
         f"""Values to assign to matched {naming.plural}. Specified as a JSON or YAML object."""
         confirm: Confirm = True
         """Confirm before updating."""
@@ -894,7 +904,7 @@ def create_entity_follow_command(Entity: type[Entity]):
         async def __run__(self) -> None:
             client = await self.use_client()
             filter = self.read(Entity.Filter)
-            return await self.put(client.follow(naming.route, params=filter, result=Entity))
+            return await self.put(client.stream(naming.route, params=filter, result=Entity))
 
     return FollowCommand
 
@@ -930,7 +940,7 @@ def create_entity_load_command(Entity: type[Entity]):
 
         @override
         async def __run__(self) -> None:
-            count = await self.__load(
+            count = await self._load(
                 self.path,
                 EntityType.from_class(Entity),
                 self.data_format,
@@ -938,7 +948,7 @@ def create_entity_load_command(Entity: type[Entity]):
             )
             self.write(count, sys.stdout)
 
-        async def __load(
+        async def _load(
             self,
             path: PathLike,
             entity_type: EntityType,
@@ -962,7 +972,7 @@ def create_entity_load_command(Entity: type[Entity]):
                     case DatabaseType.SQLITE:
                         from sqlalchemy.dialects.sqlite import insert
 
-                statement = insert(cls.Row).values([entity.__dict__ for entity in batch])
+                statement = insert(cls.Row).values([dict(entity) for entity in batch])
                 match on_conflict:
                     case CLIDataConflict.ERROR:
                         pass
@@ -991,12 +1001,7 @@ def create_entity_load_command(Entity: type[Entity]):
                             try:
                                 match data_format:
                                     case CLIDataFormat.JSON:
-                                        adapter = util.get_type_adapter(
-                                            cast(
-                                                "Iterable[Json[Entity]]",
-                                                Iterable[Json[cls]],
-                                            )
-                                        )
+                                        adapter = adapt(Iterable[Json[cls]])
 
                                         for entity in adapter.validate_python(open(path)):
                                             batch.append(entity)
@@ -1008,12 +1013,7 @@ def create_entity_load_command(Entity: type[Entity]):
                                     case CLIDataFormat.CSV:
                                         from csv import DictReader
 
-                                        adapter = util.get_type_adapter(
-                                            cast(
-                                                "Iterable[Entity]",
-                                                Iterable[cls],
-                                            )
-                                        )
+                                        adapter = adapt(Iterable[cls])
 
                                         with open(path) as stream:
                                             reader = DictReader(stream)

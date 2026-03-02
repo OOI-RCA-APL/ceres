@@ -1,11 +1,8 @@
-from __future__ import annotations
-
+from collections.abc import Iterable
 from typing import (
     TYPE_CHECKING,
     ClassVar,
-    Iterable,
     Literal,
-    TypeAlias,
     TypedDict,
     Unpack,
     override,
@@ -34,12 +31,12 @@ from ceres._internal.entity import (
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.util import MatchMode
 from ceres.data import (
-    EmailStr,
+    EmailAddress,
     MaybeSequence,
     OrderedStrEnum,
+    Password,
     PasswordHash,
-    PasswordStr,
-    UsernameStr,
+    Username,
 )
 
 if TYPE_CHECKING:
@@ -48,6 +45,19 @@ if TYPE_CHECKING:
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
+
+__all__ = [
+    "User",
+    "UserRole",
+    "UserField",
+    "UserOrder",
+    "UserFilterArgs",
+    "UserFilter",
+    "UserCreate",
+    "UserUpdate",
+    "UserManager",
+    "BoundUserManager",
+]
 
 
 class UserRole(OrderedStrEnum):
@@ -59,8 +69,8 @@ class UserRole(OrderedStrEnum):
 class UserRow(BaseUUIDEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "users"
 
-    username: Mapped[UsernameStr] = mapped_column(Text)
-    email: Mapped[EmailStr] = mapped_column(Text)
+    username: Mapped[Username] = mapped_column(Text)
+    email: Mapped[EmailAddress] = mapped_column(Text)
     password: Mapped[PasswordHash] = mapped_column(Text)
     role: Mapped[UserRole] = mapped_column(
         EnumMapper(UserRole),
@@ -83,8 +93,16 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
         )
 
 
-UserField: TypeAlias = BaseUUIDEntityField | Literal["username", "email", "role", "disabled"]
-UserOrder: TypeAlias = (
+type UserField = (
+    BaseUUIDEntityField
+    | Literal[
+        "username",
+        "email",
+        "role",
+        "disabled",
+    ]
+)
+type UserOrder = (
     BaseUUIDEntityOrder
     | Literal[
         "username",
@@ -108,7 +126,7 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
     username_contains: MaybeSequence[str] | None
     username_prefix: MaybeSequence[str] | None
     username_suffix: MaybeSequence[str] | None
-    email: MaybeSequence[EmailStr] | None
+    email: MaybeSequence[EmailAddress] | None
     email_contains: MaybeSequence[str] | None
     email_prefix: MaybeSequence[str] | None
     email_suffix: MaybeSequence[str] | None
@@ -129,7 +147,7 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     """Filter by `username` starting with one or more given prefixes."""
     username_suffix: MaybeSequence[str] | None = None
     """Filter by `username` ending with one or more given suffixes."""
-    email: MaybeSequence[EmailStr] | None = None
+    email: MaybeSequence[EmailAddress] | None = None
     """Filter by `email` being equal to one or more given email addresses."""
     email_contains: MaybeSequence[str] | None = None
     """Filter by `email` containing one or more given substrings."""
@@ -248,18 +266,18 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         return "username"
 
 
-class UserCreate(BaseUUIDEntityCreate):
-    username: UsernameStr
-    email: EmailStr
-    password: PasswordStr | PasswordHash
+class UserCreate(BaseUUIDEntityCreate, slots=True):
+    username: Username
+    email: EmailAddress
+    password: Password | PasswordHash
     role: UserRole = UserRole.OPERATOR
     disabled: bool = False
 
 
 class UserUpdate(TypedDict, total=False):
-    username: UsernameStr
-    email: EmailStr
-    password: PasswordStr | PasswordHash
+    username: Username
+    email: EmailAddress
+    password: Password | PasswordHash
     role: UserRole
     disabled: bool
 
@@ -272,8 +290,10 @@ class _BaseUserQuery(
         "UserQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: UserFilter | None = None,
         **kwargs: Unpack[UserFilterArgs],
@@ -310,7 +330,7 @@ class UserQuery(
     ],
     _BaseUserQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class UserManager(
@@ -324,6 +344,8 @@ class UserManager(
     ],
     _BaseUserQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, User)
 
@@ -332,27 +354,29 @@ class UserManager(
 
     @override
     async def _create_transform(self, data: UserCreate) -> User:
-        fields = {**data.__dict__}
+        fields = dict(data)
         fields["password"] = await self._maybe_hash_password(fields["password"])
         return User(**fields)
 
 
 class BoundUserManager(UserManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
 
-class User(BaseUUIDEntity, UserCreate):
-    Manager: ClassVar[type[UserManager]] = UserManager
-    BoundManager: ClassVar[type[BoundUserManager]] = BoundUserManager
-    Row: ClassVar[type[UserRow]] = UserRow
-    Create: ClassVar[type[UserCreate]] = UserCreate
-    Update: ClassVar[type[UserUpdate]] = UserUpdate
-    Filter: ClassVar[type[UserFilter]] = UserFilter
-    FilterArgs: ClassVar[type[UserFilterArgs]] = UserFilterArgs
+class User(BaseUUIDEntity, UserCreate, slots=True):
+    Manager = UserManager
+    BoundManager = BoundUserManager
+    Row = UserRow
+    Create = UserCreate
+    Update = UserUpdate
+    Filter = UserFilter
+    FilterArgs = UserFilterArgs
     Field = UserField
     Order = UserOrder
-    Role: ClassVar[type[UserRole]] = UserRole
+    Role = UserRole
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("user")
 

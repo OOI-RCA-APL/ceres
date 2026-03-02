@@ -1,36 +1,32 @@
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres.data import to_json, validate_json
+from ceres.directory import Directory
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ceres.config import ConfigMeta
-
-with lazy_imports(__name__):
-    from hashlib import sha1
-
     from ceres._internal.server import CLIServerInfo
-    from ceres.directory import Directory
+    from ceres.config import ConfigMeta
 
 
 class Project:
     def __init__(self, config_path: Path) -> None:
-        self.__config_path = config_path.resolve()
+        self._config_path = config_path.resolve()
 
     @property
     def config_path(self) -> Path:
-        return self.__config_path
+        return self._config_path
 
     @property
     def directory(self) -> Directory:
-        return Directory(self.__config_path.parent)
+        return Directory(self._config_path.parent)
 
     @property
     def directory_hash(self) -> str:
+        from hashlib import sha1
+
         return sha1(str(self.directory).encode()).hexdigest()[0:6]
 
     @property
@@ -57,13 +53,15 @@ class LoadedProject(Project):
 
     def get_cli_server_info(self) -> CLIServerInfo | None:
         try:
-            return CLIServerInfo.model_validate_json(self.cli_server_info_path.read_text())
+            from ceres._internal.server import CLIServerInfo
+
+            return validate_json(CLIServerInfo, self.cli_server_info_path.read_text())
         except Exception:
             return None
 
     def write_cli_server_info(self, info: CLIServerInfo) -> None:
         self.cli_server_info_path.touch(0o600)
-        self.cli_server_info_path.write_text(info.model_dump_json())
+        self.cli_server_info_path.write_text(to_json(info))
         self.cli_server_info_path.chmod(0o600)
 
     def delete_cli_server_info(self) -> None:

@@ -1,86 +1,82 @@
-from __future__ import annotations
-
 import asyncio
 import dataclasses
+import inspect
+import operator
 import os
 import platform
 import re
+import sys
 import traceback
 import typing
+from annotationlib import Format
 from asyncio import AbstractEventLoop, Future
 from collections import defaultdict
-from contextlib import contextmanager
-from datetime import timedelta
-from enum import Enum
-from os import PathLike as _BasePathLike
-from pathlib import Path
-from threading import Event
-from typing import (
-    TYPE_CHECKING,
-    AbstractSet,
-    Any,
+from collections.abc import (
     Awaitable,
     Callable,
-    ClassVar,
     Collection,
     Coroutine,
     Hashable,
     Iterable,
     Iterator,
-    List,
     Mapping,
-    Optional,
-    Protocol,
+    MutableMapping,
     Sequence,
+    Set,
+    ValuesView,
+)
+from contextlib import contextmanager
+from enum import Enum
+from functools import wraps
+from os import PathLike as _BasePathLike
+from pathlib import Path
+from threading import Event, RLock
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    NotRequired,
+    Optional,
+    Required,
     TypeAlias,
-    TypeVar,
-    Union,
     cast,
+    get_args,
+    get_origin,
     overload,
     override,
 )
-from weakref import WeakSet, ref
+from weakref import WeakKeyDictionary, WeakSet, ref
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
-
-from ceres._internal.lazy import lazy_imports
+from pydantic import BaseModel, ConfigDict, Field, create_model, validate_call
 
 if TYPE_CHECKING:
-    from pydantic.fields import FieldInfo
-    from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
+    from typing import TypeIs
+
     from sqlalchemy import SQLColumnExpression
-    from typing_extensions import TypeIs
 
     from ceres.data import MaybeSequence
-
-
-with lazy_imports(__name__, export=True):
-    from ceres.util import azip_latest as azip_latest
-    from ceres.util import cancel as cancel
-    from ceres.util import concurrently as concurrently
-    from ceres.util import ensure_event_loop as ensure_event_loop
-    from ceres.util import wait_all as wait_all
-    from ceres.util import wait_any as wait_any
 
 
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 
 
-def strify(value: object) -> str:
+def strify(value: object, /) -> str:
     try:
         return str(value)
     except Exception:
         return "<__str__() raised exception>"
 
 
-def reprify(value: object) -> str:
+def reprify(value: object, /) -> str:
     try:
         return repr(value)
     except Exception:
         return "<__repr__() raised exception>"
 
 
-async def awaitify[T](value: Awaitable[T] | T) -> T:
+async def awaitify[T](value: Awaitable[T] | T, /) -> T:
     import inspect
 
     if inspect.isawaitable(value):
@@ -89,116 +85,7 @@ async def awaitify[T](value: Awaitable[T] | T) -> T:
     return cast("T", value)
 
 
-def dictify(obj: object) -> dict[str, Any]:
-    def includes(key: str) -> bool:
-        return not key.startswith("__")
-
-    try:
-        if is_mapping(obj):
-            return dict(obj)
-        if is_dataclass_instance(obj):
-            return dataclasses.asdict(obj)
-        if isinstance(obj, BaseModel):
-            return {
-                key: getattr(obj, key) for key in obj.__class__.model_fields.keys() if includes(key)
-            }
-        if isinstance(obj, type):
-            return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
-        slots: tuple[str, ...] | None = getattr(obj, "__slots__", None)
-        if slots is not None:
-            return {name: getattr(obj, name) for name in slots if includes(name)}
-        return {key: value for key, value in obj.__dict__.items() if includes(key)}
-    except Exception:
-        raise ValueError("object cannot be dictified")
-
-
-class DataclassLike(Protocol):
-    __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
-    __dataclass_params__: ClassVar[Any]
-    __post_init__: Any
-
-
-class PydanticDataclassLike(DataclassLike, Protocol):
-    __pydantic_config__: ClassVar[ConfigDict]
-    __pydantic_complete__: ClassVar[bool]
-    __pydantic_core_schema__: ClassVar[CoreSchema]
-    __pydantic_decorators__: ClassVar[Any]
-    __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
-    __pydantic_serializer__: ClassVar[SchemaSerializer]
-    __pydantic_validator__: ClassVar[SchemaValidator]
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-
-
-def is_dataclass_instance(obj: object) -> TypeIs[DataclassLike]:
-    """
-    >>> from dataclasses import dataclass
-    >>>
-    >>> @dataclass
-    ... class Dataclass:
-    ...    pass
-    >>>
-    >>> is_dataclass_instance(Dataclass())
-    True
-    >>> is_dataclass_instance(Dataclass)
-    False
-    >>>
-    >>> class Normal:
-    ...    pass
-    >>>
-    >>> is_dataclass_instance(Normal())
-    False
-    >>> is_dataclass_instance(Normal)
-    False
-    """
-    return not isinstance(obj, type) and is_dataclass(obj)
-
-
-def is_dataclass_type(obj: object) -> TypeIs[DataclassLike]:
-    """
-    >>> from dataclasses import dataclass
-    >>>
-    >>> @dataclass
-    ... class Dataclass:
-    ...    pass
-    >>>
-    >>> is_dataclass_type(Dataclass)
-    True
-    >>> is_dataclass_type(Dataclass())
-    False
-    >>>
-    >>> class Normal:
-    ...    pass
-    >>> is_dataclass_type(Normal)
-    False
-    >>> is_dataclass_type(Normal())
-    False
-    """
-    return isinstance(obj, type) and is_dataclass(obj)
-
-
-def is_dataclass(obj: object) -> TypeIs[DataclassLike | type[DataclassLike]]:
-    return dataclasses.is_dataclass(obj)
-
-
-def is_pydantic_dataclass_type(obj: object) -> TypeIs[type[PydanticDataclassLike]]:
-    return isinstance(obj, type) and is_pydantic_dataclass(obj)
-
-
-def is_pydantic_dataclass_instance(obj: object) -> TypeIs[PydanticDataclassLike]:
-    return not isinstance(obj, type) and is_pydantic_dataclass(obj)
-
-
-def is_pydantic_dataclass(
-    obj: object,
-) -> TypeIs[PydanticDataclassLike | type[PydanticDataclassLike]]:
-    return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_core_schema__")
-
-
-ModelLike = BaseModel | PydanticDataclassLike
-
-
-def snakecase(text: str) -> str:
+def snakecase(text: str, /) -> str:
     """
     >>> snakecase("Hello World")
     'hello_world'
@@ -219,7 +106,7 @@ def snakecase(text: str) -> str:
     return to_snake(text)
 
 
-def kebabcase(text: str) -> str:
+def kebabcase(text: str, /) -> str:
     """
     >>> kebabcase("Hello World")
     'hello-world'
@@ -235,7 +122,7 @@ def kebabcase(text: str) -> str:
     return snakecase(text).replace("_", "-")
 
 
-def ucamelcase(text: str) -> str:
+def ucamelcase(text: str, /) -> str:
     """
     >>> upper_camelcase("Hello World")
     'HelloWorld'
@@ -260,7 +147,7 @@ def ucamelcase(text: str) -> str:
     return text[0].upper() + text[1:]  # Capitalize the first letter.
 
 
-def titlecase(string: str) -> str:
+def titlecase(string: str, /) -> str:
     """
     >>> titlecase("Hello World")
     'Hello World'
@@ -276,132 +163,23 @@ def titlecase(string: str) -> str:
     return " ".join(segment.capitalize() for segment in snakecase(string).split("_"))
 
 
-def randstr(characters: str, length: int) -> str:
+def randstr(characters: str, length: int, /) -> str:
     import random
 
     return "".join(random.choice(characters) for _ in range(length))
 
 
-_DELTA_MS = timedelta(milliseconds=1)
-_DELTA_S = timedelta(seconds=1)
-_DELTA_M = timedelta(minutes=1)
-_DELTA_H = timedelta(hours=1)
-_DELTA_D = timedelta(days=1)
-
-
-def encode_td(
-    value: timedelta,
-    *,
-    decimals: int | None = None,
-    space: bool = False,
-) -> str:
-    if value < _DELTA_MS:
-        number, unit = float(value.microseconds), "us"
-    elif value < _DELTA_S:
-        number, unit = value.microseconds / 1000, "ms"
-    elif value < _DELTA_M:
-        number, unit = value.total_seconds(), "s"
-    elif value < _DELTA_H:
-        number, unit = value.total_seconds() / 60, "m"
-    elif value < _DELTA_D:
-        number, unit = value.total_seconds() / (60 * 60), "h"
-    else:
-        number, unit = value.total_seconds() / (60 * 60 * 24), "d"
-
-    if decimals is not None:
-        number_text = f"{number:.{decimals}f}"
-    else:
-        number_text = f"{number}"
-
-    number_text = number_text.rstrip("0").rstrip(".")
-
-    if space:
-        return f"{number_text} {unit}"
-    else:
-        return f"{number_text}{unit}"
-
-
-def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
-    if isinstance(value, timedelta):
-        return value
-
-    def get_exception() -> ValueError:
-        return ValueError(
-            "invalid timedelta value, must be a ISO formatted interval or number with suffix 'us', "
-            "'ms', 's', 'm', 'h' or 'd'."
-        )
-
-    if isinstance(value, str):
-        try:
-            return get_type_adapter(timedelta).validate_python(value)
-        except Exception:
-            pass
-
-        try:
-            value = int(value)
-            return timedelta(seconds=value)
-        except Exception:
-            pass
-
-        try:
-            value = float(value)
-            return timedelta(seconds=value)
-        except Exception:
-            pass
-
-        value = str(value).strip().lower()
-
-        if value.endswith("us"):
-            decoded_unit = "us"
-        elif value.endswith("ms"):
-            decoded_unit = "ms"
-        elif value.endswith("s"):
-            decoded_unit = "s"
-        elif value.endswith("m"):
-            decoded_unit = "m"
-        elif value.endswith("h"):
-            decoded_unit = "h"
-        elif value.endswith("d"):
-            decoded_unit = "d"
-        else:
-            raise get_exception()
-
-        try:
-            decoded_value = float(value[: -len(decoded_unit)].strip())
-        except Exception:
-            raise get_exception()
-
-        match decoded_unit:
-            case "us":
-                return timedelta(microseconds=decoded_value)
-            case "ms":
-                return timedelta(milliseconds=decoded_value)
-            case "s":
-                return timedelta(seconds=decoded_value)
-            case "m":
-                return timedelta(minutes=decoded_value)
-            case "h":
-                return timedelta(hours=decoded_value)
-            case "d":
-                return timedelta(days=decoded_value)
-
-    if isinstance(value, (int, float)):
-        return timedelta(seconds=value)
-
-    raise get_exception()
-
-
 Stringy: TypeAlias = str | bytes | bytearray | memoryview
 
 
-def is_stringy(obj: Any) -> TypeIs[Stringy]:
+def is_stringy(obj: Any, /) -> TypeIs[Stringy]:
     if obj is None:
         return False
 
     return isinstance(obj, Stringy)
 
 
-def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
+def is_iterable(obj: Any, /) -> TypeIs[Iterable[Any]]:
     if obj is None:
         return False
     if not isinstance(obj, Iterable):
@@ -415,14 +193,14 @@ def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
     return True
 
 
-def is_true_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
+def is_true_iterable(obj: Any, /) -> TypeIs[Iterable[Any]]:
     return is_iterable(obj) and not is_stringy(obj) and not isinstance(obj, Future)
 
 
-def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
+def is_collection(obj: Any, /) -> TypeIs[Collection[Any]]:
     if obj is None:
         return False
-    if isinstance(obj, (list, tuple, set, frozenset)):
+    if isinstance(obj, list | tuple | set | frozenset):
         return True
     if not isinstance(obj, Collection):
         return False
@@ -436,14 +214,14 @@ def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
     return True
 
 
-def is_true_collection(obj: Any) -> TypeIs[Collection[Any]]:
+def is_true_collection(obj: Any, /) -> TypeIs[Collection[Any]]:
     return is_collection(obj) and not is_stringy(obj)
 
 
-def is_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
+def is_sequence(obj: Any, /) -> TypeIs[Sequence[Any]]:
     if obj is None:
         return False
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, list | tuple):
         return True
     if not isinstance(obj, Sequence):
         return False
@@ -457,11 +235,11 @@ def is_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
     return True
 
 
-def is_true_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
+def is_true_sequence(obj: Any, /) -> TypeIs[Sequence[Any]]:
     return is_sequence(obj) and not is_stringy(obj)
 
 
-def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
+def is_mapping(obj: Any, /) -> TypeIs[Mapping[Any, Any]]:
     if obj is None:
         return False
     if isinstance(obj, dict):
@@ -479,9 +257,11 @@ def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
 
 def traverse(
     obj: object,
+    /,
     visit: Callable[[object], bool | None],
     seen: set[int] | None = None,
 ) -> None:
+
     if seen is None:
         seen = set()
     if id(obj) in seen:
@@ -496,14 +276,17 @@ def traverse(
     if obj is None:
         return
 
+    undefined = object()
     if isinstance(obj, BaseModel):
-        for name in obj.__class__.model_fields.keys():
-            element = getattr(obj, name, None)
-            traverse(element, visit, seen)
-    elif is_dataclass_instance(obj):
+        for field_name, field in obj.__class__.model_fields.items():
+            element = getattr(obj, field_name, undefined)
+            if element is not undefined:
+                traverse(element, visit, seen)
+    elif not isinstance(obj, type) and dataclasses.is_dataclass(obj):
         for field in dataclasses.fields(obj):
-            element = getattr(obj, field.name, None)
-            traverse(element, visit, seen)
+            element = getattr(obj, field.name, undefined)
+            if element is not undefined:
+                traverse(element, visit, seen)
     elif is_mapping(obj):
         for key, value in obj.items():
             traverse(key, visit, seen)
@@ -514,8 +297,8 @@ def traverse(
 
 
 if TYPE_CHECKING:
-    from builtins import isinstance as lenient_isinstance  # type: ignore
-    from builtins import issubclass as lenient_issubclass  # type: ignore
+    from builtins import isinstance as lenient_isinstance
+    from builtins import issubclass as lenient_issubclass
 else:
 
     def lenient_isinstance(obj, cls):
@@ -538,14 +321,7 @@ async def sleep_forever() -> None:
         await asyncio.sleep(math.inf)
 
 
-def get_event_loop_or_none() -> AbstractEventLoop | None:
-    try:
-        return asyncio.get_running_loop()
-    except RuntimeError:
-        return None
-
-
-def dbg[T](value: T) -> T:
+def dbg[T](value: T, /) -> T:
     import rich
 
     rich.print(value)
@@ -554,23 +330,77 @@ def dbg[T](value: T) -> T:
 
 @overload
 def cached[T: Callable[..., Any]](
-    function: None = None, *, max_size: int | None = None
+    function: None = None,
+    /,
+    storage: MutableMapping[Any, Any] | None = None,
+    weak: bool = False,
 ) -> Callable[[T], T]: ...
 
 
 @overload
-def cached[T: Callable[..., Any]](function: T) -> T: ...
+def cached[T: Callable[..., Any]](function: T, /) -> T: ...
 
 
 def cached[T: Callable[..., Any]](
     function: T | None = None,
-    *,
-    max_size: int | None = None,
+    /,
+    storage: MutableMapping[Any, Any] | None = None,
+    weak: bool = False,
 ) -> T | Callable[[T], T]:
-    from functools import lru_cache
+    if weak:
+        if storage is not None:
+            raise ValueError("Cannot use custom storage with weak-key caching.")
+
+        storage = WeakKeyDictionary()
+    elif storage is None:
+        storage = {}
+
+    lock = RLock()
 
     def cached(function: T) -> T:
-        return lru_cache(maxsize=max_size)(function)  # type: ignore
+        parameters = inspect.signature(function, annotation_format=Format.FORWARDREF).parameters
+        if len(parameters) == 0:
+            value: Any = Undefined
+
+            def wrapper():
+                nonlocal value
+                if value is Undefined:
+                    with lock:
+                        value = function()
+
+                return value
+
+            return cast("T", wrapper)
+
+        if len(parameters) == 1 and list(parameters.values())[0].kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+
+            def wrapper(arg: Any):
+                cached = storage.get(arg, Undefined)
+                if cached is not Undefined:
+                    return cached
+
+                with lock:
+                    return storage.setdefault(arg, function(arg))
+        else:
+
+            def wrapper(*args, **kwargs):
+                key = (
+                    args,
+                    None
+                    if not kwargs
+                    else tuple((key, value) for key, value in sorted(kwargs.items())),
+                )
+                cached = storage.get(key, Undefined)
+                if cached is not Undefined:
+                    return cached
+
+                with lock:
+                    return storage.setdefault(key, function(*args, **kwargs))
+
+        return cast("T", wraps(function)(wrapper))
 
     if function is None:
         return cached
@@ -578,7 +408,7 @@ def cached[T: Callable[..., Any]](
     return cached(function)
 
 
-def get_function_name(function: Callable[..., Any]) -> str:
+def get_function_name(function: Callable[..., Any], /) -> str:
     original = function.__name__
 
     if function.__name__.startswith("__") and not function.__name__.endswith("__"):
@@ -591,7 +421,7 @@ def get_function_name(function: Callable[..., Any]) -> str:
     return original
 
 
-def get_inner_function(function: Callable[..., Any]) -> Callable[..., Any]:
+def get_inner_function(function: Callable[..., Any], /) -> Callable[..., Any]:
     while True:
         __wrapped__ = getattr(function, "__wrapped__", None)
         if __wrapped__ is not None:
@@ -610,6 +440,7 @@ def get_inner_function(function: Callable[..., Any]) -> Callable[..., Any]:
 
 def get_args_model(
     function: Callable[..., Any],
+    /,
     *,
     model_name: str | None = None,
     model_module: str | None = None,
@@ -690,7 +521,7 @@ type RecursiveIterable[T] = Iterable[T | RecursiveIterable[T]]
 type MaybeRecursiveIterable[T] = T | RecursiveIterable[T]
 
 
-def flatten[T](value: RecursiveIterable[T]) -> Iterator[T]:
+def flatten[T](value: RecursiveIterable[T], /) -> Iterator[T]:
     for current in value:
         if is_true_iterable(current):
             yield from flatten(current)
@@ -721,7 +552,7 @@ class MatchMode(Enum):
 
 
 def match_string[T: (str, bytes)](
-    value: T,
+    value: T | None,
     possibilities: MaybeSequence[T] | None,
     mode: MatchMode,
     *,
@@ -729,6 +560,9 @@ def match_string[T: (str, bytes)](
 ) -> bool:
     if possibilities is None:
         return True
+
+    if value is None:
+        return False
 
     possibilities = seq(possibilities)
     if not possibilities:
@@ -766,7 +600,7 @@ def _escape_like_expression[T: (str, bytes)](text: T, escape: str) -> T:
 
 
 def sql_match_string[T: (str, bytes)](
-    expression: SQLColumnExpression[T],
+    expression: SQLColumnExpression[T | None],
     value: MaybeSequence[T],
     mode: MatchMode,
     *,
@@ -808,36 +642,25 @@ def sql_match_string[T: (str, bytes)](
     raise ValueError(f"invalid mode: {mode!r}")
 
 
-def tokenize_bytes(value: bytes) -> str:
+def tokenize_bytes(value: bytes, /) -> str:
     if not value:
         return ""
 
     return value.hex(b" ") + " "
 
 
-BytesLike: TypeAlias = str | bytes | bytearray | memoryview
-
-
-def bytes_of(data: BytesLike) -> bytes:
-    if isinstance(data, bytes):
-        return data
-    if isinstance(data, str):
-        return data.encode("utf-8")
-    return bytes(data)
-
-
-_K = TypeVar("_K")
-_V = TypeVar("_V")
-
-
-def _hash(value: object) -> Hashable:
+def _hash(value: object, /) -> Hashable:
     if isinstance(value, Hashable):
         return hash(value)
 
     return id(value)
 
 
-def uniquify[T](iterable: Iterable[T], key: Callable[[T], Hashable] | None = None) -> Iterable[T]:
+def uniquify[T](
+    iterable: Iterable[T],
+    /,
+    key: Callable[[T], Hashable] | None = None,
+) -> Iterable[T]:
     if key is None:
         key = _hash
 
@@ -852,24 +675,22 @@ def uniquify[T](iterable: Iterable[T], key: Callable[[T], Hashable] | None = Non
         yield value
 
 
-def group_by[K, V](iterable: Iterable[V], key: Callable[[V], K]) -> Iterable[tuple[K, list[V]]]:
+def group_by[K, V](
+    iterable: Iterable[V],
+    /,
+    key: Callable[[V], K],
+) -> Iterable[tuple[K, list[V]]]:
     groups: defaultdict[K, list[V]] = defaultdict(list)
     for value in iterable:
         groups[key(value)].append(value)
-    for item in groups.items():
-        yield item
+    yield from groups.items()
 
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-
     from ceres.database import Database
 else:
     Database = object
-    AsyncSession = object
 
-
-_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 if TYPE_CHECKING:
     from pydantic._internal._validate_call import ValidateCallWrapper
@@ -884,7 +705,8 @@ DEFAULT_VALIDATED_FUNCTION_CONFIG = ConfigDict(
 
 
 def create_validated_function(
-    __func: Callable[..., Any],
+    function: Callable[..., Any],
+    /,
     *,
     config: ConfigDict | None = None,
     validate_return: bool = False,
@@ -893,45 +715,33 @@ def create_validated_function(
         **DEFAULT_VALIDATED_FUNCTION_CONFIG,
         **(config or {}),
     }
-    return validate_call(config=config, validate_return=validate_return)(__func)  # type: ignore
+    return validate_call(config=config, validate_return=validate_return)(function)  # type: ignore
 
 
 @overload
-def validated_function(
+def validated_function[T: Callable[..., Any]](
     *,
     config: ConfigDict | None = None,
     validate_return: bool = False,
-) -> Callable[[_CallableT], _CallableT]: ...
+) -> Callable[[T], T]: ...
 
 
 @overload
-def validated_function(__func: _CallableT) -> _CallableT: ...
+def validated_function[T: Callable[..., Any]](function: T, /) -> T: ...
 
 
-def validated_function(
-    __func: _CallableT | None = None,
+def validated_function[T: Callable[..., Any]](
+    function: T | None = None,
+    /,
     *,
     config: ConfigDict | None = None,
     validate_return: bool = False,
-) -> _CallableT | Callable[[_CallableT], _CallableT]:
+) -> T | Callable[[T], T]:
     config = {
         **DEFAULT_VALIDATED_FUNCTION_CONFIG,
         **(config or {}),
     }
-    return validate_call(config=config, validate_return=validate_return)(__func)  # type: ignore
-
-
-@overload
-def get_type_adapter[T](type_: type[T]) -> TypeAdapter[T]: ...
-
-
-@overload
-def get_type_adapter[T](type_: T) -> TypeAdapter[T]: ...
-
-
-@cached(max_size=500)
-def get_type_adapter[T](type_: type[T] | T) -> TypeAdapter[T]:
-    return TypeAdapter(type_)
+    return validate_call(config=config, validate_return=validate_return)(function)  # type: ignore
 
 
 def get_traceback(exception: BaseException) -> list[str]:
@@ -941,21 +751,25 @@ def get_traceback(exception: BaseException) -> list[str]:
 
 
 @overload
-def seq[T: Stringy](value: T) -> Sequence[T]: ...
+def seq[T: Stringy](value: T, /) -> Sequence[T]: ...
 
 
 @overload
-def seq[T](value: T | Sequence[T]) -> Sequence[T]: ...
+def seq[T](value: T | Sequence[T], /) -> Sequence[T]: ...
 
 
-def seq[T](value: T | Sequence[T]) -> Sequence[T]:
+def seq[T](value: T | Sequence[T], /) -> Sequence[T]:
     if is_true_sequence(value):
         return value
 
     return (value,)
 
 
-Undefined = object()
+class UndefinedType(Enum):
+    Instance = 0
+
+
+Undefined = UndefinedType.Instance
 
 PathLike = str | _BasePathLike[str]
 
@@ -983,42 +797,39 @@ def call_partial[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kw
     return function(*applied_args, **applied_kwargs)  # type: ignore
 
 
-_T = TypeVar("_T")
-_S = TypeVar("_S")
-
-
-class OrderedSet(set[_T]):
+class OrderedSet[T](set[T]):
     __slots__ = ("_list",)
 
-    _list: List[_T]
+    _list: list[T]
 
-    def __init__(self, d: Optional[Iterable[_T]] = None) -> None:
-        if d is not None:
-            self._list = list(uniquify(d))
+    @override
+    def __init__(self, values: Iterable[T] | None = None, /) -> None:
+        if values is not None:
+            self._list = list(uniquify(values))
             super().update(self._list)
         else:
             self._list = []
 
     @override
-    def copy(self) -> OrderedSet[_T]:
+    def copy(self) -> OrderedSet[T]:
         cp = self.__class__()
         cp._list = self._list.copy()
         set.update(cp, cp._list)
         return cp
 
     @override
-    def add(self, element: _T) -> None:
+    def add(self, element: T) -> None:
         if element not in self:
             self._list.append(element)
         super().add(element)
 
     @override
-    def remove(self, element: _T) -> None:
+    def remove(self, element: T) -> None:
         super().remove(element)
         self._list.remove(element)
 
     @override
-    def pop(self) -> _T:
+    def pop(self) -> T:
         try:
             value = self._list.pop()
         except IndexError:
@@ -1026,13 +837,13 @@ class OrderedSet(set[_T]):
         super().remove(value)
         return value
 
-    def insert(self, pos: int, element: _T) -> None:
+    def insert(self, pos: int, element: T) -> None:
         if element not in self:
             self._list.insert(pos, element)
         super().add(element)
 
     @override
-    def discard(self, element: _T) -> None:
+    def discard(self, element: T) -> None:
         if element in self:
             self._list.remove(element)
             super().remove(element)
@@ -1042,24 +853,24 @@ class OrderedSet(set[_T]):
         super().clear()
         self._list = []
 
-    def __getitem__(self, key: int) -> _T:
+    def __getitem__(self, key: int) -> T:
         return self._list[key]
 
     @override
-    def __iter__(self) -> Iterator[_T]:
+    def __iter__(self) -> Iterator[T]:
         return iter(self._list)
 
-    def __add__(self, other: Iterator[_T]) -> OrderedSet[_T]:
+    def __add__(self, other: Iterator[T]) -> OrderedSet[T]:
         return self.union(other)
 
     @override
     def __repr__(self) -> str:
-        return "%s(%r)" % (self.__class__.__name__, self._list)
+        return f"{self.__class__.__name__}({self._list!r})"
 
     __str__ = __repr__
 
     @override
-    def update(self, *iterables: Iterable[_T]) -> None:
+    def update(self, *iterables: Iterable[T]) -> None:
         for iterable in iterables:
             for e in iterable:
                 if e not in self:
@@ -1067,33 +878,33 @@ class OrderedSet(set[_T]):
                     super().add(e)
 
     @override
-    def __ior__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:  # type: ignore
+    def __ior__[O](self, other: Set[O]) -> OrderedSet[T | O]:  # type: ignore
         self.update(other)  # type: ignore
         return self  # type: ignore
 
     @override
-    def union(self, *other: Iterable[_S]) -> OrderedSet[Union[_T, _S]]:
-        result: OrderedSet[Union[_T, _S]] = self.copy()  # type: ignore
+    def union[O](self, *other: Iterable[O]) -> OrderedSet[T | O]:
+        result: OrderedSet[T | O] = self.copy()  # type: ignore
         result.update(*other)
         return result
 
     @override
-    def __or__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:
+    def __or__[O](self, other: Set[O]) -> OrderedSet[T | O]:
         return self.union(other)
 
     @override
-    def intersection(self, *other: Iterable[Any]) -> OrderedSet[_T]:
+    def intersection(self, *other: Iterable[Any]) -> OrderedSet[T]:
         other_set: set[Any] = set()
         other_set.update(*other)
         return self.__class__(a for a in self if a in other_set)
 
     @override
-    def __and__(self, other: AbstractSet[object]) -> OrderedSet[_T]:
+    def __and__(self, other: Set[Any]) -> OrderedSet[T]:
         return self.intersection(other)
 
     @override
-    def symmetric_difference(self, other: Iterable[_T]) -> OrderedSet[_T]:
-        collection: Collection[_T]
+    def symmetric_difference(self, other: Iterable[T]) -> OrderedSet[T]:
+        collection: Collection[T]
         if isinstance(other, set):
             collection = other_set = other
         elif isinstance(other, Collection):
@@ -1107,16 +918,16 @@ class OrderedSet(set[_T]):
         return result
 
     @override
-    def __xor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:
-        return cast("OrderedSet[Union[_T, _S]]", self).symmetric_difference(other)
+    def __xor__[O](self, other: Set[O]) -> OrderedSet[T | O]:
+        return cast("OrderedSet[T | O]", self).symmetric_difference(other)
 
     @override
-    def difference(self, *other: Iterable[Any]) -> OrderedSet[_T]:
+    def difference(self, *other: Iterable[Any]) -> OrderedSet[T]:
         other_set = super().difference(*other)
         return self.__class__(a for a in self._list if a in other_set)
 
     @override
-    def __sub__(self, other: AbstractSet[Optional[_T]]) -> OrderedSet[_T]:
+    def __sub__(self, other: Set[T | None]) -> OrderedSet[T]:
         return self.difference(other)
 
     @override
@@ -1125,7 +936,7 @@ class OrderedSet(set[_T]):
         self._list = [a for a in self._list if a in self]
 
     @override
-    def __iand__(self, other: AbstractSet[object]) -> OrderedSet[_T]:
+    def __iand__(self, other: Set[object]) -> OrderedSet[T]:
         self.intersection_update(other)
         return self
 
@@ -1137,16 +948,16 @@ class OrderedSet(set[_T]):
         self._list += [a for a in collection if a in self]
 
     @override
-    def __ixor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:  # type: ignore
+    def __ixor__[O](self, other: Set[O]) -> OrderedSet[T | O]:  # type: ignore
         self.symmetric_difference_update(other)
-        return cast("OrderedSet[Union[_T, _S]]", self)
+        return cast("OrderedSet[T | O]", self)
 
     @override
     def difference_update(self, *other: Iterable[Any]) -> None:
         super().difference_update(*other)
         self._list = [a for a in self._list if a in self]
 
-    def __isub__(self, other: AbstractSet[Optional[_T]]) -> OrderedSet[_T]:  # type: ignore  # noqa: E501
+    def __isub__(self, other: Set[T | None]) -> OrderedSet[T]:  # type: ignore  # noqa: E501
         self.difference_update(other)
         return self
 
@@ -1255,23 +1066,6 @@ def model_apply_overrides[T: BaseModel](model: T, overrides: T | None) -> T:
     return model.model_copy(update=update)
 
 
-def model_apply_defaults[T: BaseModel](model: T, defaults: T | None) -> T:
-    if defaults is None:
-        return model
-
-    update: dict[str, Any] = {}
-
-    for attribute in defaults.model_fields_set:
-        if attribute not in model.model_fields_set:
-            update[attribute] = getattr(defaults, attribute)
-
-    return model.model_copy(update=update)
-
-
-def model_is_empty(model: BaseModel) -> bool:
-    return not all(getattr(model, field, None) is None for field in model.model_fields_set)
-
-
 _SQLITE_UNIQUE_ERROR_REGEX = re.compile(
     r"UNIQUE constraint failed: (.+?)\.(?P<column>.+?)",
     re.MULTILINE | re.DOTALL,
@@ -1312,10 +1106,7 @@ def wrap_database_errors() -> Iterator[None]:
 
         if isinstance(
             exception,
-            (
-                sqlalchemy.exc.ArgumentError,
-                sqlalchemy.exc.InvalidRequestError,
-            ),
+            sqlalchemy.exc.ArgumentError | sqlalchemy.exc.InvalidRequestError,
         ):
             raise Failure(
                 DatabaseProgrammingError(
@@ -1349,35 +1140,70 @@ def wrap_database_errors() -> Iterator[None]:
         raise Failure(DatabaseUnexpectedError(message=str(exception)))
 
 
-class classproperty(property):
-    fget: Callable[[Any], Any]
+def class_property[C, V](
+    fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+) -> ClassProperty[C, V]:
+    return ClassProperty(fget)
 
-    def __init__(self, fget: Callable[[Any], Any], *arg: Any, **kw: Any):
-        super().__init__(fget, *arg, **kw)
+
+def cached_class_property[C, V](
+    fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+) -> ClassProperty[C, V]:
+    return CachedClassProperty(fget)
+
+
+class ClassProperty[C, V]:
+    def __init__(
+        self,
+        fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+    ) -> None:
+        if isinstance(fget, classmethod):
+            fget = fget.__func__
+
         self.__doc__ = fget.__doc__
+        self.__name__: str = fget.__name__
+        self.fget: Callable[[type[C]], V] = fget
+
+    def __set_name__(self, definer: type[C], name: str, /) -> None:
+        self.__name__ = name
+        # Assigning the class property with an annotation in a dataclass's body will cause the class
+        # property to be computed immediately as the dataclass is being built, which is bad and will
+        # likely cause errors. Removing the annotation allows specifying a type annotation when
+        # using the assignment syntax without it causing issues.
+        definer.__annotations__.pop(name, None)
+
+    def __get__(self, obj: C | None, owner: type[C], /) -> V:
+        return self.fget(owner)
+
+    def __invert__(self) -> Any:
+        return self
+
+
+class CachedClassProperty[C, V](ClassProperty[C, V]):
+    @override
+    def __init__(
+        self,
+        fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+    ) -> None:
+        super().__init__(fget)
+
+        from threading import RLock
+
+        self._cache: dict[type, Any] = {}
+        self._lock = RLock()
 
     @override
-    def __get__(self, obj: Any, cls: type | None = None) -> Any:
-        return self.fget(cls)
+    def __get__(self, obj: C | None, owner: type[C], /) -> V:
+        value = self._cache.get(owner, Undefined)
+        if value is Undefined:
+            with self._lock:
+                value = super().__get__(obj, owner)
+                value = self._cache.setdefault(owner, value)
+
+        return value
 
 
 _object_setattr = object.__setattr__
-
-
-def construct_model[T: BaseModel](cls: type[T], values: Mapping[Any, Any]) -> T:
-    instance = cls.__new__(cls)
-    _object_setattr(instance, "__dict__", dict(values))
-    _object_setattr(instance, "__pydantic_fields_set__", set(values.keys()))
-    _object_setattr(instance, "__pydantic_extra__", None)
-
-    if cls.__pydantic_post_init__:
-        instance.model_post_init(None)
-        if hasattr(instance, "__pydantic_private__") and instance.__pydantic_private__ is not None:
-            for key, value in values.items():
-                if key in instance.__private_attributes__:
-                    instance.__pydantic_private__[key] = value
-
-    return instance
 
 
 async def run_in_loop[T](
@@ -1420,6 +1246,7 @@ LINUX = platform.system() == "Linux"
 MACOS = platform.system() == "Darwin"
 WINDOWS = platform.system() == "Windows"
 UNIX = not WINDOWS
+FREE_THREADED = "free" in sys.version
 
 
 def get_temporary_directory() -> Path:
@@ -1454,3 +1281,181 @@ if __name__ == "__main__":
     from doctest import testmod
 
     testmod()
+
+_TRANSPARENT_TYPES = frozenset(
+    {
+        Optional,
+        Annotated,
+        ClassVar,
+        Required,
+        NotRequired,
+    }
+)
+
+
+def is_assignable(
+    variable_type: Any,
+    assigned_type: Any,
+    /,
+) -> bool:
+    if assigned_type is Any or variable_type is Any:
+        return True
+    if assigned_type is object:
+        return True
+
+    if isinstance(assigned_type, UnionType):
+        # Ensure all options in the assigned type are assignable to the variable type.
+        return all(is_assignable(variable_type, option) for option in get_args(assigned_type))
+    if isinstance(variable_type, UnionType):
+        # Ensure at least one option in the variable type is assignable to the assigned type.
+        return any(is_assignable(option, assigned_type) for option in get_args(variable_type))
+
+    origin = get_origin(variable_type)
+    try:
+        args = get_args(variable_type)
+    except Exception:
+        args = ()
+
+    # If the variable type is transparent, check if the contained type is assignable.
+    if args and (origin in _TRANSPARENT_TYPES):
+        inner = args[0]
+        if is_assignable(inner, assigned_type):
+            return True
+
+    # If the variable type is a type alias, check if the contained type is assignable.
+    try:
+        from typing import TypeAliasType
+
+        if isinstance(variable_type, TypeAliasType):
+            return is_assignable(variable_type.__value__, assigned_type)
+    except ImportError:
+        pass
+
+    # Finally, check if the assigned type is a just class that is a subclass of the variable type.
+    return (
+        isinstance(variable_type, type)
+        and isinstance(assigned_type, type)
+        and issubclass(variable_type, assigned_type)
+    )
+
+
+class RequireSlots:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+
+        if cls.__module__.startswith("ceres."):
+            if "__slots__" not in cls.__dict__:
+                raise TypeError(f"{cls} must define `__slots__`.")
+
+
+def declared_slots_of(cls: type) -> list[str]:
+    slots: dict[str, None] = {}
+
+    for current in reversed(cls.__mro__):
+        __slots__ = getattr(current, "__slots__", ())
+        if isinstance(__slots__, str):
+            __slots__ = (__slots__,)
+        for slot in __slots__:
+            slots[slot] = None
+
+    return list(slots)
+
+
+class LRUCache[K, V](MutableMapping[K, V]):
+    __slots__ = (
+        "capacity",
+        "threshold",
+        "size_alert",
+        "_data",
+        "_counter",
+        "_mutex",
+    )
+
+    capacity: int
+    threshold: float
+    size_alert: Callable[[LRUCache[K, V]], None] | None
+
+    def __init__(
+        self,
+        capacity: int = 100,
+        threshold: float = 0.5,
+        size_alert: Callable[..., None] | None = None,
+    ):
+        import threading
+
+        self.capacity = capacity
+        self.threshold = threshold
+        self.size_alert = size_alert
+        self._counter = 0
+        self._mutex = threading.Lock()
+        self._data: dict[K, tuple[K, V, list[int]]] = {}
+
+    def _inc_counter(self):
+        self._counter += 1
+        return self._counter
+
+    @overload
+    def get(self, key: K) -> V | None: ...
+    @overload
+    def get[T](self, key: K, default: V | T) -> V | T: ...
+    @override
+    def get[T](self, key: K, default: V | T | None = None) -> V | T | None:
+        item = self._data.get(key)
+        if item is not None:
+            item[2][0] = self._inc_counter()
+            return item[1]
+        else:
+            return default
+
+    @override
+    def __getitem__(self, key: K) -> V:
+        item = self._data[key]
+        item[2][0] = self._inc_counter()
+        return item[1]
+
+    @override
+    def __iter__(self) -> Iterator[K]:
+        return iter(self._data)
+
+    @override
+    def __len__(self) -> int:
+        return len(self._data)
+
+    @override
+    def values(self) -> ValuesView[V]:
+        return ValuesView({k: i[1] for k, i in self._data.items()})
+
+    @override
+    def __setitem__(self, key: K, value: V, /) -> None:
+        self._data[key] = (key, value, [self._inc_counter()])
+        self._manage_size()
+
+    @override
+    def __delitem__(self, key: K, /) -> None:
+        del self._data[key]
+
+    @property
+    def size_threshold(self) -> float:
+        return self.capacity + self.capacity * self.threshold
+
+    def _manage_size(self) -> None:
+        if not self._mutex.acquire(False):
+            return
+        try:
+            size_alert = bool(self.size_alert)
+            while len(self) > self.capacity + self.capacity * self.threshold:
+                if size_alert:
+                    size_alert = False
+                    self.size_alert(self)  # type: ignore
+                by_counter = sorted(
+                    self._data.values(),
+                    key=operator.itemgetter(2),
+                    reverse=True,
+                )
+                for item in by_counter[self.capacity :]:
+                    try:
+                        del self._data[item[0]]
+                    except KeyError:
+                        continue
+        finally:
+            self._mutex.release()

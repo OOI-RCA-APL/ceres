@@ -1,5 +1,6 @@
+from collections.abc import Sized
 from types import NoneType
-from typing import Iterable, Sized, cast
+from typing import cast
 
 from ceres import Component, Reference
 from ceres.address import Address
@@ -9,25 +10,23 @@ from ceres.reference import Ref, ref, unref
 def test_runtime_type_checks():
     component = Component()
 
-    class IterableComponent(Component):
-        def __iter__(self):
-            yield 1
+    class SizedComponent(Component):
+        def __len__(self) -> int:
+            return 1
 
-    iterable = IterableComponent()
+    iterable = SizedComponent()
 
-    assert not isinstance(component, Iterable)
-    assert not isinstance(Reference(component), Iterable)
-    assert not issubclass(Component, Iterable)
-    assert not issubclass(Reference, Iterable)
-    assert not issubclass(Reference[Component], Iterable)
+    assert not isinstance(component, Sized)
+    assert not isinstance(Reference(component), Sized)
+    assert not issubclass(Component, Sized)
+    assert not issubclass(Reference, Sized)
     assert not issubclass(Reference[Component], Sized)
 
-    assert isinstance(iterable, Iterable)
-    assert isinstance(Reference(iterable), Iterable)
-    assert issubclass(IterableComponent, Iterable)
-    assert issubclass(IterableComponent, Iterable)
-    assert issubclass(Reference[IterableComponent], Iterable)
-    assert not issubclass(Reference[IterableComponent], Sized)
+    assert isinstance(iterable, Sized)
+    assert isinstance(Reference(iterable), Sized)
+    assert issubclass(SizedComponent, Sized)
+    assert issubclass(SizedComponent, Sized)
+    assert issubclass(Reference[SizedComponent], Sized)
 
 
 def test_property_proxying():
@@ -117,15 +116,13 @@ def test_indirect_references():
         c: Ref[C]
 
     a = A("a")
-    a.system.attach((b := B("b")))
-    a.system.attach((c := C("c", b=ref(b.system.address, B))))
+    a.system.attach(b := B("b"))
+    a.system.attach(c := C("c", b=ref(b.system.address, B)))
     a.system.attach(
-        (
-            d := D(
-                "d",
-                b=ref(b.system.address, B),
-                c=ref(c.system.address, C),
-            )
+        d := D(
+            "d",
+            b=ref(b.system.address, B),
+            c=ref(c.system.address, C),
         )
     )
 

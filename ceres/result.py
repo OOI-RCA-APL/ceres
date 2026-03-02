@@ -1,8 +1,12 @@
-from __future__ import annotations
+from typing import TYPE_CHECKING, Any, Literal, override
 
-from typing import TYPE_CHECKING, Any, Literal, TypeVar, override
+from ceres.data import ImmutableDataModel
 
-from ceres.data import ImmutableDataObject
+__all__ = [
+    "Result",
+    "Ok",
+    "Fail",
+]
 
 _result_cls_generic_cache: dict[tuple[Any, ...], Any] = {}
 
@@ -15,12 +19,14 @@ class _Result:
     ) -> Ok[ValueT] | Fail[ErrorT]:
         if params in _result_cls_generic_cache:
             return _result_cls_generic_cache[params]
-        value = Ok[params[0]] | Fail[params[1]]
-        _result_cls_generic_cache[params] = value
-        return value  # type: ignore
+        value_type = params[0]
+        error_type = params[1]
+        resolved = Ok.__class_getitem__(value_type) | Fail.__class_getitem__(error_type)
+        _result_cls_generic_cache[params] = resolved
+        return resolved  # type: ignore
 
 
-class Ok[ValueT](ImmutableDataObject, _Result, frozen=True):  # type: ignore
+class Ok[ValueT](ImmutableDataModel, _Result, frozen=True):  # type: ignore
     ok: Literal[True] = True
     value: ValueT
 
@@ -37,14 +43,14 @@ class Ok[ValueT](ImmutableDataObject, _Result, frozen=True):  # type: ignore
         return True
 
 
-class Fail[ErrorT](ImmutableDataObject, _Result, frozen=True):  # type: ignore
+class Fail[ErrorT](ImmutableDataModel, _Result, frozen=True):  # type: ignore
     ok: Literal[False] = False
     error: ErrorT
 
     def __init__(self, error: ErrorT, **kwargs: Any) -> None:
         super().__init__(error=error)  # type: ignore
 
-    __match_args__: tuple[Literal["error"]] = ("error",)  # type: ignore
+    __match_args__: tuple[Literal["error"]] = ("error",)
 
     @override
     def __str__(self) -> str:
@@ -55,8 +61,6 @@ class Fail[ErrorT](ImmutableDataObject, _Result, frozen=True):  # type: ignore
 
 
 if TYPE_CHECKING:
-    _ValueT = TypeVar("_ValueT", covariant=True)
-    _ErrorT = TypeVar("_ErrorT", covariant=True)
-    Result = Ok[_ValueT] | Fail[_ErrorT]
+    type Result[V, E] = Ok[V] | Fail[E]
 else:
     Result = _Result

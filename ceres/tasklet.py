@@ -1,14 +1,17 @@
-from __future__ import annotations
-
 import asyncio
 import traceback
 from abc import ABC, abstractmethod
 from asyncio import Event as AsyncEvent
 from asyncio import Task
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Self, cast
+from typing import Self, cast
 
-from ceres._internal import util
+from ceres.concurrency import cancel, race
+
+__all__ = [
+    "Tasklet",
+]
 
 
 @dataclass
@@ -89,7 +92,7 @@ class Tasklet(ABC):
         )
 
         async def main() -> None:
-            await util.wait_any(task_run, task_exit)
+            await race(task_run, task_exit, cancel=False, raise_exceptions=False)
 
             try:
                 if task_run.done():
@@ -102,7 +105,7 @@ class Tasklet(ABC):
             finally:
                 self.__tasklet_internal__.stopping.set()
                 self.__stopping__()
-                await util.cancel(task_run, task_exit)
+                await cancel(task_run, task_exit)
 
                 try:
                     await self.__stop__()
@@ -164,4 +167,8 @@ class Tasklet(ABC):
             on_completed=on_completed,
             on_exception=on_exception,
         )
-        await self.wait_until_stopped(raise_exceptions)
+        try:
+            await self.wait_until_stopped(raise_exceptions)
+        finally:
+            # Handle cancellation.
+            await self.stop(raise_exceptions)

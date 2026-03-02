@@ -1,36 +1,38 @@
-from __future__ import annotations
-
 import asyncio
 import inspect
 import traceback
-from abc import ABC
 from asyncio import Queue as AsyncQueue
-from typing import (
-    TYPE_CHECKING,
-    Awaitable,
-    Callable,
-    Literal,
-    Sequence,
-    TypeAlias,
-    cast,
-)
+from collections.abc import Awaitable, Callable, Sequence
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from uuid import UUID
 
 from pydantic import ByteSize, Field
 
-from ceres._internal import util
 from ceres._internal.manager import BaseNodeManager
+from ceres._internal.util import lenient_issubclass, sleep_forever
 from ceres.address import Address
-from ceres.channel import Channel, OutputChannel
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, uuid7
+from ceres.channel import Channel, ChannelReader, OutputChannel
+from ceres.concurrency import concurrently
+from ceres.data import (
+    DataObject,
+    DateTime,
+    PositiveTimeDelta,
+    TimeDelta,
+    uuid7,
+)
 from ceres.level import Level
 from ceres.timing import utc
 
 if TYPE_CHECKING:
     from ceres._internal.protocols import NodeSource
 
+__all__ = [
+    "Event",
+    "EventManager",
+]
 
-class Event(ImmutableDataObject):
+
+class Event(DataObject, slots=True):
     id: UUID = Field(default_factory=uuid7)
 
     if TYPE_CHECKING:
@@ -43,41 +45,37 @@ class Event(ImmutableDataObject):
     level: Level = Level.INFO
 
 
-class __BaseStandardEvent(Event, ABC):
-    pass
-
-
-class StartedEvent(__BaseStandardEvent):
+class StartedEvent(Event, slots=True):
     type: Literal["started"] = "started"
 
 
-class StoppingEvent(__BaseStandardEvent):
+class StoppingEvent(Event, slots=True):
     type: Literal["stopping"] = "stopping"
 
 
-class StoppedEvent(__BaseStandardEvent):
+class StoppedEvent(Event, slots=True):
     type: Literal["stopped"] = "stopped"
 
 
-class EnabledEvent(__BaseStandardEvent):
+class EnabledEvent(Event, slots=True):
     type: Literal["enabled"] = "enabled"
 
 
-class DisabledEvent(__BaseStandardEvent):
+class DisabledEvent(Event, slots=True):
     type: Literal["disabled"] = "disabled"
 
 
-class AttachedEvent(__BaseStandardEvent):
+class AttachedEvent(Event, slots=True):
     type: Literal["attached"] = "attached"
     level: Level = Level.DEBUG
 
 
-class WillDetachEvent(__BaseStandardEvent):
+class WillDetachEvent(Event, slots=True):
     type: Literal["will-detach"] = "will-detach"
     level: Level = Level.DEBUG
 
 
-class DetachedEvent(__BaseStandardEvent):
+class DetachedEvent(Event, slots=True):
     type: Literal["detached"] = "detached"
     level: Level = Level.DEBUG
 
@@ -93,76 +91,129 @@ LifecycleEvent: TypeAlias = (
 )
 
 
-class ConnectingEvent(__BaseStandardEvent):
+class ConnectionAddedEvent(Event, slots=True):
+    type: Literal["connection-added"] = "connection-added"
+    connection: str | None = None
+
+
+class ConnectionRemovedEvent(Event, slots=True):
+    type: Literal["connection-removed"] = "connection-removed"
+    connection: str | None = None
+
+
+class ConnectionStartedEvent(Event, slots=True):
+    type: Literal["connection-started"] = "connection-started"
+    connection: str | None = None
+
+
+class ConnectionStoppedEvent(Event, slots=True):
+    type: Literal["connection-stopped"] = "connection-stopped"
+    connection: str | None = None
+
+
+class ConnectionExceptionEvent(Event, slots=True):
+    type: Literal["connection-exception"] = "connection-exception"
+    level: Level = Level.ERROR
+    connection: str | None = None
+    traceback: Sequence[str]
+
+
+class ConnectingEvent(Event, slots=True):
     type: Literal["connecting"] = "connecting"
+    connection: str | None = None
 
 
-class ConnectedEvent(__BaseStandardEvent):
+class ConnectedEvent(Event, slots=True):
     type: Literal["connected"] = "connected"
+    connection: str | None = None
 
 
-class DisconnectingEvent(__BaseStandardEvent):
+class DisconnectingEvent(Event, slots=True):
     type: Literal["disconnecting"] = "disconnecting"
+    connection: str | None = None
 
 
-class DisconnectedEvent(__BaseStandardEvent):
+class DisconnectedEvent(Event, slots=True):
     type: Literal["disconnected"] = "disconnected"
+    connection: str | None = None
 
 
-class IdleTimeoutEvent(__BaseStandardEvent):
-    type: Literal["idle-timeout"] = "idle-timeout"
+class ConnectTimeoutEvent(Event, slots=True):
+    type: Literal["connect-timeout"] = "connect-timeout"
     level: Level = Level.WARNING
+    connection: str | None = None
+    timeout: TimeDelta
 
 
-class DisconnectVerifyStartedEvent(__BaseStandardEvent):
+class ReceiveTimeoutEvent(Event, slots=True):
+    type: Literal["receive-timeout"] = "receive-timeout"
+    level: Level = Level.WARNING
+    connection: str | None = None
+    timeout: TimeDelta
+
+
+class DisconnectVerifyStartedEvent(Event, slots=True):
     type: Literal["disconnect-verify-started"] = "disconnect-verify-started"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
-class DisconnectVerifiedEvent(__BaseStandardEvent):
+class DisconnectVerifiedEvent(Event, slots=True):
     type: Literal["disconnect-verified"] = "disconnect-verified"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
-class DisconnectUnverifiedEvent(__BaseStandardEvent):
+class DisconnectUnverifiedEvent(Event, slots=True):
     type: Literal["disconnect-unverified"] = "disconnect-unverified"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
-class DisconnectVerifyEndedEvent(__BaseStandardEvent):
+class DisconnectVerifyEndedEvent(Event, slots=True):
     type: Literal["disconnect-verify-ended"] = "disconnect-verify-ended"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
-class ConnectionLostEvent(__BaseStandardEvent):
+class ConnectionLostEvent(Event, slots=True):
     type: Literal["connection-lost"] = "connection-lost"
     level: Level = Level.WARNING
+    connection: str | None = None
 
 
-class ConnectFailedEvent(__BaseStandardEvent):
+class ConnectFailedEvent(Event, slots=True):
     type: Literal["connect-failed"] = "connect-failed"
     level: Level = Level.ERROR
-    reason: str | None = None
+    connection: str | None = None
+    message: str | None = None
 
 
-class ReconnectScheduledEvent(__BaseStandardEvent):
+class ReconnectScheduledEvent(Event, slots=True):
     type: Literal["reconnect-scheduled"] = "reconnect-scheduled"
+    connection: str | None = None
     delay: PositiveTimeDelta
 
 
-class BufferOverflowEvent(__BaseStandardEvent):
+class BufferOverflowEvent(Event, slots=True):
     type: Literal["buffer-overflow"] = "buffer-overflow"
     level: Level = Level.ERROR
+    connection: str | None = None
     size: ByteSize
     limit: ByteSize
     dropped: ByteSize
 
 
 ConnectionEvent: TypeAlias = (
-    ConnectedEvent
+    ConnectionAddedEvent
+    | ConnectionRemovedEvent
+    | ConnectionStartedEvent
+    | ConnectionStoppedEvent
+    | ConnectionExceptionEvent
+    | ConnectedEvent
     | DisconnectedEvent
     | DisconnectingEvent
-    | IdleTimeoutEvent
+    | ReceiveTimeoutEvent
     | DisconnectVerifyStartedEvent
     | DisconnectVerifiedEvent
     | DisconnectUnverifiedEvent
@@ -174,31 +225,31 @@ ConnectionEvent: TypeAlias = (
 )
 
 
-class ServerBindEvent(__BaseStandardEvent):
+class ServerBindEvent(Event, slots=True):
     type: Literal["server-bind"] = "server-bind"
     bind: str
 
 
-class ServerBindExceptionEvent(__BaseStandardEvent):
+class ServerBindExceptionEvent(Event, slots=True):
     type: Literal["server-bind-exception"] = "server-bind-exception"
     level: Level = Level.ERROR
     bind: str
     traceback: Sequence[str]
 
 
-class ClientConnectedEvent(__BaseStandardEvent):
+class ClientConnectedEvent(Event, slots=True):
     type: Literal["client-connected"] = "client-connected"
     level: Level = Level.INFO
     client: str
 
 
-class ClientDisconnectedEvent(__BaseStandardEvent):
+class ClientDisconnectedEvent(Event, slots=True):
     type: Literal["client-disconnected"] = "client-disconnected"
     level: Level = Level.INFO
     client: str
 
 
-class ServerProcessingExceptionEvent(__BaseStandardEvent):
+class ServerProcessingExceptionEvent(Event, slots=True):
     type: Literal["server-processing-exception"] = "server-processing-exception"
     level: Level = Level.ERROR
     client: str
@@ -214,12 +265,12 @@ ServerEvent: TypeAlias = (
 )
 
 
-class MessageSentEvent(__BaseStandardEvent):
+class MessageSentEvent(Event, slots=True):
     type: Literal["message-sent"] = "message-sent"
     message: Message
 
 
-class MessageReceivedEvent(__BaseStandardEvent):
+class MessageReceivedEvent(Event, slots=True):
     type: Literal["message-received"] = "message-received"
     message: Message
 
@@ -227,23 +278,23 @@ class MessageReceivedEvent(__BaseStandardEvent):
 MessageEvent: TypeAlias = MessageSentEvent | MessageReceivedEvent
 
 
-class AlertEvent(__BaseStandardEvent):
+class AlertEvent(Event, slots=True):
     type: Literal["alert"] = "alert"
     alert: Alert
 
 
-class LogEvent(__BaseStandardEvent):
+class LogEvent(Event, slots=True):
     type: Literal["log"] = "log"
     level: Level = Level.DEBUG
     entry: LogEntry
 
 
-class ParticleEvent(__BaseStandardEvent):
+class ParticleEvent(Event, slots=True):
     type: Literal["particle"] = "particle"
     particle: Particle
 
 
-class VariableAssignedEvent(__BaseStandardEvent):
+class VariableAssignedEvent(Event, slots=True):
     type: Literal["variable-assigned"] = "variable-assigned"
     variable: Variable
 
@@ -251,7 +302,7 @@ class VariableAssignedEvent(__BaseStandardEvent):
 VariableEvent: TypeAlias = VariableAssignedEvent
 
 
-class SettingAssignedEvent(__BaseStandardEvent):
+class SettingAssignedEvent(Event, slots=True):
     type: Literal["setting-assigned"] = "setting-assigned"
     setting: Setting
 
@@ -259,40 +310,40 @@ class SettingAssignedEvent(__BaseStandardEvent):
 SettingEvent: TypeAlias = SettingAssignedEvent
 
 
-class RoutineStartedEvent(__BaseStandardEvent):
+class RoutineStartedEvent(Event, slots=True):
     type: Literal["routine-started"] = "routine-started"
     routine: str
 
 
-class RoutineStoppedEvent(__BaseStandardEvent):
+class RoutineStoppedEvent(Event, slots=True):
     type: Literal["routine-stopped"] = "routine-stopped"
     routine: str
 
 
-class RoutineCompletedEvent(__BaseStandardEvent):
+class RoutineCompletedEvent(Event, slots=True):
     type: Literal["routine-completed"] = "routine-completed"
     routine: str
 
 
-class RoutineCancelledEvent(__BaseStandardEvent):
+class RoutineCancelledEvent(Event, slots=True):
     type: Literal["routine-cancelled"] = "routine-cancelled"
     routine: str
 
 
-class RoutineExceptionEvent(__BaseStandardEvent):
+class RoutineExceptionEvent(Event, slots=True):
     type: Literal["routine-exception"] = "routine-exception"
     level: Level = Level.ERROR
     routine: str
     traceback: Sequence[str]
 
 
-class RoutineRestartingEvent(__BaseStandardEvent):
+class RoutineRestartingEvent(Event, slots=True):
     type: Literal["routine-restarting"] = "routine-restarting"
     routine: str
     delay: PositiveTimeDelta
 
 
-class RoutineRestartedEvent(__BaseStandardEvent):
+class RoutineRestartedEvent(Event, slots=True):
     type: Literal["routine-restarted"] = "routine-restarted"
     routine: str
 
@@ -306,49 +357,49 @@ RoutineEvent: TypeAlias = (
 )
 
 
-class JobAddedEvent(__BaseStandardEvent):
+class JobAddedEvent(Event, slots=True):
     type: Literal["job-added"] = "job-added"
     job: str
 
 
-class JobRemovedEvent(__BaseStandardEvent):
+class JobRemovedEvent(Event, slots=True):
     type: Literal["job-removed"] = "job-removed"
     job: str
 
 
-class JobStartedEvent(__BaseStandardEvent):
+class JobStartedEvent(Event, slots=True):
     type: Literal["job-started"] = "job-started"
     job: str
 
 
-class JobEndedEvent(__BaseStandardEvent):
+class JobEndedEvent(Event, slots=True):
     type: Literal["job-ended"] = "job-ended"
     job: str
 
 
-class JobCompletedEvent(__BaseStandardEvent):
+class JobCompletedEvent(Event, slots=True):
     type: Literal["job-completed"] = "job-completed"
     job: str
 
 
-class JobCancelledEvent(__BaseStandardEvent):
+class JobCancelledEvent(Event, slots=True):
     type: Literal["job-cancelled"] = "job-cancelled"
     job: str
 
 
-class JobExceptionEvent(__BaseStandardEvent):
+class JobExceptionEvent(Event, slots=True):
     type: Literal["job-exception"] = "job-exception"
     job: str
     traceback: Sequence[str]
 
 
-class JobRetryPendingEvent(__BaseStandardEvent):
+class JobRetryPendingEvent(Event, slots=True):
     type: Literal["job-retry-pending"] = "job-retry-pending"
     job: str
     delay: PositiveTimeDelta
 
 
-class JobRetryEvent(__BaseStandardEvent):
+class JobRetryEvent(Event, slots=True):
     type: Literal["job-retry"] = "job-retry"
     job: str
 
@@ -366,38 +417,38 @@ JobEvent: TypeAlias = (
 )
 
 
-class PrunerAddedEvent(__BaseStandardEvent):
+class PrunerAddedEvent(Event, slots=True):
     type: Literal["pruner-added"] = "pruner-added"
     pruner: str
 
 
-class PrunerRemovedEvent(__BaseStandardEvent):
+class PrunerRemovedEvent(Event, slots=True):
     type: Literal["pruner-removed"] = "pruner-removed"
     pruner: str
 
 
-class PruneStartedEvent(__BaseStandardEvent):
+class PruneStartedEvent(Event, slots=True):
     type: Literal["prune-started"] = "prune-started"
     pruner: str
 
 
-class PruneEndedEvent(__BaseStandardEvent):
+class PruneEndedEvent(Event, slots=True):
     type: Literal["prune-ended"] = "prune-ended"
     pruner: str
 
 
-class PruneCompletedEvent(__BaseStandardEvent):
+class PruneCompletedEvent(Event, slots=True):
     type: Literal["prune-completed"] = "prune-completed"
     pruner: str
     deleted: int
 
 
-class PruneCancelledEvent(__BaseStandardEvent):
+class PruneCancelledEvent(Event, slots=True):
     type: Literal["prune-cancelled"] = "prune-cancelled"
     pruner: str
 
 
-class PruneExceptionEvent(__BaseStandardEvent):
+class PruneExceptionEvent(Event, slots=True):
     type: Literal["prune-exception"] = "prune-exception"
     level: Level = Level.ERROR
     pruner: str
@@ -415,54 +466,47 @@ PrunerEvent: TypeAlias = (
 )
 
 
-class SieveAddedEvent(__BaseStandardEvent):
+class SieveAddedEvent(Event, slots=True):
     type: Literal["sieve-added"] = "sieve-added"
     sieve: str
 
 
-class SieveRemovedEvent(__BaseStandardEvent):
+class SieveRemovedEvent(Event, slots=True):
     type: Literal["sieve-removed"] = "sieve-removed"
     sieve: str
 
 
-class SieveStartedEvent(__BaseStandardEvent):
+class SieveStartedEvent(Event, slots=True):
     type: Literal["sieve-started"] = "sieve-started"
     sieve: str
 
 
-class SieveStoppedEvent(__BaseStandardEvent):
+class SieveStoppedEvent(Event, slots=True):
     type: Literal["sieve-stopped"] = "sieve-stopped"
     sieve: str
 
 
-class SieveCancelledEvent(__BaseStandardEvent):
+class SieveCancelledEvent(Event, slots=True):
     type: Literal["sieve-cancelled"] = "sieve-cancelled"
     sieve: str
 
 
-class SieveExceptionEvent(__BaseStandardEvent):
+class SieveExceptionEvent(Event, slots=True):
     type: Literal["sieve-exception"] = "sieve-exception"
     level: Level = Level.ERROR
     sieve: str
     traceback: Sequence[str]
 
 
-class SieveRetryPendingEvent(__BaseStandardEvent):
+class SieveRetryPendingEvent(Event, slots=True):
     type: Literal["sieve-retry-pending"] = "sieve-retry-pending"
     sieve: str
     delay: PositiveTimeDelta
 
 
-class SieveRetryEvent(__BaseStandardEvent):
+class SieveRetryEvent(Event, slots=True):
     type: Literal["sieve-retry"] = "sieve-retry"
     sieve: str
-
-
-class SieveParticleErrorEvent(__BaseStandardEvent):
-    level: Level = Level.ERROR
-    type: Literal["sieve-particle-error"] = "sieve-particle-error"
-    sieve: str
-    error: ParticleError
 
 
 SieveEvent: TypeAlias = (
@@ -474,26 +518,25 @@ SieveEvent: TypeAlias = (
     | SieveExceptionEvent
     | SieveRetryPendingEvent
     | SieveRetryEvent
-    | SieveParticleErrorEvent
 )
 
 
-class ProcedureCalledEvent(__BaseStandardEvent):
+class ProcedureCalledEvent(Event, slots=True):
     type: Literal["procedure-called"] = "procedure-called"
     procedure: str
 
 
-class ProcedureCompletedEvent(__BaseStandardEvent):
+class ProcedureCompletedEvent(Event, slots=True):
     type: Literal["procedure-completed"] = "procedure-completed"
     procedure: str
 
 
-class ProcedureCancelledEvent(__BaseStandardEvent):
+class ProcedureCancelledEvent(Event, slots=True):
     type: Literal["procedure-cancelled"] = "procedure-cancelled"
     procedure: str
 
 
-class ProcedureExceptionEvent(__BaseStandardEvent):
+class ProcedureExceptionEvent(Event, slots=True):
     type: Literal["procedure-exception"] = "procedure-exception"
     level: Level = Level.ERROR
     procedure: str
@@ -508,7 +551,7 @@ ProcedureEvent: TypeAlias = (
 )
 
 
-class DatabaseExceptionEvent(__BaseStandardEvent):
+class DatabaseExceptionEvent(Event, slots=True):
     type: Literal["database-exception"] = "database-exception"
     level: Level = Level.ERROR
     traceback: Sequence[str]
@@ -533,7 +576,6 @@ StandardEvent: TypeAlias = (
 
 
 from ceres.alert import Alert  # noqa: E402
-from ceres.error import ParticleError  # noqa: E402
 from ceres.logs import LogEntry  # noqa: E402
 from ceres.message import Message  # noqa: E402
 from ceres.particle import Particle  # noqa: E402
@@ -546,16 +588,16 @@ if TYPE_CHECKING:
     from ceres.node import Node
 
 
-class NodeEventManager(BaseNodeManager):
+class EventManager(BaseNodeManager):
     __slots__ = (
-        "__channel",
-        "__listeners",
+        "_events",
+        "_listeners",
     )
 
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
-        self.__channel: Channel[Event] = Channel()
-        self.__listeners = (
+        self._events: Channel[Event] = Channel()
+        self._listeners = (
             []
             if self.__system__ is None
             else [
@@ -576,21 +618,37 @@ class NodeEventManager(BaseNodeManager):
 
     @property
     def settled(self) -> bool:
-        return all(listener.settled for listener in self.__listeners)
+        return all(listener.settled for listener in self._listeners)
+
+    @property
+    def stream(self) -> OutputChannel[Event]:
+        return self._events.output()
+
+    def __aiter__(self) -> ChannelReader[Event]:
+        return self._events.__aiter__()
 
     async def __run__(self) -> None:
-        if not self.__listeners:
-            await util.sleep_forever()
+        if not self._listeners:
+            await sleep_forever()
             return
 
-        await util.concurrently(listener.__run__() for listener in self.__listeners)
+        await concurrently(listener.__run__() for listener in self._listeners)
 
     async def settle(self) -> None:
         while not self.settled:
-            await util.concurrently(listener.settle() for listener in self.__listeners)
+            await concurrently(listener.settle() for listener in self._listeners)
 
-    def follow(self) -> OutputChannel[Event]:
-        return self.__channel.output()
+    def read(self) -> ChannelReader[Event]:
+        return self._events.read()
+
+    def every[O](self, cls: type[O], /, *classes: type[O]) -> OutputChannel[O]:
+        return self._events.every(cls, *classes)
+
+    def where(self, where: Callable[[Event], bool], /) -> OutputChannel[Event]:
+        return self._events.where(where)
+
+    def map[O](self, transform: Callable[[Event], O], /) -> OutputChannel[O]:
+        return self._events.map(transform)
 
     def emit[**P, T: Event](
         self,
@@ -633,7 +691,7 @@ class NodeEventManager(BaseNodeManager):
                     self.__node__.log.alert(event.alert)
 
         # Add the event to the outgoing event stream.
-        self.__channel.put(event)
+        self._events.put(event)
 
         container = self.__node__.__container__
 
@@ -660,7 +718,7 @@ class NodeEventManager(BaseNodeManager):
                     referencer.system.events.handle(event)
 
     def listening(self, event_cls: type[Event], address: Address) -> bool:
-        for listener in self.__listeners:
+        for listener in self._listeners:
             if listener.handles(event_cls, address):
                 return True
 
@@ -671,7 +729,7 @@ class NodeEventManager(BaseNodeManager):
             return False
 
         handled = False
-        for listener in self.__listeners:
+        for listener in self._listeners:
             if listener.handle(event):
                 handled = True
 
@@ -697,12 +755,12 @@ _ComponentEventHandler = (
 
 class _ComponentEventListener:
     __slots__ = (
-        "__system",
-        "__binding",
-        "__handler",
-        "__handler_arity",
-        "__queue",
-        "__running",
+        "_system",
+        "_binding",
+        "_handler",
+        "_handler_arity",
+        "_queue",
+        "_running",
     )
 
     def __init__(
@@ -711,64 +769,64 @@ class _ComponentEventListener:
         system: ComponentSystem,
         binding: ListenerBinding,
     ) -> None:
-        self.__system = system
-        self.__binding = binding
-        self.__handler: _ComponentEventHandler = getattr(system.component, binding.method)
-        self.__handler_arity = len(inspect.signature(self.__handler).parameters)
-        self.__queue: AsyncQueue[Event] = AsyncQueue()
-        self.__running = False
+        self._system = system
+        self._binding = binding
+        self._handler: _ComponentEventHandler = getattr(system.component, binding.method)
+        self._handler_arity = len(inspect.signature(self._handler).parameters)
+        self._queue: AsyncQueue[Event] = AsyncQueue()
+        self._running = False
 
     @property
     def settled(self) -> bool:
-        return self.__queue._finished.is_set()  # type: ignore
+        return self._queue._finished.is_set()  # type: ignore
 
     def would_handle(self, event: Event) -> bool:
         return self.handles(type(event), event.address)
 
     async def __run__(self) -> None:
-        self.__running = True
+        self._running = True
         try:
             while True:
-                event = await self.__queue.get()
+                event = await self._queue.get()
                 await self._process(event)
         finally:
-            self.__running = False
+            self._running = False
 
     async def settle(self) -> None:
-        if self.__queue.empty():
+        if self._queue.empty():
             return
 
         while True:
             try:
-                event = self.__queue.get_nowait()
+                event = self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
 
             await self._process(event)
 
     def clear(self) -> None:
-        while not self.__queue.empty():
-            self.__queue.get_nowait()
-            self.__queue.task_done()
+        while not self._queue.empty():
+            self._queue.get_nowait()
+            self._queue.task_done()
 
     def handles(self, event_cls: type[Event], address: Address) -> bool:
-        if not util.lenient_issubclass(event_cls, self.__binding.event):
+        if not lenient_issubclass(event_cls, self._binding.event):
             return False
 
-        if self.__binding.local:
-            if address == self.__system.address:
+        if self._binding.local:
+            if address == self._system.address:
                 return True
 
-        if self.__binding.reference:
-            for alias in self.__binding.reference:
+        if self._binding.reference:
+            for alias in self._binding.reference:
                 if any(
                     component.system.address == address
-                    for component in self.__system.get_referenced_components(alias)
+                    for component in self._system.get_referenced_components(alias)
                 ):
                     return True
 
-        if self.__binding.address is not None:
-            if self.__binding.address.matches(address, self.__system.address):
+        if self._binding.address is not None:
+            if self._binding.address.matches(address, self._system.address):
                 return True
 
         return False
@@ -777,17 +835,17 @@ class _ComponentEventListener:
         if not self.would_handle(event):
             return False
 
-        self.__queue.put_nowait(event)
+        self._queue.put_nowait(event)
         return True
 
     async def _process(self, event: Event) -> None:
         try:
-            result = self.__handler(*[event][: self.__handler_arity])
+            result = self._handler(*[event][: self._handler_arity])
             if inspect.iscoroutine(result):
                 await result
         except Exception:
-            self.__system.log.error(
+            self._system.log.error(
                 f"An exception occurred while processing event {event}: {traceback.format_exc()}"
             )
         finally:
-            self.__queue.task_done()
+            self._queue.task_done()

@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import Query
 
 from ceres._internal.app.shared import (
     SELF_OR_ADMIN,
@@ -11,6 +9,7 @@ from ceres._internal.app.shared import (
     CurrentRole,
     Limit,
     RequireViewer,
+    Router,
     assert_found,
 )
 from ceres.error import Failure, NotFoundError, NotPermittedError
@@ -24,7 +23,7 @@ from ceres.workspace import (
     WorkspaceUpdate,
 )
 
-router = APIRouter(tags=["workspaces"])
+router = Router(tags=["workspaces"])
 
 
 @router.get("/workspaces/{id:uuid}")

@@ -1,15 +1,13 @@
-from __future__ import annotations
-
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import Query
 
-from ceres._internal.app.shared import SELF_OR_ADMIN, CurrentEngine, Limit, assert_found
-from ceres.data import DeferBuild, ImmutableDataObject, JSONSerializableDict
+from ceres._internal.app.shared import SELF_OR_ADMIN, CurrentEngine, Limit, Router, assert_found
+from ceres.data import DataObject, JSONSerializableDict
 from ceres.workspace import WorkspaceEdit, WorkspaceEditCreate, WorkspaceEditFilter
 
-router = APIRouter(tags=["workspace-edits"])
+router = Router(tags=["workspace-edits"])
 
 
 @router.get(
@@ -33,7 +31,7 @@ async def get_workspace_edits(
     return await engine.workspace_edits.where(user_id=user_id, and__=filter)
 
 
-class CreateWorkspaceEditData(ImmutableDataObject, DeferBuild):
+class CreateWorkspaceEditData(DataObject):
     data: JSONSerializableDict
 
 

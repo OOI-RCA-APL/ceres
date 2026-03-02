@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 import ssl
+from abc import abstractmethod
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from re import Pattern
@@ -9,16 +9,12 @@ from typing import (
     Annotated,
     Any,
     Literal,
-    Mapping,
     Self,
-    Sequence,
     TypeAlias,
-    TypeVar,
     override,
 )
 
 from pydantic import (
-    BaseModel,
     ByteSize,
     ConfigDict,
     Field,
@@ -35,18 +31,18 @@ from pydantic import (
 )
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
-    DeferBuild,
-    ImmutableDataObject,
+    DataObject,
     MaybeSequence,
     Name,
     NonBlankStr,
     NonEmptyStr,
     PositiveTimeDelta,
     StrEnum,
+    to_kwargs,
+    validate,
 )
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
@@ -76,28 +72,29 @@ from ceres.result import Fail, Ok, Result
 from ceres.schedule import ScheduleExpr
 
 if TYPE_CHECKING:
-    from ceres.component import ComponentSystem
+    from ceres.component import Component, ComponentSystem
+    from ceres.connection import Connection
     from ceres.engine import Engine
+    from ceres.sieve import FunctionSieve, Sieve
+else:
+    Sieve = Any
+    Component = Any
 
-with lazy_imports(__name__):
-    from ceres.component import Component
-    from ceres.sieve import Sieve
+__all__ = [
+    "Config",
+]
 
 
-class __BaseConfigObject(ImmutableDataObject, DeferBuild):
-    pass
-
-
-class LoggingConfig(__BaseConfigObject):
+class LoggingConfig(DataObject):
     output: Level = Level.INFO
     store: Level = Level.DEBUG
-    events: bool | Level = False
+    events: bool | Level = True
     messages: bool | Level = False
     particles: bool | Level = False
     alerts: bool | Level = False
 
 
-class JobConfig(__BaseConfigObject):
+class JobConfig(DataObject):
     name: Name
     action: Name
     arguments: Mapping[Name, Any] | None = None
@@ -106,6 +103,7 @@ class JobConfig(__BaseConfigObject):
     retry_delay: PositiveTimeDelta = timedelta(seconds=5)
 
     @model_validator(mode="before")
+    @to_kwargs
     @classmethod
     def _validate_name_as_action(cls, data: Any) -> Any:
         if isinstance(data, Mapping):
@@ -116,26 +114,55 @@ class JobConfig(__BaseConfigObject):
         return data
 
 
-class __BasePrunerConfig[TFilter](__BaseConfigObject):
+class ConnectionConfig(DataObject):
+    name: Name
+    if TYPE_CHECKING:
+        cls: ImportString[type[Connection]]
+    else:
+        cls: ImportString[object] = Field(
+            validation_alias="class",
+            serialization_alias="class",
+        )
+    arguments: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("cls")
+    def _validate_cls(cls, value: object) -> ImportString[type[Connection]]:
+        from ceres.connection import Connection
+
+        if not isinstance(value, type) or not issubclass(value, Connection):
+            raise ValueError("`class` must be a subclass of `ceres.connection.Connection`")
+
+        return value
+
+    @model_validator(mode="after")
+    def _validate_arguments(self) -> Self:
+        validate(self.cls, self.arguments)
+        return self
+
+    def create(self) -> Connection:
+        return validate(self.cls, self.arguments)
+
+
+class _PrunerConfig[TFilter](DataObject):
     name: Name
     prunes: EntityType
     schedule: ScheduleExpr
     filter: TFilter
 
 
-class MessagePrunerConfig(__BasePrunerConfig[MessageFilter]):
+class MessagePrunerConfig(_PrunerConfig[MessageFilter]):
     prunes: Literal[EntityType.MESSAGE] = EntityType.MESSAGE
 
 
-class ParticlePrunerConfig(__BasePrunerConfig[ParticleFilter]):
+class ParticlePrunerConfig(_PrunerConfig[ParticleFilter]):
     prunes: Literal[EntityType.PARTICLE] = EntityType.PARTICLE
 
 
-class AlertPrunerConfig(__BasePrunerConfig[AlertFilter]):
+class AlertPrunerConfig(_PrunerConfig[AlertFilter]):
     prunes: Literal[EntityType.ALERT] = EntityType.ALERT
 
 
-class LogEntryPrunerConfig(__BasePrunerConfig[LogEntryFilter]):
+class LogEntryPrunerConfig(_PrunerConfig[LogEntryFilter]):
     prunes: Literal[EntityType.LOG_ENTRY] = EntityType.LOG_ENTRY
 
 
@@ -143,22 +170,29 @@ PrunerConfig: TypeAlias = (
     MessagePrunerConfig | ParticlePrunerConfig | AlertPrunerConfig | LogEntryPrunerConfig
 )
 
-if TYPE_CHECKING:
-    from ceres.sieve import Sieve
-else:
-    Sieve = Any
 
-
-class SieveConfig(__BaseConfigObject):
+class _SieveConfig(DataObject):
+    type: Literal["class", "method"]
     name: Name
-    cls: ImportString[type[Sieve]] = Field(
-        validation_alias="class",
-        serialization_alias="class",
-    )
-    arguments: Mapping[str, Any] = Field(default_factory=dict)
     retries: NonNegativeInt | None = None
     retry_delay: PositiveTimeDelta = timedelta(seconds=5)
     filter: MessageFilter | None = None
+
+    @abstractmethod
+    def create(self, component: Component) -> Sieve: ...
+
+
+class ClassSieveConfig(_SieveConfig):
+    type: Literal["class"] = "class"
+    if TYPE_CHECKING:
+        cls: ImportString[type[Sieve]]
+    else:
+        cls: ImportString[object] = Field(
+            validation_alias="class",
+            serialization_alias="class",
+        )
+
+    arguments: Mapping[str, Any] = Field(default_factory=dict)
 
     @field_validator("cls")
     def _validate_cls(
@@ -174,11 +208,27 @@ class SieveConfig(__BaseConfigObject):
 
     @model_validator(mode="after")
     def _validate_arguments(self) -> Self:
-        self.cls(**self.arguments)
+        validate(self.cls, self.arguments)
         return self
 
-    def create(self) -> Sieve:
-        return self.cls(**self.arguments)
+    @override
+    def create(self, component: Component) -> Sieve:
+        return validate(self.cls, self.arguments)
+
+
+class MethodSieveConfig(_SieveConfig):
+    type: Literal["method"] = "method"
+    method: Name
+
+    @override
+    def create(self, component: Component) -> FunctionSieve:
+        from ceres.sieve import FunctionSieve
+
+        method = getattr(component, self.method)
+        return FunctionSieve(function=method)
+
+
+SieveConfig: TypeAlias = ClassSieveConfig | MethodSieveConfig
 
 
 def _get_component_class() -> type[Component]:
@@ -187,30 +237,25 @@ def _get_component_class() -> type[Component]:
     return Component
 
 
-if TYPE_CHECKING:
-    from ceres.component import Component
-else:
-    Component = Any
-
-
-class ComponentConfig(__BaseConfigObject):
+class ComponentConfig(DataObject):
     name: Name
     cls: ImportString[type[Component]] = Field(
         default_factory=_get_component_class,
         validation_alias="class",
         serialization_alias="class",
     )
-    arguments: Mapping[str, Any] = Field(default_factory=dict)
-    jobs: Sequence[JobConfig] = Field(default_factory=list)
-    pruners: Sequence[Annotated[PrunerConfig, Field(discriminator="prunes")]] = Field(
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    logging: LoggingConfig | None = None
+    connections: list[ConnectionConfig] = Field(default_factory=list)
+    sieves: list[SieveConfig] = Field(default_factory=list)
+    jobs: list[JobConfig] = Field(default_factory=list)
+    pruners: list[Annotated[PrunerConfig, Field(discriminator="prunes")]] = Field(
         default_factory=list
     )
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    sieves: Sequence[SieveConfig] = Field(default_factory=list)
-    components: Sequence[ComponentConfig] = Field(default_factory=list)
+    components: list[ComponentConfig] = Field(default_factory=list)
 
     @field_validator("cls")
-    def _validate_cls(cls, value: ImportString[type[Component]]) -> ImportString[type[Component]]:
+    def _validate_cls(cls, value: ImportString[type]) -> ImportString[type[Component]]:
         from ceres.component import Component
 
         if not issubclass(value, Component):
@@ -224,7 +269,7 @@ class ComponentConfig(__BaseConfigObject):
             if argument.startswith("__with"):
                 raise ValueError(f"arguments starting with '__with' are reserved, got '{argument}'")
 
-        self.cls(**self.arguments)
+        validate(self.cls, self.arguments)
         return self
 
     @field_validator("name")
@@ -237,9 +282,9 @@ class ComponentConfig(__BaseConfigObject):
     @field_validator("pruners", check_fields=False)
     def _validate_pruners(
         cls,
-        pruners: Sequence[PrunerConfig],
+        pruners: list[PrunerConfig],
         info: ValidationInfo,
-    ) -> Sequence[PrunerConfig]:
+    ) -> list[PrunerConfig]:
         name: str = info.data.get("name", "<ERROR>")
         for pruner_name, group in util.group_by(pruners, lambda current: current.name):
             if len(list(group)) > 1:
@@ -250,9 +295,9 @@ class ComponentConfig(__BaseConfigObject):
     @field_validator("sieves", check_fields=False)
     def _validate_sieves(
         cls,
-        sieves: Sequence[SieveConfig],
+        sieves: list[SieveConfig],
         info: ValidationInfo,
-    ) -> Sequence[SieveConfig]:
+    ) -> list[SieveConfig]:
         name: str = info.data.get("name", "<ERROR>")
         for sieve_name, group in util.group_by(sieves, lambda current: current.name):
             if len(list(group)) > 1:
@@ -263,9 +308,9 @@ class ComponentConfig(__BaseConfigObject):
     @field_validator("components", check_fields=False)
     def _validate_components(
         cls,
-        components: Sequence[ComponentConfig],
+        components: list[ComponentConfig],
         info: ValidationInfo,
-    ) -> Sequence[ComponentConfig]:
+    ) -> list[ComponentConfig]:
         name: str = info.data.get("name", "<ERROR>")
         for component_name, group in util.group_by(components, lambda current: current.name):
             if len(list(group)) > 1:
@@ -333,11 +378,14 @@ class ComponentConfig(__BaseConfigObject):
         errors: list[ComponentError],
     ) -> Component | None:
         try:
-            instance = self.cls(
-                **self.arguments,
-                __with_name__=self.name,
-                __with_config__=self,
-                __with_container__=container,
+            instance = validate(
+                self.cls,
+                {
+                    **self.arguments,
+                    "__with_name__": self.name,
+                    "__with_config__": self,
+                    "__with_container__": container,
+                },
             )
         except ValidationError as error:
             errors.append(
@@ -384,14 +432,14 @@ class ComponentConfig(__BaseConfigObject):
         return config.cls
 
 
-class ServiceConfig(__BaseConfigObject):
+class ServiceConfig(DataObject):
     name: Name | None = None
     user: Name | None = None
     stdout: Path | None = None
     stderr: Path | None = None
 
 
-class ServerSSLConfig(__BaseConfigObject):
+class ServerSSLConfig(DataObject):
     key: Path | None = None
     key_password: str | None = None
     cert: Path | None = None
@@ -399,12 +447,12 @@ class ServerSSLConfig(__BaseConfigObject):
     ca_certs: Path | None = None
 
 
-class ServerAuthenticationConfig(__BaseConfigObject):
+class ServerAuthenticationConfig(DataObject):
     secret: NonEmptyStr
     duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
-class ServerCorsConfig(__BaseConfigObject):
+class ServerCorsConfig(DataObject):
     enabled: bool = True
     allow_origins: MaybeSequence[str] = Field(default_factory=list)
     allow_origin_regex: Pattern[str] | None = None
@@ -415,7 +463,7 @@ class ServerCorsConfig(__BaseConfigObject):
     max_age: PositiveInt = 600
 
 
-class ServerCompressionConfig(__BaseConfigObject):
+class ServerCompressionConfig(DataObject):
     enabled: bool = True
     min_size: ByteSize = ByteSize(500)
     zstd: bool = True
@@ -426,7 +474,7 @@ class ServerCompressionConfig(__BaseConfigObject):
     gzip_level: int = Field(default=1, ge=0, le=9)
 
 
-class ServerConfig(__BaseConfigObject):
+class ServerConfig(DataObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     ssl: ServerSSLConfig | None = None
@@ -436,28 +484,28 @@ class ServerConfig(__BaseConfigObject):
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:
-        util.get_type_adapter(IPvAnyAddress).validate_python(host)
+        validate(IPvAnyAddress, host)
         return host
 
 
-class ConsoleConfig(__BaseConfigObject):
+class ConsoleConfig(DataObject):
     title: str | None = None
     favicon: Path | None = None
     # Using `SerializeAsAny` here to work around Pydantic's union serialization issues dealing with
     # `T | Sequence[T]`. It will currently choose the wrong serializer.
     # See https://github.com/pydantic/pydantic/milestone/13.
-    dashboard: SerializeAsAny[Address | Sequence[Address] | None] = None
+    dashboard: SerializeAsAny[MaybeSequence[Address] | None] = None
 
 
-class DatabaseRetryConfig(__BaseConfigObject):
+class DatabaseRetryConfig(DataObject):
     timeout: PositiveTimeDelta = timedelta(seconds=15)
     interval: PositiveTimeDelta = timedelta(seconds=3)
 
 
-class DatabaseConfigHooks(__BaseConfigObject):
-    init: Sequence[str] | None = None
-    connect: Sequence[str] | None = None
-    close: Sequence[str] | None = None
+class DatabaseConfigHooks(DataObject):
+    init: list[str] | None = None
+    connect: list[str] | None = None
+    close: list[str] | None = None
 
 
 class HashType(StrEnum):
@@ -465,16 +513,16 @@ class HashType(StrEnum):
     ARGON2 = "argon2"
 
 
-class __BaseHashingConfig(__BaseConfigObject):
+class _HashingConfig(DataObject):
     type: HashType
 
 
-class BCryptHashingConfig(__BaseHashingConfig):
+class BCryptHashingConfig(_HashingConfig):
     type: Literal[HashType.BCRYPT] = HashType.BCRYPT
     rounds: int = Field(default=12, ge=4)
 
 
-class Argon2HashingConfig(__BaseHashingConfig):
+class Argon2HashingConfig(_HashingConfig):
     type: Literal[HashType.ARGON2] = HashType.ARGON2
     # These default values are taken from `argon2.profiles.RFC_9106_LOW_MEMORY`.
     time_cost: PositiveInt = 3
@@ -495,20 +543,20 @@ class Argon2HashingConfig(__BaseHashingConfig):
 HashingConfig: TypeAlias = BCryptHashingConfig | Argon2HashingConfig
 
 
-class __BaseDatabaseConfig(__BaseConfigObject):
+class _DatabaseConfig(DataObject):
     type: DatabaseType
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
-    engine: Mapping[str, Any] = Field(default_factory=dict)
+    engine: dict[str, Any] = Field(default_factory=dict)
     hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
-    query: Mapping[str, MaybeSequence[str]] | None = None
+    query: dict[str, MaybeSequence[str]] | None = None
 
 
-class SQLiteDatabaseConfig(__BaseDatabaseConfig):
+class SQLiteDatabaseConfig(_DatabaseConfig):
     type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
     path: Path | None = None
 
 
-class PostgresDatabaseConfig(__BaseDatabaseConfig):
+class PostgresDatabaseConfig(_DatabaseConfig):
     type: Literal[DatabaseType.POSTGRES] = DatabaseType.POSTGRES
     host: NonBlankStr
     port: NonNegativeInt | None = None
@@ -525,13 +573,11 @@ class ConfigCheckType(StrEnum):
     COMPONENTS = "components"
 
     @classmethod
-    def all(cls) -> Sequence[ConfigCheckType]:
+    def all(cls) -> tuple[ConfigCheckType, ...]:
         return tuple(cls)
 
 
-class ConfigMeta(__BaseConfigObject):
-    model_config = ConfigDict(extra="allow")
-
+class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
@@ -555,7 +601,7 @@ class ConfigMeta(__BaseConfigObject):
                 return Fail(ConfigReadError(message=f"path '{source}' could not be resolved"))
 
             try:
-                with open(path, "r") as stream:
+                with open(path) as stream:
                     data = yaml.safe_load(stream)
             except OSError:
                 return Fail(ConfigReadError(message=f"failed to read file at '{path}'"))
@@ -577,7 +623,7 @@ class ConfigMeta(__BaseConfigObject):
             return Fail(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
 
         try:
-            instance = cls.model_validate(data)
+            instance = validate(cls, data)
         except ValidationError as error:
             return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 
@@ -637,14 +683,13 @@ class ConfigMeta(__BaseConfigObject):
         return []
 
 
-class Config(ConfigMeta):
-    model_config = ConfigDict(extra="forbid")
-
+class Config(ConfigMeta, config={"extra": "forbid"}):
     root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
 
     @model_validator(mode="before")
+    @to_kwargs
     @classmethod
-    def _validate_before(cls, values: object) -> object:
+    def _validate_before(cls, values: object | Mapping[str, Any]) -> object:
         if isinstance(values, Mapping):
             values = dict(values)
             if "components" in values:
@@ -674,7 +719,8 @@ class Config(ConfigMeta):
         return self
 
     @field_validator("root", mode="before")
-    def _validate_root(cls, values: object) -> object:
+    @to_kwargs
+    def _validate_root(cls, values: object | Mapping[str, Any]) -> object:
         if isinstance(values, Mapping):
             if "name" not in values:
                 values = {"name": "root", **values}
@@ -717,5 +763,4 @@ class Config(ConfigMeta):
         return config.cls
 
 
-_TConfig = TypeVar("_TConfig", bound=BaseModel)
-ConfigSource: TypeAlias = Path | Mapping[str, object] | _TConfig
+type ConfigSource[T: DataObject] = Path | Mapping[str, object] | T

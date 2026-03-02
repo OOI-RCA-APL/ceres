@@ -10,7 +10,7 @@ from ceres.address import Address
 from ceres.component import (
     RoutineBinding,
     RoutineRestartPolicy,
-    get_component_routine_bindings,
+    get_routine_bindings,
 )
 from ceres.error import (
     Failure,
@@ -347,7 +347,7 @@ async def test_routines() -> None:
         async def main(self) -> None:
             self.count += 1
 
-    assert get_component_routine_bindings(RunsOnce) == [
+    assert get_routine_bindings(RunsOnce) == [
         RoutineBinding(
             method="main",
             restart=RoutineRestartPolicy.NEVER,
@@ -362,7 +362,7 @@ async def test_routines() -> None:
                 self.count += 1
                 await asyncio.sleep(0.001)
 
-    assert get_component_routine_bindings(RunsForever) == [
+    assert get_routine_bindings(RunsForever) == [
         RoutineBinding(
             method="main",
             restart=RoutineRestartPolicy.NEVER,
@@ -375,7 +375,7 @@ async def test_routines() -> None:
         async def main(self) -> None:
             self.count += 1
 
-    assert get_component_routine_bindings(RestartsForever) == [
+    assert get_routine_bindings(RestartsForever) == [
         RoutineBinding(
             method="main",
             restart=RoutineRestartPolicy.ALWAYS,
@@ -389,7 +389,7 @@ async def test_routines() -> None:
             self.count += 1
             raise Exception("whoops")
 
-    assert get_component_routine_bindings(CrashesForever) == [
+    assert get_routine_bindings(CrashesForever) == [
         RoutineBinding(
             method="main",
             restart=RoutineRestartPolicy.ALWAYS,
@@ -472,3 +472,12 @@ async def test_routines_wait_on_cancellation() -> None:
     assert not component.system.running
     assert component.cancelled
     assert component.count == 3
+
+
+def test_component_repr() -> None:
+    component = Component()
+    assert repr(component) == "Component()"
+
+    child = Component(__with_name__="child")
+    component.system.attach(child)
+    assert repr(child) == "Component()"

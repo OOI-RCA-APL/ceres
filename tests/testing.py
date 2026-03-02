@@ -1,19 +1,11 @@
 import asyncio
 import contextvars
 from asyncio import sleep
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable, Iterable, Sequence
+from datetime import UTC, datetime
 from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Awaitable,
-    Callable,
-    Iterable,
-    NotRequired,
-    Sequence,
-    TypedDict,
-)
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from sqlalchemy import insert
 
@@ -39,17 +31,17 @@ from ceres._internal.entity import (
     BaseUUIDEntityFilterArgs,
 )
 from ceres.config import BCryptHashingConfig
-from ceres.data import JSONDict, MaybeSequence, StrEnum, jsonify, uuid7
+from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
 from ceres.database import Database
-from ceres.item import Item
-from ceres.record import Record
-from ceres.timing import _now_context_var
+from ceres.timing import set_fake_now
 from ceres.user import UserRole
 
 if TYPE_CHECKING:
     from ceres._internal.record import BaseRecordFilterArgs
     from ceres.alert import AlertFilterArgs
+    from ceres.item import Item
     from ceres.particle import ParticleFilterArgs
+    from ceres.record import Record
 
 
 async def wait_for_condition(
@@ -120,7 +112,7 @@ async def execute_filter_test(
         async with database.session() as session:
             for group_cls, group in util.group_by(entity_inserts, type):
                 shuffle(group)
-                values = [entity.__dict__ for entity in group]
+                values = [dict(entity) for entity in group]
                 await session.execute(insert(group_cls.Row).values(values))
                 await session.commit()
 
@@ -167,7 +159,7 @@ async def execute_filter_test(
                 update
             )
 
-        assert await manager.where(filter) == expected
+        assert unordered(await manager.where(filter)) == unordered(expected)
         assert await manager.where(filter).select() == expected
         assert await manager.where(filter).count() == len(expected)
         assert bool(expected) == await manager.where(filter).any()
@@ -248,12 +240,12 @@ async def execute_filter_test(
 def unordered(values: list[Any]) -> list[Any]:
     copy = values.copy()
     keys = [
-        (i, getattr(current, "id", None) or jsonify(current)) for i, current in enumerate(values)
+        (i, getattr(current, "id", None) or to_json(current)) for i, current in enumerate(values)
     ]
     keys.sort(key=lambda x: x[1])
     indexes = [i for i, _ in keys]
 
-    for i, key in keys:
+    for i, _ in keys:
         j = indexes[i]
         copy[i] = values[j]
 
@@ -263,55 +255,60 @@ def unordered(values: list[Any]) -> list[Any]:
 async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
     if cls is Message:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "direction": choice(list(MessageDirection)),
                     "content": randbytes(32),
                     **values,
-                }
+                },
             )
         ]
 
     if cls is Particle or cls is Particle[Any]:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "type": util.randstr(printable, 8),
                     "data": {},
                     **values,
-                }
+                },
             )
         ]
 
     if cls is Alert:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "level": choice(list(Level)),
                     "type": util.randstr(printable, 8),
                     **values,
-                }
+                },
             )
         ]
 
     if cls is LogEntry:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "level": choice(list(Level)),
                     "content": util.randstr(printable, 32),
                     **values,
-                }
+                },
             )
         ]
 
     if cls is User:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "username": util.randstr(ascii_letters, 8),
                     "email": "email@email.com",
@@ -322,19 +319,20 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                     "role": choice(list(UserRole)),
                     "disabled": choice([True, False]),
                     **values,
-                }
+                },
             )
         ]
 
     if cls is Variable:
         return [
-            cls.model_validate(
+            validate(
+                cls,
                 {
                     "address": Address.ROOT,
                     "name": util.randstr(printable, 8),
                     "value": 0,
                     **values,
-                }
+                },
             )
         ]
 
@@ -343,13 +341,14 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
         user = (await arbitrary(User, {"id": user_id}))[0]
         return [
             user,
-            Setting.model_validate(
+            validate(
+                cls,
                 {
                     "user_id": user_id,
                     "name": util.randstr(printable, 8),
                     "value": 0,
                     **values,
-                }
+                },
             ),
         ]
 
@@ -364,8 +363,13 @@ async def fake_now[T](value: datetime, coroutine: Awaitable[T]) -> T:
     context = contextvars.copy_context()
 
     async def run() -> T:
-        _now_context_var.set(value)
-        return await coroutine
+        set_fake_now(value)
+        try:
+            result = await coroutine
+        finally:
+            set_fake_now(None)
+
+        return result
 
     return await asyncio.create_task(run(), context=context)
 
@@ -815,7 +819,7 @@ async def execute_timestamp_filter_test(cls: type[Record]):
     }
 
     await fake_now(
-        datetime(year=2024, month=1, day=3, tzinfo=timezone.utc),
+        datetime(year=2024, month=1, day=3, tzinfo=UTC),
         execute_filter_test(cls, group),
     )
 

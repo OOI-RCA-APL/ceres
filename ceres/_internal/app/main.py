@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, final
 
-from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.requests import HTTPConnection
 from fastapi.responses import FileResponse, JSONResponse
@@ -12,7 +10,7 @@ from starlette.exceptions import HTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
 
 from ceres._internal import util
-from ceres._internal.app.shared import CurrentEngine
+from ceres._internal.app.shared import CurrentEngine, Router
 from ceres.data import simplify
 from ceres.error import (
     Failure,
@@ -21,7 +19,7 @@ from ceres.error import (
     ValidationFailedError,
     ValidationProblem,
 )
-from ceres.timing import utc
+from ceres.timing import sdelta, utc
 from ceres.version import __version__
 
 if TYPE_CHECKING:
@@ -40,7 +38,7 @@ if TYPE_CHECKING:
     from ceres.engine import Engine
 
 
-router = APIRouter()
+router = Router()
 
 
 @router.get("/favicon.ico")
@@ -66,12 +64,12 @@ class App(FastAPI):
         config: ServerConfig | None = None,
         cli_token: str | None = None,
     ) -> None:
-        self.__cli_token = cli_token
+        self._cli_token = cli_token
 
         if config is None:
             config = engine.config.server
 
-        self.__engine = engine
+        self._engine = engine
 
         super().__init__(
             title="Ceres",
@@ -83,23 +81,12 @@ class App(FastAPI):
 
         # Middlewares are run in reverse order. IE, this `CLIAuthMiddleware` is the last to be
         # entered on the way down the middleware stack.
-        if self.__cli_token is not None:
-            self.add_middleware(
-                CLIAuthMiddleware,  # type: ignore
-                self.__cli_token,
-            )
+        if self._cli_token is not None:
+            self.add_middleware(CLIAuthMiddleware, self._cli_token)
 
-        self.add_middleware(
-            ScopeModifyMiddleware,  # type: ignore
-        )
-        self.add_middleware(
-            ErrorMiddleware,  # type: ignore
-            self.engine,
-        )
-        self.add_middleware(
-            LoggingMiddleware,  # type: ignore
-            self.engine,
-        )
+        self.add_middleware(ScopeModifyMiddleware)
+        self.add_middleware(ErrorMiddleware, self.engine)
+        self.add_middleware(LoggingMiddleware, self.engine)
 
         from ceres.config import ServerCompressionConfig
 
@@ -135,8 +122,8 @@ class App(FastAPI):
                 max_age=cors.max_age,
             )
 
-        self.exception_handler(HTTPException)(self.__http_exception_handler)
-        self.exception_handler(RequestValidationError)(self.__request_validation_error_handler)
+        self.exception_handler(HTTPException)(self._http_exception_handler)
+        self.exception_handler(RequestValidationError)(self._request_validation_error_handler)
 
         from ceres._internal.app.api import router as api
 
@@ -150,17 +137,17 @@ class App(FastAPI):
 
     @property
     def engine(self) -> Engine:
-        return self.__engine
+        return self._engine
 
     @property
     def cli(self) -> bool:
-        return self.__cli_token is not None
+        return self._cli_token is not None
 
     @property
     def cli_token(self) -> str | None:
-        return self.__cli_token
+        return self._cli_token
 
-    async def __http_exception_handler(
+    async def _http_exception_handler(
         self,
         request: HTTPConnection,
         exception: HTTPException,
@@ -168,7 +155,7 @@ class App(FastAPI):
         error = simplify(HTTPError(status=exception.status_code))
         return JSONResponse(simplify(error), exception.status_code)
 
-    async def __request_validation_error_handler(
+    async def _request_validation_error_handler(
         self,
         request: Request,
         exception: RequestValidationError,
@@ -196,7 +183,7 @@ class LoggingMiddleware:
             if connected_at is None:
                 return ""
 
-            duration = util.encode_td(utc() - connected_at, decimals=2, space=True)
+            duration = sdelta(utc() - connected_at, decimals=2, space=True)
             return f" ({duration})" if connected_at is not None else ""
 
         def handle(event: ASGIReceiveEvent | ASGISendEvent) -> None:
@@ -276,34 +263,6 @@ class ScopeModifyMiddleware:
         extensions = scope.get("extensions")
         if extensions is not None:
             extensions.pop("http.response.pathsend", None)
-
-        # Combine multiple cookie headers into a single header. Starlette doesn't support multiple
-        # cookie headers, despite them being the sent by default on HTTP/2 and above in Chrome.
-        headers = scope.get("headers", [])
-        if not isinstance(headers, list):
-            headers = list(headers)
-
-        cookie_header_index: int | None = None
-        cookie_header_values: list[bytes] = []
-
-        for i, (key, value) in enumerate(headers):
-            if key.lower() == b"cookie":
-                if cookie_header_index is None:
-                    cookie_header_index = i
-
-                cookie_header_values.append(value)
-
-        if cookie_header_index is not None:
-            merged_cookie_header = (b"cookie", b"; ".join(cookie_header_values))
-            merged_headers = [
-                (key, value)
-                for i, (key, value) in enumerate(headers)
-                if key != "cookie" or i == cookie_header_index
-            ]
-            merged_headers[cookie_header_index] = merged_cookie_header
-
-            headers.clear()
-            headers.extend(merged_headers)
 
         return await self.app(scope, receive, send)
 

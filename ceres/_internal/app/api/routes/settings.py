@@ -1,16 +1,12 @@
-from __future__ import annotations
-
 from uuid import UUID
 
-from fastapi import APIRouter
-
-from ceres._internal.app.shared import CurrentEngine, CurrentRole, CurrentUser
+from ceres._internal.app.shared import CurrentEngine, CurrentRole, CurrentUser, Router
 from ceres.data import Name
 from ceres.error import Failure, NotFoundError, NotPermittedError
 from ceres.setting import Setting, SettingCreate
 from ceres.user import UserRole
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = Router(prefix="/settings", tags=["settings"])
 
 
 @router.get("/{user_id}/{name}")

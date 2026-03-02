@@ -10,6 +10,8 @@ update:
 	cd console && make update
 test:
 	uv run pytest -vv -s
+test-all:
+	uv run ./scripts/test-all-python-versions.py
 lint:
 	uv run sh -c "ruff check . && ruff format --check . && pyright ."
 	cd console && make lint

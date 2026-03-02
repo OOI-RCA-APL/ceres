@@ -1,20 +1,9 @@
-from __future__ import annotations
-
 import importlib
 import sys
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from threading import Lock
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Final,
-    Iterable,
-    Mapping,
-    Sequence,
-    overload,
-    override,
-)
+from typing import TYPE_CHECKING, Any, Final, overload, override
 
 if TYPE_CHECKING:
     from types import ModuleType, UnionType
@@ -121,8 +110,8 @@ _LAZY_EXPORTS_NAME: Final = "__lazy_exports__"
 
 def __lazy_import__(
     name: str,
-    globals: Mapping[str, object] | None = None,
-    locals: Mapping[str, object] | None = None,
+    globals: Mapping[str, Any] | None = None,
+    locals: Mapping[str, Any] | None = None,
     fromlist: Sequence[str] = (),
     level: int = 0,
 ) -> ModuleType | LazyImportProxy:
@@ -153,7 +142,7 @@ def __lazy_import__(
 
 
 @contextmanager
-def lazy_imports(module__name__: str, /, *, export: bool = False):
+def __lazy_imports__(module__name__: str, /, *, export: bool = False):
     with _lazy_importing_modules_lock:
         _lazy_importing_modules.add(module__name__)
         if __builtins__.get("__import__") is not __lazy_import__:
@@ -177,17 +166,19 @@ def lazy_imports(module__name__: str, /, *, export: bool = False):
                 _LAZY_EXPORTS_NAME, {}
             )
 
-            __all__: list[str] = module__dict__.setdefault("__all__", [])
+            __all__: Sequence[str] = module__dict__.setdefault("__all__", [])
             if not isinstance(__all__, list):
                 __all__ = list(__all__) if isinstance(__all__, Iterable) else []
                 module__dict__["__all__"] = __all__
 
+            original__all__ = set(__all__)
             for name in added_names:
                 value = module__dict__[name]
                 if isinstance(value, LazyImportProxy):
                     module__lazy_exports__[name] = value
                     del module__dict__[name]
-                    __all__.append(name)
+                    if name not in original__all__:
+                        __all__.append(name)
 
             module__dict__["__getattr__"] = _create_lazy_getattr(module__name__)
 

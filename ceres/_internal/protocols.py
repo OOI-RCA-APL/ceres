@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -7,9 +5,18 @@ if TYPE_CHECKING:
     from ceres.database import Database
     from ceres.node import Node
 
+if TYPE_CHECKING:
+    __all__ = [
+        "DatabaseSource",
+        "NodeSource",
+        "ComponentSource",
+    ]
+
 
 @runtime_checkable
 class DatabaseSource(Protocol):
+    __slots__ = ()
+
     @property
     def __database__(self) -> Database: ...
 
@@ -18,14 +25,18 @@ class DatabaseSource(Protocol):
 
 @runtime_checkable
 class NodeSource(DatabaseSource, Protocol):
+    __slots__ = ()
+
     @property
     def __node__(self) -> Node: ...
 
 
 @runtime_checkable
 class ComponentSource(NodeSource, Protocol):
-    @property
-    def __component__(self) -> Component: ...
+    __slots__ = ()
 
     @property
     def __system__(self) -> ComponentSystem: ...
+
+    @property
+    def __component__(self) -> Component: ...

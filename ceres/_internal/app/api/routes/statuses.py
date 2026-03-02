@@ -1,16 +1,14 @@
-from __future__ import annotations
-
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import Query
 
-from ceres._internal.app.shared import CurrentEngine, CurrentSocket
+from ceres._internal.app.shared import CurrentEngine, CurrentSocket, Router
 from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.error import Failure, NotFoundError
 from ceres.status import Status
 
-router = APIRouter(prefix="/statuses", tags=["statuses"])
+router = Router(prefix="/statuses", tags=["statuses"])
 
 
 @router.get("/{address}?")
@@ -31,13 +29,13 @@ async def get_statuses(
 
 
 @router.websocket("")
-async def follow_statuses(
+async def stream_statuses(
     socket: CurrentSocket,
     engine: CurrentEngine,
     filter: Annotated[ComponentFilter, Query()],
 ) -> None:
     async def write() -> None:
-        async for statuses in engine.follow_statuses(filter):
+        async for statuses in engine.stream_statuses(filter):
             await socket.send(statuses)
 
     await socket.execute(write)

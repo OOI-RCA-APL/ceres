@@ -1,17 +1,18 @@
-from __future__ import annotations
-
 import asyncio
 from abc import abstractmethod
+from collections.abc import AsyncIterable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, AsyncIterable, Unpack, dataclass_transform, override
+from typing import TYPE_CHECKING, Any, Unpack, dataclass_transform, override
 
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.concurrency import concurrently
+from ceres.data import replacing
 from ceres.event import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -33,16 +34,20 @@ if TYPE_CHECKING:
     from ceres.engine import Engine
     from ceres.item import Item
 
-with lazy_imports(__name__):
-    from ceres._internal.database.writer import Writer
+with __lazy_imports__(__name__):
     from ceres.alert import BoundAlertManager
-    from ceres.event import NodeEventManager
+    from ceres.event import EventManager
     from ceres.logs import BoundLogManager
     from ceres.message import BoundMessageManager
     from ceres.particle import BoundParticleManager
     from ceres.statistics import StatisticsManager
     from ceres.status import Status
     from ceres.variable import BoundVariableManager
+
+
+__all__ = [
+    "Node",
+]
 
 
 @dataclass_transform(
@@ -128,8 +133,8 @@ class Node(Tasklet, NodeSource):
         return BoundVariableManager(self)
 
     @cached_property
-    def events(self) -> NodeEventManager:
-        return NodeEventManager(self)
+    def events(self) -> EventManager:
+        return EventManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:
@@ -144,18 +149,21 @@ class Node(Tasklet, NodeSource):
 
     @cached_property
     def __writer(self):
+        from ceres._internal.database.writer import Writer
+
         return Writer(lambda: self.database)
 
-    def get_resolved_logging_config(self) -> LoggingConfig:
-        from ceres.config import LoggingConfig
-
+    def get_resolved_logging_config(self) -> LoggingConfig | None:
         local = self.config.logging if self.config is not None else None
 
+        # If this node has a container, inherit logging configuration from it.
         container = self.__container__
         if container is not None:
-            return util.model_apply_overrides(container.get_resolved_logging_config(), local)
+            inherited = container.get_resolved_logging_config()
+            if inherited is not None:
+                return replacing(inherited, local)
 
-        return local if local is not None else LoggingConfig()
+        return local
 
     def store(self, item: Item, /) -> None:
         from ceres.item import Item
@@ -175,17 +183,17 @@ class Node(Tasklet, NodeSource):
     async def flush(self) -> None:
         container = self.__container__
         if container is not None:
-            await util.concurrently(self.__writer.flush(), container.flush())
+            await concurrently(self.__writer.flush(), container.flush())
         else:
             await self.__writer.flush()
 
     async def settle(self) -> None:
-        await util.concurrently(self.__writer.settle(), self.events.settle())
+        await concurrently(self.__writer.settle(), self.events.settle())
 
     @override
     async def __run__(self) -> None:
         self.events.emit(StartedEvent)
-        await util.concurrently(self.__process_flush(), self.events.__run__())
+        await concurrently(self.__process_flush(), self.events.__run__())
 
     async def __process_flush(self) -> None:
         while True:
@@ -264,7 +272,7 @@ class Node(Tasklet, NodeSource):
             for component in self.get_components(filter, **kwargs)
         ]
 
-    async def follow_statuses(
+    async def stream_statuses(
         self,
         filter: ComponentFilter | None = None,
         **kwargs: Unpack[ComponentFilterArgs],
@@ -274,13 +282,13 @@ class Node(Tasklet, NodeSource):
         """
         yield await self.get_statuses(filter, **kwargs)
 
-        async for _ in self.events.follow().every(
-            StartedEvent
-            | StoppedEvent
-            | EnabledEvent
-            | DisabledEvent
-            | ConnectedEvent
-            | DisconnectedEvent
-            | ConnectFailedEvent
+        async for _ in self.events.stream.every(
+            StartedEvent,
+            StoppedEvent,
+            EnabledEvent,
+            DisabledEvent,
+            ConnectedEvent,
+            DisconnectedEvent,
+            ConnectFailedEvent,
         ):
             yield await self.get_statuses(filter, **kwargs)

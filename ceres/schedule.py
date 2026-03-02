@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import datetime as dt
 import math
 from abc import abstractmethod
+from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any, Iterable, Literal, Sequence, TypeAlias, override
+from typing import Annotated, Any, Literal, TypeAlias, override
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
@@ -18,9 +17,20 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal.util import decode_td
-from ceres.data import DateTime, DeferBuild, ImmutableDataObject, PositiveTimeDelta, StrEnum
-from ceres.timing import utc
+from ceres.data import DataObject, DateTime, PositiveTimeDelta, StrEnum
+from ceres.timing import delta, utc
+
+___all__ = [
+    "Schedule",
+    "ScheduleExpr",
+    "CronSchedule",
+    "IntervalSchedule",
+    "OrSchedule",
+    "Trigger",
+    "CronTrigger",
+    "IntervalTrigger",
+    "OrTrigger",
+]
 
 
 class ScheduleType(StrEnum):
@@ -29,17 +39,17 @@ class ScheduleType(StrEnum):
     OR = "or"
 
 
-class __BaseSchedule(ImmutableDataObject, DeferBuild):
+class _BaseSchedule(DataObject.Frozen):
     def __or__(self, other: Schedule) -> OrSchedule:
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
         return OrSchedule(schedules=[self, other])
 
     @abstractmethod
-    def as_trigger(self) -> Trigger: ...
+    def create_trigger(self) -> Trigger: ...
 
 
-class CronSchedule(__BaseSchedule):
+class CronSchedule(_BaseSchedule):
     type: Literal[ScheduleType.CRON] = ScheduleType.CRON
     crontab: str
 
@@ -65,11 +75,11 @@ class CronSchedule(__BaseSchedule):
         return value
 
     @override
-    def as_trigger(self) -> CronTrigger:
+    def create_trigger(self) -> CronTrigger:
         return CronTrigger(self)
 
 
-class IntervalSchedule(__BaseSchedule):
+class IntervalSchedule(_BaseSchedule):
     type: Literal[ScheduleType.INTERVAL] = ScheduleType.INTERVAL
     interval: PositiveTimeDelta
     start: DateTime | None = None
@@ -82,7 +92,7 @@ class IntervalSchedule(__BaseSchedule):
     @classmethod
     def _validate_before(cls, value: Any) -> Any:
         try:
-            interval = decode_td(value)
+            interval = delta(value)
             cls(interval=interval)
         except Exception:
             pass
@@ -125,13 +135,13 @@ class IntervalSchedule(__BaseSchedule):
         return max
 
     @override
-    def as_trigger(self) -> IntervalTrigger:
+    def create_trigger(self) -> IntervalTrigger:
         return IntervalTrigger(self)
 
 
-class OrSchedule(__BaseSchedule):
+class OrSchedule(_BaseSchedule):
     type: Literal[ScheduleType.OR] = ScheduleType.OR
-    schedules: Sequence[Schedule]
+    schedules: list[Schedule]
 
     @override
     def __or__(self, other: Schedule) -> OrSchedule:
@@ -141,15 +151,15 @@ class OrSchedule(__BaseSchedule):
         return OrSchedule(schedules=[*self.schedules, other])
 
     @override
-    def as_trigger(self) -> OrTrigger:
+    def create_trigger(self) -> OrTrigger:
         return OrTrigger(self)
 
 
 Schedule: TypeAlias = CronSchedule | IntervalSchedule | OrSchedule
 
 
-def __pre_validate_schedule_expression(value: Any) -> Any:
-    if isinstance(value, (str, int, float)):
+def _pre_validate_schedule_expression(value: Any) -> Any:
+    if isinstance(value, str | int | float):
         try:
             InternalCronTrigger.from_crontab(value)
             return CronSchedule(crontab=str(value))
@@ -157,7 +167,7 @@ def __pre_validate_schedule_expression(value: Any) -> Any:
             pass
 
         try:
-            interval = decode_td(value)
+            interval = delta(value)
             return IntervalSchedule(interval=interval)
         except Exception:
             pass
@@ -168,7 +178,7 @@ def __pre_validate_schedule_expression(value: Any) -> Any:
 ScheduleExpr: TypeAlias = Annotated[
     Schedule,
     Field(discriminator="type"),
-    BeforeValidator(__pre_validate_schedule_expression),
+    BeforeValidator(_pre_validate_schedule_expression),
 ]
 
 
@@ -208,14 +218,19 @@ class Trigger:
 
 
 class CronTrigger(Trigger):
+    __slots__ = (
+        "_schedule",
+        "_inner",
+    )
+
     def __init__(self, schedule: CronSchedule) -> None:
         super().__init__()
-        self.__schedule = schedule
-        self.__inner = InternalCronTrigger.from_crontab(schedule.crontab, timezone=dt.timezone.utc)
+        self._schedule = schedule
+        self._inner = InternalCronTrigger.from_crontab(schedule.crontab, timezone=dt.UTC)
 
     @property
     def schedule(self) -> CronSchedule:
-        return self.__schedule
+        return self._schedule
 
     @override
     def get_next_fire_time(
@@ -226,27 +241,37 @@ class CronTrigger(Trigger):
         if now is None:
             now = utc()
 
-        return self.__inner.get_next_fire_time(previous, now)
+        return self._inner.get_next_fire_time(previous, now)
 
 
 class IntervalTrigger(Trigger):
+    __slots__ = (
+        "_schedule",
+        "_inner",
+        "_start",
+    )
+
     def __init__(self, schedule: IntervalSchedule) -> None:
         super().__init__()
-        self.__schedule = schedule
-        self.__inner = InternalIntervalTrigger(
+        self._schedule = schedule
+        self._inner = _InternalIntervalTrigger(
             seconds=int(schedule.interval.total_seconds()),
-            start_date=self.__schedule.start,
-            end_date=self.__schedule.end,
-            multiplier=self.__schedule.multiplier,
-            min=self.__schedule.min,
-            max=self.__schedule.max,
+            start_date=self._schedule.start,
+            end_date=self._schedule.end,
+            multiplier=self._schedule.multiplier,
+            min=self._schedule.min,
+            max=self._schedule.max,
         )
 
-        self.start: datetime = self.__inner.start_date
+        self._start: datetime = self._inner.start_date
 
     @property
     def schedule(self) -> IntervalSchedule:
-        return self.__schedule
+        return self._schedule
+
+    @property
+    def start(self) -> datetime:
+        return self._start
 
     @override
     def get_next_fire_time(
@@ -257,18 +282,23 @@ class IntervalTrigger(Trigger):
         if now is None:
             now = utc()
 
-        return self.__inner.get_next_fire_time(previous, now)
+        return self._inner.get_next_fire_time(previous, now)
 
 
 class OrTrigger(Trigger):
+    __slots__ = (
+        "_schedule",
+        "_triggers",
+    )
+
     def __init__(self, schedule: OrSchedule) -> None:
         super().__init__()
-        self.__schedule = schedule
-        self.__triggers = [schedule.as_trigger() for schedule in self.__schedule.schedules]
+        self._schedule = schedule
+        self._triggers = [schedule.create_trigger() for schedule in self._schedule.schedules]
 
     @property
     def schedule(self) -> OrSchedule:
-        return self.__schedule
+        return self._schedule
 
     @override
     def get_next_fire_time(
@@ -280,7 +310,7 @@ class OrTrigger(Trigger):
             now = utc()
 
         minimum: datetime | None = None
-        for trigger in self.__triggers:
+        for trigger in self._triggers:
             current = trigger.get_next_fire_time(previous, now)
             if current is None:
                 continue
@@ -290,9 +320,12 @@ class OrTrigger(Trigger):
         return minimum
 
 
-class InternalIntervalTrigger(BaseInternalIntervalTrigger):
-    if TYPE_CHECKING:
-        start_date: datetime
+class _InternalIntervalTrigger(BaseInternalIntervalTrigger):
+    __slots__ = (
+        "multiplier",
+        "min",
+        "max",
+    )
 
     def __init__(
         self,
@@ -316,7 +349,7 @@ class InternalIntervalTrigger(BaseInternalIntervalTrigger):
             seconds=seconds,
             start_date=start_date,
             end_date=end_date,
-            timezone=dt.timezone.utc,
+            timezone=dt.UTC,
             jitter=jitter,
         )
         self.multiplier = multiplier
@@ -419,7 +452,7 @@ def _compute_iterations_and_fire_time_delay(
         # https://www.symbolab.com/solver/step-by-step/solve%20for%20n%2C%20d%20%3D%20%5Cleft(v%20%5Cleft(m%5E%7B%5Cleft(n%20%2B%201%5Cright)%7D%20-%201%5Cright)%5Cright)%2F%5Cleft(m%20-%201%5Cright)?or=input
         try:
             iterations = math.ceil(
-                (math.log(((runtime * (multiplier - 1)) / interval) + 1) / math.log(multiplier))
+                math.log(((runtime * (multiplier - 1)) / interval) + 1) / math.log(multiplier)
             )
         except ValueError:
             return None

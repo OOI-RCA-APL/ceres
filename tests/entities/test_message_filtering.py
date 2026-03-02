@@ -6,6 +6,10 @@ async def test_message_id_filtering():
     await testing.execute_id_filter_test(Message)
 
 
+async def test_message_connection_filtering():
+    await testing.execute_string_filter_test(Message, "connection")
+
+
 async def test_message_address_filtering():
     await testing.execute_address_filter_test(Message)
 

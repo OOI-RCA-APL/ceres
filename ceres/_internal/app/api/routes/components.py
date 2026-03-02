@@ -1,40 +1,33 @@
-from __future__ import annotations
-
 import traceback
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Literal,
-    Mapping,
-    Sequence,
-    TypeAlias,
-)
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from fastapi import APIRouter, Body, Request, Response, WebSocket, WebSocketException
+from fastapi import Body, Request, Response, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
 from ceres._internal import util
 from ceres._internal.app.shared import (
+    OPERATOR,
     VIEWER,
     CurrentEngine,
     CurrentProcedureQueryArguments,
     CurrentRole,
     CurrentSocket,
+    Router,
 )
 from ceres.address import Address
 from ceres.component import (
     ActionBinding,
-    BaseOutput,
     Component,
+    Output,
     ProcedureAccessLevel,
     ProcedureBinding,
     ProcedureType,
     QueryBinding,
 )
-from ceres.data import DeferBuild, ImmutableDataObject, Name, StrEnum, jsonify
+from ceres.data import DataModel, DataObject, Name, StrEnum, to_json
 from ceres.error import (
     Failure,
+    NotConnectedError,
     NotFoundError,
     ProcedureComponentNotFoundError,
     ProcedureError,
@@ -42,6 +35,7 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotPermittedError,
 )
+from ceres.message import Message, MessageContent
 from ceres.result import Fail
 from ceres.user import UserRole
 
@@ -50,33 +44,36 @@ if TYPE_CHECKING:
 
 
 class ComponentRole(StrEnum):
-    CONNECTION = "connection"
     INTERFACE = "interface"
 
 
-class APIComponent(ImmutableDataObject, DeferBuild):
+class ConnectionInfo(DataObject):
+    name: Name
+    label: str
+
+
+class ComponentInfo(DataObject):
     name: Name
     address: Address
-    components: Sequence[APIComponent]
-    roles: Sequence[ComponentRole]
-    procedures: Sequence[ProcedureBinding]
+    roles: list[ComponentRole]
+    procedures: list[ProcedureBinding]
+    connections: list[ConnectionInfo]
+    components: list[ComponentInfo]
 
 
-APIComponent.__name__ = "Component"
+ComponentInfo.__name__ = "Component"
+ComponentInfo.__qualname__ = "Component"
 
-router = APIRouter(prefix="/components", tags=["components"])
+router = Router(prefix="/components", tags=["components"])
 
 
-def _get_component_roles(component: Component | type[Component]) -> Sequence[ComponentRole]:
+def _get_component_roles(component: Component | type[Component]) -> list[ComponentRole]:
     if not isinstance(component, type):
         component = type(component)
 
-    from ceres.connection import Connection
     from ceres.interface import Interface
 
     roles: list[ComponentRole] = []
-    if issubclass(component, Connection):
-        roles.append(ComponentRole.CONNECTION)
     if issubclass(component, Interface):
         roles.append(ComponentRole.INTERFACE)
 
@@ -84,21 +81,30 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
 
 
 @router.get("/{address}", dependencies=[VIEWER])
-async def get_component(engine: CurrentEngine, address: Address) -> APIComponent:
+async def get_component(engine: CurrentEngine, address: Address) -> ComponentInfo:
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
 
-    subcomponents: list[APIComponent] = []
+    subcomponents: list[ComponentInfo] = []
     for subcomponent in component.system.children:
         subcomponents.append(await get_component(engine, address / subcomponent.name))
 
+    roles = _get_component_roles(component)
+    procedures = list(component.system.get_procedure_bindings().values())
+    connections = [
+        ConnectionInfo(name=connection.name, label=connection.label)
+        for connection in component.system.connections.all()
+        if connection.name is not None
+    ]
+
     try:
-        info = APIComponent(
+        info = ComponentInfo(
             name=component.system.name,
             address=address,
-            roles=_get_component_roles(component),
-            procedures=list(component.system.get_procedure_bindings().values()),
+            roles=roles,
+            procedures=procedures,
+            connections=connections,
             components=subcomponents,
         )
         return info
@@ -125,7 +131,7 @@ async def get_procedure(
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
-    binding = component.system.get_procedure_binding(procedure)
+    binding = component.system.get_procedure_bindings().get(procedure)
     if binding is None:
         raise Failure(NotFoundError)
 
@@ -153,7 +159,7 @@ async def get_query_info(
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
-    binding = component.system.get_query_binding(query)
+    binding = component.system.get_query_bindings().get(query)
     if binding is None:
         raise Failure(NotFoundError)
 
@@ -181,7 +187,7 @@ async def get_action(
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
-    binding = component.system.get_action_binding(action)
+    binding = component.system.get_action_bindings().get(action)
     if binding is None:
         raise Failure(NotFoundError)
 
@@ -189,9 +195,9 @@ async def get_action(
 
 
 if TYPE_CHECKING:
-    CallResult: TypeAlias = Any | Response | None | ProcedureError
+    type CallResult = Any | Response | None | ProcedureError
 else:
-    CallResult = Any
+    type CallResult = Any
 
 
 async def _call(
@@ -201,7 +207,7 @@ async def _call(
     role: CurrentRole,
     address: Address,
     procedure: Name,
-    arguments: Mapping[Name, object] | None = None,
+    arguments: dict[Name, object] | None = None,
 ) -> CallResult:
     access = ProcedureAccessLevel.PUBLIC if role is None else role
     namespace = namespace = _get_namespace(request)
@@ -209,7 +215,7 @@ async def _call(
         component = engine.get_component(address)
         if component is None:
             return Fail(ProcedureComponentNotFoundError())
-        binding = component.system.get_procedure_binding(procedure)
+        binding = component.system.get_procedure_bindings().get(procedure)
         if binding is None:
             return Fail(ProcedureNotFoundError())
         if namespace == "queries":
@@ -226,7 +232,7 @@ async def _call(
             return Fail(ProcedureNotPermittedError())
 
         output = await component.system.call(procedure, arguments)
-        if isinstance(output, BaseOutput):
+        if isinstance(output, Output):
             return output.to_response()
 
         return output
@@ -258,7 +264,7 @@ async def call_procedure(
     role: CurrentRole,
     address: Address,
     name: Name,
-    arguments: Annotated[Mapping[Name, object] | None, Body()] = None,
+    arguments: Annotated[dict[Name, object] | None, Body()] = None,
 ) -> CallResult:
     return await _call(
         request=request,
@@ -334,33 +340,33 @@ async def subscribe_procedure(
     if component is None:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            jsonify(Fail(ProcedureComponentNotFoundError())),
+            to_json(Fail(ProcedureComponentNotFoundError())),
         )
 
-    binding = component.system.get_procedure_binding(name)
+    binding = component.system.get_procedure_bindings().get(name)
     if binding is None:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            jsonify(Fail(ProcedureNotFoundError())),
+            to_json(Fail(ProcedureNotFoundError())),
         )
 
     if namespace == "queries":
         if binding.type != ProcedureType.QUERY:
             raise WebSocketException(
                 WS_1008_POLICY_VIOLATION,
-                jsonify(Fail(ProcedureNotFoundError())),
+                to_json(Fail(ProcedureNotFoundError())),
             )
     if namespace == "actions":
         if binding.type != ProcedureType.ACTION:
             raise WebSocketException(
                 WS_1008_POLICY_VIOLATION,
-                jsonify(Fail(ProcedureNotFoundError())),
+                to_json(Fail(ProcedureNotFoundError())),
             )
 
     if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            jsonify(Fail(ProcedureNotPermittedError())),
+            to_json(Fail(ProcedureNotPermittedError())),
         )
 
     async def write() -> None:
@@ -374,10 +380,10 @@ async def subscribe_procedure(
                 else:
                     code = WS_1008_POLICY_VIOLATION
 
-                reason = jsonify(Fail(exception.error))
+                reason = to_json(Fail(exception.error))
             else:
                 code = WS_1011_INTERNAL_ERROR
-                reason = jsonify(util.strify(exception)[0:100])
+                reason = to_json(util.strify(exception)[0:100])
 
             await socket.close(code, reason)
 
@@ -386,3 +392,29 @@ async def subscribe_procedure(
 
 for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
     router.websocket("/{address}/" + namespace + "/{name}/subscribe")(subscribe_procedure)
+
+
+class SendMessageInput(DataModel):
+    data: MessageContent
+
+
+@router.post("/{address}/connections/{connection}/send", dependencies=[OPERATOR])
+async def send_message(
+    engine: CurrentEngine,
+    address: Address,
+    connection: str,
+    input: Annotated[SendMessageInput, Body()],
+) -> Message:
+    from ceres.connection import ConnectionInactive
+
+    component = engine.get_component(address)
+    if component is None:
+        raise Failure(NotFoundError)
+    target = component.system.connections.get(connection)
+    if target is None:
+        raise Failure(NotFoundError)
+
+    try:
+        return await target.send(input.data)
+    except ConnectionInactive:
+        raise Failure(NotConnectedError)

@@ -1,12 +1,9 @@
-from __future__ import annotations
-
 from asyncio import CancelledError
-from datetime import timezone
+from datetime import UTC
 from threading import Lock
 from typing import TYPE_CHECKING, Any, cast
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseComponentManager
 from ceres.entity import EntityType
 from ceres.event import (
@@ -19,20 +16,15 @@ from ceres.event import (
     PruneStartedEvent,
 )
 
-with lazy_imports(__name__):
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-    from ceres.job import _get_trigger_adapter_class
-
-
 if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
+    from apscheduler.schedulers.base import BaseScheduler
 
     from ceres._internal.protocols import ComponentSource
     from ceres.config import PrunerConfig
 
 
-class ComponentPrunerManager(BaseComponentManager):
+class PrunerManager(BaseComponentManager):
     __slots__ = (
         "__scheduler",
         "__pruners",
@@ -46,8 +38,10 @@ class ComponentPrunerManager(BaseComponentManager):
         self.__lock = Lock()
 
     @classmethod
-    def __create_scheduler(cls) -> AsyncIOScheduler:
-        return AsyncIOScheduler(timezone=timezone.utc)
+    def __create_scheduler(cls) -> BaseScheduler:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+        return AsyncIOScheduler(timezone=UTC)
 
     @property
     def count(self) -> int:
@@ -111,8 +105,10 @@ class ComponentPrunerManager(BaseComponentManager):
             if internal is not None:
                 continue
 
+            from ceres.job import _get_trigger_adapter_class
+
             TriggerAdapter = _get_trigger_adapter_class()
-            trigger = job.schedule.as_trigger()
+            trigger = job.schedule.create_trigger()
             internal = self.__scheduler.add_job(
                 self.__run,
                 args=[job],

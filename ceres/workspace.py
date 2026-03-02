@@ -1,12 +1,9 @@
-from __future__ import annotations
-
+from collections.abc import Iterable
 from typing import (
     TYPE_CHECKING,
     ClassVar,
-    Iterable,
     Literal,
     Self,
-    TypeAlias,
     TypedDict,
     Unpack,
     override,
@@ -49,13 +46,7 @@ from ceres._internal.entity import (
     EntityQuery,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import (
-    FromYAML,
-    JSONSerializableDict,
-    MaybeSequence,
-    NonEmptyStr,
-    OrderedStrEnum,
-)
+from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, NonEmptyStr, OrderedStrEnum
 from ceres.user import UserRole, UserRow
 
 if TYPE_CHECKING:
@@ -64,6 +55,12 @@ if TYPE_CHECKING:
 
     from ceres._internal.protocols import DatabaseSource
     from ceres.database import DatabaseType
+
+__all__ = [
+    "Workspace",
+    "WorkspaceEdit",
+    "WorkspaceMembership",
+]
 
 
 class WorkspaceAccessLevel(OrderedStrEnum):
@@ -120,13 +117,13 @@ class WorkspaceMembershipRow(BaseEntityRow, kw_only=True):
         )
 
 
-WorkspaceMembershipField: TypeAlias = Literal[
+type WorkspaceMembershipField = Literal[
     "user_id",
     "workspace_id",
     "role",
     "data",
 ]
-WorkspaceMembershipOrder: TypeAlias = Literal[
+type WorkspaceMembershipOrder = Literal[
     "user_id",
     "user_id:asc",
     "user_id:desc",
@@ -198,7 +195,7 @@ class WorkspaceMembershipFilter(
         return "user_id", "workspace_id"
 
 
-class WorkspaceMembershipCreate(BaseEntityCreate):
+class WorkspaceMembershipCreate(BaseEntityCreate, slots=True):
     user_id: UUID
     workspace_id: UUID
     role: WorkspaceMembershipRole
@@ -216,8 +213,10 @@ class _BaseWorkspaceMembershipQuery(
         "WorkspaceMembershipQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: WorkspaceMembershipFilter | None = None,
         **kwargs: Unpack[WorkspaceMembershipFilterArgs],
@@ -237,7 +236,7 @@ class WorkspaceMembershipQuery(
     ],
     _BaseWorkspaceMembershipQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class WorkspaceMembershipManager(
@@ -251,6 +250,8 @@ class WorkspaceMembershipManager(
     ],
     _BaseWorkspaceMembershipQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, WorkspaceMembership)
 
@@ -258,16 +259,16 @@ class WorkspaceMembershipManager(
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
-class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate):
-    Manager: ClassVar[type[WorkspaceMembershipManager]] = WorkspaceMembershipManager
-    Row: ClassVar[type[WorkspaceMembershipRow]] = WorkspaceMembershipRow
-    Create: ClassVar[type[WorkspaceMembershipCreate]] = WorkspaceMembershipCreate
-    Update: ClassVar[type[WorkspaceMembershipUpdate]] = WorkspaceMembershipUpdate
-    Filter: ClassVar[type[WorkspaceMembershipFilter]] = WorkspaceMembershipFilter
-    FilterArgs: ClassVar[type[WorkspaceMembershipFilterArgs]] = WorkspaceMembershipFilterArgs
+class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate, slots=True):
+    Manager = WorkspaceMembershipManager
+    Row = WorkspaceMembershipRow
+    Create = WorkspaceMembershipCreate
+    Update = WorkspaceMembershipUpdate
+    Filter = WorkspaceMembershipFilter
+    FilterArgs = WorkspaceMembershipFilterArgs
     Field = WorkspaceMembershipField
     Order = WorkspaceMembershipOrder
-    Role: ClassVar[type[WorkspaceMembershipRole]] = WorkspaceMembershipRole
+    Role = WorkspaceMembershipRole
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("workspace membership")
 
@@ -302,12 +303,12 @@ class WorkspaceEditRow(BaseEntityRow, kw_only=True):
         )
 
 
-WorkspaceEditField: TypeAlias = Literal[
+type WorkspaceEditField = Literal[
     "user_id",
     "workspace_id",
     "data",
 ]
-WorkspaceEditOrder: TypeAlias = Literal[
+type WorkspaceEditOrder = Literal[
     "user_id",
     "user_id:asc",
     "user_id:desc",
@@ -356,7 +357,7 @@ class WorkspaceEditFilter(
         return True
 
     @override
-    def _get_where(self, dialect: "DatabaseType") -> Iterable[SQLColumnExpression[bool]]:
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
@@ -370,7 +371,7 @@ class WorkspaceEditFilter(
         return "user_id", "workspace_id"
 
 
-class WorkspaceEditCreate(BaseEntityCreate):
+class WorkspaceEditCreate(BaseEntityCreate, slots=True):
     user_id: UUID
     workspace_id: UUID
     data: FromYAML[JSONSerializableDict]
@@ -388,8 +389,10 @@ class _BaseWorkspaceEditQuery(
         "WorkspaceEditQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: WorkspaceEditFilter | None = None,
         **kwargs: Unpack[WorkspaceEditFilterArgs],
@@ -409,7 +412,7 @@ class WorkspaceEditQuery(
     ],
     _BaseWorkspaceEditQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class WorkspaceEditManager(
@@ -423,6 +426,8 @@ class WorkspaceEditManager(
     ],
     _BaseWorkspaceEditQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, WorkspaceEdit)
 
@@ -430,13 +435,13 @@ class WorkspaceEditManager(
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
-class WorkspaceEdit(BaseEntity, WorkspaceEditCreate):
-    Manager: ClassVar[type[WorkspaceEditManager]] = WorkspaceEditManager
-    Row: ClassVar[type[WorkspaceEditRow]] = WorkspaceEditRow
-    Create: ClassVar[type[WorkspaceEditCreate]] = WorkspaceEditCreate
-    Update: ClassVar[type[WorkspaceEditUpdate]] = WorkspaceEditUpdate
-    Filter: ClassVar[type[WorkspaceEditFilter]] = WorkspaceEditFilter
-    FilterArgs: ClassVar[type[WorkspaceEditFilterArgs]] = WorkspaceEditFilterArgs
+class WorkspaceEdit(BaseEntity, WorkspaceEditCreate, slots=True):
+    Manager = WorkspaceEditManager
+    Row = WorkspaceEditRow
+    Create = WorkspaceEditCreate
+    Update = WorkspaceEditUpdate
+    Filter = WorkspaceEditFilter
+    FilterArgs = WorkspaceEditFilterArgs
     Field = WorkspaceEditField
     Order = WorkspaceEditOrder
 
@@ -511,7 +516,7 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
         )
 
 
-WorkspaceField: TypeAlias = (
+type WorkspaceField = (
     BaseUUIDEntityField
     | Literal[
         "name",
@@ -521,7 +526,7 @@ WorkspaceField: TypeAlias = (
         "data",
     ]
 )
-WorkspaceOrder: TypeAlias = (
+type WorkspaceOrder = (
     BaseUUIDEntityOrder
     | Literal[
         "name",
@@ -677,7 +682,7 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         return "name"
 
 
-class WorkspaceCreate(BaseUUIDEntityCreate):
+class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
     name: NonEmptyStr
     general_viewership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
     general_editorship: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
@@ -723,8 +728,10 @@ class _BaseWorkspaceQuery(
         "WorkspaceQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: WorkspaceFilter | None = None,
         **kwargs: Unpack[WorkspaceFilterArgs],
@@ -744,7 +751,7 @@ class WorkspaceQuery(
     ],
     _BaseWorkspaceQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class WorkspaceManager(
@@ -758,6 +765,8 @@ class WorkspaceManager(
     ],
     _BaseWorkspaceQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Workspace)
 
@@ -765,17 +774,17 @@ class WorkspaceManager(
         return await self.where(id=id).first()
 
 
-class Workspace(BaseUUIDEntity, WorkspaceCreate):
-    Manager: ClassVar[type[WorkspaceManager]] = WorkspaceManager
-    Row: ClassVar[type[WorkspaceRow]] = WorkspaceRow
-    Create: ClassVar[type[WorkspaceCreate]] = WorkspaceCreate
-    Update: ClassVar[type[WorkspaceUpdate]] = WorkspaceUpdate
-    Filter: ClassVar[type[WorkspaceFilter]] = WorkspaceFilter
-    FilterArgs: ClassVar[type[WorkspaceFilterArgs]] = WorkspaceFilterArgs
+class Workspace(BaseUUIDEntity, WorkspaceCreate, slots=True):
+    Manager = WorkspaceManager
+    Row = WorkspaceRow
+    Create = WorkspaceCreate
+    Update = WorkspaceUpdate
+    Filter = WorkspaceFilter
+    FilterArgs = WorkspaceFilterArgs
     Field = WorkspaceField
     Order = WorkspaceOrder
 
-    Edit: ClassVar[type[WorkspaceEdit]] = WorkspaceEdit
-    Membership: ClassVar[type[WorkspaceMembership]] = WorkspaceMembership
+    Edit = WorkspaceEdit
+    Membership = WorkspaceMembership
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("workspace")

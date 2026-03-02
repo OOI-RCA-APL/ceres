@@ -1,14 +1,14 @@
 # ruff: noqa: TC001
-from __future__ import annotations
+
 
 import sys
 from functools import wraps
 from typing import TYPE_CHECKING, TypeAlias
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import __lazy_imports__
 from ceres.data import StrEnum
 
-with lazy_imports(__name__, export=True):
+with __lazy_imports__(__name__, export=True):
     from ceres.alert import Alert as Alert
     from ceres.logs import LogEntry as LogEntry
     from ceres.message import Message as Message
@@ -20,7 +20,12 @@ with lazy_imports(__name__, export=True):
     from ceres.workspace import WorkspaceEdit as WorkspaceEdit
     from ceres.workspace import WorkspaceMembership as WorkspaceMembership
 
-__Entity: object = None
+__all__ = [
+    "Entity",
+    "EntityType",
+]
+
+_Entity: object = None
 
 if TYPE_CHECKING:
     Entity: TypeAlias = (
@@ -36,14 +41,14 @@ if TYPE_CHECKING:
         | WorkspaceEdit
     )
 
-__lazy_getattr = sys.modules[__name__].__getattr__
+_lazy_getattr = sys.modules[__name__].__getattr__
 
 
 def __getattr__(name: str):
-    global __Entity
+    global _Entity
 
     if name == "Entity":
-        if __Entity is None:
+        if _Entity is None:
             from ceres.alert import Alert
             from ceres.logs import LogEntry
             from ceres.message import Message
@@ -53,7 +58,7 @@ def __getattr__(name: str):
             from ceres.variable import Variable
             from ceres.workspace import Workspace, WorkspaceEdit, WorkspaceMembership
 
-            __Entity = (
+            _Entity = (
                 Message
                 | Particle
                 | Alert
@@ -66,9 +71,9 @@ def __getattr__(name: str):
                 | WorkspaceEdit
             )
 
-        return __Entity
+        return _Entity
 
-    return __lazy_getattr(name)
+    return _lazy_getattr(name)
 
 
 class EntityType(StrEnum):
@@ -156,7 +161,7 @@ class EntityType(StrEnum):
                 raise ValueError(f"Unknown entity type: {source}")
 
 
-__ENTITY_TYPE_ALIASES = {
+_ENTITY_TYPE_ALIASES = {
     "messages": "message",
     "particles": "particle",
     "alerts": "alert",
@@ -170,15 +175,15 @@ __ENTITY_TYPE_ALIASES = {
     "workspace-edits": "workspace-edit",
 }
 
-__new = EntityType.__new__
+_base__new__ = EntityType.__new__
 
 
-@wraps(__new)
-def __new_override(cls: type[EntityType], value: str) -> EntityType:
+@wraps(_base__new__)
+def _override__new__(cls: type[EntityType], value: str) -> EntityType:
     if isinstance(value, EntityType):
         return value
 
-    return __new(cls, __ENTITY_TYPE_ALIASES.get(value, value))
+    return _base__new__(cls, _ENTITY_TYPE_ALIASES.get(value, value))
 
 
-EntityType.__new__ = __new_override  # type: ignore
+EntityType.__new__ = _override__new__

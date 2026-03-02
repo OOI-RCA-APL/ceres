@@ -1,12 +1,9 @@
-from __future__ import annotations
-
+from collections.abc import Callable, Iterable
 from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Iterable,
     Literal,
-    TypeAlias,
     TypedDict,
     Unpack,
     overload,
@@ -29,11 +26,12 @@ from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     EntityNaming,
+    EntityOutputChannel,
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import MatchMode, get_type_adapter
-from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, jsonify
+from ceres._internal.util import MatchMode
+from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, to_json, validate
 
 if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
@@ -41,8 +39,11 @@ if TYPE_CHECKING:
 
     from ceres._internal.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
-    from ceres.channel import OutputChannel
     from ceres.database import DatabaseType
+
+__all__ = [
+    "Variable",
+]
 
 
 class VariableRow(BaseAddressEntityRow, kw_only=True):
@@ -64,14 +65,14 @@ class VariableRow(BaseAddressEntityRow, kw_only=True):
         )
 
 
-VariableField: TypeAlias = (
+type VariableField = (
     BaseAddressEntityField
     | Literal[
         "name",
         "value",
     ]
 )
-VariableOrder: TypeAlias = (
+type VariableOrder = (
     BaseAddressEntityOrder
     | Literal[
         "name",
@@ -130,7 +131,7 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
                 return False
 
         if "value" in self.model_fields_set:
-            if jsonify(obj.value) != jsonify(self.value):
+            if to_json(obj.value) != to_json(self.value):
                 return False
 
         return True
@@ -160,14 +161,14 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
             yield internal if self.internal else ~internal
 
         if "value" in self.model_fields_set:
-            yield util.sql_match_value(cast(columns.value, Text), jsonify(self.value))
+            yield util.sql_match_value(cast(columns.value, Text), to_json(self.value))
 
     @override
     def _get_default_order(self) -> MaybeSequence[VariableOrder]:
         return ("address", "name")
 
 
-class VariableCreate(BaseAddressEntityCreate):
+class VariableCreate(BaseAddressEntityCreate, slots=True):
     name: str
     value: FromYAML[JSONSerializable]
 
@@ -185,12 +186,14 @@ class _BaseVariableQuery(
         "VariableQuery",
     ]
 ):
+    __slots__ = ()
+
     @override
     def _get_query_class(self) -> type[VariableQuery]:
         return VariableQuery
 
     @override
-    def where(
+    def where(  # type: ignore
         self,
         filter: VariableFilter | None = None,
         **kwargs: Unpack[VariableFilterArgs],
@@ -206,7 +209,7 @@ class VariableQuery(
     ],
     _BaseVariableQuery,
 ):
-    pass
+    __slots__ = ()
 
 
 class VariableManager(
@@ -220,6 +223,8 @@ class VariableManager(
     ],
     _BaseVariableQuery,
 ):
+    __slots__ = ()
+
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Variable)
 
@@ -228,8 +233,20 @@ class VariableManager(
 
 
 class BoundVariableManager(VariableManager, BaseNodeManager):
+    __slots__ = ()
+
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
+
+    @property
+    def stream(self) -> VariableOutputChannel:
+        from ceres.event import VariableAssignedEvent
+
+        return VariableOutputChannel(
+            self.__node__.events.stream.every(VariableAssignedEvent)
+            .map(lambda event: event.variable)
+            .where(lambda variable: self._get_resolved_filter().matches(variable))
+        )
 
     def assign(self, name: str, value: Any) -> Variable:
         from ceres.event import VariableAssignedEvent
@@ -289,36 +306,44 @@ class BoundVariableManager(VariableManager, BaseNodeManager):
 
         if parse is not None:
             try:
-                return get_type_adapter(parse).validate_python(variable.value)
+                return validate(parse, variable.value)
             except ValidationError:
                 return default
 
         return variable.value
 
-    def follow(
+
+class VariableOutputChannel(
+    EntityOutputChannel[
+        "Variable",
+        VariableFilter,
+        VariableFilterArgs,
+    ]
+):
+    __slots__ = ()
+
+    @override
+    def _get_filter_class(self) -> type[VariableFilter]:
+        return VariableFilter
+
+    @override
+    def where(  # type: ignore
         self,
-        filter: VariableFilter | None = None,
+        filter: VariableFilter | Callable[[Variable], bool] | None = None,
+        /,
         **kwargs: Unpack[VariableFilterArgs],
-    ) -> OutputChannel[Variable]:
-        from ceres.event import VariableAssignedEvent
-
-        filter = self._get_resolved_filter_args(filter, kwargs)
-        return (
-            self.__node__.events.follow()
-            .every(VariableAssignedEvent)
-            .map(lambda event: event.variable)
-            .filter(filter.matches)
-        )
+    ) -> VariableOutputChannel:
+        return super().where(filter, **kwargs)
 
 
-class Variable(BaseAddressEntity, VariableCreate):
-    Manager: ClassVar[type[VariableManager]] = VariableManager
-    BoundManager: ClassVar[type[BoundVariableManager]] = BoundVariableManager
-    Row: ClassVar[type[VariableRow]] = VariableRow
-    Create: ClassVar[type[VariableCreate]] = VariableCreate
-    Update: ClassVar[type[VariableUpdate]] = VariableUpdate
-    Filter: ClassVar[type[VariableFilter]] = VariableFilter
-    FilterArgs: ClassVar[type[VariableFilterArgs]] = VariableFilterArgs
+class Variable(BaseAddressEntity, VariableCreate, slots=True):
+    Manager = VariableManager
+    BoundManager = BoundVariableManager
+    Row = VariableRow
+    Create = VariableCreate
+    Update = VariableUpdate
+    Filter = VariableFilter
+    FilterArgs = VariableFilterArgs
     Field = VariableField
     Order = VariableOrder
 

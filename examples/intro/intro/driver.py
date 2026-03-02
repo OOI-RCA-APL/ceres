@@ -5,7 +5,7 @@ from pathlib import Path
 from ceres import Component, Connection, Message, Ref, listener
 from ceres.data import DataObject
 from ceres.event import MessageReceivedEvent
-from ceres.parsing import Parser
+from ceres.parsing import Parser  # type: ignore TODO: Fix this file.
 
 
 class Driver(Component):

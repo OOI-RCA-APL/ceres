@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from functools import wraps
 from typing import TypeAlias, cast
 
@@ -10,6 +8,11 @@ from ceres.logs import LogEntry as LogEntry
 from ceres.message import Message as Message
 from ceres.particle import Particle as Particle
 from ceres.variable import Variable as Variable
+
+__all__ = [
+    "Item",
+    "ItemType",
+]
 
 Item: TypeAlias = Message | Particle | Alert | LogEntry | Variable
 
@@ -31,12 +34,12 @@ class ItemType(StrEnum):
 
 assert set(ItemType).issubset(EntityType)
 
-__new = ItemType.__new__
+_base__new__ = ItemType.__new__
 
 
-@wraps(__new)
-def __new_override(cls: type[ItemType], value: str) -> ItemType:
-    return __new(cls, EntityType(value))
+@wraps(_base__new__)
+def _override__new__(cls: type[ItemType], value: str) -> ItemType:
+    return _base__new__(cls, EntityType(value))
 
 
-ItemType.__new__ = __new_override  # type: ignore
+ItemType.__new__ = _override__new__

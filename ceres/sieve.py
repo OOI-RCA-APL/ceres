@@ -1,23 +1,19 @@
-from __future__ import annotations
-
 import asyncio
 import traceback
 from abc import abstractmethod
-from asyncio import Task
-from typing import TYPE_CHECKING, AsyncIterable, AsyncIterator, Generic, override
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
+from dataclasses import field
+from typing import TYPE_CHECKING, cast, override
 
-from typing_extensions import TypeVar
+from pydantic import SkipValidation
 
-from ceres._internal import util
-from ceres._internal.manager import BaseComponentManager
-from ceres.channel import Channel
-from ceres.data import Name, ValidatedDataclass
-from ceres.error import ParticleError
+from ceres._internal.manager import BaseComponentTaskManager
+from ceres._internal.util import awaitify, get_traceback, is_assignable
+from ceres.data import DataObject, Name
 from ceres.event import (
     ParticleEvent,
     SieveAddedEvent,
     SieveExceptionEvent,
-    SieveParticleErrorEvent,
     SieveRemovedEvent,
     SieveRetryEvent,
     SieveRetryPendingEvent,
@@ -27,140 +23,105 @@ from ceres.event import (
 from ceres.particle import Particle
 
 if TYPE_CHECKING:
-    from ceres._internal.protocols import ComponentSource
     from ceres.message import Message
-
-    _T = TypeVar("_T", bound=Particle, covariant=True, default=Particle)
 else:
-    _T = TypeVar("_T", covariant=True, default=Particle)
+    Message = object
+
+__all__ = [
+    "Sieve",
+    "MonoSieveFunction",
+    "PolySieveFunction",
+    "SieveFunction",
+    "FunctionSieve",
+    "SieveManager",
+]
 
 
-class Sieve(ValidatedDataclass, Generic[_T]):
+class Sieve[T = Particle](DataObject):
     @abstractmethod
-    def read(self, messages: AsyncIterable[Message]) -> AsyncIterator[_T | ParticleError]: ...
+    def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[T]: ...
 
 
-class MonoSieve(Sieve[_T], Generic[_T]):
+type MonoSieveFunction[T: Particle = Particle] = Callable[[Message], T | None | Awaitable[T | None]]
+type PolySieveFunction[T: Particle = Particle] = Callable[
+    [AsyncIterable[Message]], AsyncIterable[T]
+]
+type SieveFunction[T: Particle = Particle] = MonoSieveFunction[T] | PolySieveFunction[T]
+
+
+class FunctionSieve[T: Particle = Particle](Sieve[T]):
+    function: SkipValidation[SieveFunction[T]] = field(kw_only=False)
+
     @override
-    async def read(
-        self,
-        messages: AsyncIterable[Message],
-    ) -> AsyncIterator[_T | ParticleError]:
-        async for message in messages:
-            yield self.parse(message)
+    async def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[T]:
+        poly = self._get_poly()
+        async for message in poly(messages):
+            yield cast("T", message)
 
-    def parse(self, message: Message) -> _T | ParticleError: ...
+    def _get_poly(self) -> PolySieveFunction:
+        import inspect
+
+        signature = inspect.signature(self.function)
+        annotations = inspect.get_annotations(self.function, eval_str=True)
+        parameters = list(signature.parameters.values())
+        if len(signature.parameters) != 1:
+            raise ValueError("Sieve method must take exactly one parameter.")
+
+        annotation = annotations.get(parameters[0].name)
+        mono = is_assignable(annotation, Message)
+
+        if mono:
+            inner = cast("MonoSieveFunction", self.function)
+
+            async def poly(messages: AsyncIterable[Message]) -> AsyncIterator[T]:
+                async for message in messages:
+                    result = await awaitify(inner(message))
+                    if result is not None:
+                        yield cast("T", result)
+
+            poly.__name__ = self.function.__name__
+            return poly
+
+        return cast("PolySieveFunction", self.function)
 
 
 if TYPE_CHECKING:
     from ceres.config import SieveConfig
+else:
+    SieveConfig = object
 
 
-class ComponentSieveManager(BaseComponentManager):
-    __slots__ = (
-        "__configs",
-        "__runners",
-        "__running",
-        "__stopping",
-        "__syncs",
-    )
+class SieveManager(BaseComponentTaskManager[SieveConfig]):
+    __slots__ = ()
 
-    def __init__(self, source: ComponentSource, /) -> None:
-        super().__init__(source)
-        self.__configs: dict[Name, SieveConfig] = {}
-        self.__runners: dict[Name, Task[None]] = {}
-        self.__running = False
-        self.__stopping = False
-        self.__syncs: Channel[SieveConfig] = Channel()
+    @override
+    def add(self, config: SieveConfig) -> None:
+        super().add(config)
+        if config.name is not None:
+            self.__system__.events.emit(SieveAddedEvent, sieve=config.name)
 
-    @property
-    def count(self) -> int:
-        return len(self.__configs)
-
-    async def __run__(self) -> None:
-        self.__running = True
-        try:
-            await self.__sync_runners()
-            await util.sleep_forever()
-            async for _ in self.__syncs:
-                await self.__sync_runners()
-        finally:
-            self.__stopping = True
-            try:
-                await util.cancel(self.__runners.values())
-                self.__runners.clear()
-            finally:
-                self.__running = False
-                self.__stopping = False
-
-    def add(self, sieve: SieveConfig) -> None:
-        assert sieve.name not in self.__configs
-        self.__configs[sieve.name] = sieve
-        self.__system__.events.emit(SieveAddedEvent, sieve=sieve.name)
-        if self.__running and not self.__stopping:
-            self.__syncs.put(sieve)
-
-    def get(self, name: Name) -> SieveConfig | None:
-        return self.__configs.get(name)
-
-    def get_all(self) -> list[SieveConfig]:
-        return list(self.__configs.values())
-
+    @override
     async def remove(self, name: Name) -> SieveConfig | None:
-        runner = self.__runners.get(name)
-        if runner is not None:
-            await util.cancel(runner)
-            self.__runners.pop(name, None)
+        config = await super().remove(name)
+        if config is not None:
+            self.__system__.events.emit(SieveRemovedEvent, sieve=name)
 
-        config = self.__configs.pop(name, None)
-        self.__system__.events.emit(SieveRemovedEvent, sieve=name)
         return config
 
-    async def clear(self) -> None:
-        await self.__clear_runners()
-        self.__configs.clear()
-
-    async def __clear_runners(self) -> None:
-        await util.cancel(self.__runners.values())
-        self.__runners.clear()
-
-    async def __remove_runner(self, name: Name) -> asyncio.Task[None] | None:
-        runner = self.__runners.get(name)
-        if runner is not None:
-            await util.cancel(runner)
-            self.__runners.pop(name, None)
-
-        return runner
-
-    async def __create_runner(self, config: SieveConfig) -> asyncio.Task[None]:
-        runner = asyncio.create_task(self.__run(config), name=config.name + "-task")
-        self.__runners[config.name] = runner
-        return runner
-
-    async def __sync_runners(self) -> None:
-        for config in self.__configs.values():
-            await self.__create_runner(config)
-
-    async def __run(self, config: SieveConfig) -> None:
+    @override
+    async def process(self, config: SieveConfig) -> None:
         self.__system__.events.emit(SieveStartedEvent, sieve=config.name)
         retry = 0
 
         try:
-            sieve = config.create()
+            sieve = config.create(self.__system__.component)
             while True:
                 try:
-                    async for current in sieve.read(
-                        self.__system__.messages.follow(filter=config.filter)
+                    async for current in sieve.process(
+                        self.__system__.messages.stream.where(config.filter)
                     ):
-                        if isinstance(current, ParticleError):
-                            self.__system__.events.emit(
-                                SieveParticleErrorEvent,
-                                sieve=config.name,
-                                error=current,
-                            )
-                        elif isinstance(current, Particle):
-                            self.__system__.store(current)
-                            self.__system__.events.emit(ParticleEvent, particle=current)
+                        self.__system__.store(current)
+                        self.__system__.events.emit(ParticleEvent, particle=current)
                 except Exception as exception:
                     traceback.print_exc()
                     if config.retries is not None:
@@ -177,7 +138,7 @@ class ComponentSieveManager(BaseComponentManager):
                     self.__system__.events.emit(
                         SieveExceptionEvent,
                         sieve=config.name,
-                        traceback=util.get_traceback(exception),
+                        traceback=get_traceback(exception),
                     )
                     await asyncio.sleep(config.retry_delay.total_seconds())
                     self.__system__.events.emit(SieveRetryEvent, sieve=config.name)

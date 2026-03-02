@@ -1,17 +1,16 @@
-from __future__ import annotations
-
 import asyncio
 from abc import abstractmethod
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Final, Generic, Protocol, TypeVar, override
+from typing import Any, Final, Protocol, override
 
+import anyio
 from anyio import BrokenResourceError, ClosedResourceError, EndOfStream
+from anyio.abc import ByteStream, Listener, SocketAttribute, SocketStream
 from pydantic import NonNegativeInt, model_validator
 
 from ceres import Component, routine
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import UNIX
 from ceres.data import NonEmptyStr
 from ceres.event import (
@@ -24,21 +23,16 @@ from ceres.event import (
 from ceres.schedule import IntervalSchedule, Schedule
 from ceres.timing import utc
 
-with lazy_imports(__name__):
-    import anyio
-    from anyio.abc import ByteStream, Listener, SocketAttribute, SocketStream
-
 
 class Client(Protocol):
+    __slots__ = ()
+
     async def receive(self, size: int = ...) -> bytes: ...
     async def send(self, data: bytes) -> None: ...
     async def send_eof(self) -> None: ...
 
 
-_ClientT = TypeVar("_ClientT", bound=Client)
-
-
-class Server(Component, Generic[_ClientT]):
+class Server[ClientT: Client](Component):
     auto_eof: bool = True
     """
     If `True`, ensure an EOF is sent once handler exits, provided one has not already been sent.
@@ -55,10 +49,10 @@ class Server(Component, Generic[_ClientT]):
     async def serve(self) -> None: ...
 
     @abstractmethod
-    async def _handle(self, client: _ClientT) -> None: ...
+    async def handle(self, client: ClientT) -> None: ...
 
 
-class AnyIOClient[StreamT: ByteStream](Client):
+class _AnyIOClient[StreamT: ByteStream](Client):
     __slots__ = ("stream",)
 
     def __init__(self, stream: StreamT) -> None:
@@ -100,7 +94,7 @@ class AnyIOClient[StreamT: ByteStream](Client):
         await self.stream.send_eof()
 
 
-class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
+class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
     @property
     @abstractmethod
     def bind(self) -> str: ...
@@ -116,13 +110,13 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
 
     @override
     async def serve(self) -> None:
-        trigger = self.rebind_on.as_trigger()
+        trigger = self.rebind_on.create_trigger()
 
         while True:
             try:
                 async with await self._create_listener() as listener:
                     # Reset rebind schedule on success.
-                    trigger = self.rebind_on.as_trigger()
+                    trigger = self.rebind_on.create_trigger()
                     self.system.events.emit(
                         ServerBindEvent,
                         bind=self.bind,
@@ -157,7 +151,7 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
         try:
             async with stream:
                 try:
-                    await self._handle(client)
+                    await self.handle(client)
                 finally:
                     try:
                         # Attempt to send an EOF once the handler exits.
@@ -165,7 +159,7 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
                             await client.send_eof()
                     except Exception:
                         pass
-        except (EndOfStream, BrokenResourceError, ClosedResourceError):
+        except EndOfStream, BrokenResourceError, ClosedResourceError:
             pass
         except Exception as exception:
             self.system.events.emit(
@@ -180,12 +174,13 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
             )
 
 
-class TCPClient(AnyIOClient[SocketStream]):
+class TCPClient(_AnyIOClient[SocketStream]):
     __slots__ = ("_host", "_port")
 
     @override
     def __init__(self, stream: SocketStream) -> None:
         super().__init__(stream)
+
         address = self.stream.extra(SocketAttribute.remote_address)
         port = self.stream.extra(SocketAttribute.remote_port)
 
@@ -206,7 +201,7 @@ class TCPClient(AnyIOClient[SocketStream]):
         return self._port
 
 
-class TCPServer(AnyIOServer[TCPClient]):
+class TCPServer(_AnyIOServer[TCPClient]):
     host: NonEmptyStr = "0.0.0.0"
     port: NonNegativeInt
 
@@ -217,7 +212,7 @@ class TCPServer(AnyIOServer[TCPClient]):
 
     @abstractmethod
     @override
-    async def _handle(self, client: TCPClient) -> None: ...
+    async def handle(self, client: TCPClient) -> None: ...
 
     @override
     async def _create_listener(self) -> Listener[SocketStream]:
@@ -236,7 +231,7 @@ class TCPServer(AnyIOServer[TCPClient]):
         pass
 
 
-class UNIXSocketClient(AnyIOClient[SocketStream]):
+class UNIXSocketClient(_AnyIOClient[SocketStream]):
     __slots__ = ("_socket",)
 
     @override
@@ -257,7 +252,7 @@ class UNIXSocketClient(AnyIOClient[SocketStream]):
         return address[0] if isinstance(address, tuple) else address
 
 
-class UNIXSocketServer(AnyIOServer[UNIXSocketClient]):
+class UNIXSocketServer(_AnyIOServer[UNIXSocketClient]):
     socket: Path
     socket_mode: NonNegativeInt | None = None
 
@@ -276,7 +271,7 @@ class UNIXSocketServer(AnyIOServer[UNIXSocketClient]):
 
     @abstractmethod
     @override
-    async def _handle(self, client: UNIXSocketClient) -> None: ...
+    async def handle(self, client: UNIXSocketClient) -> None: ...
 
     @override
     async def _create_listener(self) -> Listener[SocketStream]:

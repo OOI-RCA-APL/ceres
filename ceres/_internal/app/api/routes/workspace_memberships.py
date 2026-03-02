@@ -1,10 +1,7 @@
-from __future__ import annotations
-
-from typing import Annotated
+from typing import Annotated, TypedDict
 from uuid import UUID
 
-from fastapi import APIRouter, Query
-from sqlalchemy.util.typing import TypedDict
+from fastapi import Query
 
 from ceres._internal.app.shared import (
     SELF_OR_ADMIN,
@@ -12,9 +9,10 @@ from ceres._internal.app.shared import (
     CurrentUser,
     Limit,
     RequireViewer,
+    Router,
     assert_found,
 )
-from ceres.data import DeferBuild, ImmutableDataObject
+from ceres.data import DataObject
 from ceres.error import Failure, NotFoundError, NotPermittedError
 from ceres.user import UserRole
 from ceres.workspace import (
@@ -25,7 +23,7 @@ from ceres.workspace import (
     WorkspaceMembershipUpdate,
 )
 
-router = APIRouter(tags=["workspace-memberships"])
+router = Router(tags=["workspace-memberships"])
 
 
 @router.get("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
@@ -92,7 +90,7 @@ async def _guard_membership_mutation(
                 raise Failure(NotPermittedError)
 
 
-class WorkspaceMembershipCreateData(ImmutableDataObject, DeferBuild):
+class WorkspaceMembershipCreateData(DataObject):
     role: WorkspaceMembershipRole
 
 
