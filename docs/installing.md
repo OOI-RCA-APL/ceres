@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- [Python 3.12+](https://www.python.org/downloads/)
+- [Python 3.14+](https://www.python.org/downloads/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) (Recommended)
 
 ## Installation

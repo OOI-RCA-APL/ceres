@@ -4,7 +4,7 @@
 
 - [Git](https://git-scm.com)
 - [Make](https://www.gnu.org/software/make)
-- [Python 3.12+](https://www.python.org)
+- [Python 3.14+](https://www.python.org)
 - [UV](https://github.com/astral-sh/uv)
 - [NodeJS 24+](https://nodejs.org/en/download)
 
