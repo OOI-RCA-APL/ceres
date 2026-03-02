@@ -62,7 +62,7 @@ class SensorDriver(Component):
             return SensorParticle(
                 timestamp=message.timestamp,
                 address=message.address,
-                data=SensorParticleData.parse(message.content),
+                data=SensorParticleData.parse(message.data),
             )
         except ParseFailed as exception:
             self.system.log.warning(exception)

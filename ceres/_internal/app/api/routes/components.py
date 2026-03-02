@@ -35,7 +35,7 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotPermittedError,
 )
-from ceres.message import Message, MessageContent
+from ceres.message import Message, MessageData
 from ceres.result import Fail
 from ceres.user import UserRole
 
@@ -395,7 +395,7 @@ for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
 
 
 class SendMessageInput(DataModel):
-    data: MessageContent
+    data: MessageData
 
 
 @router.post("/{address}/connections/{connection}/send", dependencies=[OPERATOR])

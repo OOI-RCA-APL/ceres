@@ -17,7 +17,7 @@ export type Message = Zod.infer<typeof MessageModel>
 export const MessageModel = RecordModel.extend({
   connection: Zod.string().nullable(),
   direction: MessageDirectionModel,
-  content: Zod.string(),
+  data: Zod.string(),
 }).readonly()
 
 export type MessageFilter = Zod.infer<typeof MessageFilterModel>

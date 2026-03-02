@@ -65,21 +65,21 @@ MessageDirectionRaw: TypeAlias = Literal["send", "receive"]
 MessageDirectionInput: TypeAlias = MessageDirection | MessageDirectionRaw
 
 
-def _serialize_message_content_json(value: bytes) -> str:
+def _serialize_message_data(value: bytes) -> str:
     return value.decode("latin-1", "ignore")
 
 
-def _deserialize_message_content_json(value: Any) -> Any | None:
+def _validate_message_data(value: Any) -> Any | None:
     if isinstance(value, str):
         return value.encode("latin-1", "ignore")
 
     return value
 
 
-MessageContent = Annotated[
+MessageData = Annotated[
     bytes,
-    BeforeValidator(_deserialize_message_content_json),
-    PlainSerializer(_serialize_message_content_json, str, "json-unless-none"),
+    BeforeValidator(_validate_message_data),
+    PlainSerializer(_serialize_message_data, str, "json-unless-none"),
 ]
 
 
@@ -93,7 +93,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
         server_default=expression.null(),
     )
     direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
-    content: Mapped[bytes] = mapped_column(LargeBinary)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
 
     @classmethod
     @override
@@ -102,10 +102,10 @@ class MessageRow(BaseRecordRow, kw_only=True):
             *super().__get_table_args__(),
             Index(f"ix_{cls.__tablename__}__connection", cls.connection),
             EnumConstraint(cls.direction, MessageDirection, f"ck_{cls.__tablename__}__direction"),
-            Index(f"ix_{cls.__tablename__}__content", cls.content).ddl_if("sqlite"),
+            Index(f"ix_{cls.__tablename__}__data", cls.data).ddl_if("sqlite"),
             Index(
-                f"ix_{cls.__tablename__}__content",
-                func.ceres_tokenize_bytes(cls.content).label("tokens"),
+                f"ix_{cls.__tablename__}__data",
+                func.ceres_tokenize_bytes(cls.data).label("tokens"),
                 postgresql_ops={"tokens": "gin_trgm_ops"},
                 postgresql_using="gin",
             ).ddl_if("postgresql"),
@@ -117,7 +117,7 @@ type MessageField = (
     | Literal[
         "connection",
         "direction",
-        "content",
+        "data",
     ]
 )
 type MessageOrder = (
@@ -129,19 +129,19 @@ type MessageOrder = (
         "direction",
         "direction:asc",
         "direction:desc",
-        "content",
-        "content:asc",
-        "content:desc",
+        "data",
+        "data:asc",
+        "data:desc",
     ]
 )
 
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
     direction: MaybeSequence[MessageDirectionInput] | None
-    content: MaybeSequence[MessageContent] | None
-    contains: MaybeSequence[MessageContent] | None
-    prefix: MaybeSequence[MessageContent] | None
-    suffix: MaybeSequence[MessageContent] | None
+    data: MaybeSequence[MessageData] | None
+    contains: MaybeSequence[MessageData] | None
+    prefix: MaybeSequence[MessageData] | None
+    suffix: MaybeSequence[MessageData] | None
 
 
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
@@ -155,14 +155,14 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     """Filter by `connection` ending with one or more given substrings."""
     direction: MaybeSequence[MessageDirection] | None = None
     """Filter by `direction`."""
-    content: MaybeSequence[MessageContent] | None = None
-    """Filter by `content` being equal to one or more given byte sequences."""
-    contains: MaybeSequence[MessageContent] | None = None
-    """Filter by `content` containing one or more given byte substrings."""
-    prefix: MaybeSequence[MessageContent] | None = None
-    """Filter by `content` starting with one or more given byte prefixes."""
-    suffix: MaybeSequence[MessageContent] | None = None
-    """Filter by `content` ending with one or more given byte suffixes."""
+    data: MaybeSequence[MessageData] | None = None
+    """Filter by `data` being equal to one or more given byte sequences."""
+    contains: MaybeSequence[MessageData] | None = None
+    """Filter by `data` containing one or more given byte substrings."""
+    prefix: MaybeSequence[MessageData] | None = None
+    """Filter by `data` starting with one or more given byte prefixes."""
+    suffix: MaybeSequence[MessageData] | None = None
+    """Filter by `data` ending with one or more given byte suffixes."""
 
     @override
     def _matches(self, obj: Message, *, now: datetime | None = None) -> bool:
@@ -183,13 +183,13 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if not util.match_value(obj.direction, self.direction):
             return False
 
-        if not util.match_value(obj.content, self.content):
+        if not util.match_value(obj.data, self.data):
             return False
-        if not util.match_string(obj.content, self.contains, MatchMode.CONTAINS):
+        if not util.match_string(obj.data, self.contains, MatchMode.CONTAINS):
             return False
-        if not util.match_string(obj.content, self.prefix, MatchMode.PREFIX):
+        if not util.match_string(obj.data, self.prefix, MatchMode.PREFIX):
             return False
-        if not util.match_string(obj.content, self.suffix, MatchMode.SUFFIX):
+        if not util.match_string(obj.data, self.suffix, MatchMode.SUFFIX):
             return False
 
         return True
@@ -235,10 +235,10 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if self.direction is not None:
             yield util.sql_match_value(columns.direction, self.direction)
 
-        if self.content is not None:
-            yield util.sql_match_value(columns.content, self.content)
+        if self.data is not None:
+            yield util.sql_match_value(columns.data, self.data)
 
-        hex = func.ceres_tokenize_bytes(columns.content)
+        hex = func.ceres_tokenize_bytes(columns.data)
         if self.contains is not None:
             matches = [util.tokenize_bytes(current) for current in util.seq(self.contains)]
             yield util.sql_match_string(hex, matches, MatchMode.CONTAINS)
@@ -253,13 +253,13 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
 class MessageCreate(BaseRecordCreate, slots=True):
     connection: str | None = None
     direction: MessageDirection
-    content: MessageContent
+    data: MessageData
 
 
 class MessageUpdate(BaseRecordUpdate, total=False):
     connection: str | None
     direction: MessageDirection
-    content: MessageContent
+    data: MessageData
 
 
 class _BaseMessageQuery(
@@ -385,5 +385,6 @@ class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
     Field = MessageField
     Order = MessageOrder
     Direction = MessageDirection
+    Data = MessageData
 
     __naming__: ClassVar[EntityNaming] = EntityNaming("message")

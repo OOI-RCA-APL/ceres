@@ -260,7 +260,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                 {
                     "address": Address.ROOT,
                     "direction": choice(list(MessageDirection)),
-                    "content": randbytes(32),
+                    "data": randbytes(32),
                     **values,
                 },
             )
@@ -694,7 +694,7 @@ async def execute_json_data_filter_test(cls: type[Particle | Alert], field: str)
         },
         "tests": [
             {"filter": {}, "keys": None},
-            # Content Contains
+            # Contains
             {"filter": {contains_field: ""}, "keys": None},
             {"filter": {contains_field: []}, "keys": []},
             {"filter": {contains_field: "abc"}, "keys": ["a"]},
@@ -706,7 +706,7 @@ async def execute_json_data_filter_test(cls: type[Particle | Alert], field: str)
             {"filter": {contains_field: "123"}, "keys": ["a", "c"]},
             {"filter": {contains_field: "[123]"}, "keys": ["c"]},
             {"filter": {contains_field: ["123", ':"cba"']}, "keys": ["a", "b", "c"]},
-            # Content Prefix
+            # Prefix
             {"filter": {prefix_field: ""}, "keys": None},
             {"filter": {prefix_field: []}, "keys": []},
             {"filter": {prefix_field: "none"}, "keys": []},
@@ -718,7 +718,7 @@ async def execute_json_data_filter_test(cls: type[Particle | Alert], field: str)
             {"filter": {prefix_field: "number"}, "keys": []},
             {"filter": {prefix_field: "NUMBERS"}, "keys": []},
             {"filter": {prefix_field: ['{"number"', '{"NAME":"CBA"']}, "keys": ["a", "b", "d"]},
-            # Content Suffix
+            # Suffix
             {"filter": {suffix_field: ""}, "keys": None},
             {"filter": {suffix_field: []}, "keys": []},
             {"filter": {suffix_field: "none"}, "keys": []},

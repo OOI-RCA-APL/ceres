@@ -22,5 +22,5 @@ async def test_message_direction_filtering():
     await testing.execute_enum_filter_test(Message, "direction", Message.Direction)
 
 
-async def test_message_content_filtering():
-    await testing.execute_string_filter_test(Message, "content", prefixed=False)
+async def test_message_data_filtering():
+    await testing.execute_string_filter_test(Message, "data", prefixed=False)

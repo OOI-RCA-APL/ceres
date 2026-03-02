@@ -24,11 +24,11 @@ const directionColor = $computed(() => {
     </q-td>
     <q-td :class="$style.directionColumn">
       <q-chip :class="$style.directionChip" :color="directionColor" dense>
-        <span :class="$style.directionText"> {{ message.direction }} </span>
+        <span :class="$style.directionText">{{ message.direction }}</span>
       </q-chip>
     </q-td>
     <q-td>
-      <text-content :class="$style.content" :text="message.content" />
+      <text-content :class="$style.data" :text="message.data" />
     </q-td>
   </record-view-record>
 </template>
@@ -45,7 +45,7 @@ const directionColor = $computed(() => {
 }
 
 .directionColumn {
-  width: 68px;
+  min-width: 68px;
   text-align: center;
 }
 
@@ -63,7 +63,7 @@ const directionColor = $computed(() => {
   width: 100%;
 }
 
-.content {
+.data {
   font-family: 'Roboto Mono', monospace;
   font-size: 9px;
   white-space: nowrap;

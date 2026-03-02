@@ -96,7 +96,7 @@ from ceres.event import (
     StoppingEvent,
     WillDetachEvent,
 )
-from ceres.message import Message, MessageContent, MessageDirectionInput, MessageFilter
+from ceres.message import Message, MessageData, MessageDirectionInput, MessageFilter
 from ceres.node import Node
 from ceres.timing import delta
 from ceres.variable import InternalVariableName, Variable
@@ -976,9 +976,9 @@ def sieve[S, T: Particle](
     name: Name | None = None,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
-    contains: MaybeSequence[MessageContent] | None = None,
-    prefix: MaybeSequence[MessageContent] | None = None,
-    suffix: MaybeSequence[MessageContent] | None = None,
+    contains: MaybeSequence[MessageData] | None = None,
+    prefix: MaybeSequence[MessageData] | None = None,
+    suffix: MaybeSequence[MessageData] | None = None,
 ) -> Callable[[SieveMethod[S, T]], SieveMethod[S, T]]: ...
 
 
@@ -990,9 +990,9 @@ def sieve[S, T: Particle](
     name: Name | None = None,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
-    contains: MaybeSequence[MessageContent] | None = None,
-    prefix: MaybeSequence[MessageContent] | None = None,
-    suffix: MaybeSequence[MessageContent] | None = None,
+    contains: MaybeSequence[MessageData] | None = None,
+    prefix: MaybeSequence[MessageData] | None = None,
+    suffix: MaybeSequence[MessageData] | None = None,
 ) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
     if first is None:
         method = None

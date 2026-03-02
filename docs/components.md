@@ -425,7 +425,7 @@ Messages are a record of data sent or received by a `Connection` component.
 | `address`   | `ceres.Address`          | The address of the component that sent or received the message.                             |
 | `timestamp` | `datetime`               | The timestamp at which the message was sent or received. Defaults to the current timestamp. |
 | `direction` | `ceres.MessageDirection` | Either "send" or "receive" depending on if the component sent or received a message.        |
-| `content`   | `ceres.MessageContent`   | The raw bytes of the original message.                                                      |
+| `data`   | `ceres.MessageData`   | The raw bytes of the original message.                                                      |
 
 #### Creation
 
@@ -439,11 +439,11 @@ from ceres.event import MessageReceivedEvent, MessageSentEvent
 
 self.emit(
     MessageSentEvent,
-    message=Message(address=self.address, direction=MessageDirection.SEND, content=b"SEND\n")
+    message=Message(address=self.address, direction=MessageDirection.SEND, data=b"SEND\n")
 )
 self.emit(
     MessageReceivedEvent,
-    message=Message(address=self.address, direction=MessageDirection.RECEIVE, content=b"RECEIVE\n")
+    message=Message(address=self.address, direction=MessageDirection.RECEIVE, data=b"RECEIVE\n")
 )
 ```
 

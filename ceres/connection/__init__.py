@@ -58,7 +58,7 @@ from ceres.loaded import Loaded
 from ceres.message import (
     BoundMessageManager,
     Message,
-    MessageContent,
+    MessageData,
     MessageDirection,
     MessageFilter,
     MessageFilterArgs,
@@ -171,7 +171,7 @@ class Connection(DataObject, Tasklet, slots=True):
     name: Name | None = None
     source: Loaded[Source]
     splitter: Loaded[Splitter] | None = None
-    suffix: MessageContent | None = None
+    suffix: MessageData | None = None
 
     buffering: Annotated[Buffering, WithDefaults(Buffering())] = field(default_factory=Buffering)
     connect_timeout: PositiveTimeDelta | None = None
@@ -301,10 +301,10 @@ class Connection(DataObject, Tasklet, slots=True):
             raise ConnectionLost()
 
         message = Message(
-            address=Address.ROOT if self.__system__ is None else self.__system__.address,
+            address=self.__system__.address,
             connection=self.name,
             direction=Message.Direction.SEND,
-            content=data,
+            data=data,
         )
 
         self.__system__.store(message)
@@ -488,7 +488,7 @@ class Connection(DataObject, Tasklet, slots=True):
                             connection=self.name,
                             timestamp=chunk.timestamp,
                             direction=MessageDirection.RECEIVE,
-                            content=chunk.data,
+                            data=chunk.data,
                         )
 
                         self.__system__.store(message)

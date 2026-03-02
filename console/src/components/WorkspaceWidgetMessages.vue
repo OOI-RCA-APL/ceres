@@ -55,8 +55,8 @@ const columns = $computed(() => [
     minWidth: 68,
   },
   {
-    label: 'Content',
-    name: 'content',
+    label: 'Data',
+    name: 'data',
     filtered: (widget.filter.contains ?? widget.filter.prefix ?? widget.filter.suffix) != null,
   },
 ])
@@ -173,7 +173,7 @@ async function submit() {
         />
       </div>
     </template>
-    <template #column-filter-content>
+    <template #column-filter-data>
       <div class="column q-gutter-xs" style="min-width: 300px">
         <schema-form-value
           v-model="widget.filter.contains"
@@ -212,6 +212,7 @@ async function submit() {
           <div class="q-ml-xs q-pl-md q-pr-xs" style="min-width: 80px">
             <q-select
               borderless
+              class="full-width"
               clearable
               dense
               hide-dropdown-icon

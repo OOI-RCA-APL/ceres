@@ -611,7 +611,7 @@ class ParseableParticleData(ParticleData):
 
     @classmethod
     @abstractmethod
-    def parse(cls, content: bytes) -> Self: ...
+    def parse(cls, data: bytes) -> Self: ...
 
 
 class RegexParticleData(ParseableParticleData):
@@ -651,8 +651,8 @@ class RegexParticleData(ParseableParticleData):
 
     @classmethod
     @override
-    def parse(cls, content: bytes) -> Self:
-        match = cls.__regex_compiled__.match(content)
+    def parse(cls, data: bytes) -> Self:
+        match = cls.__regex_compiled__.match(data)
         if match is None:
             raise ParseFailed("Bytes did not match regex pattern.")
 

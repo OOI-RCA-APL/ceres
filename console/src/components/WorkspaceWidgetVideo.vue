@@ -1,5 +1,3 @@
-<script lang="ts"></script>
-
 <script lang="ts" setup>
 import { useEventListener } from '@vueuse/core'
 import { onBeforeUnmount, watchEffect } from 'vue'

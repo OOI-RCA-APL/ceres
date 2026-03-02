@@ -36,7 +36,7 @@ class MessageData(DataObject):
 
     @classmethod
     def parse(cls, message: Message) -> "MessageData":
-        parser = Parser(message.content)
+        parser = Parser(message.data)
         parser.eat(b"T:")
         temperature = parser.eat_float()
         parser.eat_space()
