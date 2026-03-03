@@ -167,9 +167,12 @@ class Node(Tasklet, NodeSource):
 
     def store(self, item: Item, /) -> None:
         from ceres.item import Item
+        from ceres.particle import Particle
 
         if not isinstance(item, Item):
             raise TypeError(f"invalid item type {type(item)}")
+        if isinstance(item, Particle):
+            item = item.to_dynamic()
 
         self.__store(item)
 

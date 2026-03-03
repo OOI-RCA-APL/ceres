@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import TypeAlias, override
+from typing import Literal, override
 
 from ceres import (
     Bound,
@@ -7,8 +7,8 @@ from ceres import (
     Connection,
     Message,
     ParseFailed,
-    Particle,
-    RegexParticleData,
+    ParticleData,
+    RegexParticle,
     SplitByLine,
     TCPClient,
     TCPServer,
@@ -17,8 +17,15 @@ from ceres import (
 from ceres.data import Number, TimeDelta
 
 
-class SensorParticleData(RegexParticleData):
-    __type__ = "sensor/data"
+class SensorParticleData(ParticleData):
+    temperature: Number  # Degrees Celsius
+    pressure: Number  # Kilopascals
+    humidity: Number  # Percentage
+
+
+class SensorParticle(RegexParticle[SensorParticleData]):
+    type: Literal["sensor/data"] = "sensor/data"
+
     __regex__ = (
         rb"Temperature:\s*?(?P<temperature>-?\d+\.\d+)[,\s]+?"
         rb"Pressure:\s*?(?P<pressure>\d+\.\d+)[,\s]+?"
@@ -34,13 +41,6 @@ class SensorParticleData(RegexParticleData):
     Temperature: 0.0, Pressure: 100.0, Humidity: 50.0
     ```
     """
-
-    temperature: Number  # Degrees Celsius
-    pressure: Number  # Kilopascals
-    humidity: Number  # Percentage
-
-
-SensorParticle: TypeAlias = Particle[SensorParticleData]
 
 
 class SensorDriver(Component):
@@ -59,11 +59,7 @@ class SensorDriver(Component):
     @sieve(connection)
     async def sieve(self, message: Message) -> SensorParticle | None:
         try:
-            return SensorParticle(
-                timestamp=message.timestamp,
-                address=message.address,
-                data=SensorParticleData.parse(message.data),
-            )
+            return SensorParticle.parse(message)
         except ParseFailed as exception:
             self.system.log.warning(exception)
             return None

@@ -8,7 +8,7 @@ import re
 import sys
 import traceback
 import typing
-from annotationlib import Format
+from annotationlib import Format, get_annotations
 from asyncio import AbstractEventLoop, Future
 from collections import defaultdict
 from collections.abc import (
@@ -1170,7 +1170,8 @@ class ClassProperty[C, V]:
         # property to be computed immediately as the dataclass is being built, which is bad and will
         # likely cause errors. Removing the annotation allows specifying a type annotation when
         # using the assignment syntax without it causing issues.
-        definer.__annotations__.pop(name, None)
+        if name in get_annotations(definer, format=Format.FORWARDREF):
+            definer.__annotations__.pop(name, None)
 
     def __get__(self, obj: C | None, owner: type[C], /) -> V:
         return self.fget(owner)
