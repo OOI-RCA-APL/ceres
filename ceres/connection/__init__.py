@@ -21,6 +21,7 @@ from ceres._internal.manager import BaseComponentTaskManager
 from ceres.address import Address
 from ceres.channel import Channel
 from ceres.component import BoundField, BoundFieldArgs
+from ceres.concurrency import sleep
 from ceres.connection.buffer import Buffer as Buffer
 from ceres.connection.buffer import Chunk as Chunk
 from ceres.connection.source import ConnectFailed as ConnectFailed
@@ -420,10 +421,10 @@ class Connection(DataObject, Tasklet, slots=True):
                             delay=delay,
                         )
 
-                        await asyncio.sleep(delay.total_seconds())
+                        await sleep(delay)
 
                     # Yield to event loop.
-                    await asyncio.sleep(0)
+                    await sleep(0)
 
                     connected = await self.connect()
                     initialized = True
@@ -454,7 +455,7 @@ class Connection(DataObject, Tasklet, slots=True):
                         received = None
 
                     # Yield to event loop.
-                    await asyncio.sleep(0)
+                    await sleep(0)
 
                     # If `receive` returns `None`, an empty `bytes`, or throws an exception, the
                     # connection is considered lost.

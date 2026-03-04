@@ -1,13 +1,19 @@
 import asyncio
+import math
 from asyncio import AbstractEventLoop, CancelledError, Task, TaskGroup
 from asyncio import Queue as AsyncQueue
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Coroutine, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Final, cast, overload
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Final, cast, overload
 
 from ceres._internal.util import MaybeRecursiveIterable, Undefined, flatten
 
+if TYPE_CHECKING:
+    from types import EllipsisType
+
 __all__ = [
+    "sleep",
     "cancel",
     "concurrently",
     "race",
@@ -15,6 +21,24 @@ __all__ = [
     "spawn",
     "azip",
 ]
+
+
+async def sleep(delay: float | timedelta | EllipsisType, /) -> None:
+    """
+    Asyncronously sleep for a given `delay`.
+
+    Args:
+        delay: A number in seconds, or `timedelta` representing the duration to sleep for. If `...` is given, this will sleep forever, or until cancelled.
+
+    Returns:
+        A coroutine which completes after the given delay.
+    """
+    if delay is ...:
+        delay = math.inf
+    elif isinstance(delay, timedelta):
+        delay = delay.total_seconds()
+
+    await asyncio.sleep(delay)
 
 
 async def cancel(*tasks: MaybeRecursiveIterable[Task[Any]]) -> list[Task[Any]]:

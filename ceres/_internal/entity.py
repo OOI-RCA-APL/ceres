@@ -1,4 +1,3 @@
-import asyncio
 import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import (
@@ -62,6 +61,7 @@ from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.manager import BaseDatabaseManager
 from ceres.address import Address, AddressSelector
 from ceres.channel import OutputChannel
+from ceres.concurrency import sleep
 from ceres.data import (
     DataObject,
     DateTime,
@@ -660,8 +660,8 @@ class _BaseStatementExecutor[
             if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
                 count = 0
                 # Yield control to the event loop.
-                await asyncio.sleep(0)
-                await asyncio.sleep(0)
+                await sleep(0)
+                await sleep(0)
 
         return entities
 
@@ -678,8 +678,8 @@ class _BaseStatementExecutor[
             if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
                 count = 0
                 # Yield control to the event loop.
-                await asyncio.sleep(0)
-                await asyncio.sleep(0)
+                await sleep(0)
+                await sleep(0)
 
 
 class SelectExecutor[

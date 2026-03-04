@@ -26,7 +26,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
 from ceres._internal.entity import BaseEntityFilter
-from ceres.concurrency import race
+from ceres.concurrency import race, sleep
 from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
@@ -170,7 +170,7 @@ class Socket:
                         break
             else:
                 # Otherwise, do nothing.
-                await util.sleep_forever()
+                await sleep(...)
 
         await race(
             run(),

@@ -13,6 +13,7 @@ from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.project import LoadedProject
 from ceres._internal.server import Server
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.concurrency import sleep
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
 from ceres.data import DataObject, Name, PasswordHash, dump, to_json
 from ceres.directory import Directory
@@ -365,7 +366,7 @@ class Engine(Node):
 
             with anyio.move_on_after(1):
                 while self._server.cli_bind is None:
-                    await asyncio.sleep(0.01)
+                    await sleep(0.01)
 
             if self._server.cli_bind:
                 self.log.info(f"HTTP CLI server listening on {self._server.cli_bind}.")

@@ -1,4 +1,3 @@
-import asyncio
 import traceback
 from abc import abstractmethod
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
@@ -9,6 +8,7 @@ from pydantic import SkipValidation
 
 from ceres._internal.manager import BaseComponentTaskManager
 from ceres._internal.util import awaitify, get_traceback, is_assignable
+from ceres.concurrency import sleep
 from ceres.data import DataObject, Name
 from ceres.event import (
     ParticleEvent,
@@ -140,7 +140,7 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
                         sieve=config.name,
                         traceback=get_traceback(exception),
                     )
-                    await asyncio.sleep(config.retry_delay.total_seconds())
+                    await sleep(config.retry_delay)
                     self.__system__.events.emit(SieveRetryEvent, sieve=config.name)
         finally:
             self.__system__.events.emit(SieveStoppedEvent, sieve=config.name)

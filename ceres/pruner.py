@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from ceres._internal import util
 from ceres._internal.manager import BaseComponentManager
+from ceres.concurrency import sleep
 from ceres.entity import EntityType
 from ceres.event import (
     PruneCancelledEvent,
@@ -52,7 +53,7 @@ class PrunerManager(BaseComponentManager):
             with self.__lock:
                 self.__sync_pruners()
             self.__scheduler.start()
-            await util.sleep_forever()
+            await sleep(...)
         finally:
             if self.__scheduler.running:
                 self.__scheduler.shutdown()

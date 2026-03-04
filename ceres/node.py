@@ -1,4 +1,3 @@
-import asyncio
 from abc import abstractmethod
 from collections.abc import AsyncIterable
 from functools import cached_property
@@ -11,7 +10,7 @@ from ceres._internal import util
 from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.concurrency import concurrently
+from ceres.concurrency import concurrently, sleep
 from ceres.data import replacing
 from ceres.event import (
     ConnectedEvent,
@@ -205,9 +204,9 @@ class Node(Tasklet, NodeSource):
                     await self.__writer.flush()
             except Exception as exception:
                 self.events.emit(DatabaseExceptionEvent, traceback=util.get_traceback(exception))
-                await asyncio.sleep(1)
+                await sleep(1)
 
-            await asyncio.sleep(0.1)
+            await sleep(0.1)
 
     @override
     @abstractmethod

@@ -14,6 +14,7 @@ from ceres import (
     TCPServer,
     sieve,
 )
+from ceres.concurrency import sleep
 from ceres.data import Number, TimeDelta
 
 
@@ -74,7 +75,6 @@ class SensorSimulator(TCPServer):
 
     @override
     async def handle(self, client: TCPClient) -> None:
-        import asyncio
         import random
 
         temperature = 20
@@ -87,4 +87,4 @@ class SensorSimulator(TCPServer):
             humidity = round(humidity + random.uniform(-1, 1), 1)
             data = f"Temperature: {temperature}, Pressure: {pressure}, Humidity: {humidity}\n"
             await client.send(data.encode())
-            await asyncio.sleep(self.interval.total_seconds())
+            await sleep(self.interval)

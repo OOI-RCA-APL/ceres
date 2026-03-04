@@ -1,4 +1,3 @@
-import asyncio
 from abc import abstractmethod
 from datetime import timedelta
 from pathlib import Path
@@ -12,6 +11,7 @@ from pydantic import NonNegativeInt, model_validator
 from ceres import Component, routine
 from ceres._internal import util
 from ceres._internal.util import UNIX
+from ceres.concurrency import sleep
 from ceres.data import NonEmptyStr
 from ceres.event import (
     ClientConnectedEvent,
@@ -137,7 +137,7 @@ class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
             if next is None:
                 break
 
-            await asyncio.sleep((next - utc()).total_seconds())
+            await sleep(next - utc())
 
     async def _execute_handler(self, stream: SocketStream) -> None:
         client = self._create_client(stream)

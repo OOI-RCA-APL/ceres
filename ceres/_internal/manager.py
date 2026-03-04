@@ -3,9 +3,8 @@ from abc import abstractmethod
 from asyncio import Task
 from typing import TYPE_CHECKING, Any, Protocol, override
 
-from ceres._internal import util
 from ceres._internal.protocols import ComponentSource, DatabaseSource, NodeSource
-from ceres.concurrency import cancel
+from ceres.concurrency import cancel, sleep
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
@@ -97,7 +96,7 @@ class BaseComponentTaskManager[T: _Named](BaseComponentManager):
         self._running = True
         try:
             self._sync_tasks()
-            await util.sleep_forever()
+            await sleep(...)
         finally:
             self._stopping = True
             try:

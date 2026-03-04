@@ -314,13 +314,6 @@ else:
             return False
 
 
-async def sleep_forever() -> None:
-    import math
-
-    while True:
-        await asyncio.sleep(math.inf)
-
-
 def dbg[T](value: T, /) -> T:
     import rich
 

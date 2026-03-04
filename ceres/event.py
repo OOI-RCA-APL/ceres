@@ -9,10 +9,10 @@ from uuid import UUID
 from pydantic import ByteSize, Field
 
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import lenient_issubclass, sleep_forever
+from ceres._internal.util import lenient_issubclass
 from ceres.address import Address
 from ceres.channel import Channel, ChannelReader, OutputChannel
-from ceres.concurrency import concurrently
+from ceres.concurrency import concurrently, sleep
 from ceres.data import (
     DataObject,
     DateTime,
@@ -629,7 +629,7 @@ class EventManager(BaseNodeManager):
 
     async def __run__(self) -> None:
         if not self._listeners:
-            await sleep_forever()
+            await sleep(...)
             return
 
         await concurrently(listener.__run__() for listener in self._listeners)

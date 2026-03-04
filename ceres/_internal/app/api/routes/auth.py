@@ -14,6 +14,7 @@ from ceres._internal.app.shared import (
     assign_authorization_cookie,
     create_identity,
 )
+from ceres.concurrency import sleep
 from ceres.data import DataObject, Password
 from ceres.error import (
     AuthenticationDisabledError,
@@ -114,7 +115,7 @@ async def change_password(
     input: ChangePasswordInput,
 ) -> User:
     if not await engine.database.verify_password(input.old_password, user.password):
-        await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
+        await sleep(WRONG_PASSWORD_DELAY_SECONDS)
         raise Failure(BadCredentialsError)
 
     changed = await engine.users.where(id=user.id).update({"password": input.new_password}).first()

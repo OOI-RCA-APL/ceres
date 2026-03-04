@@ -1,4 +1,3 @@
-import asyncio
 import inspect
 import traceback
 import warnings
@@ -48,7 +47,7 @@ from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import ComponentSource
 from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, cached
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.concurrency import concurrently
+from ceres.concurrency import concurrently, sleep
 from ceres.config import (
     ComponentConfig,
     ConnectionConfig,
@@ -1815,7 +1814,7 @@ class ComponentSystem(Node, ComponentSource):
                     routine=binding.method,
                     delay=binding.restart_delay,
                 )
-                await asyncio.sleep(binding.restart_delay.total_seconds())
+                await sleep(binding.restart_delay)
                 self.events.emit(RoutineRestartedEvent, routine=binding.method)
         except CancelledError:
             self.events.emit(RoutineCancelledEvent, routine=binding.method)
@@ -1952,7 +1951,7 @@ class ComponentSystem(Node, ComponentSource):
             try:
                 while True:
                     yield await self.__invoke(procedure, arguments)
-                    await asyncio.sleep(binding.poll.total_seconds())
+                    await sleep(binding.poll)
             except CancelledError:
                 self.events.emit(ProcedureCancelledEvent, procedure=procedure)
                 raise

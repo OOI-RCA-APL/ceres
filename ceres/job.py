@@ -1,4 +1,3 @@
-import asyncio
 from asyncio import CancelledError
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -7,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from ceres._internal import util
 from ceres._internal.manager import BaseComponentManager
+from ceres.concurrency import sleep
 from ceres.event import (
     JobAddedEvent,
     JobCancelledEvent,
@@ -81,7 +81,7 @@ class JobManager(BaseComponentManager):
             with self._lock:
                 self._sync_jobs()
             self._scheduler.start()
-            await util.sleep_forever()
+            await sleep(...)
         finally:
             if self._scheduler.running:
                 self._scheduler.shutdown()
@@ -177,7 +177,7 @@ class JobManager(BaseComponentManager):
                         JobRetryPendingEvent, job=job.name, delay=job.retry_delay
                     )
                     retry += 1
-                    await asyncio.sleep(job.retry_delay.total_seconds())
+                    await sleep(job.retry_delay)
                     self.__system__.events.emit(JobRetryEvent, job=job.name)
         finally:
             self.__system__.events.emit(JobEndedEvent, job=job.name)

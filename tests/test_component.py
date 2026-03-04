@@ -1,4 +1,4 @@
-import asyncio
+from asyncio import CancelledError
 from collections import defaultdict
 from datetime import timedelta
 from typing import Any, override
@@ -12,6 +12,7 @@ from ceres.component import (
     RoutineRestartPolicy,
     get_routine_bindings,
 )
+from ceres.concurrency import sleep
 from ceres.error import (
     Failure,
     ProcedureInternalError,
@@ -360,7 +361,7 @@ async def test_routines() -> None:
         async def main(self) -> None:
             while True:
                 self.count += 1
-                await asyncio.sleep(0.001)
+                await sleep(0.001)
 
     assert get_routine_bindings(RunsForever) == [
         RoutineBinding(
@@ -407,7 +408,7 @@ async def test_routines() -> None:
     for component in components:
         component.system.start()
 
-    await asyncio.sleep(2)
+    await sleep(2)
 
     for component in components:
         await component.system.settle()
@@ -457,17 +458,17 @@ async def test_routines_wait_on_cancellation() -> None:
         @routine
         async def main(self) -> None:
             try:
-                await asyncio.sleep(100)
-            except asyncio.CancelledError:
+                await sleep(100)
+            except CancelledError:
                 self.cancelled = True
                 for _ in range(3):
-                    await asyncio.sleep(0.1)
+                    await sleep(0.1)
                     self.count += 1
                 raise
 
     component = Test()
     component.system.start()
-    await asyncio.sleep(0.5)
+    await sleep(0.5)
     await component.system.stop()
     assert not component.system.running
     assert component.cancelled
