@@ -1,12 +1,11 @@
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ceres._internal import util
+from ceres._internal.utilities.platforms import UNIX
 from ceres.data import to_json, validate_json
 from ceres.directory import Directory
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from ceres._internal.server import CLIServerInfo
     from ceres.config import ConfigMeta
 
@@ -45,7 +44,7 @@ class LoadedProject(Project):
 
     @property
     def cli_server_info_path(self) -> Path:
-        return util.get_temporary_directory() / f"ceres-{self.directory_hash}.server.json"
+        return _get_temporary_directory() / f"ceres-{self.directory_hash}.server.json"
 
     @property
     def port(self) -> int | None:
@@ -66,3 +65,14 @@ class LoadedProject(Project):
 
     def delete_cli_server_info(self) -> None:
         self.cli_server_info_path.unlink(missing_ok=True)
+
+
+def _get_temporary_directory() -> Path:
+    import os
+
+    if UNIX and os.path.isdir("/tmp"):
+        return Path("/tmp")
+
+    from tempfile import gettempdir
+
+    return Path(gettempdir())

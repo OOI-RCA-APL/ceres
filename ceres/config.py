@@ -30,7 +30,9 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal import util
+from ceres._internal.utilities.collections import group_by, seq
+from ceres._internal.utilities.exceptions import trace
+from ceres._internal.utilities.typing import as_component_system, as_engine
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
@@ -286,7 +288,7 @@ class ComponentConfig(DataObject):
         info: ValidationInfo,
     ) -> list[PrunerConfig]:
         name: str = info.data.get("name", "<ERROR>")
-        for pruner_name, group in util.group_by(pruners, lambda current: current.name):
+        for pruner_name, group in group_by(pruners, lambda current: current.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate pruner name '{pruner_name}' in component '{name}'")
 
@@ -299,7 +301,7 @@ class ComponentConfig(DataObject):
         info: ValidationInfo,
     ) -> list[SieveConfig]:
         name: str = info.data.get("name", "<ERROR>")
-        for sieve_name, group in util.group_by(sieves, lambda current: current.name):
+        for sieve_name, group in group_by(sieves, lambda current: current.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate sieve name '{sieve_name}' in component '{name}'")
 
@@ -312,7 +314,7 @@ class ComponentConfig(DataObject):
         info: ValidationInfo,
     ) -> list[ComponentConfig]:
         name: str = info.data.get("name", "<ERROR>")
-        for component_name, group in util.group_by(components, lambda current: current.name):
+        for component_name, group in group_by(components, lambda current: current.name):
             if len(list(group)) > 1:
                 raise ValueError(
                     f"duplicate component name '{component_name}' in component '{name}'"
@@ -324,7 +326,7 @@ class ComponentConfig(DataObject):
         self,
         container: Component | ComponentSystem | Engine | None = None,
     ) -> Result[Component, list[ComponentError]]:
-        container = util.as_component_system(container) or util.as_engine(container)
+        container = as_component_system(container) or as_engine(container)
         instance, errors = self._try_create(container)
         if errors or instance is None:
             return Fail(errors)
@@ -337,7 +339,7 @@ class ComponentConfig(DataObject):
     ) -> tuple[Component | None, list[ComponentError]]:
         from ceres.reference import unref
 
-        parent = util.as_component_system(container)
+        parent = as_component_system(container)
         if parent is not None:
             address = parent.address / self.name
         else:
@@ -399,7 +401,7 @@ class ComponentConfig(DataObject):
             errors.append(
                 ComponentInitExceptionError(
                     address=address,
-                    traceback=util.get_traceback(exception),
+                    traceback=trace(exception),
                 )
             )
             return None
@@ -707,7 +709,7 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         from ceres.interface import Interface
 
         if self.console.dashboard is not None:
-            for address in util.seq(self.console.dashboard):
+            for address in seq(self.console.dashboard):
                 component = self.get_component(address)
                 if component is None:
                     raise ValueError(f"dashboard component '{address}' does not exist")

@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import ByteSize, Field
 
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import lenient_issubclass
+from ceres._internal.utilities.typing import lenient_issubclass
 from ceres.address import Address
 from ceres.channel import Channel, ChannelReader, OutputChannel
 from ceres.concurrency import concurrently, sleep

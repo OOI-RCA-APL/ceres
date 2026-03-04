@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING, Literal, Self, Unpack, final, override
 import anyio
 from pydantic import Field
 
-from ceres._internal import util
 from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.project import LoadedProject
 from ceres._internal.server import Server
+from ceres._internal.utilities.collections import uniq
+from ceres._internal.utilities.typing import as_component, as_component_system
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import sleep
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
@@ -169,7 +170,9 @@ class Engine(Node):
         return WorkspaceEditManager(self)
 
     def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
-        return util.get_entity_manager(self, Entity)
+        from ceres._internal.entity import get_entity_manager
+
+        return get_entity_manager(self, Entity)
 
     @property
     def config_path(self) -> Path | None:
@@ -319,7 +322,7 @@ class Engine(Node):
         root: Component | ComponentSystem | None,
         name: Name | None = None,
     ) -> Component | None:
-        root = util.as_component_system(root)
+        root = as_component_system(root)
         previous = self._root
         if previous is root:
             return
@@ -449,7 +452,7 @@ class Engine(Node):
 
                 try:
                     root = await self._execute_component_actions(
-                        util.as_component(self._root),
+                        as_component(self._root),
                         config.root,
                         actions.components,
                         silent=silent,
@@ -500,7 +503,7 @@ class Engine(Node):
         else:
             server = None
 
-        components = self._get_pending_component_actions(util.as_component(self._root), config.root)
+        components = self._get_pending_component_actions(as_component(self._root), config.root)
 
         return EngineActions(
             database=database,
@@ -549,7 +552,7 @@ class Engine(Node):
             return [RecreateComponentEngineAction(address=address) for address in affected]
 
         actions: list[EngineComponentAction] = []
-        children = util.uniquify(
+        children = uniq(
             [child.address for child in component.system.children]
             + [component.system.address / child.name for child in config.components]
         )

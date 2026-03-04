@@ -3,7 +3,6 @@ from typing import Any
 from fastapi import Response
 from starlette.responses import RedirectResponse
 
-from ceres._internal import util
 from ceres._internal.app.api.routes.alerts import router as router__alerts
 from ceres._internal.app.api.routes.auth import router as router__auth
 from ceres._internal.app.api.routes.components import router as router__components
@@ -21,6 +20,7 @@ from ceres._internal.app.api.routes.workspace_memberships import (
 )
 from ceres._internal.app.api.routes.workspaces import router as router__workspaces
 from ceres._internal.app.shared import OPERATOR, CurrentEngine, Router
+from ceres._internal.utilities.collections import uniq
 from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.concurrency import concurrently
@@ -128,9 +128,7 @@ class UpResult(DataObject):
 async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     disabled = engine.get_components(filter, enabled=False)
     stopped = engine.get_components(filter, running=False)
-    await concurrently(
-        system.system.up() for system in util.uniquify([*disabled, *stopped], key=id)
-    )
+    await concurrently(system.system.up() for system in uniq([*disabled, *stopped], key=id))
 
     return UpResult(
         enabled=sorted(current.system.address for current in disabled),
@@ -147,9 +145,7 @@ class DownResult(DataObject):
 async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     enabled = engine.get_components(filter, enabled=True)
     running = engine.get_components(filter, running=True)
-    await concurrently(
-        system.system.down() for system in util.uniquify([*enabled, *running], key=id)
-    )
+    await concurrently(system.system.down() for system in uniq([*enabled, *running], key=id))
 
     return DownResult(
         disabled=sorted(current.system.address for current in enabled),

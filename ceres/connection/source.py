@@ -8,7 +8,7 @@ import anyio
 from anyio.abc import SocketStream
 from pydantic import NonNegativeInt
 
-from ceres._internal.util import UNIX
+from ceres._internal.utilities.platforms import UNIX
 from ceres.data import DataObject, NonBlankStr, PositiveTimeDelta
 from ceres.timing import sdelta
 

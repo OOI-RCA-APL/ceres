@@ -5,7 +5,6 @@ from uuid import UUID
 from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal import util
 from ceres._internal.database.types import UUIDMapper
 from ceres._internal.entity import (
     BaseEntity,
@@ -19,7 +18,7 @@ from ceres._internal.entity import (
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import MatchMode
+from ceres._internal.utilities.collections import seq
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, uuid7
 from ceres.user import UserRow
 
@@ -111,16 +110,16 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
         if not super()._matches(obj):
             return False
 
-        if not util.match_value(obj.user_id, self.user_id):
+        if not self._match_value(obj.user_id, self.user_id):
             return False
 
-        if not util.match_value(obj.name, self.name):
+        if not self._match_value(obj.name, self.name):
             return False
-        if not util.match_string(obj.name, self.name_contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.name, self.name_contains):
             return False
-        if not util.match_string(obj.name, self.name_prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.name, self.name_prefix):
             return False
-        if not util.match_string(obj.name, self.name_suffix, MatchMode.SUFFIX):
+        if not self._match_string_suffix(obj.name, self.name_suffix):
             return False
 
         return True
@@ -136,16 +135,16 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
         columns = self._get_row_cls()
 
         if self.user_id is not None:
-            yield columns.user_id.in_(util.seq(self.user_id))
+            yield columns.user_id.in_(seq(self.user_id))
 
         if self.name is not None:
-            yield util.sql_match_value(columns.name, self.name)
+            yield self._sql_match_value(columns.name, self.name)
         if self.name_contains is not None:
-            yield util.sql_match_string(columns.name, self.name_contains, MatchMode.CONTAINS)
+            yield self._sql_match_string_contains(columns.name, self.name_contains)
         if self.name_prefix is not None:
-            yield util.sql_match_string(columns.name, self.name_prefix, MatchMode.PREFIX)
+            yield self._sql_match_string_prefix(columns.name, self.name_prefix)
         if self.name_suffix is not None:
-            yield util.sql_match_string(columns.name, self.name_suffix, MatchMode.SUFFIX)
+            yield self._sql_match_string_suffix(columns.name, self.name_suffix)
 
     @override
     def _get_default_order(self) -> MaybeSequence[SettingOrder]:

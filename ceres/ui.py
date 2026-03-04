@@ -14,7 +14,6 @@ from pydantic import (
     field_validator,
 )
 
-from ceres._internal import util
 from ceres.address import Address
 from ceres.component import get_component_method_binding_on
 from ceres.data import Color, DataModel, Name, StrEnum
@@ -95,7 +94,7 @@ class Button(_BaseElement):
 
             binding = get_component_method_binding_on(action, ActionBinding)
             if not binding:
-                raise ValueError(f"function {util.strify(action)} has no action binding")
+                raise ValueError(f"function {action} has no action binding")
 
             action = binding.name
 
@@ -391,7 +390,7 @@ class _BaseRenderer(_BaseElement):
 
             binding = get_component_method_binding_on(query, QueryBinding)
             if not binding:
-                raise ValueError(f"function {util.strify(query)} has no query binding")
+                raise ValueError(f"function {query} has no query binding")
 
             query = binding.name
 

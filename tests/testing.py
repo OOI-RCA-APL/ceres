@@ -23,13 +23,15 @@ from ceres import (
     Variable,
     utc,
 )
-from ceres._internal import util
 from ceres._internal.auth import get_password_hash
 from ceres._internal.entity import (
     BaseAddressEntityFilterArgs,
     BaseEntityFilterArgs,
     BaseUUIDEntityFilterArgs,
 )
+from ceres._internal.utilities.collections import group_by
+from ceres._internal.utilities.randomize import randstr
+from ceres.concurrency import awaitify
 from ceres.config import BCryptHashingConfig
 from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
 from ceres.database import Database
@@ -51,7 +53,7 @@ async def wait_for_condition(
 ) -> None:
     start = utc()
     while True:
-        if await util.awaitify(condition()):
+        if await awaitify(condition()):
             return
         if (utc() - start).total_seconds() >= timeout:
             raise TimeoutError(description)
@@ -110,7 +112,7 @@ async def execute_filter_test(
     async def reset() -> None:
         await database.clear()
         async with database.session() as session:
-            for group_cls, group in util.group_by(entity_inserts, type):
+            for group_cls, group in group_by(entity_inserts, type):
                 shuffle(group)
                 values = [dict(entity) for entity in group]
                 await session.execute(insert(group_cls.Row).values(values))
@@ -272,7 +274,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                 cls,
                 {
                     "address": Address.ROOT,
-                    "type": util.randstr(printable, 8),
+                    "type": randstr(printable, 8),
                     "data": {},
                     **values,
                 },
@@ -286,7 +288,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                 {
                     "address": Address.ROOT,
                     "level": choice(list(Level)),
-                    "type": util.randstr(printable, 8),
+                    "type": randstr(printable, 8),
                     **values,
                 },
             )
@@ -299,7 +301,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                 {
                     "address": Address.ROOT,
                     "level": choice(list(Level)),
-                    "content": util.randstr(printable, 32),
+                    "content": randstr(printable, 32),
                     **values,
                 },
             )
@@ -310,10 +312,10 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "username": util.randstr(ascii_letters, 8),
+                    "username": randstr(ascii_letters, 8),
                     "email": "email@email.com",
                     "password": get_password_hash(
-                        util.randstr(printable, 8),
+                        randstr(printable, 8),
                         BCryptHashingConfig(rounds=4),
                     ),
                     "role": choice(list(UserRole)),
@@ -329,7 +331,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                 cls,
                 {
                     "address": Address.ROOT,
-                    "name": util.randstr(printable, 8),
+                    "name": randstr(printable, 8),
                     "value": 0,
                     **values,
                 },
@@ -345,7 +347,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                 cls,
                 {
                     "user_id": user_id,
-                    "name": util.randstr(printable, 8),
+                    "name": randstr(printable, 8),
                     "value": 0,
                     **values,
                 },

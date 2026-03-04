@@ -5,14 +5,16 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Self, override
 from pydantic_core import CoreSchema, SchemaSerializer
 from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
 
-from ceres._internal import util
-from ceres._internal.util import NAME_PATTERN, ClassProperty, LRUCache
+from ceres._internal.utilities.caching import LRUCache
+from ceres._internal.utilities.classes import class_property
+from ceres._internal.utilities.collections import seq
+from ceres.data import _NAME_PATTERN
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
     from sqlalchemy.sql import ColumnElement, SQLColumnExpression
 
-_NAME = NAME_PATTERN[1:-1]
+_NAME = _NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
 _SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@({_MODIFIER})?|{_MODIFIER}"
 
@@ -64,7 +66,7 @@ class AddressSelector:
         return [AddressSelector(segment) for segment in self._text.split("|")]
 
     def __init__(self, value: str | AddressSelector | Sequence[str | AddressSelector], /) -> None:
-        value = util.seq(value)
+        value = seq(value)
 
         segments: list[str] = []
         for segment in value:
@@ -411,8 +413,16 @@ class DynamicAddress(AddressSelector):
 
 class Address(DynamicAddress):
     REGEX: Final = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")  # type: ignore
-    ENGINE = ClassProperty[Self, Self](lambda cls: _ENGINE)
-    ROOT = ClassProperty[Self, Self](lambda cls: _ROOT)
+
+    @class_property
+    @classmethod
+    def ENGINE(cls) -> Address:
+        return _ENGINE
+
+    @class_property
+    @classmethod
+    def ROOT(cls) -> Address:
+        return _ROOT
 
     _cache: LRUCache[str, Self] = LRUCache(256)
 

@@ -4,13 +4,13 @@ from typing import override
 import anyio
 from pydantic_settings import CliSubCommand
 
-from ceres._internal import util
 from ceres._internal.cli.shared import (
     CLICommand,
     CLICommandExit,
     CLICommandFailed,
     CLICommandGroup,
     get_confirmation,
+    temporary_signal_handler,
 )
 from ceres.timing import sdelta, utc
 
@@ -117,7 +117,7 @@ class ShellCommand(CLICommand):
                 stdout=sys.stdout,
             )
 
-            with util.temporary_signal_handler([SIGTERM], lambda: process.terminate()):
+            with temporary_signal_handler([SIGTERM], lambda: process.terminate()):
                 status = await process.wait()
 
         raise CLICommandExit(status)

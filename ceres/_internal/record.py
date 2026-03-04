@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, ClassVar, Self, override
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 from sqlalchemy import Integer, cast, func, literal, select
 
-from ceres._internal import util
 from ceres._internal.entity import (
     BaseAddressEntity,
     BaseAddressEntityCreate,
@@ -32,6 +31,7 @@ from ceres._internal.entity import (
     BaseUUIDEntityRow,
     BaseUUIDEntityUpdate,
 )
+from ceres._internal.utilities.collections import seq
 from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTimeDelta, StrEnum
 from ceres.database import DatabaseType
 from ceres.timing import utc
@@ -159,7 +159,7 @@ class BaseRecordFilter[
             return False
 
         if self.timestamp is not None:
-            if obj.timestamp not in util.seq(self.timestamp):
+            if obj.timestamp not in seq(self.timestamp):
                 return False
         if self.after is not None:
             if obj.timestamp < self.after:

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator, Uuid
 
-from ceres._internal import util
+from ceres._internal.utilities.case import snakecase
 from ceres.address import Address
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ def EnumMapper(cls: type[BaseEnum]) -> Enum:
         values_callable=lambda enum: [current.value for current in enum],
         native_enum=False,
         create_constraint=False,
-        name=util.snakecase(cls.__name__),
+        name=snakecase(cls.__name__),
     )
 
     enum.length = None

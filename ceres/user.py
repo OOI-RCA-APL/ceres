@@ -1,19 +1,11 @@
 from collections.abc import Iterable
-from typing import (
-    TYPE_CHECKING,
-    ClassVar,
-    Literal,
-    TypedDict,
-    Unpack,
-    override,
-)
+from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
 from sqlalchemy import Boolean, Text, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
-from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import (
     BaseEntityManager,
@@ -29,7 +21,6 @@ from ceres._internal.entity import (
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import MatchMode
 from ceres.data import (
     EmailAddress,
     MaybeSequence,
@@ -48,15 +39,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "User",
-    "UserRole",
-    "UserField",
-    "UserOrder",
-    "UserFilterArgs",
-    "UserFilter",
-    "UserCreate",
-    "UserUpdate",
-    "UserManager",
-    "BoundUserManager",
 ]
 
 
@@ -178,29 +160,27 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         if not super()._matches(obj):
             return False
 
-        if not util.match_value(obj.username, self.username):
+        if not self._match_value(obj.username, self.username):
             return False
-        if not util.match_string(obj.username, self.username_contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.username, self.username_contains):
             return False
-        if not util.match_string(obj.username, self.username_prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.username, self.username_prefix):
             return False
-        if not util.match_string(obj.username, self.username_suffix, MatchMode.SUFFIX):
-            return False
-
-        if not util.match_string(obj.email, self.email, MatchMode.EQUALS, insensitive=True):
-            return False
-        if not util.match_string(
-            obj.email, self.email_contains, MatchMode.CONTAINS, insensitive=True
-        ):
-            return False
-        if not util.match_string(obj.email, self.email_prefix, MatchMode.PREFIX, insensitive=True):
-            return False
-        if not util.match_string(obj.email, self.email_suffix, MatchMode.SUFFIX, insensitive=True):
+        if not self._match_string_suffix(obj.username, self.username_suffix):
             return False
 
-        if not util.match_value(obj.role, self.role):
+        if not self._match_string_equals(obj.email, self.email, insensitive=True):
             return False
-        if not util.match_value(obj.disabled, self.disabled):
+        if not self._match_string_contains(obj.email, self.email_contains, insensitive=True):
+            return False
+        if not self._match_string_prefix(obj.email, self.email_prefix, insensitive=True):
+            return False
+        if not self._match_string_suffix(obj.email, self.email_suffix, insensitive=True):
+            return False
+
+        if not self._match_value(obj.role, self.role):
+            return False
+        if not self._match_value(obj.disabled, self.disabled):
             return False
 
         return True
@@ -211,33 +191,27 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         columns = self._get_row_cls()
 
         if self.username is not None:
-            yield util.sql_match_value(columns.username, self.username)
+            yield self._sql_match_value(columns.username, self.username)
         if self.username_contains is not None:
-            yield util.sql_match_string(
-                columns.username, self.username_contains, MatchMode.CONTAINS
-            )
+            yield self._sql_match_string_contains(columns.username, self.username_contains)
         if self.username_prefix is not None:
-            yield util.sql_match_string(columns.username, self.username_prefix, MatchMode.PREFIX)
+            yield self._sql_match_string_prefix(columns.username, self.username_prefix)
         if self.username_suffix is not None:
-            yield util.sql_match_string(columns.username, self.username_suffix, MatchMode.SUFFIX)
+            yield self._sql_match_string_suffix(columns.username, self.username_suffix)
 
         if self.email is not None:
-            yield util.sql_match_value(columns.email, self.email)
+            yield self._sql_match_value(columns.email, self.email)
         if self.email_contains is not None:
-            yield util.sql_match_string(
-                columns.email, self.email_contains, MatchMode.CONTAINS, insensitive=True
+            yield self._sql_match_string_contains(
+                columns.email, self.email_contains, insensitive=True
             )
         if self.email_prefix is not None:
-            yield util.sql_match_string(
-                columns.email, self.email_prefix, MatchMode.PREFIX, insensitive=True
-            )
+            yield self._sql_match_string_prefix(columns.email, self.email_prefix, insensitive=True)
         if self.email_suffix is not None:
-            yield util.sql_match_string(
-                columns.email, self.email_suffix, MatchMode.SUFFIX, insensitive=True
-            )
+            yield self._sql_match_string_suffix(columns.email, self.email_suffix, insensitive=True)
 
         if self.role is not None:
-            yield util.sql_match_value(columns.role, self.role)
+            yield self._sql_match_value(columns.role, self.role)
         if self.disabled is not None:
             yield columns.disabled == self.disabled
 

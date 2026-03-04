@@ -3,9 +3,10 @@ from typing import Unpack
 from pydantic import Field
 from sqlalchemy import func, select
 
-from ceres._internal import util
+from ceres._internal.database.errors import wrap_database_errors
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.manager import BaseDatabaseManager
+from ceres._internal.utilities.functions import call_partial
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
 from ceres.data import DataObject, DateTime
@@ -86,7 +87,7 @@ class StatisticsManager(BaseDatabaseManager):
 
         results: dict[Address, Statistics] = {}
 
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             async with await self.__database__.use() as connection:
                 for address, level, count in await connection.execute(statement):
                     address: Address
@@ -112,4 +113,4 @@ class StatisticsManager(BaseDatabaseManager):
         )
 
     def _construct_filter_defaults(self) -> StatisticsFilter | None:
-        return util.call_partial(StatisticsFilter, **self.__get_filter_defaults__())
+        return call_partial(StatisticsFilter, **self.__get_filter_defaults__())

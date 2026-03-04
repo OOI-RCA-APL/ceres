@@ -24,8 +24,8 @@ from pydantic import AfterValidator, Json, ValidationError
 from pydantic_core import PydanticKnownError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
-from ceres._internal import util
 from ceres._internal.entity import BaseEntityFilter
+from ceres._internal.utilities.case import kebabcase, snakecase
 from ceres.concurrency import race, sleep
 from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
@@ -448,12 +448,12 @@ def create_record_get_route(router: Router, Record: type[Record]):
         filter = cast("type[MessageFilter]", Record.Filter)(id=id)
         return assert_found(await engine.__manager__(Record).where(filter).first())
 
-    get.__name__ = f"get_{util.snakecase(naming.singular)}"
+    get.__name__ = f"get_{snakecase(naming.singular)}"
     return router.get(
         "/{id:uuid}",
         response_model=Record,
         dependencies=[VIEWER],
-        tags=[util.kebabcase(naming.plural)],
+        tags=[kebabcase(naming.plural)],
     )(get)
 
 
@@ -470,12 +470,12 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
     ):
         return await engine.__manager__(Record).where(filter)
 
-    get_all.__name__ = f"get_all_{util.snakecase(naming.plural)}"
+    get_all.__name__ = f"get_all_{snakecase(naming.plural)}"
     return router.get(
         "",
         response_model=list[Record],
         dependencies=[VIEWER],
-        tags=[util.kebabcase(naming.plural)],
+        tags=[kebabcase(naming.plural)],
     )(get_all)
 
 
@@ -488,11 +488,11 @@ def create_record_count_route(router: Router, Record: type[Record]):
     ) -> int:
         return await engine.__manager__(Record).where(filter).count()
 
-    count.__name__ = f"count_{util.snakecase(naming.plural)}"
+    count.__name__ = f"count_{snakecase(naming.plural)}"
     return router.get(
         "/count",
         dependencies=[VIEWER],
-        tags=[util.kebabcase(naming.plural)],
+        tags=[kebabcase(naming.plural)],
     )(count)
 
 
@@ -512,7 +512,7 @@ def create_record_stream_route(router: Router, Record: type[Record]):
 
         await socket.execute(write)
 
-    stream.__name__ = f"stream_{util.snakecase(naming.plural)}"
+    stream.__name__ = f"stream_{snakecase(naming.plural)}"
     return router.websocket("", dependencies=[VIEWER])(stream)
 
 

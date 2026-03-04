@@ -3,8 +3,8 @@ from datetime import UTC
 from threading import Lock
 from typing import TYPE_CHECKING, Any, cast
 
-from ceres._internal import util
 from ceres._internal.manager import BaseComponentManager
+from ceres._internal.utilities.exceptions import trace
 from ceres.concurrency import sleep
 from ceres.entity import EntityType
 from ceres.event import (
@@ -146,7 +146,7 @@ class PrunerManager(BaseComponentManager):
             self.__system__.events.emit(
                 PruneExceptionEvent,
                 pruner=pruner.name,
-                traceback=util.get_traceback(exception),
+                traceback=trace(exception),
             )
         finally:
             self.__system__.events.emit(PruneEndedEvent, pruner=pruner.name)

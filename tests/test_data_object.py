@@ -1,6 +1,6 @@
 import dataclasses
 from dataclasses import FrozenInstanceError, field
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 import pydantic
 import pytest
@@ -13,12 +13,12 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal.util import (
+from ceres._internal.utilities.classes import (
     CachedClassProperty,
     ClassProperty,
     cached_class_property,
     class_property,
-    declared_slots_of,
+    get_declared_slots,
 )
 from ceres.data import (
     DataModel,
@@ -242,7 +242,7 @@ def test_private_slots():
 
     assert PrivateSlots.__slots__ == ("a", "b", "_c")
     assert hasattr(PrivateSlots, "__data_object_fields_set__")
-    assert declared_slots_of(PrivateSlots) == ["__data_object_fields_set__", "a", "b", "_c"]
+    assert get_declared_slots(PrivateSlots) == ["__data_object_fields_set__", "a", "b", "_c"]
     assert set(PrivateSlots.__pydantic_fields__) == {"a", "b"}
     instance = PrivateSlots(a=10, b="test")
     assert hasattr(instance, "__data_object_fields_set__")
@@ -364,8 +364,8 @@ def test_class_property_and_dataclasses(
             def lower_class_name_cached(cls) -> list[str]:
                 return [cls.__name__.lower()]
 
-            division_by_zero: ClassVar[int] = ~CachedClassProperty(lambda cls: 1 / 0)
-            division_by_zero_cached = CachedClassProperty[Self, int](
+            division_by_zero = CachedClassProperty[Self, float](lambda cls: 1 / 0)
+            division_by_zero_cached = CachedClassProperty[Self, float](
                 lambda cls: cls.division_by_zero
             )
 
@@ -388,8 +388,8 @@ def test_class_property_and_dataclasses(
             def lower_class_name_cached(cls) -> list[str]:
                 return [cls.__name__.lower()]
 
-            division_by_zero: ClassVar[int] = ~ClassProperty(lambda cls: 1 / 0)
-            division_by_zero_cached = CachedClassProperty[Self, int](
+            division_by_zero = ClassProperty[Self, float](lambda cls: 1 / 0)
+            division_by_zero_cached = CachedClassProperty[Self, float](
                 lambda cls: cls.division_by_zero
             )
 
@@ -554,7 +554,7 @@ def test_abstract_slots():
 
     assert ConcreteWithoutDict.__data_object_field_names__ == ("a", "b")
     assert ConcreteWithoutDict.__data_object_defined_slots__ == ("a", "b")
-    assert declared_slots_of(ConcreteWithoutDict) == ["__data_object_fields_set__", "a", "b"]
+    assert get_declared_slots(ConcreteWithoutDict) == ["__data_object_fields_set__", "a", "b"]
 
     concrete = ConcreteWithoutDict(a=10, b=20)
     assert concrete.a == 10
@@ -575,7 +575,7 @@ def test_abstract_slots():
 
     assert ConcreteWithWeakrefAndDict.__data_object_field_names__ == ("a", "b", "c")
     assert ConcreteWithWeakrefAndDict.__data_object_defined_slots__ == ("a", "b", "c")
-    assert declared_slots_of(ConcreteWithWeakrefAndDict) == [
+    assert get_declared_slots(ConcreteWithWeakrefAndDict) == [
         "__data_object_fields_set__",
         "a",
         "b",
@@ -614,3 +614,23 @@ def test_in_operator():
     assert "b" not in values
     assert "c" not in values
     assert 5 not in values
+
+
+def test_generics():
+    class Base[TB](DataObject):
+        value: TB
+
+    assert Base.__data_object_fields__["value"].annotation is Base.__type_params__[0]
+    assert Base[str].__data_object_fields__["value"].annotation is str
+    assert Base[str] is Base[str]
+
+    class Inherited[TI](Base[TI]):
+        pass
+
+    assert Inherited[str].__data_object_fields__["value"].annotation is str
+    assert Inherited[str].__data_object_is_generic_alias__
+
+    class PartiallySpecialized(Inherited[int]):
+        pass
+
+    assert not PartiallySpecialized.__data_object_is_generic_alias__

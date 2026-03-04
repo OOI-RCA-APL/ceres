@@ -3,10 +3,20 @@ import sys
 import time
 import warnings
 from abc import abstractmethod
-from collections.abc import AsyncIterable, Callable, Collection, Iterable, Mapping, Sequence, Sized
+from collections.abc import (
+    AsyncIterable,
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+    Sized,
+)
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from datetime import date, datetime, timedelta
 from enum import StrEnum
+from os import PathLike
 from pathlib import Path
 from types import NoneType
 from typing import (
@@ -45,10 +55,11 @@ from pydantic_settings import (
 )
 from pydantic_settings.sources import CliPositionalArg
 
-from ceres._internal import util
+from ceres._internal.database.errors import wrap_database_errors
 from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.project import LoadedProject, Project
-from ceres._internal.util import PathLike, wrap_database_errors
+from ceres._internal.utilities.case import ucamelcase
+from ceres._internal.utilities.collections import seq
 from ceres.data import (
     DataModel,
     DataObject,
@@ -220,13 +231,6 @@ def write_table(title: str | None = None, file: IO[str] = sys.stderr):
 
 def strbool(value: bool) -> str:
     return "Yes" if value else "No"
-
-
-def __validate_non_empty(value: Any) -> Any:
-    if util.is_true_collection(value) and len(value) == 0:
-        raise ValueError("Cannot be empty.")
-
-    return value
 
 
 Confirm = Annotated[CliImplicitFlag[bool], Field(description="Ask before executing.")]
@@ -710,7 +714,7 @@ class CLIDataOutputCommand(CLICommand):
             data_format = _resolve_data_format(self.output, data_format)
 
         if fields is None and self.field is not None:
-            fields = util.seq(self.field)
+            fields = seq(self.field)
 
         fields = _resolve_fields(fields)
 
@@ -950,7 +954,7 @@ def create_entity_load_command(Entity: type[Entity]):
 
         async def _load(
             self,
-            path: PathLike,
+            path: str | PathLike,
             entity_type: EntityType,
             data_format: CLIDataFormat | None = None,
             on_conflict: CLIDataConflict = CLIDataConflict.ERROR,
@@ -1073,8 +1077,27 @@ def create_entity_command(
     naming = Entity.__naming__
 
     return create_model(
-        f"{util.ucamelcase(naming.plural)}Command",
+        f"{ucamelcase(naming.plural)}Command",
         **fields,
         __base__=CLICommandGroup,
         __doc__=f"Manage {naming.plural}.",
     )
+
+
+@contextmanager
+def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
+    import signal
+
+    originals: dict[int, Any] = {}
+
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+
+        signal.signal(signum, handler)
+
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)

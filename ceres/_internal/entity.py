@@ -26,7 +26,7 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import ConfigDict, Field, NonNegativeInt, model_validator
+from pydantic import Field, NonNegativeInt, model_validator
 from sqlalchemy import (
     ClauseElement,
     ColumnElement,
@@ -55,10 +55,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncResult
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_attr, mapped_column
 from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
 
-from ceres._internal import util
+from ceres._internal.database.errors import wrap_database_errors
 from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.manager import BaseDatabaseManager
+from ceres._internal.utilities.case import kebabcase, snakecase
+from ceres._internal.utilities.collections import seq
+from ceres._internal.utilities.functions import call_partial
 from ceres.address import Address, AddressSelector
 from ceres.channel import OutputChannel
 from ceres.concurrency import sleep
@@ -83,6 +86,9 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
 
     from ceres._internal.protocols import DatabaseSource
+    from ceres.database import Database
+    from ceres.entity import Entity
+    from ceres.node import Node
 
     _Rows = Result[tuple[object, ...]]
     _AsyncRows: TypeAlias = AsyncResult[tuple[object, ...]]
@@ -169,7 +175,7 @@ class BaseEntityRow(
             if index._ddl_if is not None:
                 # `DDLif.dialect` can be a tuple of dialect names, despite the type annotation being
                 # `str | None` at the time of writing.
-                if dialect.name not in util.seq(index._ddl_if.dialect):
+                if dialect.name not in seq(index._ddl_if.dialect):
                     continue
 
             yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
@@ -307,7 +313,7 @@ class BaseEntityFilter[
     @model_validator(mode="after")
     def _resolve_and_or(self) -> Self:
         if self.or__:
-            for subfilter in util.seq(self.or__):
+            for subfilter in seq(self.or__):
                 if subfilter.order is not None:
                     raise ValueError(
                         "Cannot specify `order` in `or__` subfilters. Use `and__` instead."
@@ -322,7 +328,7 @@ class BaseEntityFilter[
                     )
 
         if self.and__:
-            for subfilter in util.seq(self.and__):
+            for subfilter in seq(self.and__):
                 if subfilter.order is not None:
                     object.__setattr__(self, "order", subfilter.order)
                     self.model_fields_set.add("order")
@@ -358,8 +364,8 @@ class BaseEntityFilter[
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
     def matches(self, obj: EntityT) -> bool:
-        ands: Sequence[Self] = util.seq(self.and__ or ())
-        ors: Sequence[Self] = util.seq(self.or__ or ())
+        ands: Sequence[Self] = seq(self.and__ or ())
+        ors: Sequence[Self] = seq(self.or__ or ())
 
         return (
             self._matches(obj)
@@ -375,14 +381,14 @@ class BaseEntityFilter[
         ands = list(self._get_where(dialect))
 
         if self.and__:
-            for subcondition in util.seq(self.and__):
+            for subcondition in seq(self.and__):
                 ands.extend(subcondition._get_combined_where(dialect))
 
         if not self.or__:
             yield from ands
         else:
             ors: list[SQLColumnExpression[bool]] = []
-            for subcondition in util.seq(self.or__):
+            for subcondition in seq(self.or__):
                 ors.extend(subcondition._get_combined_where(dialect))
 
             if ands:
@@ -403,7 +409,7 @@ class BaseEntityFilter[
 
         Row = self._get_row_cls()
         columns: list[SQLColumnExpression[Any]] = []
-        for value in util.seq(order):
+        for value in seq(order):
             base = value.split(":")[0]
             ascending = not value.endswith(":desc")
             column = Row.__table__.columns[base]
@@ -478,14 +484,10 @@ class EntityNaming:
         self.singular = singular
         self.plural = plural if plural else singular + "s"
         self.container = container if container else self.plural
-        self.table = table if table else util.snakecase(self.container)
-        self.route = route if route else util.kebabcase(self.container)
-        self.command = command if command else util.kebabcase(self.container)
-        self.manager = manager if manager else util.snakecase(self.container)
-
-
-if TYPE_CHECKING:
-    from ceres.database import Database
+        self.table = table if table else snakecase(self.container)
+        self.route = route if route else kebabcase(self.container)
+        self.command = command if command else kebabcase(self.container)
+        self.manager = manager if manager else snakecase(self.container)
 
 
 class ResultsIterator[EntityT: BaseEntity]:
@@ -548,7 +550,7 @@ class _BaseStatementExecutor[
         return self._await().__await__()
 
     async def __aenter__(self) -> ResultsIterator[EntityT]:
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             if self._connection is None:
                 self._connection = await self._query._get_database().use()
                 await self._connection.__aenter__()
@@ -743,7 +745,7 @@ class UpdateExecutor[
         database = self._query._get_database()
         statement = await self._get_statement(False)
 
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             async with await database.use() as connection:
                 result = await connection.execute(statement)
                 await connection.commit()
@@ -788,7 +790,7 @@ class DeleteExecutor[
         database = self._query._get_database()
         statement = await self._get_statement(False)
 
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             async with await database.use() as connection:
                 result = await connection.execute(statement)
                 await connection.commit()
@@ -1083,7 +1085,8 @@ class BaseEntityManager[
     @override
     def _get_filter_defaults(self) -> FilterT:
         Filter = self._get_filter_class()
-        return util.call_partial(Filter, **self.__get_filter_defaults__())
+
+        return call_partial(Filter, **self.__get_filter_defaults__())
 
     @override
     def _get_hard_filter(self) -> FilterT | None:
@@ -1126,7 +1129,7 @@ class BaseEntityManager[
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             async with await self.__database__.use() as connection:
                 statement = insert(Row).values(row.values())
                 pk = Row.get_primary_key_columns()
@@ -1174,9 +1177,11 @@ _REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, type[Any] | None] = {
 class ConcreteEntity(BaseEntity, abstract=True, slots=True):
     __naming__: ClassVar[EntityNaming]
 
-    def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]) -> None:
-        super().__init_subclass__(**kwargs)
-        if cls.__name__.startswith("Base"):
+    @classmethod
+    @override
+    def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__data_object_init_subclass__(**kwargs)
+        if cls.__name__.startswith("Base") or cls.__name__ == "ConcreteEntity":
             return
 
         for attribute, constraint in _REQUIRED_CONCRETE_CLASS_ATTRIBUTES.items():
@@ -1254,7 +1259,7 @@ class BaseUUIDEntityFilter[
         if not super()._matches(obj):
             return False
 
-        if not util.match_value(obj.id, self.id):
+        if not self._match_value(obj.id, self.id):
             return False
 
         return True
@@ -1265,7 +1270,7 @@ class BaseUUIDEntityFilter[
         columns = self._get_row_cls()
 
         if self.id is not None:
-            yield util.sql_match_value(columns.id, self.id)
+            yield self._sql_match_value(columns.id, self.id)
 
 
 class BaseUUIDEntityCreate(BaseEntity, abstract=True, slots=True):
@@ -1456,7 +1461,7 @@ class BaseTimestampEntityFilter[
             return False
 
         if self.timestamp is not None:
-            if obj.timestamp not in util.seq(self.timestamp):
+            if obj.timestamp not in seq(self.timestamp):
                 return False
         if self.after is not None:
             if obj.timestamp < self.after:
@@ -1531,7 +1536,7 @@ class BaseTimestampEntityFilter[
         columns = self._get_row_cls()
 
         if self.timestamp is not None:
-            yield util.sql_match_value(columns.timestamp, self.timestamp)
+            yield self._sql_match_value(columns.timestamp, self.timestamp)
         if self.after is not None:
             yield columns.timestamp >= self.after
         if self.before is not None:
@@ -1684,3 +1689,14 @@ class EntityOutputChannel[
             return True
 
         return self.__class__(super().where(where))
+
+
+def get_entity_manager(source: Database | Node, entity: type[Entity]) -> BaseEntityManager:
+    naming = entity.__naming__
+    manager = getattr(source, naming.manager, None)
+    if manager is None:
+        raise ValueError(
+            f"Object `{source}` has no manager for {entity} at attribute {naming.manager!r}."
+        )
+
+    return manager

@@ -17,9 +17,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from ceres._internal import util
+from ceres._internal.database.bytes import tokenize_bytes
+from ceres._internal.database.errors import wrap_database_errors
 from ceres._internal.lazy import __lazy_imports__
-from ceres._internal.util import tokenize_bytes
 from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
@@ -158,7 +158,9 @@ class Database:
         return StatisticsManager(self)
 
     def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
-        return util.get_entity_manager(self, Entity)
+        from ceres._internal.entity import get_entity_manager
+
+        return get_entity_manager(self, Entity)
 
     @property
     @abstractmethod
@@ -265,11 +267,11 @@ class Database:
         await self.dispose()
 
     async def dispose(self) -> None:
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             await self._engine.dispose()
 
     async def init(self) -> None:
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             if self._init_completed:
                 return
 
@@ -287,7 +289,7 @@ class Database:
                 self._init_completed = True
 
     async def clear(self) -> None:
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             async with self._engine.begin() as connection:
                 for cls in reversed(_get_entity_row_classes()):
                     await connection.execute(delete(cls))
@@ -295,7 +297,7 @@ class Database:
                 await connection.commit()
 
     async def initialized(self) -> bool:
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             return await self._run_sync(
                 lambda connection: bool(inspect(connection).get_table_names())
             )
@@ -325,7 +327,7 @@ class Database:
         return await self.hash_password(password)
 
     async def _run_sync[T](self, callback: Callable[[Connection], T]) -> T:
-        with util.wrap_database_errors():
+        with wrap_database_errors():
             async with self.connect() as connection:
                 return await connection.run_sync(callback)
 

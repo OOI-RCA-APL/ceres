@@ -32,6 +32,7 @@ from typing import (
     TypeAliasType,
     TypedDict,
     TypeIs,
+    TypeVar,
     Unpack,
     cast,
     dataclass_transform,
@@ -76,17 +77,16 @@ from pydantic_extra_types.color import Color as Color
 from pydantic_settings import NoDecode
 from typing_extensions import TypeForm
 
-from ceres._internal import util
-from ceres._internal.util import (
-    NAME_PATTERN,
+from ceres._internal.utilities.caching import cached
+from ceres._internal.utilities.classes import (
     ClassProperty,
-    Undefined,
-    cached,
     cached_class_property,
     class_property,
-    declared_slots_of,
-    uniquify,
+    get_declared_slots,
 )
+from ceres._internal.utilities.collections import uniq
+from ceres._internal.utilities.typing import is_mapping
+from ceres._internal.utilities.undefined import Undefined
 
 if TYPE_CHECKING:
     from inspect import Signature
@@ -711,16 +711,18 @@ def defaulting[T: SupportsPydanticFieldsSet](
     if defaults is None:
         return original
 
-    is_mapping = util.is_mapping(defaults)
+    provided_mapping = is_mapping(defaults)
 
     update: dict[str, Any] = {}
     original_fields = original.__pydantic_fields_set__
-    defaults_fields = defaults.__pydantic_fields_set__ if not is_mapping else defaults.keys()
+    defaults_fields = defaults.__pydantic_fields_set__ if not provided_mapping else defaults.keys()
 
     for field in defaults_fields:
         if field not in original_fields:
             try:
-                update[field] = getattr(defaults, field) if not is_mapping else defaults[field]
+                update[field] = (
+                    getattr(defaults, field) if not provided_mapping else defaults[field]
+                )
             except AttributeError:
                 pass
 
@@ -743,7 +745,7 @@ def replacing[T: DataObject | BaseModel](
     if overrides is None:
         return original
 
-    update = overrides if util.is_mapping(overrides) else to_dict(overrides, exclude_unset=True)
+    update = overrides if is_mapping(overrides) else to_dict(overrides, exclude_unset=True)
     update.update(kwargs)
 
     return replace(
@@ -920,6 +922,9 @@ class DataObjectMetaclass(
 
             namespace["__slots__"] = ()
 
+        if "__data_object_is_generic_alias__" not in namespace:
+            namespace["__data_object_is_generic_alias__"] = False
+
         if frozen is None:
             if not _is_data_object_frozen_class_defined:
                 frozen = False
@@ -932,7 +937,7 @@ class DataObjectMetaclass(
 
         if frozen and _is_data_object_frozen_class_defined:
             # If `DataObject` is in the bases already, replace it with `__Frozen__`.
-            bases = tuple(uniquify((__Frozen__ if base is DataObject else base) for base in bases))
+            bases = tuple(uniq((__Frozen__ if base is DataObject else base) for base in bases))
             # Ensure `FrozenDataObject` is in the bases if no subclass of it is already.
             if not any(issubclass(base, __Frozen__) for base in bases):
                 bases = tuple((__Frozen__, *bases))
@@ -960,6 +965,11 @@ class DataObjectMetaclass(
         __replace__ = inner_class.__dict__.get("__replace__")
         if __replace__ is None:
             __replace__ = getattr(inner_class, "__replace__", None)
+
+        # __init_subclass__ = getattr(inner_class, "__init_subclass__", None)
+        # if _is_data_object_class_defined:
+        #     if __init_subclass__ is not None:
+        #         setattr(inner_class, "__init_subclass__", DataObject.__init_subclass__)  # type: ignore
 
         # TODO: Use a more robust way to detect this.
         _data_object_classes_being_built.add(key)
@@ -1007,7 +1017,7 @@ class DataObjectMetaclass(
             )
 
         data_object_class.__data_object_required_slots__ = tuple(
-            uniquify(__data_object_required_slots__)
+            uniq(__data_object_required_slots__)
         )
 
         if slots:
@@ -1044,7 +1054,12 @@ class DataObjectMetaclass(
                     "automatically, or set `abstract=True`."
                 )
 
+        data_object_class.__data_object_init_subclass__(**kwargs)
         return data_object_class
+
+    @override
+    def __repr__(cls) -> str:
+        return f"<class {cls.__module__}.{cls.__qualname__}>"
 
 
 @final
@@ -1379,6 +1394,10 @@ _FIELD_SPECIFIERS = (
     ConnectionField,
 )
 
+_data_object_generic_alias_class_cache: dict[
+    tuple[type[DataObject], Any | tuple[Any, ...]], Any
+] = {}
+
 
 @dataclass_transform(
     kw_only_default=True,
@@ -1436,6 +1455,7 @@ class DataObject(
 
     __data_object_abstract__: ClassVar[bool] = False
     __data_object_required_slots__: ClassVar[tuple[str, ...]] = ()
+    __data_object_is_generic_alias__: ClassVar[bool] = False
 
     if TYPE_CHECKING:
         from ceres.data import DataObject as __DataObject
@@ -1461,6 +1481,60 @@ class DataObject(
         def __pydantic_fields_complete__(cls) -> bool: ...
 
         def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
+    def __class_getitem__(cls, __args__: Any | tuple[Any, ...], /) -> type[Self]:
+        key = (cls, __args__)
+        cached = _data_object_generic_alias_class_cache.get(key)
+        if cached is not None:
+            return cached
+
+        alias: GenericAlias = super().__class_getitem__(__args__)  # type: ignore
+        if not isinstance(__args__, tuple):
+            __args__ = (__args__,)
+
+        from pydantic._internal._generics import replace_types
+
+        parameters: tuple[TypeVar, ...] = getattr(cls, "__parameters__", ())
+        replace = {parameter: argument for parameter, argument in zip(parameters, __args__)}
+        replaced_annotations: dict[str, Any] = {}
+        replaced_fields: dict[str, FieldInfo] = {}
+
+        for field, info in cls.__data_object_fields__.items():
+            replaced = replace_types(info.annotation, replace)
+            if info.annotation != replaced:
+                info = info._copy()
+                info.annotation = replaced
+                replaced_annotations[field] = replaced
+                replaced_fields[field] = info
+
+        names: list[str] = []
+        for argument in __args__:
+            name = getattr(argument, "__qualname__", None)
+            if name is None:
+                name = getattr(argument, "__name__", None)
+            if name is None:
+                name = repr(argument)
+
+            names.append(name)
+
+        __name__ = f"{cls.__name__}[{', '.join(names)}]"
+
+        class Alias(*(alias,)):
+            __annotations__ = replaced_annotations
+            __data_object_is_generic_alias__ = True
+            for field, info in replaced_fields.items():
+                locals()[field] = info
+
+        Alias.__qualname__ = Alias.__qualname__.replace(Alias.__name__, __name__)
+        Alias.__name__ = __name__
+        Alias.__module__ = cls.__module__
+
+        # Add `GenericAlias`-like attributes.
+        Alias.__origin__ = cls
+        Alias.__args__ = __args__
+        Alias.__parameters__ = parameters
+
+        return _data_object_generic_alias_class_cache.setdefault(key, Alias)
 
     @cached_class_property
     @classmethod
@@ -1589,7 +1663,7 @@ class DataObject(
     def __data_object_defined_slots__(cls) -> tuple[str, ...]:
         return tuple(
             slot
-            for slot in declared_slots_of(cls)
+            for slot in get_declared_slots(cls)
             if slot not in ("__weakref__", "__dict__", "__data_object_fields_set__")
         )
 
@@ -1758,7 +1832,11 @@ class DataObject(
         return model
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__()
+        super().__init_subclass__(**kwargs)
+
+    @classmethod
+    def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
+        pass
 
     @property
     def __fields_set__(self) -> FieldsSet:
@@ -2166,7 +2244,8 @@ else:
     ToBytes: TypeAlias = bytes | bytearray
 
 
-type Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
+_NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
+type Name = Annotated[str, StringConstraints(pattern=_NAME_PATTERN)]
 type NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 type NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
 

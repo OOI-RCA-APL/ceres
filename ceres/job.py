@@ -4,8 +4,8 @@ from functools import lru_cache
 from threading import Lock
 from typing import TYPE_CHECKING
 
-from ceres._internal import util
 from ceres._internal.manager import BaseComponentManager
+from ceres._internal.utilities.exceptions import trace
 from ceres.concurrency import sleep
 from ceres.event import (
     JobAddedEvent,
@@ -97,8 +97,8 @@ class JobManager(BaseComponentManager):
         binding = self.__system__.get_action_bindings().get(job.action)
         if binding is None:
             registered = list(self.__system__.get_action_bindings().keys())
-            raise AssertionError(
-                f"action {job.action!r} does not exist on {util.strify(type(self.__system__.component))}, registered actions: {registered!r}"
+            raise ValueError(
+                f"action {job.action!r} does not exist on {type(self.__system__.component)}, registered actions: {registered!r}"
             )
 
         with self._lock:
@@ -168,7 +168,7 @@ class JobManager(BaseComponentManager):
                     self.__system__.events.emit(
                         JobExceptionEvent,
                         job=job.name,
-                        traceback=util.get_traceback(exception),
+                        traceback=trace(exception),
                     )
                     if retry >= job.retries:
                         break

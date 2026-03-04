@@ -4,6 +4,8 @@ from typing import Any
 
 import pytest
 
+from ceres._internal.utilities.collections import flatten
+
 
 @pytest.mark.parametrize(
     ["input", "expected"],
@@ -18,14 +20,10 @@ import pytest
     ],
 )
 def test_flatten(input: Any, expected: Any):
-    from ceres._internal.util import flatten
-
     assert list(flatten(input)) == expected
 
 
 async def test_flatten_future():
-    from ceres._internal.util import flatten
-
     future = Future()
     task = asyncio.create_task(asyncio.sleep(0))
     assert list(flatten([future, [task]])) == [future, task]

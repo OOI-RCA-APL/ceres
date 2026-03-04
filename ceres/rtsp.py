@@ -9,7 +9,7 @@ from ceres.component import StreamingOutput
 from ceres.concurrency import sleep
 
 if TYPE_CHECKING:
-    from ceres._internal.util import PathLike
+    from os import PathLike
 
 __all__ = [
     "rtsp",
@@ -19,7 +19,7 @@ __all__ = [
 async def rtsp(
     url: str,
     *,
-    ffmpeg: PathLike | None = None,
+    ffmpeg: str | PathLike | None = None,
     copy: bool = True,
     loglevel: str | None = "error",
     transport: str = "tcp",

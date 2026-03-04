@@ -1,6 +1,5 @@
 import builtins
 import re
-import typing
 from abc import abstractmethod
 from collections.abc import (
     Callable,
@@ -32,7 +31,6 @@ from pydantic import ConfigDict, Field, ImportString, SerializeAsAny, Validation
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal import util
 from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -52,7 +50,8 @@ from ceres._internal.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.util import MatchMode, class_property
+from ceres._internal.utilities.classes import cached_class_property
+from ceres._internal.utilities.typing import get_inner_type, lenient_issubclass
 from ceres.data import (
     DataObject,
     FromYAML,
@@ -257,13 +256,13 @@ class ParticleFilter(
             if not isinstance(obj.data, self.cls):
                 return False
 
-        if not util.match_value(obj.type, self.type):
+        if not self._match_value(obj.type, self.type):
             return False
-        if not util.match_string(obj.type, self.type_contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.type, self.type_contains):
             return False
-        if not util.match_string(obj.type, self.type_prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.type, self.type_prefix):
             return False
-        if not util.match_string(obj.type, self.type_suffix, MatchMode.SUFFIX):
+        if not self._match_string_suffix(obj.type, self.type_suffix):
             return False
 
         if (
@@ -272,11 +271,11 @@ class ParticleFilter(
             or self.data_suffix is not None
         ):
             data_json = to_json(obj.data)
-            if not util.match_string(data_json, self.data_contains, MatchMode.CONTAINS):
+            if not self._match_string_contains(data_json, self.data_contains):
                 return False
-            if not util.match_string(data_json, self.data_prefix, MatchMode.PREFIX):
+            if not self._match_string_prefix(data_json, self.data_prefix):
                 return False
-            if not util.match_string(data_json, self.data_suffix, MatchMode.SUFFIX):
+            if not self._match_string_suffix(data_json, self.data_suffix):
                 return False
 
         return True
@@ -302,26 +301,20 @@ class ParticleFilter(
                 yield columns.type == self.cls.type
 
         if self.type is not None:
-            yield util.sql_match_value(columns.type, self.type)
+            yield self._sql_match_value(columns.type, self.type)
         if self.type_contains is not None:
-            yield util.sql_match_string(columns.type, self.type_contains, MatchMode.CONTAINS)
+            yield self._sql_match_string_contains(columns.type, self.type_contains)
         if self.type_prefix is not None:
-            yield util.sql_match_string(columns.type, self.type_prefix, MatchMode.PREFIX)
+            yield self._sql_match_string_prefix(columns.type, self.type_prefix)
         if self.type_suffix is not None:
-            yield util.sql_match_string(columns.type, self.type_suffix, MatchMode.SUFFIX)
+            yield self._sql_match_string_suffix(columns.type, self.type_suffix)
 
         if self.data_contains is not None:
-            yield util.sql_match_string(
-                cast(columns.data, Text), self.data_contains, MatchMode.CONTAINS
-            )
+            yield self._sql_match_string_contains(cast(columns.data, Text), self.data_contains)
         if self.data_prefix is not None:
-            yield util.sql_match_string(
-                cast(columns.data, Text), self.data_prefix, MatchMode.PREFIX
-            )
+            yield self._sql_match_string_prefix(cast(columns.data, Text), self.data_prefix)
         if self.data_suffix is not None:
-            yield util.sql_match_string(
-                cast(columns.data, Text), self.data_suffix, MatchMode.SUFFIX
-            )
+            yield self._sql_match_string_suffix(cast(columns.data, Text), self.data_suffix)
 
 
 class ParticleCreate(BaseRecordCreate, slots=True):
@@ -506,9 +499,6 @@ class ParticleOutputChannel(
 
 
 _particle_class_is_defined = False
-_particle_generic_alias_class_cache: dict[
-    tuple[type[Particle], type[ParticleData]], type[Particle[Any]]
-] = {}
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
@@ -524,82 +514,38 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
 
     __abstract__: ClassVar[bool] = False
 
-    if TYPE_CHECKING:
-        __data_class__: ClassVar[type[ParticleData] | None] = None
-    else:
-        __data_class__: ClassVar[Any] = None
-
     __naming__: ClassVar[EntityNaming] = EntityNaming("particle")
 
-    @class_property
+    data: DataT
+
+    @cached_class_property
     @classmethod
     def Data(cls) -> type[DataT]:
-        Data: type[Any] = cls.__data_class__ or ParticleData
-        return Data
+        return get_inner_type(cls.__data_object_fields__["data"].annotation)  # type: ignore
 
     @classmethod
     @override
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
+    def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__data_object_init_subclass__(**kwargs)
+        if not _particle_class_is_defined:
+            return
 
-        if _particle_class_is_defined:
-            if "__abstract__" not in cls.__dict__:
-                cls.__abstract__ = False
+        if "__abstract__" not in cls.__dict__:
+            cls.__abstract__ = cls.__data_object_is_generic_alias__
 
-            if not cls.__abstract__:
-                if not isinstance(cls.__dict__.get("type"), str):
-                    raise TypeError(
-                        f"`{cls}` must define `type` field with a default `str` value unless "
-                        "`__abstract__` is set to `True`."
-                    )
-
-    def __class_getitem__(cls, args: Any | tuple[Any]) -> type[Self]:
-        alias = typing.cast(
-            "type[Self]",
-            super().__class_getitem__(args),  # type: ignore
-        )
-
-        if not isinstance(args, tuple):
-            args = (args,)
-
-        data_class: object = args[0] if args else None
-        if isinstance(data_class, TypeVar):
-            return alias
-
-        if not isinstance(data_class, type) or not issubclass(data_class, ParticleData):
-            raise ValueError(
-                f"First generic argument of `{cls}` must be a subclass of `ParticleData`. "
-                f"Got {repr(data_class) if args else None}."
-            )
-
-        cached = _particle_generic_alias_class_cache.get((cls, data_class))
-        if cached is not None:
-            return typing.cast("type[Self]", cached)
-
-        class GenericAlias(alias):
-            __abstract__ = True
-            __data_class__ = data_class
-
-        GenericAlias: type[Any] = GenericAlias
-        GenericAlias.__name__ = f"{cls.__qualname__}[{data_class.__name__}]"
-        GenericAlias.__qualname__ = cls.__qualname__
-        GenericAlias = _particle_generic_alias_class_cache.setdefault(
-            (cls, data_class), GenericAlias
-        )
-
-        return typing.cast("type[Self]", GenericAlias)
-
-    type: str
-    data: FromYAML[DataT]
+        if not cls.__abstract__:
+            if not isinstance(cls.__dict__.get("type"), str):
+                raise TypeError(
+                    f"`{cls}` must define `type` field with a default `str` value unless "
+                    "`__abstract__` is set to `True`."
+                )
 
     def convert[ConvertedDataT: DynamicParticleData](
         self,
         cls: builtins.type[ConvertedDataT],
     ) -> Particle[ConvertedDataT]:
         data = (
-            validate(cls, self.data)
-            if util.lenient_issubclass(cls, ParticleData)
-            else dict(self.data)
+            validate(cls, self.data) if lenient_issubclass(cls, ParticleData) else dict(self.data)
         )
 
         return construct(
@@ -672,13 +618,13 @@ class RegexParticle[DataT: ParticleData](ParseableParticle[DataT]):
 
     @classmethod
     @override
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
+    def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__data_object_init_subclass__(**kwargs)
 
         if "__abstract__" not in cls.__dict__:
             cls.__abstract__ = False
 
-        if cls.__abstract__:
+        if cls.__abstract__ or cls.__data_object_is_generic_alias__:
             return
 
         regex = getattr(cls, "__regex__", None)
@@ -687,15 +633,16 @@ class RegexParticle[DataT: ParticleData](ParseableParticle[DataT]):
                 f"`{cls}.__regex__` must be defined as `bytes` or `re.Pattern[bytes]`."
             )
 
-        Data = cls.__data_class__
-        if Data is None:
-            raise TypeError(f"`{cls}.__data_class__` is unset, cannot verify regex groups.")
+        Data = cls.Data
+        if not isinstance(Data, type) or not issubclass(Data, ParticleData):
+            raise TypeError(f"`{cls}.Data` is unresolved, cannot verify regex groups.")
 
         try:
-            if isinstance(regex, Pattern):
-                cls.__regex_compiled__ = regex
-            else:
-                cls.__regex_compiled__ = re.compile(cls.__regex__, cls.__regex_flags__)
+            if regex is not None:
+                if isinstance(regex, Pattern):
+                    cls.__regex_compiled__ = regex
+                else:
+                    cls.__regex_compiled__ = re.compile(cls.__regex__, cls.__regex_flags__)
         except re.error as error:
             raise ValueError(f"Failed to compile `{cls}.__regex__`. {error}")
 

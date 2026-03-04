@@ -15,8 +15,8 @@ from starlette.status import (
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
-from ceres._internal import util
-from ceres._internal.util import Undefined
+from ceres._internal.utilities.typing import lenient_isinstance
+from ceres._internal.utilities.undefined import Undefined
 from ceres.address import Address, DynamicAddress
 from ceres.data import DataObject, simplify
 
@@ -52,7 +52,7 @@ class Error(DataObject, slots=True):
 
 class Failure(Exception):
     def __init__(self, error: Error | Callable[[], Error]) -> None:
-        if not util.lenient_isinstance(error, Error) and callable(error):
+        if not lenient_isinstance(error, Error) and callable(error):
             error = error()
 
         self.error = error

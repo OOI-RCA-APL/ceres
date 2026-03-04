@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from fastapi import Body, Request, Response, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
-from ceres._internal import util
 from ceres._internal.app.shared import (
     OPERATOR,
     VIEWER,
@@ -14,6 +13,7 @@ from ceres._internal.app.shared import (
     CurrentSocket,
     Router,
 )
+from ceres._internal.utilities.text import strify
 from ceres.address import Address
 from ceres.component import (
     ActionBinding,
@@ -383,7 +383,7 @@ async def subscribe_procedure(
                 reason = to_json(Fail(exception.error))
             else:
                 code = WS_1011_INTERNAL_ERROR
-                reason = to_json(util.strify(exception)[0:100])
+                reason = to_json(strify(exception)[0:100])
 
             await socket.close(code, reason)
 

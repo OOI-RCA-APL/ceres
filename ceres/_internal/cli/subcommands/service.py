@@ -5,7 +5,7 @@ from pydantic import FilePath, NewPath
 from pydantic_settings import CliPositionalArg, CliSubCommand
 
 from ceres._internal.cli.shared import CLICommand, CLICommandGroup, write_table
-from ceres._internal.util import LINUX, MACOS
+from ceres._internal.utilities.platforms import LINUX, MACOS
 
 if TYPE_CHECKING:
     from ceres._internal.cli.service import Service

@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, cast, override
 from pydantic import SkipValidation
 
 from ceres._internal.manager import BaseComponentTaskManager
-from ceres._internal.util import awaitify, get_traceback, is_assignable
-from ceres.concurrency import sleep
+from ceres._internal.utilities.exceptions import trace
+from ceres._internal.utilities.typing import is_assignable
+from ceres.concurrency import awaitify, sleep
 from ceres.data import DataObject, Name
 from ceres.event import (
     ParticleEvent,
@@ -138,7 +139,7 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
                     self.__system__.events.emit(
                         SieveExceptionEvent,
                         sieve=config.name,
-                        traceback=get_traceback(exception),
+                        traceback=trace(exception),
                     )
                     await sleep(config.retry_delay)
                     self.__system__.events.emit(SieveRetryEvent, sieve=config.name)

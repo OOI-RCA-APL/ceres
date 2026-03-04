@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, Any, Unpack, dataclass_transform, override
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
-from ceres._internal import util
 from ceres._internal.lazy import __lazy_imports__
 from ceres._internal.protocols import NodeSource
+from ceres._internal.utilities.exceptions import trace
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import concurrently, sleep
 from ceres.data import replacing
@@ -203,7 +203,7 @@ class Node(Tasklet, NodeSource):
                 if not self.__writer.flushing and not self.__writer.empty:
                     await self.__writer.flush()
             except Exception as exception:
-                self.events.emit(DatabaseExceptionEvent, traceback=util.get_traceback(exception))
+                self.events.emit(DatabaseExceptionEvent, traceback=trace(exception))
                 await sleep(1)
 
             await sleep(0.1)

@@ -17,18 +17,19 @@ from pydantic_settings import (
     SettingsError,
 )
 
-from ceres._internal import util
 from ceres._internal.cli.shared import (
     CLICommand,
     CLICommandExit,
     CLICommandFailed,
     CLICommandGroup,
     strbool,
+    temporary_signal_handler,
     write,
     write_table,
 )
 from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
 from ceres._internal.lazy import __lazy_imports__, unlazy
+from ceres._internal.utilities.exceptions import trace
 from ceres.address import Address, AddressSelector
 from ceres.concurrency import cancel, el, race, spawn
 from ceres.data import to_json
@@ -508,11 +509,11 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
 
-            with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+            with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
         if not isinstance(exception, CLICommandFailed):
-            raise CLICommandFailed(f"Engine startup failed. {util.get_traceback(exception)}")
+            raise CLICommandFailed(f"Engine startup failed. {trace(exception)}")
         else:
             raise
 
@@ -562,7 +563,7 @@ async def _run_watch(
                 )
 
                 # Indicate a restart and show changed files.
-                write(f"Restarting, watch mode detected: {util.strify(info)}")
+                write(f"Restarting, watch mode detected: {info}")
 
                 # Stop the running process if necessary.
                 if process.is_alive():
@@ -583,7 +584,7 @@ async def _run_watch(
     def handle_exit_signal(*args: object, **kwargs: object) -> None:
         task.cancel()
 
-    with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+    with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
         try:
             await task
         except CancelledError:

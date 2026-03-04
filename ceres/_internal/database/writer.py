@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from ceres._internal import util
+from ceres._internal.utilities.collections import group_by
 from ceres.data import adapt
 
 if TYPE_CHECKING:
@@ -116,7 +116,7 @@ class Writer:
         entities: Iterable[Entity],
     ) -> None:
         by_type: defaultdict[type[Entity], list[Entity]] = defaultdict(list)
-        for cls, group in util.group_by(entities, type):
+        for cls, group in group_by(entities, type):
             by_type[cls] = list(group)
 
         for cls, entities in by_type.items():

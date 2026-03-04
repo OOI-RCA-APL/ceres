@@ -9,8 +9,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
 
-from ceres._internal import util
 from ceres._internal.app.shared import CurrentEngine, Router
+from ceres._internal.utilities.collections import seq
 from ceres.data import simplify
 from ceres.error import (
     Failure,
@@ -111,14 +111,14 @@ class App(FastAPI):
         if cors is not None and cors.enabled:
             self.add_middleware(
                 CORSMiddleware,
-                allow_origins=util.seq(cors.allow_origins),
-                allow_methods=util.seq(cors.allow_methods),
-                allow_headers=util.seq(cors.allow_headers),
+                allow_origins=seq(cors.allow_origins),
+                allow_methods=seq(cors.allow_methods),
+                allow_headers=seq(cors.allow_headers),
                 allow_credentials=cors.allow_credentials,
                 allow_origin_regex=cors.allow_origin_regex.pattern
                 if cors.allow_origin_regex
                 else None,
-                expose_headers=util.seq(cors.expose_headers),
+                expose_headers=seq(cors.expose_headers),
                 max_age=cors.max_age,
             )
 
