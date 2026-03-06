@@ -81,6 +81,7 @@ if TYPE_CHECKING:
 else:
     Sieve = Any
     Component = Any
+    Connection = Any
 
 __all__ = [
     "Config",
@@ -116,15 +117,19 @@ class JobConfig(DataObject):
         return data
 
 
+def _get_connection_class() -> type[Connection]:
+    from ceres.connection import Connection
+
+    return Connection
+
+
 class ConnectionConfig(DataObject):
     name: Name
-    if TYPE_CHECKING:
-        cls: ImportString[type[Connection]]
-    else:
-        cls: ImportString[object] = Field(
-            validation_alias="class",
-            serialization_alias="class",
-        )
+    cls: ImportString[type[Connection]] = Field(
+        default_factory=_get_connection_class,
+        validation_alias="class",
+        serialization_alias="class",
+    )
     arguments: Mapping[str, Any] = Field(default_factory=dict)
 
     @field_validator("cls")
