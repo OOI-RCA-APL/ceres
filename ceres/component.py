@@ -1012,7 +1012,7 @@ def sieve[S, T: Particle](
     if first is None:
         method = None
         connections = None
-    elif inspect.ismethod(first):
+    elif inspect.isfunction(first) or inspect.ismethod(first):
         method = first
         connections = None
     else:
