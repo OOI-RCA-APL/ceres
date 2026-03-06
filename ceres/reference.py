@@ -3,8 +3,8 @@ from typing import TYPE_CHECKING, Any, NoReturn, Self, cast, overload, override
 
 from pydantic_core.core_schema import no_info_after_validator_function
 
-from ceres._internal.utilities.text import strify
-from ceres._internal.utilities.typing import lenient_isinstance, lenient_issubclass
+from ceres.__internal__.utilities.text import strify
+from ceres.__internal__.utilities.typing import lenient_isinstance, lenient_issubclass
 from ceres.address import Address, DynamicAddress
 from ceres.component import Component
 

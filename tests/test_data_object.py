@@ -13,7 +13,7 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal.utilities.classes import (
+from ceres.__internal__.utilities.classes import (
     CachedClassProperty,
     ClassProperty,
     cached_class_property,

@@ -6,9 +6,9 @@ from sqlalchemy import Index, LargeBinary, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
-from ceres._internal.database.bytes import tokenize_bytes
-from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import (
+from ceres.__internal__.database.bytes import tokenize_bytes
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     ConcreteEntity,
@@ -17,8 +17,8 @@ from ceres._internal.entity import (
     EntityQuery,
     Filtering,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.record import (
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -28,7 +28,7 @@ from ceres._internal.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.utilities.collections import seq
+from ceres.__internal__.utilities.collections import seq
 from ceres.data import MaybeSequence, StrEnum
 from ceres.timing import utc
 
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
 __all__ = [

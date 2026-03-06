@@ -17,7 +17,7 @@ from typing import (
 
 from pydantic import ByteSize, Field, TypeAdapter, model_validator
 
-from ceres._internal.manager import BaseComponentTaskManager
+from ceres.__internal__.manager import BaseComponentTaskManager
 from ceres.address import Address
 from ceres.channel import Channel
 from ceres.component import BoundField, BoundFieldArgs

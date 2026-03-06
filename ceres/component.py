@@ -41,25 +41,25 @@ from pydantic import (
 )
 from pydantic.fields import Deprecated, FieldInfo
 
-from ceres._internal.filter import BaseFilter, BaseFilterArgs
-from ceres._internal.lazy import __lazy_imports__
-from ceres._internal.protocols import ComponentSource
-from ceres._internal.utilities.algorithms import traverse
-from ceres._internal.utilities.caching import cached
-from ceres._internal.utilities.collections import OrderedWeakSet, seq
-from ceres._internal.utilities.exceptions import trace
-from ceres._internal.utilities.functions import get_function_name, get_inner_function
-from ceres._internal.utilities.randomize import randstr
-from ceres._internal.utilities.text import reprify
-from ceres._internal.utilities.typing import (
+from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
+from ceres.__internal__.lazy import __lazy_imports__
+from ceres.__internal__.protocols import ComponentSource
+from ceres.__internal__.utilities.algorithms import traverse
+from ceres.__internal__.utilities.caching import cached
+from ceres.__internal__.utilities.collections import OrderedWeakSet, seq
+from ceres.__internal__.utilities.exceptions import trace
+from ceres.__internal__.utilities.functions import get_function_name, get_inner_function
+from ceres.__internal__.utilities.randomize import randstr
+from ceres.__internal__.utilities.text import reprify
+from ceres.__internal__.utilities.typing import (
     as_component_system,
     as_components,
     as_engine,
     get_return_annotation,
     lenient_isinstance,
 )
-from ceres._internal.utilities.undefined import Undefined
-from ceres._internal.utilities.validation import (
+from ceres.__internal__.utilities.undefined import Undefined
+from ceres.__internal__.utilities.validation import (
     create_validated_function,
     get_args_model,
     validated_function,

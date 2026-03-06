@@ -17,9 +17,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from ceres._internal.database.bytes import tokenize_bytes
-from ceres._internal.database.errors import wrap_database_errors
-from ceres._internal.lazy import __lazy_imports__
+from ceres.__internal__.database.bytes import tokenize_bytes
+from ceres.__internal__.database.errors import wrap_database_errors
+from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
     from sqlalchemy.engine.interfaces import DBAPIConnection
 
-    from ceres._internal.entity import BaseEntityManager, BaseEntityRow
+    from ceres.__internal__.entity import BaseEntityManager, BaseEntityRow
     from ceres.database import DatabaseType
     from ceres.entity import Entity
 
@@ -43,7 +43,7 @@ else:
 
 
 with __lazy_imports__(__name__):
-    from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
+    from ceres.__internal__.auth import get_password_hash, verify_password, verify_password_hash
     from ceres.alert import AlertManager
     from ceres.logs import LogManager
     from ceres.message import MessageManager
@@ -158,7 +158,7 @@ class Database:
         return StatisticsManager(self)
 
     def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
-        from ceres._internal.entity import get_entity_manager
+        from ceres.__internal__.entity import get_entity_manager
 
         return get_entity_manager(self, Entity)
 

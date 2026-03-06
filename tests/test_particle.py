@@ -1,4 +1,4 @@
-from ceres._internal.utilities.typing import get_generic_superclass_argument
+from ceres.__internal__.utilities.typing import get_generic_superclass_argument
 
 
 def test_particle_subclassing():

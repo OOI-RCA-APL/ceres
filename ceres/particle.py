@@ -31,7 +31,7 @@ from pydantic import ConfigDict, Field, ImportString, SerializeAsAny, Validation
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal.entity import (
+from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     EntityNaming,
@@ -39,8 +39,8 @@ from ceres._internal.entity import (
     EntityQuery,
     EntityTransform,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.record import (
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -50,8 +50,8 @@ from ceres._internal.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.utilities.classes import cached_class_property
-from ceres._internal.utilities.typing import get_inner_type, lenient_issubclass
+from ceres.__internal__.utilities.classes import cached_class_property
+from ceres.__internal__.utilities.typing import get_inner_type, lenient_issubclass
 from ceres.data import (
     DataObject,
     FromYAML,
@@ -71,7 +71,7 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
     from ceres.message import Message
 

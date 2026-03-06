@@ -5,8 +5,8 @@ from uuid import UUID
 from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal.database.types import UUIDMapper
-from ceres._internal.entity import (
+from ceres.__internal__.database.types import UUIDMapper
+from ceres.__internal__.entity import (
     BaseEntity,
     BaseEntityCreate,
     BaseEntityFilter,
@@ -17,8 +17,8 @@ from ceres._internal.entity import (
     EntityNaming,
     EntityQuery,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.utilities.collections import seq
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.utilities.collections import seq
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, uuid7
 from ceres.user import UserRow
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
 __all__ = [

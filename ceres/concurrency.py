@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Final, cast, overload
 
-from ceres._internal.utilities.collections import MaybeRecursiveIterable, flatten
-from ceres._internal.utilities.undefined import Undefined
+from ceres.__internal__.utilities.collections import MaybeRecursiveIterable, flatten
+from ceres.__internal__.utilities.undefined import Undefined
 
 if TYPE_CHECKING:
     from types import EllipsisType

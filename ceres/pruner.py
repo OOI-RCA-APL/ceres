@@ -3,8 +3,8 @@ from datetime import UTC
 from threading import Lock
 from typing import TYPE_CHECKING, Any, cast
 
-from ceres._internal.manager import BaseComponentManager
-from ceres._internal.utilities.exceptions import trace
+from ceres.__internal__.manager import BaseComponentManager
+from ceres.__internal__.utilities.exceptions import trace
 from ceres.concurrency import sleep
 from ceres.entity import EntityType
 from ceres.event import (
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.base import BaseScheduler
 
-    from ceres._internal.protocols import ComponentSource
+    from ceres.__internal__.protocols import ComponentSource
     from ceres.config import PrunerConfig
 
 

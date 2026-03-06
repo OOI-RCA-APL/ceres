@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Self, override
 from pydantic_core import CoreSchema, SchemaSerializer
 from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
 
-from ceres._internal.utilities.caching import LRUCache
-from ceres._internal.utilities.classes import class_property
-from ceres._internal.utilities.collections import seq
+from ceres.__internal__.utilities.caching import LRUCache
+from ceres.__internal__.utilities.classes import class_property
+from ceres.__internal__.utilities.collections import seq
 from ceres.data import _NAME_PATTERN
 
 if TYPE_CHECKING:

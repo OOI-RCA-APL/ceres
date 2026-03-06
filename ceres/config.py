@@ -30,9 +30,9 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal.utilities.collections import group_by, seq
-from ceres._internal.utilities.exceptions import trace
-from ceres._internal.utilities.typing import as_component_system, as_engine
+from ceres.__internal__.utilities.collections import group_by, seq
+from ceres.__internal__.utilities.exceptions import trace
+from ceres.__internal__.utilities.typing import as_component_system, as_engine
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (

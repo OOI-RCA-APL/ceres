@@ -15,8 +15,8 @@ from starlette.status import (
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
-from ceres._internal.utilities.typing import lenient_isinstance
-from ceres._internal.utilities.undefined import Undefined
+from ceres.__internal__.utilities.typing import lenient_isinstance
+from ceres.__internal__.utilities.undefined import Undefined
 from ceres.address import Address, DynamicAddress
 from ceres.data import DataObject, simplify
 

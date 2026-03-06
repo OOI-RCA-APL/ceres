@@ -10,7 +10,7 @@ from typing import Literal
 
 from packaging.version import Version
 
-from ceres._internal.utilities.collections import uniq
+from ceres.__internal__.utilities.collections import uniq
 from ceres.paths import proj
 
 SUPPORTED_VERSIONS = ["3.14"]

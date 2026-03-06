@@ -5,8 +5,8 @@ from pydantic import Field
 from sqlalchemy import JSON, Index, SQLColumnExpression, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import (
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     ConcreteEntity,
@@ -14,8 +14,8 @@ from ceres._internal.entity import (
     EntityOutputChannel,
     EntityQuery,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.record import (
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
 __all__ = [

@@ -132,10 +132,10 @@ __all__ = [
     "WorkspaceMembership",
 ]
 
-from ceres._internal.lazy import __lazy_imports__
+from ceres.__internal__.lazy import __lazy_imports__
 
 with __lazy_imports__(__name__, export=True):
-    from ceres._internal.cli.main import main
+    from ceres.__internal__.cli.main import main
     from ceres.address import Address, AddressSelector, DynamicAddress
     from ceres.alert import Alert
     from ceres.channel import Channel, ChannelReader, OutputChannel

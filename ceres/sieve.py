@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, cast, override
 
 from pydantic import SkipValidation
 
-from ceres._internal.manager import BaseComponentTaskManager
-from ceres._internal.utilities.exceptions import trace
-from ceres._internal.utilities.typing import is_assignable
+from ceres.__internal__.manager import BaseComponentTaskManager
+from ceres.__internal__.utilities.exceptions import trace
+from ceres.__internal__.utilities.typing import is_assignable
 from ceres.concurrency import awaitify, sleep
 from ceres.data import DataObject, Name
 from ceres.event import (

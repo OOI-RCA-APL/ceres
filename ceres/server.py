@@ -9,8 +9,8 @@ from anyio.abc import ByteStream, Listener, SocketAttribute, SocketStream
 from pydantic import NonNegativeInt, model_validator
 
 from ceres import Component, routine
-from ceres._internal.utilities.exceptions import trace
-from ceres._internal.utilities.platforms import UNIX
+from ceres.__internal__.utilities.exceptions import trace
+from ceres.__internal__.utilities.platforms import UNIX
 from ceres.concurrency import sleep
 from ceres.data import NonEmptyStr
 from ceres.event import (

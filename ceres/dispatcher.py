@@ -5,8 +5,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import field
 from typing import TYPE_CHECKING, Any, final, override
 
-from ceres._internal.templates import templates
-from ceres._internal.utilities.collections import group_by
+from ceres.__internal__.templates import templates
+from ceres.__internal__.utilities.collections import group_by
 from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, Level
 from ceres.component import Component, action, routine

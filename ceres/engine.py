@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Literal, Self, Unpack, final, override
 import anyio
 from pydantic import Field
 
-from ceres._internal.lazy import __lazy_imports__
-from ceres._internal.project import LoadedProject
-from ceres._internal.server import Server
-from ceres._internal.utilities.collections import uniq
-from ceres._internal.utilities.typing import as_component, as_component_system
+from ceres.__internal__.lazy import __lazy_imports__
+from ceres.__internal__.project import LoadedProject
+from ceres.__internal__.server import Server
+from ceres.__internal__.utilities.collections import uniq
+from ceres.__internal__.utilities.typing import as_component, as_component_system
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import sleep
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
@@ -24,7 +24,7 @@ from ceres.node import Node
 from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
-    from ceres._internal.entity import BaseEntityManager
+    from ceres.__internal__.entity import BaseEntityManager
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.entity import Entity
 
@@ -170,7 +170,7 @@ class Engine(Node):
         return WorkspaceEditManager(self)
 
     def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
-        from ceres._internal.entity import get_entity_manager
+        from ceres.__internal__.entity import get_entity_manager
 
         return get_entity_manager(self, Entity)
 

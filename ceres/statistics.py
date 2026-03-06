@@ -3,10 +3,10 @@ from typing import Unpack
 from pydantic import Field
 from sqlalchemy import func, select
 
-from ceres._internal.database.errors import wrap_database_errors
-from ceres._internal.filter import BaseFilter, BaseFilterArgs
-from ceres._internal.manager import BaseDatabaseManager
-from ceres._internal.utilities.functions import call_partial
+from ceres.__internal__.database.errors import wrap_database_errors
+from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
+from ceres.__internal__.manager import BaseDatabaseManager
+from ceres.__internal__.utilities.functions import call_partial
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
 from ceres.data import DataObject, DateTime

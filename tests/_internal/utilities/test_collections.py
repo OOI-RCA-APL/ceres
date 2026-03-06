@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from ceres._internal.utilities.collections import flatten
+from ceres.__internal__.utilities.collections import flatten
 
 
 @pytest.mark.parametrize(

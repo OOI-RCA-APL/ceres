@@ -57,7 +57,7 @@ docs = [
 ]
 
 [project.scripts]
-ceres = "ceres._internal.cli.main:main"
+ceres = "ceres.__internal__.cli.main:main"
 
 [tool.hatch.build]
 packages = ["ceres"]
@@ -84,24 +84,23 @@ runtime-evaluated-base-classes = [
     "ceres.data.DataObject",
     "ceres.data.FrozenDataObject",
     "ceres.server.Server",
-    "ceres._internal.cli.shared.CLICommand",
-    "ceres._internal.cli.shared.CLICommandGroup",
-    "ceres._internal.entity.BaseEntity",
-    "ceres._internal.entity.BaseEntityCreate",
-    "ceres._internal.entity.BaseEntityFilter",
-    "ceres._internal.entity.BaseEntityFilterArgs",
-    "ceres._internal.entity.BaseEntityRow",
-    "ceres._internal.entity.BaseUUIDEntity",
-    "ceres._internal.entity.BaseUUIDEntityCreate",
-    "ceres._internal.entity.BaseUUIDEntityFilter",
-    "ceres._internal.entity.BaseUUIDEntityFilterArgs",
-    "ceres._internal.entity.BaseUUIDEntityRow",
-    "ceres._internal.record.BaseRecord",
-    "ceres._internal.record.BaseRecordCreate",
-    "ceres._internal.record.BaseRecordFilter",
-    "ceres._internal.record.BaseRecordFilterArgs",
-    "ceres._internal.record.BaseRecordRow",
-    "fastapi.HTTPConnection",
+    "ceres.__internal__.cli.shared.CLICommand",
+    "ceres.__internal__.cli.shared.CLICommandGroup",
+    "ceres.__internal__.entity.BaseEntity",
+    "ceres.__internal__.entity.BaseEntityCreate",
+    "ceres.__internal__.entity.BaseEntityFilter",
+    "ceres.__internal__.entity.BaseEntityFilterArgs",
+    "ceres.__internal__.entity.BaseEntityRow",
+    "ceres.__internal__.entity.BaseUUIDEntity",
+    "ceres.__internal__.entity.BaseUUIDEntityCreate",
+    "ceres.__internal__.entity.BaseUUIDEntityFilter",
+    "ceres.__internal__.entity.BaseUUIDEntityFilterArgs",
+    "ceres.__internal__.entity.BaseUUIDEntityRow",
+    "ceres.__internal__.record.BaseRecord",
+    "ceres.__internal__.record.BaseRecordCreate",
+    "ceres.__internal__.record.BaseRecordFilter",
+    "ceres.__internal__.record.BaseRecordFilterArgs",
+    "ceres.__internal__.record.BaseRecordRow",
 ]
 runtime-evaluated-decorators = [
     "fastapi.FastAPI.delete",
@@ -114,11 +113,11 @@ runtime-evaluated-decorators = [
     "fastapi.APIRouter.patch",
     "fastapi.APIRouter.post",
     "fastapi.APIRouter.put",
-    "ceres._internal.app.shared.Router.delete",
-    "ceres._internal.app.shared.Router.get",
-    "ceres._internal.app.shared.Router.patch",
-    "ceres._internal.app.shared.Router.post",
-    "ceres._internal.app.shared.Router.put",
+    "ceres.__internal__.app.shared.Router.delete",
+    "ceres.__internal__.app.shared.Router.get",
+    "ceres.__internal__.app.shared.Router.patch",
+    "ceres.__internal__.app.shared.Router.post",
+    "ceres.__internal__.app.shared.Router.put",
     "pydantic.validate_call",
     "pydantic.model_serializer",
     "pydantic.field_serializer",

@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, Any, Unpack, dataclass_transform, override
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
-from ceres._internal.lazy import __lazy_imports__
-from ceres._internal.protocols import NodeSource
-from ceres._internal.utilities.exceptions import trace
+from ceres.__internal__.lazy import __lazy_imports__
+from ceres.__internal__.protocols import NodeSource
+from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import concurrently, sleep
 from ceres.data import replacing
@@ -148,7 +148,7 @@ class Node(Tasklet, NodeSource):
 
     @cached_property
     def __writer(self):
-        from ceres._internal.database.writer import Writer
+        from ceres.__internal__.database.writer import Writer
 
         return Writer(lambda: self.database)
 

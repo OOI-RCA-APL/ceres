@@ -77,16 +77,16 @@ from pydantic_extra_types.color import Color as Color
 from pydantic_settings import NoDecode
 from typing_extensions import TypeForm
 
-from ceres._internal.utilities.caching import cached
-from ceres._internal.utilities.classes import (
+from ceres.__internal__.utilities.caching import cached
+from ceres.__internal__.utilities.classes import (
     ClassProperty,
     cached_class_property,
     class_property,
     get_declared_slots,
 )
-from ceres._internal.utilities.collections import uniq
-from ceres._internal.utilities.typing import is_mapping
-from ceres._internal.utilities.undefined import Undefined
+from ceres.__internal__.utilities.collections import uniq
+from ceres.__internal__.utilities.typing import is_mapping
+from ceres.__internal__.utilities.undefined import Undefined
 
 if TYPE_CHECKING:
     from inspect import Signature

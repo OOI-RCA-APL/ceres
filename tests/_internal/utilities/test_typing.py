@@ -2,7 +2,7 @@ from typing import Any, Generic, TypeVar
 
 import pytest
 
-from ceres._internal.utilities.typing import (
+from ceres.__internal__.utilities.typing import (
     get_generic_parameter_chain,
     get_generic_superclass_argument,
     get_generic_superclass_arguments,

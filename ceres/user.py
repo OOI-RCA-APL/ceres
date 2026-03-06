@@ -6,8 +6,8 @@ from sqlalchemy import Boolean, Text, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
-from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import (
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     BaseUUIDEntity,
@@ -20,7 +20,7 @@ from ceres._internal.entity import (
     EntityNaming,
     EntityQuery,
 )
-from ceres._internal.manager import BaseNodeManager
+from ceres.__internal__.manager import BaseNodeManager
 from ceres.data import (
     EmailAddress,
     MaybeSequence,
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
 __all__ = [
@@ -275,7 +275,7 @@ class _BaseUserQuery(
         return super().where(filter, **kwargs)
 
     async def _maybe_hash_password(self, password: str) -> PasswordHash:
-        from ceres._internal.auth import verify_password_hash
+        from ceres.__internal__.auth import verify_password_hash
 
         if verify_password_hash(password):
             return password

@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from sqlalchemy import JSON, Index, PrimaryKeyConstraint, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal.entity import (
+from ceres.__internal__.entity import (
     BaseAddressEntity,
     BaseAddressEntityCreate,
     BaseAddressEntityField,
@@ -19,14 +19,14 @@ from ceres._internal.entity import (
     EntityOutputChannel,
     EntityQuery,
 )
-from ceres._internal.manager import BaseNodeManager
+from ceres.__internal__.manager import BaseNodeManager
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, to_json, validate
 
 if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
     from ceres.database import DatabaseType
 

@@ -13,7 +13,7 @@ from pydantic import (
 )
 from pydantic_core.core_schema import no_info_after_validator_function
 
-from ceres._internal.utilities.typing import is_mapping, lenient_isinstance, lenient_issubclass
+from ceres.__internal__.utilities.typing import is_mapping, lenient_isinstance, lenient_issubclass
 from ceres.data import DataObject, validate
 
 if TYPE_CHECKING:

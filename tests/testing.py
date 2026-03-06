@@ -23,14 +23,14 @@ from ceres import (
     Variable,
     utc,
 )
-from ceres._internal.auth import get_password_hash
-from ceres._internal.entity import (
+from ceres.__internal__.auth import get_password_hash
+from ceres.__internal__.entity import (
     BaseAddressEntityFilterArgs,
     BaseEntityFilterArgs,
     BaseUUIDEntityFilterArgs,
 )
-from ceres._internal.utilities.collections import group_by
-from ceres._internal.utilities.randomize import randstr
+from ceres.__internal__.utilities.collections import group_by
+from ceres.__internal__.utilities.randomize import randstr
 from ceres.concurrency import awaitify
 from ceres.config import BCryptHashingConfig
 from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
@@ -39,7 +39,7 @@ from ceres.timing import set_fake_now
 from ceres.user import UserRole
 
 if TYPE_CHECKING:
-    from ceres._internal.record import BaseRecordFilterArgs
+    from ceres.__internal__.record import BaseRecordFilterArgs
     from ceres.alert import AlertFilterArgs
     from ceres.item import Item
     from ceres.particle import ParticleFilterArgs
