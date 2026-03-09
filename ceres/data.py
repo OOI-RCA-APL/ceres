@@ -1,6 +1,7 @@
 import dataclasses
 from abc import ABCMeta
 from collections.abc import (
+    Buffer,
     Callable,
     Iterable,
     Iterator,
@@ -24,6 +25,7 @@ from typing import (
     ClassVar,
     Final,
     Literal,
+    NamedTuple,
     NewType,
     Protocol,
     Self,
@@ -45,6 +47,7 @@ from warnings import warn
 from weakref import WeakKeyDictionary
 
 import pydantic
+from annotated_types import Ge, Le
 from pydantic import (
     AfterValidator,
     AliasGenerator,
@@ -59,6 +62,8 @@ from pydantic import (
     SerializationInfo,
     StringConstraints,
     TypeAdapter,
+    WrapSerializer,
+    WrapValidator,
     model_serializer,
     model_validator,
 )
@@ -85,16 +90,26 @@ from ceres.__internal__.utilities.classes import (
     get_declared_slots,
 )
 from ceres.__internal__.utilities.collections import uniq
-from ceres.__internal__.utilities.typing import is_mapping
+from ceres.__internal__.utilities.typing import (
+    extract_annotation,
+    is_mapping,
+)
 from ceres.__internal__.utilities.undefined import Undefined
 
 if TYPE_CHECKING:
     from inspect import Signature
+    from struct import Struct as StructDefinition
     from types import CellType
 
     from pydantic._internal._decorators import Decorator, DecoratorInfos
     from pydantic.config import ExtraValues
     from pydantic.main import IncEx
+    from pydantic_core.core_schema import (
+        NoInfoValidatorFunction,
+        NoInfoWrapValidatorFunction,
+        WithInfoValidatorFunction,
+        WithInfoWrapValidatorFunction,
+    )
 
 if TYPE_CHECKING:
     from typing import _SpecialForm
@@ -137,6 +152,23 @@ __all__ = (
     "JSONDict",
     "JSONList",
     "JSONSerializable",
+    "validated_type",
+    "serialized_type",
+    "ByteRepr",
+    "ByteLength",
+    "DataStruct",
+    "to_bytes",
+    "validate_bytes",
+    "Int8",
+    "Int16",
+    "Int32",
+    "Int64",
+    "UInt8",
+    "UInt16",
+    "UInt32",
+    "UInt64",
+    "Float32",
+    "Float64",
     # Re-exports
     "Color",
     "TypeAdapter",
@@ -146,7 +178,14 @@ __all__ = (
 
 
 type TypeInput[T = Any] = (
-    type[T] | TypeForm[T] | UnionType | GenericAlias | FunctionType | TypeAliasType | _SpecialForm
+    type[T]
+    | TypeForm[T]
+    | Annotated[T, ...]
+    | UnionType
+    | GenericAlias
+    | FunctionType
+    | TypeAliasType
+    | _SpecialForm
 )
 type MaybeClass[T] = T | type[T]
 
@@ -966,11 +1005,6 @@ class DataObjectMetaclass(
         if __replace__ is None:
             __replace__ = getattr(inner_class, "__replace__", None)
 
-        # __init_subclass__ = getattr(inner_class, "__init_subclass__", None)
-        # if _is_data_object_class_defined:
-        #     if __init_subclass__ is not None:
-        #         setattr(inner_class, "__init_subclass__", DataObject.__init_subclass__)  # type: ignore
-
         # TODO: Use a more robust way to detect this.
         _data_object_classes_being_built.add(key)
         try:
@@ -1399,6 +1433,10 @@ _data_object_generic_alias_class_cache: dict[
 ] = {}
 
 
+def _fields_key(cls: type[DataObject]) -> int:
+    return id(cls.__pydantic_fields__)
+
+
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=_FIELD_SPECIFIERS,
@@ -1536,17 +1574,17 @@ class DataObject(
 
         return _data_object_generic_alias_class_cache.setdefault(key, Alias)
 
-    @cached_class_property
+    @class_property
     @classmethod
     def __data_object_fields__(cls) -> Mapping[str, FieldInfo]:
-        return fields_of(cls, cache=False)
+        return cls.__pydantic_fields__
 
-    @cached_class_property
+    @cached_class_property(key=_fields_key)
     @classmethod
     def __data_object_init_fields__(cls) -> Mapping[str, FieldInfo]:
         return fields_of(cls, cache=False)
 
-    @cached_class_property
+    @cached_class_property(key=_fields_key)
     @classmethod
     def __data_object_computed_fields__(cls) -> Mapping[str, ComputedFieldInfo]:
         return computed_fields_of(cls, cache=False)
@@ -1563,7 +1601,7 @@ class DataObject(
     def __data_object_field_names__(cls) -> tuple[str, ...]:
         return tuple(cls.__data_object_fields__)
 
-    @cached_class_property
+    @cached_class_property(key=_fields_key)
     @classmethod
     def __data_object_type_adapter__(cls) -> TypeAdapter[Self]:
         return TypeAdapter(cls)
@@ -1580,6 +1618,15 @@ class DataObject(
                 if parameter.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
                 and parameter.name in cls.__pydantic_fields__
             ]
+        )
+
+    @cached_class_property
+    @classmethod
+    def __data_object_defined_slots__(cls) -> tuple[str, ...]:
+        return tuple(
+            slot
+            for slot in get_declared_slots(cls)
+            if slot not in ("__weakref__", "__dict__", "__data_object_fields_set__")
         )
 
     @classmethod
@@ -1657,15 +1704,6 @@ class DataObject(
             kwargs[name] = value
 
         return kwargs
-
-    @cached_class_property
-    @classmethod
-    def __data_object_defined_slots__(cls) -> tuple[str, ...]:
-        return tuple(
-            slot
-            for slot in get_declared_slots(cls)
-            if slot not in ("__weakref__", "__dict__", "__data_object_fields_set__")
-        )
 
     @class_property
     @classmethod
@@ -2432,3 +2470,268 @@ if TYPE_CHECKING:
     type MaybeSequence[T] = T | Sequence[T]
 else:
     type MaybeSequence[T] = T | list[T]
+
+
+@overload
+def validated_type[T: TypeInput[Any]](
+    ty: T, mode: Literal["before"] = "before"
+) -> Callable[[NoInfoValidatorFunction | WithInfoValidatorFunction], T]: ...
+
+
+@overload
+def validated_type[T: TypeInput[Any]](
+    ty: T, mode: Literal["after"]
+) -> Callable[[NoInfoValidatorFunction | WithInfoValidatorFunction], T]: ...
+
+
+@overload
+def validated_type[T: TypeInput[Any]](
+    ty: T, mode: Literal["wrap"]
+) -> Callable[[NoInfoWrapValidatorFunction | WithInfoWrapValidatorFunction], T]: ...
+
+
+def validated_type[T: TypeInput[Any]](
+    ty: T, mode: Literal["before", "after", "wrap"] = "before"
+) -> Callable[[Callable[..., Any]], T]:
+    def validated_type(function: Callable[..., Any]) -> T:
+        match mode:
+            case "before":
+                return cast("T", Annotated[ty, BeforeValidator(function)])
+            case "after":
+                return cast("T", Annotated[ty, AfterValidator(function)])
+            case "wrap":
+                return cast("T", Annotated[ty, WrapValidator(function)])
+            case _:
+                raise ValueError(f"Invalid mode: {mode}. Must be 'before', 'after', or 'wrap'")
+
+    return validated_type
+
+
+@overload
+def serialized_type[T: TypeInput[Any]](
+    ty: T, mode: Literal["plain"] = "plain"
+) -> Callable[[Callable[..., Any]], T]: ...
+
+
+@overload
+def serialized_type[T: TypeInput[Any]](
+    ty: T, mode: Literal["wrap"]
+) -> Callable[[Callable[..., Any]], T]: ...
+
+
+def serialized_type[T: TypeInput[Any]](
+    ty: T, mode: Literal["plain", "wrap"] = "plain"
+) -> Callable[[Callable[..., Any]], T]:
+    def serialized_type(function: Callable[..., Any]) -> T:
+        match mode:
+            case "plain":
+                return cast("T", Annotated[ty, PlainSerializer(function)])
+            case "wrap":
+                return cast("T", Annotated[ty, WrapSerializer(function)])
+            case _:
+                raise ValueError(f"Invalid mode: {mode}. Must be 'plain' or 'wrap'")
+
+    return serialized_type
+
+
+ByteReprName = Literal[
+    "bytes",
+    "boolean",
+    "u8",
+    "i8",
+    "u16",
+    "i16",
+    "u32",
+    "i32",
+    "u64",
+    "i64",
+    "f32",
+    "f64",
+]
+
+
+class ByteLength(DataObject, slots=True, kw_only=False):
+    length: int
+
+
+class ByteRepr(DataObject, slots=True, kw_only=False):
+    name: ByteReprName
+
+
+class _BR(NamedTuple):
+    name: ByteReprName
+    symbol: str
+    type: type | tuple[type, ...]
+
+
+_BYTE_REPR_DEFINITIONS = (
+    _BR("bytes", "s", (bytes, bytearray)),
+    _BR("boolean", "?", bool),
+    _BR("u8", "B", int),
+    _BR("i8", "b", int),
+    _BR("u16", "H", int),
+    _BR("i16", "h", int),
+    _BR("u32", "I", int),
+    _BR("i32", "i", int),
+    _BR("u64", "Q", int),
+    _BR("i64", "q", int),
+    _BR("f32", "f", float),
+    _BR("f64", "d", float),
+)
+
+ByteOrder = Literal["big-endian", "little-endian", "native"]
+
+
+class _BO(NamedTuple):
+    name: ByteOrder
+    symbol: str
+
+
+_BYTE_REPR_SUPPORTED_TYPES = (bool, int, float, bytes, bytearray)
+_BYTE_REPR_DEFINITION_LOOKUP = {current.name: current for current in _BYTE_REPR_DEFINITIONS}
+
+_BYTE_ORDER_DEFINITIONS = (
+    _BO("big-endian", ">"),
+    _BO("little-endian", "<"),
+    _BO("native", "="),
+)
+
+_BYTE_ORDER_SYMBOL_LOOKUP = {current.name: current.symbol for current in _BYTE_ORDER_DEFINITIONS}
+
+
+class DataStructConfig(DataObject, slots=True, kw_only=False):
+    order: ByteOrder = "big-endian"
+
+
+class DataStruct(DataObject):
+    __slots__ = ()
+
+    __data_struct_config__: ClassVar[DataStructConfig] = DataStructConfig()
+
+    @override
+    @classmethod
+    def __data_object_init_subclass__(
+        cls,
+        data_struct_config: DataStructConfig | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__data_object_init_subclass__(**kwargs)
+        cls.__data_struct_config__ = data_struct_config or DataStructConfig()
+        cls.__data_struct__
+
+    @cached_class_property
+    @classmethod
+    def __data_struct__(cls) -> StructDefinition:
+        format: list[str] = []
+        try:
+            format.append(_BYTE_ORDER_SYMBOL_LOOKUP[cls.__data_struct_config__.order])
+        except KeyError:
+            raise ValueError(
+                f"Invalid byte order {cls.__data_struct_config__.order!r}. Must be one of: "
+                f"{list(_BYTE_ORDER_SYMBOL_LOOKUP)}"
+            )
+
+        for field, info in cls.__data_object_fields__.items():
+            format.append(cls.__data_struct_compute_field_format__(field, info))
+
+        from struct import Struct
+
+        return Struct("".join(format))
+
+    @classmethod
+    def __data_struct_compute_field_format__(cls, field: str, info: FieldInfo) -> str:
+        if info.annotation is None:
+            raise TypeError(f"Field `{cls}.{field}` is missing a type annotation.")
+
+        cls, metadata = extract_annotation(info.annotation)
+        if not isinstance(cls, type) or not issubclass(cls, _BYTE_REPR_SUPPORTED_TYPES):
+            raise TypeError(
+                f"Field `{cls}.{field}` has unsupported type `{info.annotation!r}` for byte "
+                f"serialization. Must be one of {_BYTE_REPR_SUPPORTED_TYPES}."
+            )
+
+        representations = [current for current in metadata if isinstance(current, ByteRepr)]
+        if len(representations) > 1:
+            raise ValueError(f"Field `{cls}.{field}` has multiple declared `{ByteRepr.__name__}`s.")
+
+        lengths = [current for current in metadata if isinstance(current, ByteLength)]
+        if len(lengths) > 1:
+            raise ValueError(
+                f"Field `{cls}.{field}` has multiple declared `{ByteLength.__name__}`s."
+            )
+
+        representation = representations[0].name if representations else None
+        length = lengths[0].length if lengths else None
+
+        if representation is None:
+            if issubclass(cls, (bytes, bytearray)):
+                representation = "bytes"
+            elif issubclass(cls, bool):
+                representation = "boolean"
+
+        if representation == "bytes":
+            if length is None:
+                raise ValueError(
+                    f"Field `{cls}.{field}` has byte representation 'bytes' but no declared "
+                    f"`{ByteLength.__name__}`. Add "
+                    f"`Annotated[..., {ByteLength.__name__}(<length>)]` to the field's type "
+                    "annotation."
+                )
+
+        if representation is None:
+            raise ValueError(
+                f"Failed to infer byte representation for field `{cls}.{field}`. Either use a "
+                f"numeric alias such as `ceres.data.UInt8` or `ceres.data.Float32`, add an "
+                "explicit `Annotated[..., `{ByteRepr.__name__}(<name>)` to the field's type "
+                "annotation, and/or ensure the field's type is one of {_BYTE_REPR_SUPPORTED_TYPES}."
+            )
+
+        definition = _BYTE_REPR_DEFINITION_LOOKUP[representation]
+        if not issubclass(cls, definition.type):
+            raise TypeError(
+                f"Field `{cls}.{field}` has byte representation {representation!r} but is not "
+                f"annotated as `{definition.type}`."
+            )
+
+        repeat = 1 if length is None else length
+        if repeat < 1:
+            return ""
+        if repeat == 1:
+            return definition.symbol
+
+        return f"{repeat}{definition.symbol}"
+
+    def __data_struct_serialize__(self) -> bytes:
+        values = (getattr(self, field) for field in self.__data_object_fields__)
+        return self.__data_struct__.pack(*values)
+
+    @classmethod
+    def __data_struct_deserialize__(cls, data: Buffer, offset: int = 0, /) -> Self:
+        values = cls.__data_struct__.unpack_from(data, offset)
+        values = dict(zip(cls.__data_object_fields__, values))
+        return validate(cls, values)
+
+    def __bytes__(self) -> bytes:
+        return self.__data_struct_serialize__()
+
+
+def to_bytes(struct: DataStruct) -> bytes:
+    return struct.__data_struct_serialize__()
+
+
+def validate_bytes[T: DataStruct](cls: type[T], data: Buffer, offset: int = 0, /) -> T:
+    return cls.__data_struct_deserialize__(data, offset)
+
+
+type Int8 = Annotated[int, ByteRepr("i8"), Ge(-128), Le(127)]
+type Int16 = Annotated[int, ByteRepr("i16"), Ge(-32768), Le(32767)]
+type Int32 = Annotated[int, ByteRepr("i32"), Ge(-2147483648), Le(2147483647)]
+type Int64 = Annotated[int, ByteRepr("i64"), Ge(-9223372036854775808), Le(9223372036854775807)]
+
+type UInt8 = Annotated[int, ByteRepr("u8"), Ge(0), Le(255)]
+type UInt16 = Annotated[int, ByteRepr("u16"), Ge(0), Le(65535)]
+type UInt32 = Annotated[int, ByteRepr("u32"), Ge(0), Le(4294967295)]
+type UInt64 = Annotated[int, ByteRepr("u64"), Ge(0), Le(18446744073709551615)]
+
+type Float32 = Annotated[float, ByteRepr("f32")]
+type Float64 = Annotated[float, ByteRepr("f64")]

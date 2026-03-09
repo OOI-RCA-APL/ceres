@@ -55,6 +55,7 @@ from ceres.__internal__.utilities.typing import (
     as_component_system,
     as_components,
     as_engine,
+    get_field_metadata,
     get_return_annotation,
     lenient_isinstance,
 )
@@ -363,11 +364,12 @@ def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
         if info.init_var:
             continue
 
-        if get_marker(info.metadata, BoundField.Marker) is None:
+        metadata = get_field_metadata(info)
+        if get_marker(metadata, BoundField.Marker) is None:
             continue
 
         exact = []
-        connection = get_marker(info.metadata, ConnectionField.Marker)
+        connection = get_marker(metadata, ConnectionField.Marker)
         if connection is not None:
             exact.append(connection)
 

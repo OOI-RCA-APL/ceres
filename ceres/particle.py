@@ -1,5 +1,4 @@
 import builtins
-import re
 from abc import abstractmethod
 from collections.abc import (
     Callable,
@@ -51,7 +50,7 @@ from ceres.__internal__.record import (
     BaseRecordUpdate,
 )
 from ceres.__internal__.utilities.classes import cached_class_property
-from ceres.__internal__.utilities.typing import get_inner_type, lenient_issubclass
+from ceres.__internal__.utilities.typing import get_field_type, lenient_issubclass
 from ceres.data import (
     DataObject,
     FromYAML,
@@ -521,7 +520,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
     @cached_class_property
     @classmethod
     def Data(cls) -> type[DataT]:
-        return get_inner_type(cls.__data_object_fields__["data"].annotation)  # type: ignore
+        return get_field_type(cls.__data_object_fields__["data"])
 
     @classmethod
     @override
@@ -612,9 +611,8 @@ class ParseableParticle[DataT: ParticleData = ParticleData](Particle[DataT]):
 
 class RegexParticle[DataT: ParticleData](ParseableParticle[DataT]):
     __abstract__: ClassVar[bool] = True
-    __regex__: ClassVar[bytes | Pattern[bytes]]
-    __regex_flags__: ClassVar[int] = re.DOTALL
-    __regex_compiled__: ClassVar[Pattern[bytes]]
+    regex_check_groups: ClassVar[bool] = True
+    regex: ClassVar[Pattern[bytes]]
 
     @classmethod
     @override
@@ -627,39 +625,29 @@ class RegexParticle[DataT: ParticleData](ParseableParticle[DataT]):
         if cls.__abstract__ or cls.__data_object_is_generic_alias__:
             return
 
-        regex = getattr(cls, "__regex__", None)
-        if not isinstance(regex, bytes):
-            raise ValueError(
-                f"`{cls}.__regex__` must be defined as `bytes` or `re.Pattern[bytes]`."
-            )
+        regex = getattr(cls, "regex", None)
+        if not isinstance(regex, Pattern) or not isinstance(regex.pattern, bytes):
+            raise ValueError(f"`{cls}.regex` must be defined as `re.Pattern[bytes]` instance.")
 
-        Data = cls.Data
-        if not isinstance(Data, type) or not issubclass(Data, ParticleData):
-            raise TypeError(f"`{cls}.Data` is unresolved, cannot verify regex groups.")
+        if cls.regex_check_groups:
+            Data = cls.Data
+            if not isinstance(Data, type) or not issubclass(Data, ParticleData):
+                raise TypeError(f"`{cls}.Data` is unresolved, cannot verify regex groups.")
 
-        try:
-            if regex is not None:
-                if isinstance(regex, Pattern):
-                    cls.__regex_compiled__ = regex
-                else:
-                    cls.__regex_compiled__ = re.compile(cls.__regex__, cls.__regex_flags__)
-        except re.error as error:
-            raise ValueError(f"Failed to compile `{cls}.__regex__`. {error}")
+            missing = sorted(set(Data.__data_object_fields__) - set(cls.regex.groupindex))
+            if missing:
+                raise ValueError(f"`{cls}.regex` is missing named capture groups: {missing}")
 
-        missing = sorted(set(Data.__data_object_fields__) - set(cls.__regex_compiled__.groupindex))
-        if missing:
-            raise ValueError(f"`{cls}.__regex__` is missing named capture groups: {missing}")
-
-        for field in Data.__data_object_fields__:
-            if field not in cls.__regex_compiled__.groupindex:
-                raise ValueError(
-                    f"Field {field!r} is not a named capturing group in `{cls}.__regex__`."
-                )
+            for field in Data.__data_object_fields__:
+                if field not in cls.regex.groupindex:
+                    raise ValueError(
+                        f"Field {field!r} is not a named capturing group in `{cls}.regex`."
+                    )
 
     @classmethod
     @override
     def parse(cls, message: Message, /) -> Self:
-        match = cls.__regex_compiled__.match(message.data)
+        match = cls.regex.match(message.data)
         if match is None:
             raise ParseFailed("Message data did not match regex pattern.")
 

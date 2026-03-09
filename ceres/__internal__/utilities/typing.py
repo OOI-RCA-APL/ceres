@@ -4,6 +4,7 @@ from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     Generic,
     NoDefault,
@@ -18,6 +19,9 @@ from typing import (
 from typing_inspection import typing_objects
 
 from ceres.__internal__.utilities.caching import cached
+
+if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
 
 Stringy: TypeAlias = str | bytes | bytearray | memoryview
 
@@ -173,21 +177,52 @@ _TRANSPARENT_ARGS_TYPES = {
 }
 
 
-def get_inner_type(ty: Any, /) -> Any:
-    current = ty
+def extract_annotation(annotation: Any, /) -> tuple[Any, list[Any]]:
+    current = annotation
+    metadata: list[Any] = []
+
     while True:
+        origin = get_origin(current)
         if is_type_alias(current):
             current = current.__value__
             continue
-        origin = get_origin(current)
 
         if origin in _TRANSPARENT_ARGS_TYPES:
-            args = get_args(ty)
-            if not args:
-                current = args[0]
+            args = get_args(current)
+            if args:
+                current, *current_metadata = args
+                if origin is Annotated:
+                    metadata.extend(current_metadata)
+
                 continue
 
-        return current
+        return current, metadata
+
+
+def get_annotated_metadata(annotation: Any, /) -> list[Any]:
+    _, metadata = extract_annotation(annotation)
+    return metadata
+
+
+def get_annotated_type(annotation: Any, /) -> Any:
+    inner, _ = extract_annotation(annotation)
+    return inner
+
+
+def get_field_metadata(field: FieldInfo, /) -> list[Any]:
+    metadata = list(field.metadata)
+    metadata_ids: set[int] = set()
+    for current in get_annotated_metadata(field.annotation):
+        current_id = id(current)
+        if current_id not in metadata_ids:
+            metadata.append(current)
+            metadata_ids.add(current_id)
+
+    return metadata
+
+
+def get_field_type(field: FieldInfo, /) -> Any:
+    return get_annotated_type(field.annotation)
 
 
 def get_return_annotation(
@@ -233,8 +268,8 @@ def is_assignable(
     assigned_type: Any,
     /,
 ) -> bool:
-    assigned_type = get_inner_type(assigned_type)
-    variable_type = get_inner_type(variable_type)
+    assigned_type = get_annotated_type(assigned_type)
+    variable_type = get_annotated_type(variable_type)
 
     if assigned_type is Any or variable_type is Any:
         return True
