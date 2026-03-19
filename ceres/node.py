@@ -23,8 +23,11 @@ from ceres.event import (
     StoppedEvent,
 )
 from ceres.tasklet import Tasklet
+from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
@@ -79,6 +82,10 @@ class Node(Tasklet, NodeSource):
     @override
     def __node__(self) -> Node:
         return self
+
+    @property
+    def time(self) -> datetime:
+        return utc()
 
     async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
         pass

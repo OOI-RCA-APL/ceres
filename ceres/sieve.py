@@ -1,15 +1,24 @@
 import traceback
 from abc import abstractmethod
-from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+)
 from dataclasses import field
 from typing import TYPE_CHECKING, cast, override
 
-from pydantic import SkipValidation
+from pydantic import ByteSize, Field, SkipValidation
 
 from ceres.__internal__.manager import BaseComponentTaskManager
 from ceres.__internal__.utilities.exceptions import trace
 from ceres.__internal__.utilities.typing import is_assignable
 from ceres.concurrency import awaitify, sleep
+from ceres.connection.buffer import Buffer
+from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_SIZE
 from ceres.data import DataObject, Name
 from ceres.event import (
     ParticleEvent,
@@ -21,12 +30,8 @@ from ceres.event import (
     SieveStartedEvent,
     SieveStoppedEvent,
 )
+from ceres.message import Message
 from ceres.particle import Particle
-
-if TYPE_CHECKING:
-    from ceres.message import Message
-else:
-    Message = object
 
 __all__ = [
     "Sieve",
@@ -47,19 +52,22 @@ type MonoSieveFunction[T: Particle = Particle] = Callable[[Message], T | None | 
 type PolySieveFunction[T: Particle = Particle] = Callable[
     [AsyncIterable[Message]], AsyncIterable[T]
 ]
+type BufferSieveFunction[T: Particle = Particle] = Callable[[Buffer], Iterable[T]]
 type SieveFunction[T: Particle = Particle] = MonoSieveFunction[T] | PolySieveFunction[T]
 
 
 class FunctionSieve[T: Particle = Particle](Sieve[T]):
     function: SkipValidation[SieveFunction[T]] = field(kw_only=False)
+    buffer_size: ByteSize = Field(default=DEFAULT_BUFFER_SIZE, gt=0)
+    buffer_drop: ByteSize = Field(default=DEFAULT_BUFFER_DROP, gt=0)
 
     @override
     async def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[T]:
-        poly = self._get_poly()
+        poly = self._get_poly_sieve_function()
         async for message in poly(messages):
             yield cast("T", message)
 
-    def _get_poly(self) -> PolySieveFunction:
+    def _get_poly_sieve_function(self) -> PolySieveFunction:
         import inspect
 
         signature = inspect.signature(self.function)
@@ -69,21 +77,53 @@ class FunctionSieve[T: Particle = Particle](Sieve[T]):
             raise ValueError("Sieve method must take exactly one parameter.")
 
         annotation = annotations.get(parameters[0].name)
-        mono = is_assignable(annotation, Message)
 
-        if mono:
+        poly: PolySieveFunction
+
+        if is_assignable(annotation, AsyncIterable):
+            poly = self.function  # type: ignore
+        elif is_assignable(annotation, Message):
             inner = cast("MonoSieveFunction", self.function)
 
-            async def poly(messages: AsyncIterable[Message]) -> AsyncIterator[T]:
+            async def poly(messages: AsyncIterable[Message]) -> AsyncGenerator[T]:
                 async for message in messages:
                     result = await awaitify(inner(message))
                     if result is not None:
                         yield cast("T", result)
+        elif is_assignable(annotation, Buffer):
+            inner = cast("BufferSieveFunction", self.function)
 
+            async def poly(messages: AsyncIterable[Message]) -> AsyncGenerator[T]:
+                buffer = Buffer()
+
+                async for message in messages:
+                    buffer.push(message.data, message.timestamp)
+                    if buffer.size > self.buffer_size:
+                        buffer.pop_to(self.buffer_size, self.buffer_drop)
+
+                    span: tuple[int, int] | None = None
+                    for particle in inner(buffer):
+                        span = particle.span
+                        if span is None:
+                            raise ValueError(
+                                "Buffer sieves must assign `span` of yielded particles."
+                            )
+
+                        yield cast("T", particle)
+
+                    # Remove data up to the end of the last particle span.
+                    if span is not None:
+                        _, end = span
+                        buffer.pop(end)
+        else:
+            raise TypeError(
+                f"Unrecognized sieve function signature `{inspect.signature(self.function)}`."
+            )
+
+        if poly is not self.function:
             poly.__name__ = self.function.__name__
-            return poly
 
-        return cast("PolySieveFunction", self.function)
+        return poly
 
 
 if TYPE_CHECKING:
@@ -115,9 +155,9 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
         retry = 0
 
         try:
-            sieve = config.create(self.__system__.component)
             while True:
                 try:
+                    sieve = config.create(self.__system__.component)
                     async for current in sieve.process(
                         self.__system__.messages.stream.where(config.filter)
                     ):

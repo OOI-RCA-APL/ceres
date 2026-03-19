@@ -3,19 +3,9 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Self,
-    TypedDict,
-    Unpack,
-    cast,
-    overload,
-    override,
-)
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast, overload, override
 
-from pydantic import ByteSize, Field, TypeAdapter, model_validator
+from pydantic import ByteSize, Field
 
 from ceres.__internal__.manager import BaseComponentTaskManager
 from ceres.address import Address
@@ -36,7 +26,8 @@ from ceres.connection.splitter import SplitByRegex as SplitByRegex
 from ceres.connection.splitter import Splitter as Splitter
 from ceres.connection.splitter import Unsplit as Unsplit
 from ceres.connectivity import Connectivity
-from ceres.data import DataObject, Name, PositiveTimeDelta, ToBytes, WithDefaults
+from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_READ_SIZE, DEFAULT_BUFFER_SIZE
+from ceres.data import DataObject, Name, PositiveTimeDelta, ToBytes, WithDefaults, validate
 from ceres.event import (
     BufferOverflowEvent,
     ConnectedEvent,
@@ -66,7 +57,7 @@ from ceres.message import (
 )
 from ceres.schedule import IntervalSchedule, Schedule
 from ceres.tasklet import Tasklet
-from ceres.timing import utc
+from ceres.timing import delta, utc
 
 if TYPE_CHECKING:
     from ceres.component import ComponentSystem
@@ -107,27 +98,15 @@ class ConnectionLost(ConnectionException):
     pass
 
 
-class Buffering(DataObject, slots=True):
-    read: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("1 KB"), gt=0)
-    limit: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("100 KB"), gt=0)
-    drop: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("10 KB"), gt=0)
-
-    @model_validator(mode="after")
-    def _validate(self) -> Self:
-        if self.read > self.limit:
-            raise ValueError(f"`read` ({self.read}) cannot be greater than `limit` ({self.limit})")
-        if self.drop > self.limit:
-            raise ValueError(f"`drop` ({self.drop}) cannot be greater than `limit` ({self.limit})")
-
-        return self
-
-
 class ConnectionDefaults(TypedDict, total=False):
     name: Name
     source: Loaded[Source]
     splitter: Loaded[Splitter] | None
     suffix: bytes | None
-    buffering: Buffering
+
+    buffer_read_size: int | str
+    buffer_size: int | str
+    buffer_drop: int | str
 
     connect_timeout: PositiveTimeDelta | float | str | None
     receive_timeout: PositiveTimeDelta | float | str | None
@@ -174,7 +153,10 @@ class Connection(DataObject, Tasklet, slots=True):
     splitter: Loaded[Splitter] | None = None
     suffix: MessageData | None = None
 
-    buffering: Annotated[Buffering, WithDefaults(Buffering())] = field(default_factory=Buffering)
+    buffer_read_size: ByteSize = Field(default=DEFAULT_BUFFER_READ_SIZE, gt=0)
+    buffer_size: ByteSize = Field(default=DEFAULT_BUFFER_SIZE, gt=0)
+    buffer_drop: ByteSize = Field(default=DEFAULT_BUFFER_DROP, gt=0)
+
     connect_timeout: PositiveTimeDelta | None = None
     receive_timeout: PositiveTimeDelta | None = None
     reconnect_schedule: Schedule | None = field(
@@ -277,7 +259,7 @@ class Connection(DataObject, Tasklet, slots=True):
 
         return self.connected
 
-    async def send(self, data: ToBytes) -> Message:
+    async def send(self, data: ToBytes, suffixed: bool = True) -> Message:
         """
         Send raw bytes through the connection, returning the sent message if successful.
 
@@ -288,8 +270,9 @@ class Connection(DataObject, Tasklet, slots=True):
             raise ConnectionInactive()
 
         data = bytes(data)
-        if self.suffix and not data.endswith(self.suffix):
-            data += self.suffix
+        if suffixed:
+            if self.suffix and not data.endswith(self.suffix):
+                data += self.suffix
 
         try:
             sent = await self.source.send(data)
@@ -344,38 +327,32 @@ class Connection(DataObject, Tasklet, slots=True):
     ) -> Message | T:
         received = self._channel.read()
 
-        if isinstance(timeout, timedelta):
-            timeout = timeout.total_seconds()
-
+        timeout = delta(timeout).total_seconds() if timeout is not None else None
         if kwargs:
-            from ceres.message import MessageFilter
-
-            query = MessageFilter.model_validate(kwargs)
+            query = validate(Message.Filter, kwargs)
         else:
             query = None
-
-        def fail() -> T:
-            if default is ...:
-                raise TimeoutError()
-            if callable(default):
-                return cast("Callable[[], T]", default)()
-            return default
 
         try:
             async with asyncio.timeout(timeout):
                 async for message in received:
                     if where is not None:
                         if not where(message):
-                            return fail()
+                            continue
                     if query is not None:
                         if not query.matches(message):
-                            return fail()
+                            continue
 
                     return message
         except TimeoutError:
             pass
 
-        return fail()
+        if default is ...:
+            raise TimeoutError()
+        if callable(default):
+            return cast("Callable[[], T]", default)()
+
+        return default
 
     async def disconnect(self) -> None:
         if self._connectivity == Connectivity.DISCONNECTED:
@@ -440,7 +417,7 @@ class Connection(DataObject, Tasklet, slots=True):
                             async with asyncio.timeout(
                                 timeout.total_seconds() if timeout is not None else None
                             ):
-                                received = await self.source.receive(self.buffering.read)
+                                received = await self.source.receive(self.buffer_read_size)
                         except TimeoutError:
                             if timeout is not None:
                                 self.__system__.events.emit(
@@ -473,12 +450,12 @@ class Connection(DataObject, Tasklet, slots=True):
                     buffer.push(received, utc())
 
                     # Drop data from the buffer if it exceeds the buffer size limit.
-                    dropped = buffer.pop_to_size(self.buffering.limit, self.buffering.drop)
+                    dropped = buffer.pop_to(self.buffer_size, self.buffer_drop)
                     if dropped is not None:
                         self.__system__.events.emit(
                             BufferOverflowEvent,
                             size=ByteSize(buffer.size),
-                            limit=self.buffering.limit,
+                            limit=ByteSize(self.buffer_size),
                             dropped=ByteSize(len(dropped.data)),
                         )
 

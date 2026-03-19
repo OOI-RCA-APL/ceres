@@ -1,4 +1,5 @@
 from collections.abc import Callable, Hashable
+from functools import partial
 from typing import TYPE_CHECKING, Any, Final, overload, override
 
 from ceres.__internal__.utilities.undefined import Undefined
@@ -8,41 +9,6 @@ def class_property[C, V](
     fget: Callable[[type[C]], V] | classmethod[C, Any, V],
 ) -> ClassProperty[C, V]:
     return ClassProperty(fget)
-
-
-@overload
-def cached_class_property[C, V](
-    fget: Callable[[type[C]], V] | classmethod[C, Any, V],
-    *,
-    key: Callable[[type[C]], Any] | str | None = None,
-) -> ClassProperty[C, V]: ...
-
-
-@overload
-def cached_class_property[C, V](
-    fget: None = None,
-    *,
-    key: Callable[[type[C]], Any] | str | None = None,
-) -> Callable[[Callable[[type[C]], V] | classmethod[C, Any, V]], ClassProperty[C, V]]: ...
-
-
-def cached_class_property[C, V](
-    fget: Callable[[type[C]], V] | classmethod[C, Any, V] | None = None,
-    *,
-    key: Callable[[type[C]], Any] | str | None = None,
-) -> (
-    ClassProperty[C, V]
-    | Callable[[Callable[[type[C]], V] | classmethod[C, Any, V]], ClassProperty[C, V]]
-):
-    def cached_class_property(
-        fget: Callable[[type[C]], V] | classmethod[C, Any, V],
-    ) -> ClassProperty[C, V]:
-        return CachedClassProperty(fget, key=key)
-
-    if fget is None:
-        return cached_class_property
-
-    return cached_class_property(fget)
 
 
 class ClassProperty[C, V]:
@@ -72,6 +38,50 @@ class ClassProperty[C, V]:
         return self.fget(owner)
 
 
+@overload
+def cached_class_property[C, V](
+    fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+    *,
+    key: Callable[[type[C]], Any] | str | CachedClassProperty[Any, Any] | None = None,
+    by: Callable[[Any], Any] | None = None,
+) -> CachedClassProperty[C, V]: ...
+
+
+@overload
+def cached_class_property[C, V](
+    fget: None = None,
+    *,
+    key: Callable[[type[C]], Any] | str | CachedClassProperty[Any, Any] | None = None,
+    by: Callable[[Any], Any] | None = None,
+) -> Callable[[Callable[[type[C]], V] | classmethod[C, Any, V]], CachedClassProperty[C, V]]: ...
+
+
+def cached_class_property[C, V](
+    fget: Callable[[type[C]], V] | classmethod[C, Any, V] | None = None,
+    *,
+    key: Callable[[type[C]], Any] | str | CachedClassProperty | None = None,
+    by: Callable[[Any], Any] | None = None,
+) -> (
+    CachedClassProperty[C, V]
+    | Callable[[Callable[[type[C]], V] | classmethod[C, Any, V]], CachedClassProperty[C, V]]
+):
+    if isinstance(key, CachedClassProperty):
+        if by is None:
+            by = key.by
+
+        key = key.key
+
+    def cached_class_property(
+        fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+    ) -> CachedClassProperty[C, V]:
+        return CachedClassProperty(fget, key=key, by=by)
+
+    if fget is None:
+        return cached_class_property
+
+    return cached_class_property(fget)
+
+
 class CachedClassProperty[C, V](ClassProperty[C, V]):
     @override
     def __init__(
@@ -79,6 +89,7 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
         fget: Callable[[type[C]], V] | classmethod[C, Any, V],
         *,
         key: Callable[[type[C]], Any] | str | None = None,
+        by: Callable[[Any], Any] | None = None,
     ) -> None:
         if isinstance(fget, classmethod):
             fget = fget.__func__
@@ -102,9 +113,14 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
                 if TYPE_CHECKING:
                     assert key_factory is not None
 
-                key = key_factory(owner)
-                previous = cache_keys.get(owner, Undefined)
-                if key == previous:
+                incoming_key = key_factory(owner)
+                previous_key = cache_keys.get(owner, Undefined)
+                if by is None:
+                    matched = incoming_key == previous_key
+                else:
+                    matched = by(incoming_key) == by(previous_key)
+
+                if matched:
                     try:
                         return cache[owner]
                     except KeyError:
@@ -112,7 +128,7 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
 
                 with lock:
                     value = fget(owner)  # type: ignore
-                    cache_keys[owner] = key
+                    cache_keys[owner] = incoming_key
                     cache[owner] = value
 
                 return value
@@ -136,6 +152,14 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
         self.cache_keys: Final = cache_keys
         self.lock: Final = lock
         self.key: Final = key
+        self.by: Final = by
+
+
+fields_cached_class_property = partial(
+    cached_class_property,
+    key="__pydantic_fields__",
+    by=id,
+)
 
 
 def get_declared_slots(cls: type) -> list[str]:

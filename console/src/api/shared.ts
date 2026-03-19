@@ -32,6 +32,10 @@ export function isOk(obj: any): boolean {
 }
 
 export function isError(obj: any): obj is ErrorObject {
+  if (obj == null || typeof obj !== 'object') {
+    return false
+  }
+
   return '__error__' in obj && Boolean(obj.__error__)
 }
 

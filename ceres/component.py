@@ -34,7 +34,9 @@ from typing import (
 from pydantic import (
     AliasChoices,
     AliasPath,
+    ByteSize,
     ConfigDict,
+    Field,
     NonNegativeInt,
     PositiveFloat,
     ValidationError,
@@ -127,13 +129,14 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
     from starlette.responses import FileResponse, Response, StreamingResponse
 
-    from ceres.connection import Connection, ConnectionField
+    from ceres.connection import Buffer, Connection, ConnectionField
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
     from ceres.particle import Particle
     from ceres.status import Status
 else:
-    Connection = object
+    Connection = Any
+    ConnectionField = Any
 
 with __lazy_imports__(__name__):
     from ceres.connection import ComponentConnectionManager
@@ -971,12 +974,15 @@ class SieveBinding(DataObject.Frozen):
     retries: NonNegativeInt | None
     retry_delay: PositiveTimeDelta
     filter: MessageFilter | None
-    connections: tuple[Name, ...] | None = None
+    connections: tuple[ConnectionField, ...] | None = None
+    buffer_size: ByteSize | None = Field(default=None, gt=0)
+    buffer_drop: ByteSize | None = Field(default=None, gt=0)
 
 
 type SieveMethod[S, T: Particle] = (
     Callable[[S, Message], T | None | Awaitable[T | None]]
     | Callable[[S, AsyncIterable[Message]], AsyncIterable[T]]
+    | Callable[[S, Buffer], Iterable[T]]
 )
 
 
@@ -996,6 +1002,8 @@ def sieve[S, T: Particle](
     contains: MaybeSequence[MessageData] | None = None,
     prefix: MaybeSequence[MessageData] | None = None,
     suffix: MaybeSequence[MessageData] | None = None,
+    buffer_size: int | str | None = None,
+    buffer_drop: int | str | None = None,
 ) -> Callable[[SieveMethod[S, T]], SieveMethod[S, T]]: ...
 
 
@@ -1010,6 +1018,8 @@ def sieve[S, T: Particle](
     contains: MaybeSequence[MessageData] | None = None,
     prefix: MaybeSequence[MessageData] | None = None,
     suffix: MaybeSequence[MessageData] | None = None,
+    buffer_size: int | str | None = None,
+    buffer_drop: int | str | None = None,
 ) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
     if first is None:
         method = None
@@ -1019,13 +1029,7 @@ def sieve[S, T: Particle](
         connections = None
     else:
         method = None
-        connections = tuple(
-            [
-                current.name
-                for current in cast("Sequence[ConnectionField]", seq(first))
-                if current.name is not None
-            ]
-        )
+        connections = tuple(cast("Sequence[ConnectionField]", seq(first)))
 
     from ceres.message import Message
 
@@ -1054,6 +1058,8 @@ def sieve[S, T: Particle](
                 retry_delay=retry_delay,
                 filter=filter,
                 connections=connections,
+                buffer_size=cast("ByteSize | None", buffer_size),
+                buffer_drop=cast("ByteSize | None", buffer_drop),
             ),
         )
         return method
@@ -1178,6 +1184,13 @@ class ComponentSystem(Node, ComponentSource):
                     retries=binding.retries,
                     retry_delay=binding.retry_delay,
                     filter=binding.filter,
+                    connections=[
+                        field.name
+                        for field in seq(binding.connections or ())
+                        if field.name is not None
+                    ],
+                    buffer_size=binding.buffer_size,
+                    buffer_drop=binding.buffer_drop,
                 )
                 for binding in self.get_sieve_bindings().values()
             }
@@ -2082,7 +2095,7 @@ class _Empty:
 
 
 class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
-    __slots__ = ("name", "marker")
+    __slots__ = "marker"
 
     @dataclass(slots=True)
     class Marker:
@@ -2101,7 +2114,6 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
 
         super().__init__(default=default, **kwargs)
 
-        self.name = name
         self.marker = self.Marker(name=name)
         self.metadata.append(self.marker)
 
@@ -2111,3 +2123,7 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
     def __set_name__(self, owner: type[Any], name: str) -> None:
         if self.marker.name is None:
             self.marker.name = name
+
+    @property
+    def name(self) -> str | None:
+        return self.marker.name

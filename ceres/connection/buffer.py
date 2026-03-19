@@ -269,8 +269,8 @@ class Buffer:
                     last_entry.timestamp,
                 )
                 return
-        else:
-            self._entries.append(_BufferEntry(end, timestamp))
+
+        self._entries.append(_BufferEntry(end, timestamp))
 
         self._latest_timestamp = timestamp
 
@@ -306,8 +306,8 @@ class Buffer:
 
         return Chunk(data, entry.timestamp)
 
-    def pop_to_size(self, limit: int, by: int = 1) -> Chunk | None:
-        excess = self.size - limit
+    def pop_to(self, size: int, by: int = 1) -> Chunk | None:
+        excess = self.size - size
         if excess <= 0:
             return None
 

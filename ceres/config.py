@@ -4,15 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from re import Pattern
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Literal,
-    Self,
-    TypeAlias,
-    override,
-)
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
 from pydantic import (
     ByteSize,
@@ -30,11 +22,12 @@ from pydantic import (
     model_validator,
 )
 
-from ceres.__internal__.utilities.collections import group_by, seq
+from ceres.__internal__.utilities.collections import group_by, seq, uniq
 from ceres.__internal__.utilities.exceptions import trace
 from ceres.__internal__.utilities.typing import as_component_system, as_engine
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
+from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_SIZE
 from ceres.data import (
     DataObject,
     MaybeSequence,
@@ -75,13 +68,14 @@ from ceres.schedule import ScheduleExpr
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
-    from ceres.connection import Connection
+    from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
     from ceres.sieve import FunctionSieve, Sieve
 else:
     Sieve = Any
     Component = Any
     Connection = Any
+    ConnectionField = Any
 
 __all__ = [
     "Config",
@@ -184,6 +178,8 @@ class _SieveConfig(DataObject):
     retries: NonNegativeInt | None = None
     retry_delay: PositiveTimeDelta = timedelta(seconds=5)
     filter: MessageFilter | None = None
+    buffer_size: ByteSize | None = Field(default=None, gt=0)
+    buffer_drop: ByteSize | None = Field(default=None, gt=0)
 
     @abstractmethod
     def create(self, component: Component) -> Sieve: ...
@@ -225,6 +221,7 @@ class ClassSieveConfig(_SieveConfig):
 
 class MethodSieveConfig(_SieveConfig):
     type: Literal["method"] = "method"
+    connections: Sequence[Name] | None = None
     method: Name
 
     @override
@@ -232,7 +229,35 @@ class MethodSieveConfig(_SieveConfig):
         from ceres.sieve import FunctionSieve
 
         method = getattr(component, self.method)
-        return FunctionSieve(function=method)
+        applied_buffer_size = self.buffer_size
+        applied_buffer_drop = self.buffer_drop
+
+        connection_names: list[str] = list(self.connections or ())
+        if self.filter and self.filter.connection:
+            connection_names.extend(seq(self.filter.connection))
+
+        for connection_name in uniq(connection_names):
+            connection = component.system.connections.get(connection_name)
+            if connection is None:
+                continue
+
+            if self.buffer_size is None:
+                if applied_buffer_size is None or connection.buffer_size > applied_buffer_size:
+                    applied_buffer_size = connection.buffer_size
+            if self.buffer_drop is None:
+                if applied_buffer_drop is None or connection.buffer_drop > applied_buffer_drop:
+                    applied_buffer_drop = connection.buffer_drop
+
+        if applied_buffer_size is None:
+            applied_buffer_size = DEFAULT_BUFFER_SIZE
+        if applied_buffer_drop is None:
+            applied_buffer_drop = DEFAULT_BUFFER_DROP
+
+        return FunctionSieve(
+            function=method,
+            buffer_size=applied_buffer_size,
+            buffer_drop=applied_buffer_drop,
+        )
 
 
 SieveConfig: TypeAlias = ClassSieveConfig | MethodSieveConfig
@@ -459,7 +484,7 @@ class ServerAuthenticationConfig(DataObject):
     duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
-class ServerCorsConfig(DataObject):
+class ServerCORSConfig(DataObject):
     enabled: bool = True
     allow_origins: MaybeSequence[str] = Field(default_factory=list)
     allow_origin_regex: Pattern[str] | None = None
@@ -486,7 +511,7 @@ class ServerConfig(DataObject):
     port: int | None = None
     ssl: ServerSSLConfig | None = None
     authentication: ServerAuthenticationConfig | None = None
-    cors: ServerCorsConfig | None = None
+    cors: ServerCORSConfig | None = None
     compression: ServerCompressionConfig | None = None
 
     @field_validator("host")

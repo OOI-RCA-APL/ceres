@@ -87,13 +87,11 @@ from ceres.__internal__.utilities.classes import (
     ClassProperty,
     cached_class_property,
     class_property,
+    fields_cached_class_property,
     get_declared_slots,
 )
-from ceres.__internal__.utilities.collections import uniq
-from ceres.__internal__.utilities.typing import (
-    extract_annotation,
-    is_mapping,
-)
+from ceres.__internal__.utilities.collections import flatten, uniq
+from ceres.__internal__.utilities.typing import extract_field_annotation
 from ceres.__internal__.utilities.undefined import Undefined
 
 if TYPE_CHECKING:
@@ -107,6 +105,7 @@ if TYPE_CHECKING:
     from pydantic_core.core_schema import (
         NoInfoValidatorFunction,
         NoInfoWrapValidatorFunction,
+        WhenUsed,
         WithInfoValidatorFunction,
         WithInfoWrapValidatorFunction,
     )
@@ -160,6 +159,7 @@ __all__ = (
     "to_bytes",
     "validate_bytes",
     "Int8",
+    "Byte",
     "Int16",
     "Int32",
     "Int64",
@@ -169,6 +169,12 @@ __all__ = (
     "UInt64",
     "Float32",
     "Float64",
+    "BytesEncoding",
+    "BytesErrorHandling",
+    "BytesEncodingErrorHandling",
+    "BytesDecodingErrorHandling",
+    "BytesFromString",
+    "BytesToString",
     # Re-exports
     "Color",
     "TypeAdapter",
@@ -189,12 +195,15 @@ type TypeInput[T = Any] = (
 )
 type MaybeClass[T] = T | type[T]
 
-_cached_class_type_adapters = WeakKeyDictionary[type, TypeAdapter[type]]()
-_cached_type_form_type_adapters = dict[Any, TypeAdapter[Any]]()
-_cached_dataclasses = WeakKeyDictionary[type, type["PydanticDataclass"]]()
-_cached_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
-_cached_init_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
-_cached_computed_fields = WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]]()
+
+_cached_class_type_adapters: WeakKeyDictionary[type, TypeAdapter[type]] = WeakKeyDictionary()
+_cached_type_form_type_adapters: dict[Any, TypeAdapter[Any]] = {}
+_cached_dataclasses: WeakKeyDictionary[type, type[PydanticDataclass]] = WeakKeyDictionary()
+_cached_fields: WeakKeyDictionary[type, Mapping[str, FieldInfo]] = WeakKeyDictionary()
+_cached_init_fields: WeakKeyDictionary[type, Mapping[str, FieldInfo]] = WeakKeyDictionary()
+_cached_computed_fields: WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]] = (
+    WeakKeyDictionary()
+)
 
 
 def adapt[T](ty: TypeInput[T], /, *, _namespace: int = 3) -> TypeAdapter[T]:
@@ -258,7 +267,7 @@ def dump(
 
 
 def to_dict(
-    obj: Dataclass | BaseModel,
+    obj: _SupportsPydanticFields | Dataclass,
     *,
     include: set[str] | None = None,
     exclude: set[str] | None = None,
@@ -614,13 +623,16 @@ if TYPE_CHECKING:
     class PydanticDataclass(__PydanticDataclass, Protocol):
         __slots__ = ()
 
-    class SupportsPydanticFields(Protocol):
+    class _SupportsPydanticFields(Protocol):
         if TYPE_CHECKING:
             __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
 
-    class SupportsPydanticFieldsSet(SupportsPydanticFields, Protocol):
+    class _SupportsPydanticFieldsSet(_SupportsPydanticFields, Protocol):
         @property
         def __pydantic_fields_set__(self) -> Set[str]: ...
+
+    class _SupportsReplace(Protocol):
+        def __replace__(self, *args: Any, **changes: Any) -> Any: ...
 else:
 
     class Dataclass:
@@ -631,7 +643,7 @@ else:
 
 
 def fields_of(
-    obj: MaybeClass[Dataclass | BaseModel],
+    obj: MaybeClass[_SupportsPydanticFields | Dataclass],
     /,
     init: bool = False,
     cache: bool = True,
@@ -664,7 +676,7 @@ def fields_of(
 
 
 def computed_fields_of(
-    obj: MaybeClass[Dataclass | BaseModel],
+    obj: MaybeClass[_SupportsPydanticFields | Dataclass],
     /,
     *,
     cache: bool = True,
@@ -695,7 +707,7 @@ def computed_fields_of(
 
 
 def items_of(
-    obj: Dataclass | BaseModel,
+    obj: _SupportsPydanticFields | Dataclass,
     *,
     include: set[str] | None = None,
     exclude: set[str] | None = None,
@@ -734,81 +746,80 @@ def items_of(
             yield field, value
 
 
-def fields_set_on(obj: SupportsPydanticFieldsSet, /) -> Set[str]:
+def fields_set_on(obj: _SupportsPydanticFieldsSet, /) -> Set[str]:
     try:
         return obj.__pydantic_fields_set__
     except AttributeError:
         raise TypeError(f"Unsupported type for `{fields_set_on.__name__}`: {type(obj)}")
 
 
-def defaulting[T: SupportsPydanticFieldsSet](
+if TYPE_CHECKING:
+
+    class _SupportsDefaulting(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
+        pass
+
+
+def _get_items(
+    obj: Mapping[str, Any] | _SupportsPydanticFieldsSet | None,
+) -> Iterable[tuple[str, Any]]:
+    if obj is None:
+        return ()
+    if isinstance(obj, Mapping):
+        return obj.items()
+
+    return items_of(obj, exclude_unset=True)
+
+
+def defaulting[T: _SupportsDefaulting](
     original: T,
-    defaults: T | dict[str, Any] | None = None,
+    defaults_object: T | dict[str, Any] | None = None,
     /,
-    **kwargs: Any,
+    **defaults: Any,
 ) -> T:
-    if defaults is None:
-        return original
+    for field, value in _get_items(defaults_object):
+        defaults.setdefault(field, value)
 
-    provided_mapping = is_mapping(defaults)
+    existing = original.__pydantic_fields_set__
+    updates = {field: value for field, value in defaults.items() if field not in existing}
 
-    update: dict[str, Any] = {}
-    original_fields = original.__pydantic_fields_set__
-    defaults_fields = defaults.__pydantic_fields_set__ if not provided_mapping else defaults.keys()
-
-    for field in defaults_fields:
-        if field not in original_fields:
-            try:
-                update[field] = (
-                    getattr(defaults, field) if not provided_mapping else defaults[field]
-                )
-            except AttributeError:
-                pass
-
-    for key, value in kwargs.items():
-        if key not in original_fields and key not in update:
-            update[key] = value
-
-    return replace(
-        original,  # type: ignore
-        **update,
-    )
+    return replace(original, **updates)
 
 
-def replacing[T: DataObject | BaseModel](
+if TYPE_CHECKING:
+
+    class _SupportsReplacing(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
+        pass
+
+
+def replacing[T: _SupportsReplacing](
     original: T,
-    overrides: T | dict[str, Any] | None = None,
+    updates_object: T | dict[str, Any] | None = None,
     /,
-    **kwargs: Any,
+    **updates: Any,
 ) -> T:
-    if overrides is None:
-        return original
+    for field, value in _get_items(updates_object):
+        updates.setdefault(field, value)
 
-    update = overrides if is_mapping(overrides) else to_dict(overrides, exclude_unset=True)
-    update.update(kwargs)
-
-    return replace(
-        original,  # type: ignore
-        **update,
-    )
+    return replace(original, **updates)
 
 
 def WithDefaults(
-    defaults: SupportsPydanticFieldsSet | Callable[[], SupportsPydanticFieldsSet] | None = None,
+    defaults_object: _SupportsDefaulting | Callable[[], _SupportsDefaulting] | None = None,
     /,
-    **kwargs: Any,
+    **defaults: Any,
 ) -> AfterValidator:
-    if callable(defaults):
-        defaults = defaults()
-
     def WithDefaults(obj: object, /) -> Any:
-        if not _supports_fields_set(obj):
+        if not _supports_fields_set(obj) or not _supports_replace(obj):
             raise TypeError(
-                "`WithDefaults` can only be applied to types with set fields tracking, such as "
-                "`BaseModel` or `DataObject` instances."
+                "`WithDefaults` can only be applied to types with set fields tracking and a "
+                "`__replace__` method, such as `BaseModel` or `DataObject` instances."
             )
 
-        return defaulting(obj, defaults, **kwargs)
+        nonlocal defaults_object
+        if callable(defaults_object):
+            defaults_object = defaults_object()
+
+        return defaulting(obj, defaults_object, **defaults)
 
     return AfterValidator(WithDefaults)
 
@@ -821,12 +832,16 @@ def _is_dataclass(obj: object) -> TypeIs[MaybeClass[Dataclass]]:
     return dataclasses.is_dataclass(obj)
 
 
-def _supports_pydantic_fields(obj: object) -> TypeIs[MaybeClass[SupportsPydanticFields]]:
+def _supports_pydantic_fields(obj: object) -> TypeIs[MaybeClass[_SupportsPydanticFields]]:
     return hasattr(obj, "__pydantic_fields__")
 
 
-def _supports_fields_set(obj: object) -> TypeIs[SupportsPydanticFieldsSet]:
+def _supports_fields_set(obj: object) -> TypeIs[_SupportsPydanticFieldsSet]:
     return hasattr(obj, "__pydantic_fields_set__")
+
+
+def _supports_replace(obj: object) -> TypeIs[_SupportsReplace]:
+    return hasattr(obj, "__replace__") and not isinstance(obj, type)
 
 
 @cached(storage=_cached_dataclasses)
@@ -856,8 +871,13 @@ def _generate_validation_aliases(field: str) -> str | AliasChoices:
 
 _object_setattr: Final = object.__setattr__
 
+
+class DataObjectConfigDict(ConfigDict):
+    pass
+
+
 _DATA_OBJECT_ALIAS_GENERATOR = AliasGenerator(validation_alias=_generate_validation_aliases)
-_DATA_OBJECT_DEFAULT_CONFIG = ConfigDict(
+_DATA_OBJECT_DEFAULT_CONFIG = DataObjectConfigDict(
     extra="forbid",
     from_attributes=True,
     use_attribute_docstrings=True,
@@ -1433,10 +1453,6 @@ _data_object_generic_alias_class_cache: dict[
 ] = {}
 
 
-def _fields_key(cls: type[DataObject]) -> int:
-    return id(cls.__pydantic_fields__)
-
-
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=_FIELD_SPECIFIERS,
@@ -1576,32 +1592,44 @@ class DataObject(
 
     @class_property
     @classmethod
-    def __data_object_fields__(cls) -> Mapping[str, FieldInfo]:
+    def __data_object_config__(cls) -> DataObjectConfigDict:
+        return cast("DataObjectConfigDict", cls.__pydantic_config__)
+
+    @class_property
+    @classmethod
+    def __data_object_parameter_fields__(cls) -> Mapping[str, FieldInfo]:
         return cls.__pydantic_fields__
 
-    @cached_class_property(key=_fields_key)
+    @fields_cached_class_property
     @classmethod
-    def __data_object_init_fields__(cls) -> Mapping[str, FieldInfo]:
-        return fields_of(cls, cache=False)
+    def __data_object_fields__(cls) -> Mapping[str, FieldInfo]:
+        return MappingProxyType(
+            {field: info for field, info in cls.__pydantic_fields__.items() if not info.init_var}
+        )
 
-    @cached_class_property(key=_fields_key)
+    @fields_cached_class_property
+    @classmethod
+    def __data_object_init_var_fields__(cls) -> Mapping[str, FieldInfo]:
+        return MappingProxyType(
+            {field: info for field, info in cls.__pydantic_fields__.items() if info.init_var}
+        )
+
+    @fields_cached_class_property
     @classmethod
     def __data_object_computed_fields__(cls) -> Mapping[str, ComputedFieldInfo]:
         return computed_fields_of(cls, cache=False)
 
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
     def __data_object_field_indexes__(cls) -> Mapping[str, int]:
-        return MappingProxyType(
-            {field: index for index, field in enumerate(cls.__data_object_fields__)}
-        )
+        return {field: index for index, field in enumerate(cls.__data_object_fields__)}
 
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
     def __data_object_field_names__(cls) -> tuple[str, ...]:
         return tuple(cls.__data_object_fields__)
 
-    @cached_class_property(key=_fields_key)
+    @fields_cached_class_property
     @classmethod
     def __data_object_type_adapter__(cls) -> TypeAdapter[Self]:
         return TypeAdapter(cls)
@@ -1638,25 +1666,34 @@ class DataObject(
     ) -> Self:
         instance = object.__new__(cls)
 
+        __post_init__args: list[Any] = []
+
+        for field, info in cls.__data_object_parameter_fields__.items():
+            value = field_values.get(field, Undefined)
+            if value is Undefined:
+                if info.is_required():
+                    raise AttributeError(f"Missing value for required field '{field}'.")
+
+                value = info.get_default(
+                    call_default_factory=True,
+                    validated_data=field_values,  # type: ignore
+                )
+
+            if info.init_var:
+                __post_init__args.append(value)
+            else:
+                _object_setattr(instance, field, value)
+
         if fields_set is None:
             fields_set = FieldsSet(cls, field_values)
         else:
             fields_set = FieldsSet(cls, fields_set)
 
-        for field_name, field in cls.__data_object_fields__.items():
-            value = field_values.get(field_name, Undefined)
-            if value is Undefined:
-                if field.is_required():
-                    raise AttributeError(f"Missing value for required field '{field_name}'.")
-
-                value = field.get_default(
-                    call_default_factory=True,
-                    validated_data=field_values,  # type: ignore
-                )
-
-            _object_setattr(instance, field_name, value)
-
         _object_setattr(instance, "__data_object_fields_set__", fields_set)
+
+        if hasattr(cls, "__post_init__"):
+            cls.__post_init__(*__post_init__args)  # type: ignore
+
         return instance
 
     @classmethod
@@ -1790,6 +1827,9 @@ class DataObject(
         tokens = [self.__class__.__name__, "("]
 
         for field, info in fields.items():
+            if not info.repr:
+                continue
+
             value = getattr(self, field, Undefined)
             # Omit fields which inexplicably unset in attributes.
             if value is Undefined:
@@ -1870,7 +1910,10 @@ class DataObject(
         return model
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
+        try:
+            super().__init_subclass__(**kwargs)
+        except TypeError:
+            super().__init_subclass__()
 
     @classmethod
     def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
@@ -2278,8 +2321,10 @@ if TYPE_CHECKING:
     from _typeshed import ReadableBuffer
 
     ToBytes: TypeAlias = bytes | bytearray | memoryview | SupportsBytes | ReadableBuffer
+    AsBytes: TypeAlias = bytes | bytearray | memoryview | ReadableBuffer
 else:
     ToBytes: TypeAlias = bytes | bytearray
+    AsBytes: TypeAlias = bytes | bytearray
 
 
 _NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
@@ -2534,6 +2579,21 @@ def serialized_type[T: TypeInput[Any]](
     return serialized_type
 
 
+class BytePadding(DataObject, slots=True):
+    before: int = Field(default=0, ge=0)
+    after: int = Field(default=0, ge=0)
+
+
+class ByteLength(DataObject, slots=True, kw_only=False):
+    length: int
+
+
+class __BR(NamedTuple):
+    name: ByteReprName
+    symbol: str
+    type: type | tuple[type, ...]
+
+
 ByteReprName = Literal[
     "bytes",
     "boolean",
@@ -2545,94 +2605,96 @@ ByteReprName = Literal[
     "i32",
     "u64",
     "i64",
+    "f16",
+    # `float`
     "f32",
     "f64",
+    # Complex
+    "c64",
+    "c128",
 ]
 
-
-class ByteLength(DataObject, slots=True, kw_only=False):
-    length: int
+_BYTE_REPR_DEFINITIONS = (
+    __BR("bytes", "s", (bytes, bytearray)),
+    __BR("boolean", "?", bool),
+    __BR("u8", "B", int),
+    __BR("i8", "b", int),
+    __BR("u16", "H", int),
+    __BR("i16", "h", int),
+    __BR("u32", "I", int),
+    __BR("i32", "i", int),
+    __BR("u64", "Q", int),
+    __BR("i64", "q", int),
+    __BR("f16", "e", float),
+    __BR("f32", "f", float),
+    __BR("f64", "d", float),
+    __BR("c64", "F", complex),
+    __BR("c128", "D", complex),
+)
 
 
 class ByteRepr(DataObject, slots=True, kw_only=False):
     name: ByteReprName
 
 
-class _BR(NamedTuple):
-    name: ByteReprName
-    symbol: str
-    type: type | tuple[type, ...]
-
-
-_BYTE_REPR_DEFINITIONS = (
-    _BR("bytes", "s", (bytes, bytearray)),
-    _BR("boolean", "?", bool),
-    _BR("u8", "B", int),
-    _BR("i8", "b", int),
-    _BR("u16", "H", int),
-    _BR("i16", "h", int),
-    _BR("u32", "I", int),
-    _BR("i32", "i", int),
-    _BR("u64", "Q", int),
-    _BR("i64", "q", int),
-    _BR("f32", "f", float),
-    _BR("f64", "d", float),
-)
-
 ByteOrder = Literal["big-endian", "little-endian", "native"]
 
+_BYTE_REPR_SUPPORTED_TYPES = tuple(
+    uniq(flatten(current.type for current in _BYTE_REPR_DEFINITIONS))
+)
+_BYTE_REPR_DEFINITION_LOOKUP = {current.name: current for current in _BYTE_REPR_DEFINITIONS}
 
-class _BO(NamedTuple):
+
+class __BO(NamedTuple):
     name: ByteOrder
     symbol: str
 
 
-_BYTE_REPR_SUPPORTED_TYPES = (bool, int, float, bytes, bytearray)
-_BYTE_REPR_DEFINITION_LOOKUP = {current.name: current for current in _BYTE_REPR_DEFINITIONS}
-
 _BYTE_ORDER_DEFINITIONS = (
-    _BO("big-endian", ">"),
-    _BO("little-endian", "<"),
-    _BO("native", "="),
+    __BO("big-endian", ">"),
+    __BO("little-endian", "<"),
+    __BO("native", "="),
 )
 
 _BYTE_ORDER_SYMBOL_LOOKUP = {current.name: current.symbol for current in _BYTE_ORDER_DEFINITIONS}
 
 
-class DataStructConfig(DataObject, slots=True, kw_only=False):
-    order: ByteOrder = "big-endian"
-
-
 class DataStruct(DataObject):
     __slots__ = ()
 
-    __data_struct_config__: ClassVar[DataStructConfig] = DataStructConfig()
+    __data_struct_byte_order__: ClassVar[ByteOrder] = "big-endian"
 
-    @override
-    @classmethod
-    def __data_object_init_subclass__(
-        cls,
-        data_struct_config: DataStructConfig | None = None,
-        **kwargs: Any,
-    ) -> None:
-        super().__data_object_init_subclass__(**kwargs)
-        cls.__data_struct_config__ = data_struct_config or DataStructConfig()
-        cls.__data_struct__
-
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
     def __data_struct__(cls) -> StructDefinition:
-        format: list[str] = []
+        order = cls.__data_struct_byte_order__
         try:
-            format.append(_BYTE_ORDER_SYMBOL_LOOKUP[cls.__data_struct_config__.order])
+            byte_order_symbol = _BYTE_ORDER_SYMBOL_LOOKUP[order]
         except KeyError:
             raise ValueError(
-                f"Invalid byte order {cls.__data_struct_config__.order!r}. Must be one of: "
-                f"{list(_BYTE_ORDER_SYMBOL_LOOKUP)}"
+                f"Invalid byte order {order}. Must be one of: {list(_BYTE_ORDER_SYMBOL_LOOKUP)}"
             )
 
+        tokens: list[str] = []
         for field, info in cls.__data_object_fields__.items():
-            format.append(cls.__data_struct_compute_field_format__(field, info))
+            tokens.append(cls.__data_struct_compute_field_format__(field, info))
+
+        format: list[str] = [byte_order_symbol]
+        pairs: list[tuple[int, str]] = []
+
+        import re
+
+        for token in tokens:
+            for match in re.finditer(r"(\d*)([A-Za-z?x])", token):
+                count_text, symbol = match.group(1), match.group(2)
+                count = int(count_text) if count_text else 1
+                if symbol != "s" and pairs and pairs[-1][1] == symbol:
+                    pairs[-1] = (pairs[-1][0] + count, symbol)
+                else:
+                    pairs.append((count, symbol))
+
+        for count, symbol in pairs:
+            format.append(f"{count}{symbol}" if count > 1 else symbol)
 
         from struct import Struct
 
@@ -2643,7 +2705,7 @@ class DataStruct(DataObject):
         if info.annotation is None:
             raise TypeError(f"Field `{cls}.{field}` is missing a type annotation.")
 
-        cls, metadata = extract_annotation(info.annotation)
+        cls, metadata = extract_field_annotation(info)
         if not isinstance(cls, type) or not issubclass(cls, _BYTE_REPR_SUPPORTED_TYPES):
             raise TypeError(
                 f"Field `{cls}.{field}` has unsupported type `{info.annotation!r}` for byte "
@@ -2662,6 +2724,13 @@ class DataStruct(DataObject):
 
         representation = representations[0].name if representations else None
         length = lengths[0].length if lengths else None
+
+        paddings = [current for current in metadata if isinstance(current, BytePadding)]
+        padded_bytes_before = 0
+        padded_bytes_after = 0
+        for padding in paddings:
+            padded_bytes_before += padding.before
+            padded_bytes_after += padding.after
 
         if representation is None:
             if issubclass(cls, (bytes, bytearray)):
@@ -2694,12 +2763,20 @@ class DataStruct(DataObject):
             )
 
         repeat = 1 if length is None else length
-        if repeat < 1:
-            return ""
-        if repeat == 1:
-            return definition.symbol
 
-        return f"{repeat}{definition.symbol}"
+        if repeat < 1:
+            format = ""
+        elif repeat == 1:
+            format = definition.symbol
+        else:
+            format = f"{repeat}{definition.symbol}"
+
+        if padded_bytes_before > 0:
+            format = f"{padded_bytes_before}x{format}"
+        if padded_bytes_after > 0:
+            format = f"{format}{padded_bytes_after}x"
+
+        return format
 
     def __data_struct_serialize__(self) -> bytes:
         values = (getattr(self, field) for field in self.__data_object_fields__)
@@ -2724,6 +2801,7 @@ def validate_bytes[T: DataStruct](cls: type[T], data: Buffer, offset: int = 0, /
 
 
 type Int8 = Annotated[int, ByteRepr("i8"), Ge(-128), Le(127)]
+type Byte = UInt8
 type Int16 = Annotated[int, ByteRepr("i16"), Ge(-32768), Le(32767)]
 type Int32 = Annotated[int, ByteRepr("i32"), Ge(-2147483648), Le(2147483647)]
 type Int64 = Annotated[int, ByteRepr("i64"), Ge(-9223372036854775808), Le(9223372036854775807)]
@@ -2735,3 +2813,83 @@ type UInt64 = Annotated[int, ByteRepr("u64"), Ge(0), Le(18446744073709551615)]
 
 type Float32 = Annotated[float, ByteRepr("f32")]
 type Float64 = Annotated[float, ByteRepr("f64")]
+
+type BytesEncoding = (
+    Literal[
+        "ascii",
+        "utf-8",
+        "latin-1",
+        "base-64",
+    ]
+    | str
+)
+
+type BytesErrorHandling = Literal[
+    "strict",
+    "ignore",
+    "replace",
+    "backslashreplace",
+    "surrogateescape",
+    "surrogatepass",
+]
+
+type BytesEncodingErrorHandling = (
+    BytesErrorHandling
+    | Literal[
+        "xmlcharrefreplace",
+        "namereplace",
+    ]
+)
+
+type BytesDecodingErrorHandling = BytesErrorHandling
+
+
+def _normalize_encoding(encoding: BytesEncoding) -> BytesEncoding:
+    return encoding.lower().replace("-", "").replace("_", "")
+
+
+def BytesFromString(
+    encoding: BytesEncoding,
+    errors: BytesEncodingErrorHandling = "strict",
+) -> BeforeValidator:
+    if _normalize_encoding(encoding) == "base64":
+        from base64 import b64decode
+
+        def convert(value: str) -> bytes:
+            return b64decode(value)
+    else:
+
+        def convert(value: str) -> bytes:
+            return value.encode(encoding, errors)
+
+    def BytesFromString(value: Any) -> bytes:
+        if isinstance(value, str):
+            return convert(value)
+
+        return bytes(value)
+
+    return BeforeValidator(BytesFromString, str)
+
+
+def BytesToString(
+    encoding: BytesEncoding,
+    errors: BytesDecodingErrorHandling = "strict",
+    when_used: WhenUsed = "json-unless-none",
+) -> PlainSerializer:
+    if _normalize_encoding(encoding) == "base64":
+        from base64 import b64encode
+
+        def encode(value: Any) -> Any:
+            return str(b64encode(value))
+    else:
+
+        def encode(value: Any) -> Any:
+            return str(value, encoding, errors)
+
+    def BytesToString(value: Any) -> str:
+        if value is None or isinstance(value, str):
+            return value
+
+        return encode(value)
+
+    return PlainSerializer(BytesToString, str, when_used)

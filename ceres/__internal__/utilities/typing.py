@@ -199,6 +199,11 @@ def extract_annotation(annotation: Any, /) -> tuple[Any, list[Any]]:
         return current, metadata
 
 
+def extract_field_annotation(field: FieldInfo, /) -> tuple[Any, list[Any]]:
+    type, metadata = extract_annotation(field.annotation)
+    return type, [*field.metadata, *metadata]
+
+
 def get_annotated_metadata(annotation: Any, /) -> list[Any]:
     _, metadata = extract_annotation(annotation)
     return metadata
