@@ -27,7 +27,7 @@ from ceres.connection.splitter import Splitter as Splitter
 from ceres.connection.splitter import Unsplit as Unsplit
 from ceres.connectivity import Connectivity
 from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_READ_SIZE, DEFAULT_BUFFER_SIZE
-from ceres.data import DataObject, Name, PositiveTimeDelta, ToBytes, WithDefaults, validate
+from ceres.data import DataObject, Name, PositiveTimeDelta, ToBytes, validate
 from ceres.event import (
     BufferOverflowEvent,
     ConnectedEvent,
