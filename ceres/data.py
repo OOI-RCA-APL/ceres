@@ -1,4 +1,5 @@
 import dataclasses
+import re
 from abc import ABCMeta
 from collections.abc import (
     Buffer,
@@ -12,7 +13,7 @@ from collections.abc import (
     Set,
 )
 from copy import deepcopy, replace
-from dataclasses import field
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum as BaseStrEnum
 from functools import wraps
@@ -91,7 +92,7 @@ from ceres.__internal__.utilities.classes import (
     get_declared_slots,
 )
 from ceres.__internal__.utilities.collections import flatten, uniq
-from ceres.__internal__.utilities.typing import extract_field_annotation
+from ceres.__internal__.utilities.typing import extract_field_annotation, lenient_issubclass
 from ceres.__internal__.utilities.undefined import Undefined
 
 if TYPE_CHECKING:
@@ -154,7 +155,6 @@ __all__ = (
     "validated_type",
     "serialized_type",
     "ByteRepr",
-    "ByteLength",
     "DataStruct",
     "to_bytes",
     "validate_bytes",
@@ -2584,17 +2584,13 @@ class BytePadding(DataObject, slots=True):
     after: int = Field(default=0, ge=0)
 
 
-class ByteLength(DataObject, slots=True, kw_only=False):
-    length: int
-
-
 class __BR(NamedTuple):
-    name: ByteReprName
+    code: ByteReprCode
     symbol: str
     type: type | tuple[type, ...]
 
 
-ByteReprName = Literal[
+ByteReprCode = Literal[
     "bytes",
     "boolean",
     "u8",
@@ -2633,8 +2629,72 @@ _BYTE_REPR_DEFINITIONS = (
 )
 
 
-class ByteRepr(DataObject, slots=True, kw_only=False):
-    name: ByteReprName
+@dataclass(frozen=True, kw_only=True)
+class ByteRepr:
+    code: ByteReprCode | None = field(default=None, kw_only=False)
+    length: int | None = field(default=None, kw_only=True)
+    validator: Callable[[Any], Any] | None = None
+    serializer: Callable[[Any], bytes] | None = None
+    padding_before: int | None = None
+    padding_after: int | None = None
+    format: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        if self.code is None:
+            if self.length is not None:
+                object.__setattr__(self, "code", "bytes")
+
+        definition = _BYTE_REPR_DEFINITION_LOOKUP.get(self.code or "")
+        if self.code is not None and definition is None:
+            raise TypeError(
+                f"Invalid `{ByteRepr.__name__}.code` {self.code!r}, must be one of: "
+                f"{list(_BYTE_REPR_DEFINITION_LOOKUP)}"
+            )
+
+        if self.length is not None and self.length < 1:
+            raise TypeError(f"`{ByteRepr.__name__}.length` must be a positive integer.")
+
+        if self.code == "bytes":
+            if self.length is None:
+                raise TypeError(
+                    f"`{ByteRepr.__name__}.length` must be specified for the 'bytes' byte "
+                    "representation."
+                )
+        else:
+            if self.length is not None:
+                raise TypeError(
+                    f"`{ByteRepr.__name__}.length` can only be specified for the 'bytes' byte "
+                    "representation."
+                )
+
+        if self.padding_before is not None:
+            if self.padding_before < 0 or not self.padding_before.is_integer():
+                raise TypeError(
+                    f"`{ByteRepr.__name__}.padding_before` must be a non-negative integer."
+                )
+        if self.padding_after is not None:
+            if self.padding_after < 0 or not self.padding_after.is_integer():
+                raise TypeError(
+                    f"`{ByteRepr.__name__}.padding_after` must be a non-negative integer."
+                )
+
+        if definition is None:
+            format = ""
+        else:
+            repeats = 1 if self.length is None else self.length
+            if repeats < 1:
+                format = ""
+            elif repeats == 1:
+                format = definition.symbol
+            else:
+                format = f"{repeats}{definition.symbol}"
+
+            if self.padding_before:
+                format = f"{self.padding_before if self.padding_before != 1 else ''}x{format}"
+            if self.padding_after:
+                format = f"{format}{self.padding_after if self.padding_after != 1 else ''}x"
+
+        object.__setattr__(self, "format", format)
 
 
 ByteOrder = Literal["big-endian", "little-endian", "native"]
@@ -2642,7 +2702,7 @@ ByteOrder = Literal["big-endian", "little-endian", "native"]
 _BYTE_REPR_SUPPORTED_TYPES = tuple(
     uniq(flatten(current.type for current in _BYTE_REPR_DEFINITIONS))
 )
-_BYTE_REPR_DEFINITION_LOOKUP = {current.name: current for current in _BYTE_REPR_DEFINITIONS}
+_BYTE_REPR_DEFINITION_LOOKUP = {current.code: current for current in _BYTE_REPR_DEFINITIONS}
 
 
 class __BO(NamedTuple):
@@ -2657,35 +2717,40 @@ _BYTE_ORDER_DEFINITIONS = (
 )
 
 _BYTE_ORDER_SYMBOL_LOOKUP = {current.name: current.symbol for current in _BYTE_ORDER_DEFINITIONS}
+_STRUCT_FORMAT_ITEMS_REGEX = re.compile(r"(\d*?)([A-Za-z?x])")
 
 
 class DataStruct(DataObject):
     __slots__ = ()
 
-    __data_struct_byte_order__: ClassVar[ByteOrder] = "big-endian"
+    __data_struct_byte_order__: ClassVar[ByteOrder] = "little-endian"
+
+    @classmethod
+    @override
+    def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__data_object_init_subclass__(**kwargs)
+        cls.__data_struct__
 
     @fields_cached_class_property
     @classmethod
     def __data_struct__(cls) -> StructDefinition:
+        from struct import Struct
+
         order = cls.__data_struct_byte_order__
         try:
             byte_order_symbol = _BYTE_ORDER_SYMBOL_LOOKUP[order]
         except KeyError:
-            raise ValueError(
-                f"Invalid byte order {order}. Must be one of: {list(_BYTE_ORDER_SYMBOL_LOOKUP)}"
+            raise TypeError(
+                f"Invalid byte order {order!r}. Must be one of: {list(_BYTE_ORDER_SYMBOL_LOOKUP)}"
             )
-
-        tokens: list[str] = []
-        for field, info in cls.__data_object_fields__.items():
-            tokens.append(cls.__data_struct_compute_field_format__(field, info))
 
         format: list[str] = [byte_order_symbol]
         pairs: list[tuple[int, str]] = []
 
-        import re
-
-        for token in tokens:
-            for match in re.finditer(r"(\d*)([A-Za-z?x])", token):
+        # Iterate through the byte representations of all fields and combine consecutive formats
+        # with the same symbol into a single format specifier with a count.
+        for representation in cls.__data_struct_field_reprs__.values():
+            for match in _STRUCT_FORMAT_ITEMS_REGEX.finditer(representation.format):
                 count_text, symbol = match.group(1), match.group(2)
                 count = int(count_text) if count_text else 1
                 if symbol != "s" and pairs and pairs[-1][1] == symbol:
@@ -2696,96 +2761,103 @@ class DataStruct(DataObject):
         for count, symbol in pairs:
             format.append(f"{count}{symbol}" if count > 1 else symbol)
 
-        from struct import Struct
-
         return Struct("".join(format))
 
+    @fields_cached_class_property
     @classmethod
-    def __data_struct_compute_field_format__(cls, field: str, info: FieldInfo) -> str:
+    def __data_struct_field_reprs__(cls) -> Mapping[str, ByteRepr]:
+        return MappingProxyType(
+            {
+                field: cls.__data_struct_compute_field_repr__(field, info)
+                for field, info in cls.__data_object_fields__.items()
+            }
+        )
+
+    @classmethod
+    def __data_struct_compute_field_repr__(cls, field: str, info: FieldInfo) -> ByteRepr:
         if info.annotation is None:
             raise TypeError(f"Field `{cls}.{field}` is missing a type annotation.")
 
-        cls, metadata = extract_field_annotation(info)
-        if not isinstance(cls, type) or not issubclass(cls, _BYTE_REPR_SUPPORTED_TYPES):
-            raise TypeError(
-                f"Field `{cls}.{field}` has unsupported type `{info.annotation!r}` for byte "
-                f"serialization. Must be one of {_BYTE_REPR_SUPPORTED_TYPES}."
-            )
+        field_type, field_metadata = extract_field_annotation(info)
 
-        representations = [current for current in metadata if isinstance(current, ByteRepr)]
-        if len(representations) > 1:
-            raise ValueError(f"Field `{cls}.{field}` has multiple declared `{ByteRepr.__name__}`s.")
+        representations = [current for current in field_metadata if isinstance(current, ByteRepr)]
+        if not representations:
+            representation = None
+        elif len(representations) == 1:
+            representation = representations[0]
+        else:
+            arguments = {}
+            for inherited_representation in representations:
+                for inherited_field, inherited_value in dataclasses.asdict(
+                    inherited_representation
+                ).items():
+                    if inherited_field == "format":
+                        continue
+                    if inherited_value is not None:
+                        arguments[inherited_field] = inherited_value
 
-        lengths = [current for current in metadata if isinstance(current, ByteLength)]
-        if len(lengths) > 1:
-            raise ValueError(
-                f"Field `{cls}.{field}` has multiple declared `{ByteLength.__name__}`s."
-            )
-
-        representation = representations[0].name if representations else None
-        length = lengths[0].length if lengths else None
-
-        paddings = [current for current in metadata if isinstance(current, BytePadding)]
-        padded_bytes_before = 0
-        padded_bytes_after = 0
-        for padding in paddings:
-            padded_bytes_before += padding.before
-            padded_bytes_after += padding.after
+            representation = ByteRepr(**arguments)
 
         if representation is None:
-            if issubclass(cls, (bytes, bytearray)):
-                representation = "bytes"
-            elif issubclass(cls, bool):
-                representation = "boolean"
+            if lenient_issubclass(field_type, bool):
+                representation = ByteRepr("boolean")
+        elif representation.code is None:
+            if lenient_issubclass(field_type, bool):
+                representation = replace(representation, name="boolean")
+            elif lenient_issubclass(field_type, (bytes, bytearray)):
+                representation = replace(representation, name="bytes")
 
-        if representation == "bytes":
-            if length is None:
-                raise ValueError(
-                    f"Field `{cls}.{field}` has byte representation 'bytes' but no declared "
-                    f"`{ByteLength.__name__}`. Add "
-                    f"`Annotated[..., {ByteLength.__name__}(<length>)]` to the field's type "
-                    "annotation."
+        if representation is None or representation.code is None or representation.format == "":
+            raise TypeError(
+                f"{representation}, Failed to infer byte representation for field `{field_type}.{field}`. Either use a "
+                f"numeric alias such as `ceres.data.UInt8` or `ceres.data.Float32`, add an "
+                f"explicit `Annotated[..., `{ByteRepr.__name__}(<name>)` to the field's type "
+                f"annotation, and/or ensure the field's type is one of {_BYTE_REPR_SUPPORTED_TYPES}."
+            )
+        if not lenient_issubclass(field_type, _BYTE_REPR_SUPPORTED_TYPES):
+            if representation is None or representation.validator is None:
+                raise TypeError(
+                    f"Field `{cls}.{field}` has unsupported type `{info.annotation!r}` for byte "
+                    f"validation/serialization. Must be one of {_BYTE_REPR_SUPPORTED_TYPES} or "
+                    "have declared a `ByteRepr` with an assigned `validator`."
                 )
 
-        if representation is None:
-            raise ValueError(
-                f"Failed to infer byte representation for field `{cls}.{field}`. Either use a "
-                f"numeric alias such as `ceres.data.UInt8` or `ceres.data.Float32`, add an "
-                "explicit `Annotated[..., `{ByteRepr.__name__}(<name>)` to the field's type "
-                "annotation, and/or ensure the field's type is one of {_BYTE_REPR_SUPPORTED_TYPES}."
-            )
+        if representation.validator is None:
+            definition = _BYTE_REPR_DEFINITION_LOOKUP[representation.code]
+            if not lenient_issubclass(field_type, definition.type):
+                raise TypeError(
+                    f"Field `{field_type}.{field}` has byte representation {representation!r} but is not "
+                    f"annotated as `{definition.type}`. Either change the type or add a `validator` to "
+                    f"to the field's `{ByteRepr.__name__}`."
+                )
 
-        definition = _BYTE_REPR_DEFINITION_LOOKUP[representation]
-        if not issubclass(cls, definition.type):
-            raise TypeError(
-                f"Field `{cls}.{field}` has byte representation {representation!r} but is not "
-                f"annotated as `{definition.type}`."
-            )
-
-        repeat = 1 if length is None else length
-
-        if repeat < 1:
-            format = ""
-        elif repeat == 1:
-            format = definition.symbol
-        else:
-            format = f"{repeat}{definition.symbol}"
-
-        if padded_bytes_before > 0:
-            format = f"{padded_bytes_before}x{format}"
-        if padded_bytes_after > 0:
-            format = f"{format}{padded_bytes_after}x"
-
-        return format
+        return representation
 
     def __data_struct_serialize__(self) -> bytes:
-        values = (getattr(self, field) for field in self.__data_object_fields__)
+        values: list[Any] = []
+        for field, representation in self.__data_struct_field_reprs__.items():
+            value = getattr(self, field)
+            serializer = representation.serializer
+            if serializer is not None:
+                value = serializer(value)
+
+            values.append(value)
+
         return self.__data_struct__.pack(*values)
 
     @classmethod
     def __data_struct_deserialize__(cls, data: Buffer, offset: int = 0, /) -> Self:
-        values = cls.__data_struct__.unpack_from(data, offset)
-        values = dict(zip(cls.__data_object_fields__, values))
+        values: dict[str, Any] = {}
+        for (field, representation), value in zip(
+            cls.__data_struct_field_reprs__.items(),
+            cls.__data_struct__.unpack_from(data, offset),
+        ):
+            validator = representation.validator
+            if validator is not None:
+                value = validator(value)
+
+            values[field] = value
+
         return validate(cls, values)
 
     def __bytes__(self) -> bytes:

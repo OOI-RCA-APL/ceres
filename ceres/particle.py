@@ -90,6 +90,11 @@ __all__ = [
     "DynamicParticleData",
     "ParseableParticle",
     "RegexParticle",
+    "BinaryParticle",
+    "BinaryParticleData",
+    "BinaryRegexParticle",
+    "GroupedRegexParticle",
+    "ParseFailed",
 ]
 
 
@@ -616,30 +621,6 @@ def _get_particle_class[T: Particle[Any]](
     return None
 
 
-@dataclass(init=False)
-class ParseFailed(Exception):
-    """Raised when `ParseableParticle.parse` fails."""
-
-    message: str
-    validation: ValidationError | None
-
-    def __init__(
-        self,
-        message: object,
-        validation: ValidationError | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = str(message)
-        self.validation = validation
-
-    @override
-    def __str__(self) -> str:
-        if self.validation is None:
-            return self.message
-
-        return f"{self.message} {self.validation}"
-
-
 class ParseableParticle[DataT: ParticleData = ParticleData](Particle[DataT]):
     __abstract__ = True
 
@@ -896,3 +877,25 @@ class BinaryRegexParticle[T: BinaryParticleData](BinaryParticle[T], RegexParticl
             timestamp,
             match.span(),
         )
+
+
+@dataclass(init=False)
+class ParseFailed(Exception):
+    message: str
+    validation: ValidationError | None
+
+    def __init__(
+        self,
+        message: object,
+        validation: ValidationError | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = str(message)
+        self.validation = validation
+
+    @override
+    def __str__(self) -> str:
+        if self.validation is None:
+            return self.message
+
+        return f"{self.message} {self.validation}"
