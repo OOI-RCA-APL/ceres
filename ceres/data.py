@@ -2,7 +2,6 @@ import dataclasses
 import re
 from abc import ABCMeta
 from collections.abc import (
-    Buffer,
     Callable,
     Iterable,
     Iterator,
@@ -13,11 +12,12 @@ from collections.abc import (
     Set,
 )
 from copy import deepcopy, replace
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum as BaseStrEnum
 from functools import wraps
 from re import RegexFlag
+from struct import Struct
 from types import FunctionType, GenericAlias, MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
@@ -26,7 +26,6 @@ from typing import (
     ClassVar,
     Final,
     Literal,
-    NamedTuple,
     NewType,
     Protocol,
     Self,
@@ -40,6 +39,7 @@ from typing import (
     cast,
     dataclass_transform,
     final,
+    get_args,
     overload,
     override,
 )
@@ -91,13 +91,16 @@ from ceres.__internal__.utilities.classes import (
     fields_cached_class_property,
     get_declared_slots,
 )
-from ceres.__internal__.utilities.collections import flatten, uniq
-from ceres.__internal__.utilities.typing import extract_field_annotation, lenient_issubclass
+from ceres.__internal__.utilities.collections import uniq
+from ceres.__internal__.utilities.typing import (
+    extract_annotation,
+    extract_field_annotation,
+    lenient_issubclass,
+)
 from ceres.__internal__.utilities.undefined import Undefined
 
 if TYPE_CHECKING:
     from inspect import Signature
-    from struct import Struct as StructDefinition
     from types import CellType
 
     from pydantic._internal._decorators import Decorator, DecoratorInfos
@@ -154,10 +157,8 @@ __all__ = (
     "JSONSerializable",
     "validated_type",
     "serialized_type",
-    "ByteRepr",
-    "DataStruct",
-    "to_bytes",
-    "validate_bytes",
+    "pack",
+    "unpack",
     "Int8",
     "Byte",
     "Int16",
@@ -2579,312 +2580,469 @@ def serialized_type[T: TypeInput[Any]](
     return serialized_type
 
 
-class BytePadding(DataObject, slots=True):
-    before: int = Field(default=0, ge=0)
-    after: int = Field(default=0, ge=0)
+ByteOrder = Literal["<", ">", "="]
 
-
-class __BR(NamedTuple):
-    code: ByteReprCode
-    symbol: str
-    type: type | tuple[type, ...]
-
-
-ByteReprCode = Literal[
-    "bytes",
-    "boolean",
-    "u8",
-    "i8",
-    "u16",
-    "i16",
-    "u32",
-    "i32",
-    "u64",
-    "i64",
-    "f16",
-    # `float`
-    "f32",
-    "f64",
-    # Complex
-    "c64",
-    "c128",
-]
-
-_BYTE_REPR_DEFINITIONS = (
-    __BR("bytes", "s", (bytes, bytearray)),
-    __BR("boolean", "?", bool),
-    __BR("u8", "B", int),
-    __BR("i8", "b", int),
-    __BR("u16", "H", int),
-    __BR("i16", "h", int),
-    __BR("u32", "I", int),
-    __BR("i32", "i", int),
-    __BR("u64", "Q", int),
-    __BR("i64", "q", int),
-    __BR("f16", "e", float),
-    __BR("f32", "f", float),
-    __BR("f64", "d", float),
-    __BR("c64", "F", complex),
-    __BR("c128", "D", complex),
-)
+DEFAULT_BYTE_ORDER: ByteOrder = "<"
+_BYTE_ORDERS: tuple[ByteOrder, ...] = ("<", ">", "=")
+_STRUCT_FORMAT_ITEMS_REGEX = re.compile(r"(\d*?)([A-Za-z?x])")
 
 
 @dataclass(frozen=True, kw_only=True)
-class ByteRepr:
-    code: ByteReprCode | None = field(default=None, kw_only=False)
-    length: int | None = field(default=None, kw_only=True)
-    validator: Callable[[Any], Any] | None = None
-    serializer: Callable[[Any], bytes] | None = None
+class PackingSchema:
+    type: ClassVar[type] = object
+    symbol: ClassVar[str] = ""
+
+    annotation: Any = MISSING
+    order: ByteOrder | None = None
     padding_before: int | None = None
     padding_after: int | None = None
-    format: str = field(init=False)
+    packer: Callable[[Any], bytes] | None = None
+    validator: Callable[[Any], Any] | None = None
+
+    if TYPE_CHECKING:
+        format: str = field(init=False)
+        _structs: dict[ByteOrder, Struct] = field(init=False)
+        _packers: dict[ByteOrder, Callable[[Any], bytes]] = field(init=False)
+        _unpacker: Callable[[Any], bytes] = field(init=False)
 
     def __post_init__(self) -> None:
-        if self.code is None:
-            if self.length is not None:
-                object.__setattr__(self, "code", "bytes")
-
-        definition = _BYTE_REPR_DEFINITION_LOOKUP.get(self.code or "")
-        if self.code is not None and definition is None:
-            raise TypeError(
-                f"Invalid `{ByteRepr.__name__}.code` {self.code!r}, must be one of: "
-                f"{list(_BYTE_REPR_DEFINITION_LOOKUP)}"
-            )
-
-        if self.length is not None and self.length < 1:
-            raise TypeError(f"`{ByteRepr.__name__}.length` must be a positive integer.")
-
-        if self.code == "bytes":
-            if self.length is None:
-                raise TypeError(
-                    f"`{ByteRepr.__name__}.length` must be specified for the 'bytes' byte "
-                    "representation."
-                )
-        else:
-            if self.length is not None:
-                raise TypeError(
-                    f"`{ByteRepr.__name__}.length` can only be specified for the 'bytes' byte "
-                    "representation."
-                )
-
         if self.padding_before is not None:
             if self.padding_before < 0 or not self.padding_before.is_integer():
                 raise TypeError(
-                    f"`{ByteRepr.__name__}.padding_before` must be a non-negative integer."
+                    f"`{PackingSchema.__name__}.padding_before` must be a non-negative integer."
                 )
         if self.padding_after is not None:
             if self.padding_after < 0 or not self.padding_after.is_integer():
                 raise TypeError(
-                    f"`{ByteRepr.__name__}.padding_after` must be a non-negative integer."
+                    f"`{PackingSchema.__name__}.padding_after` must be a non-negative integer."
                 )
 
-        if definition is None:
-            format = ""
-        else:
-            repeats = 1 if self.length is None else self.length
-            if repeats < 1:
-                format = ""
-            elif repeats == 1:
-                format = definition.symbol
-            else:
-                format = f"{repeats}{definition.symbol}"
+        object.__setattr__(self, "format", self._compute_format())
+        object.__setattr__(self, "_structs", {})
 
-            if self.padding_before:
-                format = f"{self.padding_before if self.padding_before != 1 else ''}x{format}"
-            if self.padding_after:
-                format = f"{format}{self.padding_after if self.padding_after != 1 else ''}x"
+    @property
+    def size(self) -> int:
+        return self.struct().size
 
-        object.__setattr__(self, "format", format)
+    def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        if self.packer is not None:
+            return self.packer(instance)
 
+        return self.struct(order).pack(instance)
 
-ByteOrder = Literal["big-endian", "little-endian", "native"]
+    def unpack(
+        self,
+        data: bytes,
+        /,
+        offset: int = 0,
+        order: ByteOrder | None = None,
+        *,
+        validate_annotation: bool = True,
+    ) -> Any:
+        packed = self.struct(order).unpack_from(data, offset)
+        instance = packed[0]
+        if self.validator is not None:
+            instance = self.validator(instance)
+        if validate_annotation and self.annotation is not MISSING:
+            instance = validate(self.annotation, instance)
 
-_BYTE_REPR_SUPPORTED_TYPES = tuple(
-    uniq(flatten(current.type for current in _BYTE_REPR_DEFINITIONS))
-)
-_BYTE_REPR_DEFINITION_LOOKUP = {current.code: current for current in _BYTE_REPR_DEFINITIONS}
+        return instance
 
+    def struct(self, order: ByteOrder | None = None) -> Struct:
+        if order is None:
+            order = self.order or DEFAULT_BYTE_ORDER
 
-class __BO(NamedTuple):
-    name: ByteOrder
-    symbol: str
+        struct = self._structs.get(order)
+        if struct is None:
+            struct = Struct(f"{order}{self.format}")
+            struct = self._structs.setdefault(order, struct)
 
+        return struct
 
-_BYTE_ORDER_DEFINITIONS = (
-    __BO("big-endian", ">"),
-    __BO("little-endian", "<"),
-    __BO("native", "="),
-)
+    def _compute_format(self) -> str:
+        format = self._compute_inner_format()
+        if self.padding_before:
+            format = f"{self.padding_before if self.padding_before != 1 else ''}x{format}"
+        if self.padding_after:
+            format = f"{format}{self.padding_after if self.padding_after != 1 else ''}x"
 
-_BYTE_ORDER_SYMBOL_LOOKUP = {current.name: current.symbol for current in _BYTE_ORDER_DEFINITIONS}
-_STRUCT_FORMAT_ITEMS_REGEX = re.compile(r"(\d*?)([A-Za-z?x])")
+        return self._compact_format(format)
 
-
-class DataStruct(DataObject):
-    __slots__ = ()
-
-    __data_struct_byte_order__: ClassVar[ByteOrder] = "little-endian"
+    def _compute_inner_format(self) -> str:
+        return self.symbol
 
     @classmethod
-    @override
-    def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
-        super().__data_object_init_subclass__(**kwargs)
-        cls.__data_struct__
-
-    @fields_cached_class_property
-    @classmethod
-    def __data_struct__(cls) -> StructDefinition:
-        from struct import Struct
-
-        order = cls.__data_struct_byte_order__
-        try:
-            byte_order_symbol = _BYTE_ORDER_SYMBOL_LOOKUP[order]
-        except KeyError:
-            raise TypeError(
-                f"Invalid byte order {order!r}. Must be one of: {list(_BYTE_ORDER_SYMBOL_LOOKUP)}"
-            )
-
-        format: list[str] = [byte_order_symbol]
+    def _compact_format(cls, format: str) -> str:
+        compacted: list[str] = []
         pairs: list[tuple[int, str]] = []
 
-        # Iterate through the byte representations of all fields and combine consecutive formats
-        # with the same symbol into a single format specifier with a count.
-        for representation in cls.__data_struct_field_reprs__.values():
-            for match in _STRUCT_FORMAT_ITEMS_REGEX.finditer(representation.format):
-                count_text, symbol = match.group(1), match.group(2)
-                count = int(count_text) if count_text else 1
-                if symbol != "s" and pairs and pairs[-1][1] == symbol:
-                    pairs[-1] = (pairs[-1][0] + count, symbol)
-                else:
-                    pairs.append((count, symbol))
+        for match in _STRUCT_FORMAT_ITEMS_REGEX.finditer(format):
+            count_text, symbol = match.group(1), match.group(2)
+            count = int(count_text) if count_text else 1
+            if symbol != "s" and pairs and pairs[-1][1] == symbol:
+                pairs[-1] = (pairs[-1][0] + count, symbol)
+            else:
+                pairs.append((count, symbol))
 
         for count, symbol in pairs:
-            format.append(f"{count}{symbol}" if count > 1 else symbol)
+            compacted.append(f"{count}{symbol}" if count > 1 else symbol)
 
-        return Struct("".join(format))
+        return "".join(compacted)
 
-    @fields_cached_class_property
-    @classmethod
-    def __data_struct_field_reprs__(cls) -> Mapping[str, ByteRepr]:
-        return MappingProxyType(
-            {
-                field: cls.__data_struct_compute_field_repr__(field, info)
-                for field, info in cls.__data_object_fields__.items()
-            }
+
+Packed: TypeAlias = PackingSchema
+
+
+@dataclass(frozen=True)
+class PackedBytes(PackingSchema):
+    type = bytes
+    symbol = "s"
+    length: int
+
+    @override
+    def __post_init__(self) -> None:
+        super().__post_init__()
+
+        if self.length < 1:
+            raise TypeError(f"`{PackedBytes.__name__}.length` must be a positive integer.")
+
+    @override
+    def _compute_inner_format(self) -> str:
+        if self.length == 0:
+            return ""
+        if self.length == 1:
+            return self.symbol
+
+        return f"{self.length}{self.symbol}"
+
+
+@dataclass(frozen=True)
+class PackedBool(PackingSchema):
+    type = bool
+    symbol = "?"
+
+
+@dataclass(frozen=True)
+class PackedUInt8(PackingSchema):
+    type = int
+    symbol = "B"
+
+
+@dataclass(frozen=True)
+class PackedInt8(PackingSchema):
+    type = int
+    symbol = "b"
+
+
+@dataclass(frozen=True)
+class PackedUInt16(PackingSchema):
+    type = int
+    symbol = "H"
+
+
+@dataclass(frozen=True)
+class PackedInt16(PackingSchema):
+    type = int
+    symbol = "h"
+
+
+@dataclass(frozen=True)
+class PackedUInt32(PackingSchema):
+    type = int
+    symbol = "I"
+
+
+@dataclass(frozen=True)
+class PackedInt32(PackingSchema):
+    type = int
+    symbol = "i"
+
+
+@dataclass(frozen=True)
+class PackedUInt64(PackingSchema):
+    type = int
+    symbol = "Q"
+
+
+@dataclass(frozen=True)
+class PackedInt64(PackingSchema):
+    type = int
+    symbol = "q"
+
+
+@dataclass(frozen=True)
+class PackedFloat16(PackingSchema):
+    type = float
+    symbol = "e"
+
+
+@dataclass(frozen=True)
+class PackedFloat32(PackingSchema):
+    type = float
+    symbol = "f"
+
+
+@dataclass(frozen=True)
+class PackedFloat64(PackingSchema):
+    type = float
+    symbol = "d"
+
+
+@dataclass(frozen=True)
+class PackedComplex64(PackingSchema):
+    type = complex
+    symbol = "F"
+
+
+@dataclass(frozen=True)
+class PackedComplex128(PackingSchema):
+    type = complex
+    symbol = "D"
+
+
+@dataclass(frozen=True)
+class PackedTuple(PackingSchema):
+    type = tuple
+    symbol = "t"
+    values: tuple[PackingSchema, ...]
+
+    @override
+    def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        packed = bytearray()
+        for value, schema in zip(instance, self.values):
+            packed.extend(schema.pack(value, order))
+
+        return bytes(packed)
+
+    @override
+    def unpack(
+        self,
+        data: bytes,
+        /,
+        offset: int = 0,
+        order: ByteOrder | None = None,
+        *,
+        validate_annotation: bool = True,
+    ) -> Any:
+        values: list[Any] = []
+        for schema in self.values:
+            values.append(schema.unpack(data, offset, order, validate_annotation=False))
+            offset += schema.size
+
+        instance = tuple(values)
+        if self.validator is not None:
+            instance = self.validator(instance)
+        if validate_annotation and self.annotation is not MISSING:
+            instance = validate(self.annotation, instance)
+
+        return instance
+
+    @override
+    def _compute_inner_format(self) -> str:
+        return "".join(schema.format for schema in self.values)
+
+
+@dataclass(frozen=True)
+class PackedModel(PackingSchema):
+    type = object
+    symbol = "m"
+    model: type[Any]
+    fields: Mapping[str, PackingSchema] = field(default_factory=dict)
+
+    @override
+    def __post_init__(self) -> None:
+        super().__post_init__()
+
+        if self.order is None:
+            order = getattr(self, "__byte_order__", None)
+            if order is not None:
+                if order not in _BYTE_ORDERS:
+                    raise TypeError(
+                        f"{self.__class__}.__byte_order__ must be one of: {list(_BYTE_ORDERS)}."
+                    )
+
+                object.__setattr__(self, "order", order)
+
+    @override
+    def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        data = bytearray()
+        for field, schema in self.fields.items():
+            data.extend(schema.pack(getattr(instance, field), order))
+
+        return bytes(data)
+
+    @override
+    def unpack(
+        self,
+        data: bytes,
+        /,
+        offset: int = 0,
+        order: ByteOrder | None = None,
+        *,
+        validate_annotation: bool = True,  # Models are always validated.
+    ) -> Any:
+        arguments = {}
+        for field, schema in self.fields.items():
+            arguments[field] = schema.unpack(data, offset, order, validate_annotation=False)
+            offset += schema.size
+
+        instance = validate(self.model, arguments)
+        if self.validator is not None:
+            instance = self.validator(instance)
+        if validate_annotation and self.annotation is not MISSING:
+            instance = validate(self.annotation, instance)
+
+        return instance
+
+    @override
+    def _compute_inner_format(self) -> str:
+        return "".join(schema.format for schema in self.fields.values())
+
+
+_struct_schema_cache: dict[Any, PackingSchema] = {}
+
+
+def _infer_packing_schema(
+    annotated_type: type,
+    annotation: Any,
+) -> PackingSchema | None:
+    if not isinstance(annotated_type, type):
+        return None
+
+    if issubclass(annotated_type, bool):
+        return PackedBool()
+    if issubclass(annotated_type, int):
+        return PackedInt64()
+    if issubclass(annotated_type, float):
+        return PackedFloat64()
+    if lenient_issubclass(annotated_type, complex):
+        return PackedComplex128()
+    if lenient_issubclass(annotated_type, tuple):
+        values = get_args(annotation)
+        if any(value is Ellipsis for value in values):
+            raise TypeError(
+                f"Cannot infer packing schema for `{annotation}`. Tuple fields must have "
+                "a specific number of items, meaning they cannot contain `...`."
+            )
+        if not values:
+            raise TypeError(
+                f"Cannot infer packing schema for field `{annotation}` because it is a tuple"
+                "with no specified item types. Either specify an item types or provide an "
+                "explicit packing schema."
+            )
+
+        return PackedTuple(tuple(packed(value) for value in values))
+
+    if _supports_pydantic_fields(annotated_type) or is_dataclass(annotated_type):
+        return PackedModel(
+            cast("type", annotated_type),
+            {field: packed(info) for field, info in fields_of(annotated_type)},
         )
 
-    @classmethod
-    def __data_struct_compute_field_repr__(cls, field: str, info: FieldInfo) -> ByteRepr:
-        if info.annotation is None:
-            raise TypeError(f"Field `{cls}.{field}` is missing a type annotation.")
+    return None
 
-        field_type, field_metadata = extract_field_annotation(info)
 
-        representations = [current for current in field_metadata if isinstance(current, ByteRepr)]
-        if not representations:
-            representation = None
-        elif len(representations) == 1:
-            representation = representations[0]
-        else:
-            arguments = {}
-            for inherited_representation in representations:
-                for inherited_field, inherited_value in dataclasses.asdict(
-                    inherited_representation
-                ).items():
-                    if inherited_field == "format":
-                        continue
-                    if inherited_value is not None:
-                        arguments[inherited_field] = inherited_value
+def packed(annotation: FieldInfo | TypeInput) -> PackingSchema:
+    cached = _struct_schema_cache.get(annotation)
+    if cached is not None:
+        return cached
 
-            representation = ByteRepr(**arguments)
+    if isinstance(annotation, FieldInfo):
+        annotated_type, metadata = extract_field_annotation(annotation)
+    else:
+        annotated_type, metadata = extract_annotation(annotation)
 
-        if representation is None:
-            if lenient_issubclass(field_type, bool):
-                representation = ByteRepr("boolean")
-        elif representation.code is None:
-            if lenient_issubclass(field_type, bool):
-                representation = replace(representation, name="boolean")
-            elif lenient_issubclass(field_type, (bytes, bytearray)):
-                representation = replace(representation, name="bytes")
+    schemas: list[PackingSchema] = []
 
-        if representation is None or representation.code is None or representation.format == "":
+    for current in metadata:
+        if isinstance(current, PackingSchema):
+            schemas.append(current)
+        elif lenient_issubclass(current, PackingSchema):
+            try:
+                schemas.append(current())
+            except Exception as exception:
+                raise TypeError(
+                    f"Failed to instantiate packing schema class `{current}` in `{annotation}`: "
+                    f"{exception}"
+                ) from exception
+
+    if not any(schema for schema in schemas if schema is not PackingSchema):
+        inferred = _infer_packing_schema(annotated_type, annotation)
+        if inferred is None:
+            raise TypeError(f"Failed to infer packing schema for `{annotation}`.")
+
+        schemas = [inferred, *schemas]
+
+    if len(schemas) == 1:
+        schema = schemas[0]
+    else:
+        schema_class = type(schemas[0])
+        schema_arguments = {}
+
+        for inherited_schema in schemas:
+            if not isinstance(inherited_schema, schema_class) or schema_class is PackingSchema:
+                raise TypeError(
+                    f"Multiple packing schemas of different types found for "
+                    f"`{annotation}`: {schemas}. All schemas must be of the same type or be a "
+                    f"bare `{PackingSchema.__name__}`."
+                )
+
+            for inherited_field, inherited_value in dataclasses.asdict(inherited_schema).items():
+                if inherited_value not in (None, MISSING):
+                    schema_arguments[inherited_field] = inherited_value
+
+        schema = schema_class(**schema_arguments)
+
+    if schema.annotation is MISSING:
+        schema = replace(schema, annotation=annotation)
+
+    if schema.validator is None:
+        if not lenient_issubclass(annotated_type, schema.type):
             raise TypeError(
-                f"{representation}, Failed to infer byte representation for field `{field_type}.{field}`. Either use a "
-                f"numeric alias such as `ceres.data.UInt8` or `ceres.data.Float32`, add an "
-                f"explicit `Annotated[..., `{ByteRepr.__name__}(<name>)` to the field's type "
-                f"annotation, and/or ensure the field's type is one of {_BYTE_REPR_SUPPORTED_TYPES}."
+                f"`{annotation}` has packing schema {schema!r} but is not annotated as a subclass "
+                f"of `{schema.type}`. Either change the type or add a `validator` to the "
+                "annotation's packing schema."
             )
-        if not lenient_issubclass(field_type, _BYTE_REPR_SUPPORTED_TYPES):
-            if representation is None or representation.validator is None:
-                raise TypeError(
-                    f"Field `{cls}.{field}` has unsupported type `{info.annotation!r}` for byte "
-                    f"validation/serialization. Must be one of {_BYTE_REPR_SUPPORTED_TYPES} or "
-                    "have declared a `ByteRepr` with an assigned `validator`."
-                )
 
-        if representation.validator is None:
-            definition = _BYTE_REPR_DEFINITION_LOOKUP[representation.code]
-            if not lenient_issubclass(field_type, definition.type):
-                raise TypeError(
-                    f"Field `{field_type}.{field}` has byte representation {representation!r} but is not "
-                    f"annotated as `{definition.type}`. Either change the type or add a `validator` to "
-                    f"to the field's `{ByteRepr.__name__}`."
-                )
-
-        return representation
-
-    def __data_struct_serialize__(self) -> bytes:
-        values: list[Any] = []
-        for field, representation in self.__data_struct_field_reprs__.items():
-            value = getattr(self, field)
-            serializer = representation.serializer
-            if serializer is not None:
-                value = serializer(value)
-
-            values.append(value)
-
-        return self.__data_struct__.pack(*values)
-
-    @classmethod
-    def __data_struct_deserialize__(cls, data: Buffer, offset: int = 0, /) -> Self:
-        values: dict[str, Any] = {}
-        for (field, representation), value in zip(
-            cls.__data_struct_field_reprs__.items(),
-            cls.__data_struct__.unpack_from(data, offset),
-        ):
-            validator = representation.validator
-            if validator is not None:
-                value = validator(value)
-
-            values[field] = value
-
-        return validate(cls, values)
-
-    def __bytes__(self) -> bytes:
-        return self.__data_struct_serialize__()
+    return _struct_schema_cache.setdefault(annotation, schema)
 
 
-def to_bytes(struct: DataStruct) -> bytes:
-    return struct.__data_struct_serialize__()
+def pack(value: Any, schema: PackingSchema | None = None) -> bytes:
+    if schema is None:
+        schema = packed(type(value))
+
+    return packed(value).pack(value)
 
 
-def validate_bytes[T: DataStruct](cls: type[T], data: Buffer, offset: int = 0, /) -> T:
-    return cls.__data_struct_deserialize__(data, offset)
+def unpack(type: FieldInfo | TypeInput, data: bytes, /, offset: int = 0) -> Any:
+    return packed(type).unpack(data, offset)
 
 
-type Int8 = Annotated[int, ByteRepr("i8"), Ge(-128), Le(127)]
+def packable[T: type[Any]](type: T, /) -> T:
+    try:
+        packed(type)
+    except Exception as exception:
+        raise TypeError(f"Type `{type}` is not binary-packable. {exception}") from exception
+
+    return type
+
+
+type Int8 = Annotated[int, PackedInt8(), Ge(-128), Le(127)]
+type Int16 = Annotated[int, PackedInt16(), Ge(-32768), Le(32767)]
+type Int32 = Annotated[int, PackedInt32(), Ge(-2147483648), Le(2147483647)]
+type Int64 = Annotated[int, PackedInt64(), Ge(-9223372036854775808), Le(9223372036854775807)]
+
+type UInt8 = Annotated[int, PackedUInt8(), Ge(0), Le(255)]
+type UInt16 = Annotated[int, PackedUInt16(), Ge(0), Le(65535)]
+type UInt32 = Annotated[int, PackedUInt32(), Ge(0), Le(4294967295)]
+type UInt64 = Annotated[int, PackedUInt64(), Ge(0), Le(18446744073709551615)]
+
 type Byte = UInt8
-type Int16 = Annotated[int, ByteRepr("i16"), Ge(-32768), Le(32767)]
-type Int32 = Annotated[int, ByteRepr("i32"), Ge(-2147483648), Le(2147483647)]
-type Int64 = Annotated[int, ByteRepr("i64"), Ge(-9223372036854775808), Le(9223372036854775807)]
 
-type UInt8 = Annotated[int, ByteRepr("u8"), Ge(0), Le(255)]
-type UInt16 = Annotated[int, ByteRepr("u16"), Ge(0), Le(65535)]
-type UInt32 = Annotated[int, ByteRepr("u32"), Ge(0), Le(4294967295)]
-type UInt64 = Annotated[int, ByteRepr("u64"), Ge(0), Le(18446744073709551615)]
+type Float16 = Annotated[float, PackedFloat16()]
+type Float32 = Annotated[float, PackedFloat32()]
+type Float64 = Annotated[float, PackedFloat64()]
 
-type Float32 = Annotated[float, ByteRepr("f32")]
-type Float64 = Annotated[float, ByteRepr("f64")]
 
 type BytesEncoding = (
     Literal[

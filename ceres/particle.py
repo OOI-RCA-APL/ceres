@@ -58,7 +58,6 @@ from ceres.__internal__.utilities.undefined import Undefined
 from ceres.address import Address
 from ceres.data import (
     DataObject,
-    DataStruct,
     DateTime,
     FromYAML,
     JSONSerializableDict,
@@ -67,8 +66,8 @@ from ceres.data import (
     dump,
     simplify,
     to_json,
+    unpack,
     validate,
-    validate_bytes,
 )
 from ceres.timing import utc
 
@@ -176,10 +175,6 @@ DynamicParticleData: TypeAlias = Annotated[
     SerializeAsAny[JSONSerializableDict | ParticleData],
     Field(union_mode="left_to_right"),
 ]
-
-
-class BinaryParticleData(ParticleData, DataStruct):
-    __slots__ = ()
 
 
 if TYPE_CHECKING:
@@ -644,7 +639,7 @@ class ParseableParticle[DataT: ParticleData = ParticleData](Particle[DataT]):
         )
 
 
-class BinaryParticle[T: BinaryParticleData](ParseableParticle[T]):
+class BinaryParticle[T: ParticleData](ParseableParticle[T]):
     __abstract__ = True
 
     @classmethod
@@ -661,7 +656,7 @@ class BinaryParticle[T: BinaryParticleData](ParseableParticle[T]):
         if span is None:
             span = (0, len(bytes))
 
-        data = validate_bytes(cls.Data, bytes)
+        data = unpack(cls.Data, bytes)
 
         return construct(
             cls,
@@ -860,7 +855,7 @@ class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
         )
 
 
-class BinaryRegexParticle[T: BinaryParticleData](BinaryParticle[T], RegexParticle[T]):
+class BinaryRegexParticle[T: ParticleData](BinaryParticle[T], RegexParticle[T]):
     __abstract__ = True
 
     @classmethod
