@@ -29,7 +29,6 @@ from uuid import UUID
 from pydantic import Field, NonNegativeInt, model_validator
 from sqlalchemy import (
     ClauseElement,
-    ColumnElement,
     Delete,
     Dialect,
     Engine,
@@ -60,8 +59,10 @@ from ceres.__internal__.database.types import AddressMapper, DateTimeMapper, UUI
 from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
 from ceres.__internal__.manager import BaseDatabaseManager
 from ceres.__internal__.utilities.case import kebabcase, snakecase
+from ceres.__internal__.utilities.classes import cached_class_property
 from ceres.__internal__.utilities.collections import seq
 from ceres.__internal__.utilities.functions import call_partial
+from ceres.__internal__.utilities.typing import get_generic_superclass_argument
 from ceres.address import Address, AddressSelector
 from ceres.channel import OutputChannel
 from ceres.concurrency import sleep
@@ -73,7 +74,6 @@ from ceres.data import (
     NonNegativeTimeDelta,
     PositiveTimeDelta,
     create,
-    to_dict,
     uuid7,
 )
 from ceres.database import DatabaseType
@@ -82,7 +82,6 @@ from ceres.timing import utc
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from sqlalchemy.sql.base import ReadOnlyColumnCollection
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
 
     from ceres.__internal__.protocols import DatabaseSource
@@ -107,18 +106,6 @@ class BaseEntityRow(
     if TYPE_CHECKING:
         __tablename__: ClassVar[str]
         __table__: ClassVar[Table]
-
-    @classmethod
-    def get_primary_key_constraint(cls) -> PrimaryKeyConstraint:
-        return cls.__table__.primary_key
-
-    @classmethod
-    def get_primary_key_columns(cls) -> ReadOnlyColumnCollection[str, ColumnElement[Any]]:
-        return cls.__table__.primary_key.columns
-
-    @classmethod
-    def get_columns(cls) -> ReadOnlyColumnCollection[str, ColumnElement[Any]]:
-        return cls.__table__.columns
 
     @classmethod
     def get_ddl(
@@ -181,8 +168,8 @@ class BaseEntityRow(
             yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
 
     def values(self) -> dict[str, Any]:
-        values = self.__dict__
-        return {column: values[column] for column in self.__table__.columns.keys()}
+        __dict__ = self.__dict__
+        return {column.name: __dict__[column.name] for column in self.__table__.columns}
 
     @declared_attr
     def __table_args__(cls) -> Any:
@@ -441,7 +428,7 @@ class BaseEntityFilter[
             if limit is None and offset is None and not statement._returning:
                 return statement.where(*where)
 
-        pk = self._get_row_cls().get_primary_key_columns()
+        pk = self._get_row_cls().__table__.primary_key.columns
         pks = select(*pk).where(*where).order_by(*order_by).limit(limit).offset(offset)
 
         pk = pk[0] if len(pk) == 1 else tuple_(*pk)
@@ -698,7 +685,7 @@ class SelectExecutor[
     async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
         Row = self._query._get_row_class()
         database = self._query._get_database()
-        statement = select(*Row.get_columns())
+        statement = select(*Row.__table__.columns)
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
 
@@ -759,7 +746,7 @@ class UpdateExecutor[
 
         statement = update(Row).values(assign)
         if returning:
-            statement = statement.returning(*Row.get_columns())
+            statement = statement.returning(*Row.__table__.columns)
 
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
@@ -803,7 +790,7 @@ class DeleteExecutor[
 
         statement = delete(Row)
         if returning:
-            statement = statement.returning(*Row.get_columns())
+            statement = statement.returning(*Row.__table__.columns)
 
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
@@ -1122,7 +1109,9 @@ class BaseEntityManager[
         upsert: bool = False,
     ) -> RowT:
         Row = self._get_row_class()
-        row = Row(**to_dict(data, exclude_unset=True))
+        values = data.__entity_to_column_values__()
+        row = Row(**values)
+
         match self.__database__.type:
             case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert
@@ -1131,8 +1120,8 @@ class BaseEntityManager[
 
         with wrap_database_errors():
             async with await self.__database__.use() as connection:
-                statement = insert(Row).values(row.values())
-                pk = Row.get_primary_key_columns()
+                statement = insert(Row).values(values)
+                pk = Row.__table__.primary_key.columns
 
                 if upsert:
                     upsert_columns = {
@@ -1160,35 +1149,67 @@ class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
     Field = str
     Order = str
 
+    @cached_class_property
+    @classmethod
+    @override
+    def __entity_columns__(cls) -> tuple[str, ...]:
+        columns = cls.Row.__table__.columns
+        return tuple(field for field in cls.__data_object_fields__ if field in columns)
 
-_REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, type[Any] | None] = {
-    "__naming__": EntityNaming,
-    "Manager": BaseEntityManager,
-    "Row": BaseEntityRow,
-    "Create": BaseEntityCreate,
-    "Update": BaseEntityUpdate,
-    "Filter": BaseEntityFilter,
-    "FilterArgs": BaseEntityFilterArgs,
-    "Field": None,
-    "Order": None,
+    def __entity_to_column_values__(self) -> dict[str, Any]:
+        return {field: getattr(self, field) for field in self.__entity_columns__}
+
+    @abstractmethod
+    def __entity_to_row__(self) -> BaseEntityRow:
+        return self.Row(**self.__entity_to_column_values__())
+
+
+_REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, tuple[type[Any], bool]] = {
+    "__entity_naming__": (EntityNaming, False),
+    "Manager": (BaseEntityManager, True),
+    "Create": (BaseEntityCreate, True),
+    "Update": (BaseEntityUpdate, True),
+    "Filter": (BaseEntityFilter, True),
+    "FilterArgs": (BaseEntityFilterArgs, True),
+    "Field": (object, True),
+    "Order": (object, True),
 }
 
 
-class ConcreteEntity(BaseEntity, abstract=True, slots=True):
-    __naming__: ClassVar[EntityNaming]
+class ConcreteEntity[TRow: BaseEntityRow](BaseEntity, abstract=True, slots=True):
+    __entity_naming__: ClassVar[EntityNaming]
+
+    @cached_class_property
+    @classmethod
+    def Row(cls) -> type[TRow]:
+        return get_generic_superclass_argument(cls, ConcreteEntity, 0)
+
+    @override
+    def __entity_to_row__(self) -> TRow:
+        return self.Row(**self.__entity_to_column_values__())
 
     @classmethod
     @override
     def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
         super().__data_object_init_subclass__(**kwargs)
-        if cls.__name__.startswith("Base") or cls.__name__ == "ConcreteEntity":
+        try:
+            if not any(base is ConcreteEntity for base in cls.__bases__):
+                return
+        except NameError:
             return
 
-        for attribute, constraint in _REQUIRED_CONCRETE_CLASS_ATTRIBUTES.items():
-            value = cls.__dict__.get(attribute)
+        if cls.__data_object_generic_alias__ is not None:
+            return
+
+        for attribute, (constraint, in_dictionary) in _REQUIRED_CONCRETE_CLASS_ATTRIBUTES.items():
+            if in_dictionary:
+                value = cls.__dict__.get(attribute)
+            else:
+                value = getattr(cls, attribute, None)
+
             if value is None:
                 raise TypeError(
-                    f"Concrete entity class `{cls.__name__}` must define `{attribute}` as a class attribute."
+                    f"Concrete entity class `{cls}` must define `{attribute}` as a class attribute."
                 )
             elif constraint is not None:
                 if is_typeddict(constraint):
@@ -1197,12 +1218,12 @@ class ConcreteEntity(BaseEntity, abstract=True, slots=True):
                 if isinstance(value, type):
                     if not issubclass(value, constraint):
                         raise TypeError(
-                            f"Concrete entity class `{cls.__name__}` must define `{attribute}` as a subclass of `{constraint.__name__}`."
+                            f"Concrete entity class `{cls}` must define `{attribute}` as a subclass of `{constraint}`."
                         )
                 else:
                     if not isinstance(value, constraint):
                         raise TypeError(
-                            f"Concrete entity class `{cls.__name__}` must define `{attribute}` as an instance of `{constraint.__name__}`."
+                            f"Concrete entity class `{cls}` must define `{attribute}` as an instance of `{constraint}`."
                         )
 
         Filter = cls.__dict__["Filter"]
@@ -1282,13 +1303,7 @@ class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
 
 
 class BaseUUIDEntity(BaseUUIDEntityCreate, abstract=True, slots=True):
-    Row = BaseUUIDEntityRow
-    Create = BaseUUIDEntityCreate
-    Update = BaseUUIDEntityUpdate
-    Filter = BaseUUIDEntityFilter
-    FilterArgs = BaseUUIDEntityFilterArgs
-    Field = BaseUUIDEntityField
-    Order = BaseUUIDEntityOrder
+    pass
 
 
 class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
@@ -1365,13 +1380,7 @@ class BaseAddressEntityUpdate(BaseEntityUpdate, total=False):
 
 
 class BaseAddressEntity(BaseAddressEntityCreate, abstract=True, slots=True):
-    Row = BaseAddressEntityRow
-    Create = BaseAddressEntityCreate
-    Update = BaseAddressEntityUpdate
-    Filter = BaseAddressEntityFilter
-    FilterArgs = BaseAddressEntityFilterArgs
-    Field = BaseAddressEntityField
-    Order = BaseAddressEntityOrder
+    pass
 
 
 class BaseTimestampEntityRow(BaseEntityRow):
@@ -1641,13 +1650,7 @@ class BaseTimestampEntityUpdate(BaseEntityUpdate, total=False):
 
 
 class BaseTimestampEntity(BaseTimestampEntityCreate, abstract=True, slots=True):
-    Row = BaseTimestampEntityRow
-    Create = BaseTimestampEntityCreate
-    Update = BaseTimestampEntityUpdate
-    Filter = BaseTimestampEntityFilter
-    FilterArgs = BaseTimestampEntityFilterArgs
-    Field = BaseTimestampEntityField
-    Order = BaseTimestampEntityOrder
+    pass
 
 
 class EntityOutputChannel[
@@ -1692,7 +1695,7 @@ class EntityOutputChannel[
 
 
 def get_entity_manager(source: Database | Node, entity: type[Entity]) -> BaseEntityManager:
-    naming = entity.__naming__
+    naming = entity.__entity_naming__
     manager = getattr(source, naming.manager, None)
     if manager is None:
         raise ValueError(

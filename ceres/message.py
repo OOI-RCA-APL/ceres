@@ -56,8 +56,8 @@ type MessageDirectionInput = MessageDirection | MessageDirectionRaw
 
 type MessageData = Annotated[
     bytes,
-    BytesFromString("latin-1", "backslashreplace"),
-    BytesToString("latin-1", "backslashreplace"),
+    BytesFromString("latin-1", "ignore"),
+    BytesToString("latin-1", "ignore"),
 ]
 
 
@@ -343,10 +343,14 @@ class MessageOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
+class Message(
+    BaseRecord,
+    MessageCreate,
+    ConcreteEntity[MessageRow],
+    slots=True,
+):
     Manager = MessageManager
     BoundManager = BoundMessageManager
-    Row = MessageRow
     Create = MessageCreate
     Update = MessageUpdate
     Filter = MessageFilter
@@ -356,4 +360,4 @@ class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
     Direction = MessageDirection
     Data = MessageData
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("message")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("message")

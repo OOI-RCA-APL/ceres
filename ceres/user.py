@@ -17,6 +17,7 @@ from ceres.__internal__.entity import (
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
     BaseUUIDEntityRow,
+    ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
@@ -340,10 +341,14 @@ class BoundUserManager(UserManager, BaseNodeManager):
         super().__init__(source)
 
 
-class User(BaseUUIDEntity, UserCreate, slots=True):
+class User(
+    BaseUUIDEntity,
+    UserCreate,
+    ConcreteEntity[UserRow],
+    slots=True,
+):
     Manager = UserManager
     BoundManager = BoundUserManager
-    Row = UserRow
     Create = UserCreate
     Update = UserUpdate
     Filter = UserFilter
@@ -352,6 +357,6 @@ class User(BaseUUIDEntity, UserCreate, slots=True):
     Order = UserOrder
     Role = UserRole
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("user")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("user")
 
     password: PasswordHash

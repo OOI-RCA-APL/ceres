@@ -442,7 +442,7 @@ def assert_found[T](value: T | None, /) -> T:
 
 
 def create_record_get_route(router: Router, Record: type[Record]):
-    naming = Record.__naming__
+    naming = Record.__entity_naming__
 
     async def get(engine: CurrentEngine, id: UUID):
         filter = cast("type[MessageFilter]", Record.Filter)(id=id)
@@ -458,7 +458,7 @@ def create_record_get_route(router: Router, Record: type[Record]):
 
 
 def create_record_get_all_route(router: Router, Record: type[Record], limit: int):
-    naming = Record.__naming__
+    naming = Record.__entity_naming__
 
     async def get_all(
         engine: CurrentEngine,
@@ -480,7 +480,7 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
 
 
 def create_record_count_route(router: Router, Record: type[Record]):
-    naming = Record.__naming__
+    naming = Record.__entity_naming__
 
     async def count(
         engine: CurrentEngine,
@@ -497,7 +497,7 @@ def create_record_count_route(router: Router, Record: type[Record]):
 
 
 def create_record_stream_route(router: Router, Record: type[Record]):
-    naming = Record.__naming__
+    naming = Record.__entity_naming__
 
     async def stream(
         socket: CurrentSocket,
@@ -552,13 +552,6 @@ SELF_OR_ADMIN = Depends(_require_self_or_admin)
 
 
 def Limit[FilterT: BaseEntityFilter](max: int) -> AfterValidator:
-    """
-    Decorator to validate limits for a filter.
-
-    :param default: Default limit if not specified.
-    :param max: Maximum limit allowed.
-    """
-
     def validate_limit(filter: FilterT) -> FilterT:
         if filter.limit is None:
             filter = filter.model_copy(update={"limit": max})

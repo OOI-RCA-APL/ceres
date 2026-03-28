@@ -36,6 +36,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
+    ConcreteEntity,
     EntityNaming,
     EntityOutputChannel,
     EntityQuery,
@@ -53,7 +54,7 @@ from ceres.__internal__.record import (
     BaseRecordUpdate,
 )
 from ceres.__internal__.utilities.classes import fields_cached_class_property
-from ceres.__internal__.utilities.typing import get_field_type
+from ceres.__internal__.utilities.typing import extract_annotation
 from ceres.__internal__.utilities.undefined import Undefined
 from ceres.address import Address
 from ceres.data import (
@@ -90,7 +91,6 @@ __all__ = [
     "ParseableParticle",
     "RegexParticle",
     "BinaryParticle",
-    "BinaryParticleData",
     "BinaryRegexParticle",
     "GroupedRegexParticle",
     "ParseFailed",
@@ -512,10 +512,15 @@ class ParticleOutputChannel(
 _particle_class_is_defined = False
 
 
-class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
+class Particle(
+    BaseRecord,
+    ParticleCreate,
+    ConcreteEntity[ParticleRow],
+    Generic[DataT],
+    slots=True,
+):
     Manager = ParticleManager
     BoundManager = BoundParticleManager
-    Row = ParticleRow
     Create = ParticleCreate
     Update = ParticleUpdate
     Filter = ParticleFilter
@@ -525,7 +530,8 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
 
     __abstract__: ClassVar[bool] = False
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("particle")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("particle")
+    __entity_row_exclude__: ClassVar[set[str]] = {"span"}
 
     data: DataT
     span: Annotated[
@@ -540,7 +546,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
     @fields_cached_class_property
     @classmethod
     def Data(cls) -> type[DataT]:
-        return get_field_type(cls.__data_object_fields__["data"])
+        return extract_annotation(cls.__data_object_fields__["data"]).type
 
     @classmethod
     @override
@@ -550,7 +556,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
             return
 
         if "__abstract__" not in cls.__dict__:
-            cls.__abstract__ = cls.__data_object_is_generic_alias__
+            cls.__abstract__ = cls.__data_object_generic_alias__ is not None
 
         if not cls.__abstract__:
             if not isinstance(cls.__dict__.get("type"), str):
@@ -796,7 +802,7 @@ class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
         if "__abstract__" not in cls.__dict__:
             cls.__abstract__ = False
 
-        if cls.__abstract__ or cls.__data_object_is_generic_alias__:
+        if cls.__abstract__ or cls.__data_object_generic_alias__ is not None:
             return
 
         regex = getattr(cls, "regex", None)

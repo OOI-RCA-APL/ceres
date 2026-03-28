@@ -20,6 +20,11 @@ from ceres.__internal__.utilities.classes import (
     class_property,
     get_declared_slots,
 )
+from ceres.__internal__.utilities.typing import (
+    get_generic_superclass_argument,
+    is_generic_alias,
+    is_generic_alias_like,
+)
 from ceres.data import (
     DataModel,
     DataObject,
@@ -438,7 +443,7 @@ def test_class_property_and_dataclasses(
 
 
 def test_default_config():
-    from ceres.data import _DATA_OBJECT_DEFAULT_CONFIG
+    from ceres.data.objects import _DATA_OBJECT_DEFAULT_CONFIG
 
     assert DataObject.__pydantic_config__ == {
         "title": "DataObject",
@@ -623,14 +628,23 @@ def test_generics():
     assert Base.__data_object_fields__["value"].annotation is Base.__type_params__[0]
     assert Base[str].__data_object_fields__["value"].annotation is str
     assert Base[str] is Base[str]
+    if not TYPE_CHECKING:
+        assert not is_generic_alias(Base[str])
+        assert is_generic_alias_like(Base[str])
+
+    assert get_generic_superclass_argument(Base[str], Base, 0) is str
 
     class Inherited[TI](Base[TI]):
         pass
 
     assert Inherited[str].__data_object_fields__["value"].annotation is str
-    assert Inherited[str].__data_object_is_generic_alias__
+    assert Inherited[str].__data_object_generic_alias__ is not None
+    assert get_generic_superclass_argument(Inherited[str], Inherited, 0) is str
+    assert get_generic_superclass_argument(Inherited[str], Base, 0) is str
 
     class PartiallySpecialized(Inherited[int]):
         pass
 
-    assert not PartiallySpecialized.__data_object_is_generic_alias__
+    assert PartiallySpecialized.__data_object_generic_alias__ is None
+    assert get_generic_superclass_argument(Inherited[int], Inherited, 0) is int
+    assert get_generic_superclass_argument(Inherited[int], Base, 0) is int

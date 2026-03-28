@@ -345,10 +345,14 @@ class AlertOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Alert(BaseRecord, AlertCreate, ConcreteEntity, slots=True):
+class Alert(
+    BaseRecord,
+    AlertCreate,
+    ConcreteEntity[AlertRow],
+    slots=True,
+):
     Manager = AlertManager
     BoundManager = BoundAlertManager
-    Row = AlertRow
     Create = AlertCreate
     Update = AlertUpdate
     Filter = AlertFilter
@@ -357,4 +361,4 @@ class Alert(BaseRecord, AlertCreate, ConcreteEntity, slots=True):
     Order = AlertOrder
     Level = Level
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("alert")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("alert")

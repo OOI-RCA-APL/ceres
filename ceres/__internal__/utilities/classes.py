@@ -96,9 +96,10 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
 
         from threading import RLock
 
+        lock = RLock()
+
         cache: dict[type | tuple[type, Hashable], Any] = {}
         cache_keys: dict[type[Any], Any] = {}
-        lock = RLock()
 
         if isinstance(key, str):
 
@@ -107,7 +108,16 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
         else:
             key_factory: Callable[[type[C]], Any] | None = key
 
-        if key_factory is not None:
+        if key_factory is None:
+
+            def getter(owner: type[C]) -> V:
+                try:
+                    return cache[owner]
+                except KeyError:
+                    with lock:
+                        return cache.setdefault(owner, fget(owner))
+
+        else:
 
             def getter(owner: type[C]) -> V:
                 if TYPE_CHECKING:
@@ -127,19 +137,9 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
                         pass
 
                 with lock:
-                    value = fget(owner)  # type: ignore
-                    cache_keys[owner] = incoming_key
+                    value = fget(owner)
                     cache[owner] = value
-
-                return value
-        else:
-
-            def getter(owner: type[C]) -> V:
-                value = cache.get(owner, Undefined)
-                if value is Undefined:
-                    with lock:
-                        value = fget(owner)  # type: ignore
-                        value = cache.setdefault(owner, value)
+                    cache_keys[owner] = incoming_key
 
                 return value
 
@@ -150,7 +150,6 @@ class CachedClassProperty[C, V](ClassProperty[C, V]):
 
         self.cache: Final = cache
         self.cache_keys: Final = cache_keys
-        self.lock: Final = lock
         self.key: Final = key
         self.by: Final = by
 

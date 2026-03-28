@@ -370,10 +370,4 @@ class BaseRecord(
     abstract=True,
     slots=True,
 ):
-    Row = BaseRecordRow
-    Create = BaseRecordCreate
-    Update = BaseRecordUpdate
-    Filter = BaseRecordFilter
-    FilterArgs = BaseRecordFilterArgs
-    Field = BaseRecordField
-    Order = BaseRecordOrder
+    pass

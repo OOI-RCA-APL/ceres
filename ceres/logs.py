@@ -17,6 +17,7 @@ from ceres.__internal__.database.types import EnumConstraint, EnumMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
+    ConcreteEntity,
     EntityNaming,
     EntityOutputChannel,
     EntityQuery,
@@ -455,10 +456,14 @@ class LogEntryOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class LogEntry(BaseRecord, LogEntryCreate, slots=True):
+class LogEntry(
+    BaseRecord,
+    LogEntryCreate,
+    ConcreteEntity[LogEntryRow],
+    slots=True,
+):
     Manager = LogManager
     BoundManager = BoundLogManager
-    Row = LogEntryRow
     Create = LogEntryCreate
     Update = LogEntryUpdate
     Filter = LogEntryFilter
@@ -467,7 +472,7 @@ class LogEntry(BaseRecord, LogEntryCreate, slots=True):
     Order = LogEntryOrder
     Level = Level
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming(
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming(
         singular="log entry",
         plural="log entries",
         container="logs",

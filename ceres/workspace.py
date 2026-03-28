@@ -18,7 +18,6 @@ from sqlalchemy.sql.elements import literal_column
 
 from ceres.__internal__.database.types import EnumConstraint, EnumMapper, UUIDMapper
 from ceres.__internal__.entity import (
-    BaseEntity,
     BaseEntityCreate,
     BaseEntityFilter,
     BaseEntityFilterArgs,
@@ -33,6 +32,7 @@ from ceres.__internal__.entity import (
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
     BaseUUIDEntityRow,
+    ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
@@ -250,9 +250,12 @@ class WorkspaceMembershipManager(
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
-class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate, slots=True):
+class WorkspaceMembership(
+    WorkspaceMembershipCreate,
+    ConcreteEntity[WorkspaceMembershipRow],
+    slots=True,
+):
     Manager = WorkspaceMembershipManager
-    Row = WorkspaceMembershipRow
     Create = WorkspaceMembershipCreate
     Update = WorkspaceMembershipUpdate
     Filter = WorkspaceMembershipFilter
@@ -261,7 +264,7 @@ class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate, slots=True):
     Order = WorkspaceMembershipOrder
     Role = WorkspaceMembershipRole
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace membership")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("workspace membership")
 
 
 class WorkspaceEditRow(BaseEntityRow, kw_only=True):
@@ -426,9 +429,12 @@ class WorkspaceEditManager(
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
-class WorkspaceEdit(BaseEntity, WorkspaceEditCreate, slots=True):
+class WorkspaceEdit(
+    WorkspaceEditCreate,
+    ConcreteEntity[WorkspaceEditRow],
+    slots=True,
+):
     Manager = WorkspaceEditManager
-    Row = WorkspaceEditRow
     Create = WorkspaceEditCreate
     Update = WorkspaceEditUpdate
     Filter = WorkspaceEditFilter
@@ -436,7 +442,7 @@ class WorkspaceEdit(BaseEntity, WorkspaceEditCreate, slots=True):
     Field = WorkspaceEditField
     Order = WorkspaceEditOrder
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace edit")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("workspace edit")
 
 
 def _membership_roles_ge(access: WorkspaceMembershipRole) -> list[WorkspaceMembershipRole]:
@@ -765,9 +771,13 @@ class WorkspaceManager(
         return await self.where(id=id).first()
 
 
-class Workspace(BaseUUIDEntity, WorkspaceCreate, slots=True):
+class Workspace(
+    BaseUUIDEntity,
+    WorkspaceCreate,
+    ConcreteEntity[WorkspaceRow],
+    slots=True,
+):
     Manager = WorkspaceManager
-    Row = WorkspaceRow
     Create = WorkspaceCreate
     Update = WorkspaceUpdate
     Filter = WorkspaceFilter
@@ -778,4 +788,4 @@ class Workspace(BaseUUIDEntity, WorkspaceCreate, slots=True):
     Edit = WorkspaceEdit
     Membership = WorkspaceMembership
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("workspace")

@@ -1,6 +1,7 @@
 import typing
 from asyncio import Future
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
@@ -16,12 +17,10 @@ from typing import (
     overload,
 )
 
+from pydantic.fields import FieldInfo
 from typing_inspection import typing_objects
 
 from ceres.__internal__.utilities.caching import cached
-
-if TYPE_CHECKING:
-    from pydantic.fields import FieldInfo
 
 Stringy: TypeAlias = str | bytes | bytearray | memoryview
 
@@ -177,8 +176,34 @@ _TRANSPARENT_ARGS_TYPES = {
 }
 
 
-def extract_annotation(annotation: Any, /) -> tuple[Any, list[Any]]:
-    current = annotation
+@dataclass(frozen=True, kw_only=True)
+class AnnotationInfo:
+    annotation: Any
+    """The original type annotation."""
+    type: Any
+    """The inner type of the annotation, before any generic arguments are applied."""
+    generic: GenericAlias | None
+    """The generic alias of the annotation, provided it is a generic type."""
+    metadata: tuple[Any, ...]
+    """The metadata extracted from the annotation."""
+
+    @property
+    def generic_args(self) -> tuple[Any, ...]:
+        if self.generic is None:
+            return ()
+
+        return typing.get_args(self.generic)
+
+
+def extract_annotation(annotation: Any | FieldInfo, /) -> AnnotationInfo:
+    field_metadata: list[Any] = []
+
+    if isinstance(annotation, FieldInfo):
+        field_metadata = list(annotation.metadata)
+        current = annotation.annotation
+    else:
+        current = annotation
+
     metadata: list[Any] = []
 
     while True:
@@ -196,38 +221,31 @@ def extract_annotation(annotation: Any, /) -> tuple[Any, list[Any]]:
 
                 continue
 
-        return current, metadata
+        break
 
+    inner = current
+    generic_origin = get_origin(inner)
+    generic: GenericAlias | None = None
+    if generic_origin is not None:
+        generic = inner  # type: ignore
+        inner = generic_origin
 
-def extract_field_annotation(field: FieldInfo, /) -> tuple[Any, list[Any]]:
-    type, metadata = extract_annotation(field.annotation)
-    return type, [*field.metadata, *metadata]
+    if field_metadata:
+        field_metadata_ids = {id(item) for item in field_metadata}
+        for current_meta in metadata:
+            if id(current_meta) not in field_metadata_ids:
+                field_metadata.append(current_meta)
 
+        combined_metadata = tuple(field_metadata)
+    else:
+        combined_metadata = tuple(metadata)
 
-def get_annotated_metadata(annotation: Any, /) -> list[Any]:
-    _, metadata = extract_annotation(annotation)
-    return metadata
-
-
-def get_annotated_type(annotation: Any, /) -> Any:
-    inner, _ = extract_annotation(annotation)
-    return inner
-
-
-def get_field_metadata(field: FieldInfo, /) -> list[Any]:
-    metadata = list(field.metadata)
-    metadata_ids: set[int] = set()
-    for current in get_annotated_metadata(field.annotation):
-        current_id = id(current)
-        if current_id not in metadata_ids:
-            metadata.append(current)
-            metadata_ids.add(current_id)
-
-    return metadata
-
-
-def get_field_type(field: FieldInfo, /) -> Any:
-    return get_annotated_type(field.annotation)
+    return AnnotationInfo(
+        annotation=annotation,
+        type=inner,
+        generic=generic,
+        metadata=combined_metadata,
+    )
 
 
 def get_return_annotation(
@@ -260,9 +278,17 @@ def is_generic_alias(obj: Any, /) -> TypeIs[GenericAlias]:
 def is_generic_alias_like(cls: Any, /) -> TypeIs[GenericAlias]:
     if is_generic_alias(cls):
         return True
-    if getattr(cls, "__origin__", None) is None:
+
+    __origin__ = getattr(cls, "__origin__", None)
+    if __origin__ is None:
         return False
-    if not getattr(cls, "__args__", ()):
+
+    __args__ = getattr(cls, "__args__", ())
+    if not isinstance(__args__, tuple) or not __args__:
+        return False
+
+    __parameters__ = getattr(cls, "__parameters__", ())
+    if not isinstance(__parameters__, tuple):
         return False
 
     return True
@@ -273,8 +299,8 @@ def is_assignable(
     assigned_type: Any,
     /,
 ) -> bool:
-    assigned_type = get_annotated_type(assigned_type)
-    variable_type = get_annotated_type(variable_type)
+    assigned_type = extract_annotation(assigned_type).type
+    variable_type = extract_annotation(variable_type).type
 
     if assigned_type is Any or variable_type is Any:
         return True
