@@ -25,15 +25,8 @@ from ceres.__internal__.utilities.typing import (
     is_generic_alias,
     is_generic_alias_like,
 )
-from ceres.data import (
-    DataModel,
-    DataObject,
-    DataObjectAbstract,
-    DataObjectClassInvalid,
-    FieldsSet,
-    to_json,
-    validate,
-)
+from ceres.data import DataModel, DataObject, to_json, validate
+from ceres.data.object import DataObjectAbstract, DataObjectClassInvalid, FieldsSet
 
 
 @pytest.mark.parametrize("frozen", [False, True])
@@ -443,7 +436,7 @@ def test_class_property_and_dataclasses(
 
 
 def test_default_config():
-    from ceres.data.objects import _DATA_OBJECT_DEFAULT_CONFIG
+    from ceres.data.object import _DATA_OBJECT_DEFAULT_CONFIG
 
     assert DataObject.__pydantic_config__ == {
         "title": "DataObject",

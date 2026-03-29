@@ -77,26 +77,14 @@ if TYPE_CHECKING:
     from ceres.data import MaybeClass
 
 __all__ = [
-    # Protocols / Type Helpers
-    "Dataclass",
-    "PydanticDataclass",
-    # Core classes
     "DataObject",
-    "DataModel",
-    "ImmutableDataModel",
-    "DataObjectMetaclass",
-    "DataObjectConfigDict",
-    "DataObjectClassInvalid",
-    "DataObjectAbstract",
-    "FieldsSet",
-    # Functions
     "create",
     "construct",
     "fields_of",
     "computed_fields_of",
-    "items_of",
     "fields_set_on",
     "to_dict",
+    "to_items",
     "replacing",
     "defaulting",
     "WithDefaults",
@@ -175,7 +163,7 @@ def _as_class[T](obj: MaybeClass[T]) -> type[T]:
 
 
 def _decorators_of(cls: type[PydanticDataclass]) -> Iterable[tuple[str, Decorator]]:
-    for _, decorators in items_of(cls.__pydantic_decorators__):
+    for _, decorators in to_items(cls.__pydantic_decorators__):
         if isinstance(decorators, Mapping):
             yield from decorators.items()
 
@@ -251,7 +239,7 @@ def computed_fields_of(
     return fields
 
 
-def items_of(
+def to_items(
     obj: _SupportsPydanticFields | Dataclass,
     *,
     include: set[str] | None = None,
@@ -307,7 +295,7 @@ def to_dict(
     exclude_computed_fields: bool = True,
 ) -> dict[str, Any]:
     return dict(
-        items_of(
+        to_items(
             obj,
             include=include,
             exclude=exclude,
@@ -335,7 +323,7 @@ def _get_items(
     if isinstance(obj, Mapping):
         return obj.items()
 
-    return items_of(obj, exclude_unset=True)
+    return to_items(obj, exclude_unset=True)
 
 
 def defaulting[T: _SupportsDefaulting](
@@ -1020,7 +1008,7 @@ class DataObject(
                 self.__data_object_fields_set__.add(name)
 
     if TYPE_CHECKING:
-        from ceres.data.objects import __Frozen__ as __Frozen
+        from ceres.data.object import __Frozen__ as __Frozen
 
         @dataclass_transform(
             kw_only_default=True,
@@ -1041,7 +1029,7 @@ class DataObject(
     __data_object_generic_alias__: ClassVar[GenericAlias | None] = None
 
     if TYPE_CHECKING:
-        from ceres.data.objects import DataObject as __DataObject
+        from ceres.data.object import DataObject as __DataObject
 
         __data_object_class__: ClassVar[type[DataObject]] = __DataObject
 
@@ -1416,7 +1404,7 @@ class DataObject(
             fields_set |= changes.keys()
 
             field_values = changes
-            for field, value in items_of(self):
+            for field, value in to_items(self):
                 field_values.setdefault(field, value)
 
             copy = self.__class__(**field_values)
@@ -1607,11 +1595,6 @@ def _is_data_object_type(obj: object, /) -> TypeIs[type[DataObject]]:
     return isinstance(obj, type) and hasattr(obj, "__data_object_fields__")
 
 
-# -------------------------------------------------------------------------------------
-# to_kwargs
-# -------------------------------------------------------------------------------------
-
-
 def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
     if isinstance(method, classmethod):
         function = method.__func__
@@ -1635,11 +1618,6 @@ def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
         wrapper = classmethod(wrapper)  # type: ignore
 
     return wrapper  # type: ignore
-
-
-# -------------------------------------------------------------------------------------
-# DataModel
-# -------------------------------------------------------------------------------------
 
 
 class DataModel(BaseModel):
@@ -1688,20 +1666,11 @@ for attribute, value in DataObject.__dict__.items():
         setattr(DataModel, attribute, __proxy_data_object_class_item(value))
 
 
-class ImmutableDataModel(DataModel):
-    model_config = ConfigDict(frozen=True)
-
-
 if TYPE_CHECKING:
     # This is just to ensure that `ValidatedDataclass` is recognized as a valid Pydantic dataclass
     # type for type checking purposes without actually inheriting from `typing.Protocol` which
     # inherits from `typing.Generic` and causes issues with `dataclasses.dataclass`.
     __ensure_is_pydantic_dataclass: type[PydanticDataclass] = DataObject
-
-
-# -------------------------------------------------------------------------------------
-# create / construct
-# -------------------------------------------------------------------------------------
 
 
 def create[T: DataObject | BaseModel](

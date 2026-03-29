@@ -105,10 +105,6 @@ __all__ = [
     "Ref",
     "Reference",
     "unref",
-    # .result
-    "Fail",
-    "Ok",
-    "Result",
     # .schedule
     "Schedule",
     "ScheduleType",
@@ -205,7 +201,6 @@ with __lazy_imports__(__name__, export=True):
     )
     from ceres.record import Record, RecordType
     from ceres.reference import Ref, Reference, unref
-    from ceres.result import Fail, Ok, Result
     from ceres.schedule import Schedule, ScheduleType
     from ceres.server import (
         Client,

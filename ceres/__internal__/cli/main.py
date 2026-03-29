@@ -34,7 +34,6 @@ from ceres.address import Address, AddressSelector
 from ceres.concurrency import cancel, el, race, spawn
 from ceres.data import to_json
 from ceres.error import Failure
-from ceres.result import Fail, Ok
 
 if TYPE_CHECKING:
     from ceres.database import Database
@@ -485,13 +484,12 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             _set_current_process_name("ceres")
 
             engine = Engine()
-            match await engine.load(config_path):
-                case Ok():
-                    pass
-                case Fail() as fail:
-                    raise CLICommandFailed(
-                        f"Failed to load engine with current configuration. {to_json(fail.error, indent=2)}"
-                    )
+            try:
+                await engine.load(config_path)
+            except Failure as failure:
+                raise CLICommandFailed(
+                    f"Failed to load engine with current configuration. {to_json(failure.error, indent=2)}"
+                )
 
             exiting = AsyncEvent()
 

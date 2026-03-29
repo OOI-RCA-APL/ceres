@@ -426,7 +426,7 @@ _struct_schema_cache: dict[Any, PackingSchema] = {}
 def _infer_packing_schema(
     extracted: AnnotationInfo,
 ) -> PackingSchema | None:
-    from ceres.data.objects import _supports_pydantic_fields, fields_of
+    from ceres.data.object import _supports_pydantic_fields, fields_of
 
     annotated_type = extracted.type
 
@@ -529,6 +529,10 @@ def packed(annotation: FieldInfo | TypeInput) -> PackingSchema:
 
 
 def pack(value: Any, schema: PackingSchema | None = None) -> bytes:
+    """
+    Serialize a value into binary data using the given packing schema. If no schema is provided, a
+    schema will be inferred from the type of `value`.
+    """
     if schema is None:
         schema = packed(type(value))
 
@@ -536,6 +540,9 @@ def pack(value: Any, schema: PackingSchema | None = None) -> bytes:
 
 
 def unpack(type: FieldInfo | TypeInput, data: bytes, /, offset: int = 0) -> Any:
+    """
+    Deserialize an instance of the given type from binary data.
+    """
     return packed(type).unpack(data, offset)
 
 

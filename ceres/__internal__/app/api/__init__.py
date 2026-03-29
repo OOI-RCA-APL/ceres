@@ -3,22 +3,22 @@ from typing import Any
 from fastapi import Response
 from starlette.responses import RedirectResponse
 
-from ceres.__internal__.app.api.routes.alerts import router as router__alerts
-from ceres.__internal__.app.api.routes.auth import router as router__auth
-from ceres.__internal__.app.api.routes.components import router as router__components
-from ceres.__internal__.app.api.routes.config import router as router__config
-from ceres.__internal__.app.api.routes.logs import router as router__logs
-from ceres.__internal__.app.api.routes.messages import router as router__messages
-from ceres.__internal__.app.api.routes.particles import router as router__particles
-from ceres.__internal__.app.api.routes.settings import router as router__settings
-from ceres.__internal__.app.api.routes.statistics import router as router__statistics
-from ceres.__internal__.app.api.routes.statuses import router as router__statuses
-from ceres.__internal__.app.api.routes.users import router as router__users
-from ceres.__internal__.app.api.routes.workspace_edits import router as router__workspace_edits
+from ceres.__internal__.app.api.routes.alerts import router as _router__alerts
+from ceres.__internal__.app.api.routes.auth import router as _router__auth
+from ceres.__internal__.app.api.routes.components import router as _router__components
+from ceres.__internal__.app.api.routes.config import router as _router__config
+from ceres.__internal__.app.api.routes.logs import router as _router__logs
+from ceres.__internal__.app.api.routes.messages import router as _router__messages
+from ceres.__internal__.app.api.routes.particles import router as _router__particles
+from ceres.__internal__.app.api.routes.settings import router as _router__settings
+from ceres.__internal__.app.api.routes.statistics import router as _router__statistics
+from ceres.__internal__.app.api.routes.statuses import router as _router__statuses
+from ceres.__internal__.app.api.routes.users import router as _router__users
+from ceres.__internal__.app.api.routes.workspace_edits import router as _router__workspace_edits
 from ceres.__internal__.app.api.routes.workspace_memberships import (
-    router as router__workspace_memberships,
+    router as _router__workspace_memberships,
 )
-from ceres.__internal__.app.api.routes.workspaces import router as router__workspaces
+from ceres.__internal__.app.api.routes.workspaces import router as _router__workspaces
 from ceres.__internal__.app.shared import OPERATOR, CurrentEngine, Router
 from ceres.__internal__.utilities.collections import uniq
 from ceres.address import Address
@@ -27,24 +27,23 @@ from ceres.concurrency import concurrently
 from ceres.config import Config
 from ceres.data import DataObject
 from ceres.error import Failure, NotFoundError
-from ceres.result import Fail, Ok
 
 router = Router(prefix="/api")
 
-router.include_router(router__alerts)
-router.include_router(router__auth)
-router.include_router(router__components)
-router.include_router(router__config)
-router.include_router(router__logs)
-router.include_router(router__messages)
-router.include_router(router__particles)
-router.include_router(router__settings)
-router.include_router(router__statistics)
-router.include_router(router__statuses)
-router.include_router(router__users)
-router.include_router(router__workspace_edits)
-router.include_router(router__workspace_memberships)
-router.include_router(router__workspaces)
+router.include_router(_router__alerts)
+router.include_router(_router__auth)
+router.include_router(_router__components)
+router.include_router(_router__config)
+router.include_router(_router__logs)
+router.include_router(_router__messages)
+router.include_router(_router__particles)
+router.include_router(_router__settings)
+router.include_router(_router__statistics)
+router.include_router(_router__statuses)
+router.include_router(_router__users)
+router.include_router(_router__workspace_edits)
+router.include_router(_router__workspace_memberships)
+router.include_router(_router__workspaces)
 
 
 @router.get("/alive")
@@ -57,18 +56,9 @@ async def get_api() -> RedirectResponse:
     return RedirectResponse(url="/api/openapi.json")
 
 
-@router.post(
-    "/reload",
-    tags=["engine"],
-    dependencies=[OPERATOR],
-    response_model=Config,
-)
+@router.post("/reload", tags=["engine"], dependencies=[OPERATOR])
 async def reload(engine: CurrentEngine) -> Config:
-    match await engine.reload():
-        case Ok(config):
-            return config
-        case Fail(error):
-            raise Failure(error)
+    return await engine.reload()
 
 
 class StartResult(DataObject):

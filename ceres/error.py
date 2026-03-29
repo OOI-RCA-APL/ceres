@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
 
 import pydantic
-from pydantic import ImportString, ValidationError, computed_field, model_serializer
+from pydantic import ImportString, SerializeAsAny, ValidationError, computed_field, model_serializer
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
@@ -152,6 +152,11 @@ class ComponentJobInvalidError(_ComponentError, slots=True):
     message: str
 
 
+class ComponentUnexpectedError(_ComponentError, slots=True):
+    type: Literal["component-unexpected-error"] = "component-unexpected-error"
+    traceback: list[str]
+
+
 class ComponentCombinedError(_ComponentError, slots=True):
     type: Literal["component-combined-error"] = "component-combined-error"
     errors: list[ComponentError]
@@ -162,6 +167,7 @@ ComponentError: TypeAlias = (
     | ComponentInitExceptionError
     | ComponentReferenceInvalidError
     | ComponentJobInvalidError
+    | ComponentUnexpectedError
     | ComponentCombinedError
 )
 
@@ -398,7 +404,7 @@ class ReloadConfigPathUnsetError(_ReloadError, slots=True):
 
 class ReloadConfigInvalidError(_ReloadError, slots=True):
     type: Literal["reload-config-invalid-error"] = "reload-config-invalid-error"
-    error: ConfigError
+    error: SerializeAsAny[ConfigError]
 
 
 ReloadError: TypeAlias = ReloadConfigPathUnsetError | ReloadConfigInvalidError

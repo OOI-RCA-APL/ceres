@@ -2,8 +2,11 @@ from collections.abc import Iterable
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Self, TypedDict
 
+from pydantic import ConfigDict
+
 from ceres.__internal__.utilities.collections import seq
-from ceres.data import ImmutableDataModel, MaybeSequence, defaulting, replacing
+from ceres.data import MaybeSequence, defaulting, replacing
+from ceres.data.object import DataModel
 
 if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
@@ -20,7 +23,9 @@ class BaseFilterArgs(TypedDict, total=False):
     pass
 
 
-class BaseFilter(ImmutableDataModel):
+class BaseFilter(DataModel):
+    model_config = ConfigDict(frozen=True)
+
     def with_overrides(self, overrides: Self | None) -> Self:
         return replacing(self, overrides)
 

@@ -42,9 +42,11 @@ from ceres.data import (
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.error import (
+    ComponentCombinedError,
     ComponentError,
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
+    ComponentUnexpectedError,
     ComponentValidationError,
     ConfigCombinedError,
     ConfigError,
@@ -63,7 +65,6 @@ from ceres.level import Level
 from ceres.logs import LogEntryFilter
 from ceres.message import MessageFilter
 from ceres.particle import ParticleFilter
-from ceres.result import Fail, Ok, Result
 from ceres.schedule import ScheduleExpr
 
 if TYPE_CHECKING:
@@ -355,13 +356,13 @@ class ComponentConfig(DataObject):
     def create(
         self,
         container: Component | ComponentSystem | Engine | None = None,
-    ) -> Result[Component, list[ComponentError]]:
+    ) -> Component:
         container = as_component_system(container) or as_engine(container)
         instance, errors = self._try_create(container)
         if errors or instance is None:
-            return Fail(errors)
+            raise Failure(ComponentCombinedError(errors=errors))
 
-        return Ok(instance)
+        return instance
 
     def _try_create(
         self,
@@ -617,12 +618,12 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod
-    def read(cls, source: ConfigSource[Self]) -> Result[Self, ConfigError]:
+    def read(cls, source: ConfigSource[Self]) -> Self:
         import yaml
         from yaml import MarkedYAMLError, YAMLError
 
         if isinstance(source, cls):
-            return Ok(source)
+            return source
 
         if isinstance(source, Mapping):
             data = source
@@ -630,13 +631,13 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             try:
                 path = source.resolve()
             except Exception:
-                return Fail(ConfigReadError(message=f"path '{source}' could not be resolved"))
+                raise Failure(ConfigReadError(message=f"path '{source}' could not be resolved"))
 
             try:
                 with open(path) as stream:
                     data = yaml.safe_load(stream)
             except OSError:
-                return Fail(ConfigReadError(message=f"failed to read file at '{path}'"))
+                raise Failure(ConfigReadError(message=f"failed to read file at '{path}'"))
             except YAMLError as error:
                 message: str | None = None
                 location: ConfigParseErrorLocation | None = None
@@ -650,16 +651,16 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
                             column=error.problem_mark.column,
                         )
 
-                return Fail(ConfigParseError(message=message, location=location))
+                raise Failure(ConfigParseError(message=message, location=location))
         else:
-            return Fail(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
+            raise Failure(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
 
         try:
             instance = validate(cls, data)
         except ValidationError as error:
-            return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
+            raise Failure(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 
-        return Ok(instance)
+        return instance
 
     @classmethod
     async def load(
@@ -667,14 +668,9 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         config: ConfigSource[Self],
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
-    ) -> Result[Self, ConfigError]:
+    ) -> Self:
         errors: list[ConfigError] = []
-
-        match cls.read(config):
-            case Ok(config):
-                pass
-            case Fail(error):
-                return Fail(error)
+        config = cls.read(config)
 
         if ConfigCheckType.DATABASE in checks:
             errors.extend(await config._check_database())
@@ -682,9 +678,9 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             errors.extend(await config._check_components())
 
         if errors:
-            return Fail(ConfigCombinedError(errors=errors))
+            raise Failure(ConfigCombinedError(errors=errors))
 
-        return Ok(config)
+        return config
 
     async def _check_database(self) -> list[DatabaseError]:
         from ceres.database import Database
@@ -697,17 +693,9 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             if isinstance(failure.error, DatabaseError):
                 return [failure.error]
 
-            return [
-                DatabaseUnexpectedError(
-                    message=failure.message,
-                )
-            ]
+            return [DatabaseUnexpectedError(message=failure.message)]
         except Exception as exception:
-            return [
-                DatabaseUnreachableError(
-                    message=str(exception),
-                )
-            ]
+            return [DatabaseUnreachableError(message=str(exception))]
 
         return []
 
@@ -761,11 +749,18 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
 
     @override
     async def _check_components(self) -> list[ComponentError]:
-        match self.root.create():
-            case Ok():
-                return []
-            case Fail(errors):
-                return errors
+        try:
+            self.root.create()
+            return []
+        except Failure as failure:
+            if isinstance(failure.error, ComponentCombinedError):
+                return failure.error.errors
+            elif isinstance(failure.error, ComponentError):
+                return [failure.error]
+            else:
+                return [ComponentUnexpectedError(traceback=trace(failure))]
+        except Exception as exception:
+            return [ComponentUnexpectedError(traceback=trace(exception))]
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
         return self.root.get_component(address)
