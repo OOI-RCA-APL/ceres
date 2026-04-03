@@ -20,7 +20,7 @@ const engine = useEngine()
 const client = useClient()
 const time = useTime()
 
-type DataEntry = [string, DataValue]
+type DataEntry = [number, DataValue]
 type Data = Record<string, DataEntry[]>
 
 let instance = $shallowRef<InstanceType<typeof Chart> | null>(null)
@@ -102,7 +102,7 @@ const axisOption: Option = $computed(() => {
       min: xMin,
       max: xMax,
       // Smoothly scroll the X axis as time progresses.
-      ...smoothAnimations,
+      ...(widget.display !== 'bar' ? smoothAnimations : { animation: false }),
     },
     yAxis: {
       name: widget.unit ?? '',
@@ -126,8 +126,8 @@ const baseOption: Option = $computed(() => {
         emphasis: {
           scale: false, // Disable showing dot on hover.
         } as any,
-        large: true, // Enable large data set optimization.
-        largeThreshold: 100,
+        // large: true, // Enable large data set optimization.
+        // largeThreshold: 100,
       }
 
       return result
@@ -198,7 +198,7 @@ async function load() {
               typeof value === 'boolean'
             ) {
               data[name] ??= []
-              data[name].push([timestamp, value as any])
+              data[name].push([moment.utc(timestamp).valueOf(), value as any])
             }
           }
         }
@@ -402,7 +402,12 @@ client.useStream({
 
       const value = particle.data[series.field]
       if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
-        const entry: DataEntry = [particle.timestamp, value as any]
+        const entry: DataEntry = [moment.utc(particle.timestamp).valueOf(), value as any]
+        console.log(
+          particle.timestamp,
+          entry,
+          moment.utc(moment.utc(particle.timestamp).valueOf()).format()
+        )
         append(series.name, [entry], 'pending')
       }
     }

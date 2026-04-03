@@ -1294,7 +1294,7 @@ class BaseUUIDEntityFilter[
             yield self._sql_match_value(columns.id, self.id)
 
 
-class BaseUUIDEntityCreate(BaseEntity, abstract=True, slots=True):
+class BaseUUIDEntityCreate(BaseEntityCreate, abstract=True, slots=True):
     id: UUID = Field(default_factory=uuid7)
 
 
@@ -1302,7 +1302,7 @@ class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
     pass
 
 
-class BaseUUIDEntity(BaseUUIDEntityCreate, abstract=True, slots=True):
+class BaseUUIDEntity(BaseEntity, BaseUUIDEntityCreate, abstract=True, slots=True):
     pass
 
 
@@ -1371,7 +1371,7 @@ class BaseAddressEntityFilter[
             yield self.address.matches_expression(columns.address, self.root)
 
 
-class BaseAddressEntityCreate(BaseEntity, abstract=True, slots=True):
+class BaseAddressEntityCreate(BaseEntityCreate, abstract=True, slots=True):
     address: Address
 
 
@@ -1379,7 +1379,7 @@ class BaseAddressEntityUpdate(BaseEntityUpdate, total=False):
     address: Address
 
 
-class BaseAddressEntity(BaseAddressEntityCreate, abstract=True, slots=True):
+class BaseAddressEntity(BaseEntity, BaseAddressEntityCreate, abstract=True, slots=True):
     pass
 
 
@@ -1641,7 +1641,7 @@ class BaseTimestampEntityFilter[
         return start, end
 
 
-class BaseTimestampEntityCreate(BaseEntity, abstract=True, slots=True):
+class BaseTimestampEntityCreate(BaseEntityCreate, abstract=True, slots=True):
     timestamp: DateTime = Field(default_factory=utc)
 
 
@@ -1649,7 +1649,7 @@ class BaseTimestampEntityUpdate(BaseEntityUpdate, total=False):
     timestamp: DateTime
 
 
-class BaseTimestampEntity(BaseTimestampEntityCreate, abstract=True, slots=True):
+class BaseTimestampEntity(BaseEntity, BaseTimestampEntityCreate, abstract=True, slots=True):
     pass
 
 

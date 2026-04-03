@@ -176,6 +176,7 @@ PrunerConfig: TypeAlias = (
 class _SieveConfig(DataObject):
     type: Literal["class", "method"]
     name: Name
+    stored: bool = True
     retries: NonNegativeInt | None = None
     retry_delay: PositiveTimeDelta = timedelta(seconds=5)
     filter: MessageFilter | None = None
@@ -222,8 +223,8 @@ class ClassSieveConfig(_SieveConfig):
 
 class MethodSieveConfig(_SieveConfig):
     type: Literal["method"] = "method"
-    connections: Sequence[Name] | None = None
     method: Name
+    connections: Sequence[Name] | None = None
 
     @override
     def create(self, component: Component) -> FunctionSieve:

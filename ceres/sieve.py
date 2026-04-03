@@ -48,17 +48,42 @@ class Sieve[T = Particle](DataObject):
 
 
 type MonoSieveFunction[T: Particle = Particle] = Callable[[Message], T | None | Awaitable[T | None]]
+"""
+A sieve function which parses a single particle from a `Message`, representing a single message
+received on a connection.
+
+The sieve will call this function for each message received. Optionally, the sieve may return
+`None` to indicate that the message did not represent a valid particle, and should be skipped.
+"""
+
 type PolySieveFunction[T: Particle = Particle] = Callable[
     [AsyncIterable[Message]], AsyncIterable[T]
 ]
+"""
+A sieve function which asynchronously yields particles extracted from an `AsyncIterable[Message]`,
+representing a continuous stream of messages received on a connection.
+"""
+
 type BufferSieveFunction[T: Particle = Particle] = Callable[[Buffer], Iterable[T]]
+"""
+A sieve function which yields particles it extracts from a `Buffer` instance, representing a
+window of buffered connection data. The sieve will call this function repeatedly on the buffer every
+time new data appended.
+"""
+
 type SieveFunction[T: Particle = Particle] = MonoSieveFunction[T] | PolySieveFunction[T]
+"""
+A sieve function used by a `Sieve` to parse particles from a stream of messages or buffered data.
+"""
 
 
 class FunctionSieve[T: Particle = Particle](Sieve[T]):
     function: SkipValidation[SieveFunction[T]] = field(kw_only=False)
+    """If `True`, particles derived from the sieve will written to the data base."""
     buffer_size: ByteSize = Field(default=DEFAULT_BUFFER_SIZE, gt=0)
+    """Number of bytes to keep in the buffer before dropping old data."""
     buffer_drop: ByteSize = Field(default=DEFAULT_BUFFER_DROP, gt=0)
+    """Number of bytes to drop from the buffer when it exceeds `buffer_size`."""
 
     @override
     async def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[T]:
@@ -97,10 +122,11 @@ class FunctionSieve[T: Particle = Particle](Sieve[T]):
 
                 async for message in messages:
                     buffer.push(message.data, message.timestamp)
+                    # Drop old data to keep buffer size under limit.
                     if buffer.size > self.buffer_size:
                         buffer.pop_to(self.buffer_size, self.buffer_drop)
 
-                    span: tuple[int, int] | None = None
+                    end: int | None = None
                     for particle in inner(buffer):
                         span = particle.span
                         if span is None:
@@ -108,11 +134,13 @@ class FunctionSieve[T: Particle = Particle](Sieve[T]):
                                 "Buffer sieves must assign `span` of yielded particles."
                             )
 
+                        if end is None or span[1] > end:
+                            end = span[1]
+
                         yield cast("T", particle)
 
-                    # Remove data up to the end of the last particle span.
-                    if span is not None:
-                        _, end = span
+                    # Remove data up to the end of the furthest particle span.
+                    if end is not None:
                         buffer.pop(end)
         else:
             raise TypeError(
@@ -160,7 +188,8 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
                     async for current in sieve.process(
                         self.__system__.messages.stream.where(config.filter)
                     ):
-                        self.__system__.store(current)
+                        if config.stored:
+                            self.__system__.store(current)
                         self.__system__.events.emit(ParticleEvent, particle=current)
                 except Exception as exception:
                     if config.retries is not None:

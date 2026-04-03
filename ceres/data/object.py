@@ -103,6 +103,18 @@ _cached_computed_fields: WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance as __DataclassInstance
 
+    class _DataclassParams(Protocol):
+        kw_only: bool
+        frozen: bool
+        init: bool
+        repr: bool
+        eq: bool
+        order: bool
+        unsafe_hash: bool
+        match_args: bool
+        slots: bool
+        weakref_slot: bool
+
     class Dataclass(__DataclassInstance, Protocol):
         __slots__ = ()
 
@@ -138,6 +150,10 @@ def _is_dataclass(obj: object) -> TypeIs[MaybeClass[Dataclass]]:
     return dataclasses.is_dataclass(obj)
 
 
+def _get_dataclass_params(cls: type[Dataclass]) -> _DataclassParams:
+    return getattr(cls, "__dataclass_params__")
+
+
 def _supports_pydantic_fields(obj: object) -> TypeIs[MaybeClass[_SupportsPydanticFields]]:
     return hasattr(obj, "__pydantic_fields__")
 
@@ -155,7 +171,12 @@ def _as_pydantic_dataclass(cls: type[Dataclass]) -> type[PydanticDataclass]:
     if pydantic.dataclasses.is_pydantic_dataclass(cls):
         return cls
 
-    return pydantic.dataclasses.dataclass(cls, config={"arbitrary_types_allowed": True})
+    return pydantic.dataclasses.dataclass(
+        config={"arbitrary_types_allowed": True},
+        frozen=_get_dataclass_params(cls).frozen,
+    )(
+        cls,
+    )
 
 
 def _as_class[T](obj: MaybeClass[T]) -> type[T]:

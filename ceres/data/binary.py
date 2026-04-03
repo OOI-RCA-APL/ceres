@@ -46,7 +46,6 @@ __all__ = (
     "BytesToString",
 )
 
-import dataclasses
 import re
 from collections.abc import Callable, Mapping
 from copy import replace
@@ -487,7 +486,10 @@ def packed(annotation: FieldInfo | TypeInput) -> PackingSchema:
                     f"{exception}"
                 ) from exception
 
-    if not any(schema for schema in schemas if schema is not PackingSchema):
+    schema_subclass_instances = list(
+        schema for schema in schemas if type(schema) is not PackingSchema
+    )
+    if not schema_subclass_instances:
         inferred = _infer_packing_schema(extracted)
         if inferred is None:
             raise TypeError(f"Failed to infer packing schema for `{annotation}`.")
@@ -497,18 +499,23 @@ def packed(annotation: FieldInfo | TypeInput) -> PackingSchema:
     if len(schemas) == 1:
         schema = schemas[0]
     else:
-        schema_class = type(schemas[0])
+        schema_class = type(schema_subclass_instances[0])
         schema_arguments = {}
 
         for inherited_schema in schemas:
-            if not isinstance(inherited_schema, schema_class) or schema_class is PackingSchema:
+            if type(inherited_schema) is not PackingSchema and not isinstance(
+                inherited_schema, schema_class
+            ):
                 raise TypeError(
                     f"Multiple packing schemas of different types found for "
-                    f"`{annotation}`: {schemas}. All schemas must be of the same type or be a "
-                    f"bare `{PackingSchema.__name__}`."
+                    f"`{annotation}`. All schemas must be of the same type or be a bare "
+                    f"`{PackingSchema.__name__}`. Currently defined non-bare packing schemas "
+                    f"are {schema_subclass_instances}."
                 )
 
-            for inherited_field, inherited_value in dataclasses.asdict(inherited_schema).items():
+            from ceres.data import to_items
+
+            for inherited_field, inherited_value in to_items(inherited_schema):
                 if inherited_value not in (None, MISSING):
                     schema_arguments[inherited_field] = inherited_value
 
@@ -551,7 +558,11 @@ def packable[T: type[Any]](type: T, /) -> T:
     try:
         packed(type)
     except Exception as exception:
-        raise TypeError(f"Type `{type}` is not binary-packable. {exception}") from exception
+        from traceback import format_exception
+
+        raise TypeError(
+            f"Type `{type}` is not binary-packable. {format_exception(exception)}"
+        ) from exception
 
     return type
 

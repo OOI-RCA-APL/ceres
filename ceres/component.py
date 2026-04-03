@@ -979,12 +979,13 @@ def _get_component_method_bindings[T: _MethodBinding](
 class SieveBinding(DataObject.Frozen):
     name: Name
     method: Name
+    stored: bool
     retries: NonNegativeInt | None
     retry_delay: PositiveTimeDelta
     filter: MessageFilter | None
-    connections: tuple[ConnectionField, ...] | None = None
-    buffer_size: ByteSize | None = Field(default=None, gt=0)
-    buffer_drop: ByteSize | None = Field(default=None, gt=0)
+    connections: tuple[ConnectionField, ...] | None
+    buffer_size: ByteSize | None = Field(gt=0)
+    buffer_drop: ByteSize | None = Field(gt=0)
 
 
 type SieveMethod[S, T: Particle] = (
@@ -1005,6 +1006,7 @@ def sieve[S, T: Particle](
     direction: MaybeSequence[MessageDirectionInput] | None = "receive",
     *,
     name: Name | None = None,
+    stored: bool = True,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
     contains: MaybeSequence[MessageData] | None = None,
@@ -1021,6 +1023,7 @@ def sieve[S, T: Particle](
     direction: MaybeSequence[MessageDirectionInput] | None = "receive",
     *,
     name: Name | None = None,
+    stored: bool = True,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
     contains: MaybeSequence[MessageData] | None = None,
@@ -1062,6 +1065,7 @@ def sieve[S, T: Particle](
             SieveBinding(
                 name=name or _get_bound_name(method),
                 method=get_function_name(method),
+                stored=stored,
                 retries=retries,
                 retry_delay=retry_delay,
                 filter=filter,
@@ -1189,6 +1193,7 @@ class ComponentSystem(Node, ComponentSource):
                 binding.name: MethodSieveConfig(
                     name=binding.name,
                     method=binding.method,
+                    stored=binding.stored,
                     retries=binding.retries,
                     retry_delay=binding.retry_delay,
                     filter=binding.filter,
