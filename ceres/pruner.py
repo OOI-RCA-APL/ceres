@@ -4,9 +4,9 @@ from threading import Lock
 from typing import TYPE_CHECKING, Any, cast
 
 from ceres.__internal__.manager import BaseComponentManager
-from ceres.__internal__.utilities.exceptions import trace
 from ceres.concurrency import sleep
 from ceres.entity import EntityType
+from ceres.error import trace
 from ceres.event import (
     PruneCancelledEvent,
     PruneCompletedEvent,
@@ -146,7 +146,7 @@ class PrunerManager(BaseComponentManager):
             self.__system__.events.emit(
                 PruneExceptionEvent,
                 pruner=pruner.name,
-                traceback=trace(exception),
+                exception=trace(exception),
             )
         finally:
             self.__system__.events.emit(PruneEndedEvent, pruner=pruner.name)

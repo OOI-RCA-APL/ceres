@@ -60,7 +60,7 @@ class SensorDriver(Component):
     @sieve(connection)
     async def sieve(self, message: Message) -> SensorParticle | None:
         try:
-            return SensorParticle.parse(message)
+            return SensorParticle.from_message(message)
         except ParseFailed as exception:
             self.system.log.warning(exception)
             return None

@@ -3,7 +3,14 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
 
 import pydantic
-from pydantic import ImportString, SerializeAsAny, ValidationError, computed_field, model_serializer
+from pydantic import (
+    Field,
+    ImportString,
+    SerializeAsAny,
+    ValidationError,
+    computed_field,
+    model_serializer,
+)
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
@@ -19,6 +26,7 @@ from ceres.__internal__.utilities.typing import lenient_isinstance
 from ceres.__internal__.utilities.undefined import Undefined
 from ceres.address import Address, DynamicAddress
 from ceres.data import DataObject, simplify
+from ceres.data.object import construct
 
 if TYPE_CHECKING:
     from fastapi.exceptions import RequestValidationError
@@ -26,6 +34,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Error",
     "Failure",
+    "ExceptionInfo",
     "ValidationProblem",
 ]
 
@@ -57,6 +66,35 @@ class Failure(Exception):
 
         self.error = error
         self.message = str(error.type)
+
+
+class ExceptionInfo(DataObject, slots=True):
+    type: str
+    message: str
+    notes: list[str] | None = Field(
+        default=None,
+        exclude_if=lambda notes: notes is None,
+    )
+    traceback: list[str]
+
+
+def trace(exception: BaseException) -> ExceptionInfo:
+    if not isinstance(exception, BaseException):
+        raise TypeError("Expected exception object.")
+
+    notes = getattr(exception, "__notes__", None)
+    if notes is not None and not isinstance(notes, list):
+        notes = None
+
+    from traceback import format_exception
+
+    return construct(
+        ExceptionInfo,
+        type=type(exception).__name__,
+        message=str(exception),
+        notes=notes,
+        traceback=format_exception(exception),
+    )
 
 
 class ValidationProblem(DataObject, slots=True):
@@ -127,7 +165,7 @@ class ComponentValidationError(_ComponentError, slots=True):
 class ComponentInitExceptionError(_ComponentError, slots=True):
     type: Literal["component-init-exception-error"] = "component-init-exception-error"
     address: Address
-    traceback: list[str]
+    exception: ExceptionInfo
 
 
 if TYPE_CHECKING:
@@ -154,7 +192,7 @@ class ComponentJobInvalidError(_ComponentError, slots=True):
 
 class ComponentUnexpectedError(_ComponentError, slots=True):
     type: Literal["component-unexpected-error"] = "component-unexpected-error"
-    traceback: list[str]
+    exception: ExceptionInfo
 
 
 class ComponentCombinedError(_ComponentError, slots=True):
@@ -205,7 +243,7 @@ class ProcedureInternalError(_ProcedureError, slots=True):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
 
     type: Literal["procedure-internal-error"] = "procedure-internal-error"
-    traceback: list[str]
+    exception: ExceptionInfo
 
 
 ProcedureError: TypeAlias = (
@@ -308,20 +346,19 @@ APIError: TypeAlias = (
 class DatabaseUnreachableError(Error, slots=True):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-unreachable-error"] = "database-unreachable-error"
-    message: str
+    reason: str
 
 
 class DatabaseProgrammingError(Error, slots=True):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-programming-error"] = "database-programming-error"
-    message: str
-    traceback: list[str]
+    exception: ExceptionInfo
 
 
 class DatabaseUnexpectedError(Error, slots=True):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-unexpected-error"] = "database-unexpected-error"
-    message: str
+    reason: str
 
 
 class DatabaseLoadError(Error, slots=True):

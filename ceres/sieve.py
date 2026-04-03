@@ -1,4 +1,3 @@
-import traceback
 from abc import abstractmethod
 from collections.abc import (
     AsyncGenerator,
@@ -14,12 +13,12 @@ from typing import TYPE_CHECKING, cast, override
 from pydantic import ByteSize, Field, SkipValidation
 
 from ceres.__internal__.manager import BaseComponentTaskManager
-from ceres.__internal__.utilities.exceptions import trace
 from ceres.__internal__.utilities.typing import is_assignable
 from ceres.concurrency import awaitify, sleep
 from ceres.connection.buffer import Buffer
 from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_SIZE
 from ceres.data import DataObject, Name
+from ceres.error import trace
 from ceres.event import (
     ParticleEvent,
     SieveAddedEvent,
@@ -164,7 +163,6 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
                         self.__system__.store(current)
                         self.__system__.events.emit(ParticleEvent, particle=current)
                 except Exception as exception:
-                    traceback.print_exc()
                     if config.retries is not None:
                         if retry >= config.retries:
                             break
@@ -179,7 +177,7 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
                     self.__system__.events.emit(
                         SieveExceptionEvent,
                         sieve=config.name,
-                        traceback=trace(exception),
+                        exception=trace(exception),
                     )
                     await sleep(config.retry_delay)
                     self.__system__.events.emit(SieveRetryEvent, sieve=config.name)

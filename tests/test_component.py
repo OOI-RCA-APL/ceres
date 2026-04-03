@@ -326,7 +326,9 @@ async def test_procedure_internal_error(decorator: Any) -> None:
         await component.system.call("test", {"left": 5, "right": 5})
 
     assert isinstance(context.value.error, ProcedureInternalError)
-    assert any('raise Exception("whoops")' in line for line in context.value.error.traceback)
+    assert any(
+        'raise Exception("whoops")' in line for line in context.value.error.exception.traceback
+    )
 
 
 class RoutineComponent(Component):

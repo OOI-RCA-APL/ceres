@@ -9,10 +9,10 @@ from anyio.abc import ByteStream, Listener, SocketAttribute, SocketStream
 from pydantic import NonNegativeInt, model_validator
 
 from ceres import Component, routine
-from ceres.__internal__.utilities.exceptions import trace
 from ceres.__internal__.utilities.platforms import UNIX
 from ceres.concurrency import sleep
 from ceres.data import NonEmptyStr
+from ceres.error import trace
 from ceres.event import (
     ClientConnectedEvent,
     ClientDisconnectedEvent,
@@ -128,7 +128,7 @@ class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
                 self.system.events.emit(
                     ServerBindExceptionEvent,
                     bind=self.bind,
-                    traceback=trace(exception),
+                    exception=trace(exception),
                 )
             finally:
                 await self._cleanup()
@@ -164,8 +164,8 @@ class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
         except Exception as exception:
             self.system.events.emit(
                 ServerProcessingExceptionEvent,
-                traceback=trace(exception),
                 client=bind,
+                exception=trace(exception),
             )
         finally:
             self.system.events.emit(

@@ -49,7 +49,6 @@ from ceres.__internal__.protocols import ComponentSource
 from ceres.__internal__.utilities.algorithms import traverse
 from ceres.__internal__.utilities.caching import cached
 from ceres.__internal__.utilities.collections import OrderedWeakSet, seq
-from ceres.__internal__.utilities.exceptions import trace
 from ceres.__internal__.utilities.functions import get_function_name, get_inner_function
 from ceres.__internal__.utilities.randomize import randstr
 from ceres.__internal__.utilities.text import reprify
@@ -94,6 +93,7 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotSubscribableError,
     ValidationProblem,
+    trace,
 )
 from ceres.event import (
     AttachedEvent,
@@ -112,6 +112,8 @@ from ceres.event import (
     RoutineRestartingEvent,
     RoutineStartedEvent,
     RoutineStoppedEvent,
+    StartExceptionEvent,
+    StopExceptionEvent,
     StoppedEvent,
     StoppingEvent,
     WillDetachEvent,
@@ -246,6 +248,12 @@ class Component(DataObject, ComponentSource):
         return self.__system
 
     def __setup__(self) -> None:
+        pass
+
+    def __start__(self) -> None | Awaitable[None]:
+        pass
+
+    def __stop__(self) -> None | Awaitable[None]:
         pass
 
     def __connectivity__(self) -> Connectivity | None:
@@ -1796,23 +1804,35 @@ class ComponentSystem(Node, ComponentSource):
     @override
     async def __run__(self) -> None:
         try:
-            for component in reversed(self.get_ancestor_components()):
-                component.system.start(all_enabled=False)
+            try:
+                await awaitify(self.component.__start__())
+            except Exception as exception:
+                self.events.emit(StartExceptionEvent, exception=trace(exception))
+            else:
+                try:
+                    for component in reversed(self.get_ancestor_components()):
+                        component.system.start(all_enabled=False)
 
-            await self.__node_sync__()
+                    await self.__node_sync__()
 
-            await concurrently(
-                super().__run__(),
-                self.__run_routines(),
-                self.jobs.__run__(),
-                self.connections.__run__(),
-                self.sieves.__run__(),
-                self.pruners.__run__(),
-            )
-        except Exception:
-            self.log.error("An error occurred during component system execution.", exc_info=True)
-            traceback.print_exc()
-            raise
+                    await concurrently(
+                        super().__run__(),
+                        self.__run_routines(),
+                        self.jobs.__run__(),
+                        self.connections.__run__(),
+                        self.sieves.__run__(),
+                        self.pruners.__run__(),
+                    )
+                except Exception:
+                    self.log.error(
+                        f"An error occurred during component system execution. {traceback.format_exc()}",
+                    )
+                    raise
+        finally:
+            try:
+                await awaitify(self.component.__stop__())
+            except Exception as exception:
+                self.events.emit(StopExceptionEvent, exception=trace(exception))
 
     async def __run_routine(self, binding: RoutineBinding) -> None:
         routine = getattr(self.component, binding.method, None)
@@ -1832,7 +1852,7 @@ class ComponentSystem(Node, ComponentSource):
                     self.events.emit(
                         RoutineExceptionEvent,
                         routine=binding.method,
-                        traceback=trace(exception),
+                        exception=trace(exception),
                     )
                     if binding.restart == RoutineRestartPolicy.ON_EXCEPTION:
                         break
@@ -1913,9 +1933,13 @@ class ComponentSystem(Node, ComponentSource):
 
             raise
         except Exception as exception:
-            traceback = trace(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(
+                ProcedureExceptionEvent,
+                procedure=procedure,
+                exception=info,
+            )
+            raise Failure(ProcedureInternalError(exception=info))
 
     async def call(
         self,
@@ -1955,9 +1979,9 @@ class ComponentSystem(Node, ComponentSource):
                         last = current
                     return last
         except Exception as exception:
-            traceback = trace(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+            raise Failure(ProcedureInternalError(exception=info))
         finally:
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
 
@@ -1987,9 +2011,9 @@ class ComponentSystem(Node, ComponentSource):
                 self.events.emit(ProcedureCancelledEvent, procedure=procedure)
                 raise
             except Exception as exception:
-                traceback = trace(exception)
-                self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-                raise Failure(ProcedureInternalError(traceback=list(traceback)))
+                info = trace(exception)
+                self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+                raise Failure(ProcedureInternalError(exception=info))
 
         try:
             if output is not None:
@@ -2000,9 +2024,9 @@ class ComponentSystem(Node, ComponentSource):
             self.events.emit(ProcedureCancelledEvent, procedure=procedure)
             raise
         except Exception as exception:
-            traceback = trace(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+            raise Failure(ProcedureInternalError(exception=info))
 
     def sync_child_order(self) -> None:
         if self._config is None:

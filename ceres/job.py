@@ -5,8 +5,8 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 from ceres.__internal__.manager import BaseComponentManager
-from ceres.__internal__.utilities.exceptions import trace
 from ceres.concurrency import sleep
+from ceres.error import trace
 from ceres.event import (
     JobAddedEvent,
     JobCancelledEvent,
@@ -168,7 +168,7 @@ class JobManager(BaseComponentManager):
                     self.__system__.events.emit(
                         JobExceptionEvent,
                         job=job.name,
-                        traceback=trace(exception),
+                        exception=trace(exception),
                     )
                     if retry >= job.retries:
                         break

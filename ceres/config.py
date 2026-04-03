@@ -23,7 +23,6 @@ from pydantic import (
 )
 
 from ceres.__internal__.utilities.collections import group_by, seq, uniq
-from ceres.__internal__.utilities.exceptions import trace
 from ceres.__internal__.utilities.typing import as_component_system, as_engine
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
@@ -60,6 +59,7 @@ from ceres.error import (
     DatabaseUnreachableError,
     Failure,
     ValidationProblem,
+    trace,
 )
 from ceres.level import Level
 from ceres.logs import LogEntryFilter
@@ -432,7 +432,7 @@ class ComponentConfig(DataObject):
             errors.append(
                 ComponentInitExceptionError(
                     address=address,
-                    traceback=trace(exception),
+                    exception=trace(exception),
                 )
             )
             return None
@@ -693,9 +693,9 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             if isinstance(failure.error, DatabaseError):
                 return [failure.error]
 
-            return [DatabaseUnexpectedError(message=failure.message)]
+            return [DatabaseUnexpectedError(reason=failure.message)]
         except Exception as exception:
-            return [DatabaseUnreachableError(message=str(exception))]
+            return [DatabaseUnreachableError(reason=str(exception))]
 
         return []
 
@@ -758,9 +758,9 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
             elif isinstance(failure.error, ComponentError):
                 return [failure.error]
             else:
-                return [ComponentUnexpectedError(traceback=trace(failure))]
+                return [ComponentUnexpectedError(exception=trace(failure))]
         except Exception as exception:
-            return [ComponentUnexpectedError(traceback=trace(exception))]
+            return [ComponentUnexpectedError(exception=trace(exception))]
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
         return self.root.get_component(address)
