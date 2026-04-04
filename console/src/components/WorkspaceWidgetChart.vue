@@ -25,7 +25,21 @@ type Data = Record<string, DataEntry[]>
 let instance = $shallowRef<InstanceType<typeof Chart> | null>(null)
 let isInitialized = $ref(false)
 let isLoading = $ref(true)
+let isPaused = $ref(false)
+let frozenXMin = $ref(0)
+let frozenXMax = $ref(0)
 const pending: Data = $ref({})
+
+function togglePause() {
+  if (!isPaused) {
+    frozenXMin = xMin
+    frozenXMax = xMax
+    isPaused = true
+  } else {
+    isPaused = false
+    applyPending()
+  }
+}
 
 const start = $computed(() => {
   if (widget.after != null) {
@@ -82,8 +96,8 @@ const seriesIndexes = $computed(() => {
   return indexes
 })
 
-const xMin = $computed(() => start.valueOf())
-const xMax = $computed(() => (end ?? time.now).valueOf())
+const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
+const xMax = $computed(() => (isPaused ? frozenXMax : (end ?? time.now).valueOf()))
 
 const smoothAnimations = {
   animation: true,
@@ -167,7 +181,7 @@ const baseOption: Option = $computed(() => {
       },
     },
     legend: { show: widget.particles.flatMap((particle) => particle.series).length > 1 },
-    dataZoom: [{ type: 'inside' }],
+    dataZoom: [{ type: 'inside', filterMode: 'none' }],
     series,
     ...baseAxisOption,
   }
@@ -186,6 +200,8 @@ watch([() => instance, () => baseOption], () => {
     })
   } else {
     isInitialized = false
+    // We should reset zoom when chart state changes.
+    isPaused = false
   }
 })
 
@@ -277,7 +293,7 @@ watch(
       return
     }
 
-    if (time.now.diff(lastPendingApplied) >= pendingApplyInterval.asMilliseconds()) {
+    if (!isPaused && time.now.diff(lastPendingApplied) >= pendingApplyInterval.asMilliseconds()) {
       applyPending()
     }
   }
@@ -454,15 +470,48 @@ watchEffect((cleanup) => {
 </script>
 
 <template>
-  <chart
-    ref="instance"
-    :class="(isLoading || isJustLoaded) && $style.interactionDisabled"
-    height="100px"
-    :loading="isLoading"
-  />
+  <div :class="$style.container">
+    <chart
+      ref="instance"
+      :class="[(isLoading || isJustLoaded) && $style.interactionDisabled, $style.chart]"
+      height="100%"
+      :loading="isLoading"
+    />
+    <q-btn
+      :class="$style.pauseButton"
+      color="primary"
+      dense
+      flat
+      :icon="isPaused ? 'play_arrow' : 'pause'"
+      round
+      size="sm"
+      @click="togglePause"
+    />
+  </div>
 </template>
 
 <style lang="scss" module>
+.container {
+  position: relative;
+  height: 100px;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+}
+
+.pauseButton {
+  position: absolute;
+  top: 4px;
+  right: 0;
+  z-index: 1;
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
 .interactionDisabled {
   pointer-events: none;
 }
