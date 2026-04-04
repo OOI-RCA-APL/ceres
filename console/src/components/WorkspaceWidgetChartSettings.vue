@@ -32,10 +32,9 @@ const particlesSchema = $computed<any>(() => ({
         items: {
           type: 'object',
           properties: {
-            name: { type: 'string', title: 'Name', default: 'Series' },
-            field: { type: 'string', title: 'Particle Field' },
+            field: { type: 'string', title: 'Field' },
+            name: { type: 'string', title: 'Label' },
           },
-          required: ['name'],
         },
       },
     },

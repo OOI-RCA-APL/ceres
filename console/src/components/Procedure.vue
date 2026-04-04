@@ -1,6 +1,4 @@
 <script lang="ts" setup>
-import moment, { Moment } from 'moment'
-
 import { Address } from '@/api/address'
 import { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
@@ -9,9 +7,11 @@ import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import SchemaFormControls from '@/components/schema-form/SchemaFormControls.vue'
 import { useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
+import { utc, type Datetime } from '@/time'
 import { displayDuration, useTime } from '@/time'
+import type { Plain } from '@/utilities'
 
-let argumentsModel = $(defineModel<unknown>('arguments', { required: false }))
+let argumentsModel: unknown = $(defineModel<unknown>('arguments', { required: false }))
 
 const props = defineProps<{
   address: Address
@@ -28,8 +28,8 @@ const time = useTime()
 const engine = useEngine()
 
 let result = $ref<any>(undefined)
-let sentAt = $ref<Moment | null>(null)
-let receivedAt = $ref<Moment | null>(null)
+let sentAt = $ref<Datetime | null>(null)
+let receivedAt = $ref<Datetime | null>(null)
 
 const resultJson = $computed(() => {
   try {
@@ -42,7 +42,7 @@ const resultJson = $computed(() => {
 const options = $computed(() => {
   if (hasArgumentsModel) {
     return {
-      value: () => argumentsModel,
+      value: () => argumentsModel as Plain,
       onUpdate: (value: unknown) => {
         argumentsModel = value
       },
@@ -58,13 +58,13 @@ const options = $computed(() => {
 })
 
 const form = useSchemaForm({
-  ...options,
+  ...(options as any),
   schema: () => procedure.arguments.json_schema,
   async onSubmit(args) {
-    sentAt = moment.utc()
+    sentAt = utc()
     receivedAt = null
     result = await engine.components.call(address, procedure.name, args)
-    receivedAt = moment.utc()
+    receivedAt = utc()
   },
 })
 
@@ -104,13 +104,13 @@ if (!form.isValid) {
             <template v-if="receivedAt">
               <span class="q-mx-xs">⸱</span>
               <span>
-                {{ displayDuration(time.now.diff(receivedAt, 'seconds'), { short: true }) }} ago
+                {{ displayDuration(time.now.diff(receivedAt, 'second'), { short: true }) }} ago
               </span>
             </template>
             <template v-if="receivedAt && sentAt">
               <span class="q-mx-xs">⸱</span>
               <span>
-                {{ displayDuration(receivedAt.diff(sentAt, 'seconds', true), { short: true }) }}
+                {{ displayDuration(receivedAt.diff(sentAt) / 1000, { short: true }) }}
               </span>
             </template>
           </span>

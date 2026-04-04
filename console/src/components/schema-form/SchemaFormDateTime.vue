@@ -1,8 +1,7 @@
 <script lang="ts" setup>
-import moment from 'moment'
-
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
+import { utc } from '@/time'
 
 let modelValue = $(defineModel<unknown>({ required: true }))
 
@@ -12,11 +11,17 @@ defineProps<{
   path: SchemaPath
 }>()
 
-const inputPattern = 'YYYY-MM-DD HH:mm:ss.SSS'
-const outputPattern = 'YYYY-MM-DD HH:mm:ss.SSS+00:00'
+const outputFormat = 'YYYY-MM-DD HH:mm:ss.SSSZ'
+const inputFormats = [
+  outputFormat,
+  'YYYY-MM-DD HH:mm:ss.SSS',
+  'YYYY-MM-DD HH:mm:ss',
+  'YYYY-MM-DD HH:mm',
+  'YYYY-MM-DD',
+] as const
 
 const resolved = $computed(() => resolve(modelValue))
-const valueOrNow = $computed(() => moment.utc(resolved ?? moment.utc()))
+const valueOrNow = $computed(() => utc(resolved ?? utc()))
 
 function resolve(value: unknown): string | undefined {
   if (value == null) {
@@ -29,9 +34,9 @@ function resolve(value: unknown): string | undefined {
     }
   }
 
-  const parsed = moment.utc(value, inputPattern)
+  const parsed = utc(value as any, inputFormats, false)
   if (parsed.isValid()) {
-    return parsed.format(outputPattern)
+    return parsed.format(outputFormat)
   }
 
   return undefined
@@ -52,6 +57,12 @@ function format(value: unknown) {
   if (resolved.endsWith(' 00:00')) {
     resolved = resolved.slice(0, resolved.lastIndexOf(' ')).trim()
   }
+  if (resolved.endsWith('+00:00')) {
+    resolved = resolved.slice(0, resolved.lastIndexOf('+')).trim()
+  }
+  if (resolved.endsWith('Z')) {
+    resolved = resolved.slice(0, resolved.lastIndexOf('Z')).trim()
+  }
 
   return resolved
 }
@@ -59,18 +70,15 @@ function format(value: unknown) {
 const presets = [
   {
     label: 'Now',
-    factory: () => resolve(moment.utc()),
+    factory: () => resolve(utc()),
   },
   {
     label: 'Today (UTC)',
-    factory: () => resolve(moment.utc().set({ hour: 0, minute: 0, second: 0, millisecond: 0 })),
+    factory: () => resolve(utc().hour(0).minute(0).second(0).millisecond(0)),
   },
   {
     label: 'Yesterday (UTC)',
-    factory: () =>
-      resolve(
-        moment.utc().subtract(1, 'day').set({ hour: 0, minute: 0, second: 0, millisecond: 0 })
-      ),
+    factory: () => resolve(utc().subtract(1, 'day').hour(0).minute(0).second(0).millisecond(0)),
   },
   {
     label: '-1 Hour',

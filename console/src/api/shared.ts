@@ -1,17 +1,17 @@
-import moment from 'moment'
 import Zod, { ZodTypeAny } from 'zod'
 
 import type { Alert } from '@/api/alerts'
 import type { LogEntry } from '@/api/logs'
 import type { Message } from '@/api/messages'
 import type { Particle } from '@/api/particles'
+import { duration, utc } from '@/time'
 
 export const NameStrModel = Zod.string().regex(/[a-zA-Z\-\_][a-zA-Z0-9\-\_]*/)
 export const EmailStrModel = Zod.string().regex(/.+@.+/)
 export const NonEmptyStrModel = Zod.string().regex(/.+/)
 
-export const DateTimeModel = Zod.string().refine((value) => moment.utc(value).isValid())
-export const TimeDeltaModel = Zod.string().refine((value) => moment.duration(value).isValid())
+export const DateTimeModel = Zod.string().refine((value) => utc(value).isValid())
+export const TimeDeltaModel = Zod.string().refine((value) => duration(value).isValid())
 
 export type Record = Message | Alert | LogEntry | Particle
 

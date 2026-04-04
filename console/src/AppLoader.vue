@@ -1,12 +1,12 @@
 <script lang="ts" setup>
 import { useEventListener } from '@vueuse/core'
-import moment from 'moment'
 import { useMeta, useQuasar } from 'quasar'
 import { onMounted, watchEffect } from 'vue'
 
 import { useEngine } from '@/api/engine'
 import { useSettings } from '@/api/settings'
 import constants from '@/constants'
+import { duration, utc } from '@/time'
 import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
 import { userCanAccess } from '@/router'
@@ -72,8 +72,7 @@ watchEffect((onInvalidate) => {
     return
   }
 
-  const ms = moment
-    .duration(moment.utc(engine.auth.identity.expires).subtract(1, 'minute').diff(moment()))
+  const ms = duration(utc(engine.auth.identity.expires).subtract(1, 'minute').diff(utc()))
     .asMilliseconds()
 
   const timeout = setTimeout(() => {

@@ -1,10 +1,12 @@
 import Color from 'color'
 import { isEqual, throttle } from 'lodash-es'
-import moment, { Duration, Moment } from 'moment'
 import Prism from 'prismjs'
 import { colors, debounce } from 'quasar'
+import { titleCase } from 'title-case'
 import { ComputedRef, Ref, computed, isRef, shallowRef, watch } from 'vue'
 import { ZodType } from 'zod'
+
+import { duration, isDuration, utc, type Datetime, type Duration } from '@/time'
 
 export type Plain =
   | string
@@ -53,12 +55,12 @@ export function parseDuration(value: string | number | Duration): Duration {
   function getException() {
     return new Error(
       'Invalid time-delta value.' +
-        'Must be a moment duration, a number, or a string number with a unit suffix ' +
+        'Must be a dayjs duration, a number, or a string number with a unit suffix ' +
         "'ms', 's', 'm', 'h', or 'd'."
     )
   }
 
-  if (moment.isDuration(value)) {
+  if (isDuration(value)) {
     return value
   }
 
@@ -67,18 +69,18 @@ export function parseDuration(value: string | number | Duration): Duration {
   }
 
   if (typeof value === 'number') {
-    return moment.duration(value, 'seconds')
+    return duration(value, 'seconds')
   }
   if (!Number.isNaN(Number(value))) {
-    return moment.duration(Number(value), 'seconds')
+    return duration(Number(value), 'seconds')
   }
 
   if (typeof value !== 'string') {
     throw getException()
   }
 
-  if (value.startsWith('P') && moment.duration(value).isValid()) {
-    return moment.duration(value)
+  if (value.startsWith('P') && !isNaN(duration(value).asMilliseconds())) {
+    return duration(value)
   }
 
   value = value.trim().toLowerCase()
@@ -86,19 +88,19 @@ export function parseDuration(value: string | number | Duration): Duration {
   try {
     if (value.endsWith('ms')) {
       const decodedValue = parseFloat(value.slice(0, value.length - 2))
-      return moment.duration(decodedValue, 'milliseconds')
+      return duration(decodedValue, 'milliseconds')
     } else if (value.endsWith('s')) {
       const decodedValue = parseFloat(value.slice(0, value.length - 1))
-      return moment.duration(decodedValue, 'seconds')
+      return duration(decodedValue, 'seconds')
     } else if (value.endsWith('m')) {
       const decodedValue = parseFloat(value.slice(0, value.length - 1))
-      return moment.duration(decodedValue, 'minutes')
+      return duration(decodedValue, 'minutes')
     } else if (value.endsWith('h')) {
       const decodedValue = parseFloat(value.slice(0, value.length - 1))
-      return moment.duration(decodedValue, 'hours')
+      return duration(decodedValue, 'hours')
     } else if (value.endsWith('d')) {
       const decodedValue = parseFloat(value.slice(0, value.length - 1))
-      return moment.duration(decodedValue, 'days')
+      return duration(decodedValue, 'days')
     }
   } catch {}
 
@@ -112,7 +114,7 @@ export function displayDuration(
   const decimals = options?.decimals
   const long = options?.long ?? false
 
-  const delta = moment.duration(value)
+  const delta = duration(value as any)
   if (delta.asMilliseconds() === 0) {
     return '0'
   }
@@ -238,7 +240,7 @@ export function safeArrayOf<T>(type: ZodType<T, any, any>, typeName?: string) {
   })
 }
 type PendingEntry<T> = {
-  timestamp: Moment
+  timestamp: Datetime
   promise: Promise<T>
   waiters: number
 }
@@ -267,7 +269,7 @@ export function dataloader<F extends DataloaderFunction<T>, T>(
     let entry = pending.get(key)
 
     try {
-      if (entry && entry.timestamp.isAfter(moment.utc().subtract(cache, 'ms'))) {
+      if (entry && entry.timestamp.isAfter(utc().subtract(cache, 'ms'))) {
         entry.waiters++
         try {
           return await entry.promise
@@ -279,7 +281,7 @@ export function dataloader<F extends DataloaderFunction<T>, T>(
       }
 
       const promise = factory(filter)
-      entry = { timestamp: moment.utc(), promise, waiters: 1 }
+      entry = { timestamp: utc(), promise, waiters: 1 }
       pending.set(key, entry)
       try {
         return await promise
@@ -344,4 +346,8 @@ export function getHttpUrl(relative: string) {
   }
 
   return `${protocol}://${hostname}${port}${relative}`
+}
+
+export function toTitle(text: string): string {
+  return titleCase(text.replace(/[-_ \t\n\r]+/g, ' '))
 }
