@@ -97,8 +97,8 @@ export const ChartWidgetDisplayModel = Zod.enum(['line', 'scatter', 'bar'])
 
 export type ChartWidgetSeries = Zod.infer<typeof ChartWidgetSeriesModel>
 export const ChartWidgetSeriesModel = Zod.object({
-  name: Zod.string().catch('Series'),
   field: Zod.string().nullish(),
+  label: Zod.string().nullish(),
 })
 
 export type ChartWidgetParticle = Zod.infer<typeof ChartWidgetParticleModel>

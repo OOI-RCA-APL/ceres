@@ -14,6 +14,7 @@ from ceres.__internal__.entity import (
     BaseAddressEntityOrder,
     BaseAddressEntityRow,
     BaseAddressEntityUpdate,
+    BaseEntity,
     BaseTimestampEntity,
     BaseTimestampEntityCreate,
     BaseTimestampEntityField,
@@ -366,14 +367,9 @@ class BaseRecord(
     BaseTimestampEntity,
     BaseAddressEntity,
     BaseUUIDEntity,
+    BaseEntity,
     BaseRecordCreate,
     abstract=True,
     slots=True,
 ):
-    Row = BaseRecordRow
-    Create = BaseRecordCreate
-    Update = BaseRecordUpdate
-    Filter = BaseRecordFilter
-    FilterArgs = BaseRecordFilterArgs
-    Field = BaseRecordField
-    Order = BaseRecordOrder
+    pass

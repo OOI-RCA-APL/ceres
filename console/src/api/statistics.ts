@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/vue-query'
-import moment from 'moment'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import Zod from 'zod'
@@ -8,6 +7,7 @@ import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { LevelModel } from '@/api/shared'
+import { duration, utc } from '@/time'
 import { getter } from '@/getter'
 import { usePreferences } from '@/preferences'
 
@@ -52,9 +52,9 @@ export const useStatistics = defineStore('statistics', () => {
         return []
       }
 
-      return await getAll({ after: moment.utc().subtract(preferences.statisticsDuration).format() })
+      return await getAll({ after: utc().subtract(preferences.statisticsDuration).format() })
     },
-    refetchInterval: moment.duration(15, 's').asMilliseconds(),
+    refetchInterval: duration(15, 's').asMilliseconds(),
   })
 
   const mapping = $computed(() => {

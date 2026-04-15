@@ -1,9 +1,11 @@
 import typing
 from asyncio import Future
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     Generic,
     NoDefault,
@@ -15,6 +17,7 @@ from typing import (
     overload,
 )
 
+from pydantic.fields import FieldInfo
 from typing_inspection import typing_objects
 
 from ceres.__internal__.utilities.caching import cached
@@ -173,21 +176,76 @@ _TRANSPARENT_ARGS_TYPES = {
 }
 
 
-def get_inner_type(ty: Any, /) -> Any:
-    current = ty
+@dataclass(frozen=True, kw_only=True)
+class AnnotationInfo:
+    annotation: Any
+    """The original type annotation."""
+    type: Any
+    """The inner type of the annotation, before any generic arguments are applied."""
+    generic: GenericAlias | None
+    """The generic alias of the annotation, provided it is a generic type."""
+    metadata: tuple[Any, ...]
+    """The metadata extracted from the annotation."""
+
+    @property
+    def generic_args(self) -> tuple[Any, ...]:
+        if self.generic is None:
+            return ()
+
+        return typing.get_args(self.generic)
+
+
+def extract_annotation(annotation: Any | FieldInfo, /) -> AnnotationInfo:
+    field_metadata: list[Any] = []
+
+    if isinstance(annotation, FieldInfo):
+        field_metadata = list(annotation.metadata)
+        current = annotation.annotation
+    else:
+        current = annotation
+
+    metadata: list[Any] = []
+
     while True:
+        origin = get_origin(current)
         if is_type_alias(current):
             current = current.__value__
             continue
-        origin = get_origin(current)
 
         if origin in _TRANSPARENT_ARGS_TYPES:
-            args = get_args(ty)
-            if not args:
-                current = args[0]
+            args = get_args(current)
+            if args:
+                current, *current_metadata = args
+                if origin is Annotated:
+                    metadata.extend(current_metadata)
+
                 continue
 
-        return current
+        break
+
+    inner = current
+    generic_origin = get_origin(inner)
+    generic: GenericAlias | None = None
+    if generic_origin is not None:
+        generic = inner  # type: ignore
+        inner = generic_origin
+
+    if field_metadata:
+        field_metadata_ids = {id(item) for item in field_metadata}
+        for current_meta in metadata:
+            if id(current_meta) not in field_metadata_ids:
+                field_metadata.append(current_meta)
+
+        combined_metadata = tuple(field_metadata)
+    else:
+        combined_metadata = tuple(metadata)
+
+    return AnnotationInfo(
+        annotation=annotation,
+        type=inner,
+        generic=generic,
+        metadata=combined_metadata,
+    )
 
 
 def get_return_annotation(
@@ -220,9 +278,17 @@ def is_generic_alias(obj: Any, /) -> TypeIs[GenericAlias]:
 def is_generic_alias_like(cls: Any, /) -> TypeIs[GenericAlias]:
     if is_generic_alias(cls):
         return True
-    if getattr(cls, "__origin__", None) is None:
+
+    __origin__ = getattr(cls, "__origin__", None)
+    if __origin__ is None:
         return False
-    if not getattr(cls, "__args__", ()):
+
+    __args__ = getattr(cls, "__args__", ())
+    if not isinstance(__args__, tuple) or not __args__:
+        return False
+
+    __parameters__ = getattr(cls, "__parameters__", ())
+    if not isinstance(__parameters__, tuple):
         return False
 
     return True
@@ -233,8 +299,8 @@ def is_assignable(
     assigned_type: Any,
     /,
 ) -> bool:
-    assigned_type = get_inner_type(assigned_type)
-    variable_type = get_inner_type(variable_type)
+    assigned_type = extract_annotation(assigned_type).type
+    variable_type = extract_annotation(variable_type).type
 
     if assigned_type is Any or variable_type is Any:
         return True

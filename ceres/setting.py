@@ -7,13 +7,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ceres.__internal__.database.types import UUIDMapper
 from ceres.__internal__.entity import (
-    BaseEntity,
     BaseEntityCreate,
     BaseEntityFilter,
     BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
     BaseEntityRow,
+    ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
@@ -223,10 +223,9 @@ class BoundSettingManager(SettingManager, BaseNodeManager):
         super().__init__(source)
 
 
-class Setting(BaseEntity, SettingCreate, slots=True):
+class Setting(SettingCreate, ConcreteEntity[SettingRow], slots=True):
     Manager = SettingManager
     BoundManager = BoundSettingManager
-    Row = SettingRow
     Create = SettingCreate
     Update = SettingUpdate
     Filter = SettingFilter
@@ -234,4 +233,4 @@ class Setting(BaseEntity, SettingCreate, slots=True):
     Field = SettingField
     Order = SettingOrder
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("setting")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("setting")

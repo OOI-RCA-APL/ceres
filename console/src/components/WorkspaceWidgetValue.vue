@@ -1,11 +1,10 @@
 <script lang="ts" setup>
-import moment from 'moment'
 import { computed, onMounted } from 'vue'
 
 import { useClient } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import { Particle, ParticleModel } from '@/api/particles'
-import { displayDuration, useTime } from '@/time'
+import { utc, displayDuration, useTime } from '@/time'
 import { ValueWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -47,7 +46,7 @@ onMounted(async () => {
     return
   }
 
-  if (particle == null || moment.utc(latest.timestamp).isAfter(particle.timestamp)) {
+  if (particle == null || utc(latest.timestamp).isAfter(particle.timestamp)) {
     particle = latest
   }
 })
@@ -109,8 +108,8 @@ const updatedAt = $computed(() => {
     return ''
   }
 
-  let timestamp = moment.utc(particle.timestamp)
-  let age = time.nowFast.diff(timestamp, 'seconds')
+  let timestamp = utc(particle.timestamp)
+  let age = time.nowFast.diff(timestamp, 'second')
   if (age < 1.5) {
     return 'Now'
   }
@@ -128,7 +127,7 @@ client.useStream({
   })),
   parse: ParticleModel as any,
   onReceive: (latest: Particle) => {
-    if (particle == null || moment.utc(latest.timestamp).isAfter(particle.timestamp)) {
+    if (particle == null || utc(latest.timestamp).isAfter(particle.timestamp)) {
       particle = latest
     }
   },

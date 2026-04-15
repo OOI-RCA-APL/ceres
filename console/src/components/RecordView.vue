@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import { cloneDeep } from 'lodash-es'
-import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
 import { shallowReactive, nextTick, onMounted, reactive, watch, watchEffect, useSlots } from 'vue'
 
@@ -20,6 +19,7 @@ import RecordViewParticle from '@/components/RecordViewParticle.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
+import { utc, type Datetime } from '@/time'
 import { debouncedComputed } from '@/utilities'
 import { MessagesWidget, ParticlesWidget, AlertsWidget, LogsWidget } from '@/workspace'
 
@@ -141,8 +141,8 @@ watchEffect(() => {
 
 const records = shallowReactive<Record[]>([])
 const recordsPending = shallowReactive<Record[]>([])
-let lastLoadedCurrent = $shallowRef<Moment | null>(null)
-let lastLoadedPrevious = $shallowRef<Moment | null>(null)
+let lastLoadedCurrent = $shallowRef<Datetime | null>(null)
+let lastLoadedPrevious = $shallowRef<Datetime | null>(null)
 
 const earliestRecordTimestamp = $computed(() => records[0]?.timestamp ?? null)
 
@@ -262,10 +262,10 @@ async function onScroll() {
     return
   }
 
-  if (lastLoadedCurrent == null || moment.utc().diff(lastLoadedCurrent) < 1000) {
+  if (lastLoadedCurrent == null || utc().diff(lastLoadedCurrent) < 1000) {
     return
   }
-  if (lastLoadedPrevious != null && moment.utc().diff(lastLoadedPrevious) < 1000) {
+  if (lastLoadedPrevious != null && utc().diff(lastLoadedPrevious) < 1000) {
     return
   }
 
@@ -383,7 +383,7 @@ async function loadPrevious() {
 
     isExhausted = results.length === 0
     await prependRecords(results.reverse())
-    lastLoadedPrevious = moment.utc()
+    lastLoadedPrevious = utc()
   } finally {
     isLoadingPrevious = false
   }
@@ -411,7 +411,7 @@ async function loadCurrent() {
     isExhausted = results.length === 0
     const appended = [...results.reverse(), ...recordsPending]
     await appendRecords(appended)
-    lastLoadedCurrent = moment.utc()
+    lastLoadedCurrent = utc()
     await scrollToBottom()
     updateContainerInfo()
   } finally {

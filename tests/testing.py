@@ -114,7 +114,7 @@ async def execute_filter_test(
         async with database.session() as session:
             for group_cls, group in group_by(entity_inserts, type):
                 shuffle(group)
-                values = [dict(entity) for entity in group]
+                values = [entity.__entity_to_column_values__() for entity in group]
                 await session.execute(insert(group_cls.Row).values(values))
                 await session.commit()
 

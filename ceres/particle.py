@@ -1,5 +1,4 @@
 import builtins
-import re
 from abc import abstractmethod
 from collections.abc import (
     Callable,
@@ -10,7 +9,9 @@ from collections.abc import (
     Mapping,
     ValuesView,
 )
-from re import Pattern
+from dataclasses import dataclass, field
+from re import Match, Pattern
+from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -27,6 +28,7 @@ from typing import (
     override,
 )
 
+import pydantic
 from pydantic import ConfigDict, Field, ImportString, SerializeAsAny, ValidationError
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
@@ -34,6 +36,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
+    ConcreteEntity,
     EntityNaming,
     EntityOutputChannel,
     EntityQuery,
@@ -50,16 +53,21 @@ from ceres.__internal__.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres.__internal__.utilities.classes import cached_class_property
-from ceres.__internal__.utilities.typing import get_inner_type, lenient_issubclass
+from ceres.__internal__.utilities.classes import fields_cached_class_property
+from ceres.__internal__.utilities.typing import extract_annotation
+from ceres.__internal__.utilities.undefined import Undefined
+from ceres.address import Address
 from ceres.data import (
     DataObject,
+    DateTime,
     FromYAML,
     JSONSerializableDict,
     MaybeSequence,
     construct,
+    dump,
     simplify,
     to_json,
+    unpack,
     validate,
 )
 from ceres.timing import utc
@@ -72,6 +80,7 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
+    from ceres.connection import Buffer
     from ceres.database import DatabaseType
     from ceres.message import Message
 
@@ -81,6 +90,10 @@ __all__ = [
     "DynamicParticleData",
     "ParseableParticle",
     "RegexParticle",
+    "BinaryParticle",
+    "BinaryRegexParticle",
+    "GroupedRegexParticle",
+    "ParseFailed",
 ]
 
 
@@ -164,8 +177,6 @@ DynamicParticleData: TypeAlias = Annotated[
 ]
 
 
-# ruff: disable[UP046] Need `TypeVar.default` for Python 3.12 compatibility.
-
 if TYPE_CHECKING:
     ParticleT = TypeVar(
         "ParticleT",
@@ -210,6 +221,8 @@ else:
     )
 
 
+# ruff: disable[UP046] Need to use `typing.Generic` here due to weird Pydantic issues.
+#
 class ParticleFilterArgs(
     BaseRecordFilterArgs[ParticleField, ParticleOrder],
     Generic[ParticleT],
@@ -344,12 +357,10 @@ class _BaseParticleQuery(
 
     @override
     def _get_transform(self) -> EntityTransform | None:
-        data_class = _get_data_class(self._get_resolved_filter(), None)
-        if data_class is None:
-            return None
+        cls = self._get_resolved_filter().cls
 
         def transform(entity: Particle[DataT]) -> Particle[Any] | None:
-            return _convert_or_none(entity, data_class)
+            return _convert_or_none(entity, cls)
 
         return transform
 
@@ -484,13 +495,13 @@ class ParticleOutputChannel(
         /,
         **kwargs: Unpack[ParticleFilterArgs],
     ) -> ParticleOutputChannel:
-        data_class = _get_data_class(filter, kwargs)
-        if data_class is None:
+        cls = _get_particle_class(filter, kwargs)
+        if cls is None:
             return super().where(filter, **kwargs)
 
         return ParticleOutputChannel(
             super()
-            .map(lambda particle: _convert_or_none(particle, data_class))
+            .map(lambda particle: _convert_or_none(particle, cls))
             .where(
                 filter,
                 **kwargs,  # type: ignore
@@ -501,10 +512,15 @@ class ParticleOutputChannel(
 _particle_class_is_defined = False
 
 
-class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
+class Particle(
+    BaseRecord,
+    ParticleCreate,
+    ConcreteEntity[ParticleRow],
+    Generic[DataT],
+    slots=True,
+):
     Manager = ParticleManager
     BoundManager = BoundParticleManager
-    Row = ParticleRow
     Create = ParticleCreate
     Update = ParticleUpdate
     Filter = ParticleFilter
@@ -514,14 +530,23 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
 
     __abstract__: ClassVar[bool] = False
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("particle")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("particle")
+    __entity_row_exclude__: ClassVar[set[str]] = {"span"}
 
     data: DataT
+    span: Annotated[
+        tuple[int, int] | None,
+        pydantic.Field(exclude_if=lambda value: value is None),
+    ] = field(
+        default=None,
+        compare=False,
+        hash=False,
+    )
 
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
     def Data(cls) -> type[DataT]:
-        return get_inner_type(cls.__data_object_fields__["data"].annotation)  # type: ignore
+        return extract_annotation(cls.__data_object_fields__["data"]).type
 
     @classmethod
     @override
@@ -531,7 +556,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
             return
 
         if "__abstract__" not in cls.__dict__:
-            cls.__abstract__ = cls.__data_object_is_generic_alias__
+            cls.__abstract__ = cls.__data_object_generic_alias__ is not None
 
         if not cls.__abstract__:
             if not isinstance(cls.__dict__.get("type"), str):
@@ -540,21 +565,18 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
                     "`__abstract__` is set to `True`."
                 )
 
-    def convert[ConvertedDataT: DynamicParticleData](
-        self,
-        cls: builtins.type[ConvertedDataT],
-    ) -> Particle[ConvertedDataT]:
-        data = (
-            validate(cls, self.data) if lenient_issubclass(cls, ParticleData) else dict(self.data)
-        )
+    def convert[T: Particle[Any]](self, cls: builtins.type[T]) -> T:
+        data = self.data
+        if not isinstance(data, dict):
+            data = dump(data)
 
-        return construct(
-            Particle[cls] if TYPE_CHECKING else Particle,
+        return cls(
             id=self.id,
             address=self.address,
             timestamp=self.timestamp,
             type=self.type,
             data=data,
+            span=self.span,
         )
 
     def to_dynamic(self) -> Particle:
@@ -565,56 +587,212 @@ class Particle(BaseRecord, ParticleCreate, Generic[DataT], slots=True):
             timestamp=self.timestamp,
             type=self.type,
             data=simplify(self.data),
+            span=self.span,
         )
 
 
 _particle_class_is_defined = True
 
 
-def _convert_or_none[DataT: DynamicParticleData = DynamicParticleData](
+def _convert_or_none[ParticleT: Particle[Any]](
     particle: Particle | None,
-    data_class: type[DataT] | None,
-) -> Particle[DataT] | None:
+    cls: type[ParticleT] | None,
+) -> ParticleT | None:
     if particle is None:
         return None
 
-    if data_class is None:
+    if cls is None:
         return particle  # type: ignore
 
     try:
-        return particle.convert(data_class)
+        return particle.convert(cls)
     except ValueError:
         return None
 
 
-def _get_data_class(
-    filter: ParticleFilter[Particle[DataT]] | object | None,
-    filter_kwargs: ParticleFilterArgs[Particle[DataT]] | None,
-) -> type[DataT] | None:
-    particle_class = filter_kwargs.get("cls") if filter_kwargs is not None else None
-    if particle_class is None and isinstance(filter, ParticleFilter) and filter.cls is not None:
-        return filter.cls.Data  # type: ignore
+def _get_particle_class[T: Particle[Any]](
+    filter: ParticleFilter[T] | object | None,
+    filter_kwargs: ParticleFilterArgs[T] | None,
+) -> type[T] | None:
+    cls = filter_kwargs.get("cls") if filter_kwargs is not None else None
+    if cls is None:
+        if isinstance(filter, ParticleFilter):
+            cls = filter.cls
 
     return None
 
 
-class ParseFailed(Exception):
-    """Raised when `ParseableParticle.parse` fails."""
-
-
 class ParseableParticle[DataT: ParticleData = ParticleData](Particle[DataT]):
-    __abstract__: ClassVar[bool] = True
+    __abstract__ = True
 
     @classmethod
     @abstractmethod
-    def parse(cls, message: Message, /) -> Self: ...
+    def from_bytes(
+        cls,
+        bytes: bytes,
+        /,
+        address: Address = Address.ROOT,
+        timestamp: DateTime | None = None,
+        span: tuple[int, int] | None = None,
+    ) -> Self: ...
+
+    @classmethod
+    def from_message(cls, message: Message, /) -> Self:
+        return cls.from_bytes(
+            message.data,
+            message.address,
+            message.timestamp,
+        )
 
 
-class RegexParticle[DataT: ParticleData](ParseableParticle[DataT]):
-    __abstract__: ClassVar[bool] = True
-    __regex__: ClassVar[bytes | Pattern[bytes]]
-    __regex_flags__: ClassVar[int] = re.DOTALL
-    __regex_compiled__: ClassVar[Pattern[bytes]]
+class BinaryParticle[T: ParticleData](ParseableParticle[T]):
+    __abstract__ = True
+
+    @classmethod
+    @override
+    def from_bytes(
+        cls,
+        bytes: bytes,
+        /,
+        address: Address = Address.ROOT,
+        timestamp: DateTime | None = None,
+        span: tuple[int, int] | None = None,
+    ) -> Self:
+        timestamp = utc(timestamp)
+        if span is None:
+            span = (0, len(bytes))
+
+        data = unpack(cls.Data, bytes)
+
+        return construct(
+            cls,
+            type=cls.type,
+            address=address,
+            timestamp=timestamp,
+            data=data,
+            span=span,
+        )
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class RegexParticleMatch[T: RegexParticle[Any]]:
+    parsed: type[T]
+    address: Address
+    timestamp: DateTime
+    match: Match[bytes]
+
+    @property
+    def start(self) -> int:
+        return self.match.start()
+
+    @property
+    def end(self) -> int:
+        return self.match.end()
+
+    @property
+    def span(self) -> tuple[int, int]:
+        return self.match.span()
+
+    @property
+    def bytes(self) -> bytes:
+        return self.match.group()
+
+    @property
+    def pattern(self) -> Pattern[bytes]:
+        return self.match.re
+
+    @overload
+    def parse(self) -> T: ...
+    @overload
+    def parse[D](self, default: D) -> T | D: ...
+    def parse[D](self, default: D = Undefined) -> T | D:
+        try:
+            return self.parsed.from_match(
+                self.match,
+                self.address,
+                self.timestamp,
+            )
+        except Exception:
+            if default is not Undefined:
+                return default
+
+            raise
+
+
+class RegexParticle[T: ParticleData](ParseableParticle[T]):
+    __abstract__ = True
+
+    regex: ClassVar[Pattern[bytes]]
+
+    @classmethod
+    @override
+    def from_bytes(
+        cls,
+        bytes: bytes,
+        /,
+        address: Address = Address.ROOT,
+        timestamp: DateTime | None = None,
+        span: tuple[int, int] | None = None,
+    ) -> Self:
+        match = cls.regex.match(bytes)
+        if match is None:
+            raise ParseFailed("Bytes did not match regex pattern.")
+
+        return cls.from_match(match, address, timestamp)
+
+    @classmethod
+    @abstractmethod
+    def from_match(
+        cls,
+        match: Match[bytes],
+        /,
+        address: Address = Address.ROOT,
+        timestamp: DateTime | None = None,
+    ) -> Self: ...
+
+    @classmethod
+    def scan(
+        cls,
+        data: Buffer,
+        /,
+        address: Address = Address.ROOT,
+        timestamp: DateTime | None = None,
+    ) -> Iterable[RegexParticleMatch[Self]]:
+        for match in cls.regex.finditer(data):
+            timestamp = data.timestamp_at(match.end() - 1) or timestamp
+            if timestamp is None:
+                continue
+
+            yield RegexParticleMatch(
+                parsed=cls,
+                address=address,
+                timestamp=timestamp,
+                match=match,
+            )
+
+    @classmethod
+    def extract(
+        cls,
+        data: Buffer,
+        /,
+        address: Address = Address.ROOT,
+        timestamp: DateTime | None = None,
+        errors: Literal["ignore", "raise"] | Callable[[ParseFailed], Any] = "ignore",
+    ) -> Iterable[Self]:
+        for match in cls.scan(data, address, timestamp):
+            try:
+                yield match.parse()
+            except ParseFailed as exception:
+                if errors == "ignore":
+                    continue
+                if errors == "raise":
+                    raise
+
+                errors(exception)
+
+
+class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
+    __abstract__ = True
 
     @classmethod
     @override
@@ -624,54 +802,101 @@ class RegexParticle[DataT: ParticleData](ParseableParticle[DataT]):
         if "__abstract__" not in cls.__dict__:
             cls.__abstract__ = False
 
-        if cls.__abstract__ or cls.__data_object_is_generic_alias__:
+        if cls.__abstract__ or cls.__data_object_generic_alias__ is not None:
             return
 
-        regex = getattr(cls, "__regex__", None)
-        if not isinstance(regex, bytes):
-            raise ValueError(
-                f"`{cls}.__regex__` must be defined as `bytes` or `re.Pattern[bytes]`."
-            )
+        regex = getattr(cls, "regex", None)
+        if not isinstance(regex, Pattern):
+            raise ValueError(f"`{cls}.regex` must be defined as `re.Pattern[bytes]` instance.")
 
         Data = cls.Data
         if not isinstance(Data, type) or not issubclass(Data, ParticleData):
             raise TypeError(f"`{cls}.Data` is unresolved, cannot verify regex groups.")
 
-        try:
-            if regex is not None:
-                if isinstance(regex, Pattern):
-                    cls.__regex_compiled__ = regex
-                else:
-                    cls.__regex_compiled__ = re.compile(cls.__regex__, cls.__regex_flags__)
-        except re.error as error:
-            raise ValueError(f"Failed to compile `{cls}.__regex__`. {error}")
-
-        missing = sorted(set(Data.__data_object_fields__) - set(cls.__regex_compiled__.groupindex))
+        missing = sorted(set(Data.__data_object_fields__) - set(cls.group_indexes))
         if missing:
-            raise ValueError(f"`{cls}.__regex__` is missing named capture groups: {missing}")
+            raise ValueError(f"`{cls}.regex` is missing capture groups: {missing}")
 
-        for field in Data.__data_object_fields__:
-            if field not in cls.__regex_compiled__.groupindex:
-                raise ValueError(
-                    f"Field {field!r} is not a named capturing group in `{cls}.__regex__`."
-                )
+    @fields_cached_class_property
+    @classmethod
+    def group_indexes(cls) -> Mapping[str, int]:
+        return MappingProxyType(
+            {
+                **dict(zip(cls.__data_object_fields__, range(cls.regex.groups))),
+                **cls.regex.groupindex,
+            }
+        )
+
+    @fields_cached_class_property
+    @classmethod
+    def group_names(cls) -> Mapping[int, str]:
+        return MappingProxyType({index: name for name, index in cls.group_indexes.items()})
 
     @classmethod
     @override
-    def parse(cls, message: Message, /) -> Self:
-        match = cls.__regex_compiled__.match(message.data)
-        if match is None:
-            raise ParseFailed("Message data did not match regex pattern.")
+    def from_match(
+        cls,
+        match: Match[bytes],
+        address: Address = Address.ROOT,
+        timestamp: DateTime | None = None,
+    ) -> Self:
+        timestamp = utc(timestamp)
+        group_names = cls.group_names
+        group_values: dict[str, bytes] = {
+            group_names[i]: value for i, value in enumerate(match.groups())
+        }
 
         try:
-            data = validate(cls.Data, match.groupdict())
+            data: T = validate(cls.Data, group_values)
         except ValidationError as error:
-            raise ParseFailed(f"Message data matched, but validation failed. {error}") from error
+            raise ParseFailed("Regex group(s) validation failed.", error) from error
 
         return construct(
             cls,
             type=cls.type,
-            timestamp=message.timestamp,
-            address=message.address,
+            address=address,
+            timestamp=timestamp,
             data=data,
+            span=match.span(),
         )
+
+
+class BinaryRegexParticle[T: ParticleData](BinaryParticle[T], RegexParticle[T]):
+    __abstract__ = True
+
+    @classmethod
+    @override
+    def from_match(
+        cls,
+        match: Match[bytes],
+        address: Address = Address.ROOT,
+        timestamp: DateTime | None = None,
+    ) -> Self:
+        return cls.from_bytes(
+            match.group(),
+            address,
+            timestamp,
+            match.span(),
+        )
+
+
+@dataclass(init=False)
+class ParseFailed(Exception):
+    message: str
+    validation: ValidationError | None
+
+    def __init__(
+        self,
+        message: object,
+        validation: ValidationError | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = str(message)
+        self.validation = validation
+
+    @override
+    def __str__(self) -> str:
+        if self.validation is None:
+            return self.message
+
+        return f"{self.message} {self.validation}"

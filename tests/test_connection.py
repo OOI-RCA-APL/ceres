@@ -117,10 +117,10 @@ def test_pop_to_size():
             (b"defghij", start + timedelta(seconds=1)),
         ]
     )
-    popped = buffer.pop_to_size(5)
+    popped = buffer.pop_to(5)
     assert popped == Chunk(b"abcde", start + timedelta(seconds=1))
     assert buffer.data == b"fghij"
-    popped = buffer.pop_to_size(10)
+    popped = buffer.pop_to(10)
     assert popped is None
 
     buffer = Buffer(
@@ -131,6 +131,6 @@ def test_pop_to_size():
         ]
     )
 
-    popped = buffer.pop_to_size(5, by=3)
+    popped = buffer.pop_to(5, by=3)
     assert popped == Chunk(b"abcdefghijkl", start + timedelta(seconds=2))
     assert buffer.data == b"mno"

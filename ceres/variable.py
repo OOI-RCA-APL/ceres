@@ -15,6 +15,7 @@ from ceres.__internal__.entity import (
     BaseAddressEntityRow,
     BaseEntityManager,
     BaseEntityQuery,
+    ConcreteEntity,
     EntityNaming,
     EntityOutputChannel,
     EntityQuery,
@@ -325,10 +326,14 @@ class VariableOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Variable(BaseAddressEntity, VariableCreate, slots=True):
+class Variable(
+    BaseAddressEntity,
+    VariableCreate,
+    ConcreteEntity[VariableRow],
+    slots=True,
+):
     Manager = VariableManager
     BoundManager = BoundVariableManager
-    Row = VariableRow
     Create = VariableCreate
     Update = VariableUpdate
     Filter = VariableFilter
@@ -336,7 +341,7 @@ class Variable(BaseAddressEntity, VariableCreate, slots=True):
     Field = VariableField
     Order = VariableOrder
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("user")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("user")
 
 
 class InternalVariableName(StrEnum):

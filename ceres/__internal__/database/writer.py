@@ -141,10 +141,12 @@ class Writer:
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
-        values: list[dict[str, Any]] = adapt(list[cls]).dump_python(entities)
+        values: list[dict[str, Any]] = adapt(list[cls]).dump_python(
+            entities, include={"__all__": set(cls.__entity_columns__)}
+        )
 
         statement = insert(cls.Row)
-        pk = cls.Row.get_primary_key_columns()
+        pk = cls.Row.__table__.primary_key.columns
         upsert = {name: column for name, column in statement.excluded.items() if name not in pk}
 
         await connection.execute(

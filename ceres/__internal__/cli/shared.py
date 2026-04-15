@@ -73,7 +73,7 @@ from ceres.data import (
 )
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
-from ceres.result import Ok
+from ceres.error import Failure
 
 with __lazy_imports__(__name__):
     from ceres.__internal__.cli.client import Client
@@ -342,18 +342,18 @@ class CLICommand(DataModel):
         self,
         checks: Sequence[ConfigCheckType] = (),
     ) -> ConfigMeta:
-        match await ConfigMeta.load(self.use_config_path(), checks=checks):
-            case Ok(config):
-                return config
-            case fail:
-                raise CLICommandFailed(f"Failed to load configuration. {to_json(fail, indent=2)}")
+        try:
+            return await ConfigMeta.load(self.use_config_path(), checks=checks)
+        except Failure as failure:
+            error = to_json(failure.error, indent=2)
+            raise CLICommandFailed(f"Failed to load configuration. {error}")
 
     async def use_config(self, checks: Sequence[ConfigCheckType] = ()) -> Config:
-        match await Config.load(self.use_config_path(), checks=checks):
-            case Ok(config):
-                return config
-            case fail:
-                raise CLICommandFailed(f"Failed to load configuration. {to_json(fail, indent=2)}")
+        try:
+            return await Config.load(self.use_config_path(), checks=checks)
+        except Failure as failure:
+            error = to_json(failure.error, indent=2)
+            raise CLICommandFailed(f"Failed to load configuration. {error}")
 
     async def use_project(self) -> Project:
         config_path = self.use_config_path()
@@ -768,7 +768,7 @@ class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
 
 
 def create_entity_select_command(Entity: type[Entity]):
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     class SelectCommand(CLIDataOutputSelectionCommand, cast("type", Entity.Filter)):
         f"""
@@ -786,7 +786,7 @@ def create_entity_select_command(Entity: type[Entity]):
 
 
 def create_entity_count_command(Entity: type[Entity]):
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     class CountCommand(CLICommand, cast("type", Entity.Filter)):
         f"""
@@ -803,7 +803,7 @@ def create_entity_count_command(Entity: type[Entity]):
 
 
 def create_entity_any_command(Entity: type[Entity]):
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     class AnyCommand(CLICommand, cast("type", Entity.Filter)):
         f"""
@@ -822,7 +822,7 @@ def create_entity_any_command(Entity: type[Entity]):
 
 
 def create_entity_create_command(Entity: type[Entity]):
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     class CreateCommand(CLIDataOutputCommand, cast("type", Entity.Create.Model)):
         f"""
@@ -839,7 +839,7 @@ def create_entity_create_command(Entity: type[Entity]):
 
 
 def create_entity_update_command(Entity: type[Entity]):
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     class UpdateCommand(CLIDataOutputCommand, cast("type", Entity.Filter)):
         f"""
@@ -869,7 +869,7 @@ def create_entity_update_command(Entity: type[Entity]):
 
 
 def create_entity_delete_command(Entity: type[Entity]):
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     class DeleteCommand(CLIDataOutputCommand, cast("type", Entity.Filter)):
         f"""
@@ -897,7 +897,7 @@ def create_entity_delete_command(Entity: type[Entity]):
 
 
 def create_entity_follow_command(Entity: type[Entity]):
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     class FollowCommand(CLIDataOutputSelectionCommand, cast("type", Entity.Filter)):
         f"""
@@ -918,7 +918,7 @@ if TYPE_CHECKING:
 
 
 def create_entity_load_command(Entity: type[Entity]):
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     class LoadCommand(CLICommand):
         f"""
@@ -982,15 +982,15 @@ def create_entity_load_command(Entity: type[Entity]):
                         pass
                     case CLIDataConflict.IGNORE:
                         statement = statement.on_conflict_do_nothing(
-                            cls.Row.get_primary_key_constraint()
+                            cls.Row.__table__.primary_key,
                         )
                     case CLIDataConflict.UPDATE:
                         statement = statement.on_conflict_do_update(
-                            cls.Row.get_primary_key_constraint(),
+                            cls.Row.__table__.primary_key,
                             set_={
                                 column: column
-                                for column in cls.Row.get_columns()
-                                if column.name not in cls.Row.get_primary_key_columns()
+                                for column in cls.Row.__table__.columns
+                                if column.name not in cls.Row.__table__.primary_key.columns
                             },
                         )
 
@@ -1074,7 +1074,7 @@ def create_entity_command(
             mapping[name] = creator(Entity)
 
     fields: Any = {key: (CliSubCommand[cls], ...) for key, cls in mapping.items()}
-    naming = Entity.__naming__
+    naming = Entity.__entity_naming__
 
     return create_model(
         f"{ucamelcase(naming.plural)}Command",

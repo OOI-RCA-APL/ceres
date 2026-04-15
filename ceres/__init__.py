@@ -12,6 +12,11 @@ __all__ = [
     "ChannelReader",
     "OutputChannel",
     "Output",
+    # .concurrency
+    "cancel",
+    "concurrently",
+    "sleep",
+    "spawn",
     # .component
     "Bound",
     "Component",
@@ -30,6 +35,8 @@ __all__ = [
     "Config",
     "ConfigCheckType",
     # .connection
+    "Buffer",
+    "Chunk",
     "Connection",
     "ConnectionException",
     "ConnectionField",
@@ -78,6 +85,7 @@ __all__ = [
     "LogEntry",
     # .message
     "Message",
+    "MessageData",
     "MessageDirection",
     # .notifier
     "Notification",
@@ -97,10 +105,6 @@ __all__ = [
     "Ref",
     "Reference",
     "unref",
-    # .result
-    "Fail",
-    "Ok",
-    "Result",
     # .schedule
     "Schedule",
     "ScheduleType",
@@ -154,8 +158,11 @@ with __lazy_imports__(__name__, export=True):
         routine,
         sieve,
     )
+    from ceres.concurrency import cancel, concurrently, sleep, spawn
     from ceres.config import Config, ConfigCheckType
     from ceres.connection import (
+        Buffer,
+        Chunk,
         Connection,
         ConnectionException,
         ConnectionField,
@@ -182,7 +189,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.level import Level
     from ceres.loaded import Loaded, Loader
     from ceres.logs import LogEntry
-    from ceres.message import Message, MessageDirection
+    from ceres.message import Message, MessageData, MessageDirection
     from ceres.notifier import Notification, Notifier, SMTPNotifier
     from ceres.particle import (
         DynamicParticleData,
@@ -194,7 +201,6 @@ with __lazy_imports__(__name__, export=True):
     )
     from ceres.record import Record, RecordType
     from ceres.reference import Ref, Reference, unref
-    from ceres.result import Fail, Ok, Result
     from ceres.schedule import Schedule, ScheduleType
     from ceres.server import (
         Client,

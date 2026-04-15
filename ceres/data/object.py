@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import dataclasses
 from abc import ABCMeta
 from collections.abc import (
@@ -5,42 +7,28 @@ from collections.abc import (
     Iterable,
     Iterator,
     Mapping,
-    MutableMapping,
     MutableSet,
     Sequence,
     Set,
 )
-from copy import deepcopy, replace
-from dataclasses import field
-from datetime import UTC, date, datetime, time, timedelta
-from enum import StrEnum as BaseStrEnum
+from copy import deepcopy
 from functools import wraps
-from re import RegexFlag
-from types import FunctionType, GenericAlias, MappingProxyType, UnionType
+from types import GenericAlias, MappingProxyType
 from typing import (
     TYPE_CHECKING,
-    Annotated,
     Any,
     ClassVar,
     Final,
-    Literal,
-    NewType,
     Protocol,
     Self,
-    SupportsBytes,
-    TypeAlias,
-    TypeAliasType,
-    TypedDict,
     TypeIs,
     TypeVar,
-    Unpack,
     cast,
     dataclass_transform,
     final,
     overload,
     override,
 )
-from uuid import UUID
 from warnings import warn
 from weakref import WeakKeyDictionary
 
@@ -48,21 +36,17 @@ import pydantic
 from pydantic import (
     AfterValidator,
     AliasGenerator,
-    AliasPath,
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     ModelWrapValidatorHandler,
-    PlainSerializer,
     PrivateAttr,
     SerializationInfo,
-    StringConstraints,
     TypeAdapter,
     model_serializer,
     model_validator,
 )
-from pydantic.aliases import AliasChoices
+from pydantic.aliases import AliasChoices, AliasPath
 from pydantic.fields import ComputedFieldInfo, FieldInfo
 from pydantic_core import (
     MISSING,
@@ -72,20 +56,16 @@ from pydantic_core import (
     SchemaSerializer,
     SchemaValidator,
 )
-from pydantic_core import from_json as _from_json
-from pydantic_extra_types.color import Color as Color
-from pydantic_settings import NoDecode
-from typing_extensions import TypeForm
 
 from ceres.__internal__.utilities.caching import cached
 from ceres.__internal__.utilities.classes import (
     ClassProperty,
     cached_class_property,
     class_property,
+    fields_cached_class_property,
     get_declared_slots,
 )
 from ceres.__internal__.utilities.collections import uniq
-from ceres.__internal__.utilities.typing import is_mapping
 from ceres.__internal__.utilities.undefined import Undefined
 
 if TYPE_CHECKING:
@@ -93,479 +73,47 @@ if TYPE_CHECKING:
     from types import CellType
 
     from pydantic._internal._decorators import Decorator, DecoratorInfos
-    from pydantic.config import ExtraValues
-    from pydantic.main import IncEx
 
-if TYPE_CHECKING:
-    from typing import _SpecialForm
-else:
-    type _SpecialForm = Any
+    from ceres.data import MaybeClass
 
-__all__ = (
-    # Local
-    "adapt",
-    "dump",
-    "to_dict",
-    "to_json",
-    "to_yaml",
-    "simplify",
-    "validate",
-    "validate_json",
-    "validate_yaml",
+__all__ = [
+    "DataObject",
     "create",
     "construct",
     "fields_of",
     "computed_fields_of",
-    "items_of",
     "fields_set_on",
+    "to_dict",
+    "to_items",
     "replacing",
     "defaulting",
     "WithDefaults",
-    "DataObject",
-    "DataModel",
-    "Date",
-    "Time",
-    "DateTime",
-    "TimeDelta",
-    "uuid4",
-    "uuid7",
-    "Name",
-    "Number",
-    "FromJSON",
-    "FromYAML",
-    "JSONValue",
-    "JSONDict",
-    "JSONList",
-    "JSONSerializable",
-    # Re-exports
-    "Color",
-    "TypeAdapter",
-    "Field",
-    "field",
+    "to_kwargs",
+]
+
+
+_cached_dataclasses: WeakKeyDictionary[type, type[PydanticDataclass]] = WeakKeyDictionary()
+_cached_fields: WeakKeyDictionary[type, Mapping[str, FieldInfo]] = WeakKeyDictionary()
+_cached_init_fields: WeakKeyDictionary[type, Mapping[str, FieldInfo]] = WeakKeyDictionary()
+_cached_computed_fields: WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]] = (
+    WeakKeyDictionary()
 )
-
-
-type TypeInput[T = Any] = (
-    type[T] | TypeForm[T] | UnionType | GenericAlias | FunctionType | TypeAliasType | _SpecialForm
-)
-type MaybeClass[T] = T | type[T]
-
-_cached_class_type_adapters = WeakKeyDictionary[type, TypeAdapter[type]]()
-_cached_type_form_type_adapters = dict[Any, TypeAdapter[Any]]()
-_cached_dataclasses = WeakKeyDictionary[type, type["PydanticDataclass"]]()
-_cached_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
-_cached_init_fields = WeakKeyDictionary[type, Mapping[str, FieldInfo]]()
-_cached_computed_fields = WeakKeyDictionary[type, Mapping[str, ComputedFieldInfo]]()
-
-
-def adapt[T](ty: TypeInput[T], /, *, _namespace: int = 3) -> TypeAdapter[T]:
-    key = cast("Any", ty)
-    cache: MutableMapping[Any, Any]
-    if isinstance(ty, type):
-        cache = _cached_class_type_adapters
-    else:
-        cache = _cached_type_form_type_adapters
-
-    adapter: TypeAdapter[Any] | None = cache.get(key)
-    if adapter is None:
-        adapter = TypeAdapter(ty, _parent_depth=_namespace)
-        adapter = cache.setdefault(key, adapter)
-
-    return adapter
-
-
-def dump(
-    obj: object,
-    as_type: TypeInput | None = None,
-    /,
-    *,
-    mode: Literal["json", "python"] = "python",
-    include: IncEx | None = None,
-    exclude: IncEx | None = None,
-    by_alias: bool | None = None,
-    exclude_unset: bool = False,
-    exclude_defaults: bool = False,
-    exclude_none: bool = False,
-    exclude_computed_fields: bool = False,
-    round_trip: bool = False,
-    warnings: bool | Literal["none", "warn", "error"] = True,
-    fallback: Callable[[Any], Any] | None = None,
-    serialize_as_any: bool = False,
-    context: Any | None = None,
-    _namespace: int = -4,
-) -> Any:
-    if as_type is None:
-        as_type = type(obj)
-
-    return adapt(
-        as_type,
-        _namespace=_namespace,
-    ).dump_python(
-        obj,
-        mode=mode,
-        include=include,
-        exclude=exclude,
-        by_alias=by_alias,
-        exclude_unset=exclude_unset,
-        exclude_defaults=exclude_defaults,
-        exclude_none=exclude_none,
-        exclude_computed_fields=exclude_computed_fields,
-        round_trip=round_trip,
-        warnings=warnings,
-        fallback=fallback,
-        serialize_as_any=serialize_as_any,
-        context=context,
-    )
-
-
-def to_dict(
-    obj: Dataclass | BaseModel,
-    *,
-    include: set[str] | None = None,
-    exclude: set[str] | None = None,
-    exclude_unset: bool = False,
-    exclude_computed_fields: bool = True,
-) -> dict[str, Any]:
-    return dict(
-        items_of(
-            obj,
-            include=include,
-            exclude=exclude,
-            exclude_unset=exclude_unset,
-            exclude_computed_fields=exclude_computed_fields,
-        )
-    )
-
-
-def to_json(
-    obj: object,
-    as_type: TypeInput | None = None,
-    /,
-    *,
-    indent: int | None = None,
-    ensure_ascii: bool = False,
-    include: IncEx | None = None,
-    exclude: IncEx | None = None,
-    by_alias: bool | None = None,
-    exclude_unset: bool = False,
-    exclude_defaults: bool = False,
-    exclude_none: bool = False,
-    exclude_computed_fields: bool = False,
-    round_trip: bool = False,
-    warnings: bool | Literal["none", "warn", "error"] = True,
-    fallback: Callable[[Any], Any] | None = None,
-    serialize_as_any: bool = False,
-    context: Any | None = None,
-    _namespace: int = -4,
-) -> str:
-    if as_type is None:
-        as_type = type(obj)
-
-    return (
-        adapt(
-            as_type,
-            _namespace=_namespace,
-        )
-        .dump_json(
-            obj,
-            indent=indent,
-            ensure_ascii=ensure_ascii,
-            include=include,
-            exclude=exclude,
-            by_alias=by_alias,
-            exclude_unset=exclude_unset,
-            exclude_defaults=exclude_defaults,
-            exclude_none=exclude_none,
-            exclude_computed_fields=exclude_computed_fields,
-            round_trip=round_trip,
-            warnings=warnings,
-            fallback=fallback,
-            serialize_as_any=serialize_as_any,
-            context=context,
-        )
-        .decode()
-    )
-
-
-def to_yaml(
-    obj: object,
-    as_type: TypeInput | None = None,
-    /,
-    *,
-    # Pydantic
-    include: IncEx | None = None,
-    exclude: IncEx | None = None,
-    by_alias: bool | None = None,
-    exclude_unset: bool = False,
-    exclude_defaults: bool = False,
-    exclude_none: bool = False,
-    exclude_computed_fields: bool = False,
-    warnings: bool | Literal["none", "warn", "error"] = True,
-    fallback: Callable[[Any], Any] | None = None,
-    serialize_as_any: bool = False,
-    context: Any | None = None,
-    # YAML-specific Options
-    indent: int | None = None,
-    default_style: str | None = None,
-    default_flow_style: bool | None = False,
-    canonical: bool | None = None,
-    width: int | None = None,
-    line_break: str | None = None,
-    explicit_start: bool | None = None,
-    explicit_end: bool | None = None,
-    version: tuple[int, int] | None = None,
-    tags: Mapping[str, str] | None = None,
-    sort_keys: bool = False,
-    # Type Adapter
-    _namespace: int = -5,
-) -> str:
-    import yaml
-
-    return yaml.safe_dump(
-        simplify(
-            obj,
-            as_type,
-            include=include,
-            exclude=exclude,
-            by_alias=by_alias,
-            exclude_unset=exclude_unset,
-            exclude_defaults=exclude_defaults,
-            exclude_none=exclude_none,
-            exclude_computed_fields=exclude_computed_fields,
-            warnings=warnings,
-            fallback=fallback,
-            serialize_as_any=serialize_as_any,
-            context=context,
-            _namespace=_namespace,
-        ),
-        indent=indent,
-        default_style=default_style,
-        default_flow_style=default_flow_style,
-        canonical=canonical,
-        width=width,
-        line_break=line_break,
-        explicit_start=explicit_start,
-        explicit_end=explicit_end,
-        version=version,
-        tags=tags,
-        sort_keys=sort_keys,
-    )
-
-
-def simplify(
-    obj: object,
-    as_type: TypeInput | None = None,
-    /,
-    *,
-    include: IncEx | None = None,
-    exclude: IncEx | None = None,
-    by_alias: bool | None = None,
-    exclude_unset: bool = False,
-    exclude_defaults: bool = False,
-    exclude_none: bool = False,
-    exclude_computed_fields: bool = False,
-    warnings: bool | Literal["none", "warn", "error"] = True,
-    fallback: Callable[[Any], Any] | None = None,
-    serialize_as_any: bool = False,
-    context: Any | None = None,
-    _namespace: int = -4,
-) -> Any:
-    return from_json(
-        to_json(
-            obj,
-            as_type,
-            include=include,
-            exclude=exclude,
-            by_alias=by_alias,
-            exclude_unset=exclude_unset,
-            exclude_defaults=exclude_defaults,
-            exclude_none=exclude_none,
-            exclude_computed_fields=exclude_computed_fields,
-            warnings=warnings,
-            fallback=fallback,
-            serialize_as_any=serialize_as_any,
-            context=context,
-            _namespace=_namespace,
-        )
-    )
-
-
-def from_json(
-    data: str | bytes | bytearray,
-    /,
-    *,
-    allow_inf_nan: bool = True,
-    cache_strings: bool | Literal["all", "keys", "none"] = True,
-    allow_partial: bool | Literal["off", "on", "trailing-strings"] = False,
-) -> Any:
-    return _from_json(
-        data,
-        allow_inf_nan=allow_inf_nan,
-        cache_strings=cache_strings,
-        allow_partial=allow_partial,
-    )
-
-
-def create[T: DataObject | BaseModel](
-    cls: type[T],
-    field_values: Mapping[str, Any],
-    fields_set: Iterable[str] | bool | None = None,
-    /,
-) -> T:
-    """Construct an instance of `cls` with the provided field values without running validation.
-
-    Args:
-        cls: The `DataObject` or `BaseModel` subclass to instantiate.
-        field_values: A mapping of field names to pre-validated values.
-        fields_set: Fields to mark as explicitly set. Can be an iterable of field names, `True` to mark all fields as set, `False` to mark no fields as set, or `None` to infer set fields from `field_values`.
-    Returns:
-        An instance of the specified class with the provided field values.
-
-    Raises:
-        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, or if a required field value is missing from `field_values`.
-    """
-    instance: DataObject | BaseModel | None = None
-
-    if isinstance(cls, type):
-        if _is_data_object(cls):
-            instance = cls.__data_object_create__(field_values, fields_set)
-        elif issubclass(cls, BaseModel):
-            if fields_set is not None and not isinstance(fields_set, set):
-                if isinstance(fields_set, bool):
-                    fields_set = set(cls.__pydantic_fields__) if fields_set else set()
-                else:
-                    fields_set = set(fields_set)
-
-            instance = cls.model_construct(fields_set, **field_values)
-
-    if instance is None:
-        raise ValueError(
-            f"`create` can only be used with subclasses of {DataObject.__name__} or "
-            f"{BaseModel.__name__}, got {_as_class(cls)}."
-        )
-
-    return instance  # type: ignore
-
-
-def construct[T: DataObject | BaseModel, **P](
-    cls: Callable[P, T],
-    /,
-    *args: P.args,
-    **kwargs: P.kwargs,
-) -> T:
-    """Construct an instance of a `cls` with the provided arguments without running validation.
-
-    Args:
-        cls: The `DataObject` or `BaseModel` subclass to construct.
-        *args: Positional arguments to pass to the constructor.
-        **kwargs: Keyword arguments to pass to the constructor.
-
-    Returns:
-        An instance of `cls` constructed with the provided arguments.
-
-    Raises:
-        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, a required field is missing, or positional arguments are passed to a `BaseModel` subclass.
-    """
-    instance: DataObject | BaseModel | None = None
-
-    if isinstance(cls, type):
-        if _is_data_object_type(cls):
-            instance = cls.__data_object_construct__(*args, **kwargs)
-        elif isinstance(cls, type) and issubclass(cls, BaseModel):
-            if args:
-                raise ValueError(
-                    f"cannot construct `BaseModel` subclass `{cls}` with positional arguments"
-                )
-            instance = cls.model_construct(**kwargs)
-
-    if instance is None:
-        raise ValueError(
-            f"`construct` can only be used with subclasses of {DataObject.__name__} or "
-            f"{BaseModel.__name__}, got {_as_class(cls)}."
-        )
-
-    return instance  # type: ignore
-
-
-def validate[T](
-    ty: TypeInput[T],
-    data: Any,
-    /,
-    *,
-    _namespace: int = -4,
-    strict: bool | None = None,
-    extra: ExtraValues | None = None,
-    from_attributes: bool | None = None,
-    context: Any | None = None,
-    experimental_allow_partial: bool | Literal["off", "on", "trailing-strings"] = False,
-    by_alias: bool | None = None,
-    by_name: bool | None = None,
-) -> Any:
-    return adapt(ty, _namespace=_namespace).validate_python(
-        data,
-        strict=strict,
-        extra=extra,
-        from_attributes=from_attributes,
-        context=context,
-        experimental_allow_partial=experimental_allow_partial,
-        by_alias=by_alias,
-        by_name=by_name,
-    )
-
-
-class ValidateJSONKwargs(TypedDict, total=False):
-    strict: bool | None
-    extra: ExtraValues | None
-    experimental_allow_partial: bool | Literal["off", "on", "trailing-strings"]
-    context: Any | None
-    by_alias: bool | None
-    by_name: bool | None
-
-
-def validate_json[T](
-    ty: TypeInput[T],
-    data: str | bytes | bytearray,
-    /,
-    *,
-    _namespace: int = -4,
-    **kwargs: Unpack[ValidateJSONKwargs],
-) -> T:
-    return adapt(ty, _namespace=_namespace).validate_json(data, **kwargs)
-
-
-class ValidateYAMLKwargs(ValidateJSONKwargs, total=False):
-    pass
-
-
-def validate_yaml[T](
-    ty: TypeInput[T],
-    data: str | bytes | bytearray,
-    /,
-    *,
-    _namespace: int = -4,
-    **kwargs: Unpack[ValidateYAMLKwargs],
-) -> T:
-    from pydantic_core import from_json
-
-    try:
-        # Attempt to parse the data as JSON first. YAML is a superset of JSON, and parsing parsing
-        # is mcuh faster, so this is a fast-path if the input is actually valid JSON data.
-        parsed = from_json(data)
-    except Exception:
-        # Otherwise, actually parse the input as YAML.
-        import yaml
-
-        if isinstance(data, bytearray):
-            data = bytes(data)
-
-        parsed = yaml.safe_load(data)
-
-    # Validate the parsed data using the standard validation logic.
-    return validate(ty, parsed, _namespace=_namespace, **kwargs)
 
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance as __DataclassInstance
+
+    class _DataclassParams(Protocol):
+        kw_only: bool
+        frozen: bool
+        init: bool
+        repr: bool
+        eq: bool
+        order: bool
+        unsafe_hash: bool
+        match_args: bool
+        slots: bool
+        weakref_slot: bool
 
     class Dataclass(__DataclassInstance, Protocol):
         __slots__ = ()
@@ -575,13 +123,16 @@ if TYPE_CHECKING:
     class PydanticDataclass(__PydanticDataclass, Protocol):
         __slots__ = ()
 
-    class SupportsPydanticFields(Protocol):
+    class _SupportsPydanticFields(Protocol):
         if TYPE_CHECKING:
             __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
 
-    class SupportsPydanticFieldsSet(SupportsPydanticFields, Protocol):
+    class _SupportsPydanticFieldsSet(_SupportsPydanticFields, Protocol):
         @property
         def __pydantic_fields_set__(self) -> Set[str]: ...
+
+    class _SupportsReplace(Protocol):
+        def __replace__(self, *args: Any, **changes: Any) -> Any: ...
 else:
 
     class Dataclass:
@@ -591,8 +142,62 @@ else:
         __slots__ = ()
 
 
+@overload
+def _is_dataclass(obj: type) -> TypeIs[type[Dataclass]]: ...
+@overload
+def _is_dataclass(obj: object) -> TypeIs[MaybeClass[Dataclass]]: ...
+def _is_dataclass(obj: object) -> TypeIs[MaybeClass[Dataclass]]:
+    return dataclasses.is_dataclass(obj)
+
+
+def _get_dataclass_params(cls: type[Dataclass]) -> _DataclassParams:
+    return getattr(cls, "__dataclass_params__")
+
+
+def _supports_pydantic_fields(obj: object) -> TypeIs[MaybeClass[_SupportsPydanticFields]]:
+    return hasattr(obj, "__pydantic_fields__")
+
+
+def _supports_fields_set(obj: object) -> TypeIs[_SupportsPydanticFieldsSet]:
+    return hasattr(obj, "__pydantic_fields_set__")
+
+
+def _supports_replace(obj: object) -> TypeIs[_SupportsReplace]:
+    return hasattr(obj, "__replace__") and not isinstance(obj, type)
+
+
+@cached(storage=_cached_dataclasses)
+def _as_pydantic_dataclass(cls: type[Dataclass]) -> type[PydanticDataclass]:
+    if pydantic.dataclasses.is_pydantic_dataclass(cls):
+        return cls
+
+    return pydantic.dataclasses.dataclass(
+        config={"arbitrary_types_allowed": True},
+        frozen=_get_dataclass_params(cls).frozen,
+    )(
+        cls,
+    )
+
+
+def _as_class[T](obj: MaybeClass[T]) -> type[T]:
+    return obj if isinstance(obj, type) else type(obj)
+
+
+def _decorators_of(cls: type[PydanticDataclass]) -> Iterable[tuple[str, Decorator]]:
+    for _, decorators in to_items(cls.__pydantic_decorators__):
+        if isinstance(decorators, Mapping):
+            yield from decorators.items()
+
+
+def _generate_validation_aliases(field: str) -> str | AliasChoices:
+    if "_" not in field:
+        return field
+
+    return AliasChoices(field, field.replace("_", "-"))
+
+
 def fields_of(
-    obj: MaybeClass[Dataclass | BaseModel],
+    obj: MaybeClass[_SupportsPydanticFields | Dataclass],
     /,
     init: bool = False,
     cache: bool = True,
@@ -625,7 +230,7 @@ def fields_of(
 
 
 def computed_fields_of(
-    obj: MaybeClass[Dataclass | BaseModel],
+    obj: MaybeClass[_SupportsPydanticFields | Dataclass],
     /,
     *,
     cache: bool = True,
@@ -655,8 +260,8 @@ def computed_fields_of(
     return fields
 
 
-def items_of(
-    obj: Dataclass | BaseModel,
+def to_items(
+    obj: _SupportsPydanticFields | Dataclass,
     *,
     include: set[str] | None = None,
     exclude: set[str] | None = None,
@@ -695,130 +300,120 @@ def items_of(
             yield field, value
 
 
-def fields_set_on(obj: SupportsPydanticFieldsSet, /) -> Set[str]:
+def fields_set_on(obj: _SupportsPydanticFieldsSet, /) -> Set[str]:
     try:
         return obj.__pydantic_fields_set__
     except AttributeError:
         raise TypeError(f"Unsupported type for `{fields_set_on.__name__}`: {type(obj)}")
 
 
-def defaulting[T: SupportsPydanticFieldsSet](
-    original: T,
-    defaults: T | dict[str, Any] | None = None,
-    /,
-    **kwargs: Any,
-) -> T:
-    if defaults is None:
-        return original
-
-    provided_mapping = is_mapping(defaults)
-
-    update: dict[str, Any] = {}
-    original_fields = original.__pydantic_fields_set__
-    defaults_fields = defaults.__pydantic_fields_set__ if not provided_mapping else defaults.keys()
-
-    for field in defaults_fields:
-        if field not in original_fields:
-            try:
-                update[field] = (
-                    getattr(defaults, field) if not provided_mapping else defaults[field]
-                )
-            except AttributeError:
-                pass
-
-    for key, value in kwargs.items():
-        if key not in original_fields and key not in update:
-            update[key] = value
-
-    return replace(
-        original,  # type: ignore
-        **update,
+def to_dict(
+    obj: _SupportsPydanticFields | Dataclass,
+    *,
+    include: set[str] | None = None,
+    exclude: set[str] | None = None,
+    exclude_unset: bool = False,
+    exclude_computed_fields: bool = True,
+) -> dict[str, Any]:
+    return dict(
+        to_items(
+            obj,
+            include=include,
+            exclude=exclude,
+            exclude_unset=exclude_unset,
+            exclude_computed_fields=exclude_computed_fields,
+        )
     )
 
 
-def replacing[T: DataObject | BaseModel](
+# -------------------------------------------------------------------------------------
+# defaulting / replacing / WithDefaults
+# -------------------------------------------------------------------------------------
+
+if TYPE_CHECKING:
+
+    class _SupportsDefaulting(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
+        pass
+
+
+def _get_items(
+    obj: Mapping[str, Any] | _SupportsPydanticFieldsSet | None,
+) -> Iterable[tuple[str, Any]]:
+    if obj is None:
+        return ()
+    if isinstance(obj, Mapping):
+        return obj.items()
+
+    return to_items(obj, exclude_unset=True)
+
+
+def defaulting[T: _SupportsDefaulting](
     original: T,
-    overrides: T | dict[str, Any] | None = None,
+    defaults_object: T | dict[str, Any] | None = None,
     /,
-    **kwargs: Any,
+    **defaults: Any,
 ) -> T:
-    if overrides is None:
-        return original
+    from copy import replace
 
-    update = overrides if is_mapping(overrides) else to_dict(overrides, exclude_unset=True)
-    update.update(kwargs)
+    for field, value in _get_items(defaults_object):
+        defaults.setdefault(field, value)
 
-    return replace(
-        original,  # type: ignore
-        **update,
-    )
+    existing = original.__pydantic_fields_set__
+    updates = {field: value for field, value in defaults.items() if field not in existing}
+
+    return replace(original, **updates)
+
+
+if TYPE_CHECKING:
+
+    class _SupportsReplacing(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
+        pass
+
+
+def replacing[T: _SupportsReplacing](
+    original: T,
+    updates_object: T | dict[str, Any] | None = None,
+    /,
+    **updates: Any,
+) -> T:
+    from copy import replace
+
+    for field, value in _get_items(updates_object):
+        updates.setdefault(field, value)
+
+    return replace(original, **updates)
 
 
 def WithDefaults(
-    defaults: SupportsPydanticFieldsSet | Callable[[], SupportsPydanticFieldsSet] | None = None,
+    defaults_object: _SupportsDefaulting | Callable[[], _SupportsDefaulting] | None = None,
     /,
-    **kwargs: Any,
+    **defaults: Any,
 ) -> AfterValidator:
-    if callable(defaults):
-        defaults = defaults()
-
     def WithDefaults(obj: object, /) -> Any:
-        if not _supports_fields_set(obj):
+        if not _supports_fields_set(obj) or not _supports_replace(obj):
             raise TypeError(
-                "`WithDefaults` can only be applied to types with set fields tracking, such as "
-                "`BaseModel` or `DataObject` instances."
+                "`WithDefaults` can only be applied to types with set fields tracking and a "
+                "`__replace__` method, such as `BaseModel` or `DataObject` instances."
             )
 
-        return defaulting(obj, defaults, **kwargs)
+        nonlocal defaults_object
+        if callable(defaults_object):
+            defaults_object = defaults_object()
+
+        return defaulting(obj, defaults_object, **defaults)
 
     return AfterValidator(WithDefaults)
 
 
-@overload
-def _is_dataclass(obj: type) -> TypeIs[type[Dataclass]]: ...
-@overload
-def _is_dataclass(obj: object) -> TypeIs[MaybeClass[Dataclass]]: ...
-def _is_dataclass(obj: object) -> TypeIs[MaybeClass[Dataclass]]:
-    return dataclasses.is_dataclass(obj)
-
-
-def _supports_pydantic_fields(obj: object) -> TypeIs[MaybeClass[SupportsPydanticFields]]:
-    return hasattr(obj, "__pydantic_fields__")
-
-
-def _supports_fields_set(obj: object) -> TypeIs[SupportsPydanticFieldsSet]:
-    return hasattr(obj, "__pydantic_fields_set__")
-
-
-@cached(storage=_cached_dataclasses)
-def _as_pydantic_dataclass(cls: type[Dataclass]) -> type[PydanticDataclass]:
-    if pydantic.dataclasses.is_pydantic_dataclass(cls):
-        return cls
-
-    return pydantic.dataclasses.dataclass(cls, config={"arbitrary_types_allowed": True})
-
-
-def _as_class[T](obj: MaybeClass[T]) -> type[T]:
-    return obj if isinstance(obj, type) else type(obj)
-
-
-def _decorators_of(cls: type[PydanticDataclass]) -> Iterable[tuple[str, Decorator]]:
-    for _, decorators in items_of(cls.__pydantic_decorators__):
-        if isinstance(decorators, Mapping):
-            yield from decorators.items()
-
-
-def _generate_validation_aliases(field: str) -> str | AliasChoices:
-    if "_" not in field:
-        return field
-
-    return AliasChoices(field, field.replace("_", "-"))
-
-
 _object_setattr: Final = object.__setattr__
 
+
+class DataObjectConfigDict(ConfigDict):
+    pass
+
+
 _DATA_OBJECT_ALIAS_GENERATOR = AliasGenerator(validation_alias=_generate_validation_aliases)
-_DATA_OBJECT_DEFAULT_CONFIG = ConfigDict(
+_DATA_OBJECT_DEFAULT_CONFIG = DataObjectConfigDict(
     extra="forbid",
     from_attributes=True,
     use_attribute_docstrings=True,
@@ -830,21 +425,18 @@ _DATA_OBJECT_DEFAULT_CONFIG = ConfigDict(
 
 
 def _patch_dataclass_fields() -> None:
-    try:
-        _original_as_dataclass_field: Any = pydantic._internal._dataclasses.as_dataclass_field  # type: ignore
-    except AttributeError:
-        _original_as_dataclass_field = None
+    import pydantic
+    from pydantic._internal._dataclasses import as_dataclass_field
 
-    if _original_as_dataclass_field is not None:
+    @wraps(as_dataclass_field)
+    def patched_as_dataclass_field(pydantic_field: FieldInfo) -> dataclasses.Field[Any]:
+        field = as_dataclass_field(pydantic_field)
+        if pydantic_field.kw_only is not None:
+            field.kw_only = pydantic_field.kw_only
 
-        def overridden_as_dataclass_field(pydantic_field: FieldInfo) -> dataclasses.Field[Any]:
-            field = _original_as_dataclass_field(pydantic_field)
-            if pydantic_field.kw_only is not None:
-                field.kw_only = pydantic_field.kw_only
+        return field
 
-            return field
-
-        pydantic._internal._dataclasses.as_dataclass_field = overridden_as_dataclass_field  # type: ignore
+    pydantic._internal._dataclasses.as_dataclass_field = patched_as_dataclass_field  # type: ignore
 
 
 _patch_dataclass_fields()
@@ -922,8 +514,8 @@ class DataObjectMetaclass(
 
             namespace["__slots__"] = ()
 
-        if "__data_object_is_generic_alias__" not in namespace:
-            namespace["__data_object_is_generic_alias__"] = False
+        if "__data_object_generic_alias__" not in namespace:
+            namespace["__data_object_generic_alias__"] = None
 
         if frozen is None:
             if not _is_data_object_frozen_class_defined:
@@ -966,11 +558,6 @@ class DataObjectMetaclass(
         if __replace__ is None:
             __replace__ = getattr(inner_class, "__replace__", None)
 
-        # __init_subclass__ = getattr(inner_class, "__init_subclass__", None)
-        # if _is_data_object_class_defined:
-        #     if __init_subclass__ is not None:
-        #         setattr(inner_class, "__init_subclass__", DataObject.__init_subclass__)  # type: ignore
-
         # TODO: Use a more robust way to detect this.
         _data_object_classes_being_built.add(key)
         try:
@@ -998,6 +585,11 @@ class DataObjectMetaclass(
         data_object_class.__doc__ = inner_class.__doc__
         data_object_class.__data_object_abstract__ = abstract
         data_object_class.__data_object_class__ = data_object_class
+
+        # Reset generic alias attributes.
+        # data_object_class.__origin__ = None
+        # data_object_class.__args__ = ()
+        # data_object_class.__parameters__ = ()
 
         # Add `__replace__` back into the class.
         if __replace__ is not None:
@@ -1437,7 +1029,7 @@ class DataObject(
                 self.__data_object_fields_set__.add(name)
 
     if TYPE_CHECKING:
-        from ceres.data import __Frozen__ as __Frozen
+        from ceres.data.object import __Frozen__ as __Frozen
 
         @dataclass_transform(
             kw_only_default=True,
@@ -1455,10 +1047,10 @@ class DataObject(
 
     __data_object_abstract__: ClassVar[bool] = False
     __data_object_required_slots__: ClassVar[tuple[str, ...]] = ()
-    __data_object_is_generic_alias__: ClassVar[bool] = False
+    __data_object_generic_alias__: ClassVar[GenericAlias | None] = None
 
     if TYPE_CHECKING:
-        from ceres.data import DataObject as __DataObject
+        from ceres.data.object import DataObject as __DataObject
 
         __data_object_class__: ClassVar[type[DataObject]] = __DataObject
 
@@ -1488,14 +1080,18 @@ class DataObject(
         if cached is not None:
             return cached
 
-        alias: GenericAlias = super().__class_getitem__(__args__)  # type: ignore
+        if TYPE_CHECKING:
+            BaseAlias: GenericAlias = cast("GenericAlias", None)
+        else:
+            BaseAlias = super().__class_getitem__(__args__)
+
         if not isinstance(__args__, tuple):
             __args__ = (__args__,)
 
         from pydantic._internal._generics import replace_types
 
-        parameters: tuple[TypeVar, ...] = getattr(cls, "__parameters__", ())
-        replace = {parameter: argument for parameter, argument in zip(parameters, __args__)}
+        __parameters__: tuple[TypeVar, ...] = getattr(cls, "__parameters__", ())
+        replace = {parameter: argument for parameter, argument in zip(__parameters__, __args__)}
         replaced_annotations: dict[str, Any] = {}
         replaced_fields: dict[str, FieldInfo] = {}
 
@@ -1507,63 +1103,77 @@ class DataObject(
                 replaced_annotations[field] = replaced
                 replaced_fields[field] = info
 
-        names: list[str] = []
+        argument_names: list[str] = []
         for argument in __args__:
-            name = getattr(argument, "__qualname__", None)
-            if name is None:
-                name = getattr(argument, "__name__", None)
-            if name is None:
-                name = repr(argument)
+            argument_name = getattr(argument, "__qualname__", None)
+            if argument_name is None:
+                argument_name = getattr(argument, "__name__", None)
+            if argument_name is None:
+                argument_name = repr(argument)
 
-            names.append(name)
+            argument_names.append(argument_name)
 
-        __name__ = f"{cls.__name__}[{', '.join(names)}]"
+        arguments = ", ".join(argument_names)
+        __qualname__ = f"{cls.__qualname__}[{arguments}]"
+        __name__ = f"{cls.__name__}[{arguments}]"
 
-        class Alias(*(alias,)):
+        class Alias(BaseAlias if not TYPE_CHECKING else DataObject):
             __annotations__ = replaced_annotations
-            __data_object_is_generic_alias__ = True
+            __data_object_generic_alias__ = BaseAlias
             for field, info in replaced_fields.items():
                 locals()[field] = info
 
-        Alias.__qualname__ = Alias.__qualname__.replace(Alias.__name__, __name__)
-        Alias.__name__ = __name__
         Alias.__module__ = cls.__module__
+        Alias.__qualname__ = __qualname__
+        Alias.__name__ = __name__
 
-        # Add `GenericAlias`-like attributes.
-        Alias.__origin__ = cls
-        Alias.__args__ = __args__
-        Alias.__parameters__ = parameters
+        # Set generic alias attributes.
+        setattr(Alias, "__origin__", cls)
+        setattr(Alias, "__args__", BaseAlias.__args__)
+        setattr(Alias, "__parameters__", BaseAlias.__parameters__)
 
         return _data_object_generic_alias_class_cache.setdefault(key, Alias)
 
-    @cached_class_property
+    @class_property
+    @classmethod
+    def __data_object_config__(cls) -> DataObjectConfigDict:
+        return cls.__pydantic_config__
+
+    @class_property
+    @classmethod
+    def __data_object_parameter_fields__(cls) -> Mapping[str, FieldInfo]:
+        return cls.__pydantic_fields__
+
+    @fields_cached_class_property
     @classmethod
     def __data_object_fields__(cls) -> Mapping[str, FieldInfo]:
-        return fields_of(cls, cache=False)
+        return MappingProxyType(
+            {field: info for field, info in cls.__pydantic_fields__.items() if not info.init_var}
+        )
 
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
-    def __data_object_init_fields__(cls) -> Mapping[str, FieldInfo]:
-        return fields_of(cls, cache=False)
+    def __data_object_init_var_fields__(cls) -> Mapping[str, FieldInfo]:
+        return MappingProxyType(
+            {field: info for field, info in cls.__pydantic_fields__.items() if info.init_var}
+        )
 
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
     def __data_object_computed_fields__(cls) -> Mapping[str, ComputedFieldInfo]:
         return computed_fields_of(cls, cache=False)
 
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
     def __data_object_field_indexes__(cls) -> Mapping[str, int]:
-        return MappingProxyType(
-            {field: index for index, field in enumerate(cls.__data_object_fields__)}
-        )
+        return {field: index for index, field in enumerate(cls.__data_object_fields__)}
 
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
     def __data_object_field_names__(cls) -> tuple[str, ...]:
         return tuple(cls.__data_object_fields__)
 
-    @cached_class_property
+    @fields_cached_class_property
     @classmethod
     def __data_object_type_adapter__(cls) -> TypeAdapter[Self]:
         return TypeAdapter(cls)
@@ -1582,6 +1192,15 @@ class DataObject(
             ]
         )
 
+    @cached_class_property
+    @classmethod
+    def __data_object_defined_slots__(cls) -> tuple[str, ...]:
+        return tuple(
+            slot
+            for slot in get_declared_slots(cls)
+            if slot not in ("__weakref__", "__dict__", "__data_object_fields_set__")
+        )
+
     @classmethod
     def __data_object_create__(
         cls,
@@ -1591,25 +1210,34 @@ class DataObject(
     ) -> Self:
         instance = object.__new__(cls)
 
+        __post_init__args: list[Any] = []
+
+        for field, info in cls.__data_object_parameter_fields__.items():
+            value = field_values.get(field, Undefined)
+            if value is Undefined:
+                if info.is_required():
+                    raise AttributeError(f"Missing value for required field '{field}'.")
+
+                value = info.get_default(
+                    call_default_factory=True,
+                    validated_data=field_values,  # type: ignore
+                )
+
+            if info.init_var:
+                __post_init__args.append(value)
+            else:
+                _object_setattr(instance, field, value)
+
         if fields_set is None:
             fields_set = FieldsSet(cls, field_values)
         else:
             fields_set = FieldsSet(cls, fields_set)
 
-        for field_name, field in cls.__data_object_fields__.items():
-            value = field_values.get(field_name, Undefined)
-            if value is Undefined:
-                if field.is_required():
-                    raise AttributeError(f"Missing value for required field '{field_name}'.")
-
-                value = field.get_default(
-                    call_default_factory=True,
-                    validated_data=field_values,  # type: ignore
-                )
-
-            _object_setattr(instance, field_name, value)
-
         _object_setattr(instance, "__data_object_fields_set__", fields_set)
+
+        if hasattr(cls, "__post_init__"):
+            cls.__post_init__(*__post_init__args)  # type: ignore
+
         return instance
 
     @classmethod
@@ -1657,15 +1285,6 @@ class DataObject(
             kwargs[name] = value
 
         return kwargs
-
-    @cached_class_property
-    @classmethod
-    def __data_object_defined_slots__(cls) -> tuple[str, ...]:
-        return tuple(
-            slot
-            for slot in get_declared_slots(cls)
-            if slot not in ("__weakref__", "__dict__", "__data_object_fields_set__")
-        )
 
     @class_property
     @classmethod
@@ -1752,6 +1371,9 @@ class DataObject(
         tokens = [self.__class__.__name__, "("]
 
         for field, info in fields.items():
+            if not info.repr:
+                continue
+
             value = getattr(self, field, Undefined)
             # Omit fields which inexplicably unset in attributes.
             if value is Undefined:
@@ -1803,7 +1425,7 @@ class DataObject(
             fields_set |= changes.keys()
 
             field_values = changes
-            for field, value in items_of(self):
+            for field, value in to_items(self):
                 field_values.setdefault(field, value)
 
             copy = self.__class__(**field_values)
@@ -1832,7 +1454,10 @@ class DataObject(
         return model
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
+        try:
+            super().__init_subclass__(**kwargs)
+        except TypeError:
+            super().__init_subclass__()
 
     @classmethod
     def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
@@ -2062,10 +1687,6 @@ for attribute, value in DataObject.__dict__.items():
         setattr(DataModel, attribute, __proxy_data_object_class_item(value))
 
 
-class ImmutableDataModel(DataModel):
-    model_config = ConfigDict(frozen=True)
-
-
 if TYPE_CHECKING:
     # This is just to ensure that `ValidatedDataclass` is recognized as a valid Pydantic dataclass
     # type for type checking purposes without actually inheriting from `typing.Protocol` which
@@ -2073,362 +1694,82 @@ if TYPE_CHECKING:
     __ensure_is_pydantic_dataclass: type[PydanticDataclass] = DataObject
 
 
-type Username = Annotated[
-    str,
-    StringConstraints(
-        pattern=r"[a-zA-Z\-_]+",
-        min_length=1,
-        max_length=64,
-    ),
-]
+def create[T: DataObject | BaseModel](
+    cls: type[T],
+    field_values: Mapping[str, Any],
+    fields_set: Iterable[str] | bool | None = None,
+    /,
+) -> T:
+    """Construct an instance of `cls` with the provided field values without running validation.
 
+    Args:
+        cls: The `DataObject` or `BaseModel` subclass to instantiate.
+        field_values: A mapping of field names to pre-validated values.
+        fields_set: Fields to mark as explicitly set. Can be an iterable of field names, `True` to mark all fields as set, `False` to mark no fields as set, or `None` to infer set fields from `field_values`.
+    Returns:
+        An instance of the specified class with the provided field values.
 
-def _validate_password(value: str) -> str:
-    bytes = len(value.encode())
-    if bytes > 72:
-        raise ValueError("password cannot exceed 72 bytes")
+    Raises:
+        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, or if a required field value is missing from `field_values`.
+    """
+    instance: DataObject | BaseModel | None = None
 
-    return value
+    if isinstance(cls, type):
+        if _is_data_object(cls):
+            instance = cls.__data_object_create__(field_values, fields_set)
+        elif issubclass(cls, BaseModel):
+            if fields_set is not None and not isinstance(fields_set, set):
+                if isinstance(fields_set, bool):
+                    fields_set = set(cls.__pydantic_fields__) if fields_set else set()
+                else:
+                    fields_set = set(fields_set)
 
+            instance = cls.model_construct(fields_set, **field_values)
 
-type Password = Annotated[
-    str,
-    StringConstraints(min_length=1, max_length=32),
-    AfterValidator(_validate_password),
-]
-
-
-def _validate_email_address(value: str) -> str:
-    from email_validator import validate_email
-
-    validated = validate_email(value, check_deliverability=False)
-    return validated.normalized.lower()
-
-
-type EmailAddress = Annotated[
-    str,
-    AfterValidator(_validate_email_address),
-]
-
-BCryptHash: Final = NewType("BCryptHash", str)
-_ValidatedBCryptHash = Annotated[
-    BCryptHash,
-    StringConstraints(pattern=r"^\$2[ayb]\$.{56}$"),
-]
-
-if not TYPE_CHECKING:
-    BCryptHash = _ValidatedBCryptHash
-
-Argon2Hash: Final = NewType("Argon2Hash", str)
-_ValidatedArgon2Hash = Annotated[
-    Argon2Hash,
-    StringConstraints(
-        pattern=r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
-    ),
-]
-
-if not TYPE_CHECKING:
-    Argon2Hash = _ValidatedArgon2Hash
-
-
-type PasswordHash = BCryptHash | Argon2Hash
-
-
-class StrEnum(BaseStrEnum):
-    @staticmethod
-    @override
-    def _generate_next_value_(name: str, *args: Any, **kwargs: Any) -> str:
-        return name.lower().replace("_", "-")
-
-    @override
-    def __str__(self) -> str:
-        return self.value
-
-
-_order_cache: dict[tuple[type[OrderedStrEnum], str], int] = {}
-
-
-class OrderedStrEnum(StrEnum):
-    @classmethod
-    def __order_mapping__(cls) -> dict[Any, int]:
-        return {}
-
-    @property
-    def order(self) -> int:
-        key = (type(self), self)
-        value = _order_cache.get(key)
-        if value is not None:
-            return value
-
-        value = self.__order_mapping__().get(self)
-        if value is None:
-            value = tuple(type(self)).index(self)
-
-        _order_cache[key] = value
-        return value
-
-    @override
-    def __lt__(self, __x: str | None) -> bool:
-        if __x is None:
-            return False
-
-        if isinstance(__x, OrderedStrEnum):
-            return self.order < __x.order
-
-        return super().__lt__(__x)
-
-    @override
-    def __le__(self, __x: str | None) -> bool:
-        if __x is None:
-            return False
-
-        if isinstance(__x, OrderedStrEnum):
-            return self.order <= __x.order
-
-        return super().__le__(__x)
-
-    @override
-    def __gt__(self, __x: str | None) -> bool:
-        if __x is None:
-            return True
-
-        if isinstance(__x, OrderedStrEnum):
-            return self.order > __x.order
-
-        return super().__gt__(__x)
-
-    @override
-    def __ge__(self, __x: str | None) -> bool:
-        if __x is None:
-            return True
-
-        if isinstance(__x, OrderedStrEnum):
-            return self.order >= __x.order
-
-        return super().__ge__(__x)
-
-
-_REGEX_FLAG_CHARACTERS = set(member for member in RegexFlag.__members__ if len(member) == 1)
-
-
-def _pre_validate_regex_flags(value: object) -> object:
-    if not isinstance(value, str):
-        return value
-
-    value = value.upper()
-    try:
-        return RegexFlag[value]
-    except KeyError:
-        pass
-
-    summed = RegexFlag.NOFLAG
-    for character in value:
-        try:
-            summed |= RegexFlag[character]
-        except KeyError:
-            raise ValueError(
-                f"invalid regex flag character '{character}', must be one of: {_REGEX_FLAG_CHARACTERS}"
-            )
-
-    return summed
-
-
-type RegexFlags = Annotated[RegexFlag, BeforeValidator(_pre_validate_regex_flags)]
-
-
-if TYPE_CHECKING:
-    from _typeshed import ReadableBuffer
-
-    ToBytes: TypeAlias = bytes | bytearray | memoryview | SupportsBytes | ReadableBuffer
-else:
-    ToBytes: TypeAlias = bytes | bytearray
-
-
-_NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
-type Name = Annotated[str, StringConstraints(pattern=_NAME_PATTERN)]
-type NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
-type NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
-
-
-type Date = date
-type Time = time
-
-_DATETIME_OR_DATE_TYPE_ADAPTER: TypeAdapter[datetime | date] = TypeAdapter(
-    Annotated[datetime | date, Field(union_mode="left_to_right")]
-)
-
-
-def _pre_validate_datetime(value: object | None) -> object | None:
-    if value is None:
-        return None
-
-    value = _DATETIME_OR_DATE_TYPE_ADAPTER.validate_python(value)
-    # If the value is a date and not a date-time, convert it to a date-time at midnight UTC. Don't
-    # change this to `isinstance(value, date)` because `datetime` is a subclass of `date`.
-    if not isinstance(value, datetime):
-        return datetime(
-            value.year,
-            value.month,
-            value.day,
-            tzinfo=UTC,
+    if instance is None:
+        raise ValueError(
+            f"`create` can only be used with subclasses of {DataObject.__name__} or "
+            f"{BaseModel.__name__}, got {_as_class(cls)}."
         )
 
-    # If the value is already timezone-aware and in UTC, return it as is.
-    if value.tzinfo is UTC:
-        return value
-    # If the value is missing timezone information, assume it's UTC.
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    # Otherwise, convert the value from its current timezone to UTC.
-    return value.astimezone(UTC)
+    return instance  # type: ignore
 
 
-type DateTimeInput = datetime | date | int | float | str
-type DateTime = Annotated[datetime, BeforeValidator(_pre_validate_datetime)]
+def construct[T: DataObject | BaseModel, **P](
+    cls: Callable[P, T],
+    /,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> T:
+    """Construct an instance of a `cls` with the provided arguments without running validation.
 
-_TIMEDELTA_TYPE_ADAPTER = TypeAdapter(timedelta)
+    Args:
+        cls: The `DataObject` or `BaseModel` subclass to construct.
+        *args: Positional arguments to pass to the constructor.
+        **kwargs: Keyword arguments to pass to the constructor.
 
+    Returns:
+        An instance of `cls` constructed with the provided arguments.
 
-def _pre_validate_timedelta(value: object) -> timedelta | None:
-    if value is None:
-        return None
-    if isinstance(value, timedelta):
-        return value
+    Raises:
+        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, a required field is missing, or positional arguments are passed to a `BaseModel` subclass.
+    """
+    instance: DataObject | BaseModel | None = None
 
-    if isinstance(value, str):
-        try:
-            return _TIMEDELTA_TYPE_ADAPTER.validate_python(value)
-        except Exception:
-            pass
+    if isinstance(cls, type):
+        if _is_data_object_type(cls):
+            instance = cls.__data_object_construct__(*args, **kwargs)
+        elif isinstance(cls, type) and issubclass(cls, BaseModel):
+            if args:
+                raise ValueError(
+                    f"cannot construct `BaseModel` subclass `{cls}` with positional arguments"
+                )
+            instance = cls.model_construct(**kwargs)
 
-        from ceres.timing import _parse_sdelta
+    if instance is None:
+        raise ValueError(
+            f"`construct` can only be used with subclasses of {DataObject.__name__} or "
+            f"{BaseModel.__name__}, got {_as_class(cls)}."
+        )
 
-        return _parse_sdelta(value)
-
-    if isinstance(value, (int, float)):
-        return timedelta(seconds=value)
-
-    raise ValueError(
-        "invalid timedelta value, must be a ISO formatted interval or number with suffix 'us', "
-        "'ms', 's', 'm', 'h' or 'd'."
-    )
-
-
-type TimeDeltaInput = timedelta | int | float | str
-type TimeDelta = Annotated[timedelta, BeforeValidator(_pre_validate_timedelta)]
-
-_ZERO_TIMEDELTA = timedelta()
-
-
-def _validate_positive_timedelta(value: timedelta) -> timedelta | None:
-    assert value > _ZERO_TIMEDELTA, "must be greater than zero"
-    return value
-
-
-type PositiveTimeDelta = Annotated[TimeDelta, AfterValidator(_validate_positive_timedelta)]
-
-
-def _validate_non_negative_timedelta(value: timedelta) -> timedelta | None:
-    assert value >= _ZERO_TIMEDELTA, "must be greater than or equal to zero"
-    return value
-
-
-type NonNegativeTimeDelta = Annotated[
-    TimeDelta,
-    AfterValidator(_validate_non_negative_timedelta),
-]
-
-
-def uuid4() -> UUID:
-    """Generate a version 4 UUID."""
-    try:
-        from uuid_utils import uuid4
-
-        return UUID(int=uuid4().int)
-    except ImportError:
-        from uuid import uuid4
-
-        return uuid4()
-
-
-def uuid7(
-    timestamp: int | None = None,
-    nanoseconds: int | None = None,
-) -> UUID:
-    """Generate a version 7 UUID using a time value and random bytes."""
-    from uuid_utils import uuid7
-
-    return UUID(int=uuid7(timestamp, nanoseconds).int)
-
-
-def _pre_validate_from_json(value: object) -> object:
-    if not isinstance(value, (str, bytes)):
-        return value
-
-    try:
-        return validate_json(Any, value)
-    except Exception as exception:
-        raise ValueError(f"invalid JSON: {exception}")
-
-
-type FromJSON[T] = Annotated[T, BeforeValidator(_pre_validate_from_json), NoDecode]
-
-
-def _pre_validate_from_yaml(value: object) -> object:
-    if not isinstance(value, (str, bytes)):
-        return value
-
-    try:
-        return validate_yaml(Any, value)
-    except Exception as exception:
-        raise ValueError(f"invalid YAML: {exception}")
-
-
-type FromYAML[T] = Annotated[T, BeforeValidator(_pre_validate_from_yaml), NoDecode]
-
-
-def _pre_validate_number(value: object) -> object:
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-
-    return value
-
-
-def _serialize_number(value: object) -> object:
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-
-    return value
-
-
-type Number = Annotated[
-    int | float,
-    Field(union_mode="left_to_right"),
-    BeforeValidator(_pre_validate_number),
-    PlainSerializer(_serialize_number),
-]
-
-type JSONValue = None | bool | Number | str | JSONList | JSONDict
-type JSONDict = dict[str, JSONValue]
-type JSONList = list[JSONValue]
-
-
-def _validate_json_serializable(value: object) -> object:
-    try:
-        to_json(value)
-    except Exception as error:
-        raise ValueError(f"not serializable to JSON: {error}")
-
-    return value
-
-
-type JSONSerializable[T = Any] = Annotated[T, AfterValidator(_validate_json_serializable)]
-type JSONSerializableDict[T = Any] = JSONSerializable[dict[str, T]]
-type JSONSerializableList[T = Any] = JSONSerializable[list[T]]
-
-type MaybeList[T] = T | list[T]
-
-if TYPE_CHECKING:
-    type MaybeSequence[T] = T | Sequence[T]
-else:
-    type MaybeSequence[T] = T | list[T]
+    return instance  # type: ignore

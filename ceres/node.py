@@ -8,10 +8,10 @@ from pydantic.fields import FieldInfo
 
 from ceres.__internal__.lazy import __lazy_imports__
 from ceres.__internal__.protocols import NodeSource
-from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import concurrently, sleep
 from ceres.data import replacing
+from ceres.error import trace
 from ceres.event import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -23,8 +23,11 @@ from ceres.event import (
     StoppedEvent,
 )
 from ceres.tasklet import Tasklet
+from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
@@ -79,6 +82,10 @@ class Node(Tasklet, NodeSource):
     @override
     def __node__(self) -> Node:
         return self
+
+    @property
+    def time(self) -> datetime:
+        return utc()
 
     async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
         pass
@@ -203,7 +210,7 @@ class Node(Tasklet, NodeSource):
                 if not self.__writer.flushing and not self.__writer.empty:
                     await self.__writer.flush()
             except Exception as exception:
-                self.events.emit(DatabaseExceptionEvent, traceback=trace(exception))
+                self.events.emit(DatabaseExceptionEvent, exception=trace(exception))
                 await sleep(1)
 
             await sleep(0.1)

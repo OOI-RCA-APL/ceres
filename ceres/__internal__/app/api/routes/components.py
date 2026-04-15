@@ -36,7 +36,6 @@ from ceres.error import (
     ProcedureNotPermittedError,
 )
 from ceres.message import Message, MessageData
-from ceres.result import Fail
 from ceres.user import UserRole
 
 if TYPE_CHECKING:
@@ -195,7 +194,7 @@ async def get_action(
 
 
 if TYPE_CHECKING:
-    type CallResult = Any | Response | None | ProcedureError
+    type CallResult = Any | Response | None
 else:
     type CallResult = Any
 
@@ -211,37 +210,37 @@ async def _call(
 ) -> CallResult:
     access = ProcedureAccessLevel.PUBLIC if role is None else role
     namespace = namespace = _get_namespace(request)
-    try:
-        component = engine.get_component(address)
-        if component is None:
-            return Fail(ProcedureComponentNotFoundError())
-        binding = component.system.get_procedure_bindings().get(procedure)
-        if binding is None:
-            return Fail(ProcedureNotFoundError())
-        if namespace == "queries":
-            if binding.type != ProcedureType.QUERY:
-                return Fail(ProcedureNotFoundError())
-        if namespace == "actions":
-            if binding.type != ProcedureType.ACTION:
-                return Fail(ProcedureNotFoundError())
-        if access < binding.permissions:
-            return Fail(ProcedureNotPermittedError())
-        if request.method == "GET" and binding.type == ProcedureType.ACTION:
-            return Fail(ProcedureNotPermittedError())
-        if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
-            return Fail(ProcedureNotPermittedError())
 
-        output = await component.system.call(procedure, arguments)
-        if isinstance(output, Output):
-            return output.to_response()
+    component = engine.get_component(address)
+    if component is None:
+        raise Failure(ProcedureComponentNotFoundError)
 
-        return output
+    binding = component.system.get_procedure_bindings().get(procedure)
+    if binding is None:
+        raise Failure(ProcedureNotFoundError)
 
-    except Failure as exception:
-        if isinstance(exception.error, ProcedureError):
-            return Fail(exception.error)
+    if namespace == "queries":
+        if binding.type != ProcedureType.QUERY:
+            raise Failure(ProcedureNotFoundError)
 
-        raise
+    if namespace == "actions":
+        if binding.type != ProcedureType.ACTION:
+            raise Failure(ProcedureNotFoundError)
+
+    if access < binding.permissions:
+        raise Failure(ProcedureNotPermittedError)
+
+    if request.method == "GET" and binding.type == ProcedureType.ACTION:
+        raise Failure(ProcedureNotPermittedError)
+
+    if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
+        raise Failure(ProcedureNotPermittedError)
+
+    output = await component.system.call(procedure, arguments)
+    if isinstance(output, Output):
+        return output.to_response()
+
+    return output
 
 
 _ProcedureNamespace = Literal["procedures", "queries", "actions"]
@@ -340,33 +339,33 @@ async def subscribe_procedure(
     if component is None:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            to_json(Fail(ProcedureComponentNotFoundError())),
+            to_json(ProcedureComponentNotFoundError()),
         )
 
     binding = component.system.get_procedure_bindings().get(name)
     if binding is None:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            to_json(Fail(ProcedureNotFoundError())),
+            to_json(ProcedureNotFoundError()),
         )
 
     if namespace == "queries":
         if binding.type != ProcedureType.QUERY:
             raise WebSocketException(
                 WS_1008_POLICY_VIOLATION,
-                to_json(Fail(ProcedureNotFoundError())),
+                to_json(ProcedureNotFoundError()),
             )
     if namespace == "actions":
         if binding.type != ProcedureType.ACTION:
             raise WebSocketException(
                 WS_1008_POLICY_VIOLATION,
-                to_json(Fail(ProcedureNotFoundError())),
+                to_json(ProcedureNotFoundError()),
             )
 
     if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            to_json(Fail(ProcedureNotPermittedError())),
+            to_json(ProcedureNotPermittedError()),
         )
 
     async def write() -> None:
@@ -380,7 +379,7 @@ async def subscribe_procedure(
                 else:
                     code = WS_1008_POLICY_VIOLATION
 
-                reason = to_json(Fail(exception.error))
+                reason = to_json(exception.error)
             else:
                 code = WS_1011_INTERNAL_ERROR
                 reason = to_json(strify(exception)[0:100])

@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import { upperFirst } from 'lodash-es'
-import moment from 'moment'
 import { LocalStorage } from 'quasar'
 import { useRoute } from 'vue-router'
 import Zod from 'zod'
@@ -11,6 +10,7 @@ import { Address } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
 import ResizeHandle from '@/components/ResizeHandle.vue'
+import { duration } from '@/time'
 import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
 import { guard } from '@/errors'
@@ -357,12 +357,12 @@ function promptReload() {
                   label="Statistics Duration"
                   :option-label="displayDuration"
                   :options="[
-                    moment.duration(1, 'm'),
-                    moment.duration(5, 'm'),
-                    moment.duration(30, 'm'),
-                    moment.duration(1, 'h'),
-                    moment.duration(12, 'h'),
-                    moment.duration(1, 'd'),
+                    duration(1, 'm'),
+                    duration(5, 'm'),
+                    duration(30, 'm'),
+                    duration(1, 'h'),
+                    duration(12, 'h'),
+                    duration(1, 'd'),
                   ]"
                   options-dense
                   outlined

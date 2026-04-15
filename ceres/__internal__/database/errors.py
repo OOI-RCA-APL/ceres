@@ -14,7 +14,6 @@ _POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
 
 @contextmanager
 def wrap_database_errors() -> Iterator[None]:
-    import traceback
 
     from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
     from sqlalchemy.exc import SQLAlchemyError
@@ -46,15 +45,12 @@ def wrap_database_errors() -> Iterator[None]:
             exception,
             sqlalchemy.exc.ArgumentError | sqlalchemy.exc.InvalidRequestError,
         ):
-            raise Failure(
-                DatabaseProgrammingError(
-                    message=str(exception),
-                    traceback=traceback.format_exception(exception),
-                )
-            )
+            from ceres.error import trace
+
+            raise Failure(DatabaseProgrammingError(exception=trace(exception)))
 
         if isinstance(exception, sqlalchemy.exc.TimeoutError):
-            raise Failure(DatabaseUnreachableError(message=str(exception)))
+            raise Failure(DatabaseUnreachableError(reason=str(exception)))
 
         if isinstance(exception, SQLAlchemyIntegrityError):
             if isinstance(exception.orig, SQLiteIntegrityError):
@@ -75,4 +71,4 @@ def wrap_database_errors() -> Iterator[None]:
 
             raise Failure(IntegrityError)
 
-        raise Failure(DatabaseUnexpectedError(message=str(exception)))
+        raise Failure(DatabaseUnexpectedError(reason=str(exception)))

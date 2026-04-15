@@ -1,5 +1,6 @@
-from collections.abc import Callable
-from typing import Any, override
+from collections.abc import Callable, Hashable
+from functools import partial
+from typing import TYPE_CHECKING, Any, Final, overload, override
 
 from ceres.__internal__.utilities.undefined import Undefined
 
@@ -8,12 +9,6 @@ def class_property[C, V](
     fget: Callable[[type[C]], V] | classmethod[C, Any, V],
 ) -> ClassProperty[C, V]:
     return ClassProperty(fget)
-
-
-def cached_class_property[C, V](
-    fget: Callable[[type[C]], V] | classmethod[C, Any, V],
-) -> ClassProperty[C, V]:
-    return CachedClassProperty(fget)
 
 
 class ClassProperty[C, V]:
@@ -43,28 +38,127 @@ class ClassProperty[C, V]:
         return self.fget(owner)
 
 
+@overload
+def cached_class_property[C, V](
+    fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+    *,
+    key: Callable[[type[C]], Any] | str | CachedClassProperty[Any, Any] | None = None,
+    by: Callable[[Any], Any] | None = None,
+) -> CachedClassProperty[C, V]: ...
+
+
+@overload
+def cached_class_property[C, V](
+    fget: None = None,
+    *,
+    key: Callable[[type[C]], Any] | str | CachedClassProperty[Any, Any] | None = None,
+    by: Callable[[Any], Any] | None = None,
+) -> Callable[[Callable[[type[C]], V] | classmethod[C, Any, V]], CachedClassProperty[C, V]]: ...
+
+
+def cached_class_property[C, V](
+    fget: Callable[[type[C]], V] | classmethod[C, Any, V] | None = None,
+    *,
+    key: Callable[[type[C]], Any] | str | CachedClassProperty | None = None,
+    by: Callable[[Any], Any] | None = None,
+) -> (
+    CachedClassProperty[C, V]
+    | Callable[[Callable[[type[C]], V] | classmethod[C, Any, V]], CachedClassProperty[C, V]]
+):
+    if isinstance(key, CachedClassProperty):
+        if by is None:
+            by = key.by
+
+        key = key.key
+
+    def cached_class_property(
+        fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+    ) -> CachedClassProperty[C, V]:
+        return CachedClassProperty(fget, key=key, by=by)
+
+    if fget is None:
+        return cached_class_property
+
+    return cached_class_property(fget)
+
+
 class CachedClassProperty[C, V](ClassProperty[C, V]):
     @override
     def __init__(
         self,
         fget: Callable[[type[C]], V] | classmethod[C, Any, V],
+        *,
+        key: Callable[[type[C]], Any] | str | None = None,
+        by: Callable[[Any], Any] | None = None,
     ) -> None:
-        super().__init__(fget)
+        if isinstance(fget, classmethod):
+            fget = fget.__func__
 
         from threading import RLock
 
-        self._cache: dict[type, Any] = {}
-        self._lock = RLock()
+        lock = RLock()
 
-    @override
-    def __get__(self, obj: C | None, owner: type[C], /) -> V:
-        value = self._cache.get(owner, Undefined)
-        if value is Undefined:
-            with self._lock:
-                value = super().__get__(obj, owner)
-                value = self._cache.setdefault(owner, value)
+        cache: dict[type | tuple[type, Hashable], Any] = {}
+        cache_keys: dict[type[Any], Any] = {}
 
-        return value
+        if isinstance(key, str):
+
+            def key_factory(cls: type[C]) -> Any:
+                return getattr(cls, key)
+        else:
+            key_factory: Callable[[type[C]], Any] | None = key
+
+        if key_factory is None:
+
+            def getter(owner: type[C]) -> V:
+                try:
+                    return cache[owner]
+                except KeyError:
+                    with lock:
+                        return cache.setdefault(owner, fget(owner))
+
+        else:
+
+            def getter(owner: type[C]) -> V:
+                if TYPE_CHECKING:
+                    assert key_factory is not None
+
+                incoming_key = key_factory(owner)
+                previous_key = cache_keys.get(owner, Undefined)
+                if by is None:
+                    matched = incoming_key == previous_key
+                else:
+                    matched = by(incoming_key) == by(previous_key)
+
+                if matched:
+                    try:
+                        return cache[owner]
+                    except KeyError:
+                        pass
+
+                with lock:
+                    value = fget(owner)
+                    cache[owner] = value
+                    cache_keys[owner] = incoming_key
+
+                return value
+
+        getter.__doc__ = fget.__doc__
+        getter.__name__ = fget.__name__
+
+        super().__init__(getter)
+
+        self.cache: Final = cache
+        self.cache_keys: Final = cache_keys
+        self.key: Final = key
+        self.by: Final = by
+
+
+fields_cached_class_property = partial(
+    cached_class_property,
+    key="__pydantic_fields__",
+    by=id,
+)
 
 
 def get_declared_slots(cls: type) -> list[str]:

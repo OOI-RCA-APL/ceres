@@ -1,7 +1,6 @@
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, TypeAlias, Unpack, override
+from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Unpack, override
 
-from pydantic import BeforeValidator, PlainSerializer
 from sqlalchemy import Index, LargeBinary, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
@@ -29,7 +28,7 @@ from ceres.__internal__.record import (
     BaseRecordUpdate,
 )
 from ceres.__internal__.utilities.collections import seq
-from ceres.data import MaybeSequence, StrEnum
+from ceres.data import BytesFromString, BytesToString, MaybeSequence, StrEnum
 from ceres.timing import utc
 
 if TYPE_CHECKING:
@@ -52,25 +51,13 @@ class MessageDirection(StrEnum):
     RECEIVE = "receive"
 
 
-MessageDirectionRaw: TypeAlias = Literal["send", "receive"]
-MessageDirectionInput: TypeAlias = MessageDirection | MessageDirectionRaw
+type MessageDirectionRaw = Literal["send", "receive"]
+type MessageDirectionInput = MessageDirection | MessageDirectionRaw
 
-
-def _serialize_message_data(value: bytes) -> str:
-    return value.decode("latin-1", "ignore")
-
-
-def _validate_message_data(value: Any) -> Any | None:
-    if isinstance(value, str):
-        return value.encode("latin-1", "ignore")
-
-    return value
-
-
-MessageData = Annotated[
+type MessageData = Annotated[
     bytes,
-    BeforeValidator(_validate_message_data),
-    PlainSerializer(_serialize_message_data, str, "json-unless-none"),
+    BytesFromString("latin-1", "ignore"),
+    BytesToString("latin-1", "ignore"),
 ]
 
 
@@ -128,6 +115,10 @@ type MessageOrder = (
 
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
+    connection: MaybeSequence[str] | None
+    connection_contains: MaybeSequence[str] | None
+    connection_prefix: MaybeSequence[str] | None
+    connection_suffix: MaybeSequence[str] | None
     direction: MaybeSequence[MessageDirectionInput] | None
     data: MaybeSequence[MessageData] | None
     contains: MaybeSequence[MessageData] | None
@@ -352,10 +343,14 @@ class MessageOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
+class Message(
+    BaseRecord,
+    MessageCreate,
+    ConcreteEntity[MessageRow],
+    slots=True,
+):
     Manager = MessageManager
     BoundManager = BoundMessageManager
-    Row = MessageRow
     Create = MessageCreate
     Update = MessageUpdate
     Filter = MessageFilter
@@ -365,4 +360,4 @@ class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
     Direction = MessageDirection
     Data = MessageData
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("message")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("message")

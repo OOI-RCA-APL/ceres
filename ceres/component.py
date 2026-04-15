@@ -34,7 +34,9 @@ from typing import (
 from pydantic import (
     AliasChoices,
     AliasPath,
+    ByteSize,
     ConfigDict,
+    Field,
     NonNegativeInt,
     PositiveFloat,
     ValidationError,
@@ -47,7 +49,6 @@ from ceres.__internal__.protocols import ComponentSource
 from ceres.__internal__.utilities.algorithms import traverse
 from ceres.__internal__.utilities.caching import cached
 from ceres.__internal__.utilities.collections import OrderedWeakSet, seq
-from ceres.__internal__.utilities.exceptions import trace
 from ceres.__internal__.utilities.functions import get_function_name, get_inner_function
 from ceres.__internal__.utilities.randomize import randstr
 from ceres.__internal__.utilities.text import reprify
@@ -55,6 +56,7 @@ from ceres.__internal__.utilities.typing import (
     as_component_system,
     as_components,
     as_engine,
+    extract_annotation,
     get_return_annotation,
     lenient_isinstance,
 )
@@ -91,6 +93,7 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotSubscribableError,
     ValidationProblem,
+    trace,
 )
 from ceres.event import (
     AttachedEvent,
@@ -109,6 +112,8 @@ from ceres.event import (
     RoutineRestartingEvent,
     RoutineStartedEvent,
     RoutineStoppedEvent,
+    StartExceptionEvent,
+    StopExceptionEvent,
     StoppedEvent,
     StoppingEvent,
     WillDetachEvent,
@@ -126,13 +131,14 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
     from starlette.responses import FileResponse, Response, StreamingResponse
 
-    from ceres.connection import Connection, ConnectionField
+    from ceres.connection import Buffer, Connection, ConnectionField
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
     from ceres.particle import Particle
     from ceres.status import Status
 else:
-    Connection = object
+    Connection = Any
+    ConnectionField = Any
 
 with __lazy_imports__(__name__):
     from ceres.connection import ComponentConnectionManager
@@ -242,6 +248,12 @@ class Component(DataObject, ComponentSource):
         return self.__system
 
     def __setup__(self) -> None:
+        pass
+
+    def __start__(self) -> None | Awaitable[None]:
+        pass
+
+    def __stop__(self) -> None | Awaitable[None]:
         pass
 
     def __connectivity__(self) -> Connectivity | None:
@@ -363,11 +375,12 @@ def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
         if info.init_var:
             continue
 
-        if get_marker(info.metadata, BoundField.Marker) is None:
+        metadata = extract_annotation(info).metadata
+        if get_marker(metadata, BoundField.Marker) is None:
             continue
 
         exact = []
-        connection = get_marker(info.metadata, ConnectionField.Marker)
+        connection = get_marker(metadata, ConnectionField.Marker)
         if connection is not None:
             exact.append(connection)
 
@@ -966,15 +979,19 @@ def _get_component_method_bindings[T: _MethodBinding](
 class SieveBinding(DataObject.Frozen):
     name: Name
     method: Name
+    stored: bool
     retries: NonNegativeInt | None
     retry_delay: PositiveTimeDelta
     filter: MessageFilter | None
-    connections: tuple[Name, ...] | None = None
+    connections: tuple[ConnectionField, ...] | None
+    buffer_size: ByteSize | None = Field(gt=0)
+    buffer_drop: ByteSize | None = Field(gt=0)
 
 
 type SieveMethod[S, T: Particle] = (
     Callable[[S, Message], T | None | Awaitable[T | None]]
     | Callable[[S, AsyncIterable[Message]], AsyncIterable[T]]
+    | Callable[[S, Buffer], Iterable[T]]
 )
 
 
@@ -989,11 +1006,14 @@ def sieve[S, T: Particle](
     direction: MaybeSequence[MessageDirectionInput] | None = "receive",
     *,
     name: Name | None = None,
+    stored: bool = True,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
     contains: MaybeSequence[MessageData] | None = None,
     prefix: MaybeSequence[MessageData] | None = None,
     suffix: MaybeSequence[MessageData] | None = None,
+    buffer_size: int | str | None = None,
+    buffer_drop: int | str | None = None,
 ) -> Callable[[SieveMethod[S, T]], SieveMethod[S, T]]: ...
 
 
@@ -1003,11 +1023,14 @@ def sieve[S, T: Particle](
     direction: MaybeSequence[MessageDirectionInput] | None = "receive",
     *,
     name: Name | None = None,
+    stored: bool = True,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
     contains: MaybeSequence[MessageData] | None = None,
     prefix: MaybeSequence[MessageData] | None = None,
     suffix: MaybeSequence[MessageData] | None = None,
+    buffer_size: int | str | None = None,
+    buffer_drop: int | str | None = None,
 ) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
     if first is None:
         method = None
@@ -1017,13 +1040,7 @@ def sieve[S, T: Particle](
         connections = None
     else:
         method = None
-        connections = tuple(
-            [
-                current.name
-                for current in cast("Sequence[ConnectionField]", seq(first))
-                if current.name is not None
-            ]
-        )
+        connections = tuple(cast("Sequence[ConnectionField]", seq(first)))
 
     from ceres.message import Message
 
@@ -1048,10 +1065,13 @@ def sieve[S, T: Particle](
             SieveBinding(
                 name=name or _get_bound_name(method),
                 method=get_function_name(method),
+                stored=stored,
                 retries=retries,
                 retry_delay=retry_delay,
                 filter=filter,
                 connections=connections,
+                buffer_size=cast("ByteSize | None", buffer_size),
+                buffer_drop=cast("ByteSize | None", buffer_drop),
             ),
         )
         return method
@@ -1173,9 +1193,17 @@ class ComponentSystem(Node, ComponentSource):
                 binding.name: MethodSieveConfig(
                     name=binding.name,
                     method=binding.method,
+                    stored=binding.stored,
                     retries=binding.retries,
                     retry_delay=binding.retry_delay,
                     filter=binding.filter,
+                    connections=[
+                        field.name
+                        for field in seq(binding.connections or ())
+                        if field.name is not None
+                    ],
+                    buffer_size=binding.buffer_size,
+                    buffer_drop=binding.buffer_drop,
                 )
                 for binding in self.get_sieve_bindings().values()
             }
@@ -1781,23 +1809,35 @@ class ComponentSystem(Node, ComponentSource):
     @override
     async def __run__(self) -> None:
         try:
-            for component in reversed(self.get_ancestor_components()):
-                component.system.start(all_enabled=False)
+            try:
+                await awaitify(self.component.__start__())
+            except Exception as exception:
+                self.events.emit(StartExceptionEvent, exception=trace(exception))
+            else:
+                try:
+                    for component in reversed(self.get_ancestor_components()):
+                        component.system.start(all_enabled=False)
 
-            await self.__node_sync__()
+                    await self.__node_sync__()
 
-            await concurrently(
-                super().__run__(),
-                self.__run_routines(),
-                self.jobs.__run__(),
-                self.connections.__run__(),
-                self.sieves.__run__(),
-                self.pruners.__run__(),
-            )
-        except Exception:
-            self.log.error("An error occurred during component system execution.", exc_info=True)
-            traceback.print_exc()
-            raise
+                    await concurrently(
+                        super().__run__(),
+                        self.__run_routines(),
+                        self.jobs.__run__(),
+                        self.connections.__run__(),
+                        self.sieves.__run__(),
+                        self.pruners.__run__(),
+                    )
+                except Exception:
+                    self.log.error(
+                        f"An error occurred during component system execution. {traceback.format_exc()}",
+                    )
+                    raise
+        finally:
+            try:
+                await awaitify(self.component.__stop__())
+            except Exception as exception:
+                self.events.emit(StopExceptionEvent, exception=trace(exception))
 
     async def __run_routine(self, binding: RoutineBinding) -> None:
         routine = getattr(self.component, binding.method, None)
@@ -1817,7 +1857,7 @@ class ComponentSystem(Node, ComponentSource):
                     self.events.emit(
                         RoutineExceptionEvent,
                         routine=binding.method,
-                        traceback=trace(exception),
+                        exception=trace(exception),
                     )
                     if binding.restart == RoutineRestartPolicy.ON_EXCEPTION:
                         break
@@ -1898,9 +1938,13 @@ class ComponentSystem(Node, ComponentSource):
 
             raise
         except Exception as exception:
-            traceback = trace(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(
+                ProcedureExceptionEvent,
+                procedure=procedure,
+                exception=info,
+            )
+            raise Failure(ProcedureInternalError(exception=info))
 
     async def call(
         self,
@@ -1940,9 +1984,9 @@ class ComponentSystem(Node, ComponentSource):
                         last = current
                     return last
         except Exception as exception:
-            traceback = trace(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+            raise Failure(ProcedureInternalError(exception=info))
         finally:
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
 
@@ -1972,9 +2016,9 @@ class ComponentSystem(Node, ComponentSource):
                 self.events.emit(ProcedureCancelledEvent, procedure=procedure)
                 raise
             except Exception as exception:
-                traceback = trace(exception)
-                self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-                raise Failure(ProcedureInternalError(traceback=list(traceback)))
+                info = trace(exception)
+                self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+                raise Failure(ProcedureInternalError(exception=info))
 
         try:
             if output is not None:
@@ -1985,9 +2029,9 @@ class ComponentSystem(Node, ComponentSource):
             self.events.emit(ProcedureCancelledEvent, procedure=procedure)
             raise
         except Exception as exception:
-            traceback = trace(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+            raise Failure(ProcedureInternalError(exception=info))
 
     def sync_child_order(self) -> None:
         if self._config is None:
@@ -2080,7 +2124,7 @@ class _Empty:
 
 
 class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
-    __slots__ = ("name", "marker")
+    __slots__ = "marker"
 
     @dataclass(slots=True)
     class Marker:
@@ -2099,7 +2143,6 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
 
         super().__init__(default=default, **kwargs)
 
-        self.name = name
         self.marker = self.Marker(name=name)
         self.metadata.append(self.marker)
 
@@ -2109,3 +2152,7 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
     def __set_name__(self, owner: type[Any], name: str) -> None:
         if self.marker.name is None:
             self.marker.name = name
+
+    @property
+    def name(self) -> str | None:
+        return self.marker.name

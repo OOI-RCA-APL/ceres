@@ -8,7 +8,7 @@ from pydantic_core.core_schema import no_info_after_validator_function, to_strin
 from ceres.__internal__.utilities.caching import LRUCache
 from ceres.__internal__.utilities.classes import class_property
 from ceres.__internal__.utilities.collections import seq
-from ceres.data import _NAME_PATTERN
+from ceres.data.types import _NAME_PATTERN
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
