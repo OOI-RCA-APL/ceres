@@ -7,11 +7,16 @@ const translation: Readonly<Record<number, string>> = {
 </script>
 
 <script lang="ts" setup>
-const { character } = defineProps<{
+const { character, label } = defineProps<{
   character: string
+  label?: string
 }>()
 
 const rendered = $computed(() => {
+  if (label != null) {
+    return label
+  }
+
   const code = character.charCodeAt(0)
   // If the character code has an explicit rendering, use that.
   const translated = translation[code]

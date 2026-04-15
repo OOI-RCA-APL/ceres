@@ -1,10 +1,12 @@
 <script lang="ts" setup>
 import { Message } from '@/api/messages'
+import DataContent from '@/components/DataContent.vue'
+import type { DataContentDisplay } from '@/components/DataContent.vue'
 import RecordViewRecord from '@/components/RecordViewRecord.vue'
-import TextContent from '@/components/TextContent.vue'
 
-const { message } = defineProps<{
+const { message, dataDisplay = 'default' } = defineProps<{
   message: Message
+  dataDisplay?: DataContentDisplay
 }>()
 
 const directionColor = $computed(() => {
@@ -28,7 +30,7 @@ const directionColor = $computed(() => {
       </q-chip>
     </q-td>
     <q-td>
-      <text-content :class="$style.data" :text="message.data" />
+      <data-content :class="$style.data" :data="message.data" :display="dataDisplay" />
     </q-td>
   </record-view-record>
 </template>

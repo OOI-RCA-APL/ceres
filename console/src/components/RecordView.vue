@@ -662,6 +662,7 @@ useStream(debouncedFilter, async (record: Record) => {
           <record-view-message
             v-if="widget.type === 'messages'"
             :key="(item as Message).id"
+            :data-display="(widget as MessagesWidget).dataDisplay"
             :message="item"
           />
           <record-view-particle
