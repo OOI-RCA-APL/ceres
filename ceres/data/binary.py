@@ -165,15 +165,21 @@ class PackingSchema:
         return instance
 
     def struct(self, order: ByteOrder | None = None) -> Struct:
-        if order is None:
-            order = self.order or DEFAULT_BYTE_ORDER
-
+        order = self._resolve_order(order)
         struct = self._structs.get(order)
         if struct is None:
             struct = Struct(f"{order}{self.format}")
             struct = self._structs.setdefault(order, struct)
 
         return struct
+
+    def _resolve_order(self, order: ByteOrder | None) -> ByteOrder:
+        if order is None:
+            order = self.order
+        if order is None:
+            order = DEFAULT_BYTE_ORDER
+
+        return order
 
     def _compute_format(self) -> str:
         format = self._compute_inner_format()
@@ -324,6 +330,7 @@ class PackedTuple(PackingSchema):
 
     @override
     def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        order = self._resolve_order(order)
         packed = bytearray()
         for value, schema in zip(instance, self.values):
             packed.extend(schema.pack(value, order))
@@ -341,6 +348,8 @@ class PackedTuple(PackingSchema):
         validate_annotation: bool = True,
     ) -> Any:
         from ceres.data import validate
+
+        order = self._resolve_order(order)
 
         values: list[Any] = []
         for schema in self.values:
@@ -372,7 +381,7 @@ class PackedModel(PackingSchema):
         super().__post_init__()
 
         if self.order is None:
-            order = getattr(self, "__byte_order__", None)
+            order = getattr(self.model, "__byte_order__", None)
             if order is not None:
                 if order not in _BYTE_ORDERS:
                     raise TypeError(
@@ -383,6 +392,7 @@ class PackedModel(PackingSchema):
 
     @override
     def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        order = self._resolve_order(order)
         data = bytearray()
         for field, schema in self.fields.items():
             data.extend(schema.pack(getattr(instance, field), order))
@@ -400,6 +410,8 @@ class PackedModel(PackingSchema):
         validate_annotation: bool = True,  # Models are always validated.
     ) -> Any:
         from ceres.data import validate
+
+        order = self._resolve_order(order)
 
         arguments = {}
         for field, schema in self.fields.items():
@@ -535,22 +547,31 @@ def packed(annotation: FieldInfo | TypeInput) -> PackingSchema:
     return _struct_schema_cache.setdefault(annotation, schema)
 
 
-def pack(value: Any, schema: PackingSchema | None = None) -> bytes:
+def pack(
+    value: Any,
+    schema: TypeInput | FieldInfo | PackingSchema | None = None,
+    /,
+) -> bytes:
     """
-    Serialize a value into binary data using the given packing schema. If no schema is provided, a
-    schema will be inferred from the type of `value`.
+    Serialize a value into binary data using the given packing type/schema. If no schema is
+    provided, a schema will be inferred from the type of `value`.
     """
     if schema is None:
         schema = packed(type(value))
+    elif not isinstance(schema, PackingSchema):
+        schema = packed(schema)
 
     return schema.pack(value)
 
 
-def unpack(type: FieldInfo | TypeInput, data: bytes, /, offset: int = 0) -> Any:
+def unpack(schema: FieldInfo | TypeInput | PackingSchema, data: bytes, /, offset: int = 0) -> Any:
     """
-    Deserialize an instance of the given type from binary data.
+    Deserialize an instance of the given type/schema from binary data.
     """
-    return packed(type).unpack(data, offset)
+    if not isinstance(schema, PackingSchema):
+        schema = packed(schema)
+
+    return schema.unpack(data, offset)
 
 
 def packable[T: type[Any]](type: T, /) -> T:

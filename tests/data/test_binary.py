@@ -828,9 +828,38 @@ class TestDataObjectPacking:
         data_le = schema.pack(instance, order="<")
         data_be = schema.pack(instance, order=">")
         assert data_le != data_be
+        assert data_le == b"\x34\x12\xcd\xab"
+        assert data_be == b"\x12\x34\xab\xcd"
 
         result_le = schema.unpack(data_le, order="<")
         result_be = schema.unpack(data_be, order=">")
+        assert result_le.x == 0x1234 and result_le.y == 0xABCD
+        assert result_be.x == 0x1234 and result_be.y == 0xABCD
+
+    def test_data_object_byte_order_on_class(self):
+        class PairLE(DataObject):
+            __byte_order__ = "<"
+            x: UInt16
+            y: UInt16
+
+        class PairBE(DataObject):
+            __byte_order__ = ">"
+            x: UInt16
+            y: UInt16
+
+        assert packed(PairLE).order == "<"
+        assert packed(PairBE).order == ">"
+        pair_le = PairLE(x=0x1234, y=0xABCD)
+        pair_be = PairBE(x=0x1234, y=0xABCD)
+
+        data_le = pack(pair_le)
+        data_be = pack(pair_be)
+        assert data_le != data_be
+        assert data_le == b"\x34\x12\xcd\xab"
+        assert data_be == b"\x12\x34\xab\xcd"
+
+        result_le = unpack(PairLE, data_le)
+        result_be = unpack(PairBE, data_be)
         assert result_le.x == 0x1234 and result_le.y == 0xABCD
         assert result_be.x == 0x1234 and result_be.y == 0xABCD
 
