@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import { useElementVisibility, useIntervalFn } from '@vueuse/core'
-import moment from 'moment'
 import { watchEffect, computed, watch } from 'vue'
 
 import { useClient, Stream } from '@/api/client'
@@ -8,9 +7,9 @@ import { useEngine } from '@/api/engine'
 import { ParticleModel, Particle } from '@/api/particles'
 import { Option, DataValue } from '@/chart'
 import Chart from '@/components/Chart.vue'
-import { useTime } from '@/time'
-import { debouncedComputed, parseDuration } from '@/utilities'
-import { ChartWidget } from '@/workspace'
+import { duration, utc, useTime } from '@/time'
+import { toTitle, debouncedComputed, parseDuration } from '@/utilities'
+import { ChartWidget, ChartWidgetSeries } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ChartWidget
@@ -20,27 +19,41 @@ const engine = useEngine()
 const client = useClient()
 const time = useTime()
 
-type DataEntry = [string, DataValue]
+type DataEntry = [number, DataValue]
 type Data = Record<string, DataEntry[]>
 
 let instance = $shallowRef<InstanceType<typeof Chart> | null>(null)
 let isInitialized = $ref(false)
 let isLoading = $ref(true)
+let isPaused = $ref(false)
+let frozenXMin = $ref(0)
+let frozenXMax = $ref(0)
 const pending: Data = $ref({})
+
+function togglePause() {
+  if (!isPaused) {
+    frozenXMin = start.valueOf()
+    frozenXMax = (end ?? time.now).valueOf()
+    isPaused = true
+  } else {
+    isPaused = false
+    applyPending()
+  }
+}
 
 const start = $computed(() => {
   if (widget.after != null) {
-    return moment.utc(widget.after)
+    return utc(widget.after)
   }
 
   const timespan = parseDuration(widget.timespan ?? '1h')
-  return moment.utc(time.now).subtract(timespan)
+  return utc(time.now.valueOf()).subtract(timespan)
 })
 
 const end = $computed(() => {
   if (widget.after != null) {
     const timespan = parseDuration(widget.timespan ?? '1h')
-    return moment.utc(widget.after).add(timespan)
+    return utc(widget.after).add(timespan)
   }
 
   return null
@@ -75,16 +88,16 @@ const seriesIndexes = $computed(() => {
   const indexes = {} as Record<string, number>
   let i = 0
   for (const particle of widget.particles) {
-    for (const series of particle.series) {
-      indexes[series.name] = i++
+    for (const [j, series] of particle.series.entries()) {
+      indexes[getSeriesName(series, j)] = i++
     }
   }
 
   return indexes
 })
 
-const xMin = $computed(() => start.valueOf())
-const xMax = $computed(() => (end ?? time.now).valueOf())
+const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
+const xMax = $computed(() => (isPaused ? frozenXMax : (end ?? time.now).valueOf()))
 
 const smoothAnimations = {
   animation: true,
@@ -94,6 +107,10 @@ const smoothAnimations = {
   animationThreshold: 200000,
 } as const
 
+const animatedDisplays: (typeof widget.display)[] = ['line']
+const isAnimated = $computed(() => animatedDisplays.includes(widget.display))
+const animation = $computed(() => (isAnimated ? smoothAnimations : { animation: false }))
+
 const axisOption: Option = $computed(() => {
   return {
     xAxis: {
@@ -102,7 +119,7 @@ const axisOption: Option = $computed(() => {
       min: xMin,
       max: xMax,
       // Smoothly scroll the X axis as time progresses.
-      ...smoothAnimations,
+      ...animation,
     },
     yAxis: {
       name: widget.unit ?? '',
@@ -111,23 +128,35 @@ const axisOption: Option = $computed(() => {
   }
 })
 
+function getSeriesName(series: ChartWidgetSeries, index: number): string {
+  if (series.label) {
+    return series.label
+  }
+  if (series.field) {
+    return toTitle(series.field)
+  }
+
+  return String(index + 1)
+}
+
 const baseAxisOption = axisOption
 const baseOption: Option = $computed(() => {
   const series = widget.particles.flatMap((particle) =>
-    particle.series.map((series) => {
+    particle.series.map((series, index) => {
+      const name = getSeriesName(series, index)
       const result = {
-        name: series.name,
+        name,
         type: widget.display,
-        data: getData(series.name),
-        // Enable smooth scrolling animations for non-bar charts.
-        ...(widget.display !== 'bar' ? smoothAnimations : { animation: false }),
+        ...({ progressive: false } as any),
+        data: getData(name),
+        ...animation,
         showSymbol: false, // Disable showing dots, for performance.
         symbolSize: 3,
         emphasis: {
           scale: false, // Disable showing dot on hover.
         } as any,
         large: true, // Enable large data set optimization.
-        largeThreshold: 100,
+        largeThreshold: 1,
       }
 
       return result
@@ -135,9 +164,24 @@ const baseOption: Option = $computed(() => {
   )
 
   return {
-    tooltip: { trigger: 'axis', confine: true },
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      formatter(params: any) {
+        if (!Array.isArray(params)) params = [params]
+        if (params.length === 0) return ''
+        const header = utc(params[0].value[0]).format('YYYY-MM-DD HH:mm:ss.SSS') + ' UTC'
+        const lines = params.map(
+          (p: any) =>
+            `${p.marker} ${p.seriesName}: <strong>${p.value[1]}${
+              widget.unit ? ' ' + widget.unit : ''
+            }</strong>`
+        )
+        return `${header}<br/>${lines.join('<br/>')}`
+      },
+    },
     legend: { show: widget.particles.flatMap((particle) => particle.series).length > 1 },
-    dataZoom: [{ type: 'inside' }],
+    dataZoom: [{ type: 'inside', filterMode: 'none' }],
     series,
     ...baseAxisOption,
   }
@@ -156,6 +200,8 @@ watch([() => instance, () => baseOption], () => {
     })
   } else {
     isInitialized = false
+    // We should reset zoom when chart state changes.
+    isPaused = false
   }
 })
 
@@ -184,7 +230,9 @@ async function load() {
           { cache: 1000 }
         )
 
-        for (const { name, field } of series) {
+        for (const [i, current] of series.entries()) {
+          const field = current.field
+          const name = getSeriesName(current, i)
           if (field == null) {
             continue
           }
@@ -198,7 +246,7 @@ async function load() {
               typeof value === 'boolean'
             ) {
               data[name] ??= []
-              data[name].push([timestamp, value as any])
+              data[name].push([utc(timestamp).valueOf(), value as any])
             }
           }
         }
@@ -232,9 +280,9 @@ function applyPending() {
 const isVisible = $(useElementVisibility(() => instance?.getDom()))
 const pendingApplyInterval = $computed(() => {
   if (isVisible) {
-    return moment.duration(1, 'seconds')
+    return duration(0.5, 'seconds')
   } else {
-    return moment.duration(1, 'minute')
+    return duration(1, 'minute')
   }
 })
 
@@ -245,7 +293,7 @@ watch(
       return
     }
 
-    if (moment.duration(time.now.diff(lastPendingApplied)) >= pendingApplyInterval) {
+    if (!isPaused && time.now.diff(lastPendingApplied) >= pendingApplyInterval.asMilliseconds()) {
       applyPending()
     }
   }
@@ -343,7 +391,7 @@ function prune() {
     let i = 0
     while (i < data.length) {
       const [timestamp] = data[i]
-      if (moment.utc(timestamp).isSameOrAfter(start)) {
+      if (utc(timestamp).isSameOrAfter(start)) {
         break
       }
 
@@ -358,12 +406,7 @@ function prune() {
   instance?.setOption({ series: option.series })
 }
 
-useIntervalFn(
-  () => {
-    prune()
-  },
-  () => moment.duration(1, 'minute').asMilliseconds()
-)
+useIntervalFn(prune, () => duration(1, 'minute').asMilliseconds())
 
 client.useStream({
   stream: computed(() =>
@@ -383,8 +426,8 @@ client.useStream({
     }
 
     if (
-      moment.utc(particle.timestamp).isBefore(start) ||
-      (end != null && moment.utc(particle.timestamp).isSameOrAfter(end))
+      utc(particle.timestamp).isBefore(start) ||
+      (end != null && utc(particle.timestamp).isSameOrAfter(end))
     ) {
       return
     }
@@ -395,15 +438,16 @@ client.useStream({
       return
     }
 
-    for (const series of particleDefinition.series) {
+    for (const [i, series] of particleDefinition.series.entries()) {
+      const label = getSeriesName(series, i)
       if (series.field == null) {
         continue
       }
 
       const value = particle.data[series.field]
       if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
-        const entry: DataEntry = [particle.timestamp, value as any]
-        append(series.name, [entry], 'pending')
+        const entry: DataEntry = [utc(particle.timestamp).valueOf(), value as any]
+        append(label, [entry], 'pending')
       }
     }
   },
@@ -426,15 +470,48 @@ watchEffect((cleanup) => {
 </script>
 
 <template>
-  <chart
-    ref="instance"
-    :class="(isLoading || isJustLoaded) && $style.interactionDisabled"
-    height="100px"
-    :loading="isLoading"
-  />
+  <div :class="$style.container">
+    <chart
+      ref="instance"
+      :class="[(isLoading || isJustLoaded) && $style.interactionDisabled, $style.chart]"
+      height="100%"
+      :loading="isLoading"
+    />
+    <q-btn
+      :class="$style.pauseButton"
+      color="primary"
+      dense
+      flat
+      :icon="isPaused ? 'play_arrow' : 'pause'"
+      round
+      size="sm"
+      @click="togglePause"
+    />
+  </div>
 </template>
 
 <style lang="scss" module>
+.container {
+  position: relative;
+  height: 100px;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+}
+
+.pauseButton {
+  position: absolute;
+  top: 4px;
+  right: 0;
+  z-index: 1;
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
 .interactionDisabled {
   pointer-events: none;
 }

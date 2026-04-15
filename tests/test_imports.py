@@ -56,7 +56,7 @@ def test_models_are_valid() -> None:
         from pydantic import BaseModel
         from pydantic.dataclasses import is_pydantic_dataclass, rebuild_dataclass
 
-        from ceres._internal.lazy import unlazy
+        from ceres.__internal__.lazy import unlazy
 
         models: list[type[BaseModel]] = []
         dataclasses: list[type] = []

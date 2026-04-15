@@ -1,20 +1,12 @@
 from collections.abc import Callable, Iterable
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Literal,
-    Unpack,
-    override,
-)
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Unpack, override
 
 from pydantic import Field
 from sqlalchemy import JSON, Index, SQLColumnExpression, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal import util
-from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import (
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     ConcreteEntity,
@@ -22,8 +14,8 @@ from ceres._internal.entity import (
     EntityOutputChannel,
     EntityQuery,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.record import (
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -33,7 +25,6 @@ from ceres._internal.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.util import MatchMode
 from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, to_json
 from ceres.level import Level
 from ceres.timing import utc
@@ -44,7 +35,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
 __all__ = [
@@ -140,7 +131,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         if not super()._matches(obj, now=now):
             return False
 
-        if not util.match_value(obj.level, self.level):
+        if not self._match_value(obj.level, self.level):
             return False
 
         if self.min_level is not None:
@@ -150,13 +141,13 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
             if obj.level > self.max_level:
                 return False
 
-        if not util.match_value(obj.type, self.type):
+        if not self._match_value(obj.type, self.type):
             return False
-        if not util.match_string(obj.type, self.type_contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.type, self.type_contains):
             return False
-        if not util.match_string(obj.type, self.type_prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.type, self.type_prefix):
             return False
-        if not util.match_string(obj.type, self.type_suffix, MatchMode.SUFFIX):
+        if not self._match_string_suffix(obj.type, self.type_suffix):
             return False
 
         if (
@@ -165,11 +156,11 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
             or self.data_suffix is not None
         ):
             data_json = to_json(obj.data)
-            if not util.match_string(data_json, self.data_contains, MatchMode.CONTAINS):
+            if not self._match_string_contains(data_json, self.data_contains):
                 return False
-            if not util.match_string(data_json, self.data_prefix, MatchMode.PREFIX):
+            if not self._match_string_prefix(data_json, self.data_prefix):
                 return False
-            if not util.match_string(data_json, self.data_suffix, MatchMode.SUFFIX):
+            if not self._match_string_suffix(data_json, self.data_suffix):
                 return False
 
         return True
@@ -191,33 +182,27 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         columns = self._get_row_cls()
 
         if self.level is not None:
-            yield util.sql_match_value(columns.level, self.level)
+            yield self._sql_match_value(columns.level, self.level)
         if self.min_level is not None:
             yield columns.level.in_(current for current in Level if current >= self.min_level)
         if self.max_level is not None:
             yield columns.level.in_(current for current in Level if current <= self.max_level)
 
         if self.type is not None:
-            yield util.sql_match_string(columns.type, self.type, MatchMode.EQUALS)
+            yield self._sql_match_string_equals(columns.type, self.type)
         if self.type_contains is not None:
-            yield util.sql_match_string(columns.type, self.type_contains, MatchMode.CONTAINS)
+            yield self._sql_match_string_contains(columns.type, self.type_contains)
         if self.type_prefix is not None:
-            yield util.sql_match_string(columns.type, self.type_prefix, MatchMode.PREFIX)
+            yield self._sql_match_string_prefix(columns.type, self.type_prefix)
         if self.type_suffix is not None:
-            yield util.sql_match_string(columns.type, self.type_suffix, MatchMode.SUFFIX)
+            yield self._sql_match_string_suffix(columns.type, self.type_suffix)
 
         if self.data_contains is not None:
-            yield util.sql_match_string(
-                cast(columns.data, Text), self.data_contains, MatchMode.CONTAINS
-            )
+            yield self._sql_match_string_contains(cast(columns.data, Text), self.data_contains)
         if self.data_prefix is not None:
-            yield util.sql_match_string(
-                cast(columns.data, Text), self.data_prefix, MatchMode.PREFIX
-            )
+            yield self._sql_match_string_prefix(cast(columns.data, Text), self.data_prefix)
         if self.data_suffix is not None:
-            yield util.sql_match_string(
-                cast(columns.data, Text), self.data_suffix, MatchMode.SUFFIX
-            )
+            yield self._sql_match_string_suffix(cast(columns.data, Text), self.data_suffix)
 
 
 class AlertCreate(BaseRecordCreate, slots=True):
@@ -360,10 +345,14 @@ class AlertOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Alert(BaseRecord, AlertCreate, ConcreteEntity, slots=True):
+class Alert(
+    BaseRecord,
+    AlertCreate,
+    ConcreteEntity[AlertRow],
+    slots=True,
+):
     Manager = AlertManager
     BoundManager = BoundAlertManager
-    Row = AlertRow
     Create = AlertCreate
     Update = AlertUpdate
     Filter = AlertFilter
@@ -372,4 +361,4 @@ class Alert(BaseRecord, AlertCreate, ConcreteEntity, slots=True):
     Order = AlertOrder
     Level = Level
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("alert")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("alert")

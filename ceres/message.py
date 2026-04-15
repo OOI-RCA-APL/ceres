@@ -1,23 +1,13 @@
 from collections.abc import Callable, Iterable
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    ClassVar,
-    Literal,
-    TypeAlias,
-    Unpack,
-    override,
-)
+from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Unpack, override
 
-from pydantic import BeforeValidator, PlainSerializer
 from sqlalchemy import Index, LargeBinary, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
-from ceres._internal import util
-from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import (
+from ceres.__internal__.database.bytes import tokenize_bytes
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     ConcreteEntity,
@@ -26,8 +16,8 @@ from ceres._internal.entity import (
     EntityQuery,
     Filtering,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.record import (
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -37,8 +27,8 @@ from ceres._internal.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.util import MatchMode
-from ceres.data import MaybeSequence, StrEnum
+from ceres.__internal__.utilities.collections import seq
+from ceres.data import BytesFromString, BytesToString, MaybeSequence, StrEnum
 from ceres.timing import utc
 
 if TYPE_CHECKING:
@@ -48,7 +38,7 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
 __all__ = [
@@ -61,25 +51,13 @@ class MessageDirection(StrEnum):
     RECEIVE = "receive"
 
 
-MessageDirectionRaw: TypeAlias = Literal["send", "receive"]
-MessageDirectionInput: TypeAlias = MessageDirection | MessageDirectionRaw
+type MessageDirectionRaw = Literal["send", "receive"]
+type MessageDirectionInput = MessageDirection | MessageDirectionRaw
 
-
-def _serialize_message_data(value: bytes) -> str:
-    return value.decode("latin-1", "ignore")
-
-
-def _validate_message_data(value: Any) -> Any | None:
-    if isinstance(value, str):
-        return value.encode("latin-1", "ignore")
-
-    return value
-
-
-MessageData = Annotated[
+type MessageData = Annotated[
     bytes,
-    BeforeValidator(_validate_message_data),
-    PlainSerializer(_serialize_message_data, str, "json-unless-none"),
+    BytesFromString("latin-1", "ignore"),
+    BytesToString("latin-1", "ignore"),
 ]
 
 
@@ -137,6 +115,10 @@ type MessageOrder = (
 
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
+    connection: MaybeSequence[str] | None
+    connection_contains: MaybeSequence[str] | None
+    connection_prefix: MaybeSequence[str] | None
+    connection_suffix: MaybeSequence[str] | None
     direction: MaybeSequence[MessageDirectionInput] | None
     data: MaybeSequence[MessageData] | None
     contains: MaybeSequence[MessageData] | None
@@ -171,25 +153,25 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
             return False
 
         if self.connection is not None:
-            if obj.connection is None or not util.match_value(obj.connection, self.connection):
+            if obj.connection is None or not self._match_value(obj.connection, self.connection):
                 return False
-        if not util.match_string(obj.connection, self.connection_contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.connection, self.connection_contains):
             return False
-        if not util.match_string(obj.connection, self.connection_prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.connection, self.connection_prefix):
             return False
-        if not util.match_string(obj.connection, self.connection_suffix, MatchMode.SUFFIX):
-            return False
-
-        if not util.match_value(obj.direction, self.direction):
+        if not self._match_string_suffix(obj.connection, self.connection_suffix):
             return False
 
-        if not util.match_value(obj.data, self.data):
+        if not self._match_value(obj.direction, self.direction):
             return False
-        if not util.match_string(obj.data, self.contains, MatchMode.CONTAINS):
+
+        if not self._match_value(obj.data, self.data):
             return False
-        if not util.match_string(obj.data, self.prefix, MatchMode.PREFIX):
+        if not self._match_string_contains(obj.data, self.contains):
             return False
-        if not util.match_string(obj.data, self.suffix, MatchMode.SUFFIX):
+        if not self._match_string_prefix(obj.data, self.prefix):
+            return False
+        if not self._match_string_suffix(obj.data, self.suffix):
             return False
 
         return True
@@ -211,43 +193,30 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         columns = self._get_row_cls()
 
         if self.connection is not None:
-            yield util.sql_match_value(columns.connection, self.connection)
-
+            yield self._sql_match_value(columns.connection, self.connection)
         if self.connection_contains is not None:
-            yield util.sql_match_string(
-                columns.connection,
-                self.connection_contains,
-                MatchMode.CONTAINS,
-            )
+            yield self._sql_match_string_contains(columns.connection, self.connection_contains)
         if self.connection_prefix is not None:
-            yield util.sql_match_string(
-                columns.connection,
-                self.connection_prefix,
-                MatchMode.PREFIX,
-            )
+            yield self._sql_match_string_prefix(columns.connection, self.connection_prefix)
         if self.connection_suffix is not None:
-            yield util.sql_match_string(
-                columns.connection,
-                self.connection_suffix,
-                MatchMode.SUFFIX,
-            )
+            yield self._sql_match_string_suffix(columns.connection, self.connection_suffix)
 
         if self.direction is not None:
-            yield util.sql_match_value(columns.direction, self.direction)
+            yield self._sql_match_value(columns.direction, self.direction)
 
         if self.data is not None:
-            yield util.sql_match_value(columns.data, self.data)
+            yield self._sql_match_value(columns.data, self.data)
 
         hex = func.ceres_tokenize_bytes(columns.data)
         if self.contains is not None:
-            matches = [util.tokenize_bytes(current) for current in util.seq(self.contains)]
-            yield util.sql_match_string(hex, matches, MatchMode.CONTAINS)
+            matches = [tokenize_bytes(current) for current in seq(self.contains)]
+            yield self._sql_match_string_contains(hex, matches)
         if self.prefix is not None:
-            matches = [util.tokenize_bytes(current) for current in util.seq(self.prefix)]
-            yield util.sql_match_string(hex, matches, MatchMode.PREFIX)
+            matches = [tokenize_bytes(current) for current in seq(self.prefix)]
+            yield self._sql_match_string_prefix(hex, matches)
         if self.suffix is not None:
-            matches = [util.tokenize_bytes(current) for current in util.seq(self.suffix)]
-            yield util.sql_match_string(hex, matches, MatchMode.SUFFIX)
+            matches = [tokenize_bytes(current) for current in seq(self.suffix)]
+            yield self._sql_match_string_suffix(hex, matches)
 
 
 class MessageCreate(BaseRecordCreate, slots=True):
@@ -374,10 +343,14 @@ class MessageOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
+class Message(
+    BaseRecord,
+    MessageCreate,
+    ConcreteEntity[MessageRow],
+    slots=True,
+):
     Manager = MessageManager
     BoundManager = BoundMessageManager
-    Row = MessageRow
     Create = MessageCreate
     Update = MessageUpdate
     Filter = MessageFilter
@@ -387,4 +360,4 @@ class Message(BaseRecord, MessageCreate, ConcreteEntity, slots=True):
     Direction = MessageDirection
     Data = MessageData
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("message")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("message")

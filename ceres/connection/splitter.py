@@ -84,9 +84,9 @@ class SplitByRegex(Splitter):
 
         for match in self.pattern.finditer(buffer):
             match self.mode:
-                case "suffix":
-                    yield match.start()
                 case "prefix":
+                    yield match.start()
+                case "suffix":
                     yield match.end()
                 case "infix":
                     yield match.start()

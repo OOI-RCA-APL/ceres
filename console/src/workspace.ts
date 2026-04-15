@@ -41,11 +41,15 @@ const BaseWidgetModel = Zod.object({
   width: Zod.number().catch(() => widgetWidthSubdivisions),
 })
 
+export type MessageDataDisplay = Zod.infer<typeof MessageDataDisplayModel>
+export const MessageDataDisplayModel = Zod.enum(['default', 'hex', 'binary']).catch('default')
+
 export type MessagesWidget = Zod.infer<typeof MessagesWidgetModel>
 export const MessagesWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('messages'),
   name: Zod.string().catch('Messages'),
   filter: MessageFilterModel.catch(() => ({})),
+  dataDisplay: MessageDataDisplayModel,
   commandAddress: AddressModel.nullish(),
   commandConnection: Zod.string().nullish(),
   commandText: Zod.string().catch(''),
@@ -97,8 +101,8 @@ export const ChartWidgetDisplayModel = Zod.enum(['line', 'scatter', 'bar'])
 
 export type ChartWidgetSeries = Zod.infer<typeof ChartWidgetSeriesModel>
 export const ChartWidgetSeriesModel = Zod.object({
-  name: Zod.string().catch('Series'),
   field: Zod.string().nullish(),
+  label: Zod.string().nullish(),
 })
 
 export type ChartWidgetParticle = Zod.infer<typeof ChartWidgetParticleModel>

@@ -1,21 +1,11 @@
 from collections.abc import Callable, Iterable
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Literal,
-    TypedDict,
-    Unpack,
-    overload,
-    override,
-)
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict, Unpack, overload, override
 
 from pydantic import ValidationError
 from sqlalchemy import JSON, Index, PrimaryKeyConstraint, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal import util
-from ceres._internal.entity import (
+from ceres.__internal__.entity import (
     BaseAddressEntity,
     BaseAddressEntityCreate,
     BaseAddressEntityField,
@@ -25,19 +15,19 @@ from ceres._internal.entity import (
     BaseAddressEntityRow,
     BaseEntityManager,
     BaseEntityQuery,
+    ConcreteEntity,
     EntityNaming,
     EntityOutputChannel,
     EntityQuery,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import MatchMode
+from ceres.__internal__.manager import BaseNodeManager
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, to_json, validate
 
 if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
     from ceres.database import DatabaseType
 
@@ -116,13 +106,13 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
         if not super()._matches(obj):
             return False
 
-        if not util.match_value(obj.name, self.name):
+        if not self._match_value(obj.name, self.name):
             return False
-        if not util.match_string(obj.name, self.name_contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.name, self.name_contains):
             return False
-        if not util.match_string(obj.name, self.name_prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.name, self.name_prefix):
             return False
-        if not util.match_string(obj.name, self.name_suffix, MatchMode.SUFFIX):
+        if not self._match_string_suffix(obj.name, self.name_suffix):
             return False
 
         if self.internal is not None:
@@ -147,21 +137,21 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
         columns = self._get_row_cls()
 
         if self.name is not None:
-            yield util.sql_match_value(columns.name, self.name)
+            yield self._sql_match_value(columns.name, self.name)
         if self.name_contains is not None:
-            yield util.sql_match_string(columns.name, self.name_contains, MatchMode.CONTAINS)
+            yield self._sql_match_string_contains(columns.name, self.name_contains)
         if self.name_prefix is not None:
-            yield util.sql_match_string(columns.name, self.name_prefix, MatchMode.PREFIX)
+            yield self._sql_match_string_prefix(columns.name, self.name_prefix)
         if self.name_suffix is not None:
-            yield util.sql_match_string(columns.name, self.name_suffix, MatchMode.SUFFIX)
+            yield self._sql_match_string_suffix(columns.name, self.name_suffix)
 
         if self.internal is not None:
-            internal = util.sql_match_string(columns.name, "__", MatchMode.PREFIX)
-            internal &= util.sql_match_string(columns.name, "__", MatchMode.SUFFIX)
+            internal = self._sql_match_string_prefix(columns.name, "__")
+            internal &= self._sql_match_string_suffix(columns.name, "__")
             yield internal if self.internal else ~internal
 
         if "value" in self.model_fields_set:
-            yield util.sql_match_value(cast(columns.value, Text), to_json(self.value))
+            yield self._sql_match_value(cast(columns.value, Text), to_json(self.value))
 
     @override
     def _get_default_order(self) -> MaybeSequence[VariableOrder]:
@@ -336,10 +326,14 @@ class VariableOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class Variable(BaseAddressEntity, VariableCreate, slots=True):
+class Variable(
+    BaseAddressEntity,
+    VariableCreate,
+    ConcreteEntity[VariableRow],
+    slots=True,
+):
     Manager = VariableManager
     BoundManager = BoundVariableManager
-    Row = VariableRow
     Create = VariableCreate
     Update = VariableUpdate
     Filter = VariableFilter
@@ -347,7 +341,7 @@ class Variable(BaseAddressEntity, VariableCreate, slots=True):
     Field = VariableField
     Order = VariableOrder
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("user")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("user")
 
 
 class InternalVariableName(StrEnum):

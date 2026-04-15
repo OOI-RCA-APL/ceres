@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { LogEntry } from '@/api/logs'
+import DataContent from '@/components/DataContent.vue'
 import RecordViewRecord from '@/components/RecordViewRecord.vue'
-import TextContent from '@/components/TextContent.vue'
 
 const { entry } = defineProps<{
   entry: LogEntry
@@ -48,7 +48,7 @@ const levelTextColor = $computed(() => {
       </q-chip>
     </q-td>
     <q-td>
-      <text-content :class="$style.content" :text="entry.content" />
+      <data-content :class="$style.content" :data="entry.content" />
     </q-td>
   </record-view-record>
 </template>

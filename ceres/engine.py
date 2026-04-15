@@ -8,21 +8,22 @@ from typing import TYPE_CHECKING, Literal, Self, Unpack, final, override
 import anyio
 from pydantic import Field
 
-from ceres._internal import util
-from ceres._internal.lazy import __lazy_imports__
-from ceres._internal.project import LoadedProject
-from ceres._internal.server import Server
+from ceres.__internal__.lazy import __lazy_imports__
+from ceres.__internal__.project import LoadedProject
+from ceres.__internal__.server import Server
+from ceres.__internal__.utilities.collections import uniq
+from ceres.__internal__.utilities.typing import as_component, as_component_system
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.concurrency import sleep
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
 from ceres.data import DataObject, Name, PasswordHash, dump, to_json
 from ceres.directory import Directory
-from ceres.error import ConfigError, Failure, ReloadConfigInvalidError, ReloadError
+from ceres.error import ComponentCombinedError, ConfigError, Failure, ReloadConfigInvalidError
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
 from ceres.node import Node
-from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
-    from ceres._internal.entity import BaseEntityManager
+    from ceres.__internal__.entity import BaseEntityManager
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.entity import Entity
 
@@ -168,7 +169,9 @@ class Engine(Node):
         return WorkspaceEditManager(self)
 
     def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
-        return util.get_entity_manager(self, Entity)
+        from ceres.__internal__.entity import get_entity_manager
+
+        return get_entity_manager(self, Entity)
 
     @property
     def config_path(self) -> Path | None:
@@ -269,12 +272,8 @@ class Engine(Node):
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
         silent: bool = False,
-    ) -> Result[Config, ConfigError]:
-        match await Config.load(source, checks=checks):
-            case Ok(config):
-                pass
-            case Fail(errors):
-                return Fail(errors)
+    ) -> Config:
+        config = await Config.load(source, checks=checks)
 
         if not silent:
             if isinstance(source, Path):
@@ -283,14 +282,14 @@ class Engine(Node):
                 self.log.info("Loading provided configuration.")
 
         await self._apply(source if isinstance(source, Path) else None, config, silent=silent)
-        return Ok(config)
+        return config
 
     async def reload(
         self,
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
         silent: bool = False,
-    ) -> Result[Config, ReloadError]:
+    ) -> Config:
         if self.config_path is not None:
             self.log.info(f"Reloading configuration from '{self.config_path}'.")
             source = self.config_path
@@ -298,14 +297,16 @@ class Engine(Node):
             self.log.info("Reloading current configuration.")
             source = self.config
 
-        match await Config.load(source, checks=checks):
-            case Ok(config):
-                pass
-            case Fail(error):
-                return Fail(ReloadConfigInvalidError(error=error))
+        try:
+            config = await Config.load(source, checks=checks)
+        except Failure as failure:
+            if not isinstance(failure.error, ConfigError):
+                raise
+
+            raise Failure(ReloadConfigInvalidError(error=failure.error))
 
         await self._apply(source if isinstance(source, Path) else None, config, silent=silent)
-        return Ok(config)
+        return config
 
     async def hash_password(self, password: str) -> PasswordHash:
         return await self._database.hash_password(password)
@@ -318,7 +319,7 @@ class Engine(Node):
         root: Component | ComponentSystem | None,
         name: Name | None = None,
     ) -> Component | None:
-        root = util.as_component_system(root)
+        root = as_component_system(root)
         previous = self._root
         if previous is root:
             return
@@ -365,7 +366,7 @@ class Engine(Node):
 
             with anyio.move_on_after(1):
                 while self._server.cli_bind is None:
-                    await asyncio.sleep(0.01)
+                    await sleep(0.01)
 
             if self._server.cli_bind:
                 self.log.info(f"HTTP CLI server listening on {self._server.cli_bind}.")
@@ -448,7 +449,7 @@ class Engine(Node):
 
                 try:
                     root = await self._execute_component_actions(
-                        util.as_component(self._root),
+                        as_component(self._root),
                         config.root,
                         actions.components,
                         silent=silent,
@@ -499,7 +500,7 @@ class Engine(Node):
         else:
             server = None
 
-        components = self._get_pending_component_actions(util.as_component(self._root), config.root)
+        components = self._get_pending_component_actions(as_component(self._root), config.root)
 
         return EngineActions(
             database=database,
@@ -548,7 +549,7 @@ class Engine(Node):
             return [RecreateComponentEngineAction(address=address) for address in affected]
 
         actions: list[EngineComponentAction] = []
-        children = util.uniquify(
+        children = uniq(
             [child.address for child in component.system.children]
             + [component.system.address / child.name for child in config.components]
         )
@@ -603,18 +604,23 @@ class Engine(Node):
 
                         continue
 
-                    match config.create(container):
-                        case Ok(component):
-                            for current in component.system.get_components(inclusive=True):
-                                if not silent:
-                                    self.log.info(
-                                        f"Created '{current.system.address}' as instance of {type(current)}."
-                                    )
-                        case Fail(errors):
+                    try:
+                        component = config.create(container)
+                        for current in component.system.get_components(inclusive=True):
                             if not silent:
-                                self.log.error(
-                                    f"Failed to create '{action.address}'. Errors: {to_json(errors, indent=2)}"
+                                self.log.info(
+                                    f"Created '{current.system.address}' as instance of {type(current)}."
                                 )
+                    except Failure as failure:
+                        if not silent:
+                            if isinstance(failure.error, ComponentCombinedError):
+                                errors = failure.error.errors
+                            else:
+                                errors = [failure.error]
+
+                            self.log.error(
+                                f"Failed to create '{action.address}'. Errors: {to_json(errors, indent=2)}"
+                            )
                 case RecreateComponentEngineAction():
                     self.log.info(f"Recreating '{action.address}'.")
                     if config is None:
@@ -637,18 +643,22 @@ class Engine(Node):
                                 f"Component at '{action.address}' does not exist. Creating."
                             )
 
-                    match config.create(container):
-                        case Ok(component):
-                            for current in component.system.get_components(inclusive=True):
-                                if not silent:
-                                    self.log.info(
-                                        f"Recreated '{current.system.address}' as instance of {type(current)}."
-                                    )
-                        case Fail(errors):
+                    try:
+                        component = config.create(container)
+                        for current in component.system.get_components(inclusive=True):
                             if not silent:
-                                self.log.error(
-                                    f"Failed to recreate '{action.address}'. Errors: {to_json(errors, indent=2)}"
+                                self.log.info(
+                                    f"Recreated '{current.system.address}' as instance of {type(current)}."
                                 )
+                    except Failure as failure:
+                        if not silent:
+                            if isinstance(failure.error, ComponentCombinedError):
+                                errors = failure.error.errors
+                            else:
+                                errors = [failure.error]
+                            self.log.error(
+                                f"Failed to recreate '{action.address}'. Errors: {to_json(errors, indent=2)}"
+                            )
                 case RemoveComponentEngineAction():
                     if component is not None:
                         if not silent:

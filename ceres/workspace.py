@@ -1,13 +1,5 @@
 from collections.abc import Iterable
-from typing import (
-    TYPE_CHECKING,
-    ClassVar,
-    Literal,
-    Self,
-    TypedDict,
-    Unpack,
-    override,
-)
+from typing import TYPE_CHECKING, ClassVar, Literal, Self, TypedDict, Unpack, override
 from uuid import UUID
 
 from pydantic import Field, model_validator
@@ -24,10 +16,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.elements import literal_column
 
-from ceres._internal import util
-from ceres._internal.database.types import EnumConstraint, EnumMapper, UUIDMapper
-from ceres._internal.entity import (
-    BaseEntity,
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper, UUIDMapper
+from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
     BaseEntityFilterArgs,
@@ -42,10 +32,11 @@ from ceres._internal.entity import (
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
     BaseUUIDEntityRow,
+    ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
-from ceres._internal.util import MatchMode
+from ceres.__internal__.utilities.collections import seq
 from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, NonEmptyStr, OrderedStrEnum
 from ceres.user import UserRole, UserRow
 
@@ -53,7 +44,7 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource
+    from ceres.__internal__.protocols import DatabaseSource
     from ceres.database import DatabaseType
 
 __all__ = [
@@ -169,11 +160,11 @@ class WorkspaceMembershipFilter(
         if not super()._matches(obj):
             return False
 
-        if not util.match_value(obj.user_id, self.user_id):
+        if not self._match_value(obj.user_id, self.user_id):
             return False
-        if not util.match_value(obj.workspace_id, self.workspace_id):
+        if not self._match_value(obj.workspace_id, self.workspace_id):
             return False
-        if not util.match_value(obj.role, self.role):
+        if not self._match_value(obj.role, self.role):
             return False
 
         return True
@@ -184,11 +175,11 @@ class WorkspaceMembershipFilter(
         columns = self._get_row_cls()
 
         if self.user_id is not None:
-            yield util.sql_match_value(columns.user_id, self.user_id)
+            yield self._sql_match_value(columns.user_id, self.user_id)
         if self.workspace_id is not None:
-            yield util.sql_match_value(columns.workspace_id, self.workspace_id)
+            yield self._sql_match_value(columns.workspace_id, self.workspace_id)
         if self.role is not None:
-            yield util.sql_match_value(columns.role, self.role)
+            yield self._sql_match_value(columns.role, self.role)
 
     @override
     def _get_default_order(self) -> MaybeSequence[WorkspaceMembershipOrder]:
@@ -259,9 +250,12 @@ class WorkspaceMembershipManager(
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
-class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate, slots=True):
+class WorkspaceMembership(
+    WorkspaceMembershipCreate,
+    ConcreteEntity[WorkspaceMembershipRow],
+    slots=True,
+):
     Manager = WorkspaceMembershipManager
-    Row = WorkspaceMembershipRow
     Create = WorkspaceMembershipCreate
     Update = WorkspaceMembershipUpdate
     Filter = WorkspaceMembershipFilter
@@ -270,7 +264,7 @@ class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate, slots=True):
     Order = WorkspaceMembershipOrder
     Role = WorkspaceMembershipRole
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace membership")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("workspace membership")
 
 
 class WorkspaceEditRow(BaseEntityRow, kw_only=True):
@@ -349,9 +343,9 @@ class WorkspaceEditFilter(
         if not super()._matches(obj):
             return False
 
-        if not util.match_value(obj.user_id, self.user_id):
+        if not self._match_value(obj.user_id, self.user_id):
             return False
-        if not util.match_value(obj.workspace_id, self.workspace_id):
+        if not self._match_value(obj.workspace_id, self.workspace_id):
             return False
 
         return True
@@ -362,9 +356,9 @@ class WorkspaceEditFilter(
         columns = self._get_row_cls()
 
         if self.user_id is not None:
-            yield util.sql_match_value(columns.user_id, self.user_id)
+            yield self._sql_match_value(columns.user_id, self.user_id)
         if self.workspace_id is not None:
-            yield util.sql_match_value(columns.workspace_id, self.workspace_id)
+            yield self._sql_match_value(columns.workspace_id, self.workspace_id)
 
     @override
     def _get_default_order(self) -> MaybeSequence[WorkspaceEditOrder]:
@@ -435,9 +429,12 @@ class WorkspaceEditManager(
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
-class WorkspaceEdit(BaseEntity, WorkspaceEditCreate, slots=True):
+class WorkspaceEdit(
+    WorkspaceEditCreate,
+    ConcreteEntity[WorkspaceEditRow],
+    slots=True,
+):
     Manager = WorkspaceEditManager
-    Row = WorkspaceEditRow
     Create = WorkspaceEditCreate
     Update = WorkspaceEditUpdate
     Filter = WorkspaceEditFilter
@@ -445,7 +442,7 @@ class WorkspaceEdit(BaseEntity, WorkspaceEditCreate, slots=True):
     Field = WorkspaceEditField
     Order = WorkspaceEditOrder
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace edit")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("workspace edit")
 
 
 def _membership_roles_ge(access: WorkspaceMembershipRole) -> list[WorkspaceMembershipRole]:
@@ -596,20 +593,20 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         if not super()._matches(obj):
             return False
 
-        if not util.match_value(obj.name, self.name):
+        if not self._match_value(obj.name, self.name):
             return False
-        if not util.match_string(obj.name, self.name_contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.name, self.name_contains):
             return False
-        if not util.match_string(obj.name, self.name_prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.name, self.name_prefix):
             return False
-        if not util.match_string(obj.name, self.name_suffix, MatchMode.SUFFIX):
+        if not self._match_string_suffix(obj.name, self.name_suffix):
             return False
 
-        if not util.match_value(obj.general_viewership, self.general_viewership):
+        if not self._match_value(obj.general_viewership, self.general_viewership):
             return False
-        if not util.match_value(obj.general_editorship, self.general_editorship):
+        if not self._match_value(obj.general_editorship, self.general_editorship):
             return False
-        if not util.match_value(obj.general_managership, self.general_managership):
+        if not self._match_value(obj.general_managership, self.general_managership):
             return False
 
         return True
@@ -620,20 +617,20 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         columns = self._get_row_cls()
 
         if self.name is not None:
-            yield util.sql_match_value(columns.name, self.name)
+            yield self._sql_match_value(columns.name, self.name)
         if self.name_contains is not None:
-            yield util.sql_match_string(columns.name, self.name_contains, MatchMode.CONTAINS)
+            yield self._sql_match_string_contains(columns.name, self.name_contains)
         if self.name_prefix is not None:
-            yield util.sql_match_string(columns.name, self.name_prefix, MatchMode.PREFIX)
+            yield self._sql_match_string_prefix(columns.name, self.name_prefix)
         if self.name_suffix is not None:
-            yield util.sql_match_string(columns.name, self.name_suffix, MatchMode.SUFFIX)
+            yield self._sql_match_string_suffix(columns.name, self.name_suffix)
 
         if self.general_viewership is not None:
-            yield util.sql_match_value(columns.general_viewership, self.general_viewership)
+            yield self._sql_match_value(columns.general_viewership, self.general_viewership)
         if self.general_editorship is not None:
-            yield util.sql_match_value(columns.general_editorship, self.general_editorship)
+            yield self._sql_match_value(columns.general_editorship, self.general_editorship)
         if self.general_managership is not None:
-            yield util.sql_match_value(columns.general_managership, self.general_managership)
+            yield self._sql_match_value(columns.general_managership, self.general_managership)
 
         for user_id, general_access_restriction, min_membership_role in (
             (self.viewable_by, columns.general_viewership, WorkspaceMembershipRole.VIEWER),
@@ -659,12 +656,12 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
                             )
                         )
                     )
-                    for current_user_id in util.seq(user_id)
+                    for current_user_id in seq(user_id)
                 )
             ) | (
                 columns.id.in_(
                     select(WorkspaceMembershipRow.workspace_id).where(
-                        WorkspaceMembershipRow.user_id.in_(util.seq(user_id)),
+                        WorkspaceMembershipRow.user_id.in_(seq(user_id)),
                         WorkspaceMembershipRow.role.in_(_membership_roles_ge(min_membership_role)),
                     )
                 )
@@ -673,7 +670,7 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         if self.joined_by is not None:
             yield columns.id.in_(
                 select(WorkspaceMembershipRow.workspace_id).where(
-                    WorkspaceMembershipRow.user_id.in_(util.seq(self.joined_by)),
+                    WorkspaceMembershipRow.user_id.in_(seq(self.joined_by)),
                 )
             )
 
@@ -774,9 +771,13 @@ class WorkspaceManager(
         return await self.where(id=id).first()
 
 
-class Workspace(BaseUUIDEntity, WorkspaceCreate, slots=True):
+class Workspace(
+    BaseUUIDEntity,
+    WorkspaceCreate,
+    ConcreteEntity[WorkspaceRow],
+    slots=True,
+):
     Manager = WorkspaceManager
-    Row = WorkspaceRow
     Create = WorkspaceCreate
     Update = WorkspaceUpdate
     Filter = WorkspaceFilter
@@ -787,4 +788,4 @@ class Workspace(BaseUUIDEntity, WorkspaceCreate, slots=True):
     Edit = WorkspaceEdit
     Membership = WorkspaceMembership
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("workspace")

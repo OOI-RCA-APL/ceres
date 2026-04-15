@@ -176,6 +176,14 @@ async function submit() {
     <template #column-filter-data>
       <div class="column q-gutter-xs" style="min-width: 300px">
         <schema-form-value
+          v-model="widget.dataDisplay"
+          :schema="{
+            title: 'Display',
+            type: 'string',
+            enum: ['default', 'hex', 'binary'],
+          }"
+        />
+        <schema-form-value
           v-model="widget.filter.contains"
           :schema="{ title: 'Contains', type: 'string', optional: true }"
         />

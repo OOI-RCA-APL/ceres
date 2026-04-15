@@ -1,4 +1,4 @@
-from ceres._internal.lazy import __lazy_imports__
+from ceres.__internal__.lazy import __lazy_imports__
 
 __all__ = [
     "Database",

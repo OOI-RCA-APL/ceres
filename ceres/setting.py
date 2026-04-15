@@ -5,21 +5,20 @@ from uuid import UUID
 from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal import util
-from ceres._internal.database.types import UUIDMapper
-from ceres._internal.entity import (
-    BaseEntity,
+from ceres.__internal__.database.types import UUIDMapper
+from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
     BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
     BaseEntityRow,
+    ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import MatchMode
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.utilities.collections import seq
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, uuid7
 from ceres.user import UserRow
 
@@ -27,7 +26,7 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.database import DatabaseType
 
 __all__ = [
@@ -111,16 +110,16 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
         if not super()._matches(obj):
             return False
 
-        if not util.match_value(obj.user_id, self.user_id):
+        if not self._match_value(obj.user_id, self.user_id):
             return False
 
-        if not util.match_value(obj.name, self.name):
+        if not self._match_value(obj.name, self.name):
             return False
-        if not util.match_string(obj.name, self.name_contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.name, self.name_contains):
             return False
-        if not util.match_string(obj.name, self.name_prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.name, self.name_prefix):
             return False
-        if not util.match_string(obj.name, self.name_suffix, MatchMode.SUFFIX):
+        if not self._match_string_suffix(obj.name, self.name_suffix):
             return False
 
         return True
@@ -136,16 +135,16 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
         columns = self._get_row_cls()
 
         if self.user_id is not None:
-            yield columns.user_id.in_(util.seq(self.user_id))
+            yield columns.user_id.in_(seq(self.user_id))
 
         if self.name is not None:
-            yield util.sql_match_value(columns.name, self.name)
+            yield self._sql_match_value(columns.name, self.name)
         if self.name_contains is not None:
-            yield util.sql_match_string(columns.name, self.name_contains, MatchMode.CONTAINS)
+            yield self._sql_match_string_contains(columns.name, self.name_contains)
         if self.name_prefix is not None:
-            yield util.sql_match_string(columns.name, self.name_prefix, MatchMode.PREFIX)
+            yield self._sql_match_string_prefix(columns.name, self.name_prefix)
         if self.name_suffix is not None:
-            yield util.sql_match_string(columns.name, self.name_suffix, MatchMode.SUFFIX)
+            yield self._sql_match_string_suffix(columns.name, self.name_suffix)
 
     @override
     def _get_default_order(self) -> MaybeSequence[SettingOrder]:
@@ -224,10 +223,9 @@ class BoundSettingManager(SettingManager, BaseNodeManager):
         super().__init__(source)
 
 
-class Setting(BaseEntity, SettingCreate, slots=True):
+class Setting(SettingCreate, ConcreteEntity[SettingRow], slots=True):
     Manager = SettingManager
     BoundManager = BoundSettingManager
-    Row = SettingRow
     Create = SettingCreate
     Update = SettingUpdate
     Filter = SettingFilter
@@ -235,4 +233,4 @@ class Setting(BaseEntity, SettingCreate, slots=True):
     Field = SettingField
     Order = SettingOrder
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming("setting")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("setting")

@@ -5,8 +5,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import field
 from typing import TYPE_CHECKING, Any, final, override
 
-from ceres._internal import util
-from ceres._internal.templates import templates
+from ceres.__internal__.templates import templates
+from ceres.__internal__.utilities.collections import group_by
 from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, Level
 from ceres.component import Component, action, routine
@@ -150,11 +150,11 @@ class HTMLDispatchWriter(DispatchWriter):
 
         index = create_index()
 
-        for level, by_level in util.group_by(
+        for level, by_level in group_by(
             sorted(alerts, key=lambda alert: alert.level, reverse=True),
             key=lambda alert: alert.level,
         ):
-            for key, by_key in util.group_by(
+            for key, by_key in group_by(
                 sorted(by_level, key=lambda alert: -alert.timestamp.timestamp()),
                 lambda alert: (alert.address, alert.type, to_json(alert.data)),
             ):

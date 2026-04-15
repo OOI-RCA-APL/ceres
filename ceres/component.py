@@ -1,4 +1,3 @@
-import asyncio
 import inspect
 import traceback
 import warnings
@@ -35,20 +34,40 @@ from typing import (
 from pydantic import (
     AliasChoices,
     AliasPath,
+    ByteSize,
     ConfigDict,
+    Field,
     NonNegativeInt,
     PositiveFloat,
     ValidationError,
 )
 from pydantic.fields import Deprecated, FieldInfo
 
-from ceres._internal import util
-from ceres._internal.filter import BaseFilter, BaseFilterArgs
-from ceres._internal.lazy import __lazy_imports__
-from ceres._internal.protocols import ComponentSource
-from ceres._internal.util import OrderedWeakSet, PathLike, Undefined, cached
+from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
+from ceres.__internal__.lazy import __lazy_imports__
+from ceres.__internal__.protocols import ComponentSource
+from ceres.__internal__.utilities.algorithms import traverse
+from ceres.__internal__.utilities.caching import cached
+from ceres.__internal__.utilities.collections import OrderedWeakSet, seq
+from ceres.__internal__.utilities.functions import get_function_name, get_inner_function
+from ceres.__internal__.utilities.randomize import randstr
+from ceres.__internal__.utilities.text import reprify
+from ceres.__internal__.utilities.typing import (
+    as_component_system,
+    as_components,
+    as_engine,
+    extract_annotation,
+    get_return_annotation,
+    lenient_isinstance,
+)
+from ceres.__internal__.utilities.undefined import Undefined
+from ceres.__internal__.utilities.validation import (
+    create_validated_function,
+    get_args_model,
+    validated_function,
+)
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.concurrency import concurrently
+from ceres.concurrency import awaitify, concurrently, sleep
 from ceres.config import (
     ComponentConfig,
     ConnectionConfig,
@@ -74,6 +93,7 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotSubscribableError,
     ValidationProblem,
+    trace,
 )
 from ceres.event import (
     AttachedEvent,
@@ -92,6 +112,8 @@ from ceres.event import (
     RoutineRestartingEvent,
     RoutineStartedEvent,
     RoutineStoppedEvent,
+    StartExceptionEvent,
+    StopExceptionEvent,
     StoppedEvent,
     StoppingEvent,
     WillDetachEvent,
@@ -102,18 +124,21 @@ from ceres.timing import delta
 from ceres.variable import InternalVariableName, Variable
 
 if TYPE_CHECKING:
+    from os import PathLike
+
     from pydantic.config import JsonDict
     from pydantic.types import Discriminator
     from sqlalchemy.ext.asyncio import AsyncConnection
     from starlette.responses import FileResponse, Response, StreamingResponse
 
-    from ceres.connection import Connection, ConnectionField
+    from ceres.connection import Buffer, Connection, ConnectionField
     from ceres.connectivity import Connectivity
     from ceres.engine import Engine
     from ceres.particle import Particle
     from ceres.status import Status
 else:
-    Connection = object
+    Connection = Any
+    ConnectionField = Any
 
 with __lazy_imports__(__name__):
     from ceres.connection import ComponentConnectionManager
@@ -147,7 +172,7 @@ class ComponentFilter(BaseFilter):
     running: bool | None = None
 
     def matches(self, obj: Component | ComponentSystem) -> bool:
-        system = util.as_component_system(obj)
+        system = as_component_system(obj)
 
         if self.address is not None:
             if not self.address.matches(system.address, self.root):
@@ -223,6 +248,12 @@ class Component(DataObject, ComponentSource):
         return self.__system
 
     def __setup__(self) -> None:
+        pass
+
+    def __start__(self) -> None | Awaitable[None]:
+        pass
+
+    def __stop__(self) -> None | Awaitable[None]:
         pass
 
     def __connectivity__(self) -> Connectivity | None:
@@ -344,11 +375,12 @@ def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
         if info.init_var:
             continue
 
-        if get_marker(info.metadata, BoundField.Marker) is None:
+        metadata = extract_annotation(info).metadata
+        if get_marker(metadata, BoundField.Marker) is None:
             continue
 
         exact = []
-        connection = get_marker(info.metadata, ConnectionField.Marker)
+        connection = get_marker(metadata, ConnectionField.Marker)
         if connection is not None:
             exact.append(connection)
 
@@ -411,7 +443,7 @@ def listener(
 ) -> _ListenerMethodTransform: ...
 
 
-@util.validated_function
+@validated_function
 def listener(
     method: _ListenerMethod | None = None,
     *,
@@ -420,7 +452,7 @@ def listener(
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethod | _ListenerMethodTransform:
-    reference = util.seq(reference or ())
+    reference = seq(reference or ())
 
     if address is not None:
         address = AddressSelector(address)
@@ -447,7 +479,7 @@ def listener(
             method,
             ListenerBinding(
                 name=_get_bound_name(method),
-                method=util.get_function_name(method),
+                method=get_function_name(method),
                 reference=tuple(reference),
                 address=address,
                 local=local,
@@ -568,7 +600,7 @@ class FileOutput(BaseOutput):
 
     def __init__(
         self,
-        path: PathLike,
+        path: str | PathLike,
         media: OutputMediaType | None = None,
         *,
         http_status: int = 200,
@@ -692,7 +724,7 @@ def query[**P, T](
             QueryBinding(
                 name=_get_bound_name(method),
                 permissions=ProcedureAccessLevel(permit),
-                method=util.get_function_name(method),
+                method=get_function_name(method),
                 arguments=info.arguments,
                 output=info.output,
                 live=info.live,
@@ -733,7 +765,7 @@ def action[**P, T](
             ActionBinding(
                 name=_get_bound_name(method),
                 permissions=ProcedureAccessLevel(permit),
-                method=util.get_function_name(method),
+                method=get_function_name(method),
                 arguments=validated.arguments,
                 output=validated.output,
                 live=validated.live,
@@ -762,32 +794,30 @@ def _get_procedure_method_info(
     media: str | None,
     /,
 ) -> _ProcedureMethodInfo:
-    method = util.get_inner_function(method)
+    method = get_inner_function(method)
     signature = inspect.signature(method)
 
     parameters = [*signature.parameters.values()]
     if not parameters or parameters[0].name != "self":
-        raise ValueError(f"{type_} {util.strify(method)} must have 'self' as its first parameter")
+        raise ValueError(f"{type_} {method} must have 'self' as its first parameter")
     if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
-        raise ValueError(f"{type_} {util.strify(method)} cannot have positional-only arguments")
+        raise ValueError(f"{type_} {method} cannot have positional-only arguments")
 
-    arguments_json_schema = util.get_args_model(method).model_json_schema()
+    arguments_json_schema = get_args_model(method).model_json_schema()
     arguments_required = len(arguments_json_schema.get("properties", {}).get("required", [])) > 0
     arguments = ProcedureArgumentsInfo(
         json_schema=arguments_json_schema,
         required=arguments_required,
     )
 
-    output_annotation = util.get_return_annotation(method, Undefined)
+    output_annotation = get_return_annotation(method, Undefined)
     if output_annotation is Undefined:
-        raise ValueError(f"return type of {type_} {util.strify(method)} must be specified")
+        raise ValueError(f"return type of {type_} {method} must be specified")
 
     live = inspect.isasyncgenfunction(method)
 
     if live:
-        error = ValueError(
-            f"return type of live {type_} {util.strify(method)} must be AsyncIterable[T]"
-        )
+        error = ValueError(f"return type of live {type_} {method} must be AsyncIterable[T]")
 
         try:
             if output_annotation.__name__ != "AsyncIterable":
@@ -800,16 +830,14 @@ def _get_procedure_method_info(
     if isinstance(output_annotation, type) and issubclass(output_annotation, BaseOutput):
         if issubclass(output_annotation, StreamingOutput):
             if media is None:
-                raise ValueError(
-                    f"`media` type must be specified for {type_} {util.strify(method)}"
-                )
+                raise ValueError(f"`media` type must be specified for {type_} {method}")
 
             output = ProcedureStreamingOutputInfo(media=media)
         elif issubclass(output_annotation, FileOutput):
             output = ProcedureFileOutputInfo(media=media)
         else:
             raise ValueError(
-                f"output type of {type_} {util.strify(method)} must be either `FileOutput` or `StreamingOutput` if it is a subtype of `Output`."
+                f"output type of {type_} {method} must be either `FileOutput` or `StreamingOutput` if it is a subtype of `Output`."
             )
     else:
         try:
@@ -817,13 +845,13 @@ def _get_procedure_method_info(
             output = ProcedureValueOutputInfo(json_schema=output_json_schema)
         except Exception as exception:
             raise ValueError(
-                f"output type of {type_} {util.strify(method)} must be either a JSON serializable type, `FileOutput` or `StreamingOutput`. Type is not JSON serializable: "
+                f"output type of {type_} {method} must be either a JSON serializable type, `FileOutput` or `StreamingOutput`. Type is not JSON serializable: "
                 f"{exception}"
             )
 
     return _ProcedureMethodInfo(
         name=_get_bound_name(method),
-        method=util.get_function_name(method),
+        method=get_function_name(method),
         arguments=arguments,
         output=output,
         live=live,
@@ -871,7 +899,7 @@ def routine(
 def routine(method: _RoutineMethod) -> _RoutineMethod: ...
 
 
-@util.validated_function
+@validated_function
 def routine(
     method: _RoutineMethod | None = None,
     *,
@@ -882,7 +910,7 @@ def routine(
         _add_binding(
             method,
             RoutineBinding(
-                method=util.get_function_name(method),
+                method=get_function_name(method),
                 restart=RoutineRestartPolicy(restart),
                 restart_delay=delta(restart_delay),
             ),
@@ -907,7 +935,7 @@ def get_component_method_bindings_on[T: _MethodBinding](
     binding_cls: type[T],
     /,
 ) -> Sequence[T]:
-    method = util.get_inner_function(method)
+    method = get_inner_function(method)
     output: list[T] = []
 
     if values := getattr(method, _BINDINGS_ATTRIBUTE, None):
@@ -951,15 +979,19 @@ def _get_component_method_bindings[T: _MethodBinding](
 class SieveBinding(DataObject.Frozen):
     name: Name
     method: Name
+    stored: bool
     retries: NonNegativeInt | None
     retry_delay: PositiveTimeDelta
     filter: MessageFilter | None
-    connections: tuple[Name, ...] | None = None
+    connections: tuple[ConnectionField, ...] | None
+    buffer_size: ByteSize | None = Field(gt=0)
+    buffer_drop: ByteSize | None = Field(gt=0)
 
 
 type SieveMethod[S, T: Particle] = (
     Callable[[S, Message], T | None | Awaitable[T | None]]
     | Callable[[S, AsyncIterable[Message]], AsyncIterable[T]]
+    | Callable[[S, Buffer], Iterable[T]]
 )
 
 
@@ -974,11 +1006,14 @@ def sieve[S, T: Particle](
     direction: MaybeSequence[MessageDirectionInput] | None = "receive",
     *,
     name: Name | None = None,
+    stored: bool = True,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
     contains: MaybeSequence[MessageData] | None = None,
     prefix: MaybeSequence[MessageData] | None = None,
     suffix: MaybeSequence[MessageData] | None = None,
+    buffer_size: int | str | None = None,
+    buffer_drop: int | str | None = None,
 ) -> Callable[[SieveMethod[S, T]], SieveMethod[S, T]]: ...
 
 
@@ -988,27 +1023,24 @@ def sieve[S, T: Particle](
     direction: MaybeSequence[MessageDirectionInput] | None = "receive",
     *,
     name: Name | None = None,
+    stored: bool = True,
     retries: NonNegativeInt | None = None,
     retry_delay: PositiveTimeDelta = timedelta(seconds=5),
     contains: MaybeSequence[MessageData] | None = None,
     prefix: MaybeSequence[MessageData] | None = None,
     suffix: MaybeSequence[MessageData] | None = None,
+    buffer_size: int | str | None = None,
+    buffer_drop: int | str | None = None,
 ) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
     if first is None:
         method = None
         connections = None
-    elif inspect.ismethod(first):
+    elif inspect.isfunction(first) or inspect.ismethod(first):
         method = first
         connections = None
     else:
         method = None
-        connections = tuple(
-            [
-                current.name
-                for current in cast("Sequence[ConnectionField]", util.seq(first))
-                if current.name is not None
-            ]
-        )
+        connections = tuple(cast("Sequence[ConnectionField]", seq(first)))
 
     from ceres.message import Message
 
@@ -1032,11 +1064,14 @@ def sieve[S, T: Particle](
             method,
             SieveBinding(
                 name=name or _get_bound_name(method),
-                method=util.get_function_name(method),
+                method=get_function_name(method),
+                stored=stored,
                 retries=retries,
                 retry_delay=retry_delay,
                 filter=filter,
                 connections=connections,
+                buffer_size=cast("ByteSize | None", buffer_size),
+                buffer_drop=cast("ByteSize | None", buffer_drop),
             ),
         )
         return method
@@ -1048,7 +1083,7 @@ def sieve[S, T: Particle](
 
 
 def _add_binding(method: Callable[..., object], binding: _MethodBinding) -> None:
-    method = util.get_inner_function(method)
+    method = get_inner_function(method)
     bindings: Sequence[_MethodBinding] | None = getattr(method, _BINDINGS_ATTRIBUTE, None)
 
     if not isinstance(bindings, Sequence):
@@ -1060,7 +1095,7 @@ def _add_binding(method: Callable[..., object], binding: _MethodBinding) -> None
 
 
 def _get_bound_name(function: Callable[..., Any]) -> str:
-    return _get_normalized_name(util.get_function_name(function))
+    return _get_normalized_name(get_function_name(function))
 
 
 def _get_normalized_name(name: str) -> Name:
@@ -1099,7 +1134,7 @@ class ComponentSystem(Node, ComponentSource):
         super().__init__()
 
         if __with_name__ is None:
-            __with_name__ = util.randstr(ascii_lowercase, 8)
+            __with_name__ = randstr(ascii_lowercase, 8)
         if isinstance(__with_container__, Component):
             __with_container__ = __with_container__.system
 
@@ -1158,9 +1193,17 @@ class ComponentSystem(Node, ComponentSource):
                 binding.name: MethodSieveConfig(
                     name=binding.name,
                     method=binding.method,
+                    stored=binding.stored,
                     retries=binding.retries,
                     retry_delay=binding.retry_delay,
                     filter=binding.filter,
+                    connections=[
+                        field.name
+                        for field in seq(binding.connections or ())
+                        if field.name is not None
+                    ],
+                    buffer_size=binding.buffer_size,
+                    buffer_drop=binding.buffer_drop,
                 )
                 for binding in self.get_sieve_bindings().values()
             }
@@ -1196,7 +1239,7 @@ class ComponentSystem(Node, ComponentSource):
 
     @override
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({util.reprify(self.component)})"
+        return f"{type(self).__name__}({reprify(self.component)})"
 
     @property
     @override
@@ -1305,7 +1348,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         Get the parent component's system if it exists, or return `None`.
         """
-        return util.as_component_system(self._container)
+        return as_component_system(self._container)
 
     @cached_property
     def jobs(self) -> JobManager:
@@ -1506,7 +1549,7 @@ class ComponentSystem(Node, ComponentSource):
 
             return True
 
-        util.traverse(self.component, visit)
+        traverse(self.component, visit)
         return references
 
     def has_reference_to(self, component: Component) -> bool:
@@ -1535,7 +1578,7 @@ class ComponentSystem(Node, ComponentSource):
             return components
 
         def visit(obj: Any) -> bool:
-            if util.lenient_isinstance(obj, (Component, Reference)):
+            if lenient_isinstance(obj, (Component, Reference)):
                 obj = unref(obj)
                 if obj is not self and obj is not self.component:
                     components.append(obj)
@@ -1543,14 +1586,14 @@ class ComponentSystem(Node, ComponentSource):
 
             return True
 
-        util.traverse(root, visit)
+        traverse(root, visit)
         return components
 
     def get_referencing_components(self, recursive: bool = False) -> list[Component]:
         if recursive:
             return self.__get_referencing_components_recursive()
 
-        return util.as_components(self._referencers)
+        return as_components(self._referencers)
 
     def __get_referencing_components_recursive(self) -> list[Component]:
         seen: set[int] = set()
@@ -1603,7 +1646,7 @@ class ComponentSystem(Node, ComponentSource):
         if self._container is None:
             return
 
-        engine = util.as_engine(self._container)
+        engine = as_engine(self._container)
         if engine is not None:
             self.events.emit(WillDetachEvent)
             address_before = self.address
@@ -1718,7 +1761,7 @@ class ComponentSystem(Node, ComponentSource):
         *,
         inclusive: bool = False,
     ) -> bool:
-        system = util.as_component_system(component)
+        system = as_component_system(component)
         current: ComponentSystem | None = system if inclusive else system.parent
         while current is not None:
             if current is system:
@@ -1766,23 +1809,35 @@ class ComponentSystem(Node, ComponentSource):
     @override
     async def __run__(self) -> None:
         try:
-            for component in reversed(self.get_ancestor_components()):
-                component.system.start(all_enabled=False)
+            try:
+                await awaitify(self.component.__start__())
+            except Exception as exception:
+                self.events.emit(StartExceptionEvent, exception=trace(exception))
+            else:
+                try:
+                    for component in reversed(self.get_ancestor_components()):
+                        component.system.start(all_enabled=False)
 
-            await self.__node_sync__()
+                    await self.__node_sync__()
 
-            await concurrently(
-                super().__run__(),
-                self.__run_routines(),
-                self.jobs.__run__(),
-                self.connections.__run__(),
-                self.sieves.__run__(),
-                self.pruners.__run__(),
-            )
-        except Exception:
-            self.log.error("An error occurred during component system execution.", exc_info=True)
-            traceback.print_exc()
-            raise
+                    await concurrently(
+                        super().__run__(),
+                        self.__run_routines(),
+                        self.jobs.__run__(),
+                        self.connections.__run__(),
+                        self.sieves.__run__(),
+                        self.pruners.__run__(),
+                    )
+                except Exception:
+                    self.log.error(
+                        f"An error occurred during component system execution. {traceback.format_exc()}",
+                    )
+                    raise
+        finally:
+            try:
+                await awaitify(self.component.__stop__())
+            except Exception as exception:
+                self.events.emit(StopExceptionEvent, exception=trace(exception))
 
     async def __run_routine(self, binding: RoutineBinding) -> None:
         routine = getattr(self.component, binding.method, None)
@@ -1802,7 +1857,7 @@ class ComponentSystem(Node, ComponentSource):
                     self.events.emit(
                         RoutineExceptionEvent,
                         routine=binding.method,
-                        traceback=util.get_traceback(exception),
+                        exception=trace(exception),
                     )
                     if binding.restart == RoutineRestartPolicy.ON_EXCEPTION:
                         break
@@ -1815,7 +1870,7 @@ class ComponentSystem(Node, ComponentSource):
                     routine=binding.method,
                     delay=binding.restart_delay,
                 )
-                await asyncio.sleep(binding.restart_delay.total_seconds())
+                await sleep(binding.restart_delay)
                 self.events.emit(RoutineRestartedEvent, routine=binding.method)
         except CancelledError:
             self.events.emit(RoutineCancelledEvent, routine=binding.method)
@@ -1865,11 +1920,11 @@ class ComponentSystem(Node, ComponentSource):
         ):
             raise Failure(ProcedureNotFoundError)
 
-        validated = util.create_validated_function(method)
+        validated = create_validated_function(method)
 
         try:
             self.events.emit(ProcedureCalledEvent, procedure=procedure)
-            return await util.awaitify(validated(**arguments))
+            return await awaitify(validated(**arguments))
         except CancelledError:
             self.events.emit(ProcedureCancelledEvent, procedure=procedure)
             raise
@@ -1883,9 +1938,13 @@ class ComponentSystem(Node, ComponentSource):
 
             raise
         except Exception as exception:
-            traceback = util.get_traceback(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(
+                ProcedureExceptionEvent,
+                procedure=procedure,
+                exception=info,
+            )
+            raise Failure(ProcedureInternalError(exception=info))
 
     async def call(
         self,
@@ -1925,9 +1984,9 @@ class ComponentSystem(Node, ComponentSource):
                         last = current
                     return last
         except Exception as exception:
-            traceback = util.get_traceback(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+            raise Failure(ProcedureInternalError(exception=info))
         finally:
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
 
@@ -1952,14 +2011,14 @@ class ComponentSystem(Node, ComponentSource):
             try:
                 while True:
                     yield await self.__invoke(procedure, arguments)
-                    await asyncio.sleep(binding.poll.total_seconds())
+                    await sleep(binding.poll)
             except CancelledError:
                 self.events.emit(ProcedureCancelledEvent, procedure=procedure)
                 raise
             except Exception as exception:
-                traceback = util.get_traceback(exception)
-                self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-                raise Failure(ProcedureInternalError(traceback=list(traceback)))
+                info = trace(exception)
+                self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+                raise Failure(ProcedureInternalError(exception=info))
 
         try:
             if output is not None:
@@ -1970,9 +2029,9 @@ class ComponentSystem(Node, ComponentSource):
             self.events.emit(ProcedureCancelledEvent, procedure=procedure)
             raise
         except Exception as exception:
-            traceback = util.get_traceback(exception)
-            self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+            info = trace(exception)
+            self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
+            raise Failure(ProcedureInternalError(exception=info))
 
     def sync_child_order(self) -> None:
         if self._config is None:
@@ -2065,7 +2124,7 @@ class _Empty:
 
 
 class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
-    __slots__ = ("name", "marker")
+    __slots__ = "marker"
 
     @dataclass(slots=True)
     class Marker:
@@ -2084,7 +2143,6 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
 
         super().__init__(default=default, **kwargs)
 
-        self.name = name
         self.marker = self.Marker(name=name)
         self.metadata.append(self.marker)
 
@@ -2094,3 +2152,7 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
     def __set_name__(self, owner: type[Any], name: str) -> None:
         if self.marker.name is None:
             self.marker.name = name
+
+    @property
+    def name(self) -> str | None:
+        return self.marker.name

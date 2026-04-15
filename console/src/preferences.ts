@@ -1,9 +1,9 @@
-import moment from 'moment'
 import { defineStore } from 'pinia'
 import { useQuasar } from 'quasar'
 import { computed, watchEffect } from 'vue'
 
 import { usePersisted } from '@/persistence'
+import { duration } from '@/time'
 
 export const usePreferences = defineStore('preferences', () => {
   const state = usePersisted({
@@ -31,7 +31,7 @@ export const usePreferences = defineStore('preferences', () => {
       set: (value) => (state.isDeveloperModeEnabled = value),
     }),
     statisticsDuration: computed({
-      get: () => moment.duration(state.statisticsDuration, 'seconds'),
+      get: () => duration(state.statisticsDuration, 'seconds'),
       set: (value) => (state.statisticsDuration = value.asSeconds()),
     }),
   }

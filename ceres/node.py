@@ -1,4 +1,3 @@
-import asyncio
 from abc import abstractmethod
 from collections.abc import AsyncIterable
 from functools import cached_property
@@ -7,12 +6,12 @@ from typing import TYPE_CHECKING, Any, Unpack, dataclass_transform, override
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
-from ceres._internal import util
-from ceres._internal.lazy import __lazy_imports__
-from ceres._internal.protocols import NodeSource
+from ceres.__internal__.lazy import __lazy_imports__
+from ceres.__internal__.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.concurrency import concurrently
+from ceres.concurrency import concurrently, sleep
 from ceres.data import replacing
+from ceres.error import trace
 from ceres.event import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -24,8 +23,11 @@ from ceres.event import (
     StoppedEvent,
 )
 from ceres.tasklet import Tasklet
+from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
@@ -80,6 +82,10 @@ class Node(Tasklet, NodeSource):
     @override
     def __node__(self) -> Node:
         return self
+
+    @property
+    def time(self) -> datetime:
+        return utc()
 
     async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
         pass
@@ -149,7 +155,7 @@ class Node(Tasklet, NodeSource):
 
     @cached_property
     def __writer(self):
-        from ceres._internal.database.writer import Writer
+        from ceres.__internal__.database.writer import Writer
 
         return Writer(lambda: self.database)
 
@@ -167,9 +173,12 @@ class Node(Tasklet, NodeSource):
 
     def store(self, item: Item, /) -> None:
         from ceres.item import Item
+        from ceres.particle import Particle
 
         if not isinstance(item, Item):
             raise TypeError(f"invalid item type {type(item)}")
+        if isinstance(item, Particle):
+            item = item.to_dynamic()
 
         self.__store(item)
 
@@ -201,10 +210,10 @@ class Node(Tasklet, NodeSource):
                 if not self.__writer.flushing and not self.__writer.empty:
                     await self.__writer.flush()
             except Exception as exception:
-                self.events.emit(DatabaseExceptionEvent, traceback=util.get_traceback(exception))
-                await asyncio.sleep(1)
+                self.events.emit(DatabaseExceptionEvent, exception=trace(exception))
+                await sleep(1)
 
-            await asyncio.sleep(0.1)
+            await sleep(0.1)
 
     @override
     @abstractmethod

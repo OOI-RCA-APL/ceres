@@ -6,9 +6,10 @@ from shutil import which
 from typing import TYPE_CHECKING
 
 from ceres.component import StreamingOutput
+from ceres.concurrency import sleep
 
 if TYPE_CHECKING:
-    from ceres._internal.util import PathLike
+    from os import PathLike
 
 __all__ = [
     "rtsp",
@@ -18,7 +19,7 @@ __all__ = [
 async def rtsp(
     url: str,
     *,
-    ffmpeg: PathLike | None = None,
+    ffmpeg: str | PathLike | None = None,
     copy: bool = True,
     loglevel: str | None = "error",
     transport: str = "tcp",
@@ -116,7 +117,7 @@ async def rtsp(
 
                 yield chunk
                 # Yield to the event loop.
-                await asyncio.sleep(0)
+                await sleep(0)
         finally:
             # Kill it! Behold, `ffmpeg` does not respect `SIGTERM`, and it does not respect me.
             try:

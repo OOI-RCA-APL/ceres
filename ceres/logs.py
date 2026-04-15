@@ -13,17 +13,17 @@ from typing import (
 from sqlalchemy import Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres._internal import util
-from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import (
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
+    ConcreteEntity,
     EntityNaming,
     EntityOutputChannel,
     EntityQuery,
 )
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.record import (
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -33,7 +33,6 @@ from ceres._internal.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.util import MatchMode
 from ceres.data import MaybeSequence, to_json
 from ceres.level import Level
 from ceres.timing import utc
@@ -45,7 +44,7 @@ if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
-    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
     from ceres.database import DatabaseType
 
@@ -135,7 +134,7 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
         if not super()._matches(obj, now=now):
             return False
 
-        if not util.match_value(obj.level, self.level):
+        if not self._match_value(obj.level, self.level):
             return False
 
         if self.min_level is not None:
@@ -145,13 +144,13 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
             if obj.level > self.max_level:
                 return False
 
-        if not util.match_value(obj.content, self.content):
+        if not self._match_value(obj.content, self.content):
             return False
-        if not util.match_string(obj.content, self.contains, MatchMode.CONTAINS):
+        if not self._match_string_contains(obj.content, self.contains):
             return False
-        if not util.match_string(obj.content, self.prefix, MatchMode.PREFIX):
+        if not self._match_string_prefix(obj.content, self.prefix):
             return False
-        if not util.match_string(obj.content, self.suffix, MatchMode.SUFFIX):
+        if not self._match_string_suffix(obj.content, self.suffix):
             return False
 
         return True
@@ -172,20 +171,20 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
         columns = self._get_row_cls()
 
         if self.level is not None:
-            yield util.sql_match_value(columns.level, self.level)
+            yield self._sql_match_value(columns.level, self.level)
         if self.min_level is not None:
             yield columns.level.in_(current for current in Level if current >= self.min_level)
         if self.max_level is not None:
             yield columns.level.in_(current for current in Level if current <= self.max_level)
 
         if self.content is not None:
-            yield util.sql_match_value(columns.content, self.content)
+            yield self._sql_match_value(columns.content, self.content)
         if self.contains is not None:
-            yield util.sql_match_string(columns.content, self.contains, MatchMode.CONTAINS)
+            yield self._sql_match_string_contains(columns.content, self.contains)
         if self.prefix is not None:
-            yield util.sql_match_string(columns.content, self.prefix, MatchMode.PREFIX)
+            yield self._sql_match_string_prefix(columns.content, self.prefix)
         if self.suffix is not None:
-            yield util.sql_match_string(columns.content, self.suffix, MatchMode.SUFFIX)
+            yield self._sql_match_string_suffix(columns.content, self.suffix)
 
 
 class LogEntryCreate(BaseRecordCreate, slots=True):
@@ -457,10 +456,14 @@ class LogEntryOutputChannel(
         return super().where(filter, **kwargs)
 
 
-class LogEntry(BaseRecord, LogEntryCreate, slots=True):
+class LogEntry(
+    BaseRecord,
+    LogEntryCreate,
+    ConcreteEntity[LogEntryRow],
+    slots=True,
+):
     Manager = LogManager
     BoundManager = BoundLogManager
-    Row = LogEntryRow
     Create = LogEntryCreate
     Update = LogEntryUpdate
     Filter = LogEntryFilter
@@ -469,7 +472,7 @@ class LogEntry(BaseRecord, LogEntryCreate, slots=True):
     Order = LogEntryOrder
     Level = Level
 
-    __naming__: ClassVar[EntityNaming] = EntityNaming(
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming(
         singular="log entry",
         plural="log entries",
         container="logs",

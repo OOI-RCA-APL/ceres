@@ -5,7 +5,7 @@ import sys
 from functools import wraps
 from typing import TYPE_CHECKING, TypeAlias
 
-from ceres._internal.lazy import __lazy_imports__
+from ceres.__internal__.lazy import __lazy_imports__
 from ceres.data import StrEnum
 
 with __lazy_imports__(__name__, export=True):

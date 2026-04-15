@@ -2,17 +2,17 @@ import asyncio
 import inspect
 import traceback
 from asyncio import Queue as AsyncQueue
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from uuid import UUID
 
 from pydantic import ByteSize, Field
 
-from ceres._internal.manager import BaseNodeManager
-from ceres._internal.util import lenient_issubclass, sleep_forever
+from ceres.__internal__.manager import BaseNodeManager
+from ceres.__internal__.utilities.typing import lenient_issubclass
 from ceres.address import Address
 from ceres.channel import Channel, ChannelReader, OutputChannel
-from ceres.concurrency import concurrently
+from ceres.concurrency import concurrently, sleep
 from ceres.data import (
     DataObject,
     DateTime,
@@ -20,11 +20,12 @@ from ceres.data import (
     TimeDelta,
     uuid7,
 )
+from ceres.error import ExceptionInfo
 from ceres.level import Level
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from ceres._internal.protocols import NodeSource
+    from ceres.__internal__.protocols import NodeSource
 
 __all__ = [
     "Event",
@@ -115,7 +116,6 @@ class ConnectionExceptionEvent(Event, slots=True):
     type: Literal["connection-exception"] = "connection-exception"
     level: Level = Level.ERROR
     connection: str | None = None
-    traceback: Sequence[str]
 
 
 class ConnectingEvent(Event, slots=True):
@@ -234,7 +234,7 @@ class ServerBindExceptionEvent(Event, slots=True):
     type: Literal["server-bind-exception"] = "server-bind-exception"
     level: Level = Level.ERROR
     bind: str
-    traceback: Sequence[str]
+    exception: ExceptionInfo
 
 
 class ClientConnectedEvent(Event, slots=True):
@@ -253,7 +253,7 @@ class ServerProcessingExceptionEvent(Event, slots=True):
     type: Literal["server-processing-exception"] = "server-processing-exception"
     level: Level = Level.ERROR
     client: str
-    traceback: Sequence[str]
+    exception: ExceptionInfo
 
 
 ServerEvent: TypeAlias = (
@@ -263,6 +263,18 @@ ServerEvent: TypeAlias = (
     | ClientDisconnectedEvent
     | ServerProcessingExceptionEvent
 )
+
+
+class StartExceptionEvent(Event, slots=True):
+    type: Literal["start-exception"] = "start-exception"
+    level: Level = Level.ERROR
+    exception: ExceptionInfo
+
+
+class StopExceptionEvent(Event, slots=True):
+    type: Literal["stop-exception"] = "stop-exception"
+    level: Level = Level.ERROR
+    exception: ExceptionInfo
 
 
 class MessageSentEvent(Event, slots=True):
@@ -334,7 +346,7 @@ class RoutineExceptionEvent(Event, slots=True):
     type: Literal["routine-exception"] = "routine-exception"
     level: Level = Level.ERROR
     routine: str
-    traceback: Sequence[str]
+    exception: ExceptionInfo
 
 
 class RoutineRestartingEvent(Event, slots=True):
@@ -390,7 +402,7 @@ class JobCancelledEvent(Event, slots=True):
 class JobExceptionEvent(Event, slots=True):
     type: Literal["job-exception"] = "job-exception"
     job: str
-    traceback: Sequence[str]
+    exception: ExceptionInfo
 
 
 class JobRetryPendingEvent(Event, slots=True):
@@ -452,7 +464,7 @@ class PruneExceptionEvent(Event, slots=True):
     type: Literal["prune-exception"] = "prune-exception"
     level: Level = Level.ERROR
     pruner: str
-    traceback: Sequence[str]
+    exception: ExceptionInfo
 
 
 PrunerEvent: TypeAlias = (
@@ -495,7 +507,7 @@ class SieveExceptionEvent(Event, slots=True):
     type: Literal["sieve-exception"] = "sieve-exception"
     level: Level = Level.ERROR
     sieve: str
-    traceback: Sequence[str]
+    exception: ExceptionInfo
 
 
 class SieveRetryPendingEvent(Event, slots=True):
@@ -540,7 +552,7 @@ class ProcedureExceptionEvent(Event, slots=True):
     type: Literal["procedure-exception"] = "procedure-exception"
     level: Level = Level.ERROR
     procedure: str
-    traceback: Sequence[str]
+    exception: ExceptionInfo
 
 
 ProcedureEvent: TypeAlias = (
@@ -554,7 +566,7 @@ ProcedureEvent: TypeAlias = (
 class DatabaseExceptionEvent(Event, slots=True):
     type: Literal["database-exception"] = "database-exception"
     level: Level = Level.ERROR
-    traceback: Sequence[str]
+    exception: ExceptionInfo
 
 
 DatabaseEvent: TypeAlias = DatabaseExceptionEvent
@@ -629,7 +641,7 @@ class EventManager(BaseNodeManager):
 
     async def __run__(self) -> None:
         if not self._listeners:
-            await sleep_forever()
+            await sleep(...)
             return
 
         await concurrently(listener.__run__() for listener in self._listeners)

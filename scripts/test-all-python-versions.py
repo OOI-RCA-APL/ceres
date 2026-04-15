@@ -10,7 +10,7 @@ from typing import Literal
 
 from packaging.version import Version
 
-from ceres._internal.util import uniquify
+from ceres.__internal__.utilities.collections import uniq
 from ceres.paths import proj
 
 SUPPORTED_VERSIONS = ["3.14"]
@@ -136,7 +136,7 @@ def __main__():
 
         filtered_versions.append(version)
 
-    versions_to_test = uniquify(filtered_versions)
+    versions_to_test = uniq(filtered_versions)
     tested_versions: set[Version] = set()
 
     pytest_args: list[str] = []

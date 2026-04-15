@@ -1,7 +1,7 @@
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, NamedTuple, overload, override
+from typing import TYPE_CHECKING, NamedTuple, SupportsIndex, overload, override
 
 from ceres.data import ToBytes
 from ceres.timing import utc
@@ -113,8 +113,8 @@ class Buffer:
     def __len__(self) -> int:
         return self.size
 
-    def __contains__(self, item: bytes) -> bool:
-        return item in self.data
+    def __contains__(self, item: SupportsIndex) -> bool:
+        return item in self._data
 
     def __bool__(self) -> bool:
         return bool(self._data)
@@ -269,9 +269,8 @@ class Buffer:
                     last_entry.timestamp,
                 )
                 return
-        else:
-            self._entries.append(_BufferEntry(end, timestamp))
 
+        self._entries.append(_BufferEntry(end, timestamp))
         self._latest_timestamp = timestamp
 
     def extend(self, records: Iterable[ChunkInput]) -> None:
@@ -306,8 +305,8 @@ class Buffer:
 
         return Chunk(data, entry.timestamp)
 
-    def pop_to_size(self, limit: int, by: int = 1) -> Chunk | None:
-        excess = self.size - limit
+    def pop_to(self, size: int, by: int = 1) -> Chunk | None:
+        excess = self.size - size
         if excess <= 0:
             return None
 

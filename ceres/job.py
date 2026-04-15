@@ -1,12 +1,12 @@
-import asyncio
 from asyncio import CancelledError
 from datetime import UTC, datetime
 from functools import lru_cache
 from threading import Lock
 from typing import TYPE_CHECKING
 
-from ceres._internal import util
-from ceres._internal.manager import BaseComponentManager
+from ceres.__internal__.manager import BaseComponentManager
+from ceres.concurrency import sleep
+from ceres.error import trace
 from ceres.event import (
     JobAddedEvent,
     JobCancelledEvent,
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.base import BaseScheduler
 
-    from ceres._internal.protocols import ComponentSource
+    from ceres.__internal__.protocols import ComponentSource
     from ceres.config import JobConfig
     from ceres.schedule import Trigger
 
@@ -81,7 +81,7 @@ class JobManager(BaseComponentManager):
             with self._lock:
                 self._sync_jobs()
             self._scheduler.start()
-            await util.sleep_forever()
+            await sleep(...)
         finally:
             if self._scheduler.running:
                 self._scheduler.shutdown()
@@ -97,8 +97,8 @@ class JobManager(BaseComponentManager):
         binding = self.__system__.get_action_bindings().get(job.action)
         if binding is None:
             registered = list(self.__system__.get_action_bindings().keys())
-            raise AssertionError(
-                f"action {job.action!r} does not exist on {util.strify(type(self.__system__.component))}, registered actions: {registered!r}"
+            raise ValueError(
+                f"action {job.action!r} does not exist on {type(self.__system__.component)}, registered actions: {registered!r}"
             )
 
         with self._lock:
@@ -168,7 +168,7 @@ class JobManager(BaseComponentManager):
                     self.__system__.events.emit(
                         JobExceptionEvent,
                         job=job.name,
-                        traceback=util.get_traceback(exception),
+                        exception=trace(exception),
                     )
                     if retry >= job.retries:
                         break
@@ -177,7 +177,7 @@ class JobManager(BaseComponentManager):
                         JobRetryPendingEvent, job=job.name, delay=job.retry_delay
                     )
                     retry += 1
-                    await asyncio.sleep(job.retry_delay.total_seconds())
+                    await sleep(job.retry_delay)
                     self.__system__.events.emit(JobRetryEvent, job=job.name)
         finally:
             self.__system__.events.emit(JobEndedEvent, job=job.name)

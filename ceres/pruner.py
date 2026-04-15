@@ -3,9 +3,10 @@ from datetime import UTC
 from threading import Lock
 from typing import TYPE_CHECKING, Any, cast
 
-from ceres._internal import util
-from ceres._internal.manager import BaseComponentManager
+from ceres.__internal__.manager import BaseComponentManager
+from ceres.concurrency import sleep
 from ceres.entity import EntityType
+from ceres.error import trace
 from ceres.event import (
     PruneCancelledEvent,
     PruneCompletedEvent,
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.base import BaseScheduler
 
-    from ceres._internal.protocols import ComponentSource
+    from ceres.__internal__.protocols import ComponentSource
     from ceres.config import PrunerConfig
 
 
@@ -52,7 +53,7 @@ class PrunerManager(BaseComponentManager):
             with self.__lock:
                 self.__sync_pruners()
             self.__scheduler.start()
-            await util.sleep_forever()
+            await sleep(...)
         finally:
             if self.__scheduler.running:
                 self.__scheduler.shutdown()
@@ -145,7 +146,7 @@ class PrunerManager(BaseComponentManager):
             self.__system__.events.emit(
                 PruneExceptionEvent,
                 pruner=pruner.name,
-                traceback=util.get_traceback(exception),
+                exception=trace(exception),
             )
         finally:
             self.__system__.events.emit(PruneEndedEvent, pruner=pruner.name)

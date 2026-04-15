@@ -1,8 +1,7 @@
 <script lang="ts" setup>
-import moment from 'moment'
-
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
+import { utc } from '@/time'
 
 let modelValue = $(defineModel<unknown>({ required: true }))
 
@@ -13,14 +12,14 @@ defineProps<{
 }>()
 
 const pattern = 'YYYY-MM-DD'
-const valueOrNow = $computed(() => moment.utc(resolve(modelValue ?? moment.utc())))
+const valueOrNow = $computed(() => utc(resolve(modelValue ?? utc())))
 
-function resolve(value: unknown) {
+function resolve(value: unknown): string | undefined {
   if (value == null) {
-    return value
+    return undefined
   }
 
-  const parsed = moment.utc(value, pattern)
+  const parsed = utc(value as any, pattern)
   if (parsed.isValid()) {
     return parsed.format(pattern)
   }
@@ -40,11 +39,11 @@ function format(value: unknown) {
 const presets = [
   {
     label: 'Today (UTC)',
-    factory: () => resolve(moment.utc()),
+    factory: () => resolve(utc()),
   },
   {
     label: 'Yesterday (UTC)',
-    factory: () => resolve(moment.utc().subtract(1, 'day')),
+    factory: () => resolve(utc().subtract(1, 'day')),
   },
   {
     label: '-1 Day',

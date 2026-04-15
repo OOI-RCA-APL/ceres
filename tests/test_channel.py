@@ -1,7 +1,7 @@
 import asyncio
 
 from ceres.channel import Channel, OutputChannel
-from ceres.concurrency import spawn
+from ceres.concurrency import sleep, spawn
 
 
 async def _get_using_reader(stream: OutputChannel[str], count: int) -> list[str]:
@@ -25,7 +25,7 @@ async def _get_using_iteration(stream: OutputChannel[str], count: int) -> list[s
 async def test_single_reader() -> None:
     stream = Channel[str]()
     task = asyncio.create_task(_get_using_reader(stream, 3))
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
     stream.put("A")
     stream.put("B")
     stream.put("C")
@@ -36,7 +36,7 @@ async def test_single_reader() -> None:
 async def test_multiple_readers() -> None:
     stream = Channel[str]()
     tasks = [asyncio.create_task(_get_using_reader(stream, 3)) for _ in range(10)]
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
     stream.put("A")
     stream.put("B")
     stream.put("C")
@@ -47,7 +47,7 @@ async def test_multiple_readers() -> None:
 async def test_single_iterator() -> None:
     stream = Channel[str]()
     task = asyncio.create_task(_get_using_iteration(stream, 3))
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
     stream.put("A")
     stream.put("B")
     stream.put("C")
@@ -58,7 +58,7 @@ async def test_single_iterator() -> None:
 async def test_multiple_iterators() -> None:
     stream = Channel[str]()
     tasks = [asyncio.create_task(_get_using_iteration(stream, 3)) for _ in range(10)]
-    await asyncio.sleep(0.1)
+    await sleep(0.1)
     stream.put("A")
     stream.put("B")
     stream.put("C")

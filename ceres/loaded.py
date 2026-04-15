@@ -13,7 +13,7 @@ from pydantic import (
 )
 from pydantic_core.core_schema import no_info_after_validator_function
 
-from ceres._internal import util
+from ceres.__internal__.utilities.typing import is_mapping, lenient_isinstance, lenient_issubclass
 from ceres.data import DataObject, validate
 
 if TYPE_CHECKING:
@@ -57,16 +57,16 @@ class _LoadedType:
 
     @classmethod
     def validate(cls, value: Any) -> Any:
-        if util.lenient_isinstance(value, cls.cls):
+        if lenient_isinstance(value, cls.cls):
             return value
 
-        if util.lenient_isinstance(value, Loader):
+        if lenient_isinstance(value, Loader):
             loader = value
         else:
             loader = validate(Loader, value)
 
         instance = loader.create()
-        if not util.lenient_isinstance(instance, cls.cls):
+        if not lenient_isinstance(instance, cls.cls):
             raise ValueError(f"must be an instance of {cls.cls}, got {type(instance)}")
 
         return instance
@@ -111,10 +111,10 @@ class Loader[T](DataObject):
         if arguments is None:
             arguments = {}
 
-        if util.lenient_issubclass(target, BaseModel) or pydantic.dataclasses.is_pydantic_dataclass(
+        if lenient_issubclass(target, BaseModel) or pydantic.dataclasses.is_pydantic_dataclass(
             target
         ):
-            if util.is_mapping(arguments):
+            if is_mapping(arguments):
                 instance = target(**arguments)
             else:
                 instance = target(*arguments)
@@ -124,7 +124,7 @@ class Loader[T](DataObject):
                 init = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(
                     target.__init__
                 )
-                if util.is_mapping(arguments):
+                if is_mapping(arguments):
                     init(instance, **arguments)
                 else:
                     init(instance, *arguments)

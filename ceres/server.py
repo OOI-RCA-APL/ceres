@@ -1,4 +1,3 @@
-import asyncio
 from abc import abstractmethod
 from datetime import timedelta
 from pathlib import Path
@@ -10,9 +9,10 @@ from anyio.abc import ByteStream, Listener, SocketAttribute, SocketStream
 from pydantic import NonNegativeInt, model_validator
 
 from ceres import Component, routine
-from ceres._internal import util
-from ceres._internal.util import UNIX
+from ceres.__internal__.utilities.platforms import UNIX
+from ceres.concurrency import sleep
 from ceres.data import NonEmptyStr
+from ceres.error import trace
 from ceres.event import (
     ClientConnectedEvent,
     ClientDisconnectedEvent,
@@ -128,7 +128,7 @@ class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
                 self.system.events.emit(
                     ServerBindExceptionEvent,
                     bind=self.bind,
-                    traceback=util.get_traceback(exception),
+                    exception=trace(exception),
                 )
             finally:
                 await self._cleanup()
@@ -137,7 +137,7 @@ class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
             if next is None:
                 break
 
-            await asyncio.sleep((next - utc()).total_seconds())
+            await sleep(next - utc())
 
     async def _execute_handler(self, stream: SocketStream) -> None:
         client = self._create_client(stream)
@@ -164,8 +164,8 @@ class _AnyIOServer[ClientT: _AnyIOClient](Server[ClientT]):
         except Exception as exception:
             self.system.events.emit(
                 ServerProcessingExceptionEvent,
-                traceback=util.get_traceback(exception),
                 client=bind,
+                exception=trace(exception),
             )
         finally:
             self.system.events.emit(

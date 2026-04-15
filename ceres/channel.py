@@ -1,11 +1,9 @@
 import asyncio
 from asyncio import AbstractEventLoop, QueueEmpty
 from asyncio import Queue as AsyncQueue
-from collections.abc import AsyncIterable, AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Coroutine, Sequence
 from typing import Any, Literal, Self, Union, cast, override
 from weakref import WeakSet
-
-from ceres._internal import util
 
 __all__ = [
     "Channel",
@@ -162,7 +160,7 @@ class ChannelReader[T](AsyncIterator[T]):
             value = await self._queue.get()
             self._queue.task_done()
         else:
-            value = await util.run_in_loop(self.get(), bound, running)
+            value = await _run_in_loop(self.get(), bound, running)
 
         return value
 
@@ -215,3 +213,25 @@ def _get_loop() -> AbstractEventLoop | None:
         return asyncio.get_running_loop()
     except Exception:
         return None
+
+
+async def _run_in_loop[T](
+    coroutine: Coroutine[T, Any, Any],
+    bound_loop: AbstractEventLoop,
+    running_loop: AbstractEventLoop | None = None,
+):
+    from threading import Event
+
+    if running_loop is None:
+        running_loop = asyncio.get_running_loop()
+
+    future = asyncio.run_coroutine_threadsafe(coroutine, bound_loop)
+    finished = Event()
+
+    def callback(_: object):
+        finished.set()
+
+    future.add_done_callback(callback)
+
+    await running_loop.run_in_executor(None, finished.wait)
+    return future.result()

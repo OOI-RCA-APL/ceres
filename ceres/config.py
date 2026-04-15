@@ -4,15 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from re import Pattern
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Literal,
-    Self,
-    TypeAlias,
-    override,
-)
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
 from pydantic import (
     ByteSize,
@@ -30,9 +22,11 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal import util
+from ceres.__internal__.utilities.collections import group_by, seq, uniq
+from ceres.__internal__.utilities.typing import as_component_system, as_engine
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
+from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_SIZE
 from ceres.data import (
     DataObject,
     MaybeSequence,
@@ -47,9 +41,11 @@ from ceres.data import (
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.error import (
+    ComponentCombinedError,
     ComponentError,
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
+    ComponentUnexpectedError,
     ComponentValidationError,
     ConfigCombinedError,
     ConfigError,
@@ -63,22 +59,24 @@ from ceres.error import (
     DatabaseUnreachableError,
     Failure,
     ValidationProblem,
+    trace,
 )
 from ceres.level import Level
 from ceres.logs import LogEntryFilter
 from ceres.message import MessageFilter
 from ceres.particle import ParticleFilter
-from ceres.result import Fail, Ok, Result
 from ceres.schedule import ScheduleExpr
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
-    from ceres.connection import Connection
+    from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
     from ceres.sieve import FunctionSieve, Sieve
 else:
     Sieve = Any
     Component = Any
+    Connection = Any
+    ConnectionField = Any
 
 __all__ = [
     "Config",
@@ -114,15 +112,19 @@ class JobConfig(DataObject):
         return data
 
 
+def _get_connection_class() -> type[Connection]:
+    from ceres.connection import Connection
+
+    return Connection
+
+
 class ConnectionConfig(DataObject):
     name: Name
-    if TYPE_CHECKING:
-        cls: ImportString[type[Connection]]
-    else:
-        cls: ImportString[object] = Field(
-            validation_alias="class",
-            serialization_alias="class",
-        )
+    cls: ImportString[type[Connection]] = Field(
+        default_factory=_get_connection_class,
+        validation_alias="class",
+        serialization_alias="class",
+    )
     arguments: Mapping[str, Any] = Field(default_factory=dict)
 
     @field_validator("cls")
@@ -174,9 +176,12 @@ PrunerConfig: TypeAlias = (
 class _SieveConfig(DataObject):
     type: Literal["class", "method"]
     name: Name
+    stored: bool = True
     retries: NonNegativeInt | None = None
     retry_delay: PositiveTimeDelta = timedelta(seconds=5)
     filter: MessageFilter | None = None
+    buffer_size: ByteSize | None = Field(default=None, gt=0)
+    buffer_drop: ByteSize | None = Field(default=None, gt=0)
 
     @abstractmethod
     def create(self, component: Component) -> Sieve: ...
@@ -219,13 +224,42 @@ class ClassSieveConfig(_SieveConfig):
 class MethodSieveConfig(_SieveConfig):
     type: Literal["method"] = "method"
     method: Name
+    connections: Sequence[Name] | None = None
 
     @override
     def create(self, component: Component) -> FunctionSieve:
         from ceres.sieve import FunctionSieve
 
         method = getattr(component, self.method)
-        return FunctionSieve(function=method)
+        applied_buffer_size = self.buffer_size
+        applied_buffer_drop = self.buffer_drop
+
+        connection_names: list[str] = list(self.connections or ())
+        if self.filter and self.filter.connection:
+            connection_names.extend(seq(self.filter.connection))
+
+        for connection_name in uniq(connection_names):
+            connection = component.system.connections.get(connection_name)
+            if connection is None:
+                continue
+
+            if self.buffer_size is None:
+                if applied_buffer_size is None or connection.buffer_size > applied_buffer_size:
+                    applied_buffer_size = connection.buffer_size
+            if self.buffer_drop is None:
+                if applied_buffer_drop is None or connection.buffer_drop > applied_buffer_drop:
+                    applied_buffer_drop = connection.buffer_drop
+
+        if applied_buffer_size is None:
+            applied_buffer_size = DEFAULT_BUFFER_SIZE
+        if applied_buffer_drop is None:
+            applied_buffer_drop = DEFAULT_BUFFER_DROP
+
+        return FunctionSieve(
+            function=method,
+            buffer_size=applied_buffer_size,
+            buffer_drop=applied_buffer_drop,
+        )
 
 
 SieveConfig: TypeAlias = ClassSieveConfig | MethodSieveConfig
@@ -286,7 +320,7 @@ class ComponentConfig(DataObject):
         info: ValidationInfo,
     ) -> list[PrunerConfig]:
         name: str = info.data.get("name", "<ERROR>")
-        for pruner_name, group in util.group_by(pruners, lambda current: current.name):
+        for pruner_name, group in group_by(pruners, lambda current: current.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate pruner name '{pruner_name}' in component '{name}'")
 
@@ -299,7 +333,7 @@ class ComponentConfig(DataObject):
         info: ValidationInfo,
     ) -> list[SieveConfig]:
         name: str = info.data.get("name", "<ERROR>")
-        for sieve_name, group in util.group_by(sieves, lambda current: current.name):
+        for sieve_name, group in group_by(sieves, lambda current: current.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate sieve name '{sieve_name}' in component '{name}'")
 
@@ -312,7 +346,7 @@ class ComponentConfig(DataObject):
         info: ValidationInfo,
     ) -> list[ComponentConfig]:
         name: str = info.data.get("name", "<ERROR>")
-        for component_name, group in util.group_by(components, lambda current: current.name):
+        for component_name, group in group_by(components, lambda current: current.name):
             if len(list(group)) > 1:
                 raise ValueError(
                     f"duplicate component name '{component_name}' in component '{name}'"
@@ -323,13 +357,13 @@ class ComponentConfig(DataObject):
     def create(
         self,
         container: Component | ComponentSystem | Engine | None = None,
-    ) -> Result[Component, list[ComponentError]]:
-        container = util.as_component_system(container) or util.as_engine(container)
+    ) -> Component:
+        container = as_component_system(container) or as_engine(container)
         instance, errors = self._try_create(container)
         if errors or instance is None:
-            return Fail(errors)
+            raise Failure(ComponentCombinedError(errors=errors))
 
-        return Ok(instance)
+        return instance
 
     def _try_create(
         self,
@@ -337,7 +371,7 @@ class ComponentConfig(DataObject):
     ) -> tuple[Component | None, list[ComponentError]]:
         from ceres.reference import unref
 
-        parent = util.as_component_system(container)
+        parent = as_component_system(container)
         if parent is not None:
             address = parent.address / self.name
         else:
@@ -399,7 +433,7 @@ class ComponentConfig(DataObject):
             errors.append(
                 ComponentInitExceptionError(
                     address=address,
-                    traceback=util.get_traceback(exception),
+                    exception=trace(exception),
                 )
             )
             return None
@@ -452,7 +486,7 @@ class ServerAuthenticationConfig(DataObject):
     duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
-class ServerCorsConfig(DataObject):
+class ServerCORSConfig(DataObject):
     enabled: bool = True
     allow_origins: MaybeSequence[str] = Field(default_factory=list)
     allow_origin_regex: Pattern[str] | None = None
@@ -479,7 +513,7 @@ class ServerConfig(DataObject):
     port: int | None = None
     ssl: ServerSSLConfig | None = None
     authentication: ServerAuthenticationConfig | None = None
-    cors: ServerCorsConfig | None = None
+    cors: ServerCORSConfig | None = None
     compression: ServerCompressionConfig | None = None
 
     @field_validator("host")
@@ -585,12 +619,12 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod
-    def read(cls, source: ConfigSource[Self]) -> Result[Self, ConfigError]:
+    def read(cls, source: ConfigSource[Self]) -> Self:
         import yaml
         from yaml import MarkedYAMLError, YAMLError
 
         if isinstance(source, cls):
-            return Ok(source)
+            return source
 
         if isinstance(source, Mapping):
             data = source
@@ -598,13 +632,13 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             try:
                 path = source.resolve()
             except Exception:
-                return Fail(ConfigReadError(message=f"path '{source}' could not be resolved"))
+                raise Failure(ConfigReadError(message=f"path '{source}' could not be resolved"))
 
             try:
                 with open(path) as stream:
                     data = yaml.safe_load(stream)
             except OSError:
-                return Fail(ConfigReadError(message=f"failed to read file at '{path}'"))
+                raise Failure(ConfigReadError(message=f"failed to read file at '{path}'"))
             except YAMLError as error:
                 message: str | None = None
                 location: ConfigParseErrorLocation | None = None
@@ -618,16 +652,16 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
                             column=error.problem_mark.column,
                         )
 
-                return Fail(ConfigParseError(message=message, location=location))
+                raise Failure(ConfigParseError(message=message, location=location))
         else:
-            return Fail(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
+            raise Failure(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
 
         try:
             instance = validate(cls, data)
         except ValidationError as error:
-            return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
+            raise Failure(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 
-        return Ok(instance)
+        return instance
 
     @classmethod
     async def load(
@@ -635,14 +669,9 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         config: ConfigSource[Self],
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
-    ) -> Result[Self, ConfigError]:
+    ) -> Self:
         errors: list[ConfigError] = []
-
-        match cls.read(config):
-            case Ok(config):
-                pass
-            case Fail(error):
-                return Fail(error)
+        config = cls.read(config)
 
         if ConfigCheckType.DATABASE in checks:
             errors.extend(await config._check_database())
@@ -650,9 +679,9 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             errors.extend(await config._check_components())
 
         if errors:
-            return Fail(ConfigCombinedError(errors=errors))
+            raise Failure(ConfigCombinedError(errors=errors))
 
-        return Ok(config)
+        return config
 
     async def _check_database(self) -> list[DatabaseError]:
         from ceres.database import Database
@@ -665,17 +694,9 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             if isinstance(failure.error, DatabaseError):
                 return [failure.error]
 
-            return [
-                DatabaseUnexpectedError(
-                    message=failure.message,
-                )
-            ]
+            return [DatabaseUnexpectedError(reason=failure.message)]
         except Exception as exception:
-            return [
-                DatabaseUnreachableError(
-                    message=str(exception),
-                )
-            ]
+            return [DatabaseUnreachableError(reason=str(exception))]
 
         return []
 
@@ -707,7 +728,7 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         from ceres.interface import Interface
 
         if self.console.dashboard is not None:
-            for address in util.seq(self.console.dashboard):
+            for address in seq(self.console.dashboard):
                 component = self.get_component(address)
                 if component is None:
                     raise ValueError(f"dashboard component '{address}' does not exist")
@@ -729,11 +750,18 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
 
     @override
     async def _check_components(self) -> list[ComponentError]:
-        match self.root.create():
-            case Ok():
-                return []
-            case Fail(errors):
-                return errors
+        try:
+            self.root.create()
+            return []
+        except Failure as failure:
+            if isinstance(failure.error, ComponentCombinedError):
+                return failure.error.errors
+            elif isinstance(failure.error, ComponentError):
+                return [failure.error]
+            else:
+                return [ComponentUnexpectedError(exception=trace(failure))]
+        except Exception as exception:
+            return [ComponentUnexpectedError(exception=trace(exception))]
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
         return self.root.get_component(address)
