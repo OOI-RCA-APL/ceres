@@ -47,7 +47,7 @@ export function utc(
     return dayjs.utc(input)
   }
 
-  const base = dayjs.utc(input, pattern, strict)
+  const base = dayjs.utc(input, pattern as string | undefined, strict)
   if (!base.isValid()) {
     return base
   }
@@ -62,7 +62,7 @@ export function utc(
     if (match) {
       const ms = match[1].slice(0, 3).padEnd(3, '0')
       const tz = match[2] ?? ''
-      const parsed = dayjs.utc(`${datePart}.${ms}${tz}`, pattern)
+      const parsed = dayjs.utc(`${datePart}.${ms}${tz}`, pattern as string | undefined)
       if (parsed.isValid()) {
         return parsed
       }

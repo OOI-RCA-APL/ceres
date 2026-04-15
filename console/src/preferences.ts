@@ -2,8 +2,8 @@ import { defineStore } from 'pinia'
 import { useQuasar } from 'quasar'
 import { computed, watchEffect } from 'vue'
 
-import { duration } from '@/time'
 import { usePersisted } from '@/persistence'
+import { duration } from '@/time'
 
 export const usePreferences = defineStore('preferences', () => {
   const state = usePersisted({

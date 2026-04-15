@@ -32,8 +32,8 @@ const pending: Data = $ref({})
 
 function togglePause() {
   if (!isPaused) {
-    frozenXMin = xMin
-    frozenXMax = xMax
+    frozenXMin = start.valueOf()
+    frozenXMax = (end ?? time.now).valueOf()
     isPaused = true
   } else {
     isPaused = false

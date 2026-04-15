@@ -7,9 +7,9 @@ import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { LevelModel } from '@/api/shared'
-import { duration, utc } from '@/time'
 import { getter } from '@/getter'
 import { usePreferences } from '@/preferences'
+import { duration, utc } from '@/time'
 
 export type LevelStatistics = Zod.infer<typeof LevelStatisticsModel>
 export const LevelStatisticsModel = Zod.object({

@@ -6,10 +6,10 @@ import { onMounted, watchEffect } from 'vue'
 import { useEngine } from '@/api/engine'
 import { useSettings } from '@/api/settings'
 import constants from '@/constants'
-import { duration, utc } from '@/time'
 import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
 import { userCanAccess } from '@/router'
+import { duration, utc } from '@/time'
 
 const navigation = useNavigation()
 const preferences = usePreferences()
@@ -72,8 +72,9 @@ watchEffect((onInvalidate) => {
     return
   }
 
-  const ms = duration(utc(engine.auth.identity.expires).subtract(1, 'minute').diff(utc()))
-    .asMilliseconds()
+  const ms = duration(
+    utc(engine.auth.identity.expires).subtract(1, 'minute').diff(utc())
+  ).asMilliseconds()
 
   const timeout = setTimeout(() => {
     void refresh()
