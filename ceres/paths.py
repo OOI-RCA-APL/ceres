@@ -11,28 +11,32 @@ __all__ = [
 
 
 def rel(path: str | PathLike[str]) -> Path:
-    """
-    Convert a relative path from the current Python modules's parent directory to an absolute path.
+    """Resolve a path relative to the calling module's parent directory.
 
     Args:
-        path: A relative path from the current Python file's parent directory.
+        path: Path relative to the calling module's parent directory.
 
     Returns:
-        The absolute path relative to the parent directory.
+        The absolute path.
     """
     return _get_current_python_module_path() / Path(path)
 
 
 def proj(relative: str | PathLike | None = None) -> Path:
-    """
-    Get an absolute path relative to the current Python project's root directory, where the root
-    directory is defined as the parent directory of the nearest `pyproject.toml` file in
-    the containing directories of the current file.
+    """Resolve a path relative to the current Python project's root directory.
 
-    If the `relative` parameter is given, the returned path will be the absolute path to the file at the given relative path from the project root. If `relative` is not given, the returned path will be the absolute path to the project root.
+    The project root is the parent directory of the nearest `pyproject.toml` file found
+    when walking up from the calling module's file. If `relative` is provided, join it
+    onto the project root, otherwise return the root itself.
 
-    :param relative: The path to the file, relative to the project root.
-    :return: The absolute path relative to the project root.
+    Args:
+        relative: Path relative to the project root, or `None` to return the root.
+
+    Returns:
+        The absolute path to the requested location.
+
+    Raises:
+        AssertionError: If no parent directory contains a `pyproject.toml` file.
     """
     current = _get_current_python_module_path()
     root = None

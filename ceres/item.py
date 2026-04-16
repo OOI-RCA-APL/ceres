@@ -15,9 +15,17 @@ __all__ = [
 ]
 
 Item: TypeAlias = Message | Particle | Alert | LogEntry | Variable
+"""Union of record types that flow through the system as user-visible items."""
 
 
 class ItemType(StrEnum):
+    """Discriminator identifying which concrete record type an `Item` is.
+
+    `ItemType` is a strict subset of `EntityType` covering only the user-facing record
+    kinds, it upcasts to `EntityType` when interaction with the broader entity system
+    is required.
+    """
+
     MESSAGE = "message"
     PARTICLE = "particle"
     ALERT = "alert"
@@ -26,9 +34,11 @@ class ItemType(StrEnum):
 
     @property
     def cls(self) -> type[Item]:
+        """Return the concrete record class associated with this item type."""
         return cast("type[Item]", self.upcast().cls)
 
     def upcast(self) -> EntityType:
+        """Return the matching `EntityType` value for this item type."""
         return EntityType(self)
 
 
@@ -39,6 +49,7 @@ _base__new__ = ItemType.__new__
 
 @wraps(_base__new__)
 def _override__new__(cls: type[ItemType], value: str) -> ItemType:
+    # Route construction through `EntityType` so aliases accepted there also resolve here.
     return _base__new__(cls, EntityType(value))
 
 

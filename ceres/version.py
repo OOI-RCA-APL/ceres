@@ -25,6 +25,4 @@ def __get_version() -> str:
 
 
 __version__ = __get_version()
-"""
-The current Ceres version number as a string.
-"""
+"""Current Ceres package version as a string."""

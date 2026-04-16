@@ -76,11 +76,27 @@ if TYPE_CHECKING:
     type Loaded[T] = T
 else:
     Loaded = _LoadedType
+"""Annotation marking a field as a value that can be instantiated from a `Loader` spec.
+
+A field annotated as `Loaded[T]` accepts either an instance of `T` or a `Loader` (or its
+serialized form), in the latter case Pydantic validation runs the loader to produce the
+instance before storing it on the model.
+"""
 
 
 class Loader[T](DataObject):
+    """Declarative specification for constructing an instance of a class by import path.
+
+    A `Loader` names a target class via its fully qualified import string and collects the
+    arguments used to construct it. Calling `create()` imports the class and instantiates
+    it, the validator also performs a dry-run construction so misconfiguration is caught
+    at load time rather than at first use.
+    """
+
     cls: ImportString[type[T]] = Field(validation_alias="class", serialization_alias="class")
+    """Fully qualified import path of the target class."""
     arguments: Mapping[str, Any] = Field(default_factory=dict)
+    """Keyword arguments passed when constructing the target class."""
 
     @classmethod
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
@@ -94,6 +110,15 @@ class Loader[T](DataObject):
         return self
 
     def create(self, arguments: Mapping[str, Any] | None = None) -> T:
+        """Instantiate the target class and return the resulting object.
+
+        Args:
+            arguments: Additional keyword arguments that override any overlapping entries
+                from `arguments` and the loader's extra kwargs.
+
+        Returns:
+            A new instance of the loader's target class.
+        """
         if arguments is None:
             arguments = {}
 
