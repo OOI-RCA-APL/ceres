@@ -23,37 +23,80 @@ __all__ = [
 
 
 class Source(DataObject):
+    """Abstract byte-oriented connection endpoint used by `Connection`.
+
+    Subclasses adapt a concrete transport (TCP socket, UNIX socket, serial port, etc.) to the
+    common `connect`, `disconnect`, `send`, `receive` interface that `Connection` drives.
+    """
+
     @property
     @abstractmethod
-    def label(self) -> str: ...
+    def label(self) -> str:
+        """A short human-readable identifier for the source (e.g. `tcp://host:port`)."""
+        ...
 
     @abstractmethod
-    async def connect(self) -> bool: ...
+    async def connect(self) -> bool:
+        """Establish the underlying connection.
+
+        Returns:
+            `True` if the source is connected when this call returns.
+        """
+        ...
+
     @abstractmethod
-    async def disconnect(self) -> None: ...
+    async def disconnect(self) -> None:
+        """Tear down the underlying connection. Idempotent, safe to call when not connected."""
+        ...
+
     @abstractmethod
-    async def send(self, data: bytes) -> bytes | None: ...
+    async def send(self, data: bytes) -> bytes | None:
+        """Send `data` over the connection.
+
+        Returns:
+            The sent bytes on success, or `None` if the send failed (the caller should treat the
+            connection as lost).
+        """
+        ...
+
     @abstractmethod
-    async def receive(self, count: int) -> bytes | None: ...
+    async def receive(self, count: int) -> bytes | None:
+        """Receive up to `count` bytes from the connection.
+
+        Returns:
+            The received bytes (length between 1 and `count`), or `None` if the connection is
+            closed, errored, or returned no data (the caller should treat this as connection
+            loss).
+        """
+        ...
 
 
 class ConnectFailed(Exception):
-    pass
+    """Raised when an attempt to establish a `Source` connection fails."""
 
 
 class ConnectTimeout(asyncio.TimeoutError):
-    pass
+    """Raised when a `Source` connect attempt exceeds its configured timeout."""
 
 
 class AnyIOSource(Source):
+    """Base class for `Source` implementations backed by an `anyio` `SocketStream`.
+
+    Subclasses provide `_create_stream()` to open the underlying transport, this class handles
+    timeouts, error mapping, and the common `send`/`receive`/`disconnect` lifecycle.
+    """
+
     timeout: PositiveTimeDelta = timedelta(seconds=5)
+    """Maximum time to wait for `_create_stream()` to complete during `connect()`."""
     _stream: SocketStream | None = field(init=False)
 
     def __post_init__(self) -> None:
         self._stream = None
 
     @abstractmethod
-    async def _create_stream(self) -> SocketStream: ...
+    async def _create_stream(self) -> SocketStream:
+        """Open and return a new `SocketStream` for the concrete transport."""
+        ...
 
     @override
     async def connect(self) -> bool:
@@ -79,6 +122,7 @@ class AnyIOSource(Source):
         if self._stream is None:
             return
 
+        # Swallow close errors, the stream is being abandoned regardless.
         try:
             await self._stream.aclose()
         except Exception:
@@ -104,14 +148,19 @@ class AnyIOSource(Source):
             return None
 
         try:
+            # Coerce empty reads to `None` so the caller treats EOF and error identically.
             return await self._stream.receive(count) or None
         except Exception:
             return None
 
 
 class TCPSource(AnyIOSource):
+    """A `Source` that connects to a remote TCP host and port."""
+
     host: NonBlankStr
+    """Hostname or IP address to connect to."""
     port: NonNegativeInt
+    """TCP port to connect to."""
 
     @property
     @override
@@ -124,11 +173,16 @@ class TCPSource(AnyIOSource):
 
 
 class UNIXSocketSource(AnyIOSource):
+    """A `Source` that connects to a UNIX domain socket. Unsupported on non-UNIX platforms."""
+
     socket: NonBlankStr
+    """Filesystem path of the UNIX domain socket to connect to."""
 
     def __post_init__(self) -> None:
         if not UNIX:
             raise ValueError(f"`{type(self)}` is not supported on the current operating system.")
+        # Initialize the stream field that the base class relies on.
+        super().__post_init__()
 
     @property
     @override

@@ -47,21 +47,29 @@ __all__ = [
 
 
 class MessageDirection(StrEnum):
+    """Direction of a message on a connection, either outbound or inbound."""
+
     SEND = "send"
     RECEIVE = "receive"
 
 
 type MessageDirectionRaw = Literal["send", "receive"]
+"""Raw string form of `MessageDirection` accepted as input."""
+
 type MessageDirectionInput = MessageDirection | MessageDirectionRaw
+"""Either a `MessageDirection` enum or its raw string form."""
 
 type MessageData = Annotated[
     bytes,
     BytesFromString("latin-1", "ignore"),
     BytesToString("latin-1", "ignore"),
 ]
+"""Raw message payload bytes, serialized to and from `latin-1` strings for transport."""
 
 
 class MessageRow(BaseRecordRow, kw_only=True):
+    """SQLAlchemy row type backing the `Message` entity."""
+
     __tablename__: ClassVar[str] = "messages"
 
     connection: Mapped[str | None] = mapped_column(
@@ -80,7 +88,10 @@ class MessageRow(BaseRecordRow, kw_only=True):
             *super().__get_table_args__(),
             Index(f"ix_{cls.__tablename__}__connection", cls.connection),
             EnumConstraint(cls.direction, MessageDirection, f"ck_{cls.__tablename__}__direction"),
+            # On SQLite a plain B-tree index on the raw bytes is used.
             Index(f"ix_{cls.__tablename__}__data", cls.data).ddl_if("sqlite"),
+            # On PostgreSQL the bytes are tokenized into a hex representation that supports
+            # trigram-based substring search via a GIN index.
             Index(
                 f"ix_{cls.__tablename__}__data",
                 func.ceres_tokenize_bytes(cls.data).label("tokens"),
@@ -115,6 +126,8 @@ type MessageOrder = (
 
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
+    """Keyword-argument form of `MessageFilter` for ergonomic call sites."""
+
     connection: MaybeSequence[str] | None
     connection_contains: MaybeSequence[str] | None
     connection_prefix: MaybeSequence[str] | None
@@ -127,6 +140,8 @@ class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=
 
 
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
+    """Filter for selecting `Message` records by connection, direction, or payload contents."""
+
     connection: MaybeSequence[str] | None = None
     """Filter by `connection` being equal to one or more given strings."""
     connection_contains: MaybeSequence[str] | None = None
@@ -207,6 +222,8 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if self.data is not None:
             yield self._sql_match_value(columns.data, self.data)
 
+        # Substring matching against bytes goes through the tokenized hex column on Postgres,
+        # which supports trigram-indexed `LIKE` queries.
         hex = func.ceres_tokenize_bytes(columns.data)
         if self.contains is not None:
             matches = [tokenize_bytes(current) for current in seq(self.contains)]
@@ -220,12 +237,19 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
 
 
 class MessageCreate(BaseRecordCreate, slots=True):
+    """Payload for creating a new `Message` record."""
+
     connection: str | None = None
+    """Optional name of the connection that produced the message."""
     direction: MessageDirection
+    """Whether the message was sent or received on a connection of the local component."""
     data: MessageData
+    """Raw payload bytes."""
 
 
 class MessageUpdate(BaseRecordUpdate, total=False):
+    """Partial update for an existing `Message` record."""
+
     connection: str | None
     direction: MessageDirection
     data: MessageData
@@ -262,6 +286,8 @@ class MessageQuery(
     ],
     _BaseMessageQuery,
 ):
+    """Query builder for `Message` records."""
+
     __slots__ = ()
 
 
@@ -276,6 +302,8 @@ class MessageManager(
     ],
     _BaseMessageQuery,
 ):
+    """Database-bound manager for `Message` records."""
+
     __slots__ = ()
 
     def __init__(
@@ -287,10 +315,20 @@ class MessageManager(
         super().__init__(source, Message, filtering)
 
     async def get(self, id: UUID, /) -> Message | None:
+        """Fetch a single message by its identifier.
+
+        Args:
+            id: UUID of the message to fetch.
+
+        Returns:
+            The matching message, or `None` if no message with that id exists.
+        """
         return await self.where(id=id).first()
 
 
 class BoundMessageManager(MessageManager, BaseNodeManager):
+    """Node-bound message manager that exposes the live event stream as messages."""
+
     __slots__ = ()
 
     def __init__(
@@ -303,6 +341,7 @@ class BoundMessageManager(MessageManager, BaseNodeManager):
 
     @property
     def stream(self) -> MessageOutputChannel:
+        """Return an output channel that yields messages from sent and received events."""
         from ceres.event import MessageReceivedEvent, MessageSentEvent
 
         return MessageOutputChannel(
@@ -319,6 +358,8 @@ class MessageOutputChannel(
         MessageFilterArgs,
     ]
 ):
+    """Output channel for streaming `Message` instances with filtering helpers."""
+
     __slots__ = ()
 
     @override
@@ -327,10 +368,12 @@ class MessageOutputChannel(
 
     @property
     def received(self) -> MessageOutputChannel:
+        """Return a new channel filtered to inbound messages only."""
         return self.where(lambda message: message.direction == MessageDirection.RECEIVE)
 
     @property
     def sent(self) -> MessageOutputChannel:
+        """Return a new channel filtered to outbound messages only."""
         return self.where(lambda message: message.direction == MessageDirection.SEND)
 
     @override
@@ -349,6 +392,13 @@ class Message(
     ConcreteEntity[MessageRow],
     slots=True,
 ):
+    """A chunk of data sent or received on a connection.
+
+    Each `Message` captures the raw bytes that flowed across a connection along with metadata
+    identifying which connection produced it and which direction it traveled. Messages are the
+    raw input from which `Particle` instances are typically parsed.
+    """
+
     Manager = MessageManager
     BoundManager = BoundMessageManager
     Create = MessageCreate
