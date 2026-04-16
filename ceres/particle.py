@@ -841,10 +841,7 @@ class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
         timestamp: DateTime | None = None,
     ) -> Self:
         timestamp = utc(timestamp)
-        group_names = cls.group_names
-        group_values: dict[str, bytes] = {
-            group_names[i]: value for i, value in enumerate(match.groups())
-        }
+        group_values: dict[str, bytes | Any] = match.groupdict()
 
         try:
             data: T = validate(cls.Data, group_values)

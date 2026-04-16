@@ -558,6 +558,10 @@ class DataObjectMetaclass(
         if __replace__ is None:
             __replace__ = getattr(inner_class, "__replace__", None)
 
+        # Preserve `__abstractmethods__` across the Pydantic dataclass transformation so that
+        # `ABCMeta` can enforce abstract method implementation on concrete subclasses.
+        __abstractmethods__ = inner_class.__dict__.get("__abstractmethods__", frozenset())
+
         # TODO: Use a more robust way to detect this.
         _data_object_classes_being_built.add(key)
         try:
@@ -586,14 +590,12 @@ class DataObjectMetaclass(
         data_object_class.__data_object_abstract__ = abstract
         data_object_class.__data_object_class__ = data_object_class
 
-        # Reset generic alias attributes.
-        # data_object_class.__origin__ = None
-        # data_object_class.__args__ = ()
-        # data_object_class.__parameters__ = ()
-
         # Add `__replace__` back into the class.
         if __replace__ is not None:
             setattr(data_object_class, "__replace__", __replace__)
+
+        # Restore `__abstractmethods__` so `ABCMeta` enforces abstract method contracts.
+        data_object_class.__abstractmethods__ = __abstractmethods__
 
         # Handle required slots logic.
         __data_object_required_slots__: list[str] = []

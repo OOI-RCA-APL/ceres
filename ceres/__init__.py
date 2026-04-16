@@ -98,6 +98,7 @@ __all__ = [
     "Particle",
     "ParticleData",
     "RegexParticle",
+    "GroupedRegexParticle",
     # .record
     "Record",
     "RecordType",
@@ -193,6 +194,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.notifier import Notification, Notifier, SMTPNotifier
     from ceres.particle import (
         DynamicParticleData,
+        GroupedRegexParticle,
         ParseableParticle,
         ParseFailed,
         Particle,
