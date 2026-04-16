@@ -54,6 +54,13 @@ def _get_trigger_adapter_class():
 
 
 class JobManager(BaseComponentManager):
+    """Component-scoped scheduler that runs configured jobs against the owning component.
+
+    Each `JobConfig` is bound to an action on the component and fired according to its schedule.
+    The manager emits `JobAddedEvent`, `JobRemovedEvent`, `JobStartedEvent`, and related events
+    as jobs are registered, executed, retried, or cancelled.
+    """
+
     __slots__ = (
         "_scheduler",
         "_jobs",
@@ -74,6 +81,7 @@ class JobManager(BaseComponentManager):
 
     @property
     def count(self) -> int:
+        """Number of jobs currently registered with the manager."""
         return len(self._jobs)
 
     async def __run__(self) -> None:
@@ -91,8 +99,13 @@ class JobManager(BaseComponentManager):
                 self._scheduler = self._create_scheduler()
 
     def add(self, job: JobConfig) -> None:
-        """
-        Register a job to be executed according to its defined schedule.
+        """Register a job to be executed according to its defined schedule.
+
+        Args:
+            job: Configuration describing the action to invoke, schedule, and retry policy.
+
+        Raises:
+            ValueError: If the job's action is not bound to the owning component.
         """
         binding = self.__system__.get_action_bindings().get(job.action)
         if binding is None:
@@ -107,12 +120,22 @@ class JobManager(BaseComponentManager):
             self._sync_jobs()
 
     def get(self, name: str) -> JobConfig | None:
+        """Return the registered job with the given name, or `None` if no match exists."""
         return self._jobs.get(name)
 
     def get_all(self) -> list[JobConfig]:
+        """Return all currently registered jobs."""
         return list(self._jobs.values())
 
     def remove(self, name: str) -> JobConfig | None:
+        """Unregister the job with the given name.
+
+        Args:
+            name: Name of the job to remove.
+
+        Returns:
+            The removed `JobConfig`, or `None` if no job with that name was registered.
+        """
         from apscheduler.jobstores.base import JobLookupError
 
         with self._lock:
@@ -129,6 +152,7 @@ class JobManager(BaseComponentManager):
         return job
 
     def clear(self) -> None:
+        """Unregister every job and drop all entries from the underlying scheduler."""
         with self._lock:
             self._jobs.clear()
             for job in self._scheduler.get_jobs():

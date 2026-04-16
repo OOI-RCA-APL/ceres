@@ -34,9 +34,14 @@ ___all__ = [
 
 
 class ScheduleType(StrEnum):
+    """Discriminator identifying which concrete `Schedule` variant a value represents."""
+
     CRON = "cron"
+    """Crontab-driven schedule."""
     INTERVAL = "interval"
+    """Fixed or backoff-based interval schedule."""
     OR = "or"
+    """Composite schedule that fires when any of its child schedules fires."""
 
 
 class _BaseSchedule(DataObject.Frozen):
@@ -46,12 +51,18 @@ class _BaseSchedule(DataObject.Frozen):
         return OrSchedule(schedules=[self, other])
 
     @abstractmethod
-    def create_trigger(self) -> Trigger: ...
+    def create_trigger(self) -> Trigger:
+        """Build a concrete `Trigger` that produces fire times matching this schedule."""
+        ...
 
 
 class CronSchedule(_BaseSchedule):
+    """Schedule defined by a standard crontab expression."""
+
     type: Literal[ScheduleType.CRON] = ScheduleType.CRON
+    """Schedule type discriminator, always `ScheduleType.CRON`."""
     crontab: str
+    """Crontab expression controlling when the schedule fires."""
 
     @model_validator(mode="before")
     @classmethod
@@ -80,13 +91,22 @@ class CronSchedule(_BaseSchedule):
 
 
 class IntervalSchedule(_BaseSchedule):
+    """Schedule that fires on a fixed interval with optional exponential backoff and bounds."""
+
     type: Literal[ScheduleType.INTERVAL] = ScheduleType.INTERVAL
+    """Schedule type discriminator, always `ScheduleType.INTERVAL`."""
     interval: PositiveTimeDelta
+    """Base delay between fires, with sub-second resolution disallowed."""
     start: DateTime | None = None
+    """Earliest time the schedule is allowed to fire, defaults to the current time."""
     end: DateTime | None = None
+    """Latest time the schedule is allowed to fire, unbounded when `None`."""
     multiplier: PositiveFloat = 1
+    """Multiplicative growth factor applied to successive intervals, `1` leaves them unchanged."""
     min: PositiveTimeDelta | None = None
+    """Lower bound on the effective interval after scaling, must be `<= interval`."""
     max: PositiveTimeDelta | None = None
+    """Upper bound on the effective interval after scaling, must be `>= interval`."""
 
     @model_validator(mode="before")
     @classmethod
@@ -140,8 +160,12 @@ class IntervalSchedule(_BaseSchedule):
 
 
 class OrSchedule(_BaseSchedule):
+    """Composite schedule that fires whenever any of its child schedules fires."""
+
     type: Literal[ScheduleType.OR] = ScheduleType.OR
+    """Schedule type discriminator, always `ScheduleType.OR`."""
     schedules: list[Schedule]
+    """Child schedules whose fire times are unioned together."""
 
     @override
     def __or__(self, other: Schedule) -> OrSchedule:
@@ -156,6 +180,7 @@ class OrSchedule(_BaseSchedule):
 
 
 Schedule: TypeAlias = CronSchedule | IntervalSchedule | OrSchedule
+"""Union of all concrete schedule variants, discriminated by `type`."""
 
 
 def _pre_validate_schedule_expression(value: Any) -> Any:
@@ -180,13 +205,23 @@ ScheduleExpr: TypeAlias = Annotated[
     Field(discriminator="type"),
     BeforeValidator(_pre_validate_schedule_expression),
 ]
+"""Pydantic-annotated `Schedule` accepting crontab strings or interval expressions as shorthand."""
 
 
 class Trigger:
+    """Base class for objects that produce a stream of fire times from a `Schedule`."""
+
     __slots__ = ()
 
     @abstractmethod
-    def get_next_fire_time(self, previous: datetime | None, now: datetime) -> datetime | None: ...
+    def get_next_fire_time(self, previous: datetime | None, now: datetime) -> datetime | None:
+        """Return the next fire time at or after `now`, or `None` if the trigger is exhausted.
+
+        Args:
+            previous: The most recent fire time produced by this trigger, if any.
+            now: Reference time used as the lower bound for the next fire time.
+        """
+        ...
 
     def get_fire_times(
         self,
@@ -195,6 +230,16 @@ class Trigger:
         end: datetime | None = None,
         count: int | None = None,
     ) -> Iterable[datetime]:
+        """Yield successive fire times produced by the trigger.
+
+        Args:
+            start: Time to begin iteration from, defaults to the current UTC time.
+            end: Upper bound on fire times, iteration stops at the first fire time at or past this.
+            count: Maximum number of fire times to yield, unbounded when `None`.
+
+        Yields:
+            Fire times in chronological order.
+        """
         if start is None:
             start = utc()
 
@@ -218,6 +263,8 @@ class Trigger:
 
 
 class CronTrigger(Trigger):
+    """Trigger backed by a `CronSchedule` evaluated in UTC."""
+
     __slots__ = (
         "_schedule",
         "_inner",
@@ -230,6 +277,7 @@ class CronTrigger(Trigger):
 
     @property
     def schedule(self) -> CronSchedule:
+        """The `CronSchedule` backing this trigger."""
         return self._schedule
 
     @override
@@ -245,6 +293,8 @@ class CronTrigger(Trigger):
 
 
 class IntervalTrigger(Trigger):
+    """Trigger backed by an `IntervalSchedule` with optional scaling and bounds."""
+
     __slots__ = (
         "_schedule",
         "_inner",
@@ -267,10 +317,12 @@ class IntervalTrigger(Trigger):
 
     @property
     def schedule(self) -> IntervalSchedule:
+        """The `IntervalSchedule` backing this trigger."""
         return self._schedule
 
     @property
     def start(self) -> datetime:
+        """The effective start time used as the origin for interval calculations."""
         return self._start
 
     @override
@@ -286,6 +338,8 @@ class IntervalTrigger(Trigger):
 
 
 class OrTrigger(Trigger):
+    """Trigger that fires at the earliest next time produced by any of its child triggers."""
+
     __slots__ = (
         "_schedule",
         "_triggers",
@@ -298,6 +352,7 @@ class OrTrigger(Trigger):
 
     @property
     def schedule(self) -> OrSchedule:
+        """The `OrSchedule` backing this trigger."""
         return self._schedule
 
     @override
