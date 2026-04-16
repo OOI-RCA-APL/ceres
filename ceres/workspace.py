@@ -55,6 +55,13 @@ __all__ = [
 
 
 class WorkspaceAccessLevel(OrderedStrEnum):
+    """General access level required for a user to gain a capability on a workspace.
+
+    Values are ordered from least to most restrictive. A workspace sets one of these levels
+    for viewership, editorship, and managership, any user whose `UserRole` meets the level
+    gains the corresponding capability without needing an explicit membership.
+    """
+
     @classmethod
     @override
     def __order_mapping__(cls) -> dict[WorkspaceAccessLevel, int]:
@@ -66,18 +73,29 @@ class WorkspaceAccessLevel(OrderedStrEnum):
         }
 
     ANYONE = "anyone"
+    """Any authenticated user with at least `UserRole.VIEWER` qualifies."""
     OPERATORS = "operators"
+    """Users with at least `UserRole.OPERATOR` qualify."""
     ADMINS = "admins"
+    """Users with at least `UserRole.ADMIN` qualify."""
     PRIVATE = "private"
+    """No one qualifies via general access, explicit membership is required."""
 
 
 class WorkspaceMembershipRole(OrderedStrEnum):
+    """Role a user holds within a specific workspace, granted by a `WorkspaceMembership`."""
+
     VIEWER = "viewer"
+    """Read-only access to the workspace."""
     EDITOR = "editor"
+    """Read and write access to the workspace's contents."""
     MANAGER = "manager"
+    """Full access, including management of memberships and workspace settings."""
 
 
 class WorkspaceMembershipRow(BaseEntityRow, kw_only=True):
+    """SQLAlchemy row type backing the `WorkspaceMembership` entity."""
+
     __tablename__: ClassVar[str] = "workspace_memberships"
 
     user_id: Mapped[UUID] = mapped_column(UUIDMapper)
@@ -114,6 +132,8 @@ type WorkspaceMembershipField = Literal[
     "role",
     "data",
 ]
+"""Field names selectable in `WorkspaceMembership` queries."""
+
 type WorkspaceMembershipOrder = Literal[
     "user_id",
     "user_id:asc",
@@ -125,6 +145,7 @@ type WorkspaceMembershipOrder = Literal[
     "role:asc",
     "role:desc",
 ]
+"""Ordering keys accepted by `WorkspaceMembership` queries."""
 
 
 class WorkspaceMembershipFilterArgs(
@@ -134,6 +155,8 @@ class WorkspaceMembershipFilterArgs(
     ],
     total=False,
 ):
+    """Keyword-argument form of `WorkspaceMembershipFilter` for ergonomic call sites."""
+
     user_id: MaybeSequence[UUID] | None
     workspace_id: MaybeSequence[UUID] | None
     role: MaybeSequence[WorkspaceMembershipRole] | None
@@ -146,9 +169,14 @@ class WorkspaceMembershipFilter(
         WorkspaceMembershipOrder,
     ]
 ):
+    """Filter for selecting `WorkspaceMembership` records by user, workspace, or role."""
+
     user_id: MaybeSequence[UUID] | None = None
+    """Filter by `user_id` being equal to one or more given user IDs."""
     workspace_id: MaybeSequence[UUID] | None = None
+    """Filter by `workspace_id` being equal to one or more given workspace IDs."""
     role: MaybeSequence[WorkspaceMembershipRole] | None = None
+    """Filter by `role` being equal to one or more given roles."""
 
     @classmethod
     @override
@@ -187,12 +215,19 @@ class WorkspaceMembershipFilter(
 
 
 class WorkspaceMembershipCreate(BaseEntityCreate, slots=True):
+    """Payload for creating a new `WorkspaceMembership` record."""
+
     user_id: UUID
+    """ID of the user being added to the workspace."""
     workspace_id: UUID
+    """ID of the workspace the user is joining."""
     role: WorkspaceMembershipRole
+    """Role granted to the user within the workspace."""
 
 
 class WorkspaceMembershipUpdate(TypedDict, total=False):
+    """Partial update for an existing `WorkspaceMembership` record."""
+
     role: WorkspaceMembershipRole
 
 
@@ -227,6 +262,8 @@ class WorkspaceMembershipQuery(
     ],
     _BaseWorkspaceMembershipQuery,
 ):
+    """Query builder for `WorkspaceMembership` records."""
+
     __slots__ = ()
 
 
@@ -241,12 +278,23 @@ class WorkspaceMembershipManager(
     ],
     _BaseWorkspaceMembershipQuery,
 ):
+    """Database-bound manager for `WorkspaceMembership` records."""
+
     __slots__ = ()
 
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, WorkspaceMembership)
 
     async def get(self, user_id: UUID, workspace_id: UUID, /) -> WorkspaceMembership | None:
+        """Fetch the membership linking a user and workspace, if one exists.
+
+        Args:
+            user_id: UUID of the user.
+            workspace_id: UUID of the workspace.
+
+        Returns:
+            The matching membership, or `None` if the user is not a member of the workspace.
+        """
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
@@ -255,6 +303,8 @@ class WorkspaceMembership(
     ConcreteEntity[WorkspaceMembershipRow],
     slots=True,
 ):
+    """Association record linking a `User` to a `Workspace` with a specific role."""
+
     Manager = WorkspaceMembershipManager
     Create = WorkspaceMembershipCreate
     Update = WorkspaceMembershipUpdate
@@ -268,6 +318,8 @@ class WorkspaceMembership(
 
 
 class WorkspaceEditRow(BaseEntityRow, kw_only=True):
+    """SQLAlchemy row type backing the `WorkspaceEdit` entity."""
+
     __tablename__: ClassVar[str] = "workspace_edits"
 
     user_id: Mapped[UUID] = mapped_column(UUIDMapper)
@@ -302,6 +354,8 @@ type WorkspaceEditField = Literal[
     "workspace_id",
     "data",
 ]
+"""Field names selectable in `WorkspaceEdit` queries."""
+
 type WorkspaceEditOrder = Literal[
     "user_id",
     "user_id:asc",
@@ -310,6 +364,7 @@ type WorkspaceEditOrder = Literal[
     "workspace_id:asc",
     "workspace_id:desc",
 ]
+"""Ordering keys accepted by `WorkspaceEdit` queries."""
 
 
 class WorkspaceEditFilterArgs(
@@ -319,6 +374,8 @@ class WorkspaceEditFilterArgs(
     ],
     total=False,
 ):
+    """Keyword-argument form of `WorkspaceEditFilter` for ergonomic call sites."""
+
     user_id: MaybeSequence[UUID] | None
     workspace_id: MaybeSequence[UUID] | None
 
@@ -330,8 +387,12 @@ class WorkspaceEditFilter(
         WorkspaceEditOrder,
     ]
 ):
+    """Filter for selecting `WorkspaceEdit` records by user or workspace."""
+
     user_id: MaybeSequence[UUID] | None = None
+    """Filter by `user_id` being equal to one or more given user IDs."""
     workspace_id: MaybeSequence[UUID] | None = None
+    """Filter by `workspace_id` being equal to one or more given workspace IDs."""
 
     @classmethod
     @override
@@ -366,12 +427,19 @@ class WorkspaceEditFilter(
 
 
 class WorkspaceEditCreate(BaseEntityCreate, slots=True):
+    """Payload for creating a new `WorkspaceEdit` record."""
+
     user_id: UUID
+    """ID of the user whose draft edit this is."""
     workspace_id: UUID
+    """ID of the workspace being edited."""
     data: FromYAML[JSONSerializableDict]
+    """In-progress edit payload, serialized as JSON."""
 
 
 class WorkspaceEditUpdate(BaseEntityUpdate, total=False):
+    """Partial update for an existing `WorkspaceEdit` record."""
+
     data: FromYAML[JSONSerializableDict]
 
 
@@ -406,6 +474,8 @@ class WorkspaceEditQuery(
     ],
     _BaseWorkspaceEditQuery,
 ):
+    """Query builder for `WorkspaceEdit` records."""
+
     __slots__ = ()
 
 
@@ -420,12 +490,23 @@ class WorkspaceEditManager(
     ],
     _BaseWorkspaceEditQuery,
 ):
+    """Database-bound manager for `WorkspaceEdit` records."""
+
     __slots__ = ()
 
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, WorkspaceEdit)
 
     async def get(self, user_id: UUID, workspace_id: UUID, /) -> WorkspaceEdit | None:
+        """Fetch the in-progress edit for a user on a workspace, if one exists.
+
+        Args:
+            user_id: UUID of the user whose draft is being fetched.
+            workspace_id: UUID of the workspace being edited.
+
+        Returns:
+            The matching edit, or `None` if the user has no active edit on the workspace.
+        """
         return await self.where(user_id=user_id, workspace_id=workspace_id).first()
 
 
@@ -434,6 +515,8 @@ class WorkspaceEdit(
     ConcreteEntity[WorkspaceEditRow],
     slots=True,
 ):
+    """In-progress edit of a `Workspace` owned by a single user."""
+
     Manager = WorkspaceEditManager
     Create = WorkspaceEditCreate
     Update = WorkspaceEditUpdate
@@ -465,6 +548,8 @@ def _ordered_enum_value[T: OrderedStrEnum](
 
 
 class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
+    """SQLAlchemy row type backing the `Workspace` entity."""
+
     __tablename__: ClassVar[str] = "workspaces"
 
     name: Mapped[str] = mapped_column(Text)
@@ -523,6 +608,8 @@ type WorkspaceField = (
         "data",
     ]
 )
+"""Field names selectable in `Workspace` queries."""
+
 type WorkspaceOrder = (
     BaseUUIDEntityOrder
     | Literal[
@@ -543,9 +630,12 @@ type WorkspaceOrder = (
         "data:desc",
     ]
 )
+"""Ordering keys accepted by `Workspace` queries."""
 
 
 class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrder], total=False):
+    """Keyword-argument form of `WorkspaceFilter` for ergonomic call sites."""
+
     name: MaybeSequence[str] | None
     name_contains: MaybeSequence[str] | None
     name_prefix: MaybeSequence[str] | None
@@ -560,6 +650,8 @@ class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrde
 
 
 class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, WorkspaceOrder]):
+    """Filter for selecting `Workspace` records by name, access settings, or user access."""
+
     name: MaybeSequence[str] | None = None
     """Filter by `name` being equal to one or more given usernames."""
     name_contains: MaybeSequence[str] | None = None
@@ -680,11 +772,23 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
 
 
 class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
+    """Payload for creating a new `Workspace` record.
+
+    The three general access fields must be ordered from least to most restrictive, viewership
+    must be at least as permissive as editorship, which must be at least as permissive as
+    managership. Creation fails with a validation error if that invariant is violated.
+    """
+
     name: NonEmptyStr
+    """Human-readable name of the workspace."""
     general_viewership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
+    """Minimum user role required to view the workspace without an explicit membership."""
     general_editorship: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
+    """Minimum user role required to edit the workspace without an explicit membership."""
     general_managership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
+    """Minimum user role required to manage the workspace without an explicit membership."""
     data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
+    """Free-form structured payload attached to the workspace."""
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -710,6 +814,8 @@ class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
 
 
 class WorkspaceUpdate(TypedDict, total=False):
+    """Partial update for an existing `Workspace` record."""
+
     name: NonEmptyStr
     general_viewership: WorkspaceAccessLevel
     general_editorship: WorkspaceAccessLevel
@@ -748,6 +854,8 @@ class WorkspaceQuery(
     ],
     _BaseWorkspaceQuery,
 ):
+    """Query builder for `Workspace` records."""
+
     __slots__ = ()
 
 
@@ -762,12 +870,22 @@ class WorkspaceManager(
     ],
     _BaseWorkspaceQuery,
 ):
+    """Database-bound manager for `Workspace` records."""
+
     __slots__ = ()
 
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Workspace)
 
     async def get(self, id: UUID, /) -> Workspace | None:
+        """Fetch a single workspace by its identifier.
+
+        Args:
+            id: UUID of the workspace to fetch.
+
+        Returns:
+            The matching workspace, or `None` if no workspace with that id exists.
+        """
         return await self.where(id=id).first()
 
 
@@ -777,6 +895,14 @@ class Workspace(
     ConcreteEntity[WorkspaceRow],
     slots=True,
 ):
+    """Named collection that groups users and content under shared access-control settings.
+
+    Access to a workspace is granted in two ways: general access, where any user whose
+    `UserRole` meets one of the `general_*` levels automatically gains the corresponding
+    capability, and explicit `WorkspaceMembership`, which grants a specific `role` to a
+    single user.
+    """
+
     Manager = WorkspaceManager
     Create = WorkspaceCreate
     Update = WorkspaceUpdate
