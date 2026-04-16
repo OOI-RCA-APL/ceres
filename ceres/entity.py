@@ -25,6 +25,8 @@ __all__ = [
     "EntityType",
 ]
 
+# Lazy cache for the `Entity` union type, the runtime value is built on first access to
+# avoid importing every entity submodule at import time.
 _Entity: object = None
 
 if TYPE_CHECKING:
@@ -40,6 +42,11 @@ if TYPE_CHECKING:
         | WorkspaceMembership
         | WorkspaceEdit
     )
+    """Union of every persistent entity managed by the engine.
+
+    Entities cover the full set of records and configuration objects the engine stores,
+    use `Record` instead when only time-series outputs are needed.
+    """
 
 _lazy_getattr = sys.modules[__name__].__getattr__
 
@@ -47,6 +54,8 @@ _lazy_getattr = sys.modules[__name__].__getattr__
 def __getattr__(name: str):
     global _Entity
 
+    # Resolve the runtime `Entity` union lazily so that importing `ceres.entity` does not
+    # force the import of every entity submodule.
     if name == "Entity":
         if _Entity is None:
             from ceres.alert import Alert
@@ -77,6 +86,12 @@ def __getattr__(name: str):
 
 
 class EntityType(StrEnum):
+    """Discriminator naming each variant of `Entity`.
+
+    The string values double as the canonical entity name in URLs, configuration files,
+    and stored records. Aliases such as plural forms are accepted via `__new__`.
+    """
+
     MESSAGE = "message"
     PARTICLE = "particle"
     ALERT = "alert"
@@ -90,6 +105,17 @@ class EntityType(StrEnum):
 
     @property
     def cls(self) -> type[Entity]:
+        """Return the concrete entity class associated with this variant.
+
+        Returns:
+            The `Entity` subclass matching this enum value.
+
+        Raises:
+            ValueError: If the enum value has no associated class, this should be
+                unreachable for valid `EntityType` members.
+        """
+        # Imports are deferred inside each branch to avoid circular imports between this
+        # module and the individual entity modules.
         match self:
             case EntityType.MESSAGE:
                 from ceres.message import Message
@@ -136,6 +162,17 @@ class EntityType(StrEnum):
 
     @classmethod
     def from_class(cls, source: type[Entity], /) -> EntityType:
+        """Return the `EntityType` matching an entity class.
+
+        Args:
+            source: An entity class such as `Message` or `Particle`.
+
+        Returns:
+            The `EntityType` member that corresponds to `source`.
+
+        Raises:
+            ValueError: If `source` is not one of the recognized entity classes.
+        """
         match source.__name__:
             case "Message":
                 return cls.MESSAGE
@@ -161,6 +198,8 @@ class EntityType(StrEnum):
                 raise ValueError(f"Unknown entity type: {source}")
 
 
+# Plural and alternate spellings accepted when constructing an `EntityType` from a string,
+# this keeps configuration files and URLs forgiving.
 _ENTITY_TYPE_ALIASES = {
     "messages": "message",
     "particles": "particle",
@@ -180,6 +219,8 @@ _base__new__ = EntityType.__new__
 
 @wraps(_base__new__)
 def _override__new__(cls: type[EntityType], value: str) -> EntityType:
+    # Pass through existing instances unchanged so that `EntityType(EntityType.MESSAGE)`
+    # does not need to round-trip through string conversion.
     if isinstance(value, EntityType):
         return value
 

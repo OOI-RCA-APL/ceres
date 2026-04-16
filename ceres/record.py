@@ -14,9 +14,21 @@ __all__ = [
 ]
 
 Record: TypeAlias = Message | Particle[Any] | Alert | LogEntry
+"""Union of entities that originate from a component as part of normal data collection.
+
+Records are the time-series outputs a component emits during operation, namely raw
+`Message` payloads from connections, parsed `Particle` data, `Alert` notifications, and
+`LogEntry` rows. Workspace, user, and configuration entities are excluded.
+"""
 
 
 class RecordType(StrEnum):
+    """Discriminator for the variants of `Record`.
+
+    `RecordType` is a strict subset of `ItemType`, every record type also exists as an item
+    type and the two enums share their string values to keep cross-references unambiguous.
+    """
+
     MESSAGE = "message"
     PARTICLE = "particle"
     ALERT = "alert"
@@ -24,13 +36,17 @@ class RecordType(StrEnum):
 
     @property
     def cls(self) -> type[Record]:
+        """Return the concrete `Record` subclass associated with this variant."""
         return cast("type[Record]", self.upcast().cls)
 
     def upcast(self) -> ItemType:
+        """Return the equivalent `ItemType` value, widening from record into item."""
         return ItemType(self)
 
 
-assert set(ItemType).issubset(ItemType)
+# Sanity check that every `RecordType` value also exists in `ItemType`, the two enums must
+# stay aligned because `upcast` and `__new__` route through `ItemType`.
+assert set(RecordType).issubset(ItemType)
 
 
 _base__new__ = RecordType.__new__
@@ -38,6 +54,8 @@ _base__new__ = RecordType.__new__
 
 @wraps(_base__new__)
 def _override__new__(cls: type[RecordType], alias: str) -> RecordType:
+    # Route construction through `ItemType` first, this lets `RecordType` accept any alias
+    # that `ItemType` understands (such as plural or alternate forms).
     return _base__new__(cls, ItemType(alias))
 
 
