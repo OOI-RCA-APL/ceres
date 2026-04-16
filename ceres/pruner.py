@@ -26,6 +26,14 @@ if TYPE_CHECKING:
 
 
 class PrunerManager(BaseComponentManager):
+    """Component-level manager that schedules and runs registered `PrunerConfig` jobs.
+
+    Each pruner deletes entries of a configured entity type that match its filter, on a cron
+    schedule. Lifecycle events (`PrunerAddedEvent`, `PruneStartedEvent`, `PruneCompletedEvent`,
+    `PruneCancelledEvent`, `PruneExceptionEvent`, `PruneEndedEvent`, `PrunerRemovedEvent`) are
+    emitted on the system event stream so listeners can track progress.
+    """
+
     __slots__ = (
         "__scheduler",
         "__pruners",
@@ -46,6 +54,7 @@ class PrunerManager(BaseComponentManager):
 
     @property
     def count(self) -> int:
+        """Number of registered pruners."""
         return len(self.__pruners)
 
     async def __run__(self) -> None:
@@ -63,8 +72,13 @@ class PrunerManager(BaseComponentManager):
                 self.__scheduler = self.__create_scheduler()
 
     def add(self, pruner: PrunerConfig) -> None:
-        """
-        Register a pruner to be executed according to its defined schedule.
+        """Register a pruner to be executed according to its defined schedule.
+
+        Registration is idempotent by `pruner.name`, re-adding a pruner under the same name
+        replaces the stored configuration and emits a fresh `PrunerAddedEvent`.
+
+        Args:
+            pruner: Configuration describing what to prune and when.
         """
         with self.__lock:
             self.__pruners[pruner.name] = pruner
@@ -72,12 +86,29 @@ class PrunerManager(BaseComponentManager):
             self.__sync_pruners()
 
     def get(self, name: str) -> PrunerConfig | None:
+        """Return the registered pruner with the given name, or `None` if not registered.
+
+        Args:
+            name: Name of the pruner to look up.
+
+        Returns:
+            The matching `PrunerConfig`, or `None` if no pruner is registered under `name`.
+        """
         return self.__pruners.get(name)
 
     def get_all(self) -> list[PrunerConfig]:
+        """Return a list of all currently registered pruners."""
         return list(self.__pruners.values())
 
     def remove(self, name: str) -> PrunerConfig | None:
+        """Unregister a pruner and cancel its scheduled job.
+
+        Args:
+            name: Name of the pruner to remove.
+
+        Returns:
+            The removed `PrunerConfig`, or `None` if no pruner was registered under `name`.
+        """
         from apscheduler.jobstores.base import JobLookupError
 
         with self.__lock:
@@ -94,6 +125,7 @@ class PrunerManager(BaseComponentManager):
         return pruner
 
     def clear(self) -> None:
+        """Unregister every pruner and cancel all scheduled jobs."""
         with self.__lock:
             self.__pruners.clear()
             for job in self.__scheduler.get_jobs():

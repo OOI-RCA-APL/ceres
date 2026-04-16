@@ -18,16 +18,26 @@ __all__ = [
 
 
 class LevelStatistics(DataObject):
+    """Per-level count of alerts rolled up under a single address."""
+
     level: Level
+    """Severity level these statistics apply to."""
     count: int = Field(ge=0)
+    """Number of alerts recorded at this level."""
 
 
 class AlertStatistics(DataObject):
+    """Aggregated alert counts rolled up under a single address."""
+
     count: int = 0
+    """Total number of alerts across all levels."""
     levels: list[LevelStatistics] = Field(default_factory=list)
+    """Per-level breakdown of the aggregated count, sorted by level."""
 
 
 class StatisticsFilterArgs(BaseFilterArgs, total=False):
+    """Keyword-argument form of `StatisticsFilter` for ergonomic call sites."""
+
     root: Address | None
     address: AddressSelector | None
     after: DateTime | None
@@ -35,21 +45,33 @@ class StatisticsFilterArgs(BaseFilterArgs, total=False):
 
 
 class StatisticsFilter(BaseFilter):
+    """Filter controlling which alerts contribute to `Statistics` results."""
+
     root: Address | None = None
+    """Restrict aggregation to addresses contained within the given root address."""
     address: AddressSelector | None = None
+    """Restrict returned `Statistics` to addresses matching the given selector."""
     after: DateTime | None = None
+    """Include only alerts with a timestamp greater than or equal to the given time."""
     before: DateTime | None = None
+    """Include only alerts with a timestamp strictly less than the given time."""
 
 
 class Statistics(DataObject):
+    """Aggregated counts rolled up for a single address across its subtree of descendants."""
+
     Filter = StatisticsFilter
     FilterArgs = StatisticsFilterArgs
 
     address: Address
+    """Address these statistics describe."""
     alerts: AlertStatistics = Field(default_factory=AlertStatistics)
+    """Alert counts aggregated for this address and its descendants."""
 
 
 class StatisticsManager(BaseDatabaseManager):
+    """Database-bound manager that computes aggregated `Statistics` over stored alerts."""
+
     async def get(
         self,
         filter: StatisticsFilter | None = None,
@@ -58,6 +80,16 @@ class StatisticsManager(BaseDatabaseManager):
         relative_to: Address = Address.root(),
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> Statistics | None:
+        """Return the first `Statistics` result matching the given filter.
+
+        Args:
+            filter: Base filter to combine with keyword arguments.
+            relative_to: Address used to resolve relative `AddressSelector` patterns.
+            **kwargs: Keyword-form filter arguments merged onto `filter`.
+
+        Returns:
+            The first matching `Statistics`, or `None` if none match.
+        """
         results = await self.get_all(filter, relative_to=relative_to, **kwargs)
         return results[0] if results else None
 
@@ -69,6 +101,20 @@ class StatisticsManager(BaseDatabaseManager):
         relative_to: Address = Address.root(),
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> list[Statistics]:
+        """Compute `Statistics` for every address that has matching alerts.
+
+        Alerts are grouped by source address and level, then propagated up through each
+        ancestor address so that parents reflect the totals of their subtree.
+
+        Args:
+            filter: Base filter to combine with keyword arguments.
+            relative_to: Address used to resolve relative `AddressSelector` patterns.
+            **kwargs: Keyword-form filter arguments merged onto `filter`.
+
+        Returns:
+            A list of `Statistics`, one per address that has matching alerts, filtered by the
+            configured `address` selector when provided.
+        """
         filter = (
             StatisticsFilter(**kwargs)
             .with_defaults(filter)
