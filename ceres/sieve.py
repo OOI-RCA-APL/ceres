@@ -128,6 +128,9 @@ class FunctionSieve[T: Particle = Particle](Sieve[T]):
 
                     end: int | None = None
                     for particle in inner(buffer):
+                        if particle is None:
+                            continue
+
                         span = particle.span
                         if span is None:
                             raise ValueError(
