@@ -215,7 +215,7 @@ class TestFunctionSieveBufferSieve:
                 )
             return results
 
-        sieve = FunctionSieve(function=parse)
+        sieve = FunctionSieve[SimpleParticle](function=parse)  # type: ignore[reportCallIssue]
 
         async def messages() -> AsyncIterator[Message]:
             yield _make_message(b"abc 42 def 99")
@@ -247,7 +247,7 @@ class TestFunctionSieveBufferSieve:
                 )
             return results
 
-        sieve = FunctionSieve(function=parse)
+        sieve = FunctionSieve[SimpleParticle](function=parse)  # type: ignore[reportCallIssue]
 
         async def messages() -> AsyncIterator[Message]:
             yield _make_message(b"10\n")
@@ -269,7 +269,7 @@ class TestFunctionSieveBufferSieve:
                 )
             ]
 
-        sieve = FunctionSieve(function=parse)
+        sieve = FunctionSieve[SimpleParticle](function=parse)  # type: ignore[reportCallIssue]
 
         async def messages() -> AsyncIterator[Message]:
             yield _make_message(b"data")
@@ -281,7 +281,7 @@ class TestFunctionSieveBufferSieve:
         def parse(buffer: Buffer) -> list[SimpleParticle | None]:
             return [None, None]
 
-        sieve = FunctionSieve(function=parse)
+        sieve = FunctionSieve[SimpleParticle](function=parse)  # type: ignore[reportCallIssue]
 
         async def messages() -> AsyncIterator[Message]:
             yield _make_message(b"data")
@@ -295,7 +295,7 @@ class TestFunctionSieveSignatureValidation:
         def bad_function() -> None:
             pass
 
-        sieve = FunctionSieve(function=bad_function)
+        sieve = FunctionSieve(function=bad_function)  # type: ignore[reportCallIssue]
         with pytest.raises(ValueError, match="exactly one parameter"):
             sieve._get_poly_sieve_function()
 
@@ -303,7 +303,7 @@ class TestFunctionSieveSignatureValidation:
         def bad_function(first: Message, second: Message) -> None:
             pass
 
-        sieve = FunctionSieve(function=bad_function)
+        sieve = FunctionSieve(function=bad_function)  # type: ignore[reportCallIssue]
         with pytest.raises(ValueError, match="exactly one parameter"):
             sieve._get_poly_sieve_function()
 
@@ -311,7 +311,7 @@ class TestFunctionSieveSignatureValidation:
         def bad_function(value: int) -> None:
             pass
 
-        sieve = FunctionSieve(function=bad_function)
+        sieve = FunctionSieve(function=bad_function)  # type: ignore[reportCallIssue]
         with pytest.raises(TypeError, match="Unrecognized sieve function signature"):
             sieve._get_poly_sieve_function()
 
@@ -361,7 +361,7 @@ class TestFunctionSieveEmptyStream:
         def parse(buffer: Buffer) -> list[SimpleParticle]:
             return []
 
-        sieve = FunctionSieve(function=parse)
+        sieve = FunctionSieve[SimpleParticle](function=parse)  # type: ignore[reportCallIssue]
 
         async def messages() -> AsyncIterator[Message]:
             return
