@@ -391,8 +391,6 @@ ProcedureError: TypeAlias = (
 class _APIError(Error, slots=True):
     """Internal base for API-layer errors."""
 
-    pass
-
 
 class NotFoundError(_APIError, slots=True):
     """Raised when a requested resource does not exist."""

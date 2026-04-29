@@ -415,8 +415,6 @@ if TYPE_CHECKING:
     class _SupportsDefaulting(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
         """Protocol for objects that support both fields-set tracking and `__replace__`."""
 
-        pass
-
 
 def _get_items(
     obj: Mapping[str, Any] | _SupportsPydanticFieldsSet | None,
@@ -464,8 +462,6 @@ if TYPE_CHECKING:
 
     class _SupportsReplacing(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
         """Protocol for objects that support fields-set tracking and `__replace__`."""
-
-        pass
 
 
 def replacing[T: _SupportsReplacing](
@@ -538,8 +534,6 @@ _object_setattr: Final = object.__setattr__
 class DataObjectConfigDict(ConfigDict):
     """Pydantic `ConfigDict` subclass used by `DataObject` and its subclasses."""
 
-    pass
-
 
 _DATA_OBJECT_ALIAS_GENERATOR = AliasGenerator(validation_alias=_generate_validation_aliases)
 _DATA_OBJECT_DEFAULT_CONFIG = DataObjectConfigDict(
@@ -574,13 +568,9 @@ _patch_dataclass_fields()
 class DataObjectClassInvalid(TypeError):
     """Raised when a `DataObject` subclass definition is structurally invalid."""
 
-    pass
-
 
 class DataObjectAbstract(RuntimeError):
     """Raised when code attempts to instantiate an abstract `DataObject` subclass."""
-
-    pass
 
 
 _data_object_classes_being_built: set[Any] = set()

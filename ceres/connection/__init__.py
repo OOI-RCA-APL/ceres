@@ -89,19 +89,13 @@ __all__ = (
 class ConnectionException(Exception):
     """Base exception for connection-level errors."""
 
-    pass
-
 
 class ConnectionInactive(ConnectionException):
     """Raised when an operation requires an active connection but the connection is not connected."""
 
-    pass
-
 
 class ConnectionLost(ConnectionException):
     """Raised when an established connection is lost during a send or receive operation."""
-
-    pass
 
 
 class ConnectionDefaults(TypedDict, total=False):
@@ -140,8 +134,6 @@ class ConnectionField(BoundField["Connection"]):
     @dataclass(slots=True)
     class Marker(BoundField.Marker):
         """Annotation marker identifying a field as a `ConnectionField`."""
-
-        pass
 
     def __init__(
         self,

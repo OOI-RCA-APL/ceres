@@ -98,7 +98,6 @@ class Node(Tasklet, NodeSource):
 
     async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
         """Hook for subclasses to hydrate persisted state, called once during startup."""
-        pass
 
     @property
     @abstractmethod

@@ -64,14 +64,12 @@ class Tasklet(ABC):
 
         Invoked immediately after the stopping event is set and before the run task is cancelled.
         """
-        pass
 
     async def __post_stop__(self) -> None:
         """Run asynchronous cleanup after `__stop__()` has completed.
 
         Any exception raised here is caught and printed, the tasklet is still marked as stopped.
         """
-        pass
 
     @property
     def __tasklet_internal__(self) -> _TaskletInternal:

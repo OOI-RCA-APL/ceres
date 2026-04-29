@@ -287,14 +287,12 @@ class Component(DataObject, ComponentSource):
 
         Override to perform initialization that depends on `self.system` being available.
         """
-        pass
 
     def __start__(self) -> None | Awaitable[None]:
         """Hook called when the component starts.
 
         Override to perform startup work. May be synchronous or return an awaitable.
         """
-        pass
 
     def __stop__(self) -> None | Awaitable[None]:
         """Hook called when the component stops.
@@ -302,7 +300,6 @@ class Component(DataObject, ComponentSource):
         Override to release resources. May be synchronous or return an awaitable. Always called
         even if `__start__` raised.
         """
-        pass
 
     def __connectivity__(self) -> Connectivity | None:
         """Return the component's connectivity status, or `None` if not applicable."""
