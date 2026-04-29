@@ -237,8 +237,8 @@ class ChannelReader[T](AsyncIterator[T]):
             The next value published to the source channel after this reader attached.
 
         Raises:
-            RuntimeError: If no event loop has been bound to this reader yet and one is
-                not currently running.
+            RuntimeError: If no event loop has been bound to this reader yet and one is not
+                currently running.
         """
         self.attach()
 

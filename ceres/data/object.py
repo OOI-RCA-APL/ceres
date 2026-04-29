@@ -364,8 +364,8 @@ def fields_set_on(obj: _SupportsPydanticFieldsSet, /) -> Set[str]:
         obj: An object with a `__pydantic_fields_set__` property.
 
     Returns:
-        The set of field names that were explicitly provided during construction or
-        assigned afterward.
+        The set of field names that were explicitly provided during construction or assigned
+        afterward.
 
     Raises:
         TypeError: If `obj` does not support fields-set tracking.
@@ -1946,9 +1946,8 @@ def construct[T: DataObject | BaseModel, **P](
         An instance of `cls` constructed with the provided arguments.
 
     Raises:
-        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, a
-            required field is missing, or positional arguments are passed to a
-            `BaseModel` subclass.
+        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, a required
+            field is missing, or positional arguments are passed to a `BaseModel` subclass.
     """
     instance: DataObject | BaseModel | None = None
 

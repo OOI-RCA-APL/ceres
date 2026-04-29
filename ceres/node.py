@@ -276,9 +276,8 @@ class Node(Tasklet, NodeSource):
         """Look up a node by address.
 
         Args:
-            address: The address to resolve. Pass `None` to get this node itself, the engine
-                address to get the engine, or any other address to resolve a descendant
-                component's system.
+            address: The address to resolve. Pass `None` to get this node itself, the engine address
+                to get the engine, or any other address to resolve a descendant component's system.
 
         Returns:
             The matching node, or `None` if no node exists at the given address.

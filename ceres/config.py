@@ -960,8 +960,8 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             The validated configuration.
 
         Raises:
-            Failure: Wraps a `ConfigCombinedError` describing every check failure or
-                read error encountered.
+            Failure: Wraps a `ConfigCombinedError` describing every check failure or read error
+                encountered.
         """
         errors: list[ConfigError] = []
         config = cls.read(config)

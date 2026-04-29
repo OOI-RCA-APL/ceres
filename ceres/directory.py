@@ -212,8 +212,8 @@ class Directory(PathLike[str]):
             errors: Error handler name passed to `open`.
             newline: Newline handling passed to `open`.
             closefd: Whether `open` should close the underlying file descriptor.
-            mkdirs: When `True`, ensure the parent directory exists. Defaults to `True`
-                when the mode is write or append, `False` otherwise.
+            mkdirs: When `True`, ensure the parent directory exists. Defaults to `True` when the
+                mode is write or append, `False` otherwise.
             **kwargs: Additional keyword arguments forwarded to `open`.
 
         Returns:
@@ -303,8 +303,8 @@ class Directory(PathLike[str]):
         """Yield absolute paths for each entry directly inside `path`.
 
         Args:
-            path: Path relative to this directory, an absolute path, or `None` to list
-                this directory itself.
+            path: Path relative to this directory, an absolute path, or `None` to list this
+                directory itself.
 
         Yields:
             Absolute paths for each direct child entry, in filesystem order.
@@ -317,8 +317,8 @@ class Directory(PathLike[str]):
         """Yield child `Directory` handles for each subdirectory directly inside `path`.
 
         Args:
-            path: Path relative to this directory, an absolute path, or `None` to list
-                this directory itself.
+            path: Path relative to this directory, an absolute path, or `None` to list this
+                directory itself.
 
         Yields:
             `Directory` handles for each direct child that is a directory.
@@ -356,8 +356,8 @@ class Directory(PathLike[str]):
         Args:
             source: Source path relative to this directory, or an absolute path.
             destination: Destination path relative to this directory, or an absolute path.
-            mkdirs: When `True`, ensure the destination's parent directory exists.
-                Defaults to `True`.
+            mkdirs: When `True`, ensure the destination's parent directory exists. Defaults
+                to `True`.
         """
         source = self._resolve(source)
         destination = self._resolve(destination)

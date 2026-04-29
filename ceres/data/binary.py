@@ -483,8 +483,8 @@ class PackedTuple(PackingSchema):
             data: The byte buffer to read from.
             offset: Number of bytes to skip before the first element.
             order: Byte order override.
-            validate_annotation: When `True`, run Pydantic validation on the assembled
-                tuple against the schema's annotation.
+            validate_annotation: When `True`, run Pydantic validation on the assembled tuple against
+                the schema's annotation.
 
         Returns:
             A tuple of unpacked Python values.
@@ -545,10 +545,10 @@ class PackedModel(PackingSchema):
         """Serialize a model by packing each field in declared wire order.
 
         Args:
-            instance: A model or dataclass instance whose attributes correspond to the
-                keys in `self.fields`.
-            order: Byte order override, falling back to the schema's configured order
-                (or `__byte_order__` on the model class), then to `DEFAULT_BYTE_ORDER`.
+            instance: A model or dataclass instance whose attributes correspond to the keys
+                in `self.fields`.
+            order: Byte order override, falling back to the schema's configured order (or
+                `__byte_order__` on the model class), then to `DEFAULT_BYTE_ORDER`.
 
         Returns:
             The concatenated binary representation of every field.
@@ -579,8 +579,8 @@ class PackedModel(PackingSchema):
             data: The byte buffer to read from.
             offset: Number of bytes to skip before the first field.
             order: Byte order override.
-            validate_annotation: When `True`, run Pydantic validation on the assembled
-                model against the schema's annotation after construction.
+            validate_annotation: When `True`, run Pydantic validation on the assembled model against
+                the schema's annotation after construction.
 
         Returns:
             A validated instance of `self.model`.

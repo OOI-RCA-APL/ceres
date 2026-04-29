@@ -983,8 +983,8 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         Args:
             data: Buffer of raw bytes to search.
             address: Address to attach to each yielded match.
-            timestamp: Fallback timestamp used when the buffer cannot resolve a chunk
-                timestamp for a match's location.
+            timestamp: Fallback timestamp used when the buffer cannot resolve a chunk timestamp
+                for a match's location.
 
         Yields:
             `RegexParticleMatch` for every non-overlapping match, skipping any match for
@@ -1020,9 +1020,8 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
             data: Buffer of raw bytes to search.
             address: Address to attach to each parsed particle.
             timestamp: Fallback timestamp used when the buffer cannot resolve one.
-            errors: How to handle `ParseFailed` exceptions. `"ignore"` skips the failed
-                match, `"raise"` re-raises, a callable receives the exception and the
-                loop continues.
+            errors: How to handle `ParseFailed` exceptions. `"ignore"` skips the failed match,
+                `"raise"` re-raises, a callable receives the exception and the loop continues.
 
         Yields:
             Each successfully parsed particle from `data`.

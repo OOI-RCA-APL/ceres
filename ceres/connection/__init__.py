@@ -145,8 +145,8 @@ class ConnectionField(BoundField["Connection"]):
         Args:
             default: Default value for the field, or `...` to require explicit assignment.
             **kwargs: Connection-level keyword arguments and standard `BoundFieldArgs`.
-                Any key that matches a `Connection` model field is moved into the
-                `defaults` mapping automatically.
+                Any key that matches a `Connection` model field is moved into the `defaults`
+                mapping automatically.
         """
         defaults: ConnectionDefaults | None = kwargs.get("defaults")
         if defaults is not None:

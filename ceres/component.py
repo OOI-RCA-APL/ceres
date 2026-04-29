@@ -787,8 +787,8 @@ class FileOutput(BaseOutput):
         """Build a Starlette `FileResponse` that streams `self.path` to the client.
 
         Returns:
-            A `FileResponse` configured with the stored media type, status code,
-            headers, filename hint, and optional background cleanup task.
+            A `FileResponse` configured with the stored media type, status code, headers, filename
+            hint, and optional background cleanup task.
         """
         from starlette.background import BackgroundTask
         from starlette.responses import FileResponse
@@ -835,8 +835,8 @@ class StreamingOutput(BaseOutput):
         """Construct a streaming output.
 
         Args:
-            stream: Async iterable of byte chunks, or a zero-arg factory returning one. A
-                factory lets the response start the iterable lazily.
+            stream: Async iterable of byte chunks, or a zero-arg factory returning one. A factory
+                lets the response start the iterable lazily.
             media: MIME type to advertise on the response.
             http_status: HTTP status code for the response.
             http_headers: Additional response headers.
@@ -919,8 +919,8 @@ def query[**P, T](
     Args:
         method: When used without arguments, the method being decorated.
         poll: Interval used when subscribing to a non-live query.
-        media: Media type for streaming queries, required when the return type is
-            `StreamingOutput` and otherwise optional.
+        media: Media type for streaming queries, required when the return type is `StreamingOutput`
+            and otherwise optional.
         permit: Minimum access level required to call the query.
 
     Returns:
