@@ -190,6 +190,19 @@ class HTMLDispatchWriter(DispatchWriter):
         dispatch: Dispatch,
         alerts: Sequence[Alert],
     ) -> Notification:
+        """Render `alerts` into an HTML email notification using the built-in Jinja template.
+
+        Alerts are grouped by severity level, then collapsed by `(address, type, data)`, and
+        rendered with Markdown support for the dispatch description.
+
+        Args:
+            dispatch: The dispatch configuration being rendered.
+            alerts: Alerts that matched the dispatch's filter.
+
+        Returns:
+            A `Notification` with `content_type` set to `text/html`.
+        """
+
         def get_size(index: dict[str, Any] | list[Any]) -> int:
             # Recursively count leaf entries in the nested grouping so the template can
             # show totals without duplicating the iteration logic in Jinja.

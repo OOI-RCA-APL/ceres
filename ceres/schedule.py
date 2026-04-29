@@ -87,6 +87,11 @@ class CronSchedule(_BaseSchedule):
 
     @override
     def create_trigger(self) -> CronTrigger:
+        """Build a `CronTrigger` from this schedule's crontab expression.
+
+        Returns:
+            A new `CronTrigger` evaluated in UTC.
+        """
         return CronTrigger(self)
 
 
@@ -156,6 +161,11 @@ class IntervalSchedule(_BaseSchedule):
 
     @override
     def create_trigger(self) -> IntervalTrigger:
+        """Build an `IntervalTrigger` from this schedule's interval, bounds, and multiplier.
+
+        Returns:
+            A new `IntervalTrigger` ready to produce fire times.
+        """
         return IntervalTrigger(self)
 
 
@@ -176,6 +186,11 @@ class OrSchedule(_BaseSchedule):
 
     @override
     def create_trigger(self) -> OrTrigger:
+        """Build an `OrTrigger` that unions the fire times of all child schedules.
+
+        Returns:
+            A new `OrTrigger` wrapping a trigger for each child schedule.
+        """
         return OrTrigger(self)
 
 
@@ -286,6 +301,15 @@ class CronTrigger(Trigger):
         previous: datetime | None = None,
         now: datetime | None = None,
     ) -> datetime | None:
+        """Return the next cron-matched fire time at or after `now`.
+
+        Args:
+            previous: The most recent fire time produced by this trigger, if any.
+            now: Reference time used as the lower bound, defaults to the current UTC time.
+
+        Returns:
+            The next matching fire time, or `None` if the trigger is exhausted.
+        """
         if now is None:
             now = utc()
 
@@ -331,6 +355,17 @@ class IntervalTrigger(Trigger):
         previous: datetime | None = None,
         now: datetime | None = None,
     ) -> datetime | None:
+        """Return the next interval-based fire time at or after `now`.
+
+        Applies the configured multiplier, min, and max bounds when computing the delay.
+
+        Args:
+            previous: The most recent fire time produced by this trigger, if any.
+            now: Reference time used as the lower bound, defaults to the current UTC time.
+
+        Returns:
+            The next fire time, or `None` if the trigger is exhausted (past its end time).
+        """
         if now is None:
             now = utc()
 
@@ -361,6 +396,16 @@ class OrTrigger(Trigger):
         previous: datetime | None = None,
         now: datetime | None = None,
     ) -> datetime | None:
+        """Return the earliest next fire time across all child triggers.
+
+        Args:
+            previous: The most recent fire time produced by this trigger, if any.
+            now: Reference time used as the lower bound, defaults to the current UTC time.
+
+        Returns:
+            The soonest fire time from any child trigger, or `None` if every child is
+            exhausted.
+        """
         if now is None:
             now = utc()
 

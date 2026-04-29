@@ -72,6 +72,12 @@ class SMTPNotifier(Notifier):
         notification: Notification,
         recipients: Iterable[NonBlankStr],
     ) -> None:
+        """Send `notification` as an email to `recipients` over the configured SMTP server.
+
+        Args:
+            notification: Notification payload to deliver.
+            recipients: Email addresses to send the message to.
+        """
         recipients = list(recipients)
         if not recipients:
             self.system.log.warning("No recipients specified, skipping notification.")

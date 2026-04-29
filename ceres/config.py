@@ -285,6 +285,15 @@ class ClassSieveConfig(_SieveConfig):
 
     @override
     def create(self, component: Component) -> Sieve:
+        """Instantiate the configured `Sieve` subclass with the stored arguments.
+
+        Args:
+            component: The owning component. Not used directly by `ClassSieveConfig`,
+                but required by the `_SieveConfig` interface.
+
+        Returns:
+            A validated instance of `self.cls`.
+        """
         return validate(self.cls, self.arguments)
 
 
@@ -300,6 +309,18 @@ class MethodSieveConfig(_SieveConfig):
 
     @override
     def create(self, component: Component) -> FunctionSieve:
+        """Wrap the named method on `component` as a `FunctionSieve`.
+
+        Buffer sizes are resolved by taking the maximum of any explicitly configured
+        value and the buffer sizes of associated connections, falling back to the
+        project defaults when nothing is specified.
+
+        Args:
+            component: The component whose method should be wrapped.
+
+        Returns:
+            A `FunctionSieve` backed by the resolved method and buffer settings.
+        """
         from ceres.sieve import FunctionSieve
 
         method = getattr(component, self.method)

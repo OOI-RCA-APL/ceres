@@ -446,6 +446,17 @@ class PackedTuple(PackingSchema):
 
     @override
     def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        """Serialize a tuple by packing each element according to its positional schema.
+
+        Args:
+            instance: A tuple (or sequence) whose elements correspond one-to-one with
+                the schemas in `self.values`.
+            order: Byte order override, falling back to the schema's configured order,
+                then to `DEFAULT_BYTE_ORDER`.
+
+        Returns:
+            The concatenated binary representation of every element.
+        """
         order = self._resolve_order(order)
         packed = bytearray()
         for value, schema in zip(instance, self.values):
@@ -463,6 +474,21 @@ class PackedTuple(PackingSchema):
         *,
         validate_annotation: bool = True,
     ) -> Any:
+        """Deserialize a tuple by unpacking each element from consecutive byte regions.
+
+        Per-element annotation validation is deferred. The assembled tuple is validated
+        once against the outer annotation when `validate_annotation` is `True`.
+
+        Args:
+            data: The byte buffer to read from.
+            offset: Number of bytes to skip before the first element.
+            order: Byte order override.
+            validate_annotation: When `True`, run Pydantic validation on the assembled
+                tuple against the schema's annotation.
+
+        Returns:
+            A tuple of unpacked Python values.
+        """
         from ceres.data import validate
 
         order = self._resolve_order(order)
@@ -516,6 +542,17 @@ class PackedModel(PackingSchema):
 
     @override
     def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        """Serialize a model by packing each field in declared wire order.
+
+        Args:
+            instance: A model or dataclass instance whose attributes correspond to the
+                keys in `self.fields`.
+            order: Byte order override, falling back to the schema's configured order
+                (or `__byte_order__` on the model class), then to `DEFAULT_BYTE_ORDER`.
+
+        Returns:
+            The concatenated binary representation of every field.
+        """
         order = self._resolve_order(order)
         data = bytearray()
         for field, schema in self.fields.items():
@@ -533,6 +570,21 @@ class PackedModel(PackingSchema):
         *,
         validate_annotation: bool = True,  # Models are always validated.
     ) -> Any:
+        """Deserialize a model by unpacking each field and validating the assembled instance.
+
+        Per-field annotation validation is deferred. The model is constructed and
+        validated through Pydantic once all fields have been read.
+
+        Args:
+            data: The byte buffer to read from.
+            offset: Number of bytes to skip before the first field.
+            order: Byte order override.
+            validate_annotation: When `True`, run Pydantic validation on the assembled
+                model against the schema's annotation after construction.
+
+        Returns:
+            A validated instance of `self.model`.
+        """
         from ceres.data import validate
 
         order = self._resolve_order(order)

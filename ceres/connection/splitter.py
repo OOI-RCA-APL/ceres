@@ -50,6 +50,7 @@ class Unsplit(Splitter):
 
     @override
     def split(self, buffer: Buffer) -> Iterator[int]:
+        """Yield the buffer's total size as a single boundary if the buffer is non-empty."""
         if buffer:
             yield buffer.size
 
@@ -59,6 +60,7 @@ class SplitByChunk(Splitter):
 
     @override
     def split(self, buffer: Buffer) -> Iterator[int]:
+        """Yield the end index of each chunk stored in the buffer."""
         if buffer:
             for chunk in buffer.chunks:
                 yield chunk.end
@@ -77,6 +79,7 @@ class SplitByLine(Splitter):
 
     @override
     def split(self, buffer: Buffer) -> Iterator[int]:
+        """Yield the end index of each newline match found in the buffer."""
         if buffer:
             for match in self.pattern.finditer(buffer):
                 yield match.end()
@@ -112,6 +115,7 @@ class SplitByRegex(Splitter):
 
     @override
     def split(self, buffer: Buffer) -> Iterator[int]:
+        """Yield boundary indices for each regex match, placed according to `mode`."""
         if not buffer:
             return
 
@@ -138,6 +142,7 @@ class SplitByDelay(Splitter):
 
     @override
     def split(self, buffer: Buffer) -> Iterator[int]:
+        """Yield a boundary at each chunk whose gap from the prior chunk meets `delay`."""
         if not buffer:
             return
 

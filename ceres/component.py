@@ -784,6 +784,12 @@ class FileOutput(BaseOutput):
 
     @override
     def to_response(self) -> FileResponse:
+        """Build a Starlette `FileResponse` that streams `self.path` to the client.
+
+        Returns:
+            A `FileResponse` configured with the stored media type, status code,
+            headers, filename hint, and optional background cleanup task.
+        """
         from starlette.background import BackgroundTask
         from starlette.responses import FileResponse
 
@@ -844,6 +850,15 @@ class StreamingOutput(BaseOutput):
 
     @override
     def to_response(self) -> StreamingResponse:
+        """Build a Starlette `StreamingResponse` that relays `self.stream` to the client.
+
+        If `self.stream` is a callable factory, it is invoked to produce the async
+        iterable lazily.
+
+        Returns:
+            A `StreamingResponse` configured with the stored media type, status code,
+            headers, and optional background cleanup task.
+        """
         from starlette.background import BackgroundTask
         from starlette.responses import StreamingResponse
 

@@ -437,6 +437,7 @@ class SQLiteDatabase(Database):
     @property
     @override
     def config(self) -> SQLiteDatabaseConfig:
+        """Return the `SQLiteDatabaseConfig` this database was constructed from."""
         config = super().config
         assert isinstance(config, SQLiteDatabaseConfig)
         return config
@@ -444,6 +445,7 @@ class SQLiteDatabase(Database):
     @property
     @override
     def url(self) -> str:
+        """Build and return the `sqlite+aiosqlite` connection URL for this database."""
         return URL.create(
             "sqlite+aiosqlite",
             database=str(self.path),
@@ -472,6 +474,7 @@ class SQLiteDatabase(Database):
 
     @override
     async def dispose(self) -> None:
+        """Dispose of the engine, then remove any temporary database files."""
         try:
             await super().dispose()
         finally:
@@ -566,6 +569,7 @@ class PostgresDatabase(Database):
     @property
     @override
     def config(self) -> PostgresDatabaseConfig:
+        """Return the `PostgresDatabaseConfig` this database was constructed from."""
         config = super().config
         assert isinstance(config, PostgresDatabaseConfig)
         return config
@@ -573,6 +577,7 @@ class PostgresDatabase(Database):
     @property
     @override
     def url(self) -> str:
+        """Build and return the `postgresql+asyncpg` connection URL for this database."""
         return str(
             URL.create(
                 "postgresql+asyncpg",
@@ -590,6 +595,7 @@ class PostgresDatabase(Database):
     @property
     @override
     def ddl(self) -> list[str]:
+        """Collect every DDL statement needed for PostgreSQL, including extensions and functions."""
         commands: list[str] = []
 
         commands.append("CREATE EXTENSION IF NOT EXISTS pg_trgm;")

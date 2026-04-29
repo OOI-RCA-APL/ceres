@@ -537,6 +537,16 @@ class LogEntryOutputChannel(
         /,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> LogEntryOutputChannel:
+        """Return a new channel that only yields log entries matching the given filter.
+
+        Args:
+            filter: A `LogEntryFilter`, a callable predicate, or `None` to filter by keyword
+                arguments only.
+            **kwargs: Additional filter fields forwarded to `LogEntryFilter`.
+
+        Returns:
+            A filtered `LogEntryOutputChannel`.
+        """
         return super().where(filter, **kwargs)
 
 

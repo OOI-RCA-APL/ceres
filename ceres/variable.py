@@ -386,6 +386,16 @@ class VariableOutputChannel(
         /,
         **kwargs: Unpack[VariableFilterArgs],
     ) -> VariableOutputChannel:
+        """Return a new channel that only yields variables matching the given filter.
+
+        Args:
+            filter: A `VariableFilter`, a callable predicate, or `None` to filter by keyword
+                arguments only.
+            **kwargs: Additional filter fields forwarded to `VariableFilter`.
+
+        Returns:
+            A filtered `VariableOutputChannel`.
+        """
         return super().where(filter, **kwargs)
 
 

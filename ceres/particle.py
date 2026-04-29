@@ -175,14 +175,17 @@ class ParticleData(DataObject, Mapping[str, Any], config=ConfigDict(extra="ignor
 
     @override
     def keys(self) -> KeysView[str]:
+        """Return a view of the payload's field names."""
         return self.__dict__.keys()
 
     @override
     def values(self) -> ValuesView[Any]:
+        """Return a view of the payload's field values."""
         return self.__dict__.values()
 
     @override
     def items(self) -> ItemsView[str, Any]:
+        """Return a view of the payload's `(field_name, value)` pairs."""
         return self.__dict__.items()
 
 
@@ -544,6 +547,20 @@ class ParticleOutputChannel(
         /,
         **kwargs: Unpack[ParticleFilterArgs],
     ) -> ParticleOutputChannel:
+        """Return a new channel that only yields particles matching the given filter.
+
+        When a `cls` keyword is present (or carried by the filter), each particle is
+        converted to that class before filtering. Particles that fail conversion are
+        silently dropped.
+
+        Args:
+            filter: A `ParticleFilter`, a callable predicate, or `None`.
+            **kwargs: Additional filter keyword arguments forwarded to the underlying
+                channel.
+
+        Returns:
+            A filtered `ParticleOutputChannel`.
+        """
         cls = _get_particle_class(filter, kwargs)
         if cls is None:
             return super().where(filter, **kwargs)
@@ -789,6 +806,21 @@ class BinaryParticle[T: ParticleData](ParseableParticle[T]):
         timestamp: DateTime | None = None,
         span: tuple[int, int] | None = None,
     ) -> Self:
+        """Unpack a particle from fixed-layout binary `bytes`.
+
+        Args:
+            bytes: Raw bytes containing the binary payload.
+            address: Address of the node or connection that produced the bytes.
+            timestamp: Optional UTC timestamp, defaults to the current time.
+            span: Optional `(start, end)` byte offsets. Defaults to the full extent of
+                `bytes`.
+
+        Returns:
+            A new instance of `cls` with `data` decoded from the binary layout.
+
+        Raises:
+            ParseFailed: If `bytes` cannot be unpacked into a valid payload.
+        """
         timestamp = utc(timestamp)
         if span is None:
             span = (0, len(bytes))
@@ -894,6 +926,20 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         timestamp: DateTime | None = None,
         span: tuple[int, int] | None = None,
     ) -> Self:
+        """Match the class regex against `bytes` and parse the result.
+
+        Args:
+            bytes: Raw bytes to match the regex against.
+            address: Address of the node or connection that produced the bytes.
+            timestamp: Optional UTC timestamp, defaults to the current time.
+            span: Ignored, the span is derived from the regex match.
+
+        Returns:
+            A new instance of `cls` built from the regex match.
+
+        Raises:
+            ParseFailed: If `bytes` do not match the regex pattern.
+        """
         match = cls.regex.match(bytes)
         if match is None:
             raise ParseFailed("Bytes did not match regex pattern.")
@@ -1062,6 +1108,22 @@ class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
         address: Address = Address.ROOT,
         timestamp: DateTime | None = None,
     ) -> Self:
+        """Build a particle by mapping named regex groups onto `ParticleData` fields.
+
+        Each named group in `match` is paired with a field on `cls.Data` and
+        validated through Pydantic to produce the payload.
+
+        Args:
+            match: A successful `re.Match` produced by `cls.regex`.
+            address: Address of the node or connection that produced the matched bytes.
+            timestamp: Optional UTC timestamp, defaults to the current time.
+
+        Returns:
+            A new instance of `cls` with `data` populated from the capture groups.
+
+        Raises:
+            ParseFailed: If the captured group values fail validation against `cls.Data`.
+        """
         timestamp = utc(timestamp)
         group_values: dict[str, bytes | Any] = match.groupdict()
 
@@ -1098,6 +1160,21 @@ class BinaryRegexParticle[T: ParticleData](BinaryParticle[T], RegexParticle[T]):
         address: Address = Address.ROOT,
         timestamp: DateTime | None = None,
     ) -> Self:
+        """Decode a particle by unpacking the matched byte range as fixed-layout binary.
+
+        Delegates to `BinaryParticle.from_bytes` with the matched bytes and span.
+
+        Args:
+            match: A successful `re.Match` locating the binary frame.
+            address: Address of the node or connection that produced the matched bytes.
+            timestamp: Optional UTC timestamp, defaults to the current time.
+
+        Returns:
+            A new instance of `cls` with `data` decoded from the matched bytes.
+
+        Raises:
+            ParseFailed: If the matched bytes cannot be unpacked into a valid payload.
+        """
         return cls.from_bytes(
             match.group(),
             address,

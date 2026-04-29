@@ -169,6 +169,7 @@ class Engine(Node):
     @property
     @override
     def engine(self) -> Self:
+        """Return this engine instance, satisfying the `Node.engine` interface."""
         return self
 
     @property
@@ -179,6 +180,7 @@ class Engine(Node):
     @property
     @override
     def database(self) -> Database:
+        """Return the engine's database instance."""
         return self._database
 
     @property

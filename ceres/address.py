@@ -437,6 +437,16 @@ class DynamicAddress(AddressSelector):
 
     @override
     def as_absolute(self, root: Address) -> Address:
+        """Resolve this address against `root` and return the result as an absolute `Address`.
+
+        If this address is already absolute, return it directly. Otherwise, join it onto `root`.
+
+        Args:
+            root: Base address to resolve against when this address is relative.
+
+        Returns:
+            An absolute `Address`.
+        """
         root = Address(root)
         if self.is_absolute:
             return Address(self)

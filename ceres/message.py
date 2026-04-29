@@ -383,6 +383,16 @@ class MessageOutputChannel(
         /,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> MessageOutputChannel:
+        """Return a new channel that only yields messages matching the given filter.
+
+        Args:
+            filter: A `MessageFilter`, a callable predicate, or `None` to filter by keyword
+                arguments only.
+            **kwargs: Additional filter fields forwarded to `MessageFilter`.
+
+        Returns:
+            A filtered `MessageOutputChannel`.
+        """
         return super().where(filter, **kwargs)
 
 

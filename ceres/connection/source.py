@@ -100,6 +100,15 @@ class AnyIOSource(Source):
 
     @override
     async def connect(self) -> bool:
+        """Open the underlying stream, raising on timeout or connection failure.
+
+        Returns:
+            `True` when the connection is established.
+
+        Raises:
+            ConnectTimeout: If `_create_stream()` does not complete within `timeout`.
+            ConnectFailed: If `_create_stream()` raises any other exception.
+        """
         if self._stream is not None:
             return True
 
@@ -119,6 +128,7 @@ class AnyIOSource(Source):
 
     @override
     async def disconnect(self) -> None:
+        """Close the stream and reset to a disconnected state. Swallow close errors."""
         if self._stream is None:
             return
 
@@ -132,6 +142,11 @@ class AnyIOSource(Source):
 
     @override
     async def send(self, data: bytes) -> bytes | None:
+        """Write `data` to the stream.
+
+        Returns:
+            The sent bytes on success, or `None` if the stream is missing or the send fails.
+        """
         if self._stream is None:
             return None
 
@@ -144,6 +159,11 @@ class AnyIOSource(Source):
 
     @override
     async def receive(self, count: int) -> bytes | None:
+        """Read up to `count` bytes from the stream.
+
+        Returns:
+            The received bytes, or `None` if the stream is missing, closed, or errored.
+        """
         if self._stream is None:
             return None
 
@@ -165,6 +185,7 @@ class TCPSource(AnyIOSource):
     @property
     @override
     def label(self) -> str:
+        """Return a `tcp://host:port` label identifying this source."""
         return f"tcp://{self.host}:{self.port}"
 
     @override
@@ -187,6 +208,7 @@ class UNIXSocketSource(AnyIOSource):
     @property
     @override
     def label(self) -> str:
+        """Return a `unix://path` label identifying this source."""
         return f"unix://{self.socket}"
 
     @override

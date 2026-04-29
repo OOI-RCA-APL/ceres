@@ -404,6 +404,16 @@ class AlertOutputChannel(
         /,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> AlertOutputChannel:
+        """Return a new channel that only yields alerts matching the given filter.
+
+        Args:
+            filter: An `AlertFilter`, a callable predicate, or `None` to filter by keyword
+                arguments only.
+            **kwargs: Additional filter fields forwarded to `AlertFilter`.
+
+        Returns:
+            A filtered `AlertOutputChannel`.
+        """
         return super().where(filter, **kwargs)
 
 
