@@ -11,7 +11,9 @@ update:
 test:
 	uv run pytest -vv -s
 coverage:
-	uv run pytest --cov --cov-report=term-missing --cov-report=html
+	uv run ./scripts/update-coverage.py
+coverage-check:
+	uv run ./scripts/update-coverage.py --check
 test-all:
 	uv run ./scripts/test-all-python-versions.py
 lint:

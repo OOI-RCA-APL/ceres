@@ -23,8 +23,42 @@ make test
 make coverage
 ```
 
+<!-- coverage:start -->
 | Module | Coverage |
 |---|---|
+| `ceres/__init__.py` | 100% |
+| `ceres/__internal__/__init__.py` | 100% |
+| `ceres/__internal__/auth.py` | 26% |
+| `ceres/__internal__/database/__init__.py` | 100% |
+| `ceres/__internal__/database/bytes.py` | 100% |
+| `ceres/__internal__/database/errors.py` | 36% |
+| `ceres/__internal__/database/types.py` | 100% |
+| `ceres/__internal__/database/writer.py` | 85% |
+| `ceres/__internal__/entity.py` | 79% |
+| `ceres/__internal__/filter.py` | 94% |
+| `ceres/__internal__/lazy.py` | 82% |
+| `ceres/__internal__/manager.py` | 64% |
+| `ceres/__internal__/project.py` | 52% |
+| `ceres/__internal__/protocols.py` | 100% |
+| `ceres/__internal__/record.py` | 78% |
+| `ceres/__internal__/server.py` | 52% |
+| `ceres/__internal__/templates/__init__.py` | 100% |
+| `ceres/__internal__/utilities/__init__.py` | 100% |
+| `ceres/__internal__/utilities/algorithms.py` | 62% |
+| `ceres/__internal__/utilities/caching.py` | 76% |
+| `ceres/__internal__/utilities/case.py` | 89% |
+| `ceres/__internal__/utilities/classes.py` | 85% |
+| `ceres/__internal__/utilities/collections.py` | 85% |
+| `ceres/__internal__/utilities/debugging.py` | 25% |
+| `ceres/__internal__/utilities/exceptions.py` | 67% |
+| `ceres/__internal__/utilities/functions.py` | 100% |
+| `ceres/__internal__/utilities/platforms.py` | 100% |
+| `ceres/__internal__/utilities/randomize.py` | 100% |
+| `ceres/__internal__/utilities/text.py` | 20% |
+| `ceres/__internal__/utilities/typing.py` | 82% |
+| `ceres/__internal__/utilities/undefined.py` | 88% |
+| `ceres/__internal__/utilities/validation.py` | 100% |
+| `ceres/__main__.py` | 50% |
 | `ceres/address.py` | 94% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 82% |
@@ -81,6 +115,7 @@ make coverage
 | `ceres/version.py` | 39% |
 | `ceres/workspace.py` | 92% |
 | **Total** | **78%** |
+<!-- coverage:end -->
 
 ### Linting
 
