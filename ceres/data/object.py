@@ -104,6 +104,8 @@ if TYPE_CHECKING:
     from _typeshed import DataclassInstance as __DataclassInstance
 
     class _DataclassParams(Protocol):
+        """Protocol describing the `__dataclass_params__` attribute on a dataclass."""
+
         kw_only: bool
         frozen: bool
         init: bool
@@ -116,29 +118,43 @@ if TYPE_CHECKING:
         weakref_slot: bool
 
     class Dataclass(__DataclassInstance, Protocol):
+        """Protocol representing any standard-library dataclass instance."""
+
         __slots__ = ()
 
     from pydantic._internal._dataclasses import PydanticDataclass as __PydanticDataclass
 
     class PydanticDataclass(__PydanticDataclass, Protocol):
+        """Protocol representing any Pydantic-wrapped dataclass instance."""
+
         __slots__ = ()
 
     class _SupportsPydanticFields(Protocol):
+        """Protocol for objects exposing a `__pydantic_fields__` mapping."""
+
         if TYPE_CHECKING:
             __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
 
     class _SupportsPydanticFieldsSet(_SupportsPydanticFields, Protocol):
+        """Protocol extending `_SupportsPydanticFields` with a fields-set property."""
+
         @property
         def __pydantic_fields_set__(self) -> Set[str]: ...
 
     class _SupportsReplace(Protocol):
+        """Protocol for objects implementing the `__replace__` copy-with-changes pattern."""
+
         def __replace__(self, *args: Any, **changes: Any) -> Any: ...
 else:
 
     class Dataclass:
+        """Runtime stub for the `Dataclass` protocol."""
+
         __slots__ = ()
 
     class PydanticDataclass:
+        """Runtime stub for the `PydanticDataclass` protocol."""
+
         __slots__ = ()
 
 
@@ -202,6 +218,23 @@ def fields_of(
     init: bool = False,
     cache: bool = True,
 ) -> Mapping[str, FieldInfo]:
+    """Return a mapping of field names to `FieldInfo` for the given object or class.
+
+    Accept any Pydantic model, `DataObject`, or standard dataclass instance or class.
+    Standard dataclasses are automatically wrapped as Pydantic dataclasses on first access
+    so their fields can be expressed as `FieldInfo`.
+
+    Args:
+        obj: A class or instance with Pydantic fields, or a standard dataclass.
+        init: When `True`, include `init_var` fields (excluded by default).
+        cache: When `True`, cache the result per class for faster repeated lookups.
+
+    Returns:
+        An immutable mapping from field name to `FieldInfo`.
+
+    Raises:
+        TypeError: If `obj` is neither a Pydantic-aware type nor a standard dataclass.
+    """
     cls = _as_class(obj)
     storage = _cached_init_fields if init else _cached_fields
     if cache:
@@ -235,6 +268,18 @@ def computed_fields_of(
     *,
     cache: bool = True,
 ) -> Mapping[str, ComputedFieldInfo]:
+    """Return a mapping of computed field names to `ComputedFieldInfo`.
+
+    Args:
+        obj: A class or instance with Pydantic computed fields, or a standard dataclass.
+        cache: When `True`, cache the result per class for faster repeated lookups.
+
+    Returns:
+        An immutable mapping from computed field name to `ComputedFieldInfo`.
+
+    Raises:
+        TypeError: If `obj` is neither a Pydantic `BaseModel` nor a standard dataclass.
+    """
     cls = _as_class(obj)
     if cache:
         cached = _cached_computed_fields.get(cls, Undefined)
@@ -268,6 +313,18 @@ def to_items(
     exclude_unset: bool = False,
     exclude_computed_fields: bool = True,
 ) -> Iterator[tuple[str, Any]]:
+    """Yield `(field_name, value)` pairs for each field on `obj`.
+
+    Args:
+        obj: A Pydantic-aware object or standard dataclass instance.
+        include: If provided, only yield fields whose names are in this set.
+        exclude: If provided, skip fields whose names are in this set.
+        exclude_unset: When `True`, skip fields that were not explicitly set.
+        exclude_computed_fields: When `True` (the default), skip computed fields.
+
+    Yields:
+        Two-tuples of `(field_name, value)` for each matching field.
+    """
     if not exclude_unset or not _supports_fields_set(obj):
         fields_set = None
     else:
@@ -301,6 +358,18 @@ def to_items(
 
 
 def fields_set_on(obj: _SupportsPydanticFieldsSet, /) -> Set[str]:
+    """Return the set of field names explicitly set on `obj`.
+
+    Args:
+        obj: An object with a `__pydantic_fields_set__` property.
+
+    Returns:
+        The set of field names that were explicitly provided during construction or
+        assigned afterward.
+
+    Raises:
+        TypeError: If `obj` does not support fields-set tracking.
+    """
     try:
         return obj.__pydantic_fields_set__
     except AttributeError:
@@ -315,6 +384,21 @@ def to_dict(
     exclude_unset: bool = False,
     exclude_computed_fields: bool = True,
 ) -> dict[str, Any]:
+    """Convert the fields of `obj` to a plain dictionary.
+
+    Accept the same filtering arguments as `to_items` and return their results as a
+    `dict` instead of an iterator.
+
+    Args:
+        obj: A Pydantic-aware object or standard dataclass instance.
+        include: If provided, only include fields whose names are in this set.
+        exclude: If provided, skip fields whose names are in this set.
+        exclude_unset: When `True`, skip fields that were not explicitly set.
+        exclude_computed_fields: When `True` (the default), skip computed fields.
+
+    Returns:
+        A dictionary mapping field names to their values.
+    """
     return dict(
         to_items(
             obj,
@@ -326,13 +410,11 @@ def to_dict(
     )
 
 
-# -------------------------------------------------------------------------------------
-# defaulting / replacing / WithDefaults
-# -------------------------------------------------------------------------------------
-
 if TYPE_CHECKING:
 
     class _SupportsDefaulting(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
+        """Protocol for objects that support both fields-set tracking and `__replace__`."""
+
         pass
 
 
@@ -353,6 +435,20 @@ def defaulting[T: _SupportsDefaulting](
     /,
     **defaults: Any,
 ) -> T:
+    """Return a copy of `original` with unset fields filled in from `defaults`.
+
+    Only fields that were *not* explicitly set on `original` are updated. Fields that
+    were already set keep their existing values.
+
+    Args:
+        original: The object to fill defaults into.
+        defaults_object: An optional object or dict supplying default values. Values from
+            this object are merged with `**defaults`, with `**defaults` taking priority.
+        **defaults: Additional default values keyed by field name.
+
+    Returns:
+        A copy of `original` with unset fields populated from the merged defaults.
+    """
     from copy import replace
 
     for field, value in _get_items(defaults_object):
@@ -367,6 +463,8 @@ def defaulting[T: _SupportsDefaulting](
 if TYPE_CHECKING:
 
     class _SupportsReplacing(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
+        """Protocol for objects that support fields-set tracking and `__replace__`."""
+
         pass
 
 
@@ -376,6 +474,21 @@ def replacing[T: _SupportsReplacing](
     /,
     **updates: Any,
 ) -> T:
+    """Return a copy of `original` with the specified fields replaced.
+
+    Unlike `defaulting`, this unconditionally overwrites fields regardless of whether
+    they were set on `original`.
+
+    Args:
+        original: The object to copy with replacements.
+        updates_object: An optional object or dict supplying replacement values. Values
+            from this object are merged with `**updates`, with `**updates` taking
+            priority.
+        **updates: Additional replacement values keyed by field name.
+
+    Returns:
+        A copy of `original` with the specified fields replaced.
+    """
     from copy import replace
 
     for field, value in _get_items(updates_object):
@@ -389,6 +502,20 @@ def WithDefaults(
     /,
     **defaults: Any,
 ) -> AfterValidator:
+    """Create a Pydantic `AfterValidator` that fills unset fields with defaults.
+
+    Use as a field annotation wrapper (via `Annotated`) to automatically apply
+    `defaulting` after Pydantic validation.
+
+    Args:
+        defaults_object: An object, callable returning an object, or `None` supplying
+            default field values. A callable is invoked lazily on first use.
+        **defaults: Additional default values keyed by field name.
+
+    Returns:
+        An `AfterValidator` that applies `defaulting` to the validated value.
+    """
+
     def WithDefaults(obj: object, /) -> Any:
         if not _supports_fields_set(obj) or not _supports_replace(obj):
             raise TypeError(
@@ -409,6 +536,8 @@ _object_setattr: Final = object.__setattr__
 
 
 class DataObjectConfigDict(ConfigDict):
+    """Pydantic `ConfigDict` subclass used by `DataObject` and its subclasses."""
+
     pass
 
 
@@ -443,10 +572,14 @@ _patch_dataclass_fields()
 
 
 class DataObjectClassInvalid(TypeError):
+    """Raised when a `DataObject` subclass definition is structurally invalid."""
+
     pass
 
 
 class DataObjectAbstract(RuntimeError):
+    """Raised when code attempts to instantiate an abstract `DataObject` subclass."""
+
     pass
 
 
@@ -463,6 +596,13 @@ class DataObjectMetaclass(
     type(Protocol) if not TYPE_CHECKING else _Empty,
     ABCMeta,  # Allow data objects to inherit from `ABC`.
 ):
+    """Metaclass that transforms `DataObject` subclasses into Pydantic dataclasses.
+
+    On class creation, `DataObjectMetaclass` validates the class definition, merges
+    inherited Pydantic config, converts the class via `pydantic.dataclasses.dataclass`,
+    and enforces slot requirements for concrete subclasses.
+    """
+
     def __new__(
         mcs,
         name: str,
@@ -658,6 +798,16 @@ class DataObjectMetaclass(
 
 @final
 class FieldsSet(MutableSet[str]):
+    """Bitmask-backed mutable set tracking which fields are "set" on a `DataObject`.
+
+    Each field declared on a `DataObject` subclass is assigned a bit index. Membership
+    tests, iteration, and set operations are performed on an integer bitmask, making
+    common operations constant-time regardless of the number of fields.
+
+    Construct from a `DataObject` class plus an optional initial population (a mask
+    integer, a boolean for all/none, an iterable of field names, or another `FieldsSet`).
+    """
+
     __slots__ = (
         "_cls",
         "_mask",
@@ -706,10 +856,12 @@ class FieldsSet(MutableSet[str]):
 
     @property
     def cls(self) -> type[DataObject]:
+        """Return the `DataObject` subclass this set is bound to."""
         return self._cls
 
     @property
     def mask(self) -> int:
+        """Return the raw bitmask representing the set fields."""
         return self._mask
 
     @mask.setter
@@ -717,27 +869,34 @@ class FieldsSet(MutableSet[str]):
         self._mask = self._validate_mask(mask)
 
     def invert(self) -> None:
+        """Toggle all bits in place, swapping set and unset fields."""
         self._mask = self._get_inverted_mask()
 
     def to_inverted(self) -> Self:
+        """Return a new `FieldsSet` with all bits toggled."""
         return self._remask(self._get_inverted_mask())
 
     def __invert__(self) -> Self:
         return self.to_inverted()
 
     def to_empty(self) -> Self:
+        """Return a new `FieldsSet` with no fields set."""
         return self._remask(0)
 
     def fill(self) -> None:
+        """Mark every field as set."""
         self._mask = self._get_filled_mask()
 
     def to_filled(self) -> Self:
+        """Return a new `FieldsSet` with every field marked as set."""
         return self._remask(self._get_filled_mask())
 
     def is_full(self) -> bool:
+        """Return `True` if every field on the bound class is set."""
         return self._mask == self._get_filled_mask()
 
     def is_empty(self) -> bool:
+        """Return `True` if no fields are set."""
         return not self._mask
 
     @override
@@ -919,6 +1078,7 @@ class FieldsSet(MutableSet[str]):
         return True
 
     def copy(self) -> Self:
+        """Return a shallow copy of this `FieldsSet`."""
         instance = object.__new__(self.__class__)
         instance._cls = self._cls
         instance._mask = self._mask
@@ -1002,6 +1162,23 @@ class DataObject(
     metaclass=DataObjectMetaclass,
     config=_DATA_OBJECT_DEFAULT_CONFIG,
 ):
+    """Base class for validated, serializable data records in Ceres.
+
+    `DataObject` combines Python's `dataclasses` with Pydantic's validation and
+    serialization. Subclasses define typed fields as dataclass attributes, gain automatic
+    validation on construction, JSON serialization, and fields-set tracking (knowing which
+    fields were explicitly provided versus defaulted).
+
+    Create subclasses by inheriting from `DataObject` and declaring fields as normal
+    dataclass attributes. Use `slots=True` in the class keyword arguments for concrete
+    classes to allocate per-field slots. Use `abstract=True` for base classes that should
+    not be instantiated directly. Pass `frozen=True` (or inherit from `DataObject.Frozen`)
+    for immutable instances.
+
+    Instances can be constructed without validation using `construct()` or `create()` for
+    pre-validated data, or with full Pydantic validation by calling the class directly.
+    """
+
     __slots__ = ("__data_object_fields_set__",)
 
     if TYPE_CHECKING:
@@ -1012,9 +1189,9 @@ class DataObject(
             repr=False,
             compare=False,
         )
-        """
-        Set of field names explicitly set during initialization, or assigned to the field at some
-        point following. Used for equivalent set/unset functionality as Pydantic's `BaseModel`.
+        """Set of field names explicitly set during initialization or assigned afterward.
+
+        Provide equivalent set/unset functionality to Pydantic's `BaseModel`.
         """
 
     else:
@@ -1619,6 +1796,18 @@ def _is_data_object_type(obj: object, /) -> TypeIs[type[DataObject]]:
 
 
 def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
+    """Decorator that converts an `ArgsKwargs` first argument into keyword arguments.
+
+    When the wrapped method receives an `ArgsKwargs` instance as its first positional
+    argument, the decorator resolves it into a keyword dictionary using the class's
+    positional parameter mapping before forwarding the call.
+
+    Args:
+        method: A classmethod or callable to wrap.
+
+    Returns:
+        The wrapped method with automatic `ArgsKwargs` resolution.
+    """
     if isinstance(method, classmethod):
         function = method.__func__
     else:
@@ -1644,9 +1833,18 @@ def to_kwargs[T: classmethod | Callable[..., Any]](method: T) -> T:
 
 
 class DataModel(BaseModel):
+    """Pydantic `BaseModel` mirror of a `DataObject`, generated for each concrete subclass.
+
+    Access a `DataObject`'s corresponding model class via `MyDataObject.Model`. The model
+    shares the same fields, validators, and config as the originating `DataObject` but
+    inherits from `BaseModel` so it can be used in contexts that require a model instance
+    (for example, OpenAPI schema generation).
+    """
+
     model_config = {**_DATA_OBJECT_DEFAULT_CONFIG}
 
     __data_object_class__: ClassVar[type[DataObject] | None] = None
+    """The `DataObject` subclass this model was generated from, or `None` for the base."""
 
     if TYPE_CHECKING:
 
@@ -1702,17 +1900,21 @@ def create[T: DataObject | BaseModel](
     fields_set: Iterable[str] | bool | None = None,
     /,
 ) -> T:
-    """Construct an instance of `cls` with the provided field values without running validation.
+    """Construct an instance of `cls` with provided field values, skipping validation.
 
     Args:
         cls: The `DataObject` or `BaseModel` subclass to instantiate.
         field_values: A mapping of field names to pre-validated values.
-        fields_set: Fields to mark as explicitly set. Can be an iterable of field names, `True` to mark all fields as set, `False` to mark no fields as set, or `None` to infer set fields from `field_values`.
+        fields_set: Fields to mark as explicitly set. Can be an iterable of field
+            names, `True` to mark all fields as set, `False` to mark no fields as
+            set, or `None` to infer set fields from `field_values`.
+
     Returns:
         An instance of the specified class with the provided field values.
 
     Raises:
-        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, or if a required field value is missing from `field_values`.
+        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, or if
+            a required field value is missing from `field_values`.
     """
     instance: DataObject | BaseModel | None = None
 
@@ -1743,7 +1945,7 @@ def construct[T: DataObject | BaseModel, **P](
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> T:
-    """Construct an instance of a `cls` with the provided arguments without running validation.
+    """Construct an instance of `cls` with the provided arguments, skipping validation.
 
     Args:
         cls: The `DataObject` or `BaseModel` subclass to construct.
@@ -1754,7 +1956,9 @@ def construct[T: DataObject | BaseModel, **P](
         An instance of `cls` constructed with the provided arguments.
 
     Raises:
-        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, a required field is missing, or positional arguments are passed to a `BaseModel` subclass.
+        ValueError: If `cls` is not a subclass of `DataObject` or `BaseModel`, a
+            required field is missing, or positional arguments are passed to a
+            `BaseModel` subclass.
     """
     instance: DataObject | BaseModel | None = None
 

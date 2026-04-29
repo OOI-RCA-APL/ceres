@@ -87,18 +87,26 @@ __all__ = (
 
 
 class ConnectionException(Exception):
+    """Base exception for connection-level errors."""
+
     pass
 
 
 class ConnectionInactive(ConnectionException):
+    """Raised when an operation requires an active connection but the connection is not connected."""
+
     pass
 
 
 class ConnectionLost(ConnectionException):
+    """Raised when an established connection is lost during a send or receive operation."""
+
     pass
 
 
 class ConnectionDefaults(TypedDict, total=False):
+    """Default values that can be applied to a `Connection` when constructed via a field."""
+
     name: Name
     source: Loaded[Source]
     splitter: Loaded[Splitter] | None
@@ -114,14 +122,25 @@ class ConnectionDefaults(TypedDict, total=False):
 
 
 class ConnectionFieldArgs(BoundFieldArgs, ConnectionDefaults, total=False):
+    """`TypedDict` of keyword arguments accepted by `ConnectionField`."""
+
     defaults: ConnectionDefaults | None
 
 
 class ConnectionField(BoundField["Connection"]):
+    """Pydantic field descriptor that declares a `Connection` slot on a component.
+
+    Connection-specific keyword arguments (e.g. `source`, `splitter`, `buffer_size`) are
+    extracted from `kwargs` and folded into the `defaults` mapping so the connection is
+    preconfigured when the component is instantiated.
+    """
+
     __slots__ = ()
 
     @dataclass(slots=True)
     class Marker(BoundField.Marker):
+        """Annotation marker identifying a field as a `ConnectionField`."""
+
         pass
 
     def __init__(
@@ -129,10 +148,20 @@ class ConnectionField(BoundField["Connection"]):
         default: Any = ...,
         **kwargs: Unpack[ConnectionFieldArgs],
     ):
+        """Create a `ConnectionField` with optional connection defaults.
+
+        Args:
+            default: Default value for the field, or `...` to require explicit assignment.
+            **kwargs: Connection-level keyword arguments and standard `BoundFieldArgs`.
+                Any key that matches a `Connection` model field is moved into the
+                `defaults` mapping automatically.
+        """
         defaults: ConnectionDefaults | None = kwargs.get("defaults")
         if defaults is not None:
             kwargs["defaults"] = defaults = {**defaults}
 
+        # Move any connection-model keyword arguments into `defaults` so they are applied
+        # when the connection is constructed from configuration.
         for field in Connection.__pydantic_fields__:
             if field in kwargs:
                 assigned: Any = kwargs.pop(field)  # type: ignore
@@ -148,17 +177,34 @@ class ConnectionField(BoundField["Connection"]):
 
 
 class Connection(DataObject, Tasklet, slots=True):
+    """A managed byte-oriented connection driven by a `Source` transport.
+
+    `Connection` handles the full lifecycle of a single connection, including establishing
+    the transport, buffering and splitting incoming bytes into messages, sending outbound
+    data, and automatically reconnecting on failure. It runs as a background `Tasklet`
+    managed by the owning component's `ComponentConnectionManager`.
+    """
+
     name: Name | None = None
+    """Optional name used to identify this connection within its component."""
     source: Loaded[Source]
+    """Transport endpoint that provides the underlying byte stream."""
     splitter: Loaded[Splitter] | None = None
+    """Strategy for splitting the receive buffer into discrete messages."""
     suffix: MessageData | None = None
+    """Bytes appended to outbound data when `suffixed=True` in `send()`."""
 
     buffer_read_size: ByteSize = Field(default=DEFAULT_BUFFER_READ_SIZE, gt=0)
+    """Maximum number of bytes to read from the source in a single call."""
     buffer_size: ByteSize = Field(default=DEFAULT_BUFFER_SIZE, gt=0)
+    """Maximum buffer size before overflow handling kicks in."""
     buffer_drop: ByteSize = Field(default=DEFAULT_BUFFER_DROP, gt=0)
+    """Number of bytes to drop from the front of the buffer on overflow."""
 
     connect_timeout: PositiveTimeDelta | None = None
+    """Maximum time to wait for the source to connect before giving up."""
     receive_timeout: PositiveTimeDelta | None = None
+    """Maximum time to wait for incoming data before emitting a timeout event."""
     reconnect_schedule: Schedule | None = field(
         default_factory=lambda: IntervalSchedule(
             interval=timedelta(seconds=1),
@@ -166,6 +212,7 @@ class Connection(DataObject, Tasklet, slots=True):
             max=timedelta(seconds=60),
         )
     )
+    """Schedule governing delay between reconnection attempts after a failure."""
 
     _connectivity: Connectivity = field(init=False)
     _buffer: Buffer = field(init=False)
@@ -183,10 +230,12 @@ class Connection(DataObject, Tasklet, slots=True):
 
     @property
     def label(self) -> str:
+        """Return the human-readable label of the underlying `Source`."""
         return self.source.label
 
     @property
     def __system__(self) -> ComponentSystem:
+        """Return the owning `ComponentSystem`, creating a default one if unset."""
         from ceres.component import Component
 
         if self._system is None:
@@ -200,18 +249,23 @@ class Connection(DataObject, Tasklet, slots=True):
 
     @property
     def buffer(self) -> bytes:
+        """Return a snapshot of the current receive buffer contents as `bytes`."""
         return bytes(self._buffer)
 
     @property
     def connectivity(self) -> Connectivity:
+        """Return the current `Connectivity` state of this connection."""
         return self._connectivity
 
     @property
     def connected(self) -> bool:
+        """Return `True` if the connection is currently in the `CONNECTED` state."""
         return self._connectivity == Connectivity.CONNECTED
 
     @property
     def messages(self) -> BoundMessageManager:
+        """Return a `BoundMessageManager` scoped to messages on this connection."""
+
         def filtering():
             if self.name is None:
                 return MessageFilter(address=self.__system__.address)
@@ -221,6 +275,15 @@ class Connection(DataObject, Tasklet, slots=True):
         return BoundMessageManager(self.__system__, filtering)
 
     async def connect(self) -> bool:
+        """Attempt to establish the connection via the configured `Source`.
+
+        Emit `ConnectingEvent` before the attempt, then `ConnectedEvent` or
+        `ConnectFailedEvent` depending on the outcome. If `connect_timeout` is set and
+        exceeded, emit `ConnectTimeoutEvent` and treat the attempt as failed.
+
+        Returns:
+            `True` if the connection is established when this call returns.
+        """
         if self._connectivity == Connectivity.CONNECTED:
             return True
 
@@ -260,11 +323,22 @@ class Connection(DataObject, Tasklet, slots=True):
         return self.connected
 
     async def send(self, data: ToBytes, suffixed: bool = True) -> Message:
-        """
-        Send raw bytes through the connection, returning the sent message if successful.
+        """Send raw bytes through the connection, returning the sent `Message`.
 
-        Note, there is no guarantee the returned message is actually recieved on the remote end,
-        only that the message was transmitted.
+        There is no guarantee the returned message is actually received on the remote end,
+        only that the data was transmitted to the transport.
+
+        Args:
+            data: Payload to send, converted to `bytes` before transmission.
+            suffixed: When `True`, append `self.suffix` to the data if it is set and the
+                data does not already end with the suffix.
+
+        Returns:
+            The `Message` record created for the sent data.
+
+        Raises:
+            ConnectionInactive: If the connection is not currently connected.
+            ConnectionLost: If the underlying transport fails during the send.
         """
         if not self.connected:
             raise ConnectionInactive()
@@ -325,6 +399,26 @@ class Connection(DataObject, Tasklet, slots=True):
         default: T | Callable[[], T] = ...,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | T:
+        """Wait for and return the next matching message on this connection.
+
+        Messages are matched against the optional `where` predicate and any `MessageFilter`
+        keyword arguments. If `timeout` expires before a match is found, return `default`
+        (calling it first if it is callable) or raise `TimeoutError` when no default was
+        provided.
+
+        Args:
+            where: Optional predicate that must return `True` for a message to match.
+            timeout: Maximum time to wait, as seconds or a `timedelta`.
+            default: Value (or zero-argument callable returning a value) to return on
+                timeout. When omitted, `TimeoutError` is raised instead.
+            **kwargs: Additional `MessageFilterArgs` forwarded to `MessageFilter`.
+
+        Returns:
+            The first matching `Message`, or `default` if the timeout elapses.
+
+        Raises:
+            TimeoutError: If the timeout elapses and no `default` was supplied.
+        """
         received = self._channel.read()
 
         timeout = delta(timeout).total_seconds() if timeout is not None else None
@@ -355,6 +449,11 @@ class Connection(DataObject, Tasklet, slots=True):
         return default
 
     async def disconnect(self) -> None:
+        """Gracefully close the connection and clear the receive buffer.
+
+        Emit `DisconnectingEvent` before teardown and `DisconnectedEvent` after.
+        No-op if the connection is already disconnected.
+        """
         if self._connectivity == Connectivity.DISCONNECTED:
             return
 
@@ -369,6 +468,12 @@ class Connection(DataObject, Tasklet, slots=True):
 
     @override
     async def __run__(self) -> None:
+        """Run the connection lifecycle loop.
+
+        Repeatedly attempt to connect using the configured reconnect schedule, then read
+        incoming data, split it into messages, and emit events until the connection is lost
+        or the task is cancelled.
+        """
         self.__system__.events.emit(ConnectionStartedEvent, connection=self.name)
 
         initialized = False
@@ -478,14 +583,26 @@ class Connection(DataObject, Tasklet, slots=True):
 
     @override
     async def __stop__(self) -> None:
+        """Disconnect the connection when the tasklet is stopped."""
         await self.disconnect()
 
 
 class ComponentConnectionManager(BaseComponentTaskManager[Connection]):
+    """Manage the set of `Connection` instances owned by a single component.
+
+    Handle adding and removing connections, binding each connection to the component's
+    system, and running each connection as a background task.
+    """
+
     __slots__ = ()
 
     @override
     def add(self, connection: Connection) -> None:
+        """Bind `connection` to this component's system, register it, and emit an event.
+
+        Args:
+            connection: The connection to add.
+        """
         connection.__system__ = self.__system__
         super().add(connection)
         if connection.name is not None:
@@ -493,6 +610,14 @@ class ComponentConnectionManager(BaseComponentTaskManager[Connection]):
 
     @override
     async def remove(self, name: Name) -> Connection | None:
+        """Stop and remove the connection with the given `name`, emitting an event.
+
+        Args:
+            name: Name of the connection to remove.
+
+        Returns:
+            The removed `Connection`, or `None` if no connection with that name existed.
+        """
         connection = await super().remove(name)
         if connection is not None:
             self.__system__.events.emit(ConnectionRemovedEvent, connection=name)
@@ -502,4 +627,9 @@ class ComponentConnectionManager(BaseComponentTaskManager[Connection]):
 
     @override
     async def process(self, connection: Connection) -> None:
+        """Run a connection's lifecycle loop as a managed background task.
+
+        Args:
+            connection: The connection to run.
+        """
         await connection.run()
