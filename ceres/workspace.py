@@ -57,9 +57,9 @@ __all__ = [
 class WorkspaceAccessLevel(OrderedStrEnum):
     """General access level required for a user to gain a capability on a workspace.
 
-    Values are ordered from least to most restrictive. A workspace sets one of these levels
-    for viewership, editorship, and managership, any user whose `UserRole` meets the level
-    gains the corresponding capability without needing an explicit membership.
+    Values are ordered from least to most restrictive. A workspace sets one of these levels for
+    viewership, editorship, and managership, any user whose `UserRole` meets the level gains the
+    corresponding capability without needing an explicit membership.
     """
 
     @classmethod
@@ -774,9 +774,9 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
 class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
     """Payload for creating a new `Workspace` record.
 
-    The three general access fields must be ordered from least to most restrictive, viewership
-    must be at least as permissive as editorship, which must be at least as permissive as
-    managership. Creation fails with a validation error if that invariant is violated.
+    The three general access fields must be ordered from least to most restrictive, viewership must
+    be at least as permissive as editorship, which must be at least as permissive as managership.
+    Creation fails with a validation error if that invariant is violated.
     """
 
     name: NonEmptyStr
@@ -897,10 +897,9 @@ class Workspace(
 ):
     """Named collection that groups users and content under shared access-control settings.
 
-    Access to a workspace is granted in two ways: general access, where any user whose
-    `UserRole` meets one of the `general_*` levels automatically gains the corresponding
-    capability, and explicit `WorkspaceMembership`, which grants a specific `role` to a
-    single user.
+    Access to a workspace is granted in two ways: general access, where any user whose `UserRole`
+    meets one of the `general_*` levels automatically gains the corresponding capability, and
+    explicit `WorkspaceMembership`, which grants a specific `role` to a single user.
     """
 
     Manager = WorkspaceManager

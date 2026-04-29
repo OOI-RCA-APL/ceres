@@ -150,8 +150,8 @@ class StrEnum(BaseStrEnum):
     """String enum whose auto-generated values are kebab-cased lowercase forms of member names.
 
     For example, a member named `MY_VALUE` automatically gets the value `"my-value"` when declared
-    via `auto()`. Stringifying a member returns its value rather than the standard
-    `EnumName.MEMBER` form.
+    via `auto()`. Stringifying a member returns its value rather than the standard `EnumName.MEMBER`
+    form.
     """
 
     @staticmethod

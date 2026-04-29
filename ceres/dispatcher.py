@@ -31,10 +31,9 @@ __all__ = [
 class Dispatch(DataObject):
     """Configuration for a single notification dispatch driven by alert activity.
 
-    A dispatch describes which alerts to summarize, who to notify, and optionally
-    when to send the notification. The owning `Dispatcher` component runs each
-    dispatch on its schedule, gathers matching alerts, renders a notification, and
-    delivers it through the configured `Notifier`.
+    A dispatch describes which alerts to summarize, who to notify, and optionally when to send the
+    notification. The owning `Dispatcher` component runs each dispatch on its schedule, gathers
+    matching alerts, renders a notification, and delivers it through the configured `Notifier`.
     """
 
     subject: NonBlankStr
@@ -59,8 +58,8 @@ class Dispatch(DataObject):
 class DispatchWriter:
     """Render a `Dispatch` and a list of matching alerts into a `Notification`.
 
-    Implementations format alerts into the notification body and content type best
-    suited to the delivery channel (for example HTML email or plaintext SMS).
+    Implementations format alerts into the notification body and content type best suited to the
+    delivery channel (for example HTML email or plaintext SMS).
     """
 
     @abstractmethod
@@ -89,10 +88,10 @@ _Index = dict[Level, dict[tuple[Address, str, str], list[Alert]]]
 class Dispatcher(Component):
     """Component that summarizes alerts and delivers notifications on a schedule.
 
-    The dispatcher owns a list of `Dispatch` configurations, registers a job for each
-    one with a schedule, and renders matching alerts via a `DispatchWriter` before
-    handing the result to a `Notifier`. Dispatches without a schedule can still be
-    triggered on demand by calling the `dispatch` action directly.
+    The dispatcher owns a list of `Dispatch` configurations, registers a job for each one with a
+    schedule, and renders matching alerts via a `DispatchWriter` before handing the result to a
+    `Notifier`. Dispatches without a schedule can still be triggered on demand by calling the
+    `dispatch` action directly.
     """
 
     notifier: Ref[Notifier]
@@ -180,9 +179,9 @@ class Dispatcher(Component):
 class HTMLDispatchWriter(DispatchWriter):
     """`DispatchWriter` that renders alerts as an HTML email via a Jinja template.
 
-    Alerts are grouped first by severity level (highest first), then by the combination
-    of source address, alert type, and serialized data, this collapses repeated alerts
-    into a single row while preserving full timestamp history for each group.
+    Alerts are grouped first by severity level (highest first), then by the combination of source
+    address, alert type, and serialized data, this collapses repeated alerts into a single row
+    while preserving full timestamp history for each group.
     """
 
     @override

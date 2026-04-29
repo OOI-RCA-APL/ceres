@@ -999,10 +999,9 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
 class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
     """`RegexParticle` that maps named regex groups directly onto `ParticleData` fields.
 
-    Each capture group in the pattern is paired with a field of the bound `ParticleData`
-    class, either positionally (in declaration order) or by name when the regex uses
-    named groups. The captured byte values are validated through the data class to
-    produce the final payload.
+    Each capture group in the pattern is paired with a field of the bound `ParticleData` class,
+    either positionally (in declaration order) or by name when the regex uses named groups. The
+    captured byte values are validated through the data class to produce the final payload.
     """
 
     __abstract__ = True

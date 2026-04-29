@@ -43,11 +43,11 @@ class Error(DataObject, slots=True):
     """Base class for structured, serializable error values returned across the API.
 
     Each `Error` carries a discriminator `type` string and may include extra fields with
-    error-specific context. When serialized, an `__error__: True` marker is injected at the
-    front of the payload so consumers can identify error responses without inspecting `type`.
+    error-specific context. When serialized, an `__error__: True` marker is injected at the front
+    of the payload so consumers can identify error responses without inspecting `type`.
 
-    Subclasses may override `__error_status_code__` to control the HTTP status code used when
-    the error is returned from an API endpoint.
+    Subclasses may override `__error_status_code__` to control the HTTP status code used when the
+    error is returned from an API endpoint.
     """
 
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
@@ -77,9 +77,9 @@ class Error(DataObject, slots=True):
 class Failure(Exception):
     """Exception wrapper that carries a structured `Error` payload.
 
-    Use `Failure` to raise a structured error from anywhere in the codebase. The wrapped
-    `Error` instance is exposed via the `error` attribute, the error's `type` is mirrored as
-    the exception `message` for compatibility with standard logging and tracebacks.
+    Use `Failure` to raise a structured error from anywhere in the codebase. The wrapped `Error`
+    instance is exposed via the `error` attribute, the error's `type` is mirrored as the
+    exception `message` for compatibility with standard logging and tracebacks.
     """
 
     def __init__(self, error: Error | Callable[[], Error]) -> None:
@@ -90,8 +90,8 @@ class Failure(Exception):
                 Using a callable allows deferring construction until the failure is actually
                 raised.
         """
-        # Allow lazy error construction, useful when the error is only needed on the unhappy
-        # path and is expensive to build.
+        # Allow lazy error construction, useful when the error is only needed on the unhappy path
+        # and is expensive to build.
         if not lenient_isinstance(error, Error) and callable(error):
             error = error()
 
@@ -138,8 +138,8 @@ def trace(exception: BaseException) -> ExceptionInfo:
         raise TypeError("Expected exception object.")
 
     notes = getattr(exception, "__notes__", None)
-    # `__notes__` is technically meant to be a list of strings, defensively guard against
-    # other types so a malformed attribute does not break serialization.
+    # `__notes__` is technically meant to be a list of strings, defensively guard against other
+    # types so a malformed attribute does not break serialization.
     if notes is not None and not isinstance(notes, list):
         notes = None
 
@@ -175,14 +175,14 @@ class ValidationProblem(DataObject, slots=True):
         """Convert a Pydantic validation error into a list of `ValidationProblem`.
 
         When `source` is provided, the resolved location for each problem is rewritten to
-        substitute list indexes with `"name: <name>"` segments whenever the indexed item is a
-        dict containing a `name` field. This produces more meaningful locations for users
-        editing a configuration document.
+        substitute list indexes with `"name: <name>"` segments whenever the indexed item is a dict
+        containing a `name` field. This produces more meaningful locations for users editing a
+        configuration document.
 
         Args:
             error: The Pydantic or FastAPI validation error to convert.
-            source: The original source object that was validated. If omitted, location paths
-                are returned as-is.
+            source: The original source object that was validated. If omitted, location paths are
+                returned as-is.
 
         Returns:
             A list of `ValidationProblem` instances, one per sub-error reported by Pydantic.
@@ -191,8 +191,8 @@ class ValidationProblem(DataObject, slots=True):
         problems: list[ValidationProblem] = []
 
         for suberror in error.errors():
-            # Strip the `__root__` segment Pydantic uses for top-level errors, it is not useful
-            # in user-facing locations.
+            # Strip the `__root__` segment Pydantic uses for top-level errors, it is not useful in
+            # user-facing locations.
             default_location = list(segment for segment in suberror["loc"] if segment != "__root__")
             location: list[str | int] | None = []
             try:
@@ -206,8 +206,8 @@ class ValidationProblem(DataObject, slots=True):
                         elif isinstance(current, list):
                             current = current[int(segment)]
 
-                        # When walking into an item of a list, prefer a `name`-based segment
-                        # over the raw index so the location is stable across reorderings.
+                        # When walking into an item of a list, prefer a `name`-based segment over
+                        # the raw index so the location is stable across reorderings.
                         if (
                             isinstance(segment, int)
                             and isinstance(parent, list)
@@ -222,8 +222,8 @@ class ValidationProblem(DataObject, slots=True):
                 else:
                     location = default_location
             except Exception:
-                # Fall back to the raw Pydantic location if walking the source data fails for
-                # any reason, the location is best-effort.
+                # Fall back to the raw Pydantic location if walking the source data fails for any
+                # reason, the location is best-effort.
                 location = default_location
 
             problems.append(
@@ -283,8 +283,7 @@ class ComponentReferenceInvalidError(_ComponentError, slots=True):
     """Component type that was actually found."""
 
 
-# Pydantic dataclasses with forward references need to be rebuilt once `Component` is
-# resolvable.
+# Pydantic dataclasses with forward references need to be rebuilt once `Component` is resolvable.
 pydantic.dataclasses.rebuild_dataclass(ComponentReferenceInvalidError)
 
 

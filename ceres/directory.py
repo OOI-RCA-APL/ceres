@@ -30,8 +30,8 @@ class Directory(PathLike[str]):
     """A filesystem directory handle with helpers for reading, writing, and traversing contents.
 
     `Directory` resolves child paths relative to its base path and exposes helpers for common
-    filesystem operations. Directories can be marked `temporary`, in which case they are
-    removed when the handle is garbage collected.
+    filesystem operations. Directories can be marked `temporary`, in which case they are removed
+    when the handle is garbage collected.
     """
 
     __slots__ = (

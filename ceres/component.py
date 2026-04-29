@@ -959,8 +959,8 @@ def action[**P, T](
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """Mark a method as an action, a mutating RPC endpoint that performs side effects.
 
-    Like `@query`, actions may return JSON-serializable values, file or streaming outputs, or
-    yield live values from an async generator.
+    Like `@query`, actions may return JSON-serializable values, file or streaming outputs, or yield
+    live values from an async generator.
 
     Args:
         method: When used without arguments, the method being decorated.
@@ -2512,9 +2512,8 @@ class Bound[T]:
     """Type-only marker used as `Bound[Connection]` to declare a field bound to a sibling object.
 
     Bound fields are how a component declares it expects an external object (currently only
-    connections) to be supplied through the `BoundField` annotation. The actual descriptor
-    behaviour is implemented by `BoundField`, this class only exists to give type checkers a
-    handle.
+    connections) to be supplied through the `BoundField` annotation. The actual descriptor behaviour
+    is implemented by `BoundField`, this class only exists to give type checkers a handle.
     """
 
     if TYPE_CHECKING:

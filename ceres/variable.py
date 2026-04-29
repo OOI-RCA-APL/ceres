@@ -397,9 +397,9 @@ class Variable(
 ):
     """Named JSON-serializable value owned by an addressed node.
 
-    Variables store configuration and state keyed by `(address, name)`. Internal variables
-    use the `__name__` convention and are treated specially by some components. Assignments
-    are broadcast as `VariableAssignedEvent` so listeners see updates in real time.
+    Variables store configuration and state keyed by `(address, name)`. Internal variables use the
+    `__name__` convention and are treated specially by some components. Assignments are broadcast
+    as `VariableAssignedEvent` so listeners see updates in real time.
     """
 
     Manager = VariableManager

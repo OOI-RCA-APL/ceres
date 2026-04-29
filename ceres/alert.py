@@ -309,8 +309,8 @@ class AlertManager(
 class BoundAlertManager(AlertManager, BaseNodeManager):
     """Component-bound alert manager that exposes the live alert event stream and emit helpers.
 
-    Use `emit()` (or the level-named shortcuts like `info()` and `error()`) to raise alerts
-    from a component or engine. Each emitted alert is stored and broadcast as an `AlertEvent`.
+    Use `emit()` (or the level-named shortcuts like `info()` and `error()`) to raise alerts from a
+    component or engine. Each emitted alert is stored and broadcast as an `AlertEvent`.
     """
 
     __slots__ = ()
@@ -337,8 +337,8 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
     ) -> Alert:
         """Raise a new alert from the bound component or engine.
 
-        The alert is stored in the database and broadcast as an `AlertEvent` so listeners
-        receive it immediately.
+        The alert is stored in the database and broadcast as an `AlertEvent` so listeners receive
+        it immediately.
 
         Args:
             level: Severity level of the alert.
@@ -415,9 +415,9 @@ class Alert(
 ):
     """Severity-tagged event raised by a component or engine and persisted as a record.
 
-    Alerts are how components and the engine surface notable conditions to operators, ranging
-    from routine status updates to critical failures. Each alert carries a severity `level`,
-    a discriminator `type`, and optional structured `data`.
+    Alerts are how components and the engine surface notable conditions to operators, ranging from
+    routine status updates to critical failures. Each alert carries a severity `level`, a
+    discriminator `type`, and optional structured `data`.
     """
 
     Manager = AlertManager

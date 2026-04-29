@@ -349,9 +349,9 @@ class LogManager(
 class BoundLogManager(LogManager, BaseNodeManager):
     """Component-bound log manager that exposes the live log stream and emit helpers.
 
-    Use `emit()` (or the level-named shortcuts like `info()` and `error()`) to write a log
-    entry from a component or engine. Each entry is stored, forwarded to the Python logger
-    for stderr output, and broadcast as a `LogEvent`, subject to the node's logging config.
+    Use `emit()` (or the level-named shortcuts like `info()` and `error()`) to write a log entry
+    from a component or engine. Each entry is stored, forwarded to the Python logger for stderr
+    output, and broadcast as a `LogEvent`, subject to the node's logging config.
     """
 
     __slots__ = ()
@@ -384,15 +384,15 @@ class BoundLogManager(LogManager, BaseNodeManager):
         config = self.__node__.get_resolved_logging_config()
 
         if config is not None:
-            # If the log entry's level reaches the `output` threshold, write to the Python logger, and
-            # subsequently stderr. The `output` threshold is `Level.INFO` by default.
+            # If the log entry's level reaches the `output` threshold, write to the Python logger,
+            # and subsequently stderr. The `output` threshold is `Level.INFO` by default.
             if entry.level >= config.output:
                 logger = get_logger(str(self.__node__.address))
                 logger.log(entry.level.to_int(), entry.content)
 
-            # If the log entry's level reaches the `store` threshold, write the log entry to the project
-            # database. The `store` threshold is `Level.DEBUG` by default, meaning all log entries are
-            # persisted.
+            # If the log entry's level reaches the `store` threshold, write the log entry to the
+            # project database. The `store` threshold is `Level.DEBUG` by default, meaning all log
+            # entries are persisted.
             if entry.level >= config.store:
                 self.__node__.store(entry)
 

@@ -311,9 +311,9 @@ class AddressSelector:
 class DynamicAddress(AddressSelector):
     """An address that may be relative or absolute, with helpers for path manipulation.
 
-    Unlike `AddressSelector`, a `DynamicAddress` always refers to a single concrete location
-    rather than a pattern. It exposes properties for navigating the address tree (`parent`,
-    `ancestors`, `path`, etc.) and operators for joining segments (`/`).
+    Unlike `AddressSelector`, a `DynamicAddress` always refers to a single concrete location rather
+    than a pattern. It exposes properties for navigating the address tree (`parent`, `ancestors`,
+    `path`, etc.) and operators for joining segments (`/`).
     """
 
     REGEX: Final = re.compile(rf"^~|@|@?{_NAME}(\.{_NAME})*$")  # type: ignore
@@ -484,8 +484,8 @@ class DynamicAddress(AddressSelector):
 class Address(DynamicAddress):
     """An absolute address pointing to a single component or the engine.
 
-    The two reserved values are `~` (the engine itself) and `@` (the root component). Every
-    other valid address is a dot-separated sequence of name segments rooted at `@`, e.g.
+    The two reserved values are `~` (the engine itself) and `@` (the root component). Every other
+    valid address is a dot-separated sequence of name segments rooted at `@`, e.g.
     `@parent.child.grandchild`.
     """
 

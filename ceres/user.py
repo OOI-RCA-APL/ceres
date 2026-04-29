@@ -383,9 +383,9 @@ class User(
 ):
     """Authenticated account with a role that governs access to workspaces and resources.
 
-    Each user has a unique `username`, an `email`, a hashed `password`, and a `role` that
-    determines their base permissions. Users may additionally be granted or restricted from
-    specific workspaces via workspace memberships.
+    Each user has a unique `username`, an `email`, a hashed `password`, and a `role` that determines
+    their base permissions. Users may additionally be granted or restricted from specific workspaces
+    via workspace memberships.
     """
 
     Manager = UserManager

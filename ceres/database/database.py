@@ -323,8 +323,8 @@ class Database:
     async def init(self) -> None:
         """Run every DDL statement needed to bring the schema up to date.
 
-        The work runs at most once per `Database` instance, subsequent calls are a cheap
-        no-op so it is safe to call at the start of any operation that needs the schema.
+        The work runs at most once per `Database` instance, subsequent calls are a cheap no-op so
+        it is safe to call at the start of any operation that needs the schema.
 
         Raises:
             Failure: If schema creation fails, wrapping a `DatabaseInitError`.
@@ -420,8 +420,8 @@ class Database:
 class SQLiteDatabase(Database):
     """`Database` backed by a local SQLite file or a per-process temporary file.
 
-    When `config.path` is unset, `SQLiteDatabase` creates a temporary on-disk database whose
-    files are cleaned up when the instance is disposed.
+    When `config.path` is unset, `SQLiteDatabase` creates a temporary on-disk database whose files
+    are cleaned up when the instance is disposed.
     """
 
     @override

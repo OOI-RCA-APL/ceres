@@ -15,14 +15,14 @@ __all__ = [
 class OutputChannel[T](AsyncIterable[T]):
     """Read-only view of a `Channel` that fans values out to readers and derived outputs.
 
-    `OutputChannel` is the public side of the channel pub/sub primitive, callers can
-    iterate it asynchronously, attach a `ChannelReader` directly, or build a derived
-    output that filters or transforms incoming values. Only the originating `Channel`
-    can publish, derived outputs forward values they receive from their source.
+    `OutputChannel` is the public side of the channel pub/sub primitive, callers can iterate it
+    asynchronously, attach a `ChannelReader` directly, or build a derived output that filters or
+    transforms incoming values. Only the originating `Channel` can publish, derived outputs forward
+    values they receive from their source.
 
-    Readers and downstream outputs are tracked with weak references so that consumers
-    are released as soon as they go out of scope, this avoids leaking resources when a
-    long-lived component or engine produces values to short-lived listeners.
+    Readers and downstream outputs are tracked with weak references so that consumers are released
+    as soon as they go out of scope, this avoids leaking resources when a long-lived component or
+    engine produces values to short-lived listeners.
     """
 
     __slots__ = (
@@ -137,9 +137,9 @@ class OutputChannel[T](AsyncIterable[T]):
 class Channel[T](OutputChannel[T]):
     """Pub/sub primitive that fans values out to readers and derived `OutputChannel`s.
 
-    A `Channel` is the writable side, owners call `put` to publish a value and any
-    attached readers or chained outputs receive it. Use `output` to expose a read-only
-    handle to consumers without leaking the ability to publish.
+    A `Channel` is the writable side, owners call `put` to publish a value and any attached readers
+    or chained outputs receive it. Use `output` to expose a read-only handle to consumers without
+    leaking the ability to publish.
     """
 
     __slots__ = ()
@@ -156,15 +156,14 @@ class Channel[T](OutputChannel[T]):
 class ChannelReader[T](AsyncIterator[T]):
     """Async iterator and queue that buffers values delivered from an `OutputChannel`.
 
-    A `ChannelReader` registers itself with its source on construction, values published
-    while the reader is attached are queued for retrieval via `get` or async iteration.
-    The reader can be detached and reattached, and supports use as a context manager that
-    detaches on exit.
+    A `ChannelReader` registers itself with its source on construction, values published while the
+    reader is attached are queued for retrieval via `get` or async iteration. The reader can be
+    detached and reattached, and supports use as a context manager that detaches on exit.
 
-    Each reader is bound to the event loop that was running when it was constructed (or
-    the first loop encountered if none was running at construction time). Values produced
-    from other loops are delivered safely via `call_soon_threadsafe`, and `get` calls
-    issued from a different loop are routed back to the bound loop.
+    Each reader is bound to the event loop that was running when it was constructed (or the first
+    loop encountered if none was running at construction time). Values produced from other loops
+    are delivered safely via `call_soon_threadsafe`, and `get` calls issued from a different loop
+    are routed back to the bound loop.
     """
 
     __slots__ = (

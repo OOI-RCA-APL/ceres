@@ -59,10 +59,9 @@ __all__ = [
 class Node(Tasklet, NodeSource):
     """Base class for addressable lifecycle-managed objects in the Ceres tree.
 
-    A `Node` is a `Tasklet` with an `Address`, a view of the `Database`, and a suite of
-    bound managers (alerts, logs, messages, particles, variables, events, and statistics) that
-    surface the data and events scoped to this node. `Engine` and `ComponentSystem` are the
-    concrete subclasses.
+    A `Node` is a `Tasklet` with an `Address`, a view of the `Database`, and a suite of bound
+    managers (alerts, logs, messages, particles, variables, events, and statistics) that surface the
+    data and events scoped to this node. `Engine` and `ComponentSystem` are the concrete subclasses.
     """
 
     __slots__ = ("__tasklet__",)

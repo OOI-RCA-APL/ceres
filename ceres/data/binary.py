@@ -1,10 +1,10 @@
 """Binary packing schemas and utilities.
 
-Provides a layered API for converting Python objects to and from raw bytes for binary protocols.
-At the lowest level, `PackingSchema` subclasses (`PackedUInt8`, `PackedFloat32`, `PackedBytes`,
-etc.) wrap Python's `struct` module to define the wire format of individual fields. At a higher
-level, `pack` and `unpack` accept a type annotation (e.g. a `Pydantic` model or a typed
-`Annotated` alias) and infer the appropriate schema automatically.
+Provides a layered API for converting Python objects to and from raw bytes for binary protocols. At
+the lowest level, `PackingSchema` subclasses (`PackedUInt8`, `PackedFloat32`, `PackedBytes`, etc.)
+wrap Python's `struct` module to define the wire format of individual fields. At a higher level,
+`pack` and `unpack` accept a type annotation (e.g. a `Pydantic` model or a typed `Annotated` alias)
+and infer the appropriate schema automatically.
 
 Type aliases like `UInt8`, `Int32`, and `Float64` combine a numeric type with the right packing
 schema and a value-range constraint, making them suitable for use as Pydantic model fields.
@@ -114,8 +114,8 @@ alignment.
 """
 
 DEFAULT_BYTE_ORDER: ByteOrder = "<"
-"""Default byte order used when no explicit order is provided, little-endian to match common
-binary protocols on x86 and ARM platforms."""
+"""Default byte order used when no explicit order is provided, little-endian to match common binary
+protocols on x86 and ARM platforms."""
 
 _BYTE_ORDERS: tuple[ByteOrder, ...] = ("<", ">", "=")
 
@@ -140,8 +140,8 @@ class PackingSchema:
     """The original type annotation this schema was inferred from, used to perform additional
     Pydantic validation after unpacking. `MISSING` if not derived from an annotation."""
     order: ByteOrder | None = None
-    """Optional byte order override. When `None`, falls back to the order passed to
-    `pack`/`unpack`, then to `DEFAULT_BYTE_ORDER`."""
+    """Optional byte order override. When `None`, falls back to the order passed to `pack`/`unpack`,
+    then to `DEFAULT_BYTE_ORDER`."""
     padding_before: int | None = None
     """Number of pad bytes inserted before the value when packed."""
     padding_after: int | None = None
@@ -275,8 +275,8 @@ class PackingSchema:
         """Combine adjacent identical format symbols by summing their counts.
 
         For example, `"xxBB"` becomes `"2x2B"`. The `"s"` symbol (bytes) is intentionally never
-        merged because in `struct` it represents a single fixed-length field rather than a
-        repeated value.
+        merged because in `struct` it represents a single fixed-length field rather than a repeated
+        value.
         """
         compacted: list[str] = []
         pairs: list[tuple[int, str]] = []
@@ -851,9 +851,9 @@ def BytesFromString(
 ) -> BeforeValidator:
     """Pydantic validator that decodes incoming `str` values to `bytes`.
 
-    Use as `Annotated[bytes, BytesFromString("utf-8")]` to accept either bytes or strings as
-    input. The `"base-64"` encoding name (or any spelling normalized to `"base64"`) is special-
-    cased to use base64 decoding instead of text encoding.
+    Use as `Annotated[bytes, BytesFromString("utf-8")]` to accept either bytes or strings as input.
+    The `"base-64"` encoding name (or any spelling normalized to `"base64"`) is special-cased to use
+    base64 decoding instead of text encoding.
 
     Args:
         encoding: The text encoding to use, or `"base-64"` for base64 decoding.

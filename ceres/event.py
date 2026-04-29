@@ -36,8 +36,8 @@ __all__ = [
 class Event(DataObject, slots=True):
     """Base class for all events emitted through the system.
 
-    Events propagate up through containing components and out to listeners. Each event carries
-    the address of its originating component or engine, a timestamp, a stable string `type`
+    Events propagate up through containing components and out to listeners. Each event carries the
+    address of its originating component or engine, a timestamp, a stable string `type`
     discriminator, and a severity `level`.
     """
 
@@ -45,8 +45,8 @@ class Event(DataObject, slots=True):
     """Unique identifier for the event, defaulting to a time-ordered UUID7."""
 
     if TYPE_CHECKING:
-        # The address is assigned by `EventManager.emit()` if not provided explicitly, so the
-        # static type is relaxed for callers while remaining required at runtime.
+        # The address is assigned by `EventManager.emit()` if not provided explicitly, so the static
+        # type is relaxed for callers while remaining required at runtime.
         address: Address = cast("Address", None)
         """Address of the component or engine that emitted the event."""
     else:
@@ -855,9 +855,9 @@ if TYPE_CHECKING:
 class EventManager(BaseNodeManager):
     """Manages event emission, propagation, and listener dispatch for a single node.
 
-    The manager maintains an internal `Channel` that fan-outs events to subscribers and tracks
-    a list of `_ComponentEventListener` instances that bridge events into component listener
-    methods. Events flow upward through containers and laterally through referencing components.
+    The manager maintains an internal `Channel` that fan-outs events to subscribers and tracks a
+    list of `_ComponentEventListener` instances that bridge events into component listener methods.
+    Events flow upward through containers and laterally through referencing components.
     """
 
     __slots__ = (
@@ -962,14 +962,14 @@ class EventManager(BaseNodeManager):
     def propagate(self, event: Event, *, logging: LoggingConfig | None = None) -> None:
         """Propagate an event through the system tree.
 
-        The event is delivered to all systems in the tree, any systems holding a direct or
-        indirect reference to a system in the tree, and the containing engine. When `logging`
-        is supplied, the event is also written to the appropriate log channel.
+        The event is delivered to all systems in the tree, any systems holding a direct or indirect
+        reference to a system in the tree, and the containing engine. When `logging` is supplied,
+        the event is also written to the appropriate log channel.
 
         Args:
             event: The event to propagate.
-            logging: Optional logging configuration controlling whether and how the event is
-                logged before propagation.
+            logging: Optional logging configuration controlling whether and how the event is logged
+                before propagation.
         """
         if logging is not None:
             if logging.events and not isinstance(event, LogEvent):
@@ -992,8 +992,8 @@ class EventManager(BaseNodeManager):
 
         container = self.__node__.__container__
 
-        # If there is a containing node, defer propagation to it so the event walks the tree
-        # from the root down rather than being dispatched twice.
+        # If there is a containing node, defer propagation to it so the event walks the tree from
+        # the root down rather than being dispatched twice.
         if container is not None:
             container.events.propagate(event)
             return
@@ -1004,8 +1004,8 @@ class EventManager(BaseNodeManager):
         # Handle the event ourselves.
         self.handle(event)
 
-        # Traverse the tree, calling `handle(event)` for every component, including any
-        # components that hold a reference to a component in the tree.
+        # Traverse the tree, calling `handle(event)` for every component, including any components
+        # that hold a reference to a component in the tree.
         for component in self.__node__.get_components(inclusive=False):
             if component.system not in seen:
                 seen.add(component.system)
@@ -1137,8 +1137,8 @@ class _ComponentEventListener:
         """Return `True` if this listener should receive an event of the given class and address.
 
         The decision combines three independent checks, the listener handles the event if any of
-        them passes, the event class is a subclass of the bound event type, and one of the
-        binding's address matchers (local, reference, or address pattern) matches.
+        them passes, the event class is a subclass of the bound event type, and one of the binding's
+        address matchers (local, reference, or address pattern) matches.
         """
         if not lenient_issubclass(event_cls, self._binding.event):
             return False
