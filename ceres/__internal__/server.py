@@ -16,11 +16,20 @@ if TYPE_CHECKING:
 
 
 class CLIServerInfo(DataObject):
+    """JSON-serializable record of a running CLI server's port and authentication token."""
+
     port: int
     token: str
 
 
 class Server(Tasklet):
+    """Run one or two embedded Granian HTTP servers for the Ceres engine.
+
+    A CLI-only server is always started on an ephemeral port with token authentication. If
+    the configuration specifies a public port, a second Granian instance is started for web
+    traffic (optionally with TLS).
+    """
+
     __slots__ = (
         "_engine",
         "_project",
@@ -139,6 +148,8 @@ class Server(Tasklet):
             web.stop()
 
     async def _get_free_port(self) -> int:
+        """Bind an ephemeral TCP socket to discover a free port, then release it."""
+
         def run():
             with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as stream:
                 stream.bind(("", 0))

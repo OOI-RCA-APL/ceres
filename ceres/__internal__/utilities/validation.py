@@ -21,6 +21,16 @@ def create_validated_function(
     config: ConfigDict | None = None,
     validate_return: bool = False,
 ) -> ValidateCallWrapper:
+    """Wrap ``function`` with Pydantic runtime argument validation.
+
+    Args:
+        function: The callable to validate.
+        config: Optional Pydantic ``ConfigDict`` overrides merged with the default config.
+        validate_return: When ``True``, also validate the return value.
+
+    Returns:
+        A ``ValidateCallWrapper`` that validates arguments before calling the original function.
+    """
     config = {
         **_DEFAULT_VALIDATED_FUNCTION_CONFIG,
         **(config or {}),
@@ -49,6 +59,19 @@ def validated_function[T: Callable[..., Any]](
     config: ConfigDict | None = None,
     validate_return: bool = False,
 ) -> T | Callable[[T], T]:
+    """Decorate a function with Pydantic runtime argument validation.
+
+    Can be used as a bare decorator (``@validated_function``) or called with keyword arguments
+    (``@validated_function(validate_return=True)``).
+
+    Args:
+        function: The callable to validate. When ``None``, return a decorator.
+        config: Optional Pydantic ``ConfigDict`` overrides merged with the default config.
+        validate_return: When ``True``, also validate the return value.
+
+    Returns:
+        The validated function, or a decorator that produces one.
+    """
     config = {
         **_DEFAULT_VALIDATED_FUNCTION_CONFIG,
         **(config or {}),
@@ -70,6 +93,24 @@ def get_args_model(
     remove_self: bool = True,
     inner: bool = True,
 ) -> type[BaseModel]:
+    """Generate a Pydantic ``BaseModel`` whose fields mirror a function's parameters.
+
+    Inspect the function's signature and type hints to build a model class suitable for
+    validating the function's arguments.
+
+    Args:
+        function: The callable whose signature to model.
+        model_name: Name for the generated model class. Default to ``<FunctionName>Args``.
+        model_module: Module name to assign to the generated model.
+        model_config: Optional Pydantic ``ConfigDict`` for the model.
+        model_base: Optional base class for the model.
+        remove_self: When ``True``, exclude ``self`` from the model fields.
+        inner: When ``True``, unwrap the function before inspecting it.
+
+    Returns:
+        A dynamically created ``BaseModel`` subclass with fields matching the function's
+        parameters.
+    """
     import inspect
 
     from pydantic import Field, create_model

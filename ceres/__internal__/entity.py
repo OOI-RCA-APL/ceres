@@ -98,6 +98,12 @@ class BaseEntityRow(
     DeclarativeBase,
     kw_only=True,
 ):
+    """Abstract SQLAlchemy declarative base for entity table rows.
+
+    Provide DDL generation helpers for creating tables and indexes, and a ``values`` method
+    that extracts column data as a plain dict.
+    """
+
     __abstract__: ClassVar[bool] = True
     __mapper_args__: ClassVar[Mapping[str, Any]] = {
         "eager_defaults": True,
@@ -116,6 +122,17 @@ class BaseEntityRow(
         indexes: bool = True,
         if_not_exists: bool = True,
     ) -> Iterable[str]:
+        """Yield compiled DDL statements for creating this row's table and indexes.
+
+        Args:
+            dialect: The SQLAlchemy dialect (or engine) to compile against.
+            table: Include the ``CREATE TABLE`` statement when ``True``.
+            indexes: Include ``CREATE INDEX`` statements when ``True``.
+            if_not_exists: Use ``IF NOT EXISTS`` in the generated DDL when ``True``.
+
+        Yields:
+            DDL statement strings ready for execution.
+        """
         if table:
             yield cls.get_table_ddl(dialect, if_not_exists=if_not_exists)
         if indexes:
@@ -130,6 +147,18 @@ class BaseEntityRow(
         temporary: bool = False,
         if_not_exists: bool = True,
     ) -> str:
+        """Compile and return the ``CREATE TABLE`` DDL statement for this row class.
+
+        Args:
+            dialect: The SQLAlchemy dialect (or engine) to compile against.
+            name: Override the table name in the generated DDL, or ``None`` to use the
+                default.
+            temporary: Produce a ``CREATE TEMPORARY TABLE`` statement when ``True``.
+            if_not_exists: Use ``IF NOT EXISTS`` in the generated DDL when ``True``.
+
+        Returns:
+            A single DDL string ending with a trailing semicolon.
+        """
         statement = _compile(dialect, CreateTable(cls.__table__, if_not_exists=if_not_exists))
 
         if name:
@@ -155,6 +184,17 @@ class BaseEntityRow(
         *,
         if_not_exists: bool = True,
     ) -> Iterable[str]:
+        """Yield compiled ``CREATE INDEX`` DDL statements for this row's table indexes.
+
+        Skip indexes whose ``_ddl_if`` dialect constraint does not match the given dialect.
+
+        Args:
+            dialect: The SQLAlchemy dialect (or engine) to compile against.
+            if_not_exists: Use ``IF NOT EXISTS`` in the generated DDL when ``True``.
+
+        Yields:
+            DDL statement strings, one per applicable index, sorted by index name.
+        """
         if isinstance(dialect, Engine | AsyncEngine):
             dialect = dialect.dialect
 
@@ -168,6 +208,7 @@ class BaseEntityRow(
             yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
 
     def values(self) -> dict[str, Any]:
+        """Return this row's column values as a plain dictionary keyed by column name."""
         __dict__ = self.__dict__
         return {column.name: __dict__[column.name] for column in self.__table__.columns}
 
@@ -188,6 +229,15 @@ class BaseEntityRow(
 
 
 def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) -> str:
+    """Compile a SQLAlchemy DDL element into a formatted, semicolon-terminated string.
+
+    Args:
+        dialect: The SQLAlchemy dialect (or engine) to compile against.
+        element: The DDL clause element to compile.
+
+    Returns:
+        A cleaned-up DDL string with normalized indentation and a trailing semicolon.
+    """
     import re
     import textwrap
 
@@ -212,6 +262,8 @@ class BaseEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseFilterArgs, total=False):
+    """TypedDict for keyword arguments accepted by entity filter constructors."""
+
     order: MaybeSequence[OrderT] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
@@ -228,6 +280,12 @@ class BaseEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseFilter):
+    """Base filter for entity queries, supporting ordering, pagination, and boolean composition.
+
+    Subfilters can be combined with ``|`` (OR) and ``&`` (AND) operators. The ``and__`` group
+    is evaluated first, then ``or__``, so ``A & B | C`` matches when (A and B) or C.
+    """
+
     order: MaybeSequence[OrderT] | None = None
     """
     Specify ordering of results by field. Prefix field names with '-' for descending order.
@@ -351,6 +409,14 @@ class BaseEntityFilter[
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
     def matches(self, obj: EntityT) -> bool:
+        """Test whether `obj` satisfies this filter, including all ``and__`` and ``or__`` subfilters.
+
+        Args:
+            obj: The entity to test against this filter.
+
+        Returns:
+            ``True`` if the entity matches.
+        """
         ands: Sequence[Self] = seq(self.and__ or ())
         ors: Sequence[Self] = seq(self.or__ or ())
 
@@ -365,6 +431,14 @@ class BaseEntityFilter[
         return True
 
     def _get_combined_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        """Yield SQL ``WHERE`` clauses combining this filter with its ``and__`` and ``or__`` groups.
+
+        Args:
+            dialect: The database dialect, used to generate dialect-specific expressions.
+
+        Yields:
+            Boolean column expressions to be applied to a query.
+        """
         ands = list(self._get_where(dialect))
 
         if self.and__:
@@ -390,6 +464,7 @@ class BaseEntityFilter[
     def _get_default_order(self) -> MaybeSequence[OrderT]: ...
 
     def _get_order_by(self) -> tuple[SQLColumnExpression[Any], ...]:
+        """Build the ``ORDER BY`` column tuple from this filter's ``order`` (or the default)."""
         order = self.order
         if order is None:
             order = self._get_default_order()
@@ -413,6 +488,22 @@ class BaseEntityFilter[
         ignore_where: bool = False,
         ignore_order: bool = False,
     ) -> StatementT:
+        """Apply this filter's ``WHERE``, ``ORDER BY``, ``LIMIT``, and ``OFFSET`` to `statement`.
+
+        For ``UPDATE`` and ``DELETE`` statements that include ``LIMIT``/``OFFSET`` or
+        ``RETURNING``, a primary-key subquery is used because those statements cannot
+        directly carry ordering and pagination.
+
+        Args:
+            statement: A SQLAlchemy ``SELECT``, ``UPDATE``, or ``DELETE`` statement.
+            dialect: The database dialect, used for dialect-specific SQL generation.
+            always_use_subquery: Force subquery filtering even when it could be avoided.
+            ignore_where: Skip applying ``WHERE`` clauses.
+            ignore_order: Skip applying ``ORDER BY``.
+
+        Returns:
+            The modified statement with filter criteria applied.
+        """
         where = () if ignore_where else tuple(self._get_combined_where(dialect))
         order_by = () if ignore_order else tuple(self._get_order_by())
         limit = self.limit
@@ -440,15 +531,26 @@ class BaseEntityFilter[
 
 
 class BaseEntityCreate(DataObject, abstract=True, slots=True):
+    """Abstract base for entity creation data objects."""
+
     pass
 
 
 class BaseEntityUpdate(TypedDict, total=False):
+    """Base TypedDict for entity update payloads (fields that can be modified)."""
+
     pass
 
 
 @dataclasses.dataclass(init=False, slots=True)
 class EntityNaming:
+    """Derive conventional names (table, route, CLI command, etc.) from an entity's singular name.
+
+    All fields besides ``singular`` are auto-generated from ``singular`` when not explicitly
+    provided. For example, ``EntityNaming("alert")`` produces ``plural="alerts"``,
+    ``table="alerts"``, ``route="alerts"``, and so on.
+    """
+
     singular: str
     plural: str
     container: str
@@ -478,6 +580,8 @@ class EntityNaming:
 
 
 class ResultsIterator[EntityT: BaseEntity]:
+    """Async iterator over entity query results with convenience methods for first/all."""
+
     __slots__ = ("_results",)
 
     def __init__(self, results: AsyncIterator[EntityT]) -> None:
@@ -490,12 +594,14 @@ class ResultsIterator[EntityT: BaseEntity]:
         return await self._results.__anext__()
 
     async def first(self) -> EntityT | None:
+        """Return the next entity, or ``None`` if the iterator is exhausted."""
         try:
             return await self.__anext__()
         except StopAsyncIteration:
             return None
 
     async def all(self) -> list[EntityT]:
+        """Consume the iterator and return all remaining entities as a list."""
         return [result async for result in self]
 
 
@@ -511,6 +617,13 @@ class _BaseStatementExecutor[
     FilterT: BaseEntityFilter[Any, Any, Any],
     AwaitT,
 ](ABC):
+    """Abstract executor that runs a SQL statement against an entity query.
+
+    Support three consumption modes: ``await`` for the default result, async context manager
+    for streaming iteration, and explicit ``first``/``all`` methods. Subclasses define the
+    concrete statement (select, update, or delete) and what ``await`` resolves to.
+    """
+
     __slots__ = (
         "_query",
         "_connection",
@@ -563,12 +676,15 @@ class _BaseStatementExecutor[
                     self._connection = None
 
     def limit(self, limit: int) -> Self:
+        """Return a new executor with a ``LIMIT`` clause set to `limit`."""
         return self._with_query(self._query.limit(limit))
 
     def offset(self, offset: int) -> Self:
+        """Return a new executor with an ``OFFSET`` clause set to `offset`."""
         return self._with_query(self._query.offset(offset))
 
     async def first(self) -> EntityT | None:
+        """Execute the query with a limit of 1 and return the first entity, or ``None``."""
         resolved = self._query._get_resolved_filter()
         if resolved.limit is None or resolved.limit > 1:
             self = self.limit(1)
@@ -578,6 +694,11 @@ class _BaseStatementExecutor[
         return entities[0] if entities else None
 
     async def all(self) -> list[EntityT]:
+        """Execute the query and return all matching entities as a list.
+
+        Use streaming when the result set may be large (above
+        ``_EXECUTOR_STREAM_THRESHOLD``), falling back to eager loading for smaller sets.
+        """
         resolved = self._query._get_resolved_filter()
         database = self._query._get_database()
         statement = await self._get_statement(True)
@@ -615,6 +736,7 @@ class _BaseStatementExecutor[
     ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
 
     def _get_parser(self) -> Callable[[Row], EntityT | None]:
+        """Build a row-to-entity parser function, optionally applying a transform."""
         Entity = self._query._get_entity_class()
         transform = self._query._get_transform()
 
@@ -636,6 +758,7 @@ class _BaseStatementExecutor[
         return parse
 
     async def _parse_rows(self, rows: _Rows) -> list[EntityT]:
+        """Parse a synchronous result set into a list of entities, yielding control periodically."""
         parse = self._get_parser()
         entities: list[EntityT] = []
 
@@ -655,6 +778,7 @@ class _BaseStatementExecutor[
         return entities
 
     async def _parse_async_rows(self, rows: _AsyncRows) -> AsyncIterator[EntityT]:
+        """Async-iterate over a streaming result set, yielding parsed entities."""
         parser = self._get_parser()
 
         count = 0
@@ -675,6 +799,8 @@ class SelectExecutor[
     EntityT: BaseEntity,
     FilterT: BaseEntityFilter[Any, Any, Any],
 ](_BaseStatementExecutor[EntityT, FilterT, list[EntityT]]):
+    """Executor that builds and runs a ``SELECT`` statement, returning entities."""
+
     __slots__ = ()
 
     @override
@@ -706,6 +832,12 @@ class UpdateExecutor[
     FilterT: BaseEntityFilter[Any, Any, Any],
     UpdateT: BaseEntityUpdate,
 ](_BaseStatementExecutor[EntityT, FilterT, int]):
+    """Executor that builds and runs an ``UPDATE`` statement, returning the number of affected rows.
+
+    When consumed as a streaming async context manager, yield the updated entities via a
+    ``RETURNING`` clause.
+    """
+
     __slots__ = ("_assign",)
 
     def __init__(
@@ -770,6 +902,12 @@ class DeleteExecutor[
     EntityT: BaseEntity,
     FilterT: BaseEntityFilter[Any, Any, Any],
 ](_BaseStatementExecutor[EntityT, FilterT, int]):
+    """Executor that builds and runs a ``DELETE`` statement, returning the number of affected rows.
+
+    When consumed as a streaming async context manager, yield the deleted entities via a
+    ``RETURNING`` clause.
+    """
+
     __slots__ = ()
 
     @override
@@ -813,6 +951,12 @@ class BaseEntityQuery[
     UpdateT: BaseEntityUpdate,
     QueryT: EntityQuery[Any, Any, Any],
 ](ABC):
+    """Abstract query builder that provides ``where``, ``select``, ``update``, ``delete``, ``count``,
+    and ``any`` operations for entities.
+
+    Subclasses supply the concrete database, entity class, filter, and transform.
+    """
+
     __slots__ = ()
 
     def where(
@@ -820,6 +964,15 @@ class BaseEntityQuery[
         filter: FilterT | None = None,
         **kwargs: Unpack[BaseEntityFilterArgs],
     ) -> QueryT:
+        """Return a new query narrowed by `filter` and/or keyword filter arguments.
+
+        Args:
+            filter: An optional filter instance to apply.
+            **kwargs: Additional filter keyword arguments merged into the query.
+
+        Returns:
+            A new ``EntityQuery`` with the combined filter criteria.
+        """
         filter = self._get_resolved_filter(filter, kwargs)
         return self._get_query_class()(
             database=self._get_database(),
@@ -829,15 +982,19 @@ class BaseEntityQuery[
         )
 
     def select(self) -> SelectExecutor[EntityT, FilterT]:
+        """Create a ``SelectExecutor`` for this query."""
         return SelectExecutor(query=self.where())
 
     def update(self, assign: UpdateT) -> UpdateExecutor[EntityT, FilterT, UpdateT]:
+        """Create an ``UpdateExecutor`` that assigns the given values to matching entities."""
         return UpdateExecutor(query=self.where(), assign=assign)
 
     def delete(self) -> DeleteExecutor[EntityT, FilterT]:
+        """Create a ``DeleteExecutor`` for this query."""
         return DeleteExecutor(query=self.where())
 
     async def count(self) -> int:
+        """Return the number of entities matching this query's filter."""
         database = self._get_database()
         filter = self._get_resolved_filter()
         statement = select(func.count()).select_from(self._get_row_class())
@@ -853,6 +1010,7 @@ class BaseEntityQuery[
             return results.scalar() or 0
 
     async def any(self) -> bool:
+        """Return ``True`` if at least one entity matches this query's filter."""
         database = self._get_database()
         filter = self._get_resolved_filter()
         statement = select("*").select_from(self._get_row_class())
@@ -903,6 +1061,15 @@ class BaseEntityQuery[
         filter: FilterT | None = None,
         kwargs: Mapping[str, Any] | None = None,
     ) -> FilterT:
+        """Merge `filter`, keyword arguments, base filter, defaults, and hard filter into one.
+
+        Args:
+            filter: An optional filter instance whose set fields override the base.
+            kwargs: Additional keyword arguments to construct a filter from.
+
+        Returns:
+            A fully resolved filter combining all sources.
+        """
         Filter = self._get_filter_class()
         resolved = (
             Filter(**cast("Any", kwargs or {}))
@@ -933,6 +1100,12 @@ class EntityQuery[
         "EntityQuery[EntityT, FilterT, UpdateT]",
     ]
 ):
+    """Concrete, awaitable query that can be used as an async context manager for streaming.
+
+    Awaiting the query returns a ``list`` of matching entities. Using it as an async context
+    manager yields a ``ResultsIterator`` for streamed consumption.
+    """
+
     __slots__ = (
         "_database",
         "_entity_class",
@@ -1043,6 +1216,13 @@ class BaseEntityManager[
         ],
     ],
 ):
+    """Database-backed manager for a specific entity type.
+
+    Combine query building (``where``, ``select``, ``update``, ``delete``, ``count``,
+    ``any``) with entity creation (``create``) and an optional hard filter that restricts
+    all operations to a subset of rows.
+    """
+
     __slots__ = ("_entity_class", "_filtering")
 
     @override
@@ -1087,6 +1267,7 @@ class BaseEntityManager[
         return None
 
     async def _create_transform(self, data: CreateT) -> EntityT:
+        """Convert creation data into a full entity instance. Override for custom transforms."""
         if isinstance(data, self._entity_class):
             return data
 
@@ -1098,6 +1279,16 @@ class BaseEntityManager[
         *,
         upsert: bool = False,
     ) -> EntityT:
+        """Transform `data` into an entity and insert it into the database.
+
+        Args:
+            data: The creation payload.
+            upsert: When ``True``, perform an upsert (``ON CONFLICT DO UPDATE``) instead of
+                a plain insert.
+
+        Returns:
+            The created (or upserted) entity.
+        """
         result = await self._create_transform(data)
         await self._insert(result, upsert=upsert)
         return result
@@ -1108,6 +1299,16 @@ class BaseEntityManager[
         *,
         upsert: bool = False,
     ) -> RowT:
+        """Insert an entity's column values into the database.
+
+        Args:
+            data: The entity to persist.
+            upsert: When ``True``, use dialect-specific ``ON CONFLICT DO UPDATE`` to update
+                non-primary-key columns if the row already exists.
+
+        Returns:
+            The constructed row object.
+        """
         Row = self._get_row_class()
         values = data.__entity_to_column_values__()
         row = Row(**values)
@@ -1140,6 +1341,8 @@ class BaseEntityManager[
 
 
 class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
+    """Abstract base for all entity types, associating a row class, filter, and manager."""
+
     Manager = BaseEntityManager
     Row = BaseEntityRow
     Create = BaseEntityCreate
@@ -1157,6 +1360,7 @@ class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
         return tuple(field for field in cls.__data_object_fields__ if field in columns)
 
     def __entity_to_column_values__(self) -> dict[str, Any]:
+        """Return a dict mapping column names to their values for this entity instance."""
         return {field: getattr(self, field) for field in self.__entity_columns__}
 
     @abstractmethod
@@ -1177,6 +1381,12 @@ _REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, tuple[type[Any], bool]] = {
 
 
 class ConcreteEntity[TRow: BaseEntityRow](BaseEntity, abstract=True, slots=True):
+    """Abstract entity that auto-resolves its ``Row`` class from its generic type parameter.
+
+    Direct subclasses are validated at class creation time to ensure all required class
+    attributes (``__entity_naming__``, ``Manager``, ``Filter``, etc.) are defined.
+    """
+
     __entity_naming__: ClassVar[EntityNaming]
 
     @cached_class_property
@@ -1234,6 +1444,8 @@ class ConcreteEntity[TRow: BaseEntityRow](BaseEntity, abstract=True, slots=True)
 
 
 class BaseUUIDEntityRow(BaseEntityRow):
+    """Abstract row that adds a UUID primary key column (``id``)."""
+
     __abstract__: ClassVar[bool] = True
 
     id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid7)
@@ -1259,6 +1471,8 @@ class BaseUUIDEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    """TypedDict adding an ``id`` keyword argument for UUID-based entity filters."""
+
     id: MaybeSequence[UUID] | None
 
 
@@ -1267,6 +1481,8 @@ class BaseUUIDEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilter[EntityT, FieldT, OrderT]):
+    """Entity filter that adds UUID ``id`` matching."""
+
     id: MaybeSequence[UUID] | None = None
     """Filter by `id` being equal to one or more given UUIDs."""
 
@@ -1295,18 +1511,26 @@ class BaseUUIDEntityFilter[
 
 
 class BaseUUIDEntityCreate(BaseEntityCreate, abstract=True, slots=True):
+    """Creation data for UUID-keyed entities, auto-generating the ``id`` field."""
+
     id: UUID = Field(default_factory=uuid7)
 
 
 class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
+    """Update payload for UUID-keyed entities (no additional mutable fields by default)."""
+
     pass
 
 
 class BaseUUIDEntity(BaseEntity, BaseUUIDEntityCreate, abstract=True, slots=True):
+    """Abstract entity with a UUID primary key (``id``)."""
+
     pass
 
 
 class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
+    """Abstract row that adds an indexed ``address`` column."""
+
     __abstract__: ClassVar[bool] = True
 
     address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
@@ -1332,6 +1556,8 @@ class BaseAddressEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    """TypedDict adding ``address`` and ``root`` keyword arguments for address-based filters."""
+
     root: Address
     address: AddressSelector | str | None
 
@@ -1341,6 +1567,8 @@ class BaseAddressEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilter[ItemT, FieldT, OrderT]):
+    """Entity filter that adds ``address`` selector matching relative to a ``root``."""
+
     address: AddressSelector | None = None
     """Filter by `address` matching one or more address selectors."""
     root: Address = Address.ROOT
@@ -1372,18 +1600,26 @@ class BaseAddressEntityFilter[
 
 
 class BaseAddressEntityCreate(BaseEntityCreate, abstract=True, slots=True):
+    """Creation data for address-keyed entities."""
+
     address: Address
 
 
 class BaseAddressEntityUpdate(BaseEntityUpdate, total=False):
+    """Update payload for address-keyed entities."""
+
     address: Address
 
 
 class BaseAddressEntity(BaseEntity, BaseAddressEntityCreate, abstract=True, slots=True):
+    """Abstract entity with an ``address`` field."""
+
     pass
 
 
 class BaseTimestampEntityRow(BaseEntityRow):
+    """Abstract row that adds an indexed ``timestamp`` column defaulting to the current UTC time."""
+
     __abstract__: ClassVar[bool] = True
 
     timestamp: Mapped[DateTime] = mapped_column(
@@ -1414,6 +1650,8 @@ class BaseTimestampEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    """TypedDict adding timestamp, time-range, and time-of-day keyword arguments for filters."""
+
     timestamp: MaybeSequence[DateTime] | None
     after: DateTime | None
     before: DateTime | None
@@ -1429,6 +1667,8 @@ class BaseTimestampEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilter[EntityT, FieldT, OrderT]):
+    """Entity filter with time-range, age-based, and time-of-day matching on ``timestamp``."""
+
     timestamp: MaybeSequence[DateTime] | None = None
     """Filter by `timestamp` being exactly equal to one or more given datetimes."""
     after: DateTime | None = None
@@ -1613,6 +1853,15 @@ class BaseTimestampEntityFilter[
         return "timestamp"  # type: ignore
 
     def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:
+        """Compute the effective start and end times from the combined time-range filter fields.
+
+        Args:
+            now: The current time, used to resolve age-based and relative timespan bounds.
+
+        Returns:
+            A ``(start, end)`` tuple. Either value may be ``None`` if no lower or upper
+            bound can be determined from the filter's fields.
+        """
         starts: list[datetime] = []
         ends: list[datetime] = []
 
@@ -1642,14 +1891,20 @@ class BaseTimestampEntityFilter[
 
 
 class BaseTimestampEntityCreate(BaseEntityCreate, abstract=True, slots=True):
+    """Creation data for timestamp entities, defaulting ``timestamp`` to the current UTC time."""
+
     timestamp: DateTime = Field(default_factory=utc)
 
 
 class BaseTimestampEntityUpdate(BaseEntityUpdate, total=False):
+    """Update payload for timestamp entities."""
+
     timestamp: DateTime
 
 
 class BaseTimestampEntity(BaseEntity, BaseTimestampEntityCreate, abstract=True, slots=True):
+    """Abstract entity with a ``timestamp`` field."""
+
     pass
 
 
@@ -1658,6 +1913,8 @@ class EntityOutputChannel[
     FilterT: BaseEntityFilter[Any, Any, Any],
     FilterArgsT: BaseEntityFilterArgs[Any, Any],
 ](OutputChannel[EntityT], ABC):
+    """Output channel that can be filtered using entity filter objects or keyword arguments."""
+
     __slots__ = ()
 
     def __init__(self, source: OutputChannel[EntityT], /) -> None:
@@ -1695,6 +1952,18 @@ class EntityOutputChannel[
 
 
 def get_entity_manager(source: Database | Node, entity: type[Entity]) -> BaseEntityManager:
+    """Look up the entity manager for `entity` on `source` by its conventional attribute name.
+
+    Args:
+        source: A ``Database`` or ``Node`` instance that owns the manager.
+        entity: The entity type whose naming provides the manager attribute name.
+
+    Returns:
+        The ``BaseEntityManager`` instance for the given entity type.
+
+    Raises:
+        ValueError: If `source` has no attribute matching the entity's manager name.
+    """
     naming = entity.__entity_naming__
     manager = getattr(source, naming.manager, None)
     if manager is None:

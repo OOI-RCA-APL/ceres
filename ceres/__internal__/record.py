@@ -49,6 +49,8 @@ class BaseRecordRow(
     BaseUUIDEntityRow,
     kw_only=True,
 ):
+    """Abstract SQLAlchemy row combining UUID, address, and timestamp columns for records."""
+
     __abstract__: ClassVar[bool] = True
 
 
@@ -76,6 +78,8 @@ class BaseRecordFilterArgs[
     BaseUUIDEntityFilterArgs[FieldT, OrderT],
     total=False,
 ):
+    """TypedDict combining UUID, address, timestamp, and subsample filter keyword arguments."""
+
     timestamp: MaybeSequence[DateTime] | None
     before: DateTime | None
     after: DateTime | None
@@ -100,6 +104,8 @@ class BaseRecordFilter[
     BaseAddressEntityFilter[RecordT, FieldT, OrderT],
     BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
 ):
+    """Filter for record queries, adding time-based subsampling on top of the standard filters."""
+
     subsample_every: PositiveTimeDelta | None = None
     """
     Subsample results, selecting at most one record per this interval of time.
@@ -351,6 +357,8 @@ class BaseRecordCreate(
     abstract=True,
     slots=True,
 ):
+    """Base creation data for records, defaulting `timestamp` to the current UTC time."""
+
     timestamp: DateTime = Field(default_factory=utc)
 
 
@@ -360,6 +368,8 @@ class BaseRecordUpdate(
     BaseUUIDEntityUpdate,
     total=False,
 ):
+    """TypedDict of mutable record fields available for update operations."""
+
     timestamp: DateTime
 
 
@@ -372,4 +382,6 @@ class BaseRecord(
     abstract=True,
     slots=True,
 ):
+    """Abstract base for record entities that combine a UUID, address, and timestamp."""
+
     pass

@@ -33,6 +33,11 @@ async def get_workspace(
     user: RequireViewer,
     id: UUID,
 ) -> Workspace:
+    """Return a single workspace by ID. Non-admin callers only see workspaces they can view.
+
+    Raises:
+        Failure: If the workspace does not exist or the caller cannot view it.
+    """
     scope = WorkspaceFilter(id=id)
     if user is not None and role < UserRole.ADMIN:
         scope &= WorkspaceFilter(viewable_by=user.id)
@@ -47,6 +52,9 @@ async def get_workspaces(
     user: RequireViewer,
     filter: Annotated[WorkspaceFilter, Query(), Limit(1000)],
 ) -> list[Workspace]:
+    """Return workspaces matching the given filter. Non-admin callers only see workspaces they
+    can view, capped at 1000 results.
+    """
     scope = WorkspaceFilter.model_validate(filter, from_attributes=True)
     if user is not None and role < UserRole.ADMIN:
         scope &= WorkspaceFilter(viewable_by=user.id)
@@ -60,6 +68,7 @@ async def get_workspaces_for_user(
     user_id: UUID,
     filter: Annotated[WorkspaceFilter, Query()],
 ) -> list[Workspace]:
+    """Return workspaces that a specific user has joined, filtered by the given criteria."""
     return await engine.workspaces.where(joined_by=user_id, and__=filter)
 
 
@@ -69,6 +78,7 @@ async def create_workspace(
     user: RequireViewer,
     workspace: WorkspaceCreate,
 ) -> Workspace:
+    """Create a new workspace and grant the creating user a manager membership in it."""
     workspace = await engine.workspaces.create(workspace)
     if user is not None:
         await engine.workspace_memberships.create(
@@ -90,6 +100,12 @@ async def update_workspace(
     id: UUID,
     update: WorkspaceUpdate,
 ) -> Workspace:
+    """Partially update a workspace. Changing name or viewership/managership settings requires
+    manager-level access. Other updates require editor-level access.
+
+    Raises:
+        Failure: If the caller lacks permission or the workspace does not exist.
+    """
     if user is not None and role < UserRole.ADMIN:
         if (
             "name" in update
@@ -117,6 +133,11 @@ async def delete_workspace(
     user: RequireViewer,
     id: UUID,
 ) -> Workspace:
+    """Delete a workspace by ID. Only workspace managers and admins can delete workspaces.
+
+    Raises:
+        Failure: If the caller lacks permission or the workspace does not exist.
+    """
     if user is not None and role < UserRole.ADMIN:
         if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
             raise Failure(NotFoundError)

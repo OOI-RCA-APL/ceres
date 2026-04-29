@@ -8,12 +8,15 @@ from ceres.user import User, UserCreate
 
 
 class PromptedUserCreate(UserCreate):
+    """Variant of `UserCreate` that interactively prompts for the password when not provided."""
+
     if not TYPE_CHECKING:
         password: Password | PasswordHash | None = None
 
     @field_validator("password", mode="before")
     @classmethod
     def _validate_password(cls, value: Any) -> Any:
+        """Prompt the user for a password if none was provided."""
         if value is None:
             return get_input("Password", Password | PasswordHash, hidden=True)
 
@@ -21,8 +24,11 @@ class PromptedUserCreate(UserCreate):
 
 
 class CreateCommand(CLICommand, PromptedUserCreate.Model):
+    """Create a new user, prompting for a password if not supplied."""
+
     @override
     async def __run__(self) -> None:
+        """Read user creation data from command fields and insert the user into the database."""
         create = self.read(PromptedUserCreate)
         async with self.use_database() as database:
             await self.put(await database.users.create(create))

@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class DatabaseSource(Protocol):
+    """Protocol for objects that can provide a ``Database`` and default filter values."""
+
     __slots__ = ()
 
     @property
@@ -25,6 +27,8 @@ class DatabaseSource(Protocol):
 
 @runtime_checkable
 class NodeSource(DatabaseSource, Protocol):
+    """Protocol for objects that can provide a ``Node`` in addition to a ``Database``."""
+
     __slots__ = ()
 
     @property
@@ -33,6 +37,8 @@ class NodeSource(DatabaseSource, Protocol):
 
 @runtime_checkable
 class ComponentSource(NodeSource, Protocol):
+    """Protocol for objects that can provide a ``Component`` and its ``ComponentSystem``."""
+
     __slots__ = ()
 
     @property

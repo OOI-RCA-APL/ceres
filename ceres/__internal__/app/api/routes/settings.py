@@ -17,6 +17,11 @@ async def get_setting(
     user_id: UUID,
     name: Name,
 ) -> Setting:
+    """Return a single setting for the given user and setting name.
+
+    Raises:
+        Failure: If the caller lacks permission or the setting does not exist.
+    """
     if role < UserRole.ADMIN and (user is None or user.id != user_id):
         raise Failure(NotPermittedError)
 
@@ -34,6 +39,11 @@ async def put_setting(
     user: CurrentUser,
     setting: SettingCreate,
 ) -> Setting:
+    """Create or replace a user setting via upsert.
+
+    Raises:
+        Failure: If the caller lacks permission to modify the target user's settings.
+    """
     if role < UserRole.ADMIN and (user is None or user.id != setting.user_id):
         raise Failure(NotPermittedError())
 

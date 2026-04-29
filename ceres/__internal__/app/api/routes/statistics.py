@@ -13,4 +13,5 @@ async def get_statistics(
     engine: CurrentEngine,
     filter: Annotated[StatisticsFilter, Query()],
 ) -> list[Statistics]:
+    """Return statistics matching the given filter."""
     return await engine.statistics.get_all(filter)

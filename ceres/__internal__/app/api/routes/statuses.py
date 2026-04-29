@@ -13,6 +13,11 @@ router = Router(prefix="/statuses", tags=["statuses"])
 
 @router.get("/{address}?")
 async def get_status(engine: CurrentEngine, address: Address | None = None) -> Status:
+    """Return the status of a single component identified by its address.
+
+    Raises:
+        Failure: If no component matches the given address.
+    """
     component = engine.get_node(address)
     if component is None:
         raise Failure(NotFoundError)
@@ -25,6 +30,7 @@ async def get_statuses(
     engine: CurrentEngine,
     filter: Annotated[ComponentFilter, Query()],
 ) -> list[Status]:
+    """Return the statuses of all components matching the given filter."""
     return await engine.get_statuses(filter)
 
 
@@ -34,6 +40,8 @@ async def stream_statuses(
     engine: CurrentEngine,
     filter: Annotated[ComponentFilter, Query()],
 ) -> None:
+    """Stream component statuses over a WebSocket, pushing updates as they occur."""
+
     async def write() -> None:
         async for statuses in engine.stream_statuses(filter):
             await socket.send(statuses)

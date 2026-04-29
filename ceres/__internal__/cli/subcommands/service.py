@@ -22,6 +22,7 @@ class GenerateCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Generate the service definition and write it to a file or stdout."""
         project = await self.use_loaded_project()
         service = _get_service(project)
         definition = service.generate()
@@ -40,6 +41,7 @@ class StartCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Create or update the service definition, then start the service."""
         project = await self.use_loaded_project()
         service = _get_service(project)
         self.write(f"Starting service {service.name!r} at {service.location!r}...")
@@ -54,6 +56,7 @@ class StopCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Stop the running service and delete its definition file."""
         project = await self.use_loaded_project()
         service = _get_service(project)
         self.write(f"Stopping service {service.name!r} at {service.location!r}...")
@@ -68,6 +71,7 @@ class StatusCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Display the service name, user, state, and location in a table."""
         project = await self.use_loaded_project()
         service = _get_service(project)
 
@@ -85,6 +89,17 @@ class StatusCommand(CLICommand):
 
 
 def _get_service(project: LoadedProject) -> Service:
+    """Return the platform-appropriate service manager for the given project.
+
+    Args:
+        project: The loaded project to manage as a service.
+
+    Returns:
+        A `SystemDService` on Linux or a `LaunchDService` on macOS.
+
+    Raises:
+        NotImplementedError: If the current platform is not Linux or macOS.
+    """
     if LINUX:
         from ceres.__internal__.cli.service import SystemDService
 

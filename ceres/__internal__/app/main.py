@@ -43,27 +43,45 @@ router = Router()
 
 @router.get("/favicon.ico")
 def get_favicon_ico(engine: CurrentEngine) -> FileResponse:
+    """Serve the favicon in ICO format."""
     return _get_favicon_response(engine, ".ico", "image/x-icon")
 
 
 @router.get("/favicon.png")
 def get_favicon_png(engine: CurrentEngine) -> FileResponse:
+    """Serve the favicon in PNG format."""
     return _get_favicon_response(engine, ".png", "image/png")
 
 
 @router.get("/favicon.svg")
 def get_favicon_svg(engine: CurrentEngine) -> FileResponse:
+    """Serve the favicon in SVG format."""
     return _get_favicon_response(engine, ".svg", "image/svg+xml")
 
 
 @final
 class App(FastAPI):
+    """The main Ceres FastAPI application.
+
+    Configure middleware (compression, CORS, authentication, logging, error handling), register
+    API and console routes, and hold a reference to the engine.
+    """
+
     def __init__(
         self,
         engine: Engine,
         config: ServerConfig | None = None,
         cli_token: str | None = None,
     ) -> None:
+        """Create the app with the given engine, optional server config, and optional CLI token.
+
+        Args:
+            engine: The Ceres engine powering data access and business logic.
+            config: Server configuration override. Default to `engine.config.server` when
+                ``None``.
+            cli_token: When set, enable CLI-only mode and require this token in the
+                Authorization header. Console routes are not mounted in CLI mode.
+        """
         self._cli_token = cli_token
 
         if config is None:
@@ -137,14 +155,17 @@ class App(FastAPI):
 
     @property
     def engine(self) -> Engine:
+        """Return the engine that backs this app."""
         return self._engine
 
     @property
     def cli(self) -> bool:
+        """Return whether the app is running in CLI mode."""
         return self._cli_token is not None
 
     @property
     def cli_token(self) -> str | None:
+        """Return the CLI authentication token, or ``None`` when not in CLI mode."""
         return self._cli_token
 
     async def _http_exception_handler(
@@ -152,6 +173,7 @@ class App(FastAPI):
         request: HTTPConnection,
         exception: HTTPException,
     ) -> Response:
+        """Convert Starlette `HTTPException` instances into a JSON error response."""
         error = simplify(HTTPError(status=exception.status_code))
         return JSONResponse(simplify(error), exception.status_code)
 
@@ -160,12 +182,21 @@ class App(FastAPI):
         request: Request,
         exception: RequestValidationError,
     ) -> Response:
+        """Convert FastAPI request validation errors into a structured JSON response."""
         error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
         return JSONResponse(simplify(error), HTTP_422_UNPROCESSABLE_CONTENT)
 
 
 class LoggingMiddleware:
+    """ASGI middleware that logs HTTP and WebSocket lifecycle events through the engine logger."""
+
     def __init__(self, app: ASGI3Application, engine: Engine) -> None:
+        """Wrap the inner ASGI app with request/response logging.
+
+        Args:
+            app: The next ASGI application in the middleware stack.
+            engine: The engine whose logger to write to.
+        """
         self.app = app
         self.engine = engine
 
@@ -175,6 +206,7 @@ class LoggingMiddleware:
         receive: ASGIReceiveCallable,
         send: ASGISendCallable,
     ) -> None:
+        """Intercept ASGI receive and send events to log connection details and durations."""
         from http.client import responses
 
         connected_at: datetime | None = None
@@ -245,7 +277,14 @@ class LoggingMiddleware:
 
 
 class ScopeModifyMiddleware:
+    """ASGI middleware that patches the ASGI scope to work around known middleware conflicts."""
+
     def __init__(self, app: ASGI3Application) -> None:
+        """Wrap the inner ASGI app with scope patching.
+
+        Args:
+            app: The next ASGI application in the middleware stack.
+        """
         self.app = app
 
     async def __call__(
@@ -254,6 +293,7 @@ class ScopeModifyMiddleware:
         receive: ASGIReceiveCallable,
         send: ASGISendCallable,
     ) -> None:
+        """Remove the `http.response.pathsend` extension to avoid conflicts with compression."""
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
@@ -268,7 +308,15 @@ class ScopeModifyMiddleware:
 
 
 class CLIAuthMiddleware:
+    """ASGI middleware that require a matching CLI token in the Authorization header."""
+
     def __init__(self, app: ASGI3Application, cli_token: str) -> None:
+        """Wrap the inner ASGI app with CLI token authentication.
+
+        Args:
+            app: The next ASGI application in the middleware stack.
+            cli_token: The expected value of the Authorization header.
+        """
         self.app = app
         self.cli_token = cli_token
 
@@ -278,6 +326,11 @@ class CLIAuthMiddleware:
         receive: ASGIReceiveCallable,
         send: ASGISendCallable,
     ) -> None:
+        """Reject requests whose Authorization header does not match the CLI token.
+
+        Raises:
+            Failure: If the Authorization header is missing or does not match.
+        """
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
 
@@ -289,7 +342,15 @@ class CLIAuthMiddleware:
 
 
 class ErrorMiddleware:
+    """ASGI middleware that catch `Failure` exceptions and send structured JSON error responses."""
+
     def __init__(self, app: ASGI3Application, engine: Engine) -> None:
+        """Wrap the inner ASGI app with error handling.
+
+        Args:
+            app: The next ASGI application in the middleware stack.
+            engine: The engine whose logger to write to on server errors.
+        """
         self.app = app
         self.engine = engine
 
@@ -299,6 +360,7 @@ class ErrorMiddleware:
         receive: ASGIReceiveCallable,
         send: ASGISendCallable,
     ) -> None:
+        """Run the inner app and convert `Failure` exceptions into JSON error responses."""
         try:
             await self.app(scope, receive, send)
         except Failure as failure:
@@ -328,6 +390,16 @@ def _get_favicon_response(
     suffix: str,
     media_type: str,
 ) -> FileResponse:
+    """Return a `FileResponse` for the favicon with the given suffix and media type.
+
+    Use the custom favicon from the console config when it matches the requested suffix,
+    otherwise fall back to the bundled default.
+
+    Args:
+        engine: The current engine instance.
+        suffix: The file extension to serve (e.g. `.ico`, `.png`, `.svg`).
+        media_type: The MIME type for the response.
+    """
     if engine.config.console.favicon is None or engine.config.console.favicon.suffix != suffix:
         path = Path(__file__).parent / ("../../static/console/favicon" + suffix)
     else:

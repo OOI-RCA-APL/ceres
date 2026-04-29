@@ -68,6 +68,7 @@ class RunCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Load the configuration and start the engine, optionally in watch mode."""
         config_path = self.use_config_path()
         await _run(
             self.addresses,
@@ -83,6 +84,7 @@ class CheckCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Load and validate the configuration with all checks enabled."""
         from ceres.config import ConfigCheckType
 
         await self.use_config(checks=ConfigCheckType.all())
@@ -96,6 +98,7 @@ class ReloadCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Send a reload request to the running engine via the CLI client."""
         client = await self.use_client()
         await client.post("/reload")
 
@@ -112,6 +115,7 @@ class StatusCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Query and display engine and component statuses in a table."""
         if self.addresses:
             addresses = self.addresses
         else:
@@ -185,6 +189,7 @@ class StartCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Send a start request to the running engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
@@ -201,6 +206,7 @@ class StopCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Send a stop request to the running engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
@@ -217,6 +223,7 @@ class EnableCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Enable components via the running engine, or directly in the database if stopped."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
 
@@ -240,6 +247,7 @@ class DisableCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Disable components via the running engine, or directly in the database if stopped."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
 
@@ -263,6 +271,7 @@ class UpCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Send a combined start-and-enable request to the engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
@@ -279,6 +288,7 @@ class DownCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Send a combined stop-and-disable request to the engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
@@ -286,6 +296,12 @@ class DownCommand(CLICommand):
 
 
 def _show_validation_error(exception: ValidationError, color: bool | None = None) -> None:
+    """Format and print validation errors to stderr, then exit with status 1.
+
+    Args:
+        exception: The Pydantic validation error to display.
+        color: Whether to enable colorized output. None means auto-detect.
+    """
     write("Errors:")
 
     for error in exception.errors():
@@ -308,6 +324,8 @@ def _show_validation_error(exception: ValidationError, color: bool | None = None
 
 
 class BaseMainCommand(BaseSettings, CLICommandGroup):
+    """Base class for the top-level CLI command that dispatches to subcommands."""
+
     model_config = SettingsConfigDict(
         cli_prog_name="ceres",
         case_sensitive=True,
@@ -336,12 +354,22 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
     down: CliSubCommand[DownCommand]
 
     def __init__(self, args: Sequence[str]) -> None:
+        """Initialize the command by parsing the provided CLI arguments.
+
+        Args:
+            args: The command-line arguments to parse.
+        """
         super().__init__(
             _cli_parse_args=list(args),
             _cli_settings_source=MainCliSettingsSource(type(self), args),
         )
 
     async def execute(self) -> int:
+        """Run the parsed command and return an integer exit code.
+
+        Returns:
+            0 on success, 1 on failure or unhandled error.
+        """
         try:
             await self.__run__()
             return 0
@@ -358,6 +386,7 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
 
     @override
     async def __run__(self) -> None:
+        """Print the version if requested, otherwise delegate to the active subcommand."""
         if self.version:
             from ceres import __version__
 
@@ -368,6 +397,8 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
 
 
 class MainCliSettingsSource(CliSettingsSource):
+    """Custom CLI settings source that adjusts how parsed argument lists are merged."""
+
     @override
     def _merge_parsed_list(self, parsed_list: list[str], field_name: str) -> str:
         # Work around issue where Pydantic Settings will pass an array with one or more dict
@@ -383,6 +414,12 @@ class MainCliSettingsSource(CliSettingsSource):
 
     @override
     def __init__(self, settings_cls: type[BaseSettings], args: Sequence[str]) -> None:
+        """Initialize the settings source with the given settings class and CLI arguments.
+
+        Args:
+            settings_cls: The Pydantic settings class to parse arguments for.
+            args: The raw CLI arguments to parse.
+        """
         super().__init__(settings_cls, cli_parse_args=list(args))
 
 
@@ -403,10 +440,28 @@ with __lazy_imports__(__name__):
 
 
 def main(args: Sequence[str] | None = None) -> int:
+    """Serve as the public entry point for the Ceres CLI.
+
+    Args:
+        args: CLI arguments to parse. Default to `sys.argv[1:]` when None.
+
+    Returns:
+        An integer exit code.
+    """
     return _main(args)
 
 
 def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
+    """Parse CLI arguments, build the appropriate command hierarchy, and execute it.
+
+    Args:
+        args: CLI arguments to parse. Default to `sys.argv[1:]` when None.
+        watching: True when this process was spawned by a watch-mode parent, which suppresses
+            re-entering watch mode.
+
+    Returns:
+        An integer exit code.
+    """
     if args is None:
         args = sys.argv[1:]
 
@@ -474,6 +529,16 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
 
 
 async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch: bool) -> None:
+    """Load and run the engine, optionally restarting on file changes when watch mode is enabled.
+
+    Args:
+        addresses: Component address selectors to start on launch.
+        config_path: Path to the Ceres configuration file.
+        watch: Whether to run in watch mode, restarting on source changes.
+
+    Raises:
+        CLICommandFailed: If the engine fails to load or start.
+    """
     address = AddressSelector(addresses) if addresses else None
 
     try:
@@ -521,6 +586,13 @@ async def _run_watch(
     *,
     config_path: Path,
 ) -> None:
+    """Watch for Python and config file changes, restarting the engine process on each change.
+
+    Args:
+        address: Optional address selector constraining which components to start.
+        config_path: Path to the Ceres configuration file.
+    """
+
     async def main() -> None:
         import importlib.util
 
@@ -592,6 +664,11 @@ async def _run_watch(
 
 
 def _set_current_process_name(name: str) -> None:
+    """Attempt to set the OS-visible process name using `setproctitle`, ignoring failures.
+
+    Args:
+        name: The desired process name.
+    """
     try:
         from setproctitle import setproctitle
 
@@ -605,6 +682,16 @@ async def _set_enabled(
     address: AddressSelector,
     enabled: bool,
 ) -> EnableResult | DisableResult:
+    """Toggle the enabled state of components matching the given address directly in the database.
+
+    Args:
+        database: The database connection to use.
+        address: Selector matching the components to update.
+        enabled: True to enable, False to disable.
+
+    Returns:
+        An `EnableResult` or `DisableResult` listing the affected component addresses.
+    """
     from ceres.variable import InternalVariableName, Variable
 
     manager = Variable.Manager(database)
@@ -623,6 +710,14 @@ async def _set_enabled(
 
 
 async def _get_enabled(database: Database) -> list[Address]:
+    """Return a sorted list of addresses for all currently enabled components.
+
+    Args:
+        database: The database connection to query.
+
+    Returns:
+        A sorted list of component addresses that have the enabled variable set to True.
+    """
     from ceres.variable import InternalVariableName, Variable
 
     manager = Variable.Manager(database)

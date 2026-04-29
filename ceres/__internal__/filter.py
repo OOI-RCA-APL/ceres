@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 
 class MatchMode(Enum):
+    """Enumerate the supported string matching strategies for filter comparisons."""
+
     EQUALS = 0
     CONTAINS = 1
     PREFIX = 2
@@ -20,16 +22,38 @@ class MatchMode(Enum):
 
 
 class BaseFilterArgs(TypedDict, total=False):
+    """Base TypedDict for keyword arguments accepted by filter constructors."""
+
     pass
 
 
 class BaseFilter(DataModel):
+    """Immutable base class for all filter models, providing value and string matching helpers."""
+
     model_config = ConfigDict(frozen=True)
 
     def with_overrides(self, overrides: Self | None) -> Self:
+        """Return a copy of this filter with fields from `overrides` replacing set fields.
+
+        Args:
+            overrides: Filter whose explicitly-set fields take priority over this one's, or
+                ``None`` to return this filter unchanged.
+
+        Returns:
+            A new filter with merged field values.
+        """
         return replacing(self, overrides)
 
     def with_defaults(self, defaults: Self | None) -> Self:
+        """Return a copy of this filter, filling unset fields from `defaults`.
+
+        Args:
+            defaults: Filter whose explicitly-set fields fill in for unset fields in this
+                filter, or ``None`` to return this filter unchanged.
+
+        Returns:
+            A new filter with merged field values.
+        """
         return defaulting(self, defaults)
 
     @classmethod
@@ -38,6 +62,15 @@ class BaseFilter(DataModel):
         value: T,
         possibilities: MaybeSequence[T] | None = None,
     ) -> bool:
+        """Check whether `value` is present in `possibilities`.
+
+        Args:
+            value: The value to test.
+            possibilities: One or more allowed values, or ``None`` to match unconditionally.
+
+        Returns:
+            ``True`` if `possibilities` is ``None`` or `value` appears in the sequence.
+        """
         if possibilities is None:
             return True
 
@@ -52,6 +85,21 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> bool:
+        """Check whether `value` matches any of `possibilities` using the given match mode.
+
+        Args:
+            value: The string or bytes value to test, or ``None``.
+            possibilities: One or more patterns to match against, or ``None`` to match
+                unconditionally.
+            mode: The matching strategy (equals, contains, prefix, or suffix).
+            insensitive: Perform case-insensitive comparison when ``True``.
+
+        Returns:
+            ``True`` if `possibilities` is ``None`` or `value` matches at least one pattern.
+
+        Raises:
+            ValueError: If `mode` is not a recognized ``MatchMode``.
+        """
         if possibilities is None:
             return True
 
@@ -86,6 +134,7 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> bool:
+        """Match `value` against `possibilities` using exact equality."""
         return cls._match_string(value, possibilities, MatchMode.EQUALS, insensitive=insensitive)
 
     @classmethod
@@ -96,6 +145,7 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> bool:
+        """Match `value` against `possibilities` using substring containment."""
         return cls._match_string(value, possibilities, MatchMode.CONTAINS, insensitive=insensitive)
 
     @classmethod
@@ -106,6 +156,7 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> bool:
+        """Match `value` against `possibilities` using prefix comparison."""
         return cls._match_string(value, possibilities, MatchMode.PREFIX, insensitive=insensitive)
 
     @classmethod
@@ -116,6 +167,7 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> bool:
+        """Match `value` against `possibilities` using suffix comparison."""
         return cls._match_string(value, possibilities, MatchMode.SUFFIX, insensitive=insensitive)
 
     @classmethod
@@ -124,6 +176,15 @@ class BaseFilter(DataModel):
         expression: SQLColumnExpression[T],
         value: MaybeSequence[T],
     ) -> SQLColumnExpression[bool]:
+        """Build a SQL ``IN`` clause that matches `expression` against `value`.
+
+        Args:
+            expression: A SQLAlchemy column expression to compare.
+            value: One or more values to include in the ``IN`` clause.
+
+        Returns:
+            A boolean SQL expression suitable for use in a ``WHERE`` clause.
+        """
         return expression.in_(seq(value))
 
     @classmethod
@@ -135,6 +196,23 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> SQLColumnExpression[bool]:
+        """Build a SQL expression that matches `expression` against string patterns.
+
+        Escape ``%`` and ``_`` wildcards in the provided values so they are treated as
+        literals when used in ``LIKE`` / ``ILIKE`` clauses.
+
+        Args:
+            expression: A SQLAlchemy column expression representing the column to compare.
+            value: One or more string or bytes patterns to match against.
+            mode: The matching strategy (equals, contains, prefix, or suffix).
+            insensitive: Use ``ILIKE`` instead of ``LIKE`` when ``True``.
+
+        Returns:
+            A boolean SQL expression suitable for use in a ``WHERE`` clause.
+
+        Raises:
+            ValueError: If `mode` is not a recognized ``MatchMode``.
+        """
         import sqlalchemy
 
         values = seq(value)
@@ -178,6 +256,7 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> SQLColumnExpression[bool]:
+        """Build a SQL expression that matches `expression` using exact equality."""
         return cls._sql_match_string(expression, value, MatchMode.EQUALS, insensitive=insensitive)
 
     @classmethod
@@ -188,6 +267,7 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> SQLColumnExpression[bool]:
+        """Build a SQL expression that matches `expression` using substring containment."""
         return cls._sql_match_string(expression, value, MatchMode.CONTAINS, insensitive=insensitive)
 
     @classmethod
@@ -198,6 +278,7 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> SQLColumnExpression[bool]:
+        """Build a SQL expression that matches `expression` using prefix comparison."""
         return cls._sql_match_string(expression, value, MatchMode.PREFIX, insensitive=insensitive)
 
     @classmethod
@@ -208,12 +289,25 @@ class BaseFilter(DataModel):
         *,
         insensitive: bool = False,
     ) -> SQLColumnExpression[bool]:
+        """Build a SQL expression that matches `expression` using suffix comparison."""
         return cls._sql_match_string(expression, value, MatchMode.SUFFIX, insensitive=insensitive)
 
 
 def sqlorf(
     *expressions: Iterable[SQLColumnExpression[bool]],
 ) -> SQLColumnExpression[bool]:
+    """Combine multiple iterables of SQL boolean expressions with ``OR``.
+
+    Unlike ``sqlalchemy.or_``, this function accepts iterables of expressions and flattens
+    them before combining. A literal ``False`` seed ensures the result is valid even when no
+    expressions are provided.
+
+    Args:
+        *expressions: Iterables of SQLAlchemy boolean column expressions.
+
+    Returns:
+        A single SQL ``OR`` expression over all provided clauses.
+    """
     from sqlalchemy import or_
 
     from ceres.__internal__.utilities.collections import flatten
@@ -222,6 +316,15 @@ def sqlorf(
 
 
 def _escape_like_expression[T: (str, bytes)](text: T, escape: str) -> T:
+    """Escape SQL ``LIKE`` wildcard characters (``%`` and ``_``) in `text`.
+
+    Args:
+        text: The string or bytes value to escape.
+        escape: The escape character to prepend to each wildcard.
+
+    Returns:
+        A copy of `text` with ``%`` and ``_`` escaped.
+    """
     if isinstance(text, bytes):
         return text.replace(b"%", escape.encode() + b"%").replace(b"_", escape.encode() + b"_")
     else:

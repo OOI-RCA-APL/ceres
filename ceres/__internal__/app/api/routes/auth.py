@@ -35,6 +35,8 @@ WRONG_PASSWORD_DELAY_SECONDS = 2.5
 
 
 class LoginInput(DataObject):
+    """Request body for user login."""
+
     username: str
     password: str
     cookie: AuthorizationCookieType | None = None
@@ -46,6 +48,14 @@ async def login(
     response: Response,
     input: LoginInput,
 ) -> Identity:
+    """Authenticate a user with username and password, returning a signed JWT identity.
+
+    Optionally set an authorization cookie on the response. Introduce an artificial delay on
+    failed attempts to mitigate brute-force attacks.
+
+    Raises:
+        Failure: If authentication is disabled or the credentials are invalid.
+    """
     authentication = engine.config.server.authentication
     if authentication is None:
         raise Failure(AuthenticationDisabledError)
@@ -63,6 +73,8 @@ async def login(
 
 
 class RefreshInput(DataObject):
+    """Request body for refreshing an authentication token."""
+
     cookie: AuthorizationCookieType | None = None
 
 
@@ -73,6 +85,11 @@ async def refresh(
     response: Response,
     input: RefreshInput,
 ) -> Identity:
+    """Issue a fresh JWT for the currently authenticated user.
+
+    Raises:
+        Failure: If authentication is disabled or the caller is not authenticated.
+    """
     authentication = engine.config.server.authentication
     if authentication is None:
         raise Failure(AuthenticationDisabledError)
@@ -88,6 +105,11 @@ async def refresh(
 
 @router.post("/logout")
 async def logout(response: Response, identity: CurrentIdentity) -> Identity:
+    """Log out by clearing the authorization cookie and returning the current identity.
+
+    Raises:
+        Failure: If the caller is not authenticated.
+    """
     response.delete_cookie("Authorization")
     if identity is None:
         raise Failure(NotAuthenticatedError)
@@ -97,6 +119,11 @@ async def logout(response: Response, identity: CurrentIdentity) -> Identity:
 
 @router.get("/me")
 async def get_me(identity: CurrentIdentity) -> Identity:
+    """Return the identity of the currently authenticated user.
+
+    Raises:
+        Failure: If the caller is not authenticated.
+    """
     if identity is None:
         raise Failure(NotAuthenticatedError)
 
@@ -104,6 +131,8 @@ async def get_me(identity: CurrentIdentity) -> Identity:
 
 
 class ChangePasswordInput(DataObject):
+    """Request body for changing the current user's password."""
+
     old_password: str
     new_password: Password
 
@@ -114,6 +143,13 @@ async def change_password(
     user: RequireUser,
     input: ChangePasswordInput,
 ) -> User:
+    """Change the current user's password after verifying the old one.
+
+    Introduce an artificial delay on incorrect old-password attempts.
+
+    Raises:
+        Failure: If the old password is wrong or the user cannot be found after the update.
+    """
     if not await engine.database.verify_password(input.old_password, user.password):
         await sleep(WRONG_PASSWORD_DELAY_SECONDS)
         raise Failure(BadCredentialsError)

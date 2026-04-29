@@ -12,6 +12,15 @@ _UNDEFINED = object()
 
 
 class LazyImportProxy:
+    """Transparent proxy that defers importing a module or attribute until first access.
+
+    On first attribute access (other than the proxy's own bookkeeping slots), the target
+    module is imported and, if ``target_attr`` is set, the named attribute is extracted.
+    Subsequent accesses go straight to the resolved target. Nested attributes listed in
+    ``proxied_attrs`` produce additional ``LazyImportProxy`` instances on access instead of
+    triggering the import eagerly.
+    """
+
     __slots__ = (
         "__proxy_module__",
         "__proxy_proxied_attrs__",
@@ -72,6 +81,7 @@ class LazyImportProxy:
         return self.__proxy_get__()[key]
 
     def __proxy_get__(self) -> Any:
+        """Import the target module (or attribute) and cache it for future access."""
         if self.__proxy_target__ is not _UNDEFINED:
             return self.__proxy_target__
 
@@ -93,6 +103,16 @@ def _get_cached_lazy_proxy(
     proxied_attrs: tuple[str, ...] = (),
     target_attr: str | None = None,
 ) -> LazyImportProxy:
+    """Return a cached ``LazyImportProxy``, creating one if none exists for the given key.
+
+    Args:
+        module: The fully-qualified module name to import lazily.
+        proxied_attrs: Attribute names that should themselves become lazy proxies.
+        target_attr: An optional attribute to extract from the imported module.
+
+    Returns:
+        A (possibly cached) ``LazyImportProxy`` instance.
+    """
     key = (module, proxied_attrs, target_attr)
     proxy = _lazy_proxy_cache.get(key)
     if proxy is None:
@@ -115,6 +135,21 @@ def __lazy_import__(
     fromlist: Sequence[str] = (),
     level: int = 0,
 ) -> ModuleType | LazyImportProxy:
+    """Replacement for ``builtins.__import__`` that returns ``LazyImportProxy`` instances.
+
+    Only produces proxies for modules that are currently inside a ``__lazy_imports__``
+    context manager. All other imports fall through to the original ``__import__``.
+
+    Args:
+        name: Module name to import.
+        globals: Global namespace (unused, forwarded to the original ``__import__``).
+        locals: Local namespace, used to determine the calling module's ``__name__``.
+        fromlist: Names to import from the module (becomes ``proxied_attrs``).
+        level: Number of parent packages for relative imports.
+
+    Returns:
+        A ``LazyImportProxy`` for lazy modules, or a real ``ModuleType`` otherwise.
+    """
     # Ensure imports are only lazy for modules currently marked for lazy importing.
     if locals is None or (module__name__ := locals.get("__name__")) not in _lazy_importing_modules:
         return _original__import__(
@@ -143,6 +178,18 @@ def __lazy_import__(
 
 @contextmanager
 def __lazy_imports__(module__name__: str, /, *, export: bool = False):
+    """Context manager that makes all imports inside the block lazy.
+
+    While the context is active, ``builtins.__import__`` is replaced with
+    ``__lazy_import__`` for the given module. When ``export`` is ``True``, any
+    ``LazyImportProxy`` objects created during the block are moved into a module-level
+    ``__lazy_exports__`` dict and exposed via a custom ``__getattr__`` so they resolve on
+    first access.
+
+    Args:
+        module__name__: The ``__name__`` of the calling module.
+        export: When ``True``, register lazy proxies as deferred module-level exports.
+    """
     with _lazy_importing_modules_lock:
         _lazy_importing_modules.add(module__name__)
         if __builtins__.get("__import__") is not __lazy_import__:
@@ -184,6 +231,15 @@ def __lazy_imports__(module__name__: str, /, *, export: bool = False):
 
 
 def _create_lazy_getattr(module__name__: str) -> Callable[[str], object]:
+    """Create a module-level ``__getattr__`` that resolves lazy exports on first access.
+
+    Args:
+        module__name__: The ``__name__`` of the module to attach the resolver to.
+
+    Returns:
+        A ``__getattr__`` function suitable for assignment to a module's namespace.
+    """
+
     def __lazy_getattr__(name: str) -> object:
         module = sys.modules[module__name__]
         module__dict__ = module.__dict__
@@ -218,6 +274,14 @@ def unlazy[T](value: T) -> T: ...
 
 
 def unlazy[T](value: T | LazyImportProxy) -> T:
+    """Resolve a ``LazyImportProxy`` to its real target, or return `value` unchanged.
+
+    Args:
+        value: A lazy proxy or any other value.
+
+    Returns:
+        The underlying object if `value` is a ``LazyImportProxy``, otherwise `value` itself.
+    """
     if isinstance(value, LazyImportProxy):
         return value.__proxy_get__()
 

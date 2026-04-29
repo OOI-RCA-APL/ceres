@@ -16,6 +16,7 @@ class OpenCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Resolve the console URL from the config and open it in the default browser."""
         from webbrowser import open
 
         config = await self.use_config_meta()
@@ -30,6 +31,7 @@ class URLCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Resolve the console URL from the config and write it to stdout."""
         config = await self.use_config_meta()
         url = _get_url(config)
         self.write(url, sys.stdout)
@@ -45,6 +47,17 @@ class ConsoleCommand(CLICommandGroup):
 
 
 def _get_url(config: ConfigMeta) -> str:
+    """Build the web console URL from the project's server configuration.
+
+    Args:
+        config: The loaded configuration metadata containing server settings.
+
+    Returns:
+        The fully-qualified console URL string.
+
+    Raises:
+        CLICommandFailed: If the server or port is not configured.
+    """
     if config.server is None or config.server.port is None:
         raise CLICommandFailed(
             "Server is not configured. "

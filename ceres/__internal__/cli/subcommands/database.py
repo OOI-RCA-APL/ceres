@@ -22,6 +22,7 @@ class InitCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Show pending DDL statements, prompt for confirmation, and initialize the database."""
         async with self.use_database(require_initialized=False) as database:
             try:
                 async with database.connect():
@@ -52,14 +53,20 @@ class DDLCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Print the DDL statements used for database initialization to stdout."""
         async with self.use_database(require_initialized=False, require_connect=False) as database:
             for statement in database.ddl:
                 self.write(statement, sys.stdout, color=False)
 
 
 class ShellCommand(CLICommand):
+    """
+    Open an interactive database shell (psql or sqlite3) for the project database.
+    """
+
     @override
     async def __run__(self) -> None:
+        """Launch the appropriate database shell as a subprocess, forwarding stdio."""
         import os
         from shutil import which
 
@@ -130,6 +137,7 @@ class ClearCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Prompt for confirmation, then truncate all tables in the project database."""
         async with self.use_database() as database:
             if not get_confirmation("Clear all data from the project database?"):
                 self.write("Database has not been modified. Exiting.")

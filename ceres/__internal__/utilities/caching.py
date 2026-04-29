@@ -24,6 +24,24 @@ def cached[T: Callable[..., Any]](
     storage: MutableMapping[Any, Any] | None = None,
     weak: bool = False,
 ) -> T | Callable[[T], T]:
+    """Cache the return value of a function based on its arguments.
+
+    Support zero-argument, single-argument, and multi-argument functions. Use thread-safe locking
+    for cache writes. Can be used as a bare decorator or called with options.
+
+    Args:
+        function: The function to cache. When ``None``, return a decorator.
+        storage: An optional custom mutable mapping to use as the cache store. Cannot be combined
+            with ``weak=True``.
+        weak: When ``True``, use a ``WeakKeyDictionary`` so cached entries are garbage-collected
+            when their keys are no longer referenced.
+
+    Returns:
+        The decorated function with caching, or a decorator if ``function`` is ``None``.
+
+    Raises:
+        ValueError: If both ``storage`` and ``weak=True`` are provided.
+    """
     if weak:
         if storage is not None:
             raise ValueError("Cannot use custom storage with weak-key caching.")
@@ -93,6 +111,12 @@ def cached[T: Callable[..., Any]](
 
 
 class LRUCache[K, V](MutableMapping[K, V]):
+    """A thread-safe least-recently-used cache with a configurable capacity.
+
+    Evict the least-recently-used entries when the number of items exceeds
+    ``capacity + capacity * threshold``.
+    """
+
     __slots__ = (
         "capacity",
         "threshold",
@@ -102,9 +126,18 @@ class LRUCache[K, V](MutableMapping[K, V]):
     )
 
     capacity: int
+    """The maximum number of entries to retain after an eviction pass."""
+
     threshold: float
+    """The fraction above ``capacity`` at which eviction is triggered."""
 
     def __init__(self, capacity: int = 100, threshold: float = 0.5):
+        """Create an LRU cache.
+
+        Args:
+            capacity: The maximum number of entries to keep after eviction.
+            threshold: The fractional overshoot above ``capacity`` that triggers eviction.
+        """
         import threading
 
         self.capacity = capacity
@@ -114,6 +147,7 @@ class LRUCache[K, V](MutableMapping[K, V]):
         self._data: dict[K, tuple[K, V, list[int]]] = {}
 
     def _inc_counter(self):
+        """Increment and return the internal access counter."""
         self._counter += 1
         return self._counter
 
@@ -159,9 +193,11 @@ class LRUCache[K, V](MutableMapping[K, V]):
 
     @property
     def size_threshold(self) -> float:
+        """Return the absolute size at which eviction is triggered."""
         return self.capacity + self.capacity * self.threshold
 
     def _manage_size(self) -> None:
+        """Evict least-recently-used entries if the cache exceeds its size threshold."""
         if not self._mutex.acquire(False):
             return
         try:

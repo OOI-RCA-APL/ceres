@@ -3,6 +3,17 @@ from typing import Any
 
 
 def get_function_name(function: Callable[..., Any], /) -> str:
+    """Return the effective name of ``function``, accounting for Python name-mangling.
+
+    For functions whose names start with ``__`` (but do not end with ``__``), reconstruct the
+    mangled name by prepending the defining class name.
+
+    Args:
+        function: The callable whose name to retrieve.
+
+    Returns:
+        The function's name as it would appear on the owning class.
+    """
     original = function.__name__
 
     if function.__name__.startswith("__") and not function.__name__.endswith("__"):
@@ -16,6 +27,16 @@ def get_function_name(function: Callable[..., Any], /) -> str:
 
 
 def get_inner_function(function: Callable[..., Any], /) -> Callable[..., Any]:
+    """Unwrap a decorated or bound function to find the innermost callable.
+
+    Follow ``__wrapped__`` and ``__func__`` attributes until neither is present.
+
+    Args:
+        function: The callable to unwrap.
+
+    Returns:
+        The innermost underlying callable.
+    """
     while True:
         __wrapped__ = getattr(function, "__wrapped__", None)
         if __wrapped__ is not None:
@@ -33,6 +54,19 @@ def get_inner_function(function: Callable[..., Any], /) -> Callable[..., Any]:
 
 
 def call_partial[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+    """Call ``function`` with only the positional and keyword arguments it actually accepts.
+
+    Inspect the function's signature and discard any extra positional arguments beyond its arity
+    and any keyword arguments it does not declare.
+
+    Args:
+        function: The callable to invoke.
+        *args: Positional arguments, trimmed to the function's arity.
+        **kwargs: Keyword arguments, filtered to those the function declares.
+
+    Returns:
+        The return value of calling ``function`` with the applicable arguments.
+    """
     import inspect
 
     parameters = inspect.signature(function).parameters
