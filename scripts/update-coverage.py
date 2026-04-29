@@ -5,12 +5,13 @@ import re
 import sys
 from pathlib import Path
 from subprocess import run
-from xml.etree.ElementTree import Element, SubElement, tostring
 
 # ruff: disable[T201] # Allow print statements.
 
 COVERAGE_MD_START = "<!-- coverage:start -->"
 COVERAGE_MD_END = "<!-- coverage:end -->"
+BADGE_START = "<!-- coverage:badge -->"
+BADGE_END = "<!-- /coverage:badge -->"
 
 
 def _run_coverage() -> dict[str, object]:
@@ -37,62 +38,19 @@ def _run_coverage() -> dict[str, object]:
 
 def _badge_color(percent: int) -> str:
     if percent >= 90:
-        return "#4c1"
+        return "brightgreen"
     if percent >= 75:
-        return "#a3c51c"
+        return "yellowgreen"
     if percent >= 60:
-        return "#dfb317"
+        return "yellow"
     if percent >= 40:
-        return "#fe7d37"
-    return "#e05d44"
+        return "orange"
+    return "red"
 
 
-def _build_badge_svg(percent: int) -> str:
-    label = "coverage"
-    value = f"{percent}%"
-    label_width = 62
-    value_width = 46
-    total_width = label_width + value_width
+def _badge_line(percent: int) -> str:
     color = _badge_color(percent)
-
-    svg = Element(
-        "svg",
-        xmlns="http://www.w3.org/2000/svg",
-        width=str(total_width),
-        height="20",
-    )
-
-    linear_gradient = SubElement(
-        SubElement(svg, "defs"),
-        "linearGradient",
-        id="s",
-        x2="0",
-        y2="100%",
-    )
-    SubElement(linear_gradient, "stop", offset="0", **{"stop-color": "#bbb", "stop-opacity": ".1"})
-    SubElement(linear_gradient, "stop", offset="1", **{"stop-opacity": ".1"})
-
-    mask = SubElement(svg, "mask", id="m")
-    SubElement(mask, "rect", width=str(total_width), height="20", rx="3", fill="#fff")
-
-    group = SubElement(svg, "g", mask="url(#m)")
-    SubElement(group, "rect", width=str(label_width), height="20", fill="#555")
-    SubElement(group, "rect", x=str(label_width), width=str(value_width), height="20", fill=color)
-    SubElement(group, "rect", width=str(total_width), height="20", fill="url(#s)")
-
-    text_group = SubElement(
-        svg, "g", fill="#fff", **{"font-family": "sans-serif", "font-size": "11"}
-    )
-    for text, x_pos in [(label, label_width / 2), (value, label_width + value_width / 2)]:
-        shadow = SubElement(text_group, "text", x=str(x_pos), y="15", fill="#010101")
-        shadow.set("fill-opacity", ".3")
-        shadow.set("text-anchor", "middle")
-        shadow.text = text
-        foreground = SubElement(text_group, "text", x=str(x_pos), y="14")
-        foreground.set("text-anchor", "middle")
-        foreground.text = text
-
-    return '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(svg, encoding="unicode")
+    return f"![Coverage: {percent}%](https://img.shields.io/badge/coverage-{percent}%25-{color})"
 
 
 def _build_table(data: dict[str, object]) -> str:
@@ -117,27 +75,25 @@ def _build_table(data: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _update_file(path: Path, table: str, check: bool) -> bool:
+def _update_between_markers(path: Path, start: str, end: str, content: str, check: bool) -> bool:
     if not path.exists():
         print(f"{path} not found.")
         sys.exit(1)
 
-    content = path.read_text()
+    original = path.read_text()
 
     pattern = re.compile(
-        rf"({re.escape(COVERAGE_MD_START)})\n.*?({re.escape(COVERAGE_MD_END)})",
+        rf"({re.escape(start)})\n.*?({re.escape(end)})",
         re.DOTALL,
     )
 
-    if not pattern.search(content):
-        print(f"Could not find coverage markers in {path}.")
+    if not pattern.search(original):
+        print(f"Could not find {start} / {end} markers in {path}.")
         sys.exit(1)
 
-    new_section = f"{COVERAGE_MD_START}\n{table}\n{COVERAGE_MD_END}"
-    updated = pattern.sub(new_section, content)
+    updated = pattern.sub(rf"\g<1>\n{content}\n\g<2>", original)
 
-    if updated == content:
-        print(f"{path} is already up to date.")
+    if updated == original:
         return True
 
     if check:
@@ -154,24 +110,19 @@ def __main__():
     data = _run_coverage()
     total_percent = round(data["totals"]["percent_covered"])
 
-    badge_svg = _build_badge_svg(total_percent)
-    badge_path = Path("ceres/static/coverage.svg")
-    badge_path.parent.mkdir(parents=True, exist_ok=True)
+    ok = True
+    ok &= _update_between_markers(
+        Path("README.md"), BADGE_START, BADGE_END, _badge_line(total_percent), check
+    )
+    ok &= _update_between_markers(
+        Path("COVERAGE.md"), COVERAGE_MD_START, COVERAGE_MD_END, _build_table(data), check
+    )
 
-    if check:
-        if badge_path.exists() and badge_path.read_text() == badge_svg:
-            print("Badge is already up to date.")
-        else:
-            print("Badge is out of date. Run `make coverage` to update.")
-            sys.exit(1)
-    else:
-        badge_path.write_text(badge_svg)
-        print(f"Updated {badge_path}.")
-
-    table = _build_table(data)
-    ok = _update_file(Path("COVERAGE.md"), table, check)
     if not ok:
         sys.exit(1)
+
+    if check:
+        print("Everything is up to date.")
 
 
 if __name__ == "__main__":
