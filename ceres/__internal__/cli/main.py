@@ -33,7 +33,7 @@ from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import Address, AddressSelector
 from ceres.concurrency import cancel, el, race, spawn
 from ceres.data import to_json
-from ceres.error import Failure
+from ceres.error import Error
 
 if TYPE_CHECKING:
     from ceres.database import Database
@@ -373,8 +373,8 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
         try:
             await self.__run__()
             return 0
-        except Failure as failure:
-            self.write(to_json(failure.error, indent=2))
+        except Error as error:
+            self.write(to_json(error, indent=2))
             return 1
         except CLICommandExit as exception:
             if exception.message is not None:
@@ -551,9 +551,9 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             engine = Engine()
             try:
                 await engine.load(config_path)
-            except Failure as failure:
+            except Error as error:
                 raise CLICommandFailed(
-                    f"Failed to load engine with current configuration. {to_json(failure.error, indent=2)}"
+                    f"Failed to load engine with current configuration. {to_json(error, indent=2)}"
                 )
 
             exiting = AsyncEvent()

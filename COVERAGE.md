@@ -61,7 +61,7 @@
 | `ceres/dispatcher.py` | 65% |
 | `ceres/engine.py` | 32% |
 | `ceres/entity.py` | 99% |
-| `ceres/error.py` | 94% |
+| `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |
 | `ceres/interface.py` | 100% |
 | `ceres/item.py` | 90% |

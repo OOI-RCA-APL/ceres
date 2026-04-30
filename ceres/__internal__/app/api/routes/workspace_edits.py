@@ -22,7 +22,7 @@ async def get_workspace_edit(
     """Return a single workspace edit for the given user and workspace.
 
     Raises:
-        Failure: If no matching workspace edit exists.
+        NotFoundError: If no matching workspace edit exists.
     """
     return assert_found(await engine.workspace_edits.get(user_id, workspace_id))
 
@@ -102,7 +102,7 @@ async def delete_workspace_edit(
     """Delete a workspace edit for the given user and workspace.
 
     Raises:
-        Failure: If no matching workspace edit exists.
+        NotFoundError: If no matching workspace edit exists.
     """
     return assert_found(
         await engine.workspace_edits.where(

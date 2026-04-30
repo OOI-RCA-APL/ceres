@@ -13,7 +13,7 @@ from ceres.__internal__.app.shared import (
     assert_found,
 )
 from ceres.data import DataObject
-from ceres.error import Failure, NotFoundError, NotPermittedError
+from ceres.error import NotFoundError, NotPermittedError
 from ceres.user import UserRole
 from ceres.workspace import (
     WorkspaceFilter,
@@ -39,11 +39,11 @@ async def get_workspace_membership(
     view.
 
     Raises:
-        Failure: If the caller lacks access or the membership does not exist.
+        NotFoundError: If the caller lacks access or the membership does not exist.
     """
     if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
         if not await engine.workspaces.where(viewable_by=user.id).any():
-            raise Failure(NotFoundError)
+            raise NotFoundError()
 
     return assert_found(await engine.workspace_memberships.get(user_id, workspace_id))
 
@@ -68,11 +68,11 @@ async def get_workspace_memberships_in_workspace(
     """Return all memberships within a workspace. Non-admin callers must have view access.
 
     Raises:
-        Failure: If the caller lacks view access to the workspace.
+        NotFoundError: If the caller lacks view access to the workspace.
     """
     if user is not None and user.role < UserRole.ADMIN:
         if not await engine.workspaces.where(viewable_by=user.id).any():
-            raise Failure(NotFoundError)
+            raise NotFoundError()
 
     return await engine.workspace_memberships.where(workspace_id=workspace_id, and__=filter)
 
@@ -99,7 +99,7 @@ async def _guard_membership_mutation(
             is not being changed.
 
     Raises:
-        Failure: If the acting user lacks the required workspace-level permission.
+        NotPermittedError: If the acting user lacks the required workspace-level permission.
     """
     if acting_user is not None and acting_user.role < UserRole.ADMIN:
         if assigning_workspace_role is not None:
@@ -118,7 +118,7 @@ async def _guard_membership_mutation(
                 filter = WorkspaceFilter(manageable_by=acting_user.id)
 
             if not await engine.workspaces.where(id=membership_workspace_id, and__=filter).any():
-                raise Failure(NotPermittedError)
+                raise NotPermittedError()
 
 
 class WorkspaceMembershipCreateData(DataObject):
@@ -138,7 +138,7 @@ async def create_workspace_membership(
     """Create a workspace membership for the given user and workspace.
 
     Raises:
-        Failure: If the caller lacks permission for the requested role.
+        NotPermittedError: If the caller lacks permission for the requested role.
     """
     await _guard_membership_mutation(engine, user, user_id, workspace_id, data.role)
     return await engine.workspace_memberships.create(
@@ -167,7 +167,8 @@ async def update_workspace_membership(
     """Partially update a workspace membership (currently only the role field).
 
     Raises:
-        Failure: If the caller lacks permission or the membership does not exist.
+        NotPermittedError: If the caller lacks permission.
+        NotFoundError: If the membership does not exist.
     """
     if "role" in assign:
         await _guard_membership_mutation(engine, user, user_id, workspace_id, assign["role"])
@@ -193,13 +194,14 @@ async def delete_workspace_membership(
     at least an editor in the workspace.
 
     Raises:
-        Failure: If the caller lacks permission or the membership does not exist.
+        NotPermittedError: If the caller lacks permission.
+        NotFoundError: If the membership does not exist.
     """
     if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
         # Only editors or admins can delete memberships for other users.
         membership = await engine.workspace_memberships.get(user.id, workspace_id)
         if membership is None or membership.role < WorkspaceMembershipRole.EDITOR:
-            raise Failure(NotPermittedError)
+            raise NotPermittedError()
 
     return assert_found(
         await engine.workspace_memberships.where(

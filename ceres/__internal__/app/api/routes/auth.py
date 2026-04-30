@@ -19,7 +19,6 @@ from ceres.data import DataObject, Password
 from ceres.error import (
     AuthenticationDisabledError,
     BadCredentialsError,
-    Failure,
     NotAuthenticatedError,
     NotFoundError,
 )
@@ -54,16 +53,17 @@ async def login(
     failed attempts to mitigate brute-force attacks.
 
     Raises:
-        Failure: If authentication is disabled or the credentials are invalid.
+        AuthenticationDisabledError: If authentication is disabled.
+        BadCredentialsError: If the credentials are invalid.
     """
     authentication = engine.config.server.authentication
     if authentication is None:
-        raise Failure(AuthenticationDisabledError)
+        raise AuthenticationDisabledError()
 
     user = await engine.users.where(username=input.username).first()
     if user is None or not await engine.verify_password(input.password, user.password):
         await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
-        raise Failure(BadCredentialsError)
+        raise BadCredentialsError()
 
     identity = create_identity(user, authentication)
     if input.cookie is not None:
@@ -88,13 +88,14 @@ async def refresh(
     """Issue a fresh JWT for the currently authenticated user.
 
     Raises:
-        Failure: If authentication is disabled or the caller is not authenticated.
+        AuthenticationDisabledError: If authentication is disabled.
+        NotAuthenticatedError: If the caller is not authenticated.
     """
     authentication = engine.config.server.authentication
     if authentication is None:
-        raise Failure(AuthenticationDisabledError)
+        raise AuthenticationDisabledError()
     if identity is None:
-        raise Failure(NotAuthenticatedError)
+        raise NotAuthenticatedError()
 
     identity = create_identity(identity.user, authentication)
     if input.cookie is not None:
@@ -108,11 +109,11 @@ async def logout(response: Response, identity: CurrentIdentity) -> Identity:
     """Log out by clearing the authorization cookie and returning the current identity.
 
     Raises:
-        Failure: If the caller is not authenticated.
+        NotAuthenticatedError: If the caller is not authenticated.
     """
     response.delete_cookie("Authorization")
     if identity is None:
-        raise Failure(NotAuthenticatedError)
+        raise NotAuthenticatedError()
 
     return identity
 
@@ -122,10 +123,10 @@ async def get_me(identity: CurrentIdentity) -> Identity:
     """Return the identity of the currently authenticated user.
 
     Raises:
-        Failure: If the caller is not authenticated.
+        NotAuthenticatedError: If the caller is not authenticated.
     """
     if identity is None:
-        raise Failure(NotAuthenticatedError)
+        raise NotAuthenticatedError()
 
     return identity
 
@@ -148,14 +149,15 @@ async def change_password(
     Introduce an artificial delay on incorrect old-password attempts.
 
     Raises:
-        Failure: If the old password is wrong or the user cannot be found after the update.
+        BadCredentialsError: If the old password is wrong.
+        NotFoundError: If the user cannot be found after the update.
     """
     if not await engine.database.verify_password(input.old_password, user.password):
         await sleep(WRONG_PASSWORD_DELAY_SECONDS)
-        raise Failure(BadCredentialsError)
+        raise BadCredentialsError()
 
     changed = await engine.users.where(id=user.id).update({"password": input.new_password}).first()
     if changed is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return changed

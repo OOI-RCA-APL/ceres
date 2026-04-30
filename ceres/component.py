@@ -87,7 +87,6 @@ from ceres.data import (
     adapt,
 )
 from ceres.error import (
-    Failure,
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
     ProcedureNotFoundError,
@@ -2349,7 +2348,7 @@ class ComponentSystem(Node, ComponentSource):
             or (method := getattr(self.component, binding.method, None)) is None
             or not inspect.ismethod(method)
         ):
-            raise Failure(ProcedureNotFoundError)
+            raise ProcedureNotFoundError()
 
         validated = create_validated_function(method)
 
@@ -2361,10 +2360,8 @@ class ComponentSystem(Node, ComponentSource):
             raise
         except ValidationError as error:
             if method.__name__ in error.title:
-                raise Failure(
-                    ProcedureInvalidArgumentsError(
-                        problems=ValidationProblem.extract(error, arguments)
-                    )
+                raise ProcedureInvalidArgumentsError(
+                    problems=ValidationProblem.extract(error, arguments)
                 )
 
             raise
@@ -2375,7 +2372,7 @@ class ComponentSystem(Node, ComponentSource):
                 procedure=procedure,
                 exception=info,
             )
-            raise Failure(ProcedureInternalError(exception=info))
+            raise ProcedureInternalError(exception=info)
 
     async def call(
         self,
@@ -2396,12 +2393,13 @@ class ComponentSystem(Node, ComponentSource):
             returned as the procedure produced them.
 
         Raises:
-            Failure: If the procedure is not found, its arguments fail validation, or it raises
-                an exception.
+            ProcedureNotFoundError: If no procedure exists with the given name.
+            ProcedureInvalidArgumentsError: If the procedure's arguments fail validation.
+            ProcedureInternalError: If the procedure raises an exception during execution.
         """
         binding = self.get_procedure_bindings().get(procedure)
         if binding is None:
-            raise Failure(ProcedureNotFoundError)
+            raise ProcedureNotFoundError()
 
         output = await self.__invoke(procedure, arguments)
 
@@ -2433,7 +2431,7 @@ class ComponentSystem(Node, ComponentSource):
         except Exception as exception:
             info = trace(exception)
             self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
-            raise Failure(ProcedureInternalError(exception=info))
+            raise ProcedureInternalError(exception=info)
         finally:
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
 
@@ -2456,16 +2454,18 @@ class ComponentSystem(Node, ComponentSource):
             Each successive output value from the procedure.
 
         Raises:
-            Failure: If the procedure is not found, the binding is a non-live action (which
-                cannot be subscribed to), or invocation raises an exception.
+            ProcedureNotFoundError: If no procedure exists with the given name.
+            ProcedureNotSubscribableError: If the procedure is a non-live action, which
+                cannot be subscribed to.
+            ProcedureInternalError: If the procedure raises an exception during execution.
         """
         binding = self.get_procedure_bindings().get(procedure)
         if binding is None:
-            raise Failure(ProcedureNotFoundError)
+            raise ProcedureNotFoundError()
 
         if not binding.live:
             if isinstance(binding, ActionBinding):
-                raise Failure(ProcedureNotSubscribableError)
+                raise ProcedureNotSubscribableError()
 
             try:
                 while True:
@@ -2477,7 +2477,7 @@ class ComponentSystem(Node, ComponentSource):
             except Exception as exception:
                 info = trace(exception)
                 self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
-                raise Failure(ProcedureInternalError(exception=info))
+                raise ProcedureInternalError(exception=info)
 
         # Live procedures hand back an async iterable from the first invocation, just relay it.
         output = await self.__invoke(procedure, arguments)
@@ -2492,7 +2492,7 @@ class ComponentSystem(Node, ComponentSource):
         except Exception as exception:
             info = trace(exception)
             self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
-            raise Failure(ProcedureInternalError(exception=info))
+            raise ProcedureInternalError(exception=info)
 
     def sync_child_order(self) -> None:
         """Reorder the child registry to match the order specified in the component's config.

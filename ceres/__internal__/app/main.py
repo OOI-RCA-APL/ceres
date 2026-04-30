@@ -13,7 +13,7 @@ from ceres.__internal__.app.shared import CurrentEngine, Router
 from ceres.__internal__.utilities.collections import seq
 from ceres.data import simplify
 from ceres.error import (
-    Failure,
+    Error,
     HTTPError,
     NotAuthenticatedError,
     ValidationFailedError,
@@ -329,20 +329,20 @@ class CLIAuthMiddleware:
         """Reject requests whose Authorization header does not match the CLI token.
 
         Raises:
-            Failure: If the Authorization header is missing or does not match.
+            NotAuthenticatedError: If the Authorization header is missing or does not match.
         """
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
 
         request = HTTPConnection(cast("Any", scope))
         if request.headers.get("Authorization") != self.cli_token:
-            raise Failure(NotAuthenticatedError)
+            raise NotAuthenticatedError()
 
         return await self.app(scope, receive, send)
 
 
 class ErrorMiddleware:
-    """ASGI middleware that catch `Failure` exceptions and send structured JSON error responses."""
+    """ASGI middleware that catch `Error` exceptions and send structured JSON error responses."""
 
     def __init__(self, app: ASGI3Application, engine: Engine) -> None:
         """Wrap the inner ASGI app with error handling.
@@ -360,13 +360,13 @@ class ErrorMiddleware:
         receive: ASGIReceiveCallable,
         send: ASGISendCallable,
     ) -> None:
-        """Run the inner app and convert `Failure` exceptions into JSON error responses."""
+        """Run the inner app and convert `Error` exceptions into JSON error responses."""
         try:
             await self.app(scope, receive, send)
-        except Failure as failure:
+        except Error as error:
             try:
-                error = simplify(failure.error)
-                status = failure.error.__error_status_code__
+                status = error.__error_status_code__
+                error = simplify(error)
 
                 if status >= 500:
                     self.engine.log.error(traceback.format_exc())

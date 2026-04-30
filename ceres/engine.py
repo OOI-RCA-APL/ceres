@@ -18,7 +18,7 @@ from ceres.concurrency import sleep
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
 from ceres.data import DataObject, Name, PasswordHash, dump, to_json
 from ceres.directory import Directory
-from ceres.error import ComponentCombinedError, ConfigError, Failure, ReloadConfigInvalidError
+from ceres.error import ComponentCombinedError, ConfigError, Error, ReloadConfigInvalidError
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
 from ceres.node import Node
 
@@ -391,9 +391,9 @@ class Engine(Node):
             The freshly loaded `Config` that was applied.
 
         Raises:
-            Failure: If the reload fails. `ConfigError` failures are wrapped in a
-                `ReloadConfigInvalidError` so callers can distinguish reload-time validation
-                problems.
+            ReloadConfigInvalidError: If the configuration file fails validation. Wrap
+                the underlying `ConfigError` so callers can distinguish reload-time
+                validation problems from other errors.
         """
         if self.config_path is not None:
             self.log.info(f"Reloading configuration from '{self.config_path}'.")
@@ -404,11 +404,11 @@ class Engine(Node):
 
         try:
             config = await Config.load(source, checks=checks)
-        except Failure as failure:
-            if not isinstance(failure.error, ConfigError):
+        except Error as error:
+            if not isinstance(error, ConfigError):
                 raise
 
-            raise Failure(ReloadConfigInvalidError(error=failure.error))
+            raise ReloadConfigInvalidError(error=error)
 
         await self._apply(source if isinstance(source, Path) else None, config, silent=silent)
         return config
@@ -454,7 +454,7 @@ class Engine(Node):
             try:
                 await self.database.use()
                 self.log.info("Database initialized successfully.")
-            except Failure:
+            except Error:
                 self.log.error("Database initialization failed.")
                 raise
 
@@ -737,12 +737,12 @@ class Engine(Node):
                                 self.log.info(
                                     f"Created '{current.system.address}' as instance of {type(current)}."
                                 )
-                    except Failure as failure:
+                    except Error as error:
                         if not silent:
-                            if isinstance(failure.error, ComponentCombinedError):
-                                errors = failure.error.errors
+                            if isinstance(error, ComponentCombinedError):
+                                errors = error.errors
                             else:
-                                errors = [failure.error]
+                                errors = [error]
 
                             self.log.error(
                                 f"Failed to create '{action.address}'. Errors: {to_json(errors, indent=2)}"
@@ -776,12 +776,12 @@ class Engine(Node):
                                 self.log.info(
                                     f"Recreated '{current.system.address}' as instance of {type(current)}."
                                 )
-                    except Failure as failure:
+                    except Error as error:
                         if not silent:
-                            if isinstance(failure.error, ComponentCombinedError):
-                                errors = failure.error.errors
+                            if isinstance(error, ComponentCombinedError):
+                                errors = error.errors
                             else:
-                                errors = [failure.error]
+                                errors = [error]
                             self.log.error(
                                 f"Failed to recreate '{action.address}'. Errors: {to_json(errors, indent=2)}"
                             )

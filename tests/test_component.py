@@ -14,7 +14,6 @@ from ceres.component import (
 )
 from ceres.concurrency import sleep
 from ceres.error import (
-    Failure,
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
     ProcedureNotFoundError,
@@ -281,10 +280,10 @@ async def test_procedure_does_not_exist_error(decorator: Any) -> None:
             return left + right
 
     component = Test()
-    with pytest.raises(Failure) as context:
+    with pytest.raises(ProcedureNotFoundError) as context:
         await component.system.call("add_missing", {"left": 1, "right": 2})
 
-    assert context.value.error == ProcedureNotFoundError()
+    assert context.value == ProcedureNotFoundError()
 
 
 @pytest.mark.parametrize(["decorator"], [[query], [action]])
@@ -295,10 +294,10 @@ async def test_procedure_invalid_arguments_error(decorator: Any) -> None:
             return left + right
 
     component = Test()
-    with pytest.raises(Failure) as context:
+    with pytest.raises(ProcedureInvalidArgumentsError) as context:
         await component.system.call("add", {"left": 1})
 
-    assert context.value.error == ProcedureInvalidArgumentsError(
+    assert context.value == ProcedureInvalidArgumentsError(
         problems=[
             ValidationProblem(
                 location=["right"],
@@ -317,18 +316,13 @@ async def test_procedure_internal_error(decorator: Any) -> None:
             raise Exception("whoops")
 
     component = Test()
-    with pytest.raises(Failure) as context:
+    with pytest.raises(ProcedureInvalidArgumentsError):
         await component.system.call("test")
 
-    assert isinstance(context.value.error, ProcedureInvalidArgumentsError)
-
-    with pytest.raises(Failure) as context:
+    with pytest.raises(ProcedureInternalError) as context:
         await component.system.call("test", {"left": 5, "right": 5})
 
-    assert isinstance(context.value.error, ProcedureInternalError)
-    assert any(
-        'raise Exception("whoops")' in line for line in context.value.error.exception.traceback
-    )
+    assert any('raise Exception("whoops")' in line for line in context.value.exception.traceback)
 
 
 class RoutineComponent(Component):

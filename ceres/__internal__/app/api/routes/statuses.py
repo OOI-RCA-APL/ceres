@@ -5,7 +5,7 @@ from fastapi import Query
 from ceres.__internal__.app.shared import CurrentEngine, CurrentSocket, Router
 from ceres.address import Address
 from ceres.component import ComponentFilter
-from ceres.error import Failure, NotFoundError
+from ceres.error import NotFoundError
 from ceres.status import Status
 
 router = Router(prefix="/statuses", tags=["statuses"])
@@ -16,11 +16,11 @@ async def get_status(engine: CurrentEngine, address: Address | None = None) -> S
     """Return the status of a single component identified by its address.
 
     Raises:
-        Failure: If no component matches the given address.
+        NotFoundError: If no component matches the given address.
     """
     component = engine.get_node(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return await component.get_status()
 

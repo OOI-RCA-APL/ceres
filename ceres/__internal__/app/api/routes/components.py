@@ -26,7 +26,6 @@ from ceres.component import (
 )
 from ceres.data import DataModel, DataObject, Name, StrEnum, to_json
 from ceres.error import (
-    Failure,
     NotConnectedError,
     NotFoundError,
     ProcedureComponentNotFoundError,
@@ -98,11 +97,11 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
     """Return a recursive description of a component and all its children.
 
     Raises:
-        Failure: If no component matches the given address.
+        NotFoundError: If no component matches the given address.
     """
     component = engine.get_component(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     subcomponents: list[ComponentInfo] = []
     for subcomponent in component.system.children:
@@ -136,11 +135,11 @@ async def get_procedures(engine: CurrentEngine, address: Address) -> list[Proced
     """Return all procedure bindings for the component at the given address.
 
     Raises:
-        Failure: If no component matches the given address.
+        NotFoundError: If no component matches the given address.
     """
     component = engine.get_component(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return list(component.system.get_procedure_bindings().values())
 
@@ -154,14 +153,14 @@ async def get_procedure(
     """Return a single procedure binding by component address and procedure name.
 
     Raises:
-        Failure: If the component or procedure does not exist.
+        NotFoundError: If the component or procedure does not exist.
     """
     component = engine.get_component(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
     binding = component.system.get_procedure_bindings().get(procedure)
     if binding is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return binding
 
@@ -174,11 +173,11 @@ async def get_queries(
     """Return all query bindings for the component at the given address.
 
     Raises:
-        Failure: If no component matches the given address.
+        NotFoundError: If no component matches the given address.
     """
     component = engine.get_component(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return list(component.system.get_query_bindings().values())
 
@@ -192,14 +191,14 @@ async def get_query_info(
     """Return a single query binding by component address and query name.
 
     Raises:
-        Failure: If the component or query does not exist.
+        NotFoundError: If the component or query does not exist.
     """
     component = engine.get_component(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
     binding = component.system.get_query_bindings().get(query)
     if binding is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return binding
 
@@ -212,11 +211,11 @@ async def get_actions(
     """Return all action bindings for the component at the given address.
 
     Raises:
-        Failure: If no component matches the given address.
+        NotFoundError: If no component matches the given address.
     """
     component = engine.get_component(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return list(component.system.get_action_bindings().values())
 
@@ -230,14 +229,14 @@ async def get_action(
     """Return a single action binding by component address and action name.
 
     Raises:
-        Failure: If the component or action does not exist.
+        NotFoundError: If the component or action does not exist.
     """
     component = engine.get_component(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
     binding = component.system.get_action_bindings().get(action)
     if binding is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return binding
 
@@ -263,35 +262,37 @@ async def _call(
     and that GET requests are not used to invoke actions.
 
     Raises:
-        Failure: If the component or procedure is not found, or the caller lacks permission.
+        ProcedureComponentNotFoundError: If the component is not found.
+        ProcedureNotFoundError: If the procedure is not found.
+        ProcedureNotPermittedError: If the caller lacks permission.
     """
     access = ProcedureAccessLevel.PUBLIC if role is None else role
     namespace = namespace = _get_namespace(request)
 
     component = engine.get_component(address)
     if component is None:
-        raise Failure(ProcedureComponentNotFoundError)
+        raise ProcedureComponentNotFoundError()
 
     binding = component.system.get_procedure_bindings().get(procedure)
     if binding is None:
-        raise Failure(ProcedureNotFoundError)
+        raise ProcedureNotFoundError()
 
     if namespace == "queries":
         if binding.type != ProcedureType.QUERY:
-            raise Failure(ProcedureNotFoundError)
+            raise ProcedureNotFoundError()
 
     if namespace == "actions":
         if binding.type != ProcedureType.ACTION:
-            raise Failure(ProcedureNotFoundError)
+            raise ProcedureNotFoundError()
 
     if access < binding.permissions:
-        raise Failure(ProcedureNotPermittedError)
+        raise ProcedureNotPermittedError()
 
     if request.method == "GET" and binding.type == ProcedureType.ACTION:
-        raise Failure(ProcedureNotPermittedError)
+        raise ProcedureNotPermittedError()
 
     if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
-        raise Failure(ProcedureNotPermittedError)
+        raise ProcedureNotPermittedError()
 
     output = await component.system.call(procedure, arguments)
     if isinstance(output, Output):
@@ -444,13 +445,13 @@ async def subscribe_procedure(
             async for output in component.system.subscribe(name, arguments):
                 await socket.send(output)
         except Exception as exception:
-            if isinstance(exception, Failure) and isinstance(exception.error, ProcedureError):
-                if not isinstance(exception.error, ProcedureInternalError):
+            if isinstance(exception, ProcedureError):
+                if not isinstance(exception, ProcedureInternalError):
                     code = WS_1011_INTERNAL_ERROR
                 else:
                     code = WS_1008_POLICY_VIOLATION
 
-                reason = to_json(exception.error)
+                reason = to_json(exception)
             else:
                 code = WS_1011_INTERNAL_ERROR
                 reason = to_json(strify(exception)[0:100])
@@ -480,18 +481,19 @@ async def send_message(
     """Send a message through a named connection on the specified component.
 
     Raises:
-        Failure: If the component, connection, or active link is not found.
+        NotFoundError: If the component or connection is not found.
+        NotConnectedError: If the connection has no active link.
     """
     from ceres.connection import ConnectionInactive
 
     component = engine.get_component(address)
     if component is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
     target = component.system.connections.get(connection)
     if target is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     try:
         return await target.send(input.data)
     except ConnectionInactive:
-        raise Failure(NotConnectedError)
+        raise NotConnectedError()

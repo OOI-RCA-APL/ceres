@@ -57,7 +57,7 @@ from ceres.error import (
     DatabaseError,
     DatabaseUnexpectedError,
     DatabaseUnreachableError,
-    Failure,
+    Error,
     ValidationProblem,
     trace,
 )
@@ -493,13 +493,13 @@ class ComponentConfig(DataObject):
             The instantiated component, fully wired with children and references resolved.
 
         Raises:
-            Failure: Wraps a `ComponentCombinedError` describing every error encountered
-                while constructing the component tree.
+            ComponentCombinedError: If any errors are encountered while constructing the
+                component tree.
         """
         container = as_component_system(container) or as_engine(container)
         instance, errors = self._try_create(container)
         if errors or instance is None:
-            raise Failure(ComponentCombinedError(errors=errors))
+            raise ComponentCombinedError(errors=errors)
 
         return instance
 
@@ -895,9 +895,11 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             A validated configuration instance.
 
         Raises:
-            Failure: Wraps a `ConfigReadError`, `ConfigParseError`,
-                `ConfigInvalidSourceError`, or `ConfigValidationError` describing what
-                went wrong while loading the configuration.
+            ConfigReadError: If the source path cannot be resolved or the file cannot be
+                read.
+            ConfigParseError: If the YAML content cannot be parsed.
+            ConfigInvalidSourceError: If the source type is not supported.
+            ConfigValidationError: If the parsed data fails schema validation.
         """
         import yaml
         from yaml import MarkedYAMLError, YAMLError
@@ -911,13 +913,13 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             try:
                 path = source.resolve()
             except Exception:
-                raise Failure(ConfigReadError(message=f"path '{source}' could not be resolved"))
+                raise ConfigReadError(message=f"path '{source}' could not be resolved")
 
             try:
                 with open(path) as stream:
                     data = yaml.safe_load(stream)
             except OSError:
-                raise Failure(ConfigReadError(message=f"failed to read file at '{path}'"))
+                raise ConfigReadError(message=f"failed to read file at '{path}'")
             except YAMLError as error:
                 message: str | None = None
                 location: ConfigParseErrorLocation | None = None
@@ -931,14 +933,14 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
                             column=error.problem_mark.column,
                         )
 
-                raise Failure(ConfigParseError(message=message, location=location))
+                raise ConfigParseError(message=message, location=location)
         else:
-            raise Failure(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
+            raise ConfigInvalidSourceError(message=f"invalid source type: {type(source)}")
 
         try:
             instance = validate(cls, data)
         except ValidationError as error:
-            raise Failure(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
+            raise ConfigValidationError(problems=ValidationProblem.extract(error, data))
 
         return instance
 
@@ -960,8 +962,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             The validated configuration.
 
         Raises:
-            Failure: Wraps a `ConfigCombinedError` describing every check failure or read error
-                encountered.
+            ConfigCombinedError: If any check failures or read errors are encountered.
         """
         errors: list[ConfigError] = []
         config = cls.read(config)
@@ -972,7 +973,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             errors.extend(await config._check_components())
 
         if errors:
-            raise Failure(ConfigCombinedError(errors=errors))
+            raise ConfigCombinedError(errors=errors)
 
         return config
 
@@ -983,11 +984,11 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         try:
             async with database.connect():
                 pass
-        except Failure as failure:
-            if isinstance(failure.error, DatabaseError):
-                return [failure.error]
+        except Error as error:
+            if isinstance(error, DatabaseError):
+                return [error]
 
-            return [DatabaseUnexpectedError(reason=failure.message)]
+            return [DatabaseUnexpectedError(reason=error.type)]
         except Exception as exception:
             return [DatabaseUnreachableError(reason=str(exception))]
 
@@ -1061,13 +1062,13 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         try:
             self.root.create()
             return []
-        except Failure as failure:
-            if isinstance(failure.error, ComponentCombinedError):
-                return failure.error.errors
-            elif isinstance(failure.error, ComponentError):
-                return [failure.error]
+        except Error as error:
+            if isinstance(error, ComponentCombinedError):
+                return error.errors
+            elif isinstance(error, ComponentError):
+                return [error]
             else:
-                return [ComponentUnexpectedError(exception=trace(failure))]
+                return [ComponentUnexpectedError(exception=trace(error))]
         except Exception as exception:
             return [ComponentUnexpectedError(exception=trace(exception))]
 
