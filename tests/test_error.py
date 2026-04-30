@@ -1,6 +1,7 @@
 import pytest
 from pydantic import TypeAdapter
 
+from ceres.address import Address
 from ceres.data import simplify
 from ceres.data.converters import to_json
 from ceres.error import (
@@ -61,7 +62,7 @@ class TestErrorHierarchyCatching:
     def test_catch_component_error_as_error(self):
         with pytest.raises(Error):
             raise ComponentValidationError(
-                address=("root",),
+                address=Address("@root"),
                 problems=[],
             )
 
@@ -124,7 +125,7 @@ class TestErrorSerialization:
 
     def test_simplify_nested_error(self):
         inner = ComponentValidationError(
-            address=("root",),
+            address=Address("@root"),
             problems=[],
         )
         combined = ComponentCombinedError(errors=[inner])
@@ -210,7 +211,7 @@ class TestErrorWithComplexFields:
             ValidationProblem(type="missing", location=["field"], message="required"),
         ]
         error = ComponentValidationError(
-            address=("root",),
+            address=Address("@root"),
             problems=problems,
         )
         result = simplify(error)

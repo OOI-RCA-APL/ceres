@@ -19,7 +19,7 @@ def _http_scope(
     path: str = "/test",
     method: str = "GET",
     headers: list[tuple[bytes, bytes]] | None = None,
-) -> dict[str, Any]:
+) -> Any:
     return {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -35,7 +35,7 @@ def _http_scope(
     }
 
 
-def _ws_scope(path: str = "/ws") -> dict[str, Any]:
+def _ws_scope(path: str = "/ws") -> Any:
     return {
         "type": "websocket",
         "asgi": {"version": "3.0"},
@@ -50,15 +50,15 @@ def _ws_scope(path: str = "/ws") -> dict[str, Any]:
     }
 
 
-def _lifespan_scope() -> dict[str, Any]:
+def _lifespan_scope() -> Any:
     return {"type": "lifespan", "asgi": {"version": "3.0"}}
 
 
-async def _noop_receive() -> dict[str, Any]:
+async def _noop_receive() -> Any:
     return {"type": "http.disconnect"}
 
 
-async def _noop_send(event: dict[str, Any]) -> None:
+async def _noop_send(event: Any) -> None:
     pass
 
 
@@ -95,7 +95,7 @@ class TestErrorMiddleware:
 
         sent_events: list[dict[str, Any]] = []
 
-        async def capture_send(event: dict[str, Any]) -> None:
+        async def capture_send(event: Any) -> None:
             sent_events.append(event)
 
         await middleware(_http_scope(), _noop_receive, capture_send)
@@ -112,7 +112,7 @@ class TestErrorMiddleware:
 
         sent_events: list[dict[str, Any]] = []
 
-        async def capture_send(event: dict[str, Any]) -> None:
+        async def capture_send(event: Any) -> None:
             sent_events.append(event)
 
         await middleware(_http_scope(), _noop_receive, capture_send)
@@ -136,7 +136,7 @@ class TestErrorMiddleware:
 
         sent_events: list[dict[str, Any]] = []
 
-        async def capture_send(event: dict[str, Any]) -> None:
+        async def capture_send(event: Any) -> None:
             sent_events.append(event)
 
         await middleware(_http_scope(), _noop_receive, capture_send)
@@ -174,7 +174,7 @@ class TestErrorMiddleware:
 
         sent_events: list[dict[str, Any]] = []
 
-        async def capture_send(event: dict[str, Any]) -> None:
+        async def capture_send(event: Any) -> None:
             sent_events.append(event)
 
         await middleware(_http_scope(), _noop_receive, capture_send)
@@ -192,7 +192,7 @@ class TestErrorMiddleware:
 
         sent_events: list[dict[str, Any]] = []
 
-        async def capture_send(event: dict[str, Any]) -> None:
+        async def capture_send(event: Any) -> None:
             sent_events.append(event)
 
         await middleware(_http_scope(), _noop_receive, capture_send)
@@ -260,11 +260,7 @@ class TestScopeModifyMiddleware:
     async def test_removes_pathsend_extension(self):
         passed_scope: dict[str, Any] = {}
 
-        async def capture_app(
-            scope: dict[str, Any],
-            receive: Any,
-            send: Any,
-        ) -> None:
+        async def capture_app(scope: Any, receive: Any, send: Any) -> None:
             passed_scope.update(scope)
 
         middleware = ScopeModifyMiddleware(capture_app)
@@ -300,11 +296,7 @@ class TestScopeModifyMiddleware:
     async def test_handles_websocket_scope(self):
         passed_scope: dict[str, Any] = {}
 
-        async def capture_app(
-            scope: dict[str, Any],
-            receive: Any,
-            send: Any,
-        ) -> None:
+        async def capture_app(scope: Any, receive: Any, send: Any) -> None:
             passed_scope.update(scope)
 
         middleware = ScopeModifyMiddleware(capture_app)
@@ -328,7 +320,7 @@ class TestErrorMiddlewareIntegrationWithCLIAuth:
 
         sent_events: list[dict[str, Any]] = []
 
-        async def capture_send(event: dict[str, Any]) -> None:
+        async def capture_send(event: Any) -> None:
             sent_events.append(event)
 
         await middleware(_http_scope(), _noop_receive, capture_send)
