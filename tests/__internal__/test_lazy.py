@@ -4,9 +4,9 @@ from collections.abc import Iterable
 from ceres.__internal__.lazy import LazyImportProxy, __lazy_imports__, unlazy
 
 with __lazy_imports__(__name__):
-    from tests.lazy_module import SomeIterable, SomeObject, imported_iterable
+    from tests.__internal__.lazy_module import SomeIterable, SomeObject, imported_iterable
 
-assert "tests.lazy_module" not in sys.modules
+assert "tests.__internal__.lazy_module" not in sys.modules
 
 
 def test_isinstance():
