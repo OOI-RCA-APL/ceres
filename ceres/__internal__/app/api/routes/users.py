@@ -15,7 +15,7 @@ from ceres.__internal__.app.shared import (
     Router,
     assert_found,
 )
-from ceres.error import Failure, NotFoundError, NotPermittedError
+from ceres.error import NotFoundError, NotPermittedError
 from ceres.user import User, UserCreate, UserFilter, UserRole, UserUpdate
 
 router = Router(
@@ -30,7 +30,7 @@ async def get_user(engine: CurrentEngine, id: UUID) -> User:
     """Return a single user by ID.
 
     Raises:
-        Failure: If no user with the given ID exists.
+        NotFoundError: If no user with the given ID exists.
     """
     return assert_found(await engine.users.get(id))
 
@@ -69,15 +69,16 @@ async def update_user(
     """Partially update a user. Non-admins cannot change `role` or `disabled` fields.
 
     Raises:
-        Failure: If the caller lacks permission or the user does not exist.
+        NotPermittedError: If the caller lacks permission.
+        NotFoundError: If the user does not exist.
     """
     if role < UserRole.ADMIN:
         if "role" in assign or "disabled" in assign:
-            raise Failure(NotPermittedError)
+            raise NotPermittedError()
 
     updated = await engine.users.where(id=id).update(assign).first()
     if updated is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return updated
 
@@ -87,6 +88,6 @@ async def delete_user(engine: CurrentEngine, id: UUID) -> User:
     """Delete a user by ID. Requires admin privileges.
 
     Raises:
-        Failure: If no user with the given ID exists.
+        NotFoundError: If no user with the given ID exists.
     """
     return assert_found(await engine.users.where(id=id).delete().first())

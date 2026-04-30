@@ -19,15 +19,18 @@ def wrap_database_errors() -> Iterator[None]:
     Translate integrity constraint violations into ``AlreadyExistsError`` or ``IntegrityError``,
     timeout errors into ``DatabaseUnreachableError``, programming errors into
     ``DatabaseProgrammingError``, and all other SQLAlchemy errors into
-    ``DatabaseUnexpectedError``. Every translated error is wrapped in a ``Failure`` exception.
+    ``DatabaseUnexpectedError``.
 
     Yields:
         Control to the caller's block. Any ``SQLAlchemyError`` raised inside the block is caught
         and translated.
 
     Raises:
-        Failure: Always raised when a SQLAlchemy error occurs, wrapping the appropriate Ceres
-            domain error.
+        AlreadyExistsError: If a unique constraint is violated.
+        IntegrityError: If another integrity constraint is violated.
+        DatabaseUnreachableError: If a timeout occurs.
+        DatabaseProgrammingError: If a programming error occurs.
+        DatabaseUnexpectedError: For all other SQLAlchemy errors.
     """
 
     from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
@@ -38,7 +41,6 @@ def wrap_database_errors() -> Iterator[None]:
         DatabaseProgrammingError,
         DatabaseUnexpectedError,
         DatabaseUnreachableError,
-        Failure,
         IntegrityError,
     )
 
@@ -62,28 +64,26 @@ def wrap_database_errors() -> Iterator[None]:
         ):
             from ceres.error import trace
 
-            raise Failure(DatabaseProgrammingError(exception=trace(exception)))
+            raise DatabaseProgrammingError(exception=trace(exception))
 
         if isinstance(exception, sqlalchemy.exc.TimeoutError):
-            raise Failure(DatabaseUnreachableError(reason=str(exception)))
+            raise DatabaseUnreachableError(reason=str(exception))
 
         if isinstance(exception, SQLAlchemyIntegrityError):
             if isinstance(exception.orig, SQLiteIntegrityError):
                 match = _SQLITE_UNIQUE_ERROR_REGEX.match(str(exception.orig))
                 if match is not None:
-                    raise Failure(AlreadyExistsError(field=match.group("column")))
+                    raise AlreadyExistsError(field=match.group("column"))
             elif PostgresIntegrityError is not None and isinstance(
                 exception.orig, PostgresIntegrityError
             ):
                 match = _POSTGRES_UNIQUE_ERROR_REGEX.match(str(exception.orig))
                 if match is not None:
-                    raise Failure(
-                        AlreadyExistsError(
-                            field=match.group("column"),
-                            value=match.group("value"),
-                        )
+                    raise AlreadyExistsError(
+                        field=match.group("column"),
+                        value=match.group("value"),
                     )
 
-            raise Failure(IntegrityError)
+            raise IntegrityError()
 
-        raise Failure(DatabaseUnexpectedError(reason=str(exception)))
+        raise DatabaseUnexpectedError(reason=str(exception))

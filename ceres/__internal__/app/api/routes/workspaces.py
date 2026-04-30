@@ -12,7 +12,7 @@ from ceres.__internal__.app.shared import (
     Router,
     assert_found,
 )
-from ceres.error import Failure, NotFoundError, NotPermittedError
+from ceres.error import NotFoundError, NotPermittedError
 from ceres.user import UserRole
 from ceres.workspace import (
     Workspace,
@@ -36,7 +36,7 @@ async def get_workspace(
     """Return a single workspace by ID. Non-admin callers only see workspaces they can view.
 
     Raises:
-        Failure: If the workspace does not exist or the caller cannot view it.
+        NotFoundError: If the workspace does not exist or the caller cannot view it.
     """
     scope = WorkspaceFilter(id=id)
     if user is not None and role < UserRole.ADMIN:
@@ -104,7 +104,8 @@ async def update_workspace(
     manager-level access. Other updates require editor-level access.
 
     Raises:
-        Failure: If the caller lacks permission or the workspace does not exist.
+        NotFoundError: If the workspace does not exist.
+        NotPermittedError: If the caller lacks permission.
     """
     if user is not None and role < UserRole.ADMIN:
         if (
@@ -114,14 +115,14 @@ async def update_workspace(
             or "general_managership" in update
         ):
             if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
-                raise Failure(NotFoundError)
+                raise NotFoundError()
             # Only managers and admins can change these workspace settings.
             membership = await engine.workspace_memberships.get(user.id, id)
             if membership is None or membership.role < WorkspaceMembershipRole.MANAGER:
-                raise Failure(NotPermittedError)
+                raise NotPermittedError()
         elif not await engine.workspaces.where(editable_by=user.id).any():
             # Only editors can update workspaces.
-            raise Failure(NotPermittedError)
+            raise NotPermittedError()
 
     return assert_found(await engine.workspaces.where(id=id).update(update).first())
 
@@ -136,13 +137,14 @@ async def delete_workspace(
     """Delete a workspace by ID. Only workspace managers and admins can delete workspaces.
 
     Raises:
-        Failure: If the caller lacks permission or the workspace does not exist.
+        NotFoundError: If the workspace does not exist.
+        NotPermittedError: If the caller lacks permission.
     """
     if user is not None and role < UserRole.ADMIN:
         if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
-            raise Failure(NotFoundError)
+            raise NotFoundError()
         if not await engine.workspaces.where(id=id, manageable_by=user.id).any():
             # Only workspace managers and admins can delete a workspaces.
-            raise Failure(NotPermittedError)
+            raise NotPermittedError()
 
     return assert_found(await engine.workspaces.where(id=id).delete().first())

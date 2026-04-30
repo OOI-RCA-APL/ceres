@@ -23,7 +23,7 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
-from ceres.error import DatabaseInitError, Failure
+from ceres.error import DatabaseInitError
 
 if TYPE_CHECKING:
     import sqlite3
@@ -327,7 +327,7 @@ class Database:
         it is safe to call at the start of any operation that needs the schema.
 
         Raises:
-            Failure: If schema creation fails, wrapping a `DatabaseInitError`.
+            DatabaseInitError: If schema creation fails.
         """
         with wrap_database_errors():
             if self._init_completed:
@@ -342,7 +342,7 @@ class Database:
                         for statement in self.ddl:
                             await connection.execute(text(statement))
                 except Exception as error:
-                    raise Failure(DatabaseInitError(message=str(error))) from error
+                    raise DatabaseInitError(message=str(error)) from error
 
                 self._init_completed = True
 

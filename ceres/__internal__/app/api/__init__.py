@@ -26,7 +26,7 @@ from ceres.component import ComponentFilter
 from ceres.concurrency import concurrently
 from ceres.config import Config
 from ceres.data import DataObject
-from ceres.error import Failure, NotFoundError
+from ceres.error import NotFoundError
 
 router = Router(prefix="/api")
 
@@ -145,4 +145,4 @@ async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
 
 @router.get("/{path:path}", include_in_schema=False)
 async def get_404() -> Any:
-    raise Failure(NotFoundError)
+    raise NotFoundError()

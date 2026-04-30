@@ -73,7 +73,7 @@ from ceres.data import (
 )
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
-from ceres.error import Failure
+from ceres.error import Error
 
 with __lazy_imports__(__name__):
     from ceres.__internal__.cli.client import Client
@@ -431,8 +431,8 @@ class CLICommand(DataModel):
         """
         try:
             return await ConfigMeta.load(self.use_config_path(), checks=checks)
-        except Failure as failure:
-            error = to_json(failure.error, indent=2)
+        except Error as error:
+            error = to_json(error, indent=2)
             raise CLICommandFailed(f"Failed to load configuration. {error}")
 
     async def use_config(self, checks: Sequence[ConfigCheckType] = ()) -> Config:
@@ -449,8 +449,8 @@ class CLICommand(DataModel):
         """
         try:
             return await Config.load(self.use_config_path(), checks=checks)
-        except Failure as failure:
-            error = to_json(failure.error, indent=2)
+        except Error as error:
+            error = to_json(error, indent=2)
             raise CLICommandFailed(f"Failed to load configuration. {error}")
 
     async def use_project(self) -> Project:

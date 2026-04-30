@@ -28,7 +28,7 @@ from ceres.__internal__.entity import BaseEntityFilter
 from ceres.__internal__.utilities.case import kebabcase, snakecase
 from ceres.concurrency import race, sleep
 from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
-from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
+from ceres.error import NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
 
@@ -427,10 +427,10 @@ def _get_required_identity(identity: CurrentIdentity) -> Identity:
     """Return the current identity, raising if the caller is not authenticated.
 
     Raises:
-        Failure: If no identity is present.
+        NotAuthenticatedError: If no identity is present.
     """
     if identity is None:
-        raise Failure(NotAuthenticatedError)
+        raise NotAuthenticatedError()
 
     return identity
 
@@ -501,7 +501,8 @@ def _restrict(
         The authenticated user, or ``None`` when access is granted without a user context.
 
     Raises:
-        Failure: If the caller is unauthenticated, disabled, or lacks the required role.
+        NotAuthenticatedError: If the caller is unauthenticated.
+        NotPermittedError: If the caller is disabled or lacks the required role.
     """
     if engine.config.server.authentication is None:
         # Authentication is disabled, so allow all users.
@@ -511,9 +512,9 @@ def _restrict(
         return None
 
     if user is None:
-        raise Failure(NotAuthenticatedError)
+        raise NotAuthenticatedError()
     if user.disabled or role < required:
-        raise Failure(NotPermittedError)
+        raise NotPermittedError()
 
     return user
 
@@ -561,10 +562,10 @@ def assert_found[T](value: T | None, /) -> T:
     """Return `value` if it is not ``None``, otherwise raise a not-found error.
 
     Raises:
-        Failure: If `value` is ``None``.
+        NotFoundError: If `value` is ``None``.
     """
     if value is None:
-        raise Failure(NotFoundError)
+        raise NotFoundError()
 
     return value
 
@@ -683,20 +684,20 @@ def _require_self_or_admin(
     caller has permission to act on that user's behalf.
 
     Raises:
-        Failure: If the path parameter is missing or the caller lacks permission.
+        NotPermittedError: If the path parameter is missing or the caller lacks permission.
     """
     user_id = connection.path_params.get("user_id") or connection.path_params.get("id")
     if user_id is None:
-        raise Failure(NotPermittedError)
+        raise NotPermittedError()
 
     try:
         user_id = UUID(str(user_id))
     except ValueError:
-        raise Failure(NotPermittedError)
+        raise NotPermittedError()
 
     if role < UserRole.ADMIN:
         if user is None or user.id != user_id:
-            raise Failure(NotPermittedError)
+            raise NotPermittedError()
 
     return user_id
 

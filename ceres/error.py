@@ -1,8 +1,10 @@
 import builtins
+import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias, dataclass_transform
 
 import pydantic
+import pydantic.dataclasses
 from pydantic import (
     Field,
     ImportString,
@@ -22,7 +24,6 @@ from starlette.status import (
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
-from ceres.__internal__.utilities.typing import lenient_isinstance
 from ceres.__internal__.utilities.undefined import Undefined
 from ceres.address import Address, DynamicAddress
 from ceres.data import DataObject, simplify
@@ -33,13 +34,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Error",
-    "Failure",
     "ExceptionInfo",
     "ValidationProblem",
 ]
 
 
-class Error(DataObject, slots=True):
+@dataclass_transform(
+    kw_only_default=True, field_specifiers=(dataclasses.field, dataclasses.Field, Field)
+)
+@pydantic.dataclasses.dataclass(slots=True, kw_only=True)
+class Error(Exception):
     """Base class for structured, serializable error values returned across the API.
 
     Each `Error` carries a discriminator `type` string and may include extra fields with
@@ -73,33 +77,13 @@ class Error(DataObject, slots=True):
 
         return result
 
+    def __post_init__(self) -> None:
+        Exception.__init__(self, self.type)
 
-class Failure(Exception):
-    """Exception wrapper that carries a structured `Error` payload.
-
-    Use `Failure` to raise a structured error from anywhere in the codebase. The wrapped `Error`
-    instance is exposed via the `error` attribute, the error's `type` is mirrored as the
-    exception `message` for compatibility with standard logging and tracebacks.
-    """
-
-    def __init__(self, error: Error | Callable[[], Error]) -> None:
-        """Wrap an `Error` (or factory) in an exception.
-
-        Args:
-            error: Either an `Error` instance or a zero-argument callable that returns one.
-                Using a callable allows deferring construction until the failure is actually
-                raised.
-        """
-        # Allow lazy error construction, useful when the error is only needed on the unhappy path
-        # and is expensive to build.
-        if not lenient_isinstance(error, Error) and callable(error):
-            error = error()
-
-        self.error = error
-        """The structured error payload."""
-
-        self.message = str(error.type)
-        """Human-readable summary, derived from the error's `type` discriminator."""
+    def __init_subclass__(cls, slots: bool = True, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        if "__dataclass_fields__" not in cls.__dict__:
+            pydantic.dataclasses.dataclass(cls, slots=slots, kw_only=True)
 
 
 class ExceptionInfo(DataObject, slots=True):
@@ -284,7 +268,7 @@ class ComponentReferenceInvalidError(_ComponentError, slots=True):
 
 
 # Pydantic dataclasses with forward references need to be rebuilt once `Component` is resolvable.
-pydantic.dataclasses.rebuild_dataclass(ComponentReferenceInvalidError)
+pydantic.dataclasses.rebuild_dataclass(ComponentReferenceInvalidError)  # type: ignore[reportArgumentType]
 
 
 class ComponentJobInvalidError(_ComponentError, slots=True):

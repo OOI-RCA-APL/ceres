@@ -84,6 +84,7 @@ runtime-evaluated-base-classes = [
     "ceres.data.ImmutableDataModel",
     "ceres.data.DataObject",
     "ceres.data.FrozenDataObject",
+    "ceres.error.Error",
     "ceres.server.Server",
     "ceres.__internal__.cli.shared.CLICommand",
     "ceres.__internal__.cli.shared.CLICommandGroup",
