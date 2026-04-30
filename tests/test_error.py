@@ -193,6 +193,55 @@ class TestErrorAsExceptionInTraceback:
             assert error.__cause__ is original
 
 
+class TestErrorMiddlewarePattern:
+    def test_catch_and_extract_status_code(self):
+        try:
+            raise NotFoundError()
+        except Error as error:
+            status = error.__error_status_code__
+            body = simplify(error)
+
+        assert status == 404
+        assert body["__error__"] is True
+        assert body["type"] == "not-found-error"
+
+    def test_catch_and_extract_500_error(self):
+        info = ExceptionInfo(
+            type="RuntimeError",
+            message="unexpected",
+            traceback=["Traceback ..."],
+        )
+        try:
+            raise ProcedureInternalError(exception=info)
+        except Error as error:
+            status = error.__error_status_code__
+            body = simplify(error)
+
+        assert status == 500
+        assert body["type"] == "procedure-internal-error"
+        assert body["exception"]["type"] == "RuntimeError"
+
+    def test_catch_subclass_with_fields_and_serialize(self):
+        try:
+            raise DatabaseUnreachableError(reason="connection refused")
+        except Error as error:
+            status = error.__error_status_code__
+            body = simplify(error)
+
+        assert status == 500
+        assert body["reason"] == "connection refused"
+
+    def test_isinstance_check_on_caught_error(self):
+        try:
+            raise ProcedureNotFoundError()
+        except Exception as exception:
+            is_procedure_error = isinstance(exception, ProcedureNotFoundError)
+            is_error = isinstance(exception, Error)
+
+        assert is_procedure_error is True
+        assert is_error is True
+
+
 class TestErrorWithComplexFields:
     def test_error_with_exception_info_field(self):
         info = ExceptionInfo(
