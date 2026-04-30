@@ -5,6 +5,7 @@ import re
 import sys
 from pathlib import Path
 from subprocess import run
+from typing import Any
 
 # ruff: disable[T201] # Allow print statements.
 
@@ -14,7 +15,7 @@ BADGE_START = "<!-- coverage:badge -->"
 BADGE_END = "<!-- /coverage:badge -->"
 
 
-def _run_coverage() -> dict[str, object]:
+def _run_coverage() -> dict[str, Any]:
     result = run(
         ["uv", "run", "pytest", "--cov", "--cov-report=json", "-q"],
         capture_output=True,
@@ -53,7 +54,7 @@ def _badge_line(percent: int) -> str:
     return f"![Coverage: {percent}%](https://img.shields.io/badge/coverage-{percent}%25-{color})"
 
 
-def _build_table(data: dict[str, object]) -> str:
+def _build_table(data: dict[str, Any]) -> str:
     files = data["files"]
     totals = data["totals"]
 
