@@ -333,6 +333,7 @@ class CLIAuthMiddleware:
         """
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
+            return
 
         request = HTTPConnection(cast("Any", scope))
         if request.headers.get("Authorization") != self.cli_token:
