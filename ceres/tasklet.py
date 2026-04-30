@@ -26,36 +26,50 @@ _INTERNAL_ATTRIBUTE_NAME = "__tasklet__"
 
 
 class Tasklet(ABC):
-    """
-    Base class for objects that run as asyncio background tasks, including all instances of
-    `Node`, like `Component` and `Engine`.
+    """Base class for objects that run as asyncio background tasks.
+
+    Subclasses implement `__run__()` for the main task body and `__stop__()` for cleanup,
+    optionally overriding `__stopping__()` and `__post_stop__()` for additional lifecycle hooks.
+    All `Node` instances like `Component` and `Engine` are tasklets.
     """
 
     @property
     def running(self) -> bool:
-        """
-        `True` if the tasklet is currently running.
-        """
+        """`True` if the tasklet is currently running."""
         return not self.__tasklet_internal__.stopped.is_set()
 
     @property
     def stopping(self) -> bool:
-        """
-        `True` if the tasklet is presently in the process of stopping or completely stopped.
-        """
+        """`True` if the tasklet is presently in the process of stopping or completely stopped."""
         return self.__tasklet_internal__.stopping.is_set()
 
     @abstractmethod
-    async def __run__(self) -> None: ...
+    async def __run__(self) -> None:
+        """Run the tasklet's main body.
+
+        The tasklet exits naturally when this coroutine returns, or early when `stop()` is called.
+        """
+        ...
 
     @abstractmethod
-    async def __stop__(self) -> None: ...
+    async def __stop__(self) -> None:
+        """Release resources acquired during `__run__()`.
+
+        Called once the run task has been cancelled or has completed, before `__post_stop__()`.
+        """
+        ...
 
     def __stopping__(self) -> None:
-        pass
+        """Run synchronous logic the moment the tasklet begins stopping.
+
+        Invoked immediately after the stopping event is set and before the run task is cancelled.
+        """
 
     async def __post_stop__(self) -> None:
-        pass
+        """Run asynchronous cleanup after `__stop__()` has completed.
+
+        Any exception raised here is caught and printed, the tasklet is still marked as stopped.
+        """
 
     @property
     def __tasklet_internal__(self) -> _TaskletInternal:
@@ -75,9 +89,14 @@ class Tasklet(ABC):
         on_completed: Callable[[Self], None] | None = None,
         on_exception: Callable[[Self, BaseException], None] | None = None,
     ) -> None:
-        """
-        Start the tasklet as a background task. If the tasklet is already running, this does
-        nothing.
+        """Start the tasklet as a background task.
+
+        If the tasklet is already running, this does nothing.
+
+        Args:
+            on_completed: Callback invoked after the tasklet has stopped, regardless of outcome.
+            on_exception: Callback invoked with the raised exception when `__run__()` raises a
+                non-cancellation exception.
         """
         if self.__tasklet_internal__.task:
             return
@@ -124,9 +143,15 @@ class Tasklet(ABC):
         self.__tasklet_internal__.task = asyncio.create_task(main(), name=str(type(self)))
 
     async def stop(self, raise_exceptions: bool = False) -> None:
-        """
-        Stop the tasklet and wait for it to stop completely. Calling this while the tasklet is
-        already stopped does nothing and will return immediately.
+        """Stop the tasklet and wait for it to stop completely.
+
+        Calling this while the tasklet is already stopped does nothing and returns immediately.
+
+        Args:
+            raise_exceptions: If `True`, re-raise any exception captured from `__run__()`.
+
+        Raises:
+            BaseException: The exception captured from `__run__()`, when `raise_exceptions` is set.
         """
         self.__tasklet_internal__.stopping.set()
         await self.__tasklet_internal__.stopped.wait()
@@ -134,16 +159,22 @@ class Tasklet(ABC):
             raise self.__tasklet_internal__.exception
 
     async def wait_until_stopping(self) -> None:
-        """
-        Wait until the tasklet is stopping. Calling this while the tasklet is already stopped will
-        return immediately.
+        """Wait until the tasklet enters the stopping state.
+
+        Returns immediately if the tasklet is already stopping or stopped.
         """
         await self.__tasklet_internal__.stopping.wait()
 
     async def wait_until_stopped(self, raise_exceptions: bool = True) -> None:
-        """
-        Wait until the tasklet is stopped. Calling this while the tasklet is already stopped will
-        return immediately.
+        """Wait until the tasklet is fully stopped.
+
+        Returns immediately if the tasklet is already stopped.
+
+        Args:
+            raise_exceptions: If `True`, re-raise any exception captured from `__run__()`.
+
+        Raises:
+            BaseException: The exception captured from `__run__()`, when `raise_exceptions` is set.
         """
         if not self.__tasklet_internal__.task:
             return
@@ -159,9 +190,18 @@ class Tasklet(ABC):
         on_completed: Callable[[Self], None] | None = None,
         on_exception: Callable[[Self, BaseException], None] | None = None,
     ) -> None:
-        """
-        Start the tasklet, then wait for it to stop. If the tasklet is already running, this is
-        equivalent to calling `wait_until_stopped()`.
+        """Start the tasklet, then wait for it to stop.
+
+        If the tasklet is already running, this is equivalent to calling `wait_until_stopped()`.
+
+        Args:
+            raise_exceptions: If `True`, re-raise any exception captured from `__run__()`.
+            on_completed: Callback invoked after the tasklet has stopped, regardless of outcome.
+            on_exception: Callback invoked with the raised exception when `__run__()` raises a
+                non-cancellation exception.
+
+        Raises:
+            BaseException: The exception captured from `__run__()`, when `raise_exceptions` is set.
         """
         self.start(
             on_completed=on_completed,

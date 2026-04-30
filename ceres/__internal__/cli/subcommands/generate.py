@@ -9,6 +9,8 @@ from ceres.data import StrEnum, to_json, to_yaml
 
 
 class OpenAPISchemaFormat(StrEnum):
+    """Supported output formats for the OpenAPI schema."""
+
     YAML = "yaml"
     JSON = "json"
 
@@ -27,6 +29,7 @@ class OpenApiCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
+        """Generate the OpenAPI schema and write it to a file or stdout."""
         from ceres.__internal__.app.main import App
         from ceres.engine import Engine
 

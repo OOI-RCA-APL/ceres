@@ -44,6 +44,8 @@ __all__ = [
 
 
 class AlertRow(BaseRecordRow, kw_only=True):
+    """SQLAlchemy row type backing the `Alert` entity."""
+
     __tablename__: ClassVar[str] = "alerts"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
@@ -60,6 +62,7 @@ class AlertRow(BaseRecordRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             EnumConstraint(cls.level, Level, f"ck_{cls.__tablename__}__level"),
+            # GIN trigram index supports substring search on the alert type on PostgreSQL.
             Index(
                 f"ix_{cls.__tablename__}__type",
                 cls.type,
@@ -77,6 +80,8 @@ type AlertField = (
         "data",
     ]
 )
+"""Field names selectable in `Alert` queries."""
+
 type AlertOrder = (
     BaseRecordOrder
     | Literal[
@@ -88,9 +93,12 @@ type AlertOrder = (
         "type:desc",
     ]
 )
+"""Ordering keys accepted by `Alert` queries."""
 
 
 class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False):
+    """Keyword-argument form of `AlertFilter` for ergonomic call sites."""
+
     level: MaybeSequence[Level] | None
     min_level: Level | None
     max_level: Level | None
@@ -104,6 +112,8 @@ class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False)
 
 
 class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
+    """Filter for selecting `Alert` records by level, type, or data contents."""
+
     level: MaybeSequence[Level] | None = None
     """Filter by `level` being equal to one or more given levels."""
     min_level: Level | None = None
@@ -150,6 +160,8 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         if not self._match_string_suffix(obj.type, self.type_suffix):
             return False
 
+        # Only serialize the data dict when at least one substring match is requested,
+        # serialization is not free.
         if (
             self.data_contains is not None
             or self.data_prefix is not None
@@ -184,6 +196,8 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         if self.level is not None:
             yield self._sql_match_value(columns.level, self.level)
         if self.min_level is not None:
+            # Expand the inequality into an `IN` clause over the enum values, this lets
+            # databases without native enum ordering still benefit from the existing index.
             yield columns.level.in_(current for current in Level if current >= self.min_level)
         if self.max_level is not None:
             yield columns.level.in_(current for current in Level if current <= self.max_level)
@@ -197,6 +211,8 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         if self.type_suffix is not None:
             yield self._sql_match_string_suffix(columns.type, self.type_suffix)
 
+        # `data` is JSON, cast it to text so substring matching applies against its
+        # serialized form rather than failing at the SQL layer.
         if self.data_contains is not None:
             yield self._sql_match_string_contains(cast(columns.data, Text), self.data_contains)
         if self.data_prefix is not None:
@@ -206,12 +222,19 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
 
 
 class AlertCreate(BaseRecordCreate, slots=True):
+    """Payload for creating a new `Alert` record."""
+
     level: Level
+    """Severity level of the alert."""
     type: str
+    """Discriminator string identifying the kind of alert."""
     data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
+    """Optional structured payload providing additional context for the alert."""
 
 
 class AlertUpdate(BaseRecordUpdate, total=False):
+    """Partial update for an existing `Alert` record."""
+
     level: Level
     type: str
     data: FromYAML[JSONSerializableDict]
@@ -248,6 +271,8 @@ class AlertQuery(
     ],
     _BaseAlertQuery,
 ):
+    """Query builder for `Alert` records."""
+
     __slots__ = ()
 
 
@@ -262,16 +287,32 @@ class AlertManager(
     ],
     _BaseAlertQuery,
 ):
+    """Database-bound manager for `Alert` records."""
+
     __slots__ = ()
 
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Alert)
 
     async def get(self, id: UUID, /) -> Alert | None:
+        """Fetch a single alert by its identifier.
+
+        Args:
+            id: UUID of the alert to fetch.
+
+        Returns:
+            The matching alert, or `None` if no alert with that id exists.
+        """
         return await self.where(id=id).first()
 
 
 class BoundAlertManager(AlertManager, BaseNodeManager):
+    """Component-bound alert manager that exposes the live alert event stream and emit helpers.
+
+    Use `emit()` (or the level-named shortcuts like `info()` and `error()`) to raise alerts from a
+    component or engine. Each emitted alert is stored and broadcast as an `AlertEvent`.
+    """
+
     __slots__ = ()
 
     def __init__(self, source: NodeSource, /) -> None:
@@ -279,6 +320,7 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
 
     @property
     def stream(self) -> AlertOutputChannel:
+        """Return an output channel that yields alerts from `AlertEvent` events."""
         from ceres.event import AlertEvent
 
         return AlertOutputChannel(
@@ -293,6 +335,19 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
         code: str,
         data: dict[str, Any] | None = None,
     ) -> Alert:
+        """Raise a new alert from the bound component or engine.
+
+        The alert is stored in the database and broadcast as an `AlertEvent` so listeners receive
+        it immediately.
+
+        Args:
+            level: Severity level of the alert.
+            code: Discriminator string identifying the kind of alert.
+            data: Optional structured payload to attach to the alert.
+
+        Returns:
+            The newly created `Alert` instance.
+        """
         from ceres.event import AlertEvent
 
         alert = Alert(
@@ -307,18 +362,23 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
         return alert
 
     def debug(self, type: str, data: dict[str, Any] | None = None) -> Alert:
+        """Emit an alert at `Level.DEBUG`. See `emit()` for details."""
         return self.emit(Level.DEBUG, type, data)
 
     def info(self, type: str, data: dict[str, Any] | None = None) -> Alert:
+        """Emit an alert at `Level.INFO`. See `emit()` for details."""
         return self.emit(Level.INFO, type, data)
 
     def warning(self, type: str, data: dict[str, Any] | None = None) -> Alert:
+        """Emit an alert at `Level.WARNING`. See `emit()` for details."""
         return self.emit(Level.WARNING, type, data)
 
     def error(self, type: str, data: dict[str, Any] | None = None) -> Alert:
+        """Emit an alert at `Level.ERROR`. See `emit()` for details."""
         return self.emit(Level.ERROR, type, data)
 
     def critical(self, type: str, data: dict[str, Any] | None = None) -> Alert:
+        """Emit an alert at `Level.CRITICAL`. See `emit()` for details."""
         return self.emit(Level.CRITICAL, type, data)
 
 
@@ -329,6 +389,8 @@ class AlertOutputChannel(
         AlertFilterArgs,
     ]
 ):
+    """Output channel for streaming `Alert` instances with filtering helpers."""
+
     __slots__ = ()
 
     @override
@@ -342,6 +404,16 @@ class AlertOutputChannel(
         /,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> AlertOutputChannel:
+        """Return a new channel that only yields alerts matching the given filter.
+
+        Args:
+            filter: An `AlertFilter`, a callable predicate, or `None` to filter by keyword
+                arguments only.
+            **kwargs: Additional filter fields forwarded to `AlertFilter`.
+
+        Returns:
+            A filtered `AlertOutputChannel`.
+        """
         return super().where(filter, **kwargs)
 
 
@@ -351,6 +423,13 @@ class Alert(
     ConcreteEntity[AlertRow],
     slots=True,
 ):
+    """Severity-tagged event raised by a component or engine and persisted as a record.
+
+    Alerts are how components and the engine surface notable conditions to operators, ranging from
+    routine status updates to critical failures. Each alert carries a severity `level`, a
+    discriminator `type`, and optional structured `data`.
+    """
+
     Manager = AlertManager
     BoundManager = BoundAlertManager
     Create = AlertCreate

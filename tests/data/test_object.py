@@ -64,7 +64,7 @@ Object = Normal | Slotted
 def test_name_module():
     assert Normal.__name__ == "Normal"
     assert Normal.__qualname__ == "Normal"
-    assert Normal.__module__ == "tests.test_data_object"
+    assert Normal.__module__ == "tests.data.test_object"
 
 
 @pytest.mark.parametrize("Object", [Normal, Slotted])
@@ -128,7 +128,7 @@ def test_can_be_pickled(Object: type[Object]):
     import pickle
 
     assert Object.__qualname__ == Object.__name__
-    assert Object.__module__ == "tests.test_data_object"
+    assert Object.__module__ == "tests.data.test_object"
 
     if Object is Slotted:
         assert Object.__data_object_defined_slots__ == ("a", "b", "c")

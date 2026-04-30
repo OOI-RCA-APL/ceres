@@ -311,7 +311,21 @@ class _ReferenceProxiedMethods:
 
 
 class Reference:
+    """Lazy handle to a `Component` that behaves like the component itself once resolved.
+
+    A `Reference` can be constructed from a concrete `Component`, another `Reference`, a
+    `DynamicAddress`, or a string address. When the target is an address, resolution happens
+    lazily against the reference's `root` component at access time. Attribute access,
+    operators, and most dunder methods are proxied through to the resolved component so most
+    call sites can treat a `Reference` as if it were the underlying component.
+
+    Use `Reference[SomeComponent]` to constrain the target type at construction time. The
+    returned subclass enforces the constraint and forwards the proxy protocol for the
+    constrained component's methods.
+    """
+
     __reference_constraint__: type[Component] | None = None
+    """Component subclass the reference must resolve to, or `None` for no constraint."""
 
     def __class_getitem__(cls, constraint: type, /) -> type[Self]:
         if not isinstance(constraint, type):
@@ -354,6 +368,15 @@ class Reference:
 
     @classmethod
     def validate(cls, value: Any) -> Self | None:
+        """Coerce `value` into an instance of this reference type.
+
+        Args:
+            value: A `Reference`, `Component`, `DynamicAddress`, string address, or a
+                structured value that validates as the constraint type.
+
+        Returns:
+            A reference wrapping the coerced target, or `None` when `value` is `None`.
+        """
         if value is None:
             return value
         if isinstance(value, Reference):
@@ -370,6 +393,19 @@ class Reference:
         target: Component | Reference | DynamicAddress | str,
         root: Component | Reference | None = None,
     ) -> None:
+        """Construct a reference pointing at `target`.
+
+        Args:
+            target: Component, existing reference, dynamic address, or string address to
+                resolve. Strings are parsed as `DynamicAddress` values.
+            root: Component to resolve address-based targets against. Required when the
+                target is a `DynamicAddress` or string address and the reference will be
+                dereferenced.
+
+        Raises:
+            ValueError: If `target` is not a supported type, or if it is a component whose
+                type does not satisfy `__reference_constraint__`.
+        """
         if not isinstance(target, Component | Reference | Address | str):
             raise ValueError(
                 f"first argument must be a component, another reference, an address or string, got "
@@ -500,6 +536,7 @@ class Reference:
 
 
 MaybeReference = Component | Reference
+"""Type alias for values that are either a concrete component or a reference to one."""
 
 
 @overload
@@ -515,6 +552,15 @@ def unref(component: MaybeReference | None, /) -> Component | None: ...
 
 
 def unref(component: MaybeReference | None, /) -> Component | None:
+    """Return the concrete component behind a value, resolving it if it is a reference.
+
+    Args:
+        component: A component, a reference, or `None`.
+
+    Returns:
+        The underlying component, or `None` if the input is `None` or an unresolvable
+        reference.
+    """
     if component is None:
         return None
 
@@ -542,6 +588,19 @@ def ref[T: Component](
     constraint: type[T] | None = None,
     /,
 ) -> T:
+    """Wrap `target` in a `Reference`, optionally constrained to `constraint`.
+
+    When `target` is already a `Reference` it is returned as is, cast to the constraint type
+    for the benefit of type checkers.
+
+    Args:
+        target: Component, existing reference, `DynamicAddress`, or string address.
+        constraint: Optional component subclass used to parameterize the returned reference
+            and to satisfy type checkers at the call site.
+
+    Returns:
+        A reference that behaves like a `T` to the caller.
+    """
     if isinstance(target, Reference):
         return cast("T", target)
 
@@ -550,5 +609,8 @@ def ref[T: Component](
 
 if TYPE_CHECKING:
     type Ref[T] = T
+    """Type alias that resolves to the target type for static typing, and to `Reference` at
+    runtime. Use this to annotate fields that are references but should be typed as the
+    referenced component."""
 else:
     Ref = Reference

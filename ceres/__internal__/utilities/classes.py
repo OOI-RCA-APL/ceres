@@ -8,10 +8,20 @@ from ceres.__internal__.utilities.undefined import Undefined
 def class_property[C, V](
     fget: Callable[[type[C]], V] | classmethod[C, Any, V],
 ) -> ClassProperty[C, V]:
+    """Create a ``ClassProperty`` descriptor from a getter function or classmethod.
+
+    Args:
+        fget: A callable that accepts the owner class and returns a value, or a classmethod.
+
+    Returns:
+        A ``ClassProperty`` descriptor bound to the given getter.
+    """
     return ClassProperty(fget)
 
 
 class ClassProperty[C, V]:
+    """A property descriptor that operate on the class itself rather than an instance."""
+
     def __init__(
         self,
         fget: Callable[[type[C]], V] | classmethod[C, Any, V],
@@ -65,6 +75,23 @@ def cached_class_property[C, V](
     CachedClassProperty[C, V]
     | Callable[[Callable[[type[C]], V] | classmethod[C, Any, V]], CachedClassProperty[C, V]]
 ):
+    """Create a ``CachedClassProperty`` descriptor with optional cache-invalidation key.
+
+    Can be used as a bare decorator or called with keyword arguments to configure caching
+    behavior. When a ``key`` is provided, the cached value is recomputed whenever the key
+    changes.
+
+    Args:
+        fget: A callable that accepts the owner class and returns a value, or a classmethod.
+            When ``None``, return a decorator.
+        key: A callable, attribute name, or another ``CachedClassProperty`` used to derive a
+            cache-invalidation key from the owner class.
+        by: An optional transformation applied to the key before comparison, useful for
+            comparing by identity or other derived values.
+
+    Returns:
+        A ``CachedClassProperty`` descriptor, or a decorator that produces one.
+    """
     if isinstance(key, CachedClassProperty):
         if by is None:
             by = key.by
@@ -83,6 +110,11 @@ def cached_class_property[C, V](
 
 
 class CachedClassProperty[C, V](ClassProperty[C, V]):
+    """A class property that cache its computed value per owner class.
+
+    Optionally invalidate the cache when a key derived from the owner class changes.
+    """
+
     @override
     def __init__(
         self,
@@ -162,6 +194,14 @@ fields_cached_class_property = partial(
 
 
 def get_declared_slots(cls: type) -> list[str]:
+    """Collect all ``__slots__`` declared across a class's MRO, preserving definition order.
+
+    Args:
+        cls: The class whose slot declarations to collect.
+
+    Returns:
+        A deduplicated list of slot names in MRO order.
+    """
     slots: dict[str, None] = {}
 
     for current in reversed(cls.__mro__):

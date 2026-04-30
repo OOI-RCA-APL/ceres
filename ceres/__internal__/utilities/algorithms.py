@@ -7,6 +7,17 @@ def traverse(
     visit: Callable[[object], bool | None],
     seen: set[int] | None = None,
 ) -> None:
+    """Recursively walk an object graph, calling `visit` on each node.
+
+    Traverse into Pydantic models, dataclasses, mappings, and collections. Track visited objects
+    by identity to avoid infinite cycles.
+
+    Args:
+        obj: The root object to start traversal from.
+        visit: A callback invoked for each node. Return ``False`` to stop descending into the
+            node's children, or ``None`` / ``True`` to continue.
+        seen: An optional set of already-visited object ids used to prevent revisiting nodes.
+    """
     import dataclasses
 
     from pydantic import BaseModel

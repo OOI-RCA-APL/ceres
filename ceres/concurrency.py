@@ -34,14 +34,11 @@ __all__ = [
 
 
 async def sleep(delay: float | timedelta | EllipsisType, /) -> None:
-    """
-    Asyncronously sleep for a given `delay`.
+    """Asynchronously sleep for a given `delay`.
 
     Args:
-        delay: A number in seconds, or `timedelta` representing the duration to sleep for. If `...` is given, this will sleep forever, or until cancelled.
-
-    Returns:
-        A coroutine which completes after the given delay.
+        delay: A number of seconds, a `timedelta` representing the duration to sleep for, or
+            `...` to sleep forever (or until cancelled).
     """
     if delay is ...:
         delay = math.inf
@@ -52,6 +49,17 @@ async def sleep(delay: float | timedelta | EllipsisType, /) -> None:
 
 
 async def awaitify[T](value: Awaitable[T] | T, /) -> T:
+    """Await `value` if it is awaitable, otherwise return it as-is.
+
+    Useful when a callback may return either a plain value or a coroutine, allowing call sites
+    to uniformly await the result.
+
+    Args:
+        value: The value to await, or to return directly.
+
+    Returns:
+        The awaited value, or `value` itself if it was not awaitable.
+    """
     import inspect
 
     if inspect.isawaitable(value):
@@ -61,11 +69,16 @@ async def awaitify[T](value: Awaitable[T] | T, /) -> T:
 
 
 async def cancel(*tasks: MaybeRecursiveIterable[Task[Any]]) -> list[Task[Any]]:
-    """
-    Cancel all provided tasks and wait for them to complete.
+    """Cancel all provided tasks and wait for them to complete.
+
+    Exceptions raised during cancellation are suppressed, the goal is to ensure all tasks reach
+    a final state.
+
+    Args:
+        tasks: Tasks to cancel, may be passed individually or as nested iterables.
 
     Returns:
-        A flattened list of all tasks cancelled.
+        A flattened list of all tasks that were cancelled.
     """
     flattened = list(flatten(tasks))
     for task in flattened:
@@ -75,18 +88,24 @@ async def cancel(*tasks: MaybeRecursiveIterable[Task[Any]]) -> list[Task[Any]]:
     return flattened
 
 
+# Internal alias so the public name `cancel` can be shadowed by parameters in functions like
+# `race()` without losing access to the helper.
 _cancel: Final = cancel
 
 
 async def concurrently(
     *coroutines: MaybeRecursiveIterable[Coroutine[Any, Any, Any] | None],
 ) -> list[Task[Any]]:
-    """
-    Run coroutines concurrently in a task group, waiting for all of them to complete or be
-    cancelled. Any coroutine which is `None` is ignored.
+    """Run coroutines concurrently in a task group, waiting for all of them to finish.
+
+    Any coroutine that is `None` is silently ignored, which makes it convenient to conditionally
+    include work without filtering call-site arguments.
+
+    Args:
+        coroutines: Coroutines to schedule, may be passed individually or as nested iterables.
 
     Returns:
-        A list of all tasks created to run the given coroutines.
+        The list of tasks created to run the given coroutines.
     """
     tasks: list[Task[Any]] = []
     async with TaskGroup() as group:
@@ -102,16 +121,19 @@ async def race[T](
     cancel: bool = True,
     raise_exceptions: bool = True,
 ) -> tuple[set[Task[T]], set[Task[T]]]:
-    """
-    Wait for any of the given tasks or coroutines to complete.
+    """Wait for any of the given tasks or coroutines to complete.
 
     Args:
-        tasks: The tasks or coroutines to wait for. If coroutines are given, they will be automatically scheduled as tasks.
-        cancel: Whether or not to cancel all remaining tasks once at least one completes.
-        raise_exceptions: Whether or not to raise any exceptions from completed tasks. If `True`, the first exception raised by any completed task will be raised, and all other exceptions will be ignored. If `False`, all exceptions will be ignored.
+        tasks: The tasks or coroutines to wait for. Coroutines are automatically scheduled as
+            tasks before waiting.
+        cancel: Whether to cancel all remaining tasks once at least one completes.
+        raise_exceptions: Whether to raise exceptions from completed tasks. If `True`, the first
+            exception raised by any completed task is re-raised, all others are ignored. If
+            `False`, all exceptions are ignored.
 
     Returns:
-        A tuple of two sets. The first set contains all tasks that completed, and the second set contains all tasks which were still pending.
+        A tuple of two sets, the first containing all tasks that completed, the second
+        containing all tasks that were still pending when `race()` returned.
     """
     flattened = _to_tasks(flatten(tasks))
     try:
@@ -126,6 +148,8 @@ async def race[T](
 
         return done, pending
     except CancelledError:
+        # When the caller is cancelled, propagate the cancellation to every task so nothing is
+        # left running in the background.
         try:
             if cancel:
                 await _cancel(flattened)
@@ -134,11 +158,16 @@ async def race[T](
 
 
 def el(*, uvloop: bool = True, eager: bool = True) -> AbstractEventLoop:
-    """
-    Get the current running async event loop, or create and install a new one if necessary.
+    """Get the current running async event loop, or create and install a new one if necessary.
 
-    :param uvloop: Whether or not to use `uvloop` as the event loop, provided it is installed and no current running loop exists.
-    :param eager: Whether to use `asyncio.eager_task_factory` for the event loop, provided no current running loop exists.
+    Args:
+        uvloop: Whether to use `uvloop` as the event loop, provided it is installed and no
+            running loop already exists.
+        eager: Whether to use `asyncio.eager_task_factory` for the event loop, provided no
+            running loop already exists.
+
+    Returns:
+        The running event loop, or a freshly installed one.
     """
     loop: AbstractEventLoop | None = None
 
@@ -161,6 +190,8 @@ def el(*, uvloop: bool = True, eager: bool = True) -> AbstractEventLoop:
     if eager:
         loop.set_task_factory(asyncio.eager_task_factory)
 
+    # Prefer the running loop if one exists, this avoids replacing the loop a coroutine is
+    # currently executing on.
     try:
         return asyncio.get_running_loop()
     except Exception:
@@ -175,9 +206,15 @@ def el(*, uvloop: bool = True, eager: bool = True) -> AbstractEventLoop:
 
 
 async def spawn[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
-    """
-    Run a function with the provided arguments in a new thread. Returns a coroutine which waits for
-    the function call to complete and yields the return value.
+    """Run a synchronous function in a new thread and await its result.
+
+    Args:
+        function: The function to invoke.
+        *args: Positional arguments forwarded to `function`.
+        **kwargs: Keyword arguments forwarded to `function`.
+
+    Returns:
+        The value returned by `function`.
     """
 
     def run() -> T:
@@ -190,6 +227,13 @@ async def spawn[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwa
 
 
 class AsyncZip[T: tuple[Any, ...]]:
+    """Async context manager that zips multiple async iterables into tuples.
+
+    On each iteration, the most recent value from every input iterable is combined into a tuple
+    and yielded. A tuple is only emitted once every iterable has produced at least one value.
+    The producing tasks are cancelled when the context manager exits.
+    """
+
     @dataclass
     class _State:
         latest: list[Any]
@@ -214,6 +258,8 @@ class AsyncZip[T: tuple[Any, ...]]:
         ) -> None:
             while True:
                 state.latest[index] = await anext(iterator)
+                # Wait for every iterable to have emitted before producing combined tuples,
+                # otherwise downstream consumers see partial state.
                 if all(current is not Undefined for current in state.latest):
                     state.out.put_nowait(tuple(state.latest))
 
@@ -277,6 +323,15 @@ def azip[T1, T2, T3, T4, T5](
 
 
 def azip(*streams: AsyncIterable[Any]) -> AsyncZip[tuple[Any, ...]]:
+    """Combine multiple async iterables into a stream of tuples of their latest values.
+
+    Args:
+        *streams: The async iterables to zip together.
+
+    Returns:
+        An `AsyncZip` context manager whose iterator yields tuples containing the most recent
+        value from each input stream.
+    """
     return AsyncZip(streams)
 
 

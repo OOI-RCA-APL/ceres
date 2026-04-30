@@ -10,6 +10,8 @@ else:
     DateTimeInput = Any
     TimeDeltaInput = Any
 
+# Per-context override for "now", used to make tests deterministic without monkey-patching the
+# stdlib clock.
 _now_context_var = ContextVar[datetime | None]("time", default=None)
 
 __all__ = [
@@ -23,7 +25,16 @@ __all__ = [
 
 
 def utc(value: DateTimeInput | None = None, /) -> datetime:
-    """Get the current time in UTC, or convert a given date-time like value to a UTC `datetime`."""
+    """Get the current time in UTC, or convert a date-time-like value to a UTC `datetime`.
+
+    Args:
+        value: A `datetime`, ISO 8601 string, or other accepted date-time input. If `None`,
+            the current UTC time is returned, honoring any fake-now override set via
+            `set_fake_now()`.
+
+    Returns:
+        A timezone-aware `datetime` in UTC.
+    """
     if value is None:
         fake = get_fake_now()
         if fake is not None:
@@ -43,7 +54,15 @@ def utc(value: DateTimeInput | None = None, /) -> datetime:
 
 
 def delta(value: TimeDeltaInput, /) -> timedelta:
-    """Convert a time-delta like value to a `timedelta`."""
+    """Convert a time-delta-like value to a `timedelta`.
+
+    Args:
+        value: A `timedelta`, number of seconds, ISO 8601 duration string, or other accepted
+            time-delta input.
+
+    Returns:
+        The equivalent `timedelta`.
+    """
     from ceres.data import TimeDelta, validate
 
     return validate(TimeDelta, value)
@@ -53,10 +72,21 @@ _ISO_DELTA_ADAPTER = TypeAdapter(timedelta, config={"ser_json_temporal": "iso860
 
 
 def isodelta(value: timedelta, /) -> str:
-    """Convert a `timedelta` value to an ISO 8601 duration string."""
+    """Convert a `timedelta` value to an ISO 8601 duration string.
+
+    Args:
+        value: The `timedelta` to format.
+
+    Returns:
+        An ISO 8601 duration string such as `"PT1H30M"`.
+
+    Raises:
+        ValueError: If `value` is not a `timedelta` instance.
+    """
     if not isinstance(value, timedelta):
         raise ValueError(f"expected `timedelta` value, got `{type(value)}`")
 
+    # Pydantic emits the duration as a JSON string, strip the surrounding quote characters.
     return _ISO_DELTA_ADAPTER.dump_json(value).decode()[1:-1]
 
 
@@ -74,8 +104,23 @@ def sdelta(
     decimals: int | None = None,
     space: bool = False,
 ) -> str:
-    """
-    Convert a `timedelta` value to a suffixed, human-readable string with an appropriate time unit.
+    """Convert a `timedelta` to a suffixed, human-readable string with an appropriate unit.
+
+    The unit is chosen to fit the magnitude of the duration, ranging from microseconds (`us`)
+    up to days (`d`).
+
+    Args:
+        value: The `timedelta` to format.
+        decimals: Number of digits to display after the decimal point. If `None`, the natural
+            string representation of the number is used. Trailing zeros and any trailing decimal
+            point are stripped from the result.
+        space: Whether to insert a space between the number and the unit.
+
+    Returns:
+        A string such as `"500ms"`, `"1.5s"`, or `"2 h"`.
+
+    Raises:
+        ValueError: If `value` is not a `timedelta` instance.
     """
     if not isinstance(value, timedelta):
         raise ValueError(f"expected `timedelta` value, got `{type(value)}`")
@@ -119,6 +164,8 @@ def _parse_sdelta(value: str) -> timedelta:
 
     value = value.strip().replace(" ", "").lower()
 
+    # Order matters here, longer suffixes must be checked before shorter ones that are their
+    # tail (e.g. `ms` before `s`).
     if value.endswith("us"):
         decoded_unit = "us"
     elif value.endswith("ms"):
@@ -137,7 +184,7 @@ def _parse_sdelta(value: str) -> timedelta:
     try:
         decoded_value = float(value[: -len(decoded_unit)])
     except Exception:
-        raise _get_sdelta_parse_exception()
+        raise _get_sdelta_parse_exception() from None
 
     match decoded_unit:
         case "us":
@@ -157,20 +204,25 @@ def _parse_sdelta(value: str) -> timedelta:
 
 
 def set_fake_now(value: datetime | None) -> None:
-    """
-    Set a fake current time for the current thread/async context. This will be returned by `utc()`
-    when called with no arguments. To clear the fake time, call this function with `None`.
+    """Set a fake current time for the current thread or async context.
 
-    This should only ever be used for testing purposes, and should not be used in production code.
+    The value will be returned by `utc()` when called with no arguments. To clear the fake time,
+    call this function with `None`.
+
+    This should only ever be used for testing purposes, it should not be used in production code.
+
+    Args:
+        value: The fake `datetime` to return, or `None` to clear any previously set value.
     """
     _now_context_var.set(value)
 
 
 def get_fake_now() -> datetime | None:
-    """
-    Get the currently set fake current time for the current thread/async context, or `None` if no
-    fake now value is set.
+    """Get the currently set fake current time for the current thread or async context.
 
-    This should only ever be used for testing purposes, and should not be used in production code.
+    This should only ever be used for testing purposes, it should not be used in production code.
+
+    Returns:
+        The previously configured fake `datetime`, or `None` if no fake-now value is set.
     """
     return _now_context_var.get()

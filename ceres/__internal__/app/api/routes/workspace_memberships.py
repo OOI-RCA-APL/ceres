@@ -33,6 +33,14 @@ async def get_workspace_membership(
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceMembership:
+    """Return a workspace membership for the given user and workspace.
+
+    Non-admin callers can only view their own memberships or memberships in workspaces they can
+    view.
+
+    Raises:
+        Failure: If the caller lacks access or the membership does not exist.
+    """
     if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
         if not await engine.workspaces.where(viewable_by=user.id).any():
             raise Failure(NotFoundError)
@@ -46,6 +54,7 @@ async def get_workspace_memberships(
     user_id: UUID,
     filter: Annotated[WorkspaceMembershipFilter, Query(), Limit(1000)],
 ) -> list[WorkspaceMembership]:
+    """Return workspace memberships for a user, filtered and capped at 1000 results."""
     return await engine.workspace_memberships.where(user_id=user_id, and__=filter)
 
 
@@ -56,6 +65,11 @@ async def get_workspace_memberships_in_workspace(
     workspace_id: UUID,
     filter: Annotated[WorkspaceMembershipFilter, Query(), Limit(1000)],
 ) -> list[WorkspaceMembership]:
+    """Return all memberships within a workspace. Non-admin callers must have view access.
+
+    Raises:
+        Failure: If the caller lacks view access to the workspace.
+    """
     if user is not None and user.role < UserRole.ADMIN:
         if not await engine.workspaces.where(viewable_by=user.id).any():
             raise Failure(NotFoundError)
@@ -70,6 +84,23 @@ async def _guard_membership_mutation(
     membership_workspace_id: UUID,
     assigning_workspace_role: WorkspaceMembershipRole | None,
 ) -> None:
+    """Verify the acting user has permission to create or change a workspace membership.
+
+    For non-admin callers, the rules depend on whether the caller owns the membership and on
+    the workspace role being assigned. Managers may change other users' roles, but regular
+    users can only lower their own.
+
+    Args:
+        engine: The current engine instance.
+        acting_user: The user making the request, or ``None`` if authentication is disabled.
+        membership_user_id: The user ID of the membership being mutated.
+        membership_workspace_id: The workspace ID of the membership being mutated.
+        assigning_workspace_role: The workspace role being assigned, or ``None`` if the role
+            is not being changed.
+
+    Raises:
+        Failure: If the acting user lacks the required workspace-level permission.
+    """
     if acting_user is not None and acting_user.role < UserRole.ADMIN:
         if assigning_workspace_role is not None:
             if acting_user.id == membership_user_id:
@@ -91,6 +122,8 @@ async def _guard_membership_mutation(
 
 
 class WorkspaceMembershipCreateData(DataObject):
+    """Request body for creating a workspace membership."""
+
     role: WorkspaceMembershipRole
 
 
@@ -102,6 +135,11 @@ async def create_workspace_membership(
     workspace_id: UUID,
     data: WorkspaceMembershipCreateData,
 ) -> WorkspaceMembership:
+    """Create a workspace membership for the given user and workspace.
+
+    Raises:
+        Failure: If the caller lacks permission for the requested role.
+    """
     await _guard_membership_mutation(engine, user, user_id, workspace_id, data.role)
     return await engine.workspace_memberships.create(
         WorkspaceMembership(
@@ -113,6 +151,8 @@ async def create_workspace_membership(
 
 
 class WorkspaceMembershipUpdateData(TypedDict, total=False):
+    """Request body for updating a workspace membership."""
+
     role: WorkspaceMembershipRole
 
 
@@ -124,6 +164,11 @@ async def update_workspace_membership(
     workspace_id: UUID,
     assign: WorkspaceMembershipUpdate,
 ) -> WorkspaceMembership:
+    """Partially update a workspace membership (currently only the role field).
+
+    Raises:
+        Failure: If the caller lacks permission or the membership does not exist.
+    """
     if "role" in assign:
         await _guard_membership_mutation(engine, user, user_id, workspace_id, assign["role"])
 
@@ -144,6 +189,12 @@ async def delete_workspace_membership(
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceMembership:
+    """Delete a workspace membership. Non-admin callers who are not the membership owner must be
+    at least an editor in the workspace.
+
+    Raises:
+        Failure: If the caller lacks permission or the membership does not exist.
+    """
     if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
         # Only editors or admins can delete memberships for other users.
         membership = await engine.workspace_memberships.get(user.id, workspace_id)

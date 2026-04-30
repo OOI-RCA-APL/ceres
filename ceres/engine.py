@@ -44,31 +44,44 @@ SyncActionType = Literal[
     "recreate-component",
     "remove-component",
 ]
+"""Tag identifying the kind of work an `EngineAction` represents."""
 
 
 class _EngineAction(DataObject):
+    """Base type for actions the engine schedules when applying a new configuration."""
+
     type: SyncActionType
 
 
 class LoadPendingDatabaseConfigEngineAction(_EngineAction):
+    """Replace the engine's database with one built from the pending configuration."""
+
     type: Literal["load-pending-database-config"] = "load-pending-database-config"
 
 
 class LoadPendingServerConfigEngineAction(_EngineAction):
+    """Restart the HTTP server using the pending configuration."""
+
     type: Literal["load-pending-server-config"] = "load-pending-server-config"
 
 
 class CreateComponentEngineAction(_EngineAction):
+    """Create a brand new component at `address` from the pending configuration."""
+
     type: Literal["create-component"] = "create-component"
     address: Address
 
 
 class RecreateComponentEngineAction(_EngineAction):
+    """Stop and rebuild the component at `address`, replacing it with a fresh instance."""
+
     type: Literal["recreate-component"] = "recreate-component"
     address: Address
 
 
 class RemoveComponentEngineAction(_EngineAction):
+    """Stop and detach the component at `address` because the new configuration omits it."""
+
     type: Literal["remove-component"] = "remove-component"
     address: Address
 
@@ -82,13 +95,34 @@ EngineAction = EngineDatabaseAction | EngineServerAction | EngineComponentAction
 
 
 class EngineActions(DataObject):
+    """Plan describing how the engine should mutate its state to reach the pending configuration.
+
+    The fields are populated by `Engine._get_apply_actions` and consumed by `Engine._apply`.
+    """
+
     database: EngineDatabaseAction | None
+    """Database reload action, or `None` if the database configuration is unchanged."""
+
     server: EngineServerAction | None
+    """Server reload action, or `None` if the server configuration is unchanged."""
+
     components: Sequence[EngineComponentAction] = Field(default_factory=list)
+    """Per-component actions in the order they must be executed to reach the new tree shape."""
 
 
 @final
 class Engine(Node):
+    """Top-level container that owns the root `Component` and the supporting infrastructure.
+
+    The engine is the entry point for a Ceres process. It owns the `Database`, the optional HTTP
+    `Server`, and the root component tree. It loads configuration, reconciles the running
+    component tree with the desired configuration, and drives the lifecycle (start/stop) of
+    everything beneath it.
+
+    There is exactly one engine per Ceres process. Components reach it through
+    `ComponentSystem.engine`.
+    """
+
     __slots__ = (
         "_loaded",
         "_config",
@@ -105,6 +139,7 @@ class Engine(Node):
         self._loaded = False
         self._config = Config()
         self._config_path: Path | None = None
+        # Serializes concurrent `_apply` invocations so configuration reloads can't interleave.
         self._apply_lock = asyncio.Lock()
         self._database = Database()
         self._root: ComponentSystem | None = None
@@ -118,6 +153,7 @@ class Engine(Node):
     @property
     @override
     def root(self) -> ComponentSystem | None:
+        """The root component's system, or `None` if no root has been attached."""
         return self._root
 
     @root.setter
@@ -127,58 +163,71 @@ class Engine(Node):
     @property
     @override
     def address(self) -> Address:
+        """The synthetic address used for the engine itself, always `Address.engine()`."""
         return Address.engine()
 
     @property
     @override
     def engine(self) -> Self:
+        """Return this engine instance, satisfying the `Node.engine` interface."""
         return self
 
     @property
     def server(self) -> Server | None:
+        """The currently running HTTP server, or `None` if no server is active."""
         return self._server
 
     @property
     @override
     def database(self) -> Database:
+        """Return the engine's database instance."""
         return self._database
 
     @property
     @override
     def config(self) -> Config:
+        """The configuration most recently applied to the engine."""
         return self._config
 
     @cached_property
     def users(self) -> UserManager:
+        """Manager for user accounts."""
         return UserManager(self)
 
     @cached_property
     def settings(self) -> SettingManager:
+        """Manager for engine-wide settings."""
         return SettingManager(self)
 
     @cached_property
     def workspaces(self) -> WorkspaceManager:
+        """Manager for workspaces."""
         return WorkspaceManager(self)
 
     @cached_property
     def workspace_memberships(self) -> WorkspaceMembershipManager:
+        """Manager for workspace memberships, mapping users into workspaces."""
         return WorkspaceMembershipManager(self)
 
     @cached_property
     def workspace_edits(self) -> WorkspaceEditManager:
+        """Manager for in-progress workspace edits."""
         return WorkspaceEditManager(self)
 
     def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
+        """Return the entity manager bound to this engine for the given `Entity` type."""
         from ceres.__internal__.entity import get_entity_manager
 
         return get_entity_manager(self, Entity)
 
     @property
     def config_path(self) -> Path | None:
+        """Filesystem path the current configuration was loaded from, if any."""
         return self._config_path
 
     @property
     def project_directory(self) -> Directory | None:
+        """Directory containing the configuration file, or `None` if no path is known."""
         if self.config_path is None:
             return None
 
@@ -186,6 +235,7 @@ class Engine(Node):
 
     @property
     def local_directory(self) -> Directory | None:
+        """`local/` subdirectory beside the configuration file, used for persistent local state."""
         if self.project_directory is None:
             return None
 
@@ -201,6 +251,8 @@ class Engine(Node):
         await self._load_database()
         await self.__node_sync__()
 
+        # Hydrate every component's persisted state in a single connection, then start the tree
+        # if the root component is enabled.
         async with await self.database.use() as connection:
             components = self.get_components()
             for component in components:
@@ -235,6 +287,17 @@ class Engine(Node):
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None) -> Component | None:
+        """Look up a component by address relative to the root, or return the root for an empty
+        address.
+
+        Args:
+            address: An address string or `DynamicAddress`. Pass `None` or an empty value to get
+                the root component.
+
+        Returns:
+            The matching component, or `None` if no component is found at the address (or there
+            is no root attached).
+        """
         if self._root is None:
             return None
 
@@ -249,6 +312,18 @@ class Engine(Node):
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Component]:
+        """Walk the entire component tree and return components matching the given filter.
+
+        Args:
+            filter: A `ComponentFilter` or `AddressSelector` to apply, or `None` to skip
+                positional filtering.
+            inclusive: Accepted for interface compatibility with `ComponentSystem.get_components`,
+                the engine always includes the root regardless.
+            **kwargs: Additional filter overrides forwarded as `ComponentFilterArgs`.
+
+        Returns:
+            A list of matching components, or an empty list when no root is attached.
+        """
         if self._root is None:
             return []
 
@@ -260,9 +335,14 @@ class Engine(Node):
         /,
         name: Name | None = None,
     ) -> Component | None:
-        """
-        Attach a component as the root component of the engine. If there is already a root component
-        set, it will be detached and returned. Otherwise returns `None`.
+        """Attach a component as the root component of the engine.
+
+        Args:
+            root: The component or component system to install as the root.
+            name: Optional name to assign to the new root before attaching it.
+
+        Returns:
+            The previously attached root component if one was replaced, otherwise `None`.
         """
         return self._set_root(root, name)
 
@@ -273,6 +353,17 @@ class Engine(Node):
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
         silent: bool = False,
     ) -> Config:
+        """Load and apply a configuration from the given source.
+
+        Args:
+            source: Path to a configuration file, or a `Config` instance, or any other
+                `ConfigSource[Config]`.
+            checks: Configuration checks to run during loading.
+            silent: When `True`, suppress informational logging.
+
+        Returns:
+            The fully resolved `Config` that was applied.
+        """
         config = await Config.load(source, checks=checks)
 
         if not silent:
@@ -290,6 +381,20 @@ class Engine(Node):
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
         silent: bool = False,
     ) -> Config:
+        """Re-load the current configuration from disk, falling back to the in-memory copy.
+
+        Args:
+            checks: Configuration checks to run during loading.
+            silent: When `True`, suppress informational logging.
+
+        Returns:
+            The freshly loaded `Config` that was applied.
+
+        Raises:
+            Failure: If the reload fails. `ConfigError` failures are wrapped in a
+                `ReloadConfigInvalidError` so callers can distinguish reload-time validation
+                problems.
+        """
         if self.config_path is not None:
             self.log.info(f"Reloading configuration from '{self.config_path}'.")
             source = self.config_path
@@ -309,9 +414,11 @@ class Engine(Node):
         return config
 
     async def hash_password(self, password: str) -> PasswordHash:
+        """Hash a plaintext password using the engine's database password hasher."""
         return await self._database.hash_password(password)
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
+        """Verify a plaintext password against a previously stored hash."""
         return await self._database.verify_password(password, hash)
 
     def _set_root(
@@ -322,7 +429,7 @@ class Engine(Node):
         root = as_component_system(root)
         previous = self._root
         if previous is root:
-            return
+            return None
 
         if previous is not None and previous.container is self:
             previous.detach()
@@ -340,6 +447,8 @@ class Engine(Node):
         return previous.component if previous is not None else None
 
     async def _load_database(self) -> None:
+        # `database.use()` is a no-op when the schema already exists, so calling it on a fresh
+        # database performs the initial setup as a side effect.
         if not await self.database.initialized():
             self.log.info("Database appears empty, initializing database.")
             try:
@@ -364,6 +473,8 @@ class Engine(Node):
             self.log.info("Starting HTTP server.")
             self._server.start(on_exception=self._on_server_exception)
 
+            # Give the server a moment to bind so the bind address can be logged. If it isn't
+            # ready within a second we move on, the server will eventually log on its own.
             with anyio.move_on_after(1):
                 while self._server.cli_bind is None:
                     await sleep(0.01)
@@ -392,10 +503,13 @@ class Engine(Node):
         *,
         silent: bool = False,
     ) -> EngineActions:
+        # Hold the apply lock so two configuration loads can't race and leave the tree in an
+        # inconsistent state.
         async with self._apply_lock:
             self._config_path = config_path
             self._config = config
 
+            # Snapshot which components are currently running, we'll restart them at the end.
             running = [component.system.address for component in self.get_components(running=True)]
 
             reloading = self._loaded
@@ -467,6 +581,9 @@ class Engine(Node):
                         f"An issue occurred while {verb}ing components: {traceback.format_exc()}"
                     )
 
+            # Synchronize each component's configuration in place. Components whose configuration
+            # only changed in non-structural ways (those that don't require a recreate) pick up
+            # the new values here.
             for component in self.get_components():
                 component_config = config.get_component(component.system.address)
                 if component_config is not None and component.system.config != component_config:
@@ -477,6 +594,8 @@ class Engine(Node):
 
                 component.system.sync_child_order()
 
+            # Restart everything that was previously running. Newly created components that are
+            # marked enabled will be started by their parent or by the root start cascade.
             for address in running:
                 component = self.get_component(address)
                 if component is not None:
@@ -532,6 +651,8 @@ class Engine(Node):
             case (component, config):
                 pass
 
+        # Compare configurations excluding the children, structural differences in the subtree
+        # are handled per-child below.
         exclude = {"components"}
         old = (
             {}
@@ -541,6 +662,9 @@ class Engine(Node):
         new = dump(config, exclude=exclude)
 
         if old != new:
+            # When a component's own configuration changes, anything that holds a reference to it
+            # also needs recreating so the reference rebinds to the new instance, unless the
+            # referencer is itself part of the recreated subtree.
             affected = [address]
             for referencer in component.system.get_referencing_components(recursive=True):
                 if not address.contains(referencer.system.address):
@@ -548,6 +672,8 @@ class Engine(Node):
 
             return [RecreateComponentEngineAction(address=address) for address in affected]
 
+        # Recurse over the union of present children and configured children so we catch both
+        # additions and removals.
         actions: list[EngineComponentAction] = []
         children = uniq(
             [child.address for child in component.system.children]

@@ -45,6 +45,7 @@ dev = [
     "pyright==1.1.408",
     "pytest>=9.0.2,<10",
     "pytest-asyncio>=1.3.0,<2",
+    "pytest-cov>=7.1.0",
     "ruff==0.15",
     "types-pyyaml>=6,<7",
 ]
@@ -137,3 +138,23 @@ reportRedeclaration = false
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning:pytest_asyncio.*"]
 addopts = ["-vvv", "-s"]
+
+[tool.coverage.run]
+source = ["ceres"]
+omit = [
+    "ceres/__internal__/app/*",
+    "ceres/__internal__/cli/*",
+    "ceres/static/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    "@override",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]

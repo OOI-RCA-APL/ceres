@@ -15,29 +15,56 @@ __all__ = [
 
 
 class Notification(DataObject):
+    """Message payload delivered by a `Notifier` to one or more recipients."""
+
     subject: NonBlankStr
+    """Short summary line shown as the notification's subject."""
     content: str | None = None
+    """Body of the notification, or `None` for a subject-only message."""
     content_type: NonBlankStr = "text/plain"
+    """MIME type describing how to interpret `content`."""
 
 
 class Notifier(Component):
+    """Component that delivers `Notification` payloads to external recipients.
+
+    Subclasses implement `notify()` to dispatch through a specific transport such as
+    SMTP, SMS, or a chat service.
+    """
+
     @abstractmethod
     @action
     async def notify(
         self,
         notification: Notification,
         recipients: Iterable[NonBlankStr],
-    ) -> None: ...
+    ) -> None:
+        """Deliver a notification to the given recipients.
+
+        Args:
+            notification: Notification payload to deliver.
+            recipients: Addresses to deliver the notification to.
+        """
+        ...
 
 
 class SMTPNotifier(Notifier):
+    """`Notifier` that delivers notifications as email messages over SMTP."""
+
     host: NonBlankStr
+    """Hostname of the SMTP server to connect to."""
     port: NonNegativeInt
+    """TCP port of the SMTP server."""
     sender: NonBlankStr
+    """Address used as the `From` header on outgoing messages."""
     username: NonBlankStr | None = None
+    """Optional username for SMTP authentication."""
     password: SecretStr | None = Field(None, min_length=1)
+    """Optional password for SMTP authentication."""
     use_tls: bool = False
+    """Connect with TLS immediately when opening the SMTP connection."""
     use_starttls: bool = False
+    """Upgrade the SMTP connection to TLS via STARTTLS after the initial handshake."""
 
     @override
     async def notify(
@@ -45,6 +72,12 @@ class SMTPNotifier(Notifier):
         notification: Notification,
         recipients: Iterable[NonBlankStr],
     ) -> None:
+        """Send `notification` as an email to `recipients` over the configured SMTP server.
+
+        Args:
+            notification: Notification payload to deliver.
+            recipients: Email addresses to send the message to.
+        """
         recipients = list(recipients)
         if not recipients:
             self.system.log.warning("No recipients specified, skipping notification.")

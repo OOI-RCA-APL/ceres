@@ -11,6 +11,16 @@ def uniq[T](
     /,
     key: Callable[[T], Hashable] | None = None,
 ) -> Iterable[T]:
+    """Yield unique elements from ``iterable``, preserving first-seen order.
+
+    Args:
+        iterable: The source of elements to deduplicate.
+        key: An optional function that produce a hashable identity for each element. Default to
+            using the element's hash or ``id`` for unhashable objects.
+
+    Yields:
+        Each element the first time its key is encountered.
+    """
     if key is None:
         key = _get_hash_or_id
 
@@ -26,6 +36,7 @@ def uniq[T](
 
 
 def _get_hash_or_id(value: object, /) -> Hashable:
+    """Return the hash of ``value`` if it is hashable, otherwise return its ``id``."""
     if isinstance(value, Hashable):
         return hash(value)
 
@@ -37,6 +48,15 @@ def group_by[K, V](
     /,
     key: Callable[[V], K],
 ) -> Iterable[tuple[K, list[V]]]:
+    """Group elements of ``iterable`` by a key function.
+
+    Args:
+        iterable: The source of elements to group.
+        key: A function that derive a grouping key from each element.
+
+    Yields:
+        Tuples of ``(key, elements)`` where ``elements`` is the list of values sharing that key.
+    """
     from collections import defaultdict
 
     groups: defaultdict[K, list[V]] = defaultdict(list)
@@ -54,6 +74,14 @@ def seq[T](value: T | Sequence[T], /) -> Sequence[T]: ...
 
 
 def seq[T](value: T | Sequence[T], /) -> Sequence[T]:
+    """Wrap a single value in a one-element tuple, or return it unchanged if already a sequence.
+
+    Args:
+        value: A single value or an existing sequence.
+
+    Returns:
+        A sequence containing the value.
+    """
     from ceres.__internal__.utilities.typing import is_sequence
 
     if is_sequence(value):
@@ -67,6 +95,14 @@ type MaybeRecursiveIterable[T] = T | RecursiveIterable[T]
 
 
 def flatten[T](value: RecursiveIterable[T], /) -> Iterator[T]:
+    """Recursively flatten nested iterables into a single stream of leaf values.
+
+    Args:
+        value: A possibly nested iterable of values.
+
+    Yields:
+        Each non-iterable leaf element found at any depth.
+    """
     from ceres.__internal__.utilities.typing import is_iterable
 
     for current in value:
@@ -77,6 +113,11 @@ def flatten[T](value: RecursiveIterable[T], /) -> Iterator[T]:
 
 
 class OrderedSet[T](set[T]):
+    """A set that preserve insertion order.
+
+    Iteration, indexing, and pop all follow the order in which elements were added.
+    """
+
     __slots__ = ("_values",)
 
     _values: list[T]
@@ -117,6 +158,12 @@ class OrderedSet[T](set[T]):
         return value
 
     def insert(self, pos: int, element: T) -> None:
+        """Insert ``element`` at position ``pos`` if it is not already present.
+
+        Args:
+            pos: The index at which to insert.
+            element: The value to insert.
+        """
         if element not in self:
             self._values.insert(pos, element)
         super().add(element)
@@ -242,6 +289,8 @@ class OrderedSet[T](set[T]):
 
 
 class OrderedWeakSet[T](WeakSet[T]):
+    """A ``WeakSet`` that preserve insertion order using an ``OrderedSet`` as backing storage."""
+
     def __init__(self, data: Iterable[T] | None = None) -> None:
         super().__init__()
         self.data = OrderedSet() if data is None else OrderedSet(ref(current) for current in data)

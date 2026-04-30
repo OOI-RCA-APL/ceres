@@ -5,6 +5,11 @@ _value = object()
 
 
 class UndefinedType(Enum):
+    """Sentinel enum used to represent an explicitly undefined or missing value.
+
+    Use ``Undefined`` (the sole member) instead of ``None`` when ``None`` is a valid value.
+    """
+
     Instance = _value
 
     @override

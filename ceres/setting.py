@@ -43,6 +43,8 @@ __all__ = [
 
 
 class SettingRow(BaseEntityRow, kw_only=True):
+    """SQLAlchemy row type backing the `Setting` entity."""
+
     __tablename__: ClassVar[str] = "settings"
 
     user_id: Mapped[UUID] = mapped_column(UUIDMapper, default_factory=uuid7)
@@ -72,6 +74,8 @@ type SettingField = Literal[
     "name",
     "value",
 ]
+"""Field names selectable in `Setting` queries."""
+
 type SettingOrder = Literal[
     "user_id",
     "user_id:asc",
@@ -83,9 +87,12 @@ type SettingOrder = Literal[
     "value:asc",
     "value:desc",
 ]
+"""Ordering keys accepted by `Setting` queries."""
 
 
 class SettingFilterArgs(BaseEntityFilterArgs[SettingField, SettingOrder], total=False):
+    """Keyword-argument form of `SettingFilter` for ergonomic call sites."""
+
     user_id: MaybeSequence[UUID] | None
     name: MaybeSequence[str] | None
     name_contains: MaybeSequence[str] | None
@@ -94,6 +101,8 @@ class SettingFilterArgs(BaseEntityFilterArgs[SettingField, SettingOrder], total=
 
 
 class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
+    """Filter for selecting `Setting` records by owning user or name."""
+
     user_id: MaybeSequence[UUID] | None = None
     """Filter by `user_id` being equal to one or more given UUIDs."""
     name: MaybeSequence[str] | None = None
@@ -152,12 +161,19 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
 
 
 class SettingCreate(BaseEntityCreate, slots=True):
+    """Payload for creating a new `Setting` record."""
+
     user_id: UUID
+    """Identifier of the user that owns this setting."""
     name: str
+    """Name of the setting, unique per user."""
     value: FromYAML[JSONSerializable]
+    """Arbitrary JSON-serializable value stored for this setting."""
 
 
 class SettingUpdate(TypedDict, total=False):
+    """Partial update for an existing `Setting` record."""
+
     name: str
     value: FromYAML[JSONSerializable]
 
@@ -193,6 +209,8 @@ class SettingQuery(
     ],
     _BaseSettingQuery,
 ):
+    """Query builder for `Setting` records."""
+
     __slots__ = ()
 
 
@@ -207,16 +225,29 @@ class SettingManager(
     ],
     _BaseSettingQuery,
 ):
+    """Database-bound manager for `Setting` records."""
+
     __slots__ = ()
 
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Setting)
 
     async def get(self, user_id: UUID, name: str, /) -> Setting | None:
+        """Fetch a single setting by its composite key.
+
+        Args:
+            user_id: Identifier of the user that owns the setting.
+            name: Name of the setting.
+
+        Returns:
+            The matching setting, or `None` if no setting with that key exists.
+        """
         return await self.where(user_id=user_id, name=name).first()
 
 
 class BoundSettingManager(SettingManager, BaseNodeManager):
+    """Component-bound setting manager exposed to nodes."""
+
     __slots__ = ()
 
     def __init__(self, source: NodeSource, /) -> None:
@@ -224,6 +255,11 @@ class BoundSettingManager(SettingManager, BaseNodeManager):
 
 
 class Setting(SettingCreate, ConcreteEntity[SettingRow], slots=True):
+    """Per-user named value used to persist user preferences and application state.
+
+    Settings are keyed by `(user_id, name)` and store arbitrary JSON-serializable values.
+    """
+
     Manager = SettingManager
     BoundManager = BoundSettingManager
     Create = SettingCreate

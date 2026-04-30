@@ -19,6 +19,11 @@ async def get_workspace_edit(
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceEdit:
+    """Return a single workspace edit for the given user and workspace.
+
+    Raises:
+        Failure: If no matching workspace edit exists.
+    """
     return assert_found(await engine.workspace_edits.get(user_id, workspace_id))
 
 
@@ -28,10 +33,13 @@ async def get_workspace_edits(
     user_id: UUID,
     filter: Annotated[WorkspaceEditFilter, Query(), Limit(1000)],
 ) -> list[WorkspaceEdit]:
+    """Return workspace edits for the given user, filtered and capped at 1000 results."""
     return await engine.workspace_edits.where(user_id=user_id, and__=filter)
 
 
 class CreateWorkspaceEditData(DataObject):
+    """Request body for creating a workspace edit."""
+
     data: JSONSerializableDict
 
 
@@ -45,6 +53,7 @@ async def create_workspace_edit(
     workspace_id: UUID,
     values: CreateWorkspaceEditData,
 ) -> WorkspaceEdit:
+    """Create a new workspace edit for the given user and workspace."""
     return await engine.workspace_edits.create(
         WorkspaceEditCreate(
             user_id=user_id,
@@ -55,6 +64,8 @@ async def create_workspace_edit(
 
 
 class AssignWorkspaceEditData(CreateWorkspaceEditData):
+    """Request body for upserting a workspace edit. Identical to `CreateWorkspaceEditData`."""
+
     pass
 
 
@@ -68,6 +79,7 @@ async def assign_workspace_edit(
     workspace_id: UUID,
     values: AssignWorkspaceEditData,
 ) -> WorkspaceEdit:
+    """Create or replace a workspace edit for the given user and workspace via upsert."""
     return await engine.workspace_edits.create(
         WorkspaceEditCreate(
             user_id=user_id,
@@ -87,6 +99,11 @@ async def delete_workspace_edit(
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceEdit:
+    """Delete a workspace edit for the given user and workspace.
+
+    Raises:
+        Failure: If no matching workspace edit exists.
+    """
     return assert_found(
         await engine.workspace_edits.where(
             user_id=user_id,

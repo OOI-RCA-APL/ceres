@@ -28,30 +28,38 @@ async def rtsp(
     fragment_duration: float = 0.05,  # Seconds.
     dash: bool = True,
 ) -> StreamingOutput:
-    """
-    Using `ffmpeg`, read from an RTSP stream at the provided URL, then convert it into MP4 format
-    and output the live video into a `StreamingOutput` object. This object can be returned directly
-    from component queries/actions to proxy video from the external RTSP source.
+    """Proxy an RTSP stream as fragmented MP4 via a `StreamingOutput`.
 
-    This function requires `ffmpeg` to be installed. If this command is not available in the system
-    path, provide its location through the `ffmpeg` argument.
+    Spawn an `ffmpeg` subprocess that reads from `url`, transcodes or copies the video into
+    fragmented MP4, and forwards the bytes through a `StreamingOutput` object. The returned
+    output can be handed back from component queries or actions to stream the video to clients.
+
+    `ffmpeg` must be installed. If the binary is not on the system `PATH`, pass an explicit path
+    via the `ffmpeg` argument.
 
     Args:
-        url: The URL of the RTSP stream to read from.
-        ffmpeg: Optional command or path of the `ffmpeg` executable. Defaults to "ffmpeg".
-        copy: Whether to copy the video stream without re-encoding. If the video stream is already in MP4 format, this will use far less resources than re-encoding.
-        loglevel: The `ffmpeg` `-loglevel` to use. Defaults to "error". Set to `None` to omit `-loglevel`.
-        transport: The `ffmpeg` `-rtsp_transport` protocol to use. Defaults to "tcp".
-        tune: The `ffmpeg` encoding `-tune` to use. Defaults to "zerolatency". This has no effect if `copy` is `True`. Set to `None` to omit `-tune`.
-        preset: The `ffmpeg` encoding `-preset` to use. Defaults to "ultrafast". This has no effect if `copy` is `True`. Set to `None` to omit `-preset`.
-        fragment_duration: The interval in seconds at which new video fragments will be sent. Defaults to 1/20th of a second to reduce latency.
-        dash: Whether to use DASH streaming for the output.
+        url: URL of the RTSP stream to read from.
+        ffmpeg: Command or path of the `ffmpeg` executable. Defaults to looking up `ffmpeg` on
+            the system `PATH`.
+        copy: If true, copy the video stream without re-encoding. This is far cheaper than
+            re-encoding when the input codec is already acceptable.
+        loglevel: Value passed to `ffmpeg`'s `-loglevel`. Defaults to `"error"`. Pass `None` to
+            omit the flag entirely.
+        transport: Value passed to `ffmpeg`'s `-rtsp_transport`. Defaults to `"tcp"`.
+        tune: Value passed to `ffmpeg`'s encoding `-tune`. Ignored when `copy` is true. Pass
+            `None` to omit the flag.
+        preset: Value passed to `ffmpeg`'s encoding `-preset`. Ignored when `copy` is true. Pass
+            `None` to omit the flag.
+        fragment_duration: Duration in seconds of each emitted MP4 fragment. Defaults to 50 ms
+            to reduce latency.
+        dash: If true, add the `dash` flag to `-movflags` so the output is DASH-compatible.
 
     Returns:
-        A StreamingOutput object containing the MP4 video stream.
+        A `StreamingOutput` that yields `video/mp4` bytes from the running `ffmpeg` subprocess.
 
     Raises:
-        SystemError: If `ffmpeg` executable is not found in system path and no custom path is provided.
+        SystemError: If no `ffmpeg` path is provided and the executable cannot be found on the
+            system `PATH`.
     """
     if ffmpeg is not None:
         ffmpeg = str(ffmpeg)

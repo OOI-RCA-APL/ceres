@@ -1,5 +1,6 @@
 def snakecase(text: str, /) -> str:
-    """
+    """Convert a string to snake_case.
+
     >>> snakecase("Hello World")
     'hello_world'
     >>> snakecase("helloWorld")
@@ -22,7 +23,8 @@ def snakecase(text: str, /) -> str:
 
 
 def kebabcase(text: str, /) -> str:
-    """
+    """Convert a string to kebab-case.
+
     >>> kebabcase("Hello World")
     'hello-world'
     >>> kebabcase("helloWorld")
@@ -38,7 +40,8 @@ def kebabcase(text: str, /) -> str:
 
 
 def ucamelcase(text: str, /) -> str:
-    """
+    """Convert a string to UpperCamelCase (PascalCase).
+
     >>> upper_camelcase("Hello World")
     'HelloWorld'
     >>> upper_camelcase("helloWorld")
@@ -65,7 +68,8 @@ def ucamelcase(text: str, /) -> str:
 
 
 def titlecase(string: str, /) -> str:
-    """
+    """Convert a string to Title Case.
+
     >>> titlecase("Hello World")
     'Hello World'
     >>> titlecase("helloWorld")

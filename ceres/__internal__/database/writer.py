@@ -16,11 +16,23 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class Flush:
+    """Represent a single flush operation containing entities to write and a completion signal."""
+
     entities: list[Entity]
+    """The entities to write in this flush."""
+
     event: AsyncEvent = field(default_factory=AsyncEvent)
+    """Event that is set when this flush completes, allowing waiters to proceed."""
 
 
 class Writer:
+    """Buffer entity writes and flush them to the database in ordered batches.
+
+    Maintain an internal buffer of entities. When flushed, move the buffered entities into a
+    sequential flush queue so that writes happen in order. On failure, prepend unwritten entities
+    back into the next flush or the buffer so no data is lost.
+    """
+
     __slots__ = (
         "_database",
         "_buffer",
@@ -29,6 +41,11 @@ class Writer:
     )
 
     def __init__(self, database: Callable[[], Database], /) -> None:
+        """Initialize the writer with a factory that provide a database connection.
+
+        Args:
+            database: A callable that return the ``Database`` instance to write to.
+        """
         self._database = database
         self._buffer: list[Entity] = []
         self._flushes: deque[Flush] = deque()
@@ -37,26 +54,44 @@ class Writer:
 
     @property
     def empty(self) -> bool:
+        """Return True if there are no buffered entities and no pending flush operations."""
         return not self._buffer and not any(flush.entities for flush in self._flushes)
 
     @property
     def size(self) -> int:
+        """Return the total number of entities across the buffer and all pending flushes."""
         return len(self._buffer) + sum(len(flush.entities) for flush in self._flushes)
 
     @property
     def flushing(self) -> bool:
+        """Return True if there are any flush operations in progress."""
         return len(self._flushes) > 0
 
     @property
     def settled(self) -> bool:
+        """Return True if the writer has no buffered entities and no pending flushes."""
         return self._settled.is_set()
 
     def add(self, entity: Entity) -> None:
+        """Add an entity to the write buffer.
+
+        Args:
+            entity: The entity to buffer for the next flush.
+        """
         # Add the record to the flush buffer and clear the flushed event.
         self._buffer.append(entity)
         self._settled.clear()
 
     async def flush(self) -> None:
+        """Flush buffered entities to the database.
+
+        Move the current buffer into a flush queue entry and write the entities within a database
+        transaction. Wait for any prior flush to complete before writing. On database error,
+        prepend the unwritten entities to the next pending flush or back into the buffer.
+
+        Raises:
+            DatabaseError: If the database write fails, after requeuing the entities.
+        """
         # Get the previous flush object if there is one.
         previous = self._flushes[-1] if self._flushes else None
 
@@ -104,6 +139,10 @@ class Writer:
                 self._settled.set()
 
     async def settle(self) -> None:
+        """Wait until all buffered and in-flight entities have been flushed.
+
+        Return immediately if the writer is already settled.
+        """
         if self.settled:
             return
 
@@ -115,6 +154,13 @@ class Writer:
         connection: AsyncConnection,
         entities: Iterable[Entity],
     ) -> None:
+        """Group entities by type and write each group to the database.
+
+        Args:
+            database: The database instance providing dialect information.
+            connection: The active async connection to write through.
+            entities: The entities to write.
+        """
         by_type: defaultdict[type[Entity], list[Entity]] = defaultdict(list)
         for cls, group in group_by(entities, type):
             by_type[cls] = list(group)
@@ -129,6 +175,17 @@ class Writer:
         cls: type[Entity],
         entities: list[Entity],
     ) -> None:
+        """Write a list of entities of the same type using an upsert statement.
+
+        Build an INSERT ... ON CONFLICT DO UPDATE statement appropriate for the database dialect
+        (SQLite or Postgres), then execute it with the serialized entity values.
+
+        Args:
+            database: The database instance providing dialect information.
+            connection: The active async connection to write through.
+            cls: The entity class for all entities in the list.
+            entities: The entities to upsert. Do nothing if empty.
+        """
         if not entities:
             return
 

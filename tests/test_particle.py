@@ -19,6 +19,7 @@ from ceres.particle import (
     ParseFailed,
 )
 from ceres.timing import utc
+from tests import testing
 
 
 def test_particle_subclassing():
@@ -597,3 +598,23 @@ class TestParseFailed:
             error = ParseFailed("validation failed", validation)
             assert "validation failed" in str(error)
             assert error.validation is validation
+
+
+async def test_particle_id_filtering():
+    await testing.execute_id_filter_test(Particle)
+
+
+async def test_particle_address_filtering():
+    await testing.execute_address_filter_test(Particle)
+
+
+async def test_particle_timestamp_filtering():
+    await testing.execute_timestamp_filter_test(Particle)
+
+
+async def test_particle_type_filtering():
+    await testing.execute_string_filter_test(Particle, "type")
+
+
+async def test_particle_data_filtering():
+    await testing.execute_json_data_filter_test(Particle, "data")

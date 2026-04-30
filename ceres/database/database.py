@@ -62,6 +62,15 @@ __all__ = [
 
 
 class Database:
+    """Asynchronous database handle backing all persisted Ceres state.
+
+    `Database` owns the SQLAlchemy async engine, exposes cached entity managers for every
+    persisted record type, and handles one-time schema initialization. Instantiating the base
+    class dispatches to the appropriate concrete subclass based on the configuration, so
+    `Database(SQLiteDatabaseConfig())` returns a `SQLiteDatabase` and
+    `Database(PostgresDatabaseConfig(...))` returns a `PostgresDatabase`.
+    """
+
     def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
             match config:
@@ -90,22 +99,27 @@ class Database:
 
     @property
     def id(self) -> UUID:
+        """Identifier unique to this `Database` instance for this process."""
         return self._id
 
     @property
     def config(self) -> DatabaseConfig:
+        """Configuration object the database was constructed from."""
         return self._config
 
     @property
     def type(self) -> DatabaseType:
+        """Backend kind, either `DatabaseType.SQLITE` or `DatabaseType.POSTGRES`."""
         return self._config.type
 
     @property
     def engine(self) -> AsyncEngine:
+        """Underlying SQLAlchemy async engine."""
         return self._engine
 
     @property
     def ddl(self) -> list[str]:
+        """Collect every DDL statement needed to create the schema on this backend."""
         commands: list[str] = []
 
         for cls in _get_entity_row_classes():
@@ -115,46 +129,57 @@ class Database:
 
     @cached_property
     def messages(self) -> MessageManager:
+        """Manager for `Message` records."""
         return MessageManager(self)
 
     @cached_property
     def particles(self) -> ParticleManager:
+        """Manager for `Particle` records."""
         return ParticleManager(self)
 
     @cached_property
     def alerts(self) -> AlertManager:
+        """Manager for `Alert` records."""
         return AlertManager(self)
 
     @cached_property
     def logs(self) -> LogManager:
+        """Manager for log entry records."""
         return LogManager(self)
 
     @cached_property
     def users(self) -> UserManager:
+        """Manager for `User` records."""
         return UserManager(self)
 
     @cached_property
     def variables(self) -> VariableManager:
+        """Manager for `Variable` records."""
         return VariableManager(self)
 
     @cached_property
     def settings(self) -> SettingManager:
+        """Manager for `Setting` records."""
         return SettingManager(self)
 
     @cached_property
     def workspaces(self) -> WorkspaceManager:
+        """Manager for `Workspace` records."""
         return WorkspaceManager(self)
 
     @cached_property
     def workspace_memberships(self) -> WorkspaceMembershipManager:
+        """Manager for `WorkspaceMembership` records."""
         return WorkspaceMembershipManager(self)
 
     @cached_property
     def workspace_edits(self) -> WorkspaceEditManager:
+        """Manager for `WorkspaceEdit` records."""
         return WorkspaceEditManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:
+        """Manager for aggregate statistics across persisted records."""
         return StatisticsManager(self)
 
     def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
@@ -164,7 +189,9 @@ class Database:
 
     @property
     @abstractmethod
-    def url(self) -> str: ...
+    def url(self) -> str:
+        """SQLAlchemy connection URL string used to build the engine."""
+        ...
 
     @abstractmethod
     def _get_engine_config(self) -> dict[str, Any]: ...
@@ -215,45 +242,67 @@ class Database:
 
     @final
     def _get_init_commands(self) -> Iterable[str]:
-        """Get all SQL commands to run when first connecting to the database."""
+        """Yield every SQL command to run the first time the database is connected to."""
         yield from self._get_base_init_commands()
         yield from self.config.hooks.init or ()
 
     def _get_base_init_commands(self) -> Iterable[str]:
-        """Get base SQL commands to run when first connecting to the database."""
+        """Yield the base backend-defined SQL commands run on first connect."""
         yield from ()
 
     @final
     def _get_connect_commands(self) -> Iterable[str]:
-        """Get all SQL commands to run when connecting to the database."""
+        """Yield every SQL command to run on each new connection."""
         yield from self._get_base_connect_commands()
         yield from self.config.hooks.connect or ()
 
     def _get_base_connect_commands(self) -> Iterable[str]:
-        """Get base SQL commands to run when connecting to the database."""
+        """Yield the base backend-defined SQL commands run on each new connection."""
         yield from ()
 
     @final
     def _get_close_commands(self) -> Iterable[str]:
-        """Get all SQL commands to run when closing the database connection."""
+        """Yield every SQL command to run when a connection is being closed."""
         yield from self._get_base_close_commands()
         yield from self.config.hooks.close or ()
 
     def _get_base_close_commands(self) -> Iterable[str]:
-        """Get base SQL commands to run when connecting to the database."""
+        """Yield the base backend-defined SQL commands run when a connection is closed."""
         yield from ()
 
     def session(self) -> AsyncSession:
+        """Open a new ORM session bound to this database's engine.
+
+        Returns:
+            A fresh `AsyncSession` with `expire_on_commit=False` so loaded objects remain
+            usable after a commit.
+        """
         return AsyncSession(self._engine, expire_on_commit=False)
 
     def connect(self) -> AsyncConnection:
+        """Open a new low-level async connection from the engine's pool.
+
+        Returns:
+            An `AsyncConnection` the caller is responsible for entering as a context manager
+            to release back to the pool.
+        """
         return self._engine.connect()
 
     async def use(self) -> AsyncConnection:
+        """Ensure the schema is initialized, then open a new connection.
+
+        Returns:
+            An `AsyncConnection` ready for use against an initialized database.
+        """
         await self.init()
         return self.connect()
 
     async def ping(self) -> bool:
+        """Check whether the database is reachable.
+
+        Returns:
+            `True` if a connection can be opened successfully, `False` otherwise.
+        """
         try:
             async with self.connect():
                 return True
@@ -267,10 +316,19 @@ class Database:
         await self.dispose()
 
     async def dispose(self) -> None:
+        """Dispose of the underlying engine, closing any pooled connections."""
         with wrap_database_errors():
             await self._engine.dispose()
 
     async def init(self) -> None:
+        """Run every DDL statement needed to bring the schema up to date.
+
+        The work runs at most once per `Database` instance, subsequent calls are a cheap no-op so
+        it is safe to call at the start of any operation that needs the schema.
+
+        Raises:
+            Failure: If schema creation fails, wrapping a `DatabaseInitError`.
+        """
         with wrap_database_errors():
             if self._init_completed:
                 return
@@ -289,6 +347,7 @@ class Database:
                 self._init_completed = True
 
     async def clear(self) -> None:
+        """Delete every row from every known entity table, preserving the schema itself."""
         with wrap_database_errors():
             async with self._engine.begin() as connection:
                 for cls in reversed(_get_entity_row_classes()):
@@ -297,22 +356,47 @@ class Database:
                 await connection.commit()
 
     async def initialized(self) -> bool:
+        """Check whether the database already has tables in it.
+
+        Returns:
+            `True` if any tables exist in the database, `False` on a fresh database.
+        """
         with wrap_database_errors():
             return await self._run_sync(
                 lambda connection: bool(inspect(connection).get_table_names())
             )
 
-    #
-    # Users
-    #
-
     async def hash_password(self, password: str) -> PasswordHash:
+        """Hash a plaintext password using the configured hashing parameters.
+
+        The hashing work runs on a worker thread so it does not block the event loop.
+
+        Args:
+            password: Plaintext password to hash.
+
+        Returns:
+            The resulting password hash.
+        """
+
         def execute() -> PasswordHash:
             return get_password_hash(password, self.config.hashing)
 
         return await spawn(execute)
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
+        """Check whether a plaintext password matches a stored hash.
+
+        If `hash` is not already a valid password hash it is first hashed with the configured
+        parameters, so passing a plaintext value in both arguments verifies the value against
+        itself. The comparison runs on a worker thread.
+
+        Args:
+            password: Plaintext password to verify.
+            hash: Stored password hash to compare against.
+
+        Returns:
+            `True` if the password matches the hash, `False` otherwise.
+        """
         hash = await self._maybe_hash_password(hash)
 
         def execute() -> bool:
@@ -334,6 +418,12 @@ class Database:
 
 @final
 class SQLiteDatabase(Database):
+    """`Database` backed by a local SQLite file or a per-process temporary file.
+
+    When `config.path` is unset, `SQLiteDatabase` creates a temporary on-disk database whose files
+    are cleaned up when the instance is disposed.
+    """
+
     @override
     def __new__(cls, /, config: SQLiteDatabaseConfig | None = None) -> Self:
         instance = object.__new__(cls)
@@ -347,6 +437,7 @@ class SQLiteDatabase(Database):
     @property
     @override
     def config(self) -> SQLiteDatabaseConfig:
+        """Return the `SQLiteDatabaseConfig` this database was constructed from."""
         config = super().config
         assert isinstance(config, SQLiteDatabaseConfig)
         return config
@@ -354,6 +445,7 @@ class SQLiteDatabase(Database):
     @property
     @override
     def url(self) -> str:
+        """Build and return the `sqlite+aiosqlite` connection URL for this database."""
         return URL.create(
             "sqlite+aiosqlite",
             database=str(self.path),
@@ -362,6 +454,11 @@ class SQLiteDatabase(Database):
 
     @property
     def path(self) -> Path:
+        """Filesystem path of the SQLite database file.
+
+        Returns the configured `config.path` when set, otherwise a temporary path derived
+        from this instance's `id`.
+        """
         # If a path is provided, create an database at the provided path.
         if self.config.path is not None:
             return self.config.path.absolute()
@@ -377,6 +474,7 @@ class SQLiteDatabase(Database):
 
     @override
     async def dispose(self) -> None:
+        """Dispose of the engine, then remove any temporary database files."""
         try:
             await super().dispose()
         finally:
@@ -458,6 +556,8 @@ class SQLiteDatabase(Database):
 
 @final
 class PostgresDatabase(Database):
+    """`Database` backed by a PostgreSQL server reached over `asyncpg`."""
+
     def __new__(cls, /, config: PostgresDatabaseConfig) -> Self:
         instance = object.__new__(cls)
         cls.__init__(instance, config)
@@ -469,6 +569,7 @@ class PostgresDatabase(Database):
     @property
     @override
     def config(self) -> PostgresDatabaseConfig:
+        """Return the `PostgresDatabaseConfig` this database was constructed from."""
         config = super().config
         assert isinstance(config, PostgresDatabaseConfig)
         return config
@@ -476,6 +577,7 @@ class PostgresDatabase(Database):
     @property
     @override
     def url(self) -> str:
+        """Build and return the `postgresql+asyncpg` connection URL for this database."""
         return str(
             URL.create(
                 "postgresql+asyncpg",
@@ -493,6 +595,7 @@ class PostgresDatabase(Database):
     @property
     @override
     def ddl(self) -> list[str]:
+        """Collect every DDL statement needed for PostgreSQL, including extensions and functions."""
         commands: list[str] = []
 
         commands.append("CREATE EXTENSION IF NOT EXISTS pg_trgm;")

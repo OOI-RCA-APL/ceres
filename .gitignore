@@ -10,6 +10,9 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage.json
+htmlcov/
 
 # Node
 node_modules

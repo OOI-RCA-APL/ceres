@@ -159,6 +159,8 @@ __all__ = [
 
 
 class ComponentFilterArgs(BaseFilterArgs, total=False):
+    """Keyword-form arguments for `ComponentFilter`, used by helpers like `get_components`."""
+
     root: Address
     address: AddressSelector | None
     enabled: bool | None
@@ -166,12 +168,22 @@ class ComponentFilterArgs(BaseFilterArgs, total=False):
 
 
 class ComponentFilter(BaseFilter):
+    """Filter for selecting components by address and lifecycle state."""
+
     root: Address = Address.ROOT
+    """Address to interpret relative selectors against, defaults to the absolute root."""
+
     address: AddressSelector | None = None
+    """Optional selector restricting matches by address."""
+
     enabled: bool | None = None
+    """When set, only match components whose `enabled` flag equals this value."""
+
     running: bool | None = None
+    """When set, only match components whose `running` flag equals this value."""
 
     def matches(self, obj: Component | ComponentSystem) -> bool:
+        """Return `True` if `obj` satisfies every configured criterion."""
         system = as_component_system(obj)
 
         if self.address is not None:
@@ -192,11 +204,33 @@ else:
 
 
 class Component(DataObject, ComponentSource):
+    """Primary unit of organization in Ceres.
+
+    A `Component` is a Pydantic-style dataclass that bundles configurable state with decorated
+    methods (`@listener`, `@routine`, `@query`, `@action`, `@sieve`) and child components. Each
+    driver, simulator, sieve container, etc. is a `Component`.
+
+    Components are arranged in a tree, each with an address like `@parent.child`. The runtime
+    behaviour (lifecycle, event bus, references) lives on the paired `ComponentSystem` accessible
+    via `system`. The component class itself stays focused on declarative state and the methods
+    the user writes.
+
+    Subclasses typically override `__setup__`, `__start__`, `__stop__`, and the
+    `__static_connections__` / `__static_sieves__` / `__static_jobs__` / `__static_pruners__`
+    hooks to declare static behaviour, or define methods decorated with `@listener`, `@routine`,
+    `@query`, `@action`, and `@sieve`.
+    """
+
     __slots__ = ("__system",)
 
     __with_name__: InitVar[Name | None] = field(default=None, kw_only=False)
+    """Internal init-only argument, the name to register the component under."""
+
     __with_config__: InitVar[ComponentConfig | None] = field(default=None)
+    """Internal init-only argument, the configuration that produced this component."""
+
     __with_container__: InitVar[Container] = field(default=None)
+    """Internal init-only argument, the parent component, system, or engine."""
 
     def __post_init__(
         self,
@@ -245,34 +279,55 @@ class Component(DataObject, ComponentSource):
     @final
     @property
     def system(self) -> ComponentSystem:
+        """The runtime system that owns this component's lifecycle, events, and managers."""
         return self.__system
 
     def __setup__(self) -> None:
-        pass
+        """Hook called after the component is constructed and bound to its system.
+
+        Override to perform initialization that depends on `self.system` being available.
+        """
 
     def __start__(self) -> None | Awaitable[None]:
-        pass
+        """Hook called when the component starts.
+
+        Override to perform startup work. May be synchronous or return an awaitable.
+        """
 
     def __stop__(self) -> None | Awaitable[None]:
-        pass
+        """Hook called when the component stops.
+
+        Override to release resources. May be synchronous or return an awaitable. Always called
+        even if `__start__` raised.
+        """
 
     def __connectivity__(self) -> Connectivity | None:
+        """Return the component's connectivity status, or `None` if not applicable."""
         return None
 
     def __static_connections__(self) -> Iterable[ConnectionConfig]:
+        """Return connection configurations declared statically by this component class."""
         return ()
 
     def __static_sieves__(self) -> Iterable[SieveConfig]:
+        """Return sieve configurations declared statically by this component class."""
         return ()
 
     def __static_jobs__(self) -> Iterable[JobConfig]:
+        """Return job configurations declared statically by this component class."""
         return ()
 
     def __static_pruners__(self) -> Iterable[PrunerConfig]:
+        """Return pruner configurations declared statically by this component class."""
         return ()
 
     @final
     def __bind__(self, bind: ComponentSystem, /) -> None:
+        """Re-bind this component to a different `ComponentSystem`.
+
+        Used internally when a system is constructed for a component, or when the engine swaps a
+        component into a fresh system during reconfiguration.
+        """
         self.__system = bind
 
     @final
@@ -282,26 +337,19 @@ class Component(DataObject, ComponentSource):
 
 @cached(weak=True)
 def get_listener_bindings(cls: type) -> Sequence[ListenerBinding]:
-    """
-    Get all listener bindings for this component class.
-    """
+    """Return every listener binding declared by `cls` and its bases."""
     return _get_component_method_bindings(cls, ListenerBinding)
 
 
 @cached(weak=True)
 def get_routine_bindings(cls: type, /) -> Sequence[RoutineBinding]:
-    """
-    Get all routine bindings for this component class.
-    """
+    """Return every routine binding declared by `cls` and its bases."""
     return _get_component_method_bindings(cls, RoutineBinding)
 
 
 @cached(weak=True)
 def get_query_bindings(cls: type, /) -> Mapping[str, QueryBinding]:
-    """
-    Get all query bindings for this component class. Returns a mapping of query names to query
-    bindings.
-    """
+    """Return a mapping of query names to query bindings declared on `cls`."""
     return MappingProxyType(
         {
             name: binding
@@ -313,10 +361,7 @@ def get_query_bindings(cls: type, /) -> Mapping[str, QueryBinding]:
 
 @cached(weak=True)
 def get_action_bindings(cls: type, /) -> Mapping[str, ActionBinding]:
-    """
-    Get all action bindings for this component class. Returns a mapping of action names to
-    action bindings.
-    """
+    """Return a mapping of action names to action bindings declared on `cls`."""
     return MappingProxyType(
         {
             name: binding
@@ -328,10 +373,7 @@ def get_action_bindings(cls: type, /) -> Mapping[str, ActionBinding]:
 
 @cached(weak=True)
 def get_procedure_bindings(cls: type, /) -> Mapping[Name, ProcedureBinding]:
-    """
-    Get all procedure bindings (actions and queries) for this component class. Returns a mapping
-    of procedure names to procedure bindings.
-    """
+    """Return a name-keyed mapping of every procedure binding (queries plus actions) on `cls`."""
     queries = _get_component_method_bindings(cls, QueryBinding)
     actions = _get_component_method_bindings(cls, ActionBinding)
     procedures = sorted([*queries, *actions], key=lambda current: current.name)
@@ -341,23 +383,35 @@ def get_procedure_bindings(cls: type, /) -> Mapping[Name, ProcedureBinding]:
 
 @cached(weak=True)
 def get_sieve_bindings(cls: type, /) -> Mapping[Name, SieveBinding]:
-    """
-    Get all sieve bindings for this component class.
-    """
+    """Return a name-keyed mapping of every sieve binding declared on `cls`."""
     return MappingProxyType(
         {binding.name: binding for binding in _get_component_method_bindings(cls, SieveBinding)}
     )
 
 
 class ConnectionBinding(DataObject.Frozen):
+    """Pairing of a connection's exposed name with the field that holds it on the component."""
+
     name: Name
+    """Name to register the connection under."""
+
     field: Name
+    """Attribute name on the component class that holds the `Connection` instance."""
 
 
 @cached(weak=True)
 def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
-    """
-    Get all connection bindings for this component class.
+    """Discover every `Bound[ConnectionField]` field on `cls` and return their bindings.
+
+    Args:
+        cls: A component class to inspect.
+
+    Returns:
+        A mapping of connection name to `ConnectionBinding` for every bound connection field.
+
+    Raises:
+        TypeError: If a bound field is missing a recognized bound-object marker, or has more
+            than one.
     """
     from ceres.connection import ConnectionField
 
@@ -414,12 +468,25 @@ def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
 
 
 class ListenerBinding(DataObject.Frozen, config=ConfigDict(arbitrary_types_allowed=True)):
+    """Description of a single listener method registered on a component class."""
+
     name: Name
+    """Normalized listener name, derived from the method name."""
+
     method: Name
+    """Name of the underlying method to invoke when the event fires."""
+
     event: type | UnionType
+    """Event type (or union of types) the listener responds to."""
+
     local: bool
+    """When `True`, only events emitted on this component itself are delivered."""
+
     reference: tuple[str, ...]
+    """Dotted reference paths whose target components also forward matching events."""
+
     address: AddressSelector | None
+    """Optional address selector restricting which other components forward events."""
 
 
 _ListenerMethodReturn = None | Awaitable[None]
@@ -452,12 +519,36 @@ def listener(
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethod | _ListenerMethodTransform:
+    """Mark a method as a listener that runs in response to events on the event bus.
+
+    The decorated method may take just `self`, or `self` plus the event instance. The event type
+    is inferred from the second parameter's type hint when `event` is not given explicitly,
+    falling back to the base `Event` so the listener fires on every event.
+
+    Args:
+        method: When used without arguments, the method being decorated.
+        event: Specific event type (or union of types) to listen for. If omitted, inferred from
+            the method's second parameter type hint.
+        local: When `True`, only events emitted on the listener's own component are delivered.
+            Defaults to `True` when neither `reference` nor `address` is given, otherwise
+            `False`.
+        reference: One or more dotted reference paths (relative to the component) whose targets'
+            events should also be delivered.
+        address: One or more address selectors identifying additional components whose events
+            should be delivered.
+
+    Returns:
+        Either the decorated method (when used without arguments) or a decorator returning the
+        decorated method.
+    """
     reference = seq(reference or ())
 
     if address is not None:
         address = AddressSelector(address)
 
     if local is None:
+        # Default to local when no explicit cross-component routing was requested, this keeps
+        # listeners isolated by default and matches what most components expect.
         local = len(reference) == 0 and address is None
 
     def listener(method: _ListenerMethod) -> _ListenerMethod:
@@ -466,6 +557,7 @@ def listener(
         assigned_event_type = event
 
         if assigned_event_type is None:
+            # Infer the event type from the second parameter (the first is `self`).
             hints = get_type_hints(method)
             parameters = list(signature.parameters.values())
             if len(parameters) > 1:
@@ -496,34 +588,60 @@ def listener(
 
 
 class ProcedureType(StrEnum):
+    """Discriminator for the two RPC-style procedures, queries and actions."""
+
     QUERY = "query"
+    """Read-only procedure that returns a value derived from component state."""
+
     ACTION = "action"
+    """Mutating procedure that performs side effects."""
 
 
 class ProcedureOutputType(StrEnum):
+    """Shape of the value a procedure returns."""
+
     VALUE = "value"
+    """A JSON-serializable value."""
+
     STREAMING = "streaming"
+    """A streaming response of arbitrary bytes."""
+
     FILE = "file"
+    """A file response served from a path on disk."""
 
 
 class ProcedureArgumentsInfo(DataObject.Frozen):
+    """Metadata describing the arguments accepted by a procedure."""
+
     json_schema: Mapping[str, Any]
+    """JSON schema describing the procedure's argument object."""
+
     required: bool
+    """`True` when at least one argument is required."""
 
 
 class ProcedureValueOutputInfo(DataObject.Frozen):
+    """Output metadata for a procedure that returns a JSON-serializable value."""
+
     type: Literal[ProcedureOutputType.VALUE] = ProcedureOutputType.VALUE
     json_schema: Mapping[str, Any]
+    """JSON schema describing the procedure's return value."""
 
 
 class ProcedureFileOutputInfo(DataObject.Frozen):
+    """Output metadata for a procedure that returns a `FileOutput`."""
+
     type: Literal[ProcedureOutputType.FILE] = ProcedureOutputType.FILE
     media: str | None = None
+    """Optional declared media type, used as the default when the output omits one."""
 
 
 class ProcedureStreamingOutputInfo(DataObject.Frozen):
+    """Output metadata for a procedure that returns a `StreamingOutput`."""
+
     type: Literal[ProcedureOutputType.STREAMING] = ProcedureOutputType.STREAMING
     media: str
+    """Media type the stream produces, required for streaming outputs."""
 
 
 ProcedureOutputInfo: TypeAlias = (
@@ -532,6 +650,12 @@ ProcedureOutputInfo: TypeAlias = (
 
 
 class ProcedureAccessLevel(OrderedStrEnum):
+    """Access level controlling which user roles may invoke a procedure.
+
+    The order is derived from `UserRole`, with `PUBLIC` sitting one step below `VIEWER` so
+    unauthenticated callers can be permitted explicitly.
+    """
+
     @classmethod
     @override
     def __order_mapping__(cls) -> dict[ProcedureAccessLevel, int]:
@@ -545,9 +669,16 @@ class ProcedureAccessLevel(OrderedStrEnum):
         }
 
     PUBLIC = "public"
+    """Anyone, including unauthenticated callers, may invoke the procedure."""
+
     VIEWERS = "viewers"
+    """Authenticated users with viewer role or higher may invoke the procedure."""
+
     OPERATORS = "operators"
+    """Operators or admins may invoke the procedure."""
+
     ADMINS = "admins"
+    """Only admins may invoke the procedure."""
 
 
 RawProcedureAccessLevel = Literal["public", "viewers", "operators", "admins"]
@@ -558,21 +689,41 @@ ProcedurePermissionsInput = ProcedureAccessLevelInput
 
 
 class _ProcedureBinding(DataObject.Frozen):
+    """Shared metadata for both query and action bindings."""
+
     type: ProcedureType
+    """Discriminator distinguishing queries from actions."""
+
     name: Name
+    """Normalized procedure name as exposed externally."""
+
     permissions: ProcedurePermissions
+    """Minimum access level required to invoke the procedure."""
+
     method: str
+    """Name of the underlying method on the component class."""
+
     live: bool
+    """`True` when the underlying method is an async generator yielding live results."""
+
     arguments: ProcedureArgumentsInfo | None
+    """Argument metadata, or `None` if the procedure takes no arguments."""
+
     output: ProcedureOutputInfo
+    """Output metadata describing what the procedure returns."""
 
 
 class QueryBinding(_ProcedureBinding):
+    """Procedure binding for a `@query` method, polled when subscribed by default."""
+
     type: Literal[ProcedureType.QUERY] = ProcedureType.QUERY
     poll: PositiveTimeDelta = timedelta(seconds=1)
+    """Polling interval used when subscribing to a non-live query."""
 
 
 class ActionBinding(_ProcedureBinding):
+    """Procedure binding for an `@action` method, invoked imperatively rather than polled."""
+
     type: Literal[ProcedureType.ACTION] = ProcedureType.ACTION
 
 
@@ -584,11 +735,17 @@ type OutputMediaType = str
 
 
 class BaseOutput:
+    """Base class for procedure outputs that should be returned as raw HTTP responses."""
+
     @abstractmethod
-    def to_response(self) -> OutputResponse: ...
+    def to_response(self) -> OutputResponse:
+        """Convert this output into a Starlette response."""
+        ...
 
 
 class FileOutput(BaseOutput):
+    """Procedure output that streams a file from disk as the HTTP response."""
+
     __slots__ = (
         "path",
         "media",
@@ -608,6 +765,16 @@ class FileOutput(BaseOutput):
         http_filename: str | None = None,
         on_exit: Callable[[], Awaitable[Any]] | None = None,
     ) -> None:
+        """Construct a file output.
+
+        Args:
+            path: Path to the file to send.
+            media: Optional MIME type, inferred from the path when omitted.
+            http_status: HTTP status code for the response.
+            http_headers: Additional response headers.
+            http_filename: Filename hint to send via the `Content-Disposition` header.
+            on_exit: Optional async callback run after the response finishes streaming.
+        """
         self.path = Path(path)
         self.media = media
         self.http_status = http_status
@@ -617,6 +784,12 @@ class FileOutput(BaseOutput):
 
     @override
     def to_response(self) -> FileResponse:
+        """Build a Starlette `FileResponse` that streams `self.path` to the client.
+
+        Returns:
+            A `FileResponse` configured with the stored media type, status code, headers, filename
+            hint, and optional background cleanup task.
+        """
         from starlette.background import BackgroundTask
         from starlette.responses import FileResponse
 
@@ -640,6 +813,8 @@ type DataStream = AsyncIterable[DataStreamChunk] | Callable[[], AsyncIterable[Da
 
 
 class StreamingOutput(BaseOutput):
+    """Procedure output that streams arbitrary bytes as the HTTP response body."""
+
     __slots__ = (
         "stream",
         "media",
@@ -657,6 +832,16 @@ class StreamingOutput(BaseOutput):
         http_headers: Mapping[str, str] | None = None,
         on_exit: Callable[[], Awaitable[Any]] | None = None,
     ) -> None:
+        """Construct a streaming output.
+
+        Args:
+            stream: Async iterable of byte chunks, or a zero-arg factory returning one. A factory
+                lets the response start the iterable lazily.
+            media: MIME type to advertise on the response.
+            http_status: HTTP status code for the response.
+            http_headers: Additional response headers.
+            on_exit: Optional async callback run after the response finishes streaming.
+        """
         self.stream = stream
         self.media = media
         self.http_status = http_status
@@ -665,6 +850,15 @@ class StreamingOutput(BaseOutput):
 
     @override
     def to_response(self) -> StreamingResponse:
+        """Build a Starlette `StreamingResponse` that relays `self.stream` to the client.
+
+        If `self.stream` is a callable factory, it is invoked to produce the async
+        iterable lazily.
+
+        Returns:
+            A `StreamingResponse` configured with the stored media type, status code,
+            headers, and optional background cleanup task.
+        """
         from starlette.background import BackgroundTask
         from starlette.responses import StreamingResponse
 
@@ -717,6 +911,23 @@ def query[**P, T](
     media: str | None = None,
     permit: ProcedurePermissionsInput = ProcedureAccessLevel.PUBLIC,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
+    """Mark a method as a query, a read-only RPC endpoint with optional polling subscription.
+
+    Queries may be plain methods returning a JSON-serializable value, methods returning a
+    `FileOutput` or `StreamingOutput`, or async generators yielding live values.
+
+    Args:
+        method: When used without arguments, the method being decorated.
+        poll: Interval used when subscribing to a non-live query.
+        media: Media type for streaming queries, required when the return type is `StreamingOutput`
+            and otherwise optional.
+        permit: Minimum access level required to call the query.
+
+    Returns:
+        Either the decorated method (when used without arguments) or a decorator returning the
+        decorated method.
+    """
+
     def query(method: Callable[P, T]) -> Callable[P, T]:
         info = _get_procedure_method_info(method, ProcedureType.QUERY, media)
         _add_binding(
@@ -758,6 +969,22 @@ def action[**P, T](
     media: str | None = None,
     permit: ProcedurePermissionsInput = ProcedureAccessLevel.OPERATORS,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
+    """Mark a method as an action, a mutating RPC endpoint that performs side effects.
+
+    Like `@query`, actions may return JSON-serializable values, file or streaming outputs, or yield
+    live values from an async generator.
+
+    Args:
+        method: When used without arguments, the method being decorated.
+        media: Media type for streaming actions, required when the return type is
+            `StreamingOutput` and otherwise optional.
+        permit: Minimum access level required to invoke the action, defaults to operator level.
+
+    Returns:
+        Either the decorated method (when used without arguments) or a decorator returning the
+        decorated method.
+    """
+
     def action(method: Callable[P, T]) -> Callable[P, T]:
         validated = _get_procedure_method_info(method, ProcedureType.ACTION, media)
         _add_binding(
@@ -781,6 +1008,8 @@ def action[**P, T](
 
 
 class _ProcedureMethodInfo(DataObject.Frozen):
+    """Result of inspecting a procedure method, used to build `QueryBinding`/`ActionBinding`."""
+
     name: str
     method: str
     arguments: ProcedureArgumentsInfo | None
@@ -804,7 +1033,8 @@ def _get_procedure_method_info(
         raise ValueError(f"{type_} {method} cannot have positional-only arguments")
 
     arguments_json_schema = get_args_model(method).model_json_schema()
-    arguments_required = len(arguments_json_schema.get("properties", {}).get("required", [])) > 0
+    # `required` is a top-level key in the JSON schema, not nested inside `properties`.
+    arguments_required = len(arguments_json_schema.get("required", [])) > 0
     arguments = ProcedureArgumentsInfo(
         json_schema=arguments_json_schema,
         required=arguments_required,
@@ -862,10 +1092,19 @@ _BINDINGS_ATTRIBUTE = "__bindings__"
 
 
 class RoutineRestartPolicy(StrEnum):
+    """When a routine should be restarted after it finishes running."""
+
     NEVER = "never"
+    """Run once, never restart."""
+
     ALWAYS = "always"
+    """Restart after every completion or exception."""
+
     ON_COMPLETED = "on-completed"
+    """Restart only after a successful completion (not on exception)."""
+
     ON_EXCEPTION = "on-exception"
+    """Restart only after an exception (not on successful completion)."""
 
 
 RoutineRestartPolicyLiteral = Literal[
@@ -877,9 +1116,16 @@ RoutineRestartPolicyLiteral = Literal[
 
 
 class RoutineBinding(DataObject.Frozen):
+    """Description of a single routine method registered on a component class."""
+
     method: Name
+    """Name of the underlying method to call."""
+
     restart: RoutineRestartPolicy
+    """Restart policy controlling whether the routine runs again after finishing."""
+
     restart_delay: PositiveTimeDelta
+    """Delay between a routine ending and being restarted."""
 
 
 _RoutineMethodReturn = Awaitable[None]
@@ -906,6 +1152,22 @@ def routine(
     restart: RoutineRestartPolicy | RoutineRestartPolicyLiteral = RoutineRestartPolicy.NEVER,
     restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
 ) -> _RoutineMethod | _RoutineMethodHandler:
+    """Mark an async method as a routine, a long-running background task.
+
+    Routines are started when the component starts and cancelled when it stops. The
+    `restart` policy controls whether the routine is re-run after it finishes, with
+    `restart_delay` inserted between attempts.
+
+    Args:
+        method: When used without arguments, the method being decorated.
+        restart: Restart policy. Defaults to `NEVER`, meaning the routine runs once.
+        restart_delay: Delay before restarting, accepted as either seconds or a `timedelta`.
+
+    Returns:
+        Either the decorated method (when used without arguments) or a decorator returning the
+        decorated method.
+    """
+
     def routine(method: _RoutineMethod) -> _RoutineMethod:
         _add_binding(
             method,
@@ -935,6 +1197,7 @@ def get_component_method_bindings_on[T: _MethodBinding](
     binding_cls: type[T],
     /,
 ) -> Sequence[T]:
+    """Return all bindings of type `binding_cls` attached to the given method by a decorator."""
     method = get_inner_function(method)
     output: list[T] = []
 
@@ -952,6 +1215,7 @@ def get_component_method_binding_on[T: _MethodBinding](
     binding_cls: type[T],
     /,
 ) -> T | None:
+    """Return the first binding of type `binding_cls` on the method, or `None` if absent."""
     bindings = get_component_method_bindings_on(method, binding_cls)
     if bindings:
         return bindings[0]
@@ -965,6 +1229,8 @@ def _get_component_method_bindings[T: _MethodBinding](
 ) -> Sequence[T]:
     bindings: dict[str, T] = {}
 
+    # Walk the MRO from base to derived so subclass overrides win when they re-decorate the same
+    # method name.
     for cls in reversed(cls.__mro__):
         for member in vars(cls).values():
             if not callable(member):
@@ -977,15 +1243,34 @@ def _get_component_method_bindings[T: _MethodBinding](
 
 
 class SieveBinding(DataObject.Frozen):
+    """Description of a single sieve method registered on a component class."""
+
     name: Name
+    """Sieve name, used as its key in the sieve manager."""
+
     method: Name
+    """Name of the underlying method on the component."""
+
     stored: bool
+    """Whether particles produced by the sieve should be persisted."""
+
     retries: NonNegativeInt | None
+    """Maximum number of retries for failed messages, or `None` for unlimited."""
+
     retry_delay: PositiveTimeDelta
+    """Delay between retry attempts."""
+
     filter: MessageFilter | None
+    """Optional filter restricting which messages reach the sieve."""
+
     connections: tuple[ConnectionField, ...] | None
+    """Specific connections the sieve subscribes to, or `None` to subscribe to all."""
+
     buffer_size: ByteSize | None = Field(gt=0)
+    """Optional cap on the in-memory buffer this sieve receives."""
+
     buffer_drop: ByteSize | None = Field(gt=0)
+    """Optional threshold at which oldest data is dropped from the buffer."""
 
 
 type SieveMethod[S, T: Particle] = (
@@ -1032,6 +1317,32 @@ def sieve[S, T: Particle](
     buffer_size: int | str | None = None,
     buffer_drop: int | str | None = None,
 ) -> SieveMethod[S, T] | Callable[[SieveMethod[S, T]], SieveMethod[S, T]]:
+    """Mark a method as a sieve, parsing incoming messages into particles.
+
+    A sieve method takes either a single `Message` (returning an optional particle), an async
+    iterable of messages (yielding particles), or a `Buffer` (yielding particles).
+
+    Args:
+        first: When used as `@sieve` without arguments, this is the decorated method itself.
+            When used as `@sieve(connection)`, this is a connection or sequence of connections
+            to bind the sieve to.
+        direction: Message direction(s) to accept. Defaults to receive-only.
+        name: Optional override for the sieve name, defaults to the method name.
+        stored: Whether produced particles should be persisted to the database.
+        retries: Maximum retries for failed messages, or `None` for unlimited.
+        retry_delay: Delay between retries.
+        contains: Filter accepting only messages whose data contains the given bytes.
+        prefix: Filter accepting only messages whose data starts with the given bytes.
+        suffix: Filter accepting only messages whose data ends with the given bytes.
+        buffer_size: Optional cap on the in-memory buffer this sieve receives.
+        buffer_drop: Optional threshold at which oldest data is dropped from the buffer.
+
+    Returns:
+        Either the decorated method (when used without arguments) or a decorator returning the
+        decorated method.
+    """
+    # The first positional may be either the decorated method or the bound connection(s),
+    # disambiguate before we build the binding.
     if first is None:
         method = None
         connections = None
@@ -1111,6 +1422,19 @@ warnings.filterwarnings(
 
 @final
 class ComponentSystem(Node, ComponentSource):
+    """Runtime wrapper around a `Component` that owns its lifecycle and infrastructure.
+
+    Each `Component` is paired with exactly one `ComponentSystem`. The system provides:
+
+    - Tree placement via the parent container and child registry.
+    - Lifecycle: `start`, `stop`, `enable`, `disable`, plus the routine and procedure runners.
+    - The event bus and reference resolution.
+    - Lazy access to the connection, sieve, job, and pruner managers.
+
+    Components reach their system via `Component.system`. The system is normally created by
+    `Component.__post_init__`, callers rarely instantiate it directly.
+    """
+
     __slots__ = (
         "_name",
         "_config",
@@ -1134,6 +1458,8 @@ class ComponentSystem(Node, ComponentSource):
         super().__init__()
 
         if __with_name__ is None:
+            # Components without explicit names get a stable random handle so they can still be
+            # addressed in logs and references.
             __with_name__ = randstr(ascii_lowercase, 8)
         if isinstance(__with_container__, Component):
             __with_container__ = __with_container__.system
@@ -1264,9 +1590,7 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def address(self) -> Address:
-        """
-        The current address of the component.
-        """
+        """The current address of the component, derived by walking up to the root."""
         if self.parent is not None:
             return self.parent.address / self.name
 
@@ -1274,10 +1598,10 @@ class ComponentSystem(Node, ComponentSource):
 
     @property
     def container(self) -> ComponentSystem | Engine | None:
-        """
-        Get the container of the component system. This can be either another `ComponentSystem` as
-        its parent, or an `Engine`. Returns `None` if the component has no parent or containing
-        engine.
+        """The container of the component system.
+
+        This is either another `ComponentSystem` (the parent component) or an `Engine` (when
+        this component is the engine's root). Returns `None` when the component is detached.
         """
         return self._container
 
@@ -1286,6 +1610,8 @@ class ComponentSystem(Node, ComponentSource):
         from ceres.engine import Engine
 
         self._container = container
+        # Make sure the container actually knows about us, calling `attach` is idempotent when
+        # the relationship is already in sync.
         if isinstance(container, Engine):
             if container.root is not self:
                 container.attach(self)
@@ -1296,9 +1622,9 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def engine(self) -> Engine | None:
-        """
-        Get the engine this component is contained by. Returns `None` if the component is not
-        contained by any engine.
+        """The engine that contains this component, or `None` if it is detached.
+
+        Walks the container chain upwards and returns the engine at the top.
         """
         container = self._container
         if container is None:
@@ -1309,6 +1635,12 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def database(self) -> Database:
+        """The database used by the component.
+
+        If the component is part of a tree, this returns the database from the engine at the
+        root. A detached component creates a private in-memory database lazily on first access,
+        useful for unit tests.
+        """
         container = self._container
         if container is not None:
             return container.database
@@ -1320,23 +1652,23 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def config(self) -> ComponentConfig | None:
-        """
-        The configuration of the component, if available.
-        """
+        """The configuration of the component, if available."""
         return self._config
 
     @config.setter
     def config(self, config: ComponentConfig | None) -> None:
-        """
-        Set the configuration of the component. Note this doesn't actually sync the component with
-        the configuration. It will only indicate to the engine, that this configuration is the one
-        currently applied. Generally, this is only for internal use and should not be used directly.
+        """Record the configuration that produced this component.
+
+        This does not re-apply the configuration to the live component, it only records which
+        configuration is currently considered active. Generally for internal use by the engine
+        during a configuration apply.
         """
         self._config = config
 
     @property
     @override
     def root(self) -> ComponentSystem:
+        """The root of this component's tree, or this component itself when it has no parent."""
         current: ComponentSystem | None = self
         while current.parent is not None:
             current = current.parent
@@ -1345,25 +1677,27 @@ class ComponentSystem(Node, ComponentSource):
 
     @property
     def parent(self) -> ComponentSystem | None:
-        """
-        Get the parent component's system if it exists, or return `None`.
-        """
+        """The parent component's system, or `None` if there is no parent."""
         return as_component_system(self._container)
 
     @cached_property
     def jobs(self) -> JobManager:
+        """Manager for scheduled jobs declared by this component."""
         return JobManager(self)
 
     @cached_property
     def connections(self) -> ComponentConnectionManager:
+        """Manager for the component's network connections."""
         return ComponentConnectionManager(self)
 
     @cached_property
     def sieves(self) -> SieveManager:
+        """Manager for the component's sieves."""
         return SieveManager(self)
 
     @cached_property
     def pruners(self) -> PrunerManager:
+        """Manager for the component's data pruners."""
         return PrunerManager(self)
 
     @override
@@ -1373,67 +1707,77 @@ class ComponentSystem(Node, ComponentSource):
 
     @property
     def name(self) -> Name:
+        """The name this component is registered under within its parent."""
         return self._name
 
     @name.setter
     def name(self, name: Name) -> None:
+        """Rename the component.
+
+        Args:
+            name: New name for the component.
+
+        Raises:
+            ValueError: If the parent already has a different child with the requested name.
+        """
         if self.parent is None:
             self._name = name
             return
 
-        if name in self.parent._children:
-            raise ValueError(f"parent already has child named {self._name!r}")
+        if name == self._name:
+            return
 
+        if name in self.parent._children:
+            raise ValueError(f"parent already has child named {name!r}")
+
+        # Move the parent's registration over to the new name, otherwise the old key would
+        # linger and the component would appear under both names.
+        old_name = self._name
         self._name = name
+        self.parent._children.pop(old_name, None)
         self.parent._children[name] = self
         self.__propagate_tree_change()
 
-        self._name = name
-
     @property
     def component(self) -> Component:
-        """
-        Get the underlying component of the component system.
-        """
+        """The underlying component this system wraps."""
         return self._component
 
     @property
     def enabled(self) -> bool:
-        """
-        `True` if the component is enabled. Enabled components start automatically when their parent
-        or containing engine starts.
+        """`True` if the component is enabled.
+
+        Enabled components start automatically when their parent or containing engine starts.
         """
         return self._enabled
 
     async def enable(self) -> None:
-        """
-        Enable the component. Enabled components start automatically when their parent or containing
-        engine starts.
+        """Enable the component and persist the new state.
+
+        Enabled components start automatically when their parent or containing engine starts.
+        Emits `EnabledEvent` on success.
         """
         await self.__set_enabled_in_database(True)
         self._enabled = True
         self.events.emit(EnabledEvent)
 
     async def disable(self) -> None:
-        """
-        Disable the component. Disabled components will not start automatically when their parent
-        or containing engine starts.
+        """Disable the component and persist the new state.
+
+        Disabled components do not start automatically when their parent or containing engine
+        starts. Emits `DisabledEvent` on success.
         """
         await self.__set_enabled_in_database(False)
         self._enabled = False
         self.events.emit(DisabledEvent)
 
     async def up(self) -> None:
-        """
-        Enable and start the component.
-        """
+        """Enable and start the component."""
         await self.enable()
         self.start()
 
     async def down(self) -> None:
-        """
-        Disable and stop the component.
-        """
+        """Disable and stop the component, waiting for it to fully stop."""
         await self.disable()
         await self.stop()
 
@@ -1456,57 +1800,40 @@ class ComponentSystem(Node, ComponentSource):
 
     @property
     def children(self) -> Sequence[ComponentSystem]:
-        """
-        Get all child component systems of this component.
-        """
+        """All child component systems of this component, in registered order."""
         return list(self._children.values())
 
     def get_listener_bindings(self) -> Sequence[ListenerBinding]:
-        """
-        Get all listener bindings for this component.
-        """
+        """Return every listener binding on the underlying component class."""
         return get_listener_bindings(type(self.component))
 
     def get_routine_bindings(self) -> Sequence[RoutineBinding]:
-        """
-        Get all routine bindings for this component.
-        """
+        """Return every routine binding on the underlying component class."""
         return get_routine_bindings(type(self.component))
 
     def get_query_bindings(self) -> Mapping[Name, QueryBinding]:
-        """
-        Get all query bindings for this component. Returns a mapping of query names to query
-        bindings.
-        """
+        """Return a mapping of query names to query bindings on the underlying class."""
         return get_query_bindings(type(self.component))
 
     def get_action_bindings(self) -> Mapping[Name, ActionBinding]:
-        """
-        Get all action bindings for this component. Returns a mapping of action names to action
-        bindings.
-        """
+        """Return a mapping of action names to action bindings on the underlying class."""
         return get_action_bindings(type(self.component))
 
     def get_procedure_bindings(self) -> Mapping[Name, ProcedureBinding]:
-        """
-        Get all procedure bindings (actions and queries) for this component. Returns a mapping of
-        procedure names to procedure bindings.
-        """
+        """Return a mapping of procedure names to bindings (queries plus actions)."""
         return get_procedure_bindings(type(self.component))
 
     def get_sieve_bindings(self) -> Mapping[Name, SieveBinding]:
-        """
-        Get all sieve bindings for this component.
-        """
+        """Return a mapping of sieve names to sieve bindings on the underlying class."""
         return get_sieve_bindings(type(self.component))
 
     def get_connection_bindings(self) -> Mapping[Name, ConnectionBinding]:
-        """
-        Get all connection bindings for this component.
-        """
+        """Return a mapping of connection names to connection bindings on the underlying class."""
         return get_connection_bindings(type(self.component))
 
     def __propagate_tree_change(self) -> None:
+        # Notify every component in the tree that the structure changed so they can recompute
+        # cached child order and re-resolve references that may now point somewhere different.
         for component in self.root.get_components():
             component.system.__on_tree_change()
 
@@ -1515,6 +1842,16 @@ class ComponentSystem(Node, ComponentSource):
         self.sync_references()
 
     def sync_references(self) -> tuple[list[Reference], list[Reference]]:
+        """Resolve every `Reference` declared by the component against the current tree.
+
+        Each reference's root is set to this component, then resolution is attempted. Components
+        whose references resolve are added to the target's referencer set so the target knows
+        who depends on it. Stale referencers (where this system no longer references them) are
+        removed.
+
+        Returns:
+            A `(resolved, unresolved)` tuple of references that did and did not resolve.
+        """
         resolved: list[Reference] = []
         unresolved: list[Reference] = []
 
@@ -1529,6 +1866,7 @@ class ComponentSystem(Node, ComponentSource):
             else:
                 unresolved.append(reference)
 
+        # Drop bookkeeping entries for referencers that no longer point at this component.
         discard: list[ComponentSystem] = []
         for referencer in self._referencers:
             if self.component not in referencer.get_referenced_components():
@@ -1538,6 +1876,7 @@ class ComponentSystem(Node, ComponentSource):
         return resolved, unresolved
 
     def get_references(self) -> list[Reference]:
+        """Walk the component's state and collect every `Reference` instance found."""
         from ceres.reference import Reference
 
         references: list[Reference] = []
@@ -1553,6 +1892,7 @@ class ComponentSystem(Node, ComponentSource):
         return references
 
     def has_reference_to(self, component: Component) -> bool:
+        """Return `True` if this component references `component` directly."""
         from ceres.reference import unref
 
         referenced = self.get_referenced_components()
@@ -1563,6 +1903,16 @@ class ComponentSystem(Node, ComponentSource):
         return False
 
     def get_referenced_components(self, reference: str | None = None) -> list[Component]:
+        """Return components reached by walking this component's references.
+
+        Args:
+            reference: Optional dotted attribute path to start the walk from. When given, only
+                the subtree rooted at that attribute is traversed.
+
+        Returns:
+            All other components that this component (or the requested subtree) references.
+            Self-references are excluded.
+        """
         from ceres.reference import Reference, unref
 
         root = self.component
@@ -1590,6 +1940,15 @@ class ComponentSystem(Node, ComponentSource):
         return components
 
     def get_referencing_components(self, recursive: bool = False) -> list[Component]:
+        """Return components that hold a reference to this component.
+
+        Args:
+            recursive: When `True`, also include components that reference this component
+                indirectly through a chain of other referencers.
+
+        Returns:
+            The list of referencing components.
+        """
         if recursive:
             return self.__get_referencing_components_recursive()
 
@@ -1613,8 +1972,16 @@ class ComponentSystem(Node, ComponentSource):
         /,
         name: Name | None = None,
     ) -> None:
-        """
-        Add a child component to this component's children.
+        """Add a child component beneath this component.
+
+        Args:
+            child: Component or component system to attach.
+            name: Optional name to register the child under. When omitted, the child's existing
+                name is used.
+
+        Raises:
+            ValueError: If the child is this component itself, an ancestor, or there is already
+                another child registered under the same name.
         """
         if isinstance(child, Component):
             child = child.system
@@ -1622,6 +1989,8 @@ class ComponentSystem(Node, ComponentSource):
         if child is self or self.contains(child):
             raise ValueError("component cannot contain itself")
 
+        # Detach the child from its previous container before re-parenting so we don't leave
+        # dangling references behind.
         child.detach()
 
         name = name or child.name
@@ -1639,9 +2008,12 @@ class ComponentSystem(Node, ComponentSource):
         child.events.emit(AttachedEvent)
 
     def detach(self) -> None:
-        """
-        Remove the component from its container (either its parent component, or its containing
-        engine). If the component has no container, this does nothing.
+        """Remove the component from its container.
+
+        The container can be either a parent component or the engine. If the component has no
+        container, this does nothing. Emits `WillDetachEvent` before the removal and
+        `DetachedEvent` afterward (propagated through the former container so listeners can see
+        what was detached and from where).
         """
         if self._container is None:
             return
@@ -1695,6 +2067,15 @@ class ComponentSystem(Node, ComponentSource):
         address: str | DynamicAddress | None = None,  # TODO: Don't allow this to be `None`.
         /,
     ) -> Component | None:
+        """Resolve `address` to a component beneath this one.
+
+        Args:
+            address: Address string or `DynamicAddress`. An empty value returns this component.
+                Absolute addresses on a non-root system are resolved against the tree root.
+
+        Returns:
+            The matching component, or `None` if no component exists at that address.
+        """
         if not address:
             return self.component
 
@@ -1725,6 +2106,17 @@ class ComponentSystem(Node, ComponentSource):
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Component]:
+        """Walk this component's subtree and return components matching the given filter.
+
+        Args:
+            filter: A `ComponentFilter` or `AddressSelector`, or `None` to skip positional
+                filtering.
+            inclusive: When `True`, include this component itself in the candidate set.
+            **kwargs: Additional filter overrides.
+
+        Returns:
+            All matching components in pre-order traversal.
+        """
         components: list[Component] = []
 
         overrides = ComponentFilter(**kwargs)
@@ -1750,6 +2142,7 @@ class ComponentSystem(Node, ComponentSource):
 
     @override
     async def get_status(self) -> Status:
+        """Return the component's status augmented with its enabled flag and connectivity."""
         status = await super().get_status()
         status.enabled = self.enabled
         status.connectivity = self.component.__connectivity__()
@@ -1761,6 +2154,13 @@ class ComponentSystem(Node, ComponentSource):
         *,
         inclusive: bool = False,
     ) -> bool:
+        """Return `True` if `component` is somewhere in this subtree.
+
+        Args:
+            component: Component or system to test.
+            inclusive: When `True`, return `True` for the component itself in addition to its
+                descendants.
+        """
         system = as_component_system(component)
         current: ComponentSystem | None = system if inclusive else system.parent
         while current is not None:
@@ -1772,9 +2172,13 @@ class ComponentSystem(Node, ComponentSource):
         return False
 
     def get_ancestor_components(self, *, inclusive: bool = False) -> list[Component]:
-        """
-        Return a group of all ancestor components in ascending order. If `inclusive` is `True`,
-        include this component itself as the first component in the sequence.
+        """Return a list of ancestor components in ascending order.
+
+        Args:
+            inclusive: When `True`, include this component itself as the first entry.
+
+        Returns:
+            Ancestors ordered from nearest parent to root.
         """
         ancestors: list[Component] = []
 
@@ -1793,6 +2197,21 @@ class ComponentSystem(Node, ComponentSource):
         on_exception: Callable[[Self, BaseException], None] | None = None,
         all_enabled: bool = True,
     ) -> None:
+        """Start the component, its ancestors, and any enabled descendants.
+
+        Ancestors are started first so this component always has a running parent. After this
+        component starts, every enabled child is started recursively unless `all_enabled` is
+        `False`.
+
+        Args:
+            on_completed: Optional callback invoked when the component task finishes
+                successfully.
+            on_exception: Optional callback invoked when the component task fails.
+            all_enabled: When `True`, recursively start every enabled descendant. Internal
+                callers set this to `False` when starting an ancestor to avoid double-starts.
+        """
+        # Walk up first so parents are running before we start, ancestors are passed
+        # `all_enabled=False` because we don't want them to fan out and start unrelated children.
         for component in reversed(self.get_ancestor_components()):
             component.system.start(all_enabled=False)
 
@@ -1810,6 +2229,8 @@ class ComponentSystem(Node, ComponentSource):
     async def __run__(self) -> None:
         try:
             try:
+                # Run the user's `__start__` hook. Failures here are reported but don't prevent
+                # the `__stop__` hook from running on shutdown.
                 await awaitify(self.component.__start__())
             except Exception as exception:
                 self.events.emit(StartExceptionEvent, exception=trace(exception))
@@ -1820,6 +2241,8 @@ class ComponentSystem(Node, ComponentSource):
 
                     await self.__node_sync__()
 
+                    # Run all background workers concurrently. The first to fail will cancel the
+                    # rest via `concurrently`.
                     await concurrently(
                         super().__run__(),
                         self.__run_routines(),
@@ -1840,6 +2263,8 @@ class ComponentSystem(Node, ComponentSource):
                 self.events.emit(StopExceptionEvent, exception=trace(exception))
 
     async def __run_routine(self, binding: RoutineBinding) -> None:
+        # Look up the bound method by name. A subclass may legitimately remove a routine, in
+        # which case there's nothing to run.
         routine = getattr(self.component, binding.method, None)
         if routine is None:
             return
@@ -1851,6 +2276,8 @@ class ComponentSystem(Node, ComponentSource):
                 try:
                     await routine()
                     self.events.emit(RoutineCompletedEvent, routine=binding.method)
+                    # `ON_COMPLETED` means "stop restarting once we successfully complete," so
+                    # exit the loop here.
                     if binding.restart == RoutineRestartPolicy.ON_COMPLETED:
                         break
                 except Exception as exception:
@@ -1859,6 +2286,8 @@ class ComponentSystem(Node, ComponentSource):
                         routine=binding.method,
                         exception=trace(exception),
                     )
+                    # `ON_EXCEPTION` means "stop restarting once we hit an exception," so exit
+                    # the loop here.
                     if binding.restart == RoutineRestartPolicy.ON_EXCEPTION:
                         break
 
@@ -1889,6 +2318,8 @@ class ComponentSystem(Node, ComponentSource):
 
     @override
     async def __stop__(self) -> None:
+        # Stop every running child concurrently. Loop until none remain because a child stop may
+        # spawn or restart sibling state during shutdown.
         while any(child.running for child in self.children):
             await concurrently(child.stop() for child in self.children if child.running)
 
@@ -1951,8 +2382,22 @@ class ComponentSystem(Node, ComponentSource):
         procedure: str,
         arguments: Mapping[Name, Any] | None = None,
     ) -> object | None:
-        """
-        Call a procedure with the given `arguments`.
+        """Invoke a procedure once and return its output.
+
+        For live procedures, queries return the first yielded value while actions exhaust the
+        async iterator and return the last one.
+
+        Args:
+            procedure: Name of the procedure to invoke.
+            arguments: Mapping of argument names to values, or `None` for no arguments.
+
+        Returns:
+            The procedure's output. `BaseOutput` instances are returned as-is, plain values are
+            returned as the procedure produced them.
+
+        Raises:
+            Failure: If the procedure is not found, its arguments fail validation, or it raises
+                an exception.
         """
         binding = self.get_procedure_bindings().get(procedure)
         if binding is None:
@@ -1961,7 +2406,8 @@ class ComponentSystem(Node, ComponentSource):
         output = await self.__invoke(procedure, arguments)
 
         if isinstance(output, BaseOutput):
-            # If the result is an `Output` object, just return it directly.
+            # File and streaming outputs are passed through verbatim, the server turns them
+            # into responses.
             return output
 
         if not binding.live:
@@ -1970,14 +2416,15 @@ class ComponentSystem(Node, ComponentSource):
 
         try:
             match binding:
-                # If the procedure is a live query, we just return the first output.
+                # A live query produces an iterable of values, return the first one and let the
+                # generator be garbage collected.
                 case QueryBinding():
                     async for current in output:
                         return current
 
                     return None
-                # If the procedure is a live action, iterate through all outputs and return the
-                # last one.
+                # A live action is run to completion so all of its side effects happen, returning
+                # the final value.
                 case ActionBinding():
                     last: object | None = None
                     async for current in output:
@@ -1995,14 +2442,26 @@ class ComponentSystem(Node, ComponentSource):
         procedure: str,
         arguments: Mapping[Name, Any] | None = None,
     ) -> AsyncIterable[object | None]:
-        """
-        Subscribe to a procedure with the given `arguments`. Not all procedures are subscribable.
+        """Subscribe to a procedure, yielding its output as it becomes available.
+
+        For non-live queries, this polls the procedure on the binding's `poll` interval and
+        yields each result. For live procedures, this yields each value the underlying async
+        generator produces.
+
+        Args:
+            procedure: Name of the procedure to subscribe to.
+            arguments: Mapping of argument names to values, or `None` for no arguments.
+
+        Yields:
+            Each successive output value from the procedure.
+
+        Raises:
+            Failure: If the procedure is not found, the binding is a non-live action (which
+                cannot be subscribed to), or invocation raises an exception.
         """
         binding = self.get_procedure_bindings().get(procedure)
         if binding is None:
             raise Failure(ProcedureNotFoundError)
-
-        output = await self.__invoke(procedure, arguments)
 
         if not binding.live:
             if isinstance(binding, ActionBinding):
@@ -2020,6 +2479,8 @@ class ComponentSystem(Node, ComponentSource):
                 self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
                 raise Failure(ProcedureInternalError(exception=info))
 
+        # Live procedures hand back an async iterable from the first invocation, just relay it.
+        output = await self.__invoke(procedure, arguments)
         try:
             if output is not None:
                 async for current in output:
@@ -2034,6 +2495,11 @@ class ComponentSystem(Node, ComponentSource):
             raise Failure(ProcedureInternalError(exception=info))
 
     def sync_child_order(self) -> None:
+        """Reorder the child registry to match the order specified in the component's config.
+
+        Children present in the configuration come first in declared order, any extra children
+        not mentioned in the configuration are appended afterward in their existing order.
+        """
         if self._config is None:
             return
 
@@ -2043,6 +2509,8 @@ class ComponentSystem(Node, ComponentSource):
             if component is not None:
                 order.append(component)
 
+        # Include any children that aren't named in the configuration, appended after the
+        # configured ones so configuration-driven ordering always wins.
         for component in self._children.values():
             if not any(current is component for current in order):
                 order.append(component)
@@ -2053,6 +2521,13 @@ class ComponentSystem(Node, ComponentSource):
 
 
 class Bound[T]:
+    """Type-only marker used as `Bound[Connection]` to declare a field bound to a sibling object.
+
+    Bound fields are how a component declares it expects an external object (currently only
+    connections) to be supplied through the `BoundField` annotation. The actual descriptor behaviour
+    is implemented by `BoundField`, this class only exists to give type checkers a handle.
+    """
+
     if TYPE_CHECKING:
 
         @overload
@@ -2084,8 +2559,13 @@ Bound.__class_getitem__ = _bound__class_getitem__  # type: ignore
 
 
 class BoundFieldArgs(TypedDict, total=False):
+    """Keyword arguments accepted by `BoundField`, mirroring `pydantic.fields.FieldInfo`."""
+
     name: Name
+    """Name to register the bound object under, defaults to the field name."""
+
     defaults: Mapping[str, Any] | None
+    """Default values applied when constructing the bound object."""
 
     # Common Pydantic arguments for `FieldInfo`.
     annotation: type[Any] | None
@@ -2124,10 +2604,18 @@ class _Empty:
 
 
 class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
+    """Pydantic field used to declare a bound dependency, like a `ConnectionField`.
+
+    The field tags itself with a `Marker` so `get_connection_bindings` can find the field and
+    treat it as a connection slot rather than as plain configuration.
+    """
+
     __slots__ = "marker"
 
     @dataclass(slots=True)
     class Marker:
+        """Metadata appended to a bound field's annotations to identify it during inspection."""
+
         name: str | None = None
 
     def __init__(
@@ -2138,6 +2626,8 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
         name = kwargs.pop("name", None)
         defaults = kwargs.pop("defaults", None)
 
+        # Accept the bound name from `defaults` as a convenience, this lets a config bundle the
+        # name alongside other defaults without repeating it in `name=`.
         if name is None and defaults is not None and "name" in defaults:
             name = defaults["name"]
 
@@ -2155,4 +2645,5 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
 
     @property
     def name(self) -> str | None:
+        """Name the bound object is registered under, or `None` if not yet set."""
         return self.marker.name

@@ -36,6 +36,7 @@ __all__ = [
     "Sieve",
     "MonoSieveFunction",
     "PolySieveFunction",
+    "BufferSieveFunction",
     "SieveFunction",
     "FunctionSieve",
     "SieveManager",
@@ -43,43 +44,65 @@ __all__ = [
 
 
 class Sieve[T = Particle](DataObject):
+    """Extract `Particle` instances from a stream of `Message` objects.
+
+    Subclasses implement `process()` to consume an asynchronous stream of messages and yield
+    parsed particles. A `Sieve` is the bridge between the raw `Message` data flowing from a
+    `Connection` and the structured `Particle` objects that downstream consumers care about.
+    """
+
     @abstractmethod
-    def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[T]: ...
+    def process(self, messages: AsyncIterable[Message]) -> AsyncIterator[T]:
+        """Consume `messages` and yield extracted particles.
+
+        Args:
+            messages: An asynchronous stream of `Message` objects to parse.
+
+        Yields:
+            Particles parsed from the message stream.
+        """
+        ...
 
 
 type MonoSieveFunction[T: Particle = Particle] = Callable[[Message], T | None | Awaitable[T | None]]
-"""
-A sieve function which parses a single particle from a `Message`, representing a single message
-received on a connection.
+"""A sieve function that parses a single `Particle` from a single `Message`.
 
-The sieve will call this function for each message received. Optionally, the sieve may return
-`None` to indicate that the message did not represent a valid particle, and should be skipped.
+The sieve calls this function once for each message received. Returning `None` signals that the
+message did not represent a valid particle and should be skipped.
 """
 
 type PolySieveFunction[T: Particle = Particle] = Callable[
     [AsyncIterable[Message]], AsyncIterable[T]
 ]
-"""
-A sieve function which asynchronously yields particles extracted from an `AsyncIterable[Message]`,
-representing a continuous stream of messages received on a connection.
+"""A sieve function that yields particles parsed from an asynchronous stream of `Message` objects.
+
+Use this form when particle extraction needs cross-message state, for example when one particle
+spans multiple messages.
 """
 
 type BufferSieveFunction[T: Particle = Particle] = Callable[[Buffer], Iterable[T]]
-"""
-A sieve function which yields particles it extracts from a `Buffer` instance, representing a
-window of buffered connection data. The sieve will call this function repeatedly on the buffer every
-time new data appended.
+"""A sieve function that yields particles extracted from a `Buffer` of accumulated connection data.
+
+The sieve appends incoming message data to a `Buffer` and calls this function each time new data
+arrives. Each yielded `Particle` must populate its `span` attribute, the sieve uses it to advance
+the buffer past consumed bytes.
 """
 
 type SieveFunction[T: Particle = Particle] = MonoSieveFunction[T] | PolySieveFunction[T]
-"""
-A sieve function used by a `Sieve` to parse particles from a stream of messages or buffered data.
+"""Any callable usable as a `Sieve` function for parsing particles from messages or buffered data.
 """
 
 
 class FunctionSieve[T: Particle = Particle](Sieve[T]):
+    """A `Sieve` that delegates particle extraction to a user-supplied callable.
+
+    The callable's parameter annotation determines how it is invoked. A `Message` parameter is
+    treated as a `MonoSieveFunction`, an `AsyncIterable[Message]` parameter is treated as a
+    `PolySieveFunction`, and a `Buffer` parameter is treated as a `BufferSieveFunction`.
+    """
+
     function: SkipValidation[SieveFunction[T]] = field(kw_only=False)
-    """If `True`, particles derived from the sieve will written to the data base."""
+    """The user-supplied callable used to parse particles."""
     buffer_size: ByteSize = Field(default=DEFAULT_BUFFER_SIZE, gt=0)
     """Number of bytes to keep in the buffer before dropping old data."""
     buffer_drop: ByteSize = Field(default=DEFAULT_BUFFER_DROP, gt=0)
@@ -92,6 +115,16 @@ class FunctionSieve[T: Particle = Particle](Sieve[T]):
             yield cast("T", message)
 
     def _get_poly_sieve_function(self) -> PolySieveFunction:
+        """Return a `PolySieveFunction` adapter for `self.function`.
+
+        Inspect the signature of `self.function` and wrap it as needed so the rest of the sieve
+        can invoke it uniformly as a `PolySieveFunction`.
+
+        Raises:
+            ValueError: If `self.function` does not take exactly one parameter.
+            TypeError: If the parameter's type annotation is not one of `Message`,
+                `AsyncIterable[Message]`, or `Buffer`.
+        """
         import inspect
 
         signature = inspect.signature(self.function)
@@ -122,10 +155,12 @@ class FunctionSieve[T: Particle = Particle](Sieve[T]):
 
                 async for message in messages:
                     buffer.push(message.data, message.timestamp)
-                    # Drop old data to keep buffer size under limit.
+                    # Drop old data once the buffer exceeds the configured size limit.
                     if buffer.size > self.buffer_size:
                         buffer.pop_to(self.buffer_size, self.buffer_drop)
 
+                    # Track the furthest particle end so we can advance the buffer past all
+                    # consumed bytes after iterating, even when particles arrive out of order.
                     end: int | None = None
                     for particle in inner(buffer):
                         if particle is None:
@@ -142,7 +177,8 @@ class FunctionSieve[T: Particle = Particle](Sieve[T]):
 
                         yield cast("T", particle)
 
-                    # Remove data up to the end of the furthest particle span.
+                    # Drop bytes up to the end of the furthest particle span so the next
+                    # iteration only sees unparsed data.
                     if end is not None:
                         buffer.pop(end)
         else:
@@ -163,6 +199,12 @@ else:
 
 
 class SieveManager(BaseComponentTaskManager[SieveConfig]):
+    """Manage the lifecycle of `Sieve` instances within a component.
+
+    Add/remove sieve configurations and run each one as a managed task, restarting on failure
+    according to the configuration's retry policy.
+    """
+
     __slots__ = ()
 
     @override
@@ -181,6 +223,12 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
 
     @override
     async def process(self, config: SieveConfig) -> None:
+        """Run the sieve described by `config`, restarting on failure per its retry policy.
+
+        Emit lifecycle events (`SieveStartedEvent`, `SieveStoppedEvent`, retry events) and
+        forward each parsed particle through `ParticleEvent`. Optionally store particles
+        when `config.stored` is true.
+        """
         self.__system__.events.emit(SieveStartedEvent, sieve=config.name)
         retry = 0
 
@@ -195,6 +243,7 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
                             self.__system__.store(current)
                         self.__system__.events.emit(ParticleEvent, particle=current)
                 except Exception as exception:
+                    # Stop retrying once we've exhausted the configured retry budget.
                     if config.retries is not None:
                         if retry >= config.retries:
                             break

@@ -43,15 +43,21 @@ if TYPE_CHECKING:
 
 
 class ComponentRole(StrEnum):
+    """Role a component can fulfill in the system."""
+
     INTERFACE = "interface"
 
 
 class ConnectionInfo(DataObject):
+    """Summary of a named connection on a component."""
+
     name: Name
     label: str
 
 
 class ComponentInfo(DataObject):
+    """Recursive description of a component, its roles, procedures, connections, and children."""
+
     name: Name
     address: Address
     roles: list[ComponentRole]
@@ -67,6 +73,14 @@ router = Router(prefix="/components", tags=["components"])
 
 
 def _get_component_roles(component: Component | type[Component]) -> list[ComponentRole]:
+    """Determine the roles that a component fulfills (e.g. interface).
+
+    Args:
+        component: A component instance or class to inspect.
+
+    Returns:
+        A list of `ComponentRole` values applicable to the component.
+    """
     if not isinstance(component, type):
         component = type(component)
 
@@ -81,6 +95,11 @@ def _get_component_roles(component: Component | type[Component]) -> list[Compone
 
 @router.get("/{address}", dependencies=[VIEWER])
 async def get_component(engine: CurrentEngine, address: Address) -> ComponentInfo:
+    """Return a recursive description of a component and all its children.
+
+    Raises:
+        Failure: If no component matches the given address.
+    """
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
@@ -114,6 +133,11 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
 
 @router.get("/{address}/procedures", tags=["procedures"])
 async def get_procedures(engine: CurrentEngine, address: Address) -> list[ProcedureBinding]:
+    """Return all procedure bindings for the component at the given address.
+
+    Raises:
+        Failure: If no component matches the given address.
+    """
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
@@ -127,6 +151,11 @@ async def get_procedure(
     address: Address,
     procedure: Name,
 ) -> ProcedureBinding:
+    """Return a single procedure binding by component address and procedure name.
+
+    Raises:
+        Failure: If the component or procedure does not exist.
+    """
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
@@ -142,6 +171,11 @@ async def get_queries(
     engine: CurrentEngine,
     address: Address,
 ) -> list[QueryBinding]:
+    """Return all query bindings for the component at the given address.
+
+    Raises:
+        Failure: If no component matches the given address.
+    """
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
@@ -155,6 +189,11 @@ async def get_query_info(
     address: Address,
     query: Name,
 ) -> QueryBinding:
+    """Return a single query binding by component address and query name.
+
+    Raises:
+        Failure: If the component or query does not exist.
+    """
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
@@ -170,6 +209,11 @@ async def get_actions(
     engine: CurrentEngine,
     address: Address,
 ) -> list[ActionBinding]:
+    """Return all action bindings for the component at the given address.
+
+    Raises:
+        Failure: If no component matches the given address.
+    """
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
@@ -183,6 +227,11 @@ async def get_action(
     address: Address,
     action: Name,
 ) -> ActionBinding:
+    """Return a single action binding by component address and action name.
+
+    Raises:
+        Failure: If the component or action does not exist.
+    """
     component = engine.get_component(address)
     if component is None:
         raise Failure(NotFoundError)
@@ -208,6 +257,14 @@ async def _call(
     procedure: Name,
     arguments: dict[Name, object] | None = None,
 ) -> CallResult:
+    """Execute a procedure on a component and return the result.
+
+    Validate that the component and procedure exist, that the caller's role permits the call,
+    and that GET requests are not used to invoke actions.
+
+    Raises:
+        Failure: If the component or procedure is not found, or the caller lacks permission.
+    """
     access = ProcedureAccessLevel.PUBLIC if role is None else role
     namespace = namespace = _get_namespace(request)
 
@@ -247,6 +304,11 @@ _ProcedureNamespace = Literal["procedures", "queries", "actions"]
 
 
 def _get_namespace(request: HTTPConnection) -> _ProcedureNamespace:
+    """Extract the procedure namespace (procedures, queries, or actions) from the request URL path.
+
+    Raises:
+        ValueError: If the URL does not contain a recognized namespace segment.
+    """
     if "/procedures" in request.url.path:
         return "procedures"
     elif "/queries" in request.url.path:
@@ -265,6 +327,7 @@ async def call_procedure(
     name: Name,
     arguments: Annotated[dict[Name, object] | None, Body()] = None,
 ) -> CallResult:
+    """Call a procedure by POST with arguments supplied in the request body."""
     return await _call(
         request=request,
         engine=engine,
@@ -293,6 +356,9 @@ async def call_procedure_by_get(
     name: Name,
     query_arguments: CurrentProcedureQueryArguments,
 ) -> CallResult:
+    """Call a procedure by GET with arguments merged from the `arguments` query parameter and any
+    additional query parameters.
+    """
     arguments = {}
     arguments.update(query_arguments or {})
     arguments.update(request.query_params)
@@ -327,6 +393,11 @@ async def subscribe_procedure(
     name: Name,
     query_arguments: CurrentProcedureQueryArguments,
 ) -> None:
+    """Subscribe to a procedure over WebSocket, streaming outputs to the client as they arrive.
+
+    Close the socket with an appropriate code if the procedure raises an error or the caller
+    lacks permission.
+    """
     namespace = _get_namespace(connection)
 
     arguments = {}
@@ -394,6 +465,8 @@ for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
 
 
 class SendMessageInput(DataModel):
+    """Request body for sending a message through a component connection."""
+
     data: MessageData
 
 
@@ -404,6 +477,11 @@ async def send_message(
     connection: str,
     input: Annotated[SendMessageInput, Body()],
 ) -> Message:
+    """Send a message through a named connection on the specified component.
+
+    Raises:
+        Failure: If the component, connection, or active link is not found.
+    """
     from ceres.connection import ConnectionInactive
 
     component = engine.get_component(address)

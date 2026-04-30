@@ -44,12 +44,16 @@ __all__ = [
 
 
 class UserRole(OrderedStrEnum):
+    """Permission tier granted to a `User`, ordered from least to most privileged."""
+
     VIEWER = "viewer"
     OPERATOR = "operator"
     ADMIN = "admin"
 
 
 class UserRow(BaseUUIDEntityRow, kw_only=True):
+    """SQLAlchemy row type backing the `User` entity."""
+
     __tablename__: ClassVar[str] = "users"
 
     username: Mapped[Username] = mapped_column(Text)
@@ -85,6 +89,8 @@ type UserField = (
         "disabled",
     ]
 )
+"""Field names selectable in `User` queries."""
+
 type UserOrder = (
     BaseUUIDEntityOrder
     | Literal[
@@ -102,9 +108,12 @@ type UserOrder = (
         "disabled:desc",
     ]
 )
+"""Ordering keys accepted by `User` queries."""
 
 
 class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False):
+    """Keyword-argument form of `UserFilter` for ergonomic call sites."""
+
     username: MaybeSequence[str] | None
     username_contains: MaybeSequence[str] | None
     username_prefix: MaybeSequence[str] | None
@@ -122,6 +131,8 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
 
 
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
+    """Filter for selecting `User` records by identity, role, or workspace membership."""
+
     username: MaybeSequence[str] | None = None
     """Filter by `username` being equal to one or more given usernames."""
     username_contains: MaybeSequence[str] | None = None
@@ -242,14 +253,23 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
 
 
 class UserCreate(BaseUUIDEntityCreate, slots=True):
+    """Payload for creating a new `User` record."""
+
     username: Username
+    """Unique name identifying the user in the system."""
     email: EmailAddress
+    """Email address associated with the user."""
     password: Password | PasswordHash
+    """Plaintext password or pre-computed hash, plaintext values are hashed on create."""
     role: UserRole = UserRole.OPERATOR
+    """Permission tier granted to the user."""
     disabled: bool = False
+    """Whether the user account is disabled and unable to authenticate."""
 
 
 class UserUpdate(TypedDict, total=False):
+    """Partial update for an existing `User` record."""
+
     username: Username
     email: EmailAddress
     password: Password | PasswordHash
@@ -305,6 +325,8 @@ class UserQuery(
     ],
     _BaseUserQuery,
 ):
+    """Query builder for `User` records."""
+
     __slots__ = ()
 
 
@@ -319,12 +341,22 @@ class UserManager(
     ],
     _BaseUserQuery,
 ):
+    """Database-bound manager for `User` records."""
+
     __slots__ = ()
 
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, User)
 
     async def get(self, id: UUID, /) -> User | None:
+        """Fetch a single user by their identifier.
+
+        Args:
+            id: UUID of the user to fetch.
+
+        Returns:
+            The matching user, or `None` if no user with that id exists.
+        """
         return await self.where(id=id).first()
 
     @override
@@ -335,6 +367,8 @@ class UserManager(
 
 
 class BoundUserManager(UserManager, BaseNodeManager):
+    """Component-bound user manager exposed to nodes."""
+
     __slots__ = ()
 
     def __init__(self, source: NodeSource, /) -> None:
@@ -347,6 +381,13 @@ class User(
     ConcreteEntity[UserRow],
     slots=True,
 ):
+    """Authenticated account with a role that governs access to workspaces and resources.
+
+    Each user has a unique `username`, an `email`, a hashed `password`, and a `role` that determines
+    their base permissions. Users may additionally be granted or restricted from specific workspaces
+    via workspace memberships.
+    """
+
     Manager = UserManager
     BoundManager = BoundUserManager
     Create = UserCreate
