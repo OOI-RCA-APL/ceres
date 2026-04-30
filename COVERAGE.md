@@ -21,17 +21,17 @@
 | `ceres/__internal__/server.py` | 52% |
 | `ceres/__internal__/templates/__init__.py` | 100% |
 | `ceres/__internal__/utilities/__init__.py` | 100% |
-| `ceres/__internal__/utilities/algorithms.py` | 74% |
-| `ceres/__internal__/utilities/caching.py` | 76% |
+| `ceres/__internal__/utilities/algorithms.py` | 100% |
+| `ceres/__internal__/utilities/caching.py` | 91% |
 | `ceres/__internal__/utilities/case.py` | 89% |
 | `ceres/__internal__/utilities/classes.py` | 85% |
 | `ceres/__internal__/utilities/collections.py` | 85% |
-| `ceres/__internal__/utilities/debugging.py` | 25% |
-| `ceres/__internal__/utilities/exceptions.py` | 67% |
+| `ceres/__internal__/utilities/debugging.py` | 100% |
+| `ceres/__internal__/utilities/exceptions.py` | 100% |
 | `ceres/__internal__/utilities/functions.py` | 100% |
 | `ceres/__internal__/utilities/platforms.py` | 100% |
 | `ceres/__internal__/utilities/randomize.py` | 100% |
-| `ceres/__internal__/utilities/text.py` | 40% |
+| `ceres/__internal__/utilities/text.py` | 100% |
 | `ceres/__internal__/utilities/typing.py` | 86% |
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
@@ -91,5 +91,5 @@
 | `ceres/variable.py` | 83% |
 | `ceres/version.py` | 89% |
 | `ceres/workspace.py` | 92% |
-| **Total** | **79%** |
+| **Total** | **80%** |
 <!-- coverage:end -->

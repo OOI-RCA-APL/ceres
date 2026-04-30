@@ -1,7 +1,7 @@
 # Ceres
 
 <!-- coverage:badge -->
-![Coverage: 79%](https://img.shields.io/badge/coverage-79%25-yellowgreen)
+![Coverage: 80%](https://img.shields.io/badge/coverage-80%25-yellowgreen)
 <!-- /coverage:badge -->
 
 A Python framework for building instrument driver systems with real-time data
