@@ -1,14 +1,22 @@
+"""Minimal sensor driver example.
+
+This is the simplest possible Ceres driver: one connection, one particle type,
+one sieve. It connects to a TCP sensor, parses each line into structured data,
+and stores it in the database. See the writing-a-driver doc for a walkthrough.
+"""
+
 from datetime import timedelta
+from re import compile
 from typing import Literal, override
 
 from ceres import (
     Bound,
     Component,
     Connection,
+    GroupedRegexParticle,
     Message,
     ParseFailed,
     ParticleData,
-    RegexParticle,
     SplitByLine,
     TCPClient,
     TCPServer,
@@ -18,45 +26,44 @@ from ceres.concurrency import sleep
 from ceres.data import Number, TimeDelta
 
 
+# `ParticleData` defines the structured fields parsed from each sensor reading.
+# The `Number` type accepts any numeric value, preferring `int` when possible.
 class SensorParticleData(ParticleData):
     temperature: Number  # Degrees Celsius
     pressure: Number  # Kilopascals
     humidity: Number  # Percentage
 
 
-class SensorParticle(RegexParticle[SensorParticleData]):
+# `GroupedRegexParticle` maps named capture groups in the regex directly to
+# `ParticleData` fields. The `type` literal identifies this particle in the
+# database and API.
+class SensorParticle(GroupedRegexParticle[SensorParticleData]):
     type: Literal["sensor/data"] = "sensor/data"
 
-    __regex__ = (
+    # Matches lines like: Temperature: 23.5, Pressure: 101.3, Humidity: 45.2
+    regex = compile(
         rb"Temperature:\s*?(?P<temperature>-?\d+\.\d+)[,\s]+?"
         rb"Pressure:\s*?(?P<pressure>\d+\.\d+)[,\s]+?"
         rb"Humidity:\s*?(?P<humidity>\d+\.\d+)[,\s]*?"
         rb"[\r\n]+"
     )
-    """
-    Matches sensor data in the following format.
-
-    ```
-    Temperature: 23.5, Pressure: 101.3, Humidity: 45.2
-    Temperature: -5.0, Pressure: 99.8, Humidity: 30.0
-    Temperature: 0.0, Pressure: 100.0, Humidity: 50.0
-    ```
-    """
 
 
 class SensorDriver(Component):
-    """
-    Example sensor driver that reads temperature, pressure, and humidity data from a connection.
-
-    See `SensorParticleData` for the expected data format.
-    """
-
+    # `Connection.Field` declares a managed connection. The transport source
+    # (host/port) is configured in `ceres.yaml`, not in code.
+    # `SplitByLine` splits incoming bytes on newlines into discrete messages.
+    # `suffix` appends a newline to outgoing sends.
+    # `receive_timeout` disconnects if no data arrives within 30 seconds.
     connection: Bound[Connection] | None = Connection.Field(
         splitter=SplitByLine(),
         suffix=b"\n",
         receive_timeout=30,
     )
 
+    # `@sieve(connection)` registers this method as a parser for messages from
+    # the named connection. Returning a particle stores it in the database.
+    # Returning `None` skips the message.
     @sieve(connection)
     async def sieve(self, message: Message) -> SensorParticle | None:
         try:
@@ -67,9 +74,7 @@ class SensorDriver(Component):
 
 
 class SensorSimulator(TCPServer):
-    """
-    Simulated sensor server that sends periodic data.
-    """
+    """TCP server that sends simulated sensor readings at a fixed interval."""
 
     interval: TimeDelta = timedelta(seconds=1)
 

@@ -14,7 +14,7 @@
 | `ceres/__internal__/entity.py` | 79% |
 | `ceres/__internal__/filter.py` | 94% |
 | `ceres/__internal__/lazy.py` | 82% |
-| `ceres/__internal__/manager.py` | 64% |
+| `ceres/__internal__/manager.py` | 75% |
 | `ceres/__internal__/project.py` | 52% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 78% |
@@ -38,8 +38,8 @@
 | `ceres/__main__.py` | 50% |
 | `ceres/address.py` | 94% |
 | `ceres/alert.py` | 92% |
-| `ceres/channel.py` | 82% |
-| `ceres/component.py` | 73% |
+| `ceres/channel.py` | 92% |
+| `ceres/component.py` | 79% |
 | `ceres/concurrency.py` | 91% |
 | `ceres/config.py` | 64% |
 | `ceres/connection/__init__.py` | 57% |
@@ -51,7 +51,7 @@
 | `ceres/data/__init__.py` | 100% |
 | `ceres/data/binary.py` | 91% |
 | `ceres/data/converters.py` | 100% |
-| `ceres/data/object.py` | 77% |
+| `ceres/data/object.py` | 78% |
 | `ceres/data/types.py` | 99% |
 | `ceres/data/uuid.py` | 77% |
 | `ceres/database/__init__.py` | 100% |
@@ -69,7 +69,7 @@
 | `ceres/level.py` | 100% |
 | `ceres/loaded.py` | 94% |
 | `ceres/logs.py` | 78% |
-| `ceres/message.py` | 94% |
+| `ceres/message.py` | 97% |
 | `ceres/node.py` | 78% |
 | `ceres/notifier.py` | 100% |
 | `ceres/particle.py` | 89% |
@@ -91,5 +91,5 @@
 | `ceres/variable.py` | 83% |
 | `ceres/version.py` | 89% |
 | `ceres/workspace.py` | 92% |
-| **Total** | **80%** |
+| **Total** | **81%** |
 <!-- coverage:end -->

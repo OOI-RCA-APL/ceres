@@ -1,16 +1,23 @@
+# Minimal sensor example. Run with: ceres run all
+
 service:
   name: sensor
+
 server:
   port: 8080
   authentication:
     secret: secret
+
 database:
   type: sqlite
   path: ./local/database.sqlite
+
 logging:
   output: debug
   events: true
+
 components:
+  # The driver connects to a TCP sensor and parses readings into particles.
   - name: driver
     class: sensor.SensorDriver
     arguments:
@@ -20,36 +27,10 @@ components:
           arguments:
             host: localhost
             port: 4000
+
+  # A simulator that mimics the sensor for local development.
   - name: simulator
     class: sensor.SensorSimulator
     arguments:
       port: 4000
       interval: 1s
-  # - name: processor
-  #   connections:
-  #     - name: primary
-  #       source:
-  #         class: TCPSource
-  #         arguments:
-  #           host: localhost
-  #           port: 4000
-  #       splitter:
-  #         class: RegexSplitter
-  #         arguments:
-  #           pattern: '@'
-  #           flags: dot-all
-  #       buffering:
-  #         size: 1024
-  #       disconnect-on:
-  #         idle: 10s
-  #       reconnect-on:
-  #         interval: 5s
-  #   sieves:
-  #     class: RegexSieve
-  #     pattern: 'temperature: (\d+\.\d+), humidity: (\d+\.\d+)'
-  #     particle:
-  #       type: sensor/data
-  #       data:
-  #         temperature: float
-  #         humidity: float
-  #         values: [float]
