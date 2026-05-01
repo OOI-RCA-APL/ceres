@@ -64,6 +64,7 @@ ceres service stop        # Stop the background service.
 
 - [Installing](installing.md) -- Install Ceres and set up a project.
 - [Getting Started](getting-started.md) -- Build your first Ceres project from scratch.
+- [Writing a Driver](writing-a-driver.md) -- Build an instrument driver with connections and data parsing.
 - [Components](components.md) -- The core abstraction: routines, events, records.
 - [Connections](connections.md) -- Connect to remote instruments and parse data.
 - [Configuration](configuration.md) -- Full `ceres.yaml` reference.

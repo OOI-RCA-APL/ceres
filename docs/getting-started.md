@@ -175,7 +175,8 @@ ceres run all --watch
 
 ## Next steps
 
+- [Writing a Driver](writing-a-driver.md) -- Build an instrument driver with connections and data parsing.
 - [Components](components.md) -- Learn about routines, events, listeners, and records.
-- [Connections](connections.md) -- Connect to instruments and parse data.
+- [Connections](connections.md) -- Connection sources, splitters, and buffers.
 - [Configuration](configuration.md) -- Full `ceres.yaml` reference.
 - [CLI](cli.md) -- Complete CLI reference.

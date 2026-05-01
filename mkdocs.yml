@@ -66,6 +66,7 @@ nav:
   - Home: README.md
   - Installing: installing.md
   - Getting Started: getting-started.md
+  - Writing a Driver: writing-a-driver.md
   - Components: components.md
   - Connections: connections.md
   - Configuration: configuration.md
