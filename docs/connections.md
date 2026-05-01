@@ -171,7 +171,7 @@ class Driver(Component):
     connection: Ref[Connection]
 
     @listener(reference="connection")
-    async def on__message(self, event: MessageReceivedEvent) -> None:
+    async def on_message(self, event: MessageReceivedEvent) -> None:
         raw = event.message.data
         self.log.info(f"Received {len(raw)} bytes")
 ```

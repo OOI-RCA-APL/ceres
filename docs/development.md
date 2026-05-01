@@ -127,4 +127,4 @@ Build and preview the documentation locally:
 make build-docs
 ```
 
-The docs use [mkdocs-material](https://squidfund.github.io/mkdocs-material/) with [mkdocstrings](https://mkdocstrings.github.io/) for auto-generated API reference.
+The docs use [mkdocs-material](https://squidfunk.github.io/mkdocs-material/) with [mkdocstrings](https://mkdocstrings.github.io/) for auto-generated API reference.

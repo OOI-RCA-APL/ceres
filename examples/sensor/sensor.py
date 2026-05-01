@@ -27,7 +27,7 @@ from ceres.data import Number, TimeDelta
 
 
 # ParticleData defines the structured fields parsed from each sensor reading.
-# The Number type accepts any numeric value and stores it as a Decimal.
+# The Number type accepts any numeric value, preferring int when possible.
 class SensorParticleData(ParticleData):
     temperature: Number  # Degrees Celsius
     pressure: Number  # Kilopascals

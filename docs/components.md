@@ -212,7 +212,7 @@ from ceres.event import StartedEvent
 
 class Example(Component):
     @listener
-    async def on__started(self, event: StartedEvent) -> None:
+    async def on_started(self, event: StartedEvent) -> None:
         self.system.log.info("Component started.")
 ```
 
@@ -229,7 +229,7 @@ class Driver(Component):
     connection: Ref[Connection]
 
     @listener(reference="connection")
-    async def on__message(self, event: MessageReceivedEvent) -> None:
+    async def on_message(self, event: MessageReceivedEvent) -> None:
         self.system.log.info(f"Received: {event.message.data}")
 ```
 
@@ -237,7 +237,7 @@ Use `address` to listen to events from any component in the tree.
 
 ```python
 @listener(address="all")
-async def on__any_event(self, event: Event) -> None:
+async def on_any_event(self, event: Event) -> None:
     self.system.log.info(f"Event from {event.address}: {event.type}")
 ```
 

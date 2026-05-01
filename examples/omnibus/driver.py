@@ -37,7 +37,7 @@ from ceres.event import ConnectedEvent, DisconnectedEvent, ParticleEvent
 #
 # ParticleData defines the structured fields extracted from raw instrument
 # messages. Each field uses the `Number` type, which accepts any numeric value
-# and stores it as a Decimal for lossless precision.
+# and prefers `int` when the value is integer-valued, falling back to `float`.
 
 
 class NavigationData(ParticleData):
