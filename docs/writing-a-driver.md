@@ -188,9 +188,12 @@ ceres run all
 The simulator starts serving on port 4000, the driver connects and begins parsing data. You should see log output like:
 
 ```
-[2025-01-15 10:00:01.000] [INFO] [@driver] [event] [started] {}
-[2025-01-15 10:00:01.001] [INFO] [@simulator] [event] [started] {}
-[2025-01-15 10:00:02.002] [INFO] [@driver] [event] [message-received] {...}
+[2026-05-01 12:00:00.100] [INFO] [@driver] [event]
+{"address":"@driver","type":"started","level":"info",...}
+[2026-05-01 12:00:00.101] [INFO] [@simulator] [event]
+{"address":"@simulator","type":"started","level":"info",...}
+[2026-05-01 12:00:00.102] [INFO] [@driver] [event]
+{"address":"@driver","type":"connected","level":"info","connection":"connection",...}
 ```
 
 Open the web console at [http://localhost:8080](http://localhost:8080) to view parsed particles, raw messages, and logs.
