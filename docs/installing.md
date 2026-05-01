@@ -3,56 +3,64 @@
 ## Prerequisites
 
 - [Python 3.14+](https://www.python.org/downloads/)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) (Recommended)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
-## Installation
+## Creating a project
 
-There is presently no PyPi package for Ceres due to access restrictions, though this may change in the future. For now, the package should be installed directly from GitHub.
-
-### Using `uv`
+Initialize a new project with `uv` and add Ceres as a dependency from GitHub.
 
 ```sh
-uv init # If project is not already initialized.
-uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest package from GitHub.
-source .venv/bin/activate # Activate the virtual envronment.
-ceres --help # The "ceres" command should now be available within the virtual environment.
+mkdir my-project && cd my-project
+uv init
+uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git
 ```
 
-### Using `pip`
+Activate the virtual environment to make the `ceres` command available.
 
 ```sh
-pip install git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest package from GitHub.
-ceres --help # The "ceres" command should now be available globally.
+source .venv/bin/activate
+ceres --version
 ```
 
-## Versioning
-
-To install a specific version of `ceres`, append "@`version`" to the URL, where `version` is a tag from [releases](https://github.com/OOI-RCA-APL/ceres/releases).
+You can also install with `pip` if you prefer.
 
 ```sh
-git+ssh://git@github.com/OOI-RCA-APL/ceres.git@<version>
+pip install git+ssh://git@github.com/OOI-RCA-APL/ceres.git
 ```
 
-## GitHub Deploy Keys
+## Installing a specific version
 
-If you are deploying a Ceres project on a server, you'll likely need a [GitHub deploy key](https://docs.github.com/en/rest/deploy-keys/deploy-keys?apiVersion=2022-11-28) for this repository.
+Append `@<version>` to the URL, where `<version>` is a tag from [releases](https://github.com/OOI-RCA-APL/ceres/releases).
 
-1. On your server, use `ssh-keygen` to generate a public/private SSH key pair at `~/.ssh/ceres-deploy-key` and `~/.ssh/ceres-deploy-key.pub` respectively.
+```sh
+uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git@0.39.0
+```
 
-2. Add the public SSH key to this GitHub repository as a deploy key if you have permissions. Otherwise, send the public SSH key to either jploskey@uw.edu or krosburg@uw.edu and ask them to add it for you.
+## GitHub deploy keys
 
-3. Once you have the deploy key, configure the server to use it.
+When deploying to a server that does not have your personal SSH credentials, you need a [GitHub deploy key](https://docs.github.com/en/rest/deploy-keys/deploy-keys?apiVersion=2022-11-28) for the repository.
 
-   1. Edit your user's SSH config at `~/.ssh/config` to include:
+1. Generate a key pair on the server.
 
-      ```txt
-      Host ceres.github.com
-          Hostname github.com
-          IdentityFile=~/.ssh/ceres-deploy-key
-      ```
+    ```sh
+    ssh-keygen -t ed25519 -f ~/.ssh/ceres-deploy-key -N ""
+    ```
 
-   1. Configure Git to use `ceres.github.com` rather than `github.com` for the repository. This will make Git use the deploy key as its SSH authentication method during installation:
+2. Add the public key (`~/.ssh/ceres-deploy-key.pub`) to the [OOI-RCA-APL/ceres](https://github.com/OOI-RCA-APL/ceres) repository as a deploy key. If you don't have permissions, send the public key to a repository admin.
 
-      ```sh
-      git config --global url.'ssh://git@ceres.github.com/OOI-RCA-APL/ceres.git'.insteadOf 'ssh://git@github.com/OOI-RCA-APL/ceres.git'
-      ```
+3. Configure SSH to use the deploy key for this repository. Add the following to `~/.ssh/config`:
+
+    ```
+    Host ceres.github.com
+        Hostname github.com
+        IdentityFile=~/.ssh/ceres-deploy-key
+    ```
+
+4. Tell Git to route requests for this repository through the alias.
+
+    ```sh
+    git config --global url.'ssh://git@ceres.github.com/OOI-RCA-APL/ceres.git'.insteadOf \
+        'ssh://git@github.com/OOI-RCA-APL/ceres.git'
+    ```
+
+After this, `uv add` and `pip install` commands will use the deploy key automatically.

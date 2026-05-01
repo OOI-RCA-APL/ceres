@@ -1,76 +1,73 @@
 # Ceres
 
-Ceres is a Python framework for data collection, monitoring and device control. Ceres takes ideas from service management tools like Docker and SystemD, scales them down, and applies them to Python objects called _components_.
+Ceres is a Python framework for building data collection, monitoring, and device control systems. It takes ideas from service management tools like Docker and SystemD, scales them down, and applies them to Python objects called _components_.
+
+Components are async Python classes that run concurrently, communicate through events, and persist their state in a database. They can connect to remote instruments over TCP, parse incoming data into structured records, emit alerts, and be managed through a CLI or web console.
 
 ![architecture](./images/architecture.png)
 
-## Documentation
+## Where Ceres is used
 
-View the full documentation for Ceres at [https://ceres-docs.jploskey.us](https://ceres-docs.jploskey.us).
+Ceres was built at the University of Washington Applied Physics Laboratory (APL) to power instrument drivers for the [Ocean Observatories Initiative (OOI)](https://oceanobservatories.org/) Regional Cabled Array (RCA). In production, Ceres runs on physical Linux servers connected to oceanographic instruments (acoustic current profilers, pressure gauges, pH sensors, etc.), collecting and processing real-time data streams over TCP.
 
-## Example
+That said, Ceres is a general-purpose framework. It can manage any collection of async Python components that need lifecycle control, event handling, scheduling, and persistence.
+
+## Quick example
 
 ```python
-# ./examples/counter/counter.py
 from asyncio import sleep
 
 from ceres import Component, routine
 
+
 class Counter(Component):
-    # Components are dataclasses, so attributes are per-instance, and can be passed via the
-    # component's constructor, or more commonly, through the component's `arguments` configuration
-    # in `ceres.yaml` as shown below.
     initial: int
     delta: int = 1
 
-    # Components can declare one or more "routines," which execute concurrently when a component
-    # is started, and are cancelled when the component is stopped.
     @routine
     async def count(self) -> None:
-        count = self.initial  # Start counting from `initial`.
+        count = self.initial
         while True:
-            self.system.log.info(count)  # Print the current count.
-            await sleep(1)  # Wait one second.
-            count += self.delta  # Increment `count` by the configured `delta`.
+            self.system.log.info(count)
+            await sleep(1)
+            count += self.delta
 ```
 
 ```yaml
-# ./examples/counter/ceres.yaml
-# All essential configuration for your project is stored in `ceres.yaml`.
-
-# Ceres persists component state, logs, messages and alerts in this database. If this section is
-# omitted, a temporary database will be used.
+# ceres.yaml
 database:
   type: sqlite
-  path: ./local/database.sqlite # This will be created automatically.
+  path: ./local/database.sqlite
 
-# Projects can declare any number of components, nested or otherwise.
 components:
   - name: counter-a
-    class: counter.Counter # Specify the component class by providing an import path.
-    arguments: # These values are passed to the component's constructor.
-      initial: 5 # Start counting from 5.
+    class: counter.Counter
+    arguments:
+      initial: 5
   - name: counter-b
     class: counter.Counter
     arguments:
-      initial: 100 # Start counting from 100.
-      delta: -5 # Decrement by 5 every second.
-
-# The component definitions above are roughly equivalent to:
-# Counter("counter-a", initial=5)
-# Counter("counter-b", initial=100, delta=-5)
+      initial: 100
+      delta: -5
 ```
 
 ```sh
-ceres run counter-a # Log numbers from 5 to infinity, incrementing by 1, until cancelled.
-ceres run counter-b # Log numbers from 100 to negative infinity, decrementing by 5, until cancelled.
-ceres run all       # Run both components concurrently in the foreground.
-
-ceres service start # Start the Ceres engine as a background service that persists after logout and/or reboot.
-ceres status        # Check to see if the service is running.
-ceres start all     # Start all components.
-ceres enable all    # Enable all components, making them automatically restart when the service is started.
-ceres status        # Check to see all components are running and enabled.
-
-ceres service stop  # Stop the background service.
+ceres run all             # Run both components in the foreground.
+ceres service start       # Or run as a background service.
+ceres status              # Check engine and component states.
+ceres start all           # Start all components.
+ceres enable all          # Auto-start components on engine startup.
+ceres service stop        # Stop the background service.
 ```
+
+## Documentation
+
+- [Installing](installing.md) -- Install Ceres and set up a project.
+- [Getting Started](getting-started.md) -- Build your first Ceres project from scratch.
+- [Components](components.md) -- The core abstraction: routines, events, records.
+- [Connections](connections.md) -- Connect to remote instruments and parse data.
+- [Configuration](configuration.md) -- Full `ceres.yaml` reference.
+- [CLI](cli.md) -- Command-line interface reference.
+- [Deployment](deployment.md) -- Run Ceres as a production service.
+- [Development](development.md) -- Set up a dev environment and contribute to Ceres.
+- [API Reference](api-reference.md) -- Auto-generated Python API docs.

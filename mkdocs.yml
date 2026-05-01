@@ -27,6 +27,7 @@ theme:
     - content.tabs.link
     - navigation.instant
     - navigation.instant.progress
+    - navigation.sections
     - toc.follow
 plugins:
   - mkdocstrings:
@@ -34,7 +35,7 @@ plugins:
       handlers:
         python:
           options:
-            docstring_style: sphinx
+            docstring_style: google
             separate_signature: true
             show_root_full_path: false
             show_root_heading: true
@@ -64,7 +65,11 @@ watch:
 nav:
   - Home: README.md
   - Installing: installing.md
+  - Getting Started: getting-started.md
   - Components: components.md
-  - Example: example.md
+  - Connections: connections.md
+  - Configuration: configuration.md
+  - CLI: cli.md
+  - Deployment: deployment.md
   - Development: development.md
   - API Reference: api-reference.md
