@@ -1,14 +1,15 @@
 from datetime import timedelta
+from re import compile
 from typing import Literal, override
 
 from ceres import (
     Bound,
     Component,
     Connection,
+    GroupedRegexParticle,
     Message,
     ParseFailed,
     ParticleData,
-    RegexParticle,
     SplitByLine,
     TCPClient,
     TCPServer,
@@ -24,10 +25,10 @@ class SensorParticleData(ParticleData):
     humidity: Number  # Percentage
 
 
-class SensorParticle(RegexParticle[SensorParticleData]):
+class SensorParticle(GroupedRegexParticle[SensorParticleData]):
     type: Literal["sensor/data"] = "sensor/data"
 
-    __regex__ = (
+    regex = compile(
         rb"Temperature:\s*?(?P<temperature>-?\d+\.\d+)[,\s]+?"
         rb"Pressure:\s*?(?P<pressure>\d+\.\d+)[,\s]+?"
         rb"Humidity:\s*?(?P<humidity>\d+\.\d+)[,\s]*?"

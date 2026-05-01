@@ -2,7 +2,7 @@
 
 The `ceres` command-line interface manages Ceres projects. All commands operate on the project in the current directory (or the path specified with `--config`).
 
-## Global options
+## Global Options
 
 | Option             | Description                                          |
 | ------------------ | ---------------------------------------------------- |
@@ -18,8 +18,8 @@ Configuration auto-detection searches the current directory for `ceres.yaml`, `c
 
 Start the engine in the foreground.
 
-- `ADDRESSES` (optional) -- Component addresses to start on launch. Use `all` to start everything.
-- `--watch` -- Restart automatically when Python files or configuration change.
+- `ADDRESSES` (optional): Component addresses to start on launch. Use `all` to start everything.
+- `--watch`: Restart automatically when Python files or configuration change.
 
 ```sh
 ceres run all              # Start all components.
@@ -45,7 +45,7 @@ Apply configuration changes to a running engine. The engine re-reads `ceres.yaml
 ceres reload
 ```
 
-## Component control
+## Component Control
 
 These commands require a running engine. They communicate with it over a Unix socket.
 
@@ -77,35 +77,35 @@ Stop and disable components in one command.
 
 Show the state of the engine and its components. If no addresses are given, shows all components.
 
-```sh
+```
 $ ceres status
 
-Engine
-+-----------------+---------+------+
-| Configuration   | Running | Port |
-+-----------------+---------+------+
-| /path/to/ceres  | Yes     | 8080 |
-+-----------------+---------+------+
+ Engine
+╭──────────────────────────────┬─────────┬──────╮
+│ Configuration                │ Running │ Port │
+├──────────────────────────────┼─────────┼──────┤
+│ /path/to/ceres.yaml          │ Yes     │ 8080 │
+╰──────────────────────────────┴─────────┴──────╯
 
-Components
-+-------------------+---------+---------+
-| Address           | Running | Enabled |
-+-------------------+---------+---------+
-| @                 | Yes     | No      |
-| @sensor           | Yes     | Yes     |
-| @pressure         | No      | No      |
-+-------------------+---------+---------+
+ Components
+╭───────────┬─────────┬─────────╮
+│ Address   │ Running │ Enabled │
+├───────────┼─────────┼─────────┤
+│ @         │ Yes     │ No      │
+│ @sensor   │ Yes     │ Yes     │
+│ @pressure │ No      │ No      │
+╰───────────┴─────────┴─────────╯
 ```
 
-### Address selectors
+### Address Selectors
 
 Most component commands accept address selectors.
 
-- `all` -- All components in the tree.
-- `sensor` -- The component at `@sensor` (the `@` prefix is optional).
-- `@sensors.temperature` -- A nested component by full address.
+- `all`: All components in the tree.
+- `sensor`: The component at `@sensor` (the `@` prefix is optional).
+- `@sensors.temperature`: A nested component by full address.
 
-## Service management
+## Service Management
 
 Manage Ceres as a background service that persists after logout and survives reboots.
 
@@ -125,7 +125,7 @@ Show whether the service is running, the service name, user, and file location.
 
 Write the service definition file to `PATH` or stdout. Useful for reviewing or customizing the generated file.
 
-## Database management
+## Database Management
 
 ### `ceres database init`
 
@@ -143,7 +143,7 @@ Open an interactive database shell (`psql` for PostgreSQL, `sqlite3` for SQLite)
 
 Truncate all tables. Prompts for confirmation. Schema is preserved.
 
-## Data queries
+## Data Queries
 
 Ceres provides standard CRUD commands for each data entity. The general pattern is:
 
@@ -168,7 +168,7 @@ ceres <entity> <operation> [FILTERS] [OPTIONS]
 | `load`    | Bulk-load from a JSON or CSV file.                   |
 | `follow`  | Stream new entities in real-time (logs, alerts, messages, particles only). |
 
-### Common options
+### Common Options
 
 | Option                   | Description                                   |
 | ------------------------ | --------------------------------------------- |
@@ -188,7 +188,7 @@ ceres users create                                        # Create a user (inter
 ceres settings load settings.json --on-conflict update    # Bulk-load settings, updating conflicts.
 ```
 
-## Web console
+## Web Console
 
 ### `ceres console open`
 
@@ -198,7 +198,7 @@ Open the web console in the default browser.
 
 Print the console URL to stdout.
 
-## Other commands
+## Other Commands
 
 ### `ceres generate openapi [--output FILE] [--format yaml|json]`
 

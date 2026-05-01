@@ -2,7 +2,7 @@
 
 This guide walks through building a complete instrument driver that connects to a sensor over TCP, parses incoming data into structured records, and stores them in the database.
 
-## The problem
+## The Problem
 
 You have a sensor that sends readings over a TCP connection. Each reading is a line of text like:
 
@@ -12,7 +12,7 @@ Temperature: 23.5, Pressure: 101.3, Humidity: 45.2
 
 You want to connect to the sensor, parse each line into structured data, and store it for later analysis.
 
-## Project setup
+## Project Setup
 
 ```sh
 mkdir sensor-driver && cd sensor-driver
@@ -21,7 +21,7 @@ uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git
 source .venv/bin/activate
 ```
 
-## Defining the data format
+## Defining the Data Format
 
 First, define the structure of a parsed reading using `ParticleData`. This is a Pydantic dataclass whose fields correspond to the values you want to extract.
 
@@ -37,20 +37,21 @@ class SensorParticleData(ParticleData):
     humidity: Number
 ```
 
-## Parsing with RegexParticle
+## Parsing with GroupedRegexParticle
 
-Next, define a `RegexParticle` subclass that knows how to extract `SensorParticleData` from raw bytes. The `__regex__` class attribute is a compiled regex pattern with named groups matching the `ParticleData` fields.
+Next, define a `GroupedRegexParticle` subclass that knows how to extract `SensorParticleData` from raw bytes. The `regex` class attribute is a compiled regex pattern with named groups matching the `ParticleData` fields.
 
 ```python
+from re import compile
 from typing import Literal
 
-from ceres import RegexParticle
+from ceres import GroupedRegexParticle
 
 
-class SensorParticle(RegexParticle[SensorParticleData]):
+class SensorParticle(GroupedRegexParticle[SensorParticleData]):
     type: Literal["sensor/data"] = "sensor/data"
 
-    __regex__ = (
+    regex = compile(
         rb"Temperature:\s*?(?P<temperature>-?\d+\.\d+)[,\s]+?"
         rb"Pressure:\s*?(?P<pressure>\d+\.\d+)[,\s]+?"
         rb"Humidity:\s*?(?P<humidity>\d+\.\d+)[,\s]*?"
@@ -62,7 +63,7 @@ The `type` field is a discriminator string used to identify this particle type i
 
 Named capture groups in the regex (`?P<temperature>`, etc.) are automatically matched to the `ParticleData` fields and coerced to the declared types.
 
-## Writing the driver component
+## Writing the Driver Component
 
 The driver is a `Component` with a connection and a sieve that parses messages into particles.
 
@@ -125,7 +126,7 @@ components:
 
 The connection's TCP source is configured in YAML. This separates the driver logic (how to parse data) from the deployment details (where the instrument is). You can point the same driver at different hosts by changing the config.
 
-## Writing a simulator
+## Writing a Simulator
 
 For testing, you can write a simulator that mimics the sensor. Ceres provides `TCPServer` for this.
 
@@ -194,7 +195,7 @@ The simulator starts serving on port 4000, the driver connects and begins parsin
 
 Open the web console at [http://localhost:8080](http://localhost:8080) to view parsed particles, raw messages, and logs.
 
-## Querying parsed data
+## Querying Parsed Data
 
 From the CLI:
 
@@ -210,11 +211,11 @@ From within a component:
 latest = await self.system.particles.where(order="timestamp:desc").limit(10)
 ```
 
-## Binary protocols
+## Binary Protocols
 
 For instruments that send binary data instead of text, use `BinaryParticle` or `BinaryRegexParticle` instead of `RegexParticle`. These use `struct.unpack()` to extract fields from fixed-layout binary frames.
 
-## Production patterns
+## Production Patterns
 
 In production deployments like [ceres-rca](https://github.com/OOI-RCA-APL/ceres-rca), drivers typically:
 
@@ -226,6 +227,6 @@ In production deployments like [ceres-rca](https://github.com/OOI-RCA-APL/ceres-
 
 See the [ceres-rca](https://github.com/OOI-RCA-APL/ceres-rca) repository for real-world examples of oceanographic instrument drivers.
 
-## Complete source
+## Complete Source
 
 The complete sensor example is available in the Ceres repository at `examples/sensor/`.

@@ -1,5 +1,0 @@
-components:
-  - name: generator
-    class: generator.CSVNameGenerator
-    arguments:
-      output: ./local/output.csv

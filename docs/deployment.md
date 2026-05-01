@@ -17,10 +17,10 @@ On the deployment server, you need:
 
 - Python 3.14+
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- A GitHub deploy key for the Ceres repository (see [Installing -- Deploy keys](installing.md#github-deploy-keys))
+- A GitHub deploy key for the Ceres repository (see [Installing: Deploy keys](installing.md#github-deploy-keys))
 - PostgreSQL (if using PostgreSQL instead of SQLite)
 
-## Project setup
+## Project Setup
 
 Create a project directory, initialize it, and install Ceres.
 
@@ -66,7 +66,7 @@ components:
       output: ./local/data/sensor-b/
 ```
 
-## Validating configuration
+## Validating Configuration
 
 Before starting the service, validate your configuration.
 
@@ -74,7 +74,7 @@ Before starting the service, validate your configuration.
 ceres check
 ```
 
-## Initializing the database
+## Initializing the Database
 
 If you are using PostgreSQL, initialize the database schema.
 
@@ -84,7 +84,7 @@ ceres database init
 
 SQLite databases are created and initialized automatically.
 
-## Starting the service
+## Starting the Service
 
 ### Using `ceres service`
 
@@ -112,7 +112,7 @@ Stop and remove the service.
 ceres service stop
 ```
 
-### Reviewing the service file
+### Reviewing the Service File
 
 To inspect or customize the generated service file before installing it:
 
@@ -121,7 +121,7 @@ ceres service generate               # Print to stdout.
 ceres service generate ./my.service  # Write to file.
 ```
 
-## Managing components
+## Managing Components
 
 Once the service is running, manage components from any terminal.
 
@@ -132,7 +132,7 @@ ceres down sensor-a          # Disable and stop a specific component.
 ceres enable sensor-b        # Auto-start on next engine restart.
 ```
 
-## Applying configuration changes
+## Applying Configuration Changes
 
 After editing `ceres.yaml`, apply changes without restarting the service.
 
@@ -144,7 +144,7 @@ The engine reconciles the running component tree with the new configuration, cre
 
 ## Monitoring
 
-### Web console
+### Web Console
 
 If `server.port` is configured, the web console is available at `http://<host>:<port>`. It provides a dashboard for monitoring component state, viewing logs, messages, alerts, and controlling components.
 
@@ -153,7 +153,7 @@ ceres console open    # Open in browser.
 ceres console url     # Print the URL.
 ```
 
-### CLI queries
+### CLI Queries
 
 Stream logs, alerts, or messages in real-time from the command line.
 
@@ -188,7 +188,7 @@ If there are database schema changes, run `ceres database init` after upgrading 
 
 ## Logging
 
-### Stdout/stderr redirection
+### Stdout/Stderr Redirection
 
 Configure log file paths in the `service` section.
 
@@ -199,7 +199,7 @@ service:
   stderr: ./local/stderr.log
 ```
 
-### Log levels
+### Log Levels
 
 The `logging` section controls what is printed and what is stored.
 
@@ -210,9 +210,9 @@ logging:
   events: true       # Log component lifecycle events.
 ```
 
-Per-component overrides are available. See [Configuration -- Logging](configuration.md#logging).
+Per-component overrides are available. See [Configuration: Logging](configuration.md#logging).
 
-## Database maintenance
+## Database Maintenance
 
 ### Pruners
 
@@ -225,17 +225,17 @@ components:
     pruners:
       - name: clean-messages
         prunes: message
-        schedule: "daily"
+        schedule: "0 0 * * *"
         filter:
-          before: 30d
+          max-age: 30d
       - name: clean-logs
-        prunes: log_entry
-        schedule: "daily"
+        prunes: log-entry
+        schedule: "0 0 * * *"
         filter:
-          before: 7d
+          max-age: 7d
 ```
 
-### Manual cleanup
+### Manual Cleanup
 
 Clear all data (preserving schema) if needed.
 
@@ -243,7 +243,7 @@ Clear all data (preserving schema) if needed.
 ceres database clear
 ```
 
-### Database shell
+### Database Shell
 
 Open an interactive shell for ad-hoc queries.
 

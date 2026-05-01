@@ -43,7 +43,7 @@ This guide covers setting up a development environment for working on Ceres itse
 
     This starts the counter example and automatically restarts when you modify Python files or configuration in the Ceres source or the example project.
 
-## Make targets
+## Make Targets
 
 | Target          | Description                                      |
 | --------------- | ------------------------------------------------ |
@@ -55,7 +55,7 @@ This guide covers setting up a development environment for working on Ceres itse
 | `make build`    | Build the Python package and console.            |
 | `make build-docs` | Build documentation with mkdocs.               |
 
-## Code style
+## Code Style
 
 - **Formatter/linter:** [Ruff](https://docs.astral.sh/ruff/), line width 100.
 - **Type checker:** [Pyright](https://github.com/microsoft/pyright).
@@ -63,7 +63,7 @@ This guide covers setting up a development environment for working on Ceres itse
 
 Always run `make lint` before committing. The CI pipeline runs the same checks.
 
-## Project structure
+## Project Structure
 
 ```
 ceres/
@@ -89,16 +89,16 @@ ceres/
   scripts/                  # Utility scripts (coverage, multi-version testing).
 ```
 
-### Key modules
+### Key Modules
 
-- `component.py` -- The `Component` class, `ComponentSystem`, and all decorators (`@routine`, `@listener`, `@query`, `@action`, `@sieve`). This is the largest and most important module.
-- `engine.py` -- The `Engine` class that owns the root component, database, and server. Handles configuration loading and reconciliation.
-- `config.py` -- Pydantic models for every section of `ceres.yaml`. Configuration validation and type checking.
-- `connection/` -- `Connection`, `Source` (TCP, Unix), `Splitter`, and `Buffer` classes.
-- `event.py` -- `Event` base class and all standard event types.
-- `error.py` -- `Error` base class (a Pydantic dataclass that inherits from `Exception`) and all error types.
-- `__internal__/app/` -- FastAPI application, middleware, and REST API routes.
-- `__internal__/cli/` -- CLI commands built on pydantic-settings.
+- `component.py`: The `Component` class, `ComponentSystem`, and all decorators (`@routine`, `@listener`, `@query`, `@action`, `@sieve`). This is the largest and most important module.
+- `engine.py`: The `Engine` class that owns the root component, database, and server. Handles configuration loading and reconciliation.
+- `config.py`: Pydantic models for every section of `ceres.yaml`. Configuration validation and type checking.
+- `connection/`: `Connection`, `Source` (TCP, Unix), `Splitter`, and `Buffer` classes.
+- `event.py`: `Event` base class and all standard event types.
+- `error.py`: `Error` base class (a Pydantic dataclass that inherits from `Exception`) and all error types.
+- `__internal__/app/`: FastAPI application, middleware, and REST API routes.
+- `__internal__/cli/`: CLI commands built on pydantic-settings.
 
 ### Console
 

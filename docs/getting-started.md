@@ -2,7 +2,7 @@
 
 This guide walks through creating a Ceres project from scratch, running it, and managing it with the CLI.
 
-## Project setup
+## Project Setup
 
 Create a new directory with a `ceres.yaml` configuration file.
 
@@ -13,7 +13,7 @@ uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git
 source .venv/bin/activate
 ```
 
-## Writing a component
+## Writing a Component
 
 Create a Python file with a simple component. Components are async Python classes that inherit from `Component`. Their attributes are typed fields that can be set through configuration.
 
@@ -39,7 +39,7 @@ class Counter(Component):
 
 The `@routine` decorator marks an async method as a background task. Routines start when the component starts and are cancelled when it stops.
 
-## Configuring the project
+## Configuring the Project
 
 Create a `ceres.yaml` file that declares a database and your components.
 
@@ -86,29 +86,29 @@ Press `Ctrl+C` to stop.
 
 With the engine running in one terminal, open another terminal in the same directory and activate the virtual environment. The CLI communicates with the running engine over a Unix socket.
 
-### Checking status
+### Checking Status
 
-```sh
+```
 $ ceres status
 
-Engine
-+-----------------+---------+------+
-| Configuration   | Running | Port |
-+-----------------+---------+------+
-| /path/to/ceres  | Yes     | --   |
-+-----------------+---------+------+
+ Engine
+╭──────────────────────────────┬─────────┬──────╮
+│ Configuration                │ Running │ Port │
+├──────────────────────────────┼─────────┼──────┤
+│ /path/to/ceres.yaml          │ Yes     │ --   │
+╰──────────────────────────────┴─────────┴──────╯
 
-Components
-+------------+---------+---------+
-| Address    | Running | Enabled |
-+------------+---------+---------+
-| @          | Yes     | No      |
-| @counter-a | Yes     | No      |
-| @counter-b | Yes     | No      |
-+------------+---------+---------+
+ Components
+╭────────────┬─────────┬─────────╮
+│ Address    │ Running │ Enabled │
+├────────────┼─────────┼─────────┤
+│ @          │ Yes     │ No      │
+│ @counter-a │ Yes     │ No      │
+│ @counter-b │ Yes     │ No      │
+╰────────────┴─────────┴─────────╯
 ```
 
-### Starting and stopping components
+### Starting and Stopping Components
 
 ```sh
 ceres stop counter-a        # Stop a specific component.
@@ -118,7 +118,7 @@ ceres stop all              # Stop everything.
 
 The `@` prefix on addresses is optional in CLI commands.
 
-### Enabling and disabling
+### Enabling and Disabling
 
 Enabling a component makes it start automatically when the engine starts, without needing `ceres run all`.
 
@@ -134,7 +134,7 @@ ceres up all                # Enable and start all components.
 ceres down counter-b        # Disable and stop one component.
 ```
 
-## Running as a service
+## Running as a Service
 
 Instead of running in the foreground, you can run Ceres as a background service that persists after logout and survives reboots.
 
@@ -146,7 +146,7 @@ ceres service stop          # Stop and remove the service.
 
 On Linux, this creates a SystemD user service. On macOS, it creates a LaunchD agent. See [Deployment](deployment.md) for production setup details.
 
-## Adding a web console
+## Adding a Web Console
 
 Add a `server` section to `ceres.yaml` to enable the HTTP API and web console.
 
@@ -157,7 +157,7 @@ server:
 
 Restart the engine, then open [http://localhost:8080](http://localhost:8080) in a browser. The console provides a dashboard for monitoring component state, viewing logs, messages, and alerts, and controlling components.
 
-## Validating configuration
+## Validating Configuration
 
 Before running, you can check your `ceres.yaml` for errors.
 
@@ -165,7 +165,7 @@ Before running, you can check your `ceres.yaml` for errors.
 ceres check
 ```
 
-## Watch mode
+## Watch Mode
 
 During development, use `--watch` to automatically restart the engine when Python files or configuration change.
 
@@ -173,10 +173,10 @@ During development, use `--watch` to automatically restart the engine when Pytho
 ceres run all --watch
 ```
 
-## Next steps
+## Next Steps
 
-- [Writing a Driver](writing-a-driver.md) -- Build an instrument driver with connections and data parsing.
-- [Components](components.md) -- Learn about routines, events, listeners, and records.
-- [Connections](connections.md) -- Connection sources, splitters, and buffers.
-- [Configuration](configuration.md) -- Full `ceres.yaml` reference.
-- [CLI](cli.md) -- Complete CLI reference.
+- [Writing a Driver](writing-a-driver.md): Build an instrument driver with connections and data parsing.
+- [Components](components.md): Learn about routines, events, listeners, and records.
+- [Connections](connections.md): Connection sources, splitters, and buffers.
+- [Configuration](configuration.md): Full `ceres.yaml` reference.
+- [CLI](cli.md): Complete CLI reference.

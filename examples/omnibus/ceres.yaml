@@ -1,0 +1,63 @@
+service:
+  name: omnibus
+
+server:
+  port: 8080
+  authentication:
+    secret: omnibus-example-secret
+
+database:
+  type: sqlite
+  path: ./local/database.sqlite
+
+logging:
+  output: info
+  events: true
+
+components:
+  - name: omnibus
+    class: driver.OmnibusDriver
+    arguments:
+      navigation:
+        source:
+          class: ceres.connection.TCPSource
+          arguments:
+            host: localhost
+            port: 5100
+      environment:
+        source:
+          class: ceres.connection.TCPSource
+          arguments:
+            host: localhost
+            port: 5101
+      output: ./local/data
+      depth-limits:
+        warning: 400
+        critical: 450
+      temperature-limits:
+        low: 0
+        high: 25
+      health-check-interval: 30s
+    # pruners:
+    #   - name: prune-old-logs
+    #     prunes: log-entry
+    #     schedule: "0 0 * * *"
+    #     filter:
+    #       max-age: 7d
+    #   - name: prune-old-messages
+    #     prunes: message
+    #     schedule: "0 0 * * *"
+    #     filter:
+    #       max-age: 3d
+
+  - name: navigation-simulator
+    class: simulator.NavigationSimulator
+    arguments:
+      port: 5100
+      interval: 1s
+
+  - name: environment-simulator
+    class: simulator.EnvironmentSimulator
+    arguments:
+      port: 5101
+      interval: 2s

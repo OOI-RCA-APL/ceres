@@ -8,7 +8,7 @@ A connection wraps a transport _source_ (TCP socket, Unix socket, etc.) and a _s
 
 Connections can be declared in two ways: in the component's `ceres.yaml` configuration, or statically in the component class itself.
 
-## Configuring connections in YAML
+## Configuring Connections in YAML
 
 The most common approach is to declare connections in `ceres.yaml`.
 
@@ -29,7 +29,7 @@ components:
 
 This creates a connection named `primary` on the `@driver` component. The connection connects to the specified host and port, splits incoming bytes on newlines, and stores each chunk as a `Message` in the database.
 
-### Connection as a field argument
+### Connection as a Field Argument
 
 Connections can also be passed as component arguments. This is useful when the component declares a `Connection` field.
 
@@ -126,7 +126,7 @@ splitter:
   class: ceres.connection.Unsplit
 ```
 
-## Connection options
+## Connection Options
 
 Full connection configuration options in `ceres.yaml`:
 
@@ -141,14 +141,14 @@ connections:
     splitter:
       class: ceres.connection.SplitByLine
     suffix: "\n"                        # Append to outgoing messages.
-    buffer_size: 1MB                    # Max buffer size before overflow.
-    buffer_drop: 100KB                  # Drop threshold on overflow.
-    connect_timeout: 5s                 # Timeout for initial connection.
-    receive_timeout: 10s                # Timeout waiting for data.
-    reconnect_schedule: "interval: 5s"  # Schedule for reconnection attempts.
+    buffer-size: 1MB                    # Max buffer size before overflow.
+    buffer-drop: 100KB                  # Drop threshold on overflow.
+    connect-timeout: 5s                 # Timeout for initial connection.
+    receive-timeout: 10s                # Timeout waiting for data.
+    reconnect-schedule: "interval: 5s"  # Schedule for reconnection attempts.
 ```
 
-## Sending data
+## Sending Data
 
 Components can send data through their connections.
 
@@ -158,9 +158,9 @@ await self.system.connections["primary"].send(b"COMMAND\n")
 
 If a `suffix` is configured on the connection, it is appended automatically unless `suffixed=False` is passed.
 
-## Listening to messages
+## Listening to Messages
 
-Use `@listener` with `reference` to react to messages from a connection. See [Components -- Event listeners](components.md#event-listeners).
+Use `@listener` with `reference` to react to messages from a connection. See [Components: Event listeners](components.md#event-listeners).
 
 ```python
 from ceres import Component, Connection, Ref, listener
@@ -176,7 +176,7 @@ class Driver(Component):
         self.log.info(f"Received {len(raw)} bytes")
 ```
 
-## Connectivity state
+## Connectivity State
 
 Connections track their state as a `Connectivity` value: `DISCONNECTED`, `CONNECTING`, or `CONNECTED`. Components can check this at any time.
 
@@ -190,24 +190,25 @@ Connection state changes emit `ConnectedEvent`, `DisconnectedEvent`, and `Connec
 
 Sieves are data parsers that process messages from connections and produce structured _particles_. They can be configured in YAML or declared as methods on a component.
 
-### Method sieves
+### Method Sieves
 
 The simplest approach is to use the `@sieve` decorator on a component method. The method receives each message from a named connection and returns a parsed particle (or `None` to skip).
 
 ```python
-from ceres import Component, Connection, Ref, sieve
-from ceres.particle import RegexParticle
+from ceres import Bound, Component, Connection, Message, SplitByLine, sieve
 
 
 class Driver(Component):
-    connection: Ref[Connection]
+    connection: Bound[Connection] | None = Connection.Field(
+        splitter=SplitByLine(),
+    )
 
-    @sieve(connection="connection", stored=True)
+    @sieve(connection)
     async def parse(self, message: Message) -> SensorParticle | None:
         ...
 ```
 
-### YAML sieves
+### YAML Sieves
 
 Sieves can also be configured in `ceres.yaml` using a sieve class.
 
@@ -218,15 +219,15 @@ sieves:
     class: my_project.MySieve
     stored: true
     retries: 3
-    retry_delay: 5s
+    retry-delay: 5s
 ```
 
 ### Particles
 
 Particles are structured data records extracted from raw messages. Ceres provides several particle base classes for common patterns:
 
-- `RegexParticle` -- Parse text messages with a regex pattern.
-- `GroupedRegexParticle` -- Map regex capture groups directly to data fields.
-- `BinaryParticle` -- Unpack fixed-layout binary data.
+- `RegexParticle`: Parse text messages with a regex pattern.
+- `GroupedRegexParticle`: Map regex capture groups directly to data fields.
+- `BinaryParticle`: Unpack fixed-layout binary data.
 
 Parsed particles can be stored in the database (when `stored: true`) and queried later through the CLI or API.

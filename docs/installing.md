@@ -5,7 +5,7 @@
 - [Python 3.14+](https://www.python.org/downloads/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
-## Creating a project
+## Creating a Project
 
 Initialize a new project with `uv` and add Ceres as a dependency from GitHub.
 
@@ -28,7 +28,7 @@ You can also install with `pip` if you prefer.
 pip install git+ssh://git@github.com/OOI-RCA-APL/ceres.git
 ```
 
-## Installing a specific version
+## Installing a Specific Version
 
 Append `@<version>` to the URL, where `<version>` is a tag from [releases](https://github.com/OOI-RCA-APL/ceres/releases).
 
@@ -36,7 +36,7 @@ Append `@<version>` to the URL, where `<version>` is a tag from [releases](https
 uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git@0.39.0
 ```
 
-## GitHub deploy keys
+## GitHub Deploy Keys
 
 When deploying to a server that does not have your personal SSH credentials, you need a [GitHub deploy key](https://docs.github.com/en/rest/deploy-keys/deploy-keys?apiVersion=2022-11-28) for the repository.
 

@@ -66,7 +66,7 @@ components:
       interval: 1s
 ```
 
-## Component trees
+## Component Trees
 
 Components can be organized into hierarchies called _component trees_. Each component is a node with an arbitrary number of children and at most one parent. Component names must be unique within their parent.
 
@@ -90,7 +90,7 @@ In most deployments, components are direct children of the root node. Nesting is
 
 A component's address describes its position in the tree. The root component has the address `@`. Other addresses are relative to the root, with `.` separating levels. For example, `@a.b.c` refers to component `c`, child of `@a.b`, child of `@a`, child of `@`.
 
-### Lifecycle rules
+### Lifecycle Rules
 
 **Starting and stopping.** A child component can only run if all of its ancestors are running. Starting a component implicitly starts its ancestors. Stopping a component stops all of its descendants.
 
@@ -114,7 +114,7 @@ class Example(Component):
             await sleep(1)
 ```
 
-### Restart policies
+### Restart Policies
 
 By default, routines run once. If they complete or crash, they are not restarted. You can change this behavior.
 
@@ -126,14 +126,14 @@ async def routine__resilient(self) -> None:
 
 Restart options:
 
-- `"never"` (default) -- Do not restart.
-- `"always"` -- Restart on completion or exception.
-- `"on-completed"` -- Restart only if the routine returns normally.
-- `"on-exception"` -- Restart only if the routine raises an exception.
+- `"never"` (default): Do not restart.
+- `"always"`: Restart on completion or exception.
+- `"on-completed"`: Restart only if the routine returns normally.
+- `"on-exception"`: Restart only if the routine raises an exception.
 
 `restart_delay` specifies seconds to wait before restarting.
 
-## Queries and actions
+## Queries and Actions
 
 Queries and actions are RPC-style methods exposed through the HTTP API and web console. Use `@query` for read-only operations and `@action` for operations with side effects.
 
@@ -156,15 +156,15 @@ class Sensor(Component):
 
 Both decorators accept a `permit` parameter controlling who can call them.
 
-- `"public"` (default for queries) -- Anyone can call.
-- `"operators"` (default for actions) -- Requires operator or admin role.
-- `"admins"` -- Requires admin role.
+- `"public"` (default for queries): Anyone can call.
+- `"operators"` (default for actions): Requires operator or admin role.
+- `"admins"`: Requires admin role.
 
 ## Events
 
 All components emit events. Events are objects with a `type`, `address`, and `timestamp` that propagate up through the component tree. This means parent components automatically receive events from their children.
 
-### Standard events
+### Standard Events
 
 Ceres emits these events automatically:
 
@@ -180,7 +180,7 @@ Ceres emits these events automatically:
 
 **Other events:** `AlertEvent`, `LogEvent`, `ConnectedEvent`, `DisconnectedEvent`, `ConnectionLostEvent`
 
-### Custom events
+### Custom Events
 
 Create custom events by subclassing `Event`.
 
@@ -201,7 +201,7 @@ Emit events with `self.emit()`.
 self.emit(CountEvent, count=42)
 ```
 
-### Event listeners
+### Event Listeners
 
 Use `@listener` to react to events. By default, a listener only receives events from its own component.
 
@@ -243,10 +243,10 @@ async def on__any_event(self, event: Event) -> None:
 
 #### Listener parameters
 
-- `event` -- Event class to listen for. If omitted, inferred from the method's type hint.
-- `reference` -- Name of a `Ref` field to listen to.
-- `address` -- Address selector for cross-component listening.
-- `local` -- Listen for events from this component. Defaults to `True` when neither `reference` nor `address` is set.
+- `event`: Event class to listen for. If omitted, inferred from the method's type hint.
+- `reference`: Name of a `Ref` field to listen to.
+- `address`: Address selector for cross-component listening.
+- `local`: Listen for events from this component. Defaults to `True` when neither `reference` nor `address` is set.
 
 Event listeners execute asynchronously in their own task, separate from the code that emits the event. Each listener maintains its own queue, so a slow or crashing listener does not affect other listeners or the emitting code.
 
@@ -288,7 +288,7 @@ self.alert(Level.INFO, "sensor/recovered", {"message": "Connection restored."})
 
 Emitting an alert stores it in the database but does not send it anywhere. To dispatch alerts as notifications (e.g., email), configure a `Dispatcher`.
 
-### Log entries
+### Log Entries
 
 Components log messages through `self.system.log` (or the shorthand `self.log`), which mirrors Python's `logging.Logger` interface. Log entries are printed to stdout and persisted in the database.
 
@@ -308,7 +308,7 @@ self.log.critical("System is in a bad state.")
 | `level`     | `Level`   | Severity level.                        |
 | `content`   | `str`     | The log message.                       |
 
-### Querying records
+### Querying Records
 
 Records can be queried programmatically from within a component.
 

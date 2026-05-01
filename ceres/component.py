@@ -1513,26 +1513,29 @@ class ComponentSystem(Node, ComponentSource):
         # Load sieves from static sieves.
         sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
         # Load sieves from bindings.
-        sieves.update(
-            {
-                binding.name: MethodSieveConfig(
-                    name=binding.name,
-                    method=binding.method,
-                    stored=binding.stored,
-                    retries=binding.retries,
-                    retry_delay=binding.retry_delay,
-                    filter=binding.filter,
-                    connections=[
-                        field.name
-                        for field in seq(binding.connections or ())
-                        if field.name is not None
-                    ],
-                    buffer_size=binding.buffer_size,
-                    buffer_drop=binding.buffer_drop,
-                )
-                for binding in self.get_sieve_bindings().values()
-            }
-        )
+        for binding in self.get_sieve_bindings().values():
+            connection_names = [
+                field.name for field in seq(binding.connections or ()) if field.name is not None
+            ]
+
+            filter = binding.filter
+            if connection_names:
+                if filter is not None:
+                    filter = filter.model_copy(update={"connection": connection_names})
+                else:
+                    filter = MessageFilter(connection=connection_names)
+
+            sieves[binding.name] = MethodSieveConfig(
+                name=binding.name,
+                method=binding.method,
+                stored=binding.stored,
+                retries=binding.retries,
+                retry_delay=binding.retry_delay,
+                filter=filter,
+                connections=connection_names,
+                buffer_size=binding.buffer_size,
+                buffer_drop=binding.buffer_drop,
+            )
         # Load sieves from configuration.
         if self.config is not None:
             sieves.update({sieve.name: sieve for sieve in self.config.sieves})

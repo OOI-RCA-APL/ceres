@@ -6,13 +6,13 @@ Components are async Python classes that run concurrently, communicate through e
 
 ![architecture](./images/architecture.png)
 
-## Where Ceres is used
+## Where Ceres Is Used
 
-Ceres was built at the University of Washington Applied Physics Laboratory (APL) to power instrument drivers for the [Ocean Observatories Initiative (OOI)](https://oceanobservatories.org/) Regional Cabled Array (RCA). In production, Ceres runs on physical Linux servers connected to oceanographic instruments (acoustic current profilers, pressure gauges, pH sensors, etc.), collecting and processing real-time data streams over TCP.
+Ceres was built at the University of Washington Applied Physics Laboratory (APL) to power instrument drivers for the [Ocean Observatories Initiative (OOI)](https://oceanobservatories.org/) Regional Cabled Array (RCA). Ceres runs on Linux, macOS, and Windows. In its current production deployment, it runs on physical Linux servers connected to oceanographic instruments (acoustic current profilers, pressure gauges, pH sensors, etc.), collecting and processing real-time data streams over TCP.
 
 That said, Ceres is a general-purpose framework. It can manage any collection of async Python components that need lifecycle control, event handling, scheduling, and persistence.
 
-## Quick example
+## Quick Example
 
 ```python
 from asyncio import sleep
@@ -62,13 +62,13 @@ ceres service stop        # Stop the background service.
 
 ## Documentation
 
-- [Installing](installing.md) -- Install Ceres and set up a project.
-- [Getting Started](getting-started.md) -- Build your first Ceres project from scratch.
-- [Writing a Driver](writing-a-driver.md) -- Build an instrument driver with connections and data parsing.
-- [Components](components.md) -- The core abstraction: routines, events, records.
-- [Connections](connections.md) -- Connect to remote instruments and parse data.
-- [Configuration](configuration.md) -- Full `ceres.yaml` reference.
-- [CLI](cli.md) -- Command-line interface reference.
-- [Deployment](deployment.md) -- Run Ceres as a production service.
-- [Development](development.md) -- Set up a dev environment and contribute to Ceres.
-- [API Reference](api-reference.md) -- Auto-generated Python API docs.
+- [Installing](installing.md): Install Ceres and set up a project.
+- [Getting Started](getting-started.md): Build your first Ceres project from scratch.
+- [Writing a Driver](writing-a-driver.md): Build an instrument driver with connections and data parsing.
+- [Components](components.md): The core abstraction: routines, events, records.
+- [Connections](connections.md): Connect to remote instruments and parse data.
+- [Configuration](configuration.md): Full `ceres.yaml` reference.
+- [CLI](cli.md): Command-line interface reference.
+- [Deployment](deployment.md): Run Ceres as a production service.
+- [Development](development.md): Set up a dev environment and contribute to Ceres.
+- [API Reference](api-reference.md): Auto-generated Python API docs.

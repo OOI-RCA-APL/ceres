@@ -2,7 +2,7 @@
 
 All project configuration lives in `ceres.yaml` (or `ceres.yml` / `ceres.json`) at the root of your project directory. This page documents every section and option.
 
-## Top-level structure
+## Top-Level Structure
 
 ```yaml
 service:      # Background service settings.
@@ -64,10 +64,10 @@ server:
   port: 8080
   cors:
     enabled: true
-    allow_origins: ["*"]
-    allow_methods: ["*"]
-    allow_headers: ["*"]
-    allow_credentials: false
+    allow-origins: ["*"]
+    allow-methods: ["*"]
+    allow-headers: ["*"]
+    allow-credentials: false
 ```
 
 ### Compression
@@ -79,7 +79,7 @@ server:
   port: 8080
   compression:
     enabled: true        # Default: true.
-    min_size: 500        # Minimum response size to compress.
+    min-size: 500        # Minimum response size to compress.
     zstd: true           # Enable Zstandard.
     brotli: true         # Enable Brotli.
     gzip: true           # Enable gzip.
@@ -111,7 +111,7 @@ database:
   password: secret
 ```
 
-### Password hashing
+### Password Hashing
 
 Configure the algorithm used for user password hashing.
 
@@ -121,8 +121,8 @@ database:
   path: ./local/database.sqlite
   hashing:
     type: argon2          # Or "bcrypt".
-    time_cost: 3
-    memory_cost: 65536
+    time-cost: 3
+    memory-cost: 65536
 ```
 
 ## `console`
@@ -165,7 +165,7 @@ components:
       param2: 42
 ```
 
-### Component options
+### Component Options
 
 | Field         | Description                                                |
 | ------------- | ---------------------------------------------------------- |
@@ -193,11 +193,11 @@ connections:
     splitter:
       class: ceres.connection.SplitByLine
     suffix: "\n"
-    buffer_size: 1MB
-    buffer_drop: 100KB
-    connect_timeout: 5s
-    receive_timeout: 10s
-    reconnect_schedule: "interval: 5s"
+    buffer-size: 1MB
+    buffer-drop: 100KB
+    connect-timeout: 5s
+    receive-timeout: 10s
+    reconnect-schedule: "interval: 5s"
 ```
 
 See [Connections](connections.md) for details on sources, splitters, and options.
@@ -214,7 +214,7 @@ jobs:
       format: csv
     schedule: "cron: 0 9 * * *"  # Every day at 09:00 UTC.
     retries: 2
-    retry_delay: 10s
+    retry-delay: 10s
 ```
 
 Schedule expressions:
@@ -230,25 +230,25 @@ Pruners periodically delete old records from the database.
 ```yaml
 pruners:
   - name: clean-old-messages
-    prunes: message          # One of: message, particle, alert, log_entry.
-    schedule: "daily"
+    prunes: message          # One of: message, particle, alert, log-entry.
+    schedule: "0 0 * * *"
     filter:
-      before: 30d            # Delete records older than 30 days.
+      max-age: 30d           # Delete records older than 30 days.
 ```
 
-## Duration values
+## Duration Values
 
 Many configuration fields accept duration strings. Supported formats:
 
-- `5s`, `30s` -- Seconds.
-- `5m`, `30m` -- Minutes.
-- `1h`, `2h` -- Hours.
-- `1d`, `7d` -- Days.
-- `0.5s`, `1.5m` -- Fractional values.
+- `5s`, `30s`: Seconds.
+- `5m`, `30m`: Minutes.
+- `1h`, `2h`: Hours.
+- `1d`, `7d`: Days.
+- `0.5s`, `1.5m`: Fractional values.
 
-## Size values
+## Size Values
 
 Buffer sizes accept human-readable strings:
 
-- `1KB`, `100KB` -- Kilobytes.
-- `1MB`, `10MB` -- Megabytes.
+- `1KB`, `100KB`: Kilobytes.
+- `1MB`, `10MB`: Megabytes.

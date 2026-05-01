@@ -4,6 +4,7 @@ from typing import override
 import pytest
 
 from ceres.address import Address
+from ceres.component import sieve as sieve_decorator
 from ceres.connection.buffer import (
     Buffer,  # noqa: TC001 - used at runtime by inspect.get_annotations
 )
@@ -20,8 +21,13 @@ class SimpleParticle(Particle[SimpleData]):
     type = "test/simple"
 
 
-def _make_message(data: bytes) -> Message:
-    return Message(data=data, direction=Message.Direction.RECEIVE, address=Address.ROOT)
+def _make_message(data: bytes, connection: str | None = None) -> Message:
+    return Message(
+        data=data,
+        direction=Message.Direction.RECEIVE,
+        address=Address.ROOT,
+        connection=connection,
+    )
 
 
 class TestSieveAbstract:
@@ -369,3 +375,105 @@ class TestFunctionSieveEmptyStream:
 
         results = [particle async for particle in sieve.process(messages())]
         assert results == []
+
+
+class TestSieveConnectionBinding:
+    def test_sieve_binding_captures_connection(self):
+        from ceres import Bound, Component, Connection, SplitByLine
+        from ceres.component import get_sieve_bindings
+
+        class Driver(Component):
+            alpha: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+            beta: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+
+            @sieve_decorator(alpha)
+            async def parse_alpha(self, message: Message) -> SimpleParticle | None:
+                return None
+
+            @sieve_decorator(beta)
+            async def parse_beta(self, message: Message) -> SimpleParticle | None:
+                return None
+
+        bindings = get_sieve_bindings(Driver)
+        assert "parse-alpha" in bindings
+        assert "parse-beta" in bindings
+        assert bindings["parse-alpha"].connections is not None
+        assert bindings["parse-beta"].connections is not None
+
+    async def test_sieve_filters_messages_by_connection(self):
+        from ceres import Bound, Component, Connection, SplitByLine
+        from ceres.concurrency import sleep
+        from ceres.event import MessageReceivedEvent
+
+        alpha_received: list[Message] = []
+        beta_received: list[Message] = []
+
+        class Driver(Component):
+            alpha: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+            beta: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+
+            @sieve_decorator(alpha)
+            async def parse_alpha(self, message: Message) -> SimpleParticle | None:
+                alpha_received.append(message)
+                return None
+
+            @sieve_decorator(beta)
+            async def parse_beta(self, message: Message) -> SimpleParticle | None:
+                beta_received.append(message)
+                return None
+
+        driver = Driver()  # type: ignore[reportCallIssue]
+        driver.system.start()
+        await sleep(0.1)
+
+        for label in [b"a1", b"a2", b"a3"]:
+            driver.system.events.emit(
+                MessageReceivedEvent,
+                message=_make_message(label, connection="alpha"),
+            )
+        for label in [b"b1", b"b2"]:
+            driver.system.events.emit(
+                MessageReceivedEvent,
+                message=_make_message(label, connection="beta"),
+            )
+
+        await sleep(0.5)
+        await driver.system.stop()
+
+        assert [message.data for message in alpha_received] == [b"a1", b"a2", b"a3"]
+        assert [message.data for message in beta_received] == [b"b1", b"b2"]
+
+    async def test_unbound_sieve_receives_all_messages(self):
+        from ceres import Bound, Component, Connection, SplitByLine
+        from ceres.concurrency import sleep
+        from ceres.event import MessageReceivedEvent
+
+        all_received: list[Message] = []
+
+        class Driver(Component):
+            alpha: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+            beta: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+
+            @sieve_decorator
+            async def parse_all(self, message: Message) -> SimpleParticle | None:
+                all_received.append(message)
+                return None
+
+        driver = Driver()  # type: ignore[reportCallIssue]
+        driver.system.start()
+        await sleep(0.1)
+
+        driver.system.events.emit(
+            MessageReceivedEvent,
+            message=_make_message(b"a1", connection="alpha"),
+        )
+        driver.system.events.emit(
+            MessageReceivedEvent,
+            message=_make_message(b"b1", connection="beta"),
+        )
+
+        await sleep(0.5)
+        await driver.system.stop()
+
+        received_data = sorted(message.data for message in all_received)
+        assert received_data == [b"a1", b"b1"]
