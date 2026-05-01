@@ -33,8 +33,6 @@ from ceres.data import DataObject, Number, PositiveTimeDelta
 from ceres.event import ConnectedEvent, DisconnectedEvent, ParticleEvent
 
 
-# -- Particle data -----------------------------------------------------------
-#
 # ParticleData defines the structured fields extracted from raw instrument
 # messages. Each field uses the `Number` type, which accepts any numeric value
 # and prefers `int` when the value is integer-valued, falling back to `float`.
@@ -55,8 +53,6 @@ class EnvironmentData(ParticleData):
     dissolved_oxygen: Number  # mL/L
 
 
-# -- Particles ----------------------------------------------------------------
-#
 # GroupedRegexParticle connects a regex pattern to a ParticleData class. Named
 # capture groups in the regex are automatically matched to ParticleData fields
 # and coerced to the declared types. The `type` literal is a discriminator used
@@ -89,8 +85,6 @@ class EnvironmentParticle(GroupedRegexParticle[EnvironmentData]):
     )
 
 
-# -- Configuration objects ----------------------------------------------------
-#
 # DataObject subclasses are used for structured configuration that can be set
 # in ceres.yaml. Ceres automatically converts kebab-case YAML keys to
 # snake_case Python attributes.
@@ -106,9 +100,6 @@ class TemperatureLimits(DataObject):
     high: float = 25.0
 
 
-# -- Internal state -----------------------------------------------------------
-
-
 class SubmarineStatus(DataObject):
     navigation_connected: bool = False
     environment_connected: bool = False
@@ -116,9 +107,6 @@ class SubmarineStatus(DataObject):
     latest_temperature: float | None = None
     latest_heading: float | None = None
     latest_speed: float | None = None
-
-
-# -- Driver component --------------------------------------------------------
 
 
 class OmnibusDriver(Component):
@@ -155,8 +143,6 @@ class OmnibusDriver(Component):
         """Initialize mutable state after the component is constructed."""
         self._status = SubmarineStatus()
 
-    # -- Sieves ---------------------------------------------------------------
-    #
     # @sieve(connection) registers a method as a data parser for a specific
     # connection. Each message received on that connection is passed through
     # the method. Returning a particle stores it in the database. Returning
@@ -178,8 +164,6 @@ class OmnibusDriver(Component):
             self.system.log.warning(exception)
             return None
 
-    # -- Listeners ------------------------------------------------------------
-    #
     # @listener reacts to events emitted by the component system. The
     # reference parameter scopes the listener to events from a specific
     # connection. The event type is inferred from the method's type hint.
@@ -240,8 +224,6 @@ class OmnibusDriver(Component):
                 f"{environment.pressure},{environment.dissolved_oxygen}\n",
             )
 
-    # -- Routines -------------------------------------------------------------
-    #
     # @routine marks a method as a long-running background task. restart="always"
     # means the routine restarts after completion or failure, with a delay of
     # restart_delay seconds between restarts.
@@ -273,8 +255,6 @@ class OmnibusDriver(Component):
                 f"{int(self.health_check_interval.total_seconds())}s."
             )
 
-    # -- Queries --------------------------------------------------------------
-    #
     # @query exposes a read-only RPC endpoint accessible from the CLI, web
     # console, and REST API.
 
@@ -307,8 +287,6 @@ class OmnibusDriver(Component):
             for particle in particles
         ]
 
-    # -- Actions --------------------------------------------------------------
-    #
     # @action exposes a mutating RPC endpoint. Actions can modify state, send
     # commands to instruments, or perform side effects. Like queries, they are
     # accessible from the CLI, web console, and REST API.
@@ -343,8 +321,6 @@ class OmnibusDriver(Component):
         await self.system.alerts.where(before=cutoff).delete()
         self.system.log.info(f"Cleared {count} alerts older than {before_seconds}s.")
         return {"cleared": count}
-
-    # -- Internal helpers -----------------------------------------------------
 
     def _check_depth(self, depth: float) -> None:
         if depth >= self.depth_limits.critical:
