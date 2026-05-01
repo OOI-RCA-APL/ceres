@@ -33,7 +33,7 @@ from ceres.data import DataObject, Number, PositiveTimeDelta
 from ceres.event import ConnectedEvent, DisconnectedEvent, ParticleEvent
 
 
-# ParticleData defines the structured fields extracted from raw instrument
+# `ParticleData` defines the structured fields extracted from raw instrument
 # messages. Each field uses the `Number` type, which accepts any numeric value
 # and prefers `int` when the value is integer-valued, falling back to `float`.
 
@@ -53,9 +53,9 @@ class EnvironmentData(ParticleData):
     dissolved_oxygen: Number  # mL/L
 
 
-# GroupedRegexParticle connects a regex pattern to a ParticleData class. Named
-# capture groups in the regex are automatically matched to ParticleData fields
-# and coerced to the declared types. The `type` literal is a discriminator used
+# `GroupedRegexParticle` connects a regex pattern to a `ParticleData` class.
+# Named capture groups in the regex are automatically matched to `ParticleData`
+# fields and coerced to the declared types. The `type` literal is a discriminator used
 # to identify the particle type in the database and API.
 
 
@@ -85,8 +85,8 @@ class EnvironmentParticle(GroupedRegexParticle[EnvironmentData]):
     )
 
 
-# DataObject subclasses are used for structured configuration that can be set
-# in ceres.yaml. Ceres automatically converts kebab-case YAML keys to
+# `DataObject` subclasses are used for structured configuration that can be set
+# in `ceres.yaml`. Ceres automatically converts kebab-case YAML keys to
 # snake_case Python attributes.
 
 
@@ -111,12 +111,12 @@ class SubmarineStatus(DataObject):
 
 class OmnibusDriver(Component):
     # Connection fields declare managed connections whose transport source
-    # (host/port) is configured in ceres.yaml, not in code. This lets the same
+    # (host/port) is configured in `ceres.yaml`, not in code. This lets the same
     # driver class be reused for different instruments by changing the config.
     #
-    # SplitByLine splits the incoming byte stream on newlines, producing one
-    # Message per line. The suffix appends a newline to outgoing sends.
-    # receive_timeout disconnects if no data arrives within that window.
+    # `SplitByLine` splits the incoming byte stream on newlines, producing one
+    # `Message` per line. The `suffix` appends a newline to outgoing sends.
+    # `receive_timeout` disconnects if no data arrives within that window.
     navigation: Bound[Connection] | None = Connection.Field(
         splitter=SplitByLine(),
         suffix=b"\n",
@@ -128,11 +128,11 @@ class OmnibusDriver(Component):
         receive_timeout=15,
     )
 
-    # Directory is a managed output directory for writing files. The path is
-    # set in ceres.yaml.
+    # `Directory` is a managed output directory for writing files. The path is
+    # set in `ceres.yaml`.
     output: Directory
 
-    # Typed configuration objects populated from ceres.yaml arguments.
+    # Typed configuration objects populated from `ceres.yaml` arguments.
     depth_limits: DepthLimits
     temperature_limits: TemperatureLimits
 
@@ -143,10 +143,10 @@ class OmnibusDriver(Component):
         """Initialize mutable state after the component is constructed."""
         self._status = SubmarineStatus()
 
-    # @sieve(connection) registers a method as a data parser for a specific
+    # `@sieve(connection)` registers a method as a data parser for a specific
     # connection. Each message received on that connection is passed through
     # the method. Returning a particle stores it in the database. Returning
-    # None skips the message.
+    # `None` skips the message.
 
     @sieve(navigation)
     async def parse_navigation(self, message: Message) -> NavigationParticle | None:
@@ -164,8 +164,8 @@ class OmnibusDriver(Component):
             self.system.log.warning(exception)
             return None
 
-    # @listener reacts to events emitted by the component system. The
-    # reference parameter scopes the listener to events from a specific
+    # `@listener` reacts to events emitted by the component system. The
+    # `reference` parameter scopes the listener to events from a specific
     # connection. The event type is inferred from the method's type hint.
 
     @listener(reference="navigation")
@@ -196,8 +196,8 @@ class OmnibusDriver(Component):
             {"message": "Environment sensor link lost."},
         )
 
-    # A listener without a reference receives all events from this component,
-    # including ParticleEvents emitted by the sieves above.
+    # A listener without a `reference` receives all events from this component,
+    # including `ParticleEvent`s emitted by the sieves above.
     @listener
     def on_particle(self, event: ParticleEvent) -> None:
         if isinstance(event.particle.data, NavigationData):
@@ -224,9 +224,9 @@ class OmnibusDriver(Component):
                 f"{environment.pressure},{environment.dissolved_oxygen}\n",
             )
 
-    # @routine marks a method as a long-running background task. restart="always"
-    # means the routine restarts after completion or failure, with a delay of
-    # restart_delay seconds between restarts.
+    # `@routine` marks a method as a long-running background task.
+    # `restart="always"` means the routine restarts after completion or failure,
+    # with a delay of `restart_delay` seconds between restarts.
 
     @routine(restart="always", restart_delay=60)
     async def health_check(self) -> None:
@@ -255,7 +255,7 @@ class OmnibusDriver(Component):
                 f"{int(self.health_check_interval.total_seconds())}s."
             )
 
-    # @query exposes a read-only RPC endpoint accessible from the CLI, web
+    # `@query` exposes a read-only RPC endpoint accessible from the CLI, web
     # console, and REST API.
 
     @query
@@ -287,7 +287,7 @@ class OmnibusDriver(Component):
             for particle in particles
         ]
 
-    # @action exposes a mutating RPC endpoint. Actions can modify state, send
+    # `@action` exposes a mutating RPC endpoint. Actions can modify state, send
     # commands to instruments, or perform side effects. Like queries, they are
     # accessible from the CLI, web console, and REST API.
 

@@ -26,16 +26,16 @@ from ceres.concurrency import sleep
 from ceres.data import Number, TimeDelta
 
 
-# ParticleData defines the structured fields parsed from each sensor reading.
-# The Number type accepts any numeric value, preferring int when possible.
+# `ParticleData` defines the structured fields parsed from each sensor reading.
+# The `Number` type accepts any numeric value, preferring `int` when possible.
 class SensorParticleData(ParticleData):
     temperature: Number  # Degrees Celsius
     pressure: Number  # Kilopascals
     humidity: Number  # Percentage
 
 
-# GroupedRegexParticle maps named capture groups in the regex directly to
-# ParticleData fields. The type literal identifies this particle in the
+# `GroupedRegexParticle` maps named capture groups in the regex directly to
+# `ParticleData` fields. The `type` literal identifies this particle in the
 # database and API.
 class SensorParticle(GroupedRegexParticle[SensorParticleData]):
     type: Literal["sensor/data"] = "sensor/data"
@@ -50,20 +50,20 @@ class SensorParticle(GroupedRegexParticle[SensorParticleData]):
 
 
 class SensorDriver(Component):
-    # Connection.Field declares a managed connection. The transport source
-    # (host/port) is configured in ceres.yaml, not in code.
-    # SplitByLine splits incoming bytes on newlines into discrete messages.
-    # suffix appends a newline to outgoing sends.
-    # receive_timeout disconnects if no data arrives within 30 seconds.
+    # `Connection.Field` declares a managed connection. The transport source
+    # (host/port) is configured in `ceres.yaml`, not in code.
+    # `SplitByLine` splits incoming bytes on newlines into discrete messages.
+    # `suffix` appends a newline to outgoing sends.
+    # `receive_timeout` disconnects if no data arrives within 30 seconds.
     connection: Bound[Connection] | None = Connection.Field(
         splitter=SplitByLine(),
         suffix=b"\n",
         receive_timeout=30,
     )
 
-    # @sieve(connection) registers this method as a parser for messages from
+    # `@sieve(connection)` registers this method as a parser for messages from
     # the named connection. Returning a particle stores it in the database.
-    # Returning None skips the message.
+    # Returning `None` skips the message.
     @sieve(connection)
     async def sieve(self, message: Message) -> SensorParticle | None:
         try:

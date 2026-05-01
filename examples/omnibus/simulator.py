@@ -1,8 +1,8 @@
 """TCP server simulators that mimic submarine instrument feeds.
 
 These simulators let you run the omnibus example without real hardware. Each
-simulator extends TCPServer, which is a Component that binds a TCP listener
-and calls handle() once per connected client. The driver connects to each
+simulator extends `TCPServer`, which is a `Component` that binds a TCP listener
+and calls `handle()` once per connected client. The driver connects to each
 simulator as a regular TCP client.
 """
 
@@ -26,7 +26,7 @@ class NavigationSimulator(TCPServer):
         Input:  NAV_STOP
     """
 
-    # PositiveTimeDelta accepts duration strings like "1s" or "500ms" from YAML.
+    # `PositiveTimeDelta` accepts duration strings like "1s" or "500ms" from YAML.
     interval: PositiveTimeDelta = timedelta(seconds=1)
 
     @override
