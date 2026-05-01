@@ -8,7 +8,7 @@ send commands, and write data to files.
 
 from datetime import timedelta
 from re import compile
-from typing import Literal
+from typing import Literal, override
 
 from ceres import (
     Bound,
@@ -150,6 +150,7 @@ class OmnibusDriver(Component):
 
     health_check_interval: PositiveTimeDelta = timedelta(minutes=1)
 
+    @override
     def __setup__(self) -> None:
         """Initialize mutable state after the component is constructed."""
         self._status = SubmarineStatus()

@@ -59,7 +59,7 @@ class NavigationSimulator(TCPServer):
                         if len(parts) == 3:
                             target = (float(parts[1]), float(parts[2]))
 
-        spawn(receive_commands)
+        await spawn(receive_commands)
 
         while True:
             if target is not None:
