@@ -164,39 +164,37 @@ class OmnibusDriver(Component):
             self.system.log.warning(exception)
             return None
 
-    # `@listener` reacts to events emitted by the component system. The
-    # `reference` parameter scopes the listener to events from a specific
-    # connection. The event type is inferred from the method's type hint.
+    # `@listener` reacts to events emitted by the component system. The event
+    # type is inferred from the method's type hint. Use `event.connection` to
+    # determine which connection triggered the event.
 
-    @listener(reference="navigation")
-    def on_navigation_connected(self, event: ConnectedEvent) -> None:
-        self._status.navigation_connected = True
-        self.system.log.info("Navigation link established.")
+    @listener
+    def on_connected(self, event: ConnectedEvent) -> None:
+        if event.connection == "navigation":
+            self._status.navigation_connected = True
+            self.system.log.info("Navigation link established.")
+        elif event.connection == "environment":
+            self._status.environment_connected = True
+            self.system.log.info("Environment sensor link established.")
 
-    @listener(reference="navigation")
-    def on_navigation_disconnected(self, event: DisconnectedEvent) -> None:
-        self._status.navigation_connected = False
-        self.system.alerts.emit(
-            Level.WARNING,
-            "sub/navigation-lost",
-            {"message": "Navigation data link lost."},
-        )
+    @listener
+    def on_disconnected(self, event: DisconnectedEvent) -> None:
+        if event.connection == "navigation":
+            self._status.navigation_connected = False
+            self.system.alerts.emit(
+                Level.WARNING,
+                "sub/navigation-lost",
+                {"message": "Navigation data link lost."},
+            )
+        elif event.connection == "environment":
+            self._status.environment_connected = False
+            self.system.alerts.emit(
+                Level.WARNING,
+                "sub/environment-lost",
+                {"message": "Environment sensor link lost."},
+            )
 
-    @listener(reference="environment")
-    def on_environment_connected(self, event: ConnectedEvent) -> None:
-        self._status.environment_connected = True
-        self.system.log.info("Environment sensor link established.")
-
-    @listener(reference="environment")
-    def on_environment_disconnected(self, event: DisconnectedEvent) -> None:
-        self._status.environment_connected = False
-        self.system.alerts.emit(
-            Level.WARNING,
-            "sub/environment-lost",
-            {"message": "Environment sensor link lost."},
-        )
-
-    # A listener without a `reference` receives all events from this component,
+    # A local listener receives all matching events from this component,
     # including `ParticleEvent`s emitted by the sieves above.
     @listener
     def on_particle(self, event: ParticleEvent) -> None:
