@@ -172,7 +172,6 @@ components:
 | `name`        | Unique name within the parent. Becomes part of the address.|
 | `class`       | Python import path to the component class. Defaults to `Component` if omitted. |
 | `arguments`   | Constructor keyword arguments, validated against the class's type hints. |
-| `enabled`     | Whether the component auto-starts. Default: `false`.       |
 | `logging`     | Per-component logging overrides.                           |
 | `connections` | List of connection configurations. See below.              |
 | `sieves`      | List of sieve (data parser) configurations.                |

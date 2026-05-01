@@ -1,3 +1,11 @@
+"""Omnibus driver example demonstrating most Ceres component features.
+
+This example simulates an autonomous submarine with two instrument connections
+(navigation and environment), showing how a single driver component can parse
+multiple data formats, react to events, run background tasks, expose an API,
+send commands, and write data to files.
+"""
+
 from datetime import timedelta
 from re import compile
 from typing import Literal
@@ -25,17 +33,40 @@ from ceres.data import DataObject, Number, PositiveTimeDelta
 from ceres.event import ConnectedEvent, DisconnectedEvent, ParticleEvent
 
 
+# -- Particle data -----------------------------------------------------------
+#
+# ParticleData defines the structured fields extracted from raw instrument
+# messages. Each field uses the `Number` type, which accepts any numeric value
+# and stores it as a Decimal for lossless precision.
+
+
 class NavigationData(ParticleData):
     latitude: Number
     longitude: Number
-    depth: Number
-    heading: Number
-    speed: Number
+    depth: Number  # Meters
+    heading: Number  # Degrees
+    speed: Number  # Knots
+
+
+class EnvironmentData(ParticleData):
+    temperature: Number  # Degrees Celsius
+    salinity: Number  # PSU
+    pressure: Number  # Decibars
+    dissolved_oxygen: Number  # mL/L
+
+
+# -- Particles ----------------------------------------------------------------
+#
+# GroupedRegexParticle connects a regex pattern to a ParticleData class. Named
+# capture groups in the regex are automatically matched to ParticleData fields
+# and coerced to the declared types. The `type` literal is a discriminator used
+# to identify the particle type in the database and API.
 
 
 class NavigationParticle(GroupedRegexParticle[NavigationData]):
     type: Literal["sub/navigation"] = "sub/navigation"
 
+    # Matches lines like: NAV 47.606200 -122.332100 50.0 90.0 2.50
     regex = compile(
         rb"NAV\s+"
         rb"(?P<latitude>-?\d+\.\d+)\s+"
@@ -46,22 +77,23 @@ class NavigationParticle(GroupedRegexParticle[NavigationData]):
     )
 
 
-class EnvironmentData(ParticleData):
-    temperature: Number
-    salinity: Number
-    pressure: Number
-    dissolved_oxygen: Number
-
-
 class EnvironmentParticle(GroupedRegexParticle[EnvironmentData]):
     type: Literal["sub/environment"] = "sub/environment"
 
+    # Matches CSV lines like: 7.50,34.000,50.7,6.00
     regex = compile(
         rb"(?P<temperature>-?\d+(?:\.\d+)?),"
         rb"(?P<salinity>\d+(?:\.\d+)?),"
         rb"(?P<pressure>\d+(?:\.\d+)?),"
         rb"(?P<dissolved_oxygen>\d+(?:\.\d+)?)"
     )
+
+
+# -- Configuration objects ----------------------------------------------------
+#
+# DataObject subclasses are used for structured configuration that can be set
+# in ceres.yaml. Ceres automatically converts kebab-case YAML keys to
+# snake_case Python attributes.
 
 
 class DepthLimits(DataObject):
@@ -74,6 +106,9 @@ class TemperatureLimits(DataObject):
     high: float = 25.0
 
 
+# -- Internal state -----------------------------------------------------------
+
+
 class SubmarineStatus(DataObject):
     navigation_connected: bool = False
     environment_connected: bool = False
@@ -83,7 +118,17 @@ class SubmarineStatus(DataObject):
     latest_speed: float | None = None
 
 
+# -- Driver component --------------------------------------------------------
+
+
 class OmnibusDriver(Component):
+    # Connection fields declare managed connections whose transport source
+    # (host/port) is configured in ceres.yaml, not in code. This lets the same
+    # driver class be reused for different instruments by changing the config.
+    #
+    # SplitByLine splits the incoming byte stream on newlines, producing one
+    # Message per line. The suffix appends a newline to outgoing sends.
+    # receive_timeout disconnects if no data arrives within that window.
     navigation: Bound[Connection] | None = Connection.Field(
         splitter=SplitByLine(),
         suffix=b"\n",
@@ -95,15 +140,26 @@ class OmnibusDriver(Component):
         receive_timeout=15,
     )
 
+    # Directory is a managed output directory for writing files. The path is
+    # set in ceres.yaml.
     output: Directory
 
+    # Typed configuration objects populated from ceres.yaml arguments.
     depth_limits: DepthLimits
     temperature_limits: TemperatureLimits
 
     health_check_interval: PositiveTimeDelta = timedelta(minutes=1)
 
     def __setup__(self) -> None:
+        """Initialize mutable state after the component is constructed."""
         self._status = SubmarineStatus()
+
+    # -- Sieves ---------------------------------------------------------------
+    #
+    # @sieve(connection) registers a method as a data parser for a specific
+    # connection. Each message received on that connection is passed through
+    # the method. Returning a particle stores it in the database. Returning
+    # None skips the message.
 
     @sieve(navigation)
     async def parse_navigation(self, message: Message) -> NavigationParticle | None:
@@ -120,6 +176,12 @@ class OmnibusDriver(Component):
         except ParseFailed as exception:
             self.system.log.warning(exception)
             return None
+
+    # -- Listeners ------------------------------------------------------------
+    #
+    # @listener reacts to events emitted by the component system. The
+    # reference parameter scopes the listener to events from a specific
+    # connection. The event type is inferred from the method's type hint.
 
     @listener(reference="navigation")
     def on_navigation_connected(self, event: ConnectedEvent) -> None:
@@ -149,6 +211,8 @@ class OmnibusDriver(Component):
             {"message": "Environment sensor link lost."},
         )
 
+    # A listener without a reference receives all events from this component,
+    # including ParticleEvents emitted by the sieves above.
     @listener
     def on_particle(self, event: ParticleEvent) -> None:
         if isinstance(event.particle.data, NavigationData):
@@ -174,6 +238,12 @@ class OmnibusDriver(Component):
                 f"{environment.temperature},{environment.salinity},"
                 f"{environment.pressure},{environment.dissolved_oxygen}\n",
             )
+
+    # -- Routines -------------------------------------------------------------
+    #
+    # @routine marks a method as a long-running background task. restart="always"
+    # means the routine restarts after completion or failure, with a delay of
+    # restart_delay seconds between restarts.
 
     @routine(restart="always", restart_delay=60)
     async def health_check(self) -> None:
@@ -201,6 +271,11 @@ class OmnibusDriver(Component):
                 f"Health check: {recent_count} particles in the last "
                 f"{int(self.health_check_interval.total_seconds())}s."
             )
+
+    # -- Queries --------------------------------------------------------------
+    #
+    # @query exposes a read-only RPC endpoint accessible from the CLI, web
+    # console, and REST API.
 
     @query
     async def status(self) -> dict:
@@ -230,6 +305,12 @@ class OmnibusDriver(Component):
             }
             for particle in particles
         ]
+
+    # -- Actions --------------------------------------------------------------
+    #
+    # @action exposes a mutating RPC endpoint. Actions can modify state, send
+    # commands to instruments, or perform side effects. Like queries, they are
+    # accessible from the CLI, web console, and REST API.
 
     @action
     async def navigate_to(self, latitude: float, longitude: float) -> dict:
@@ -261,6 +342,8 @@ class OmnibusDriver(Component):
         await self.system.alerts.where(before=cutoff).delete()
         self.system.log.info(f"Cleared {count} alerts older than {before_seconds}s.")
         return {"cleared": count}
+
+    # -- Internal helpers -----------------------------------------------------
 
     def _check_depth(self, depth: float) -> None:
         if depth >= self.depth_limits.critical:
@@ -297,6 +380,7 @@ class OmnibusDriver(Component):
             )
 
     def _write_data_file(self, category: str, line: str) -> None:
+        """Append a line to a daily CSV file organized by category and date."""
         path = utc().strftime(f"{category}/%Y/%m-%d.csv")
         with self.output.open(path, "a") as stream:
             stream.write(line)
