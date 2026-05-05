@@ -70,6 +70,7 @@ from typing import (
     TypeAlias,
     TypeAliasType,
     cast,
+    overload,
     override,
 )
 
@@ -795,7 +796,17 @@ def unpack(schema: FieldInfo | TypeInput | PackingSchema, data: bytes, /, offset
     return schema.unpack(data, offset)
 
 
-def packable[T: type[Any]](type: T, /) -> T:
+@overload
+def packable[T: type[Any]](type: T, /) -> T: ...
+
+
+@overload
+def packable[T: type[Any]](*, size: int) -> Callable[[T], T]: ...
+
+
+def packable[T: type[Any]](
+    type: T | None = None, /, *, size: int | None = None
+) -> T | Callable[[T], T]:
     """Class decorator that asserts a type is binary-packable at decoration time.
 
     Useful for catching schema inference failures eagerly rather than waiting for the first
@@ -803,23 +814,37 @@ def packable[T: type[Any]](type: T, /) -> T:
 
     Args:
         type: The class to verify.
+        size: If provided, assert that the packed size equals this value.
 
     Returns:
         The decorated class, unchanged.
 
     Raises:
-        TypeError: If a packing schema cannot be inferred for `type`.
+        TypeError: If a packing schema cannot be inferred for `type`, or if `size` is
+            provided and the packed size does not match.
     """
-    try:
-        packed(type)
-    except Exception as exception:
-        from traceback import format_exception
 
-        raise TypeError(
-            f"Type `{type}` is not binary-packable. {format_exception(exception)}"
-        ) from exception
+    def decorator(type: T) -> T:
+        try:
+            schema = packed(type)
+        except Exception as exception:
+            from traceback import format_exception
 
-    return type
+            raise TypeError(
+                f"Type `{type}` is not binary-packable. {format_exception(exception)}"
+            ) from exception
+
+        if size is not None and schema.size != size:
+            raise TypeError(
+                f"`{type.__name__}` packed size is {schema.size}, expected {size}."
+            )
+
+        return type
+
+    if type is not None:
+        return decorator(type)
+
+    return decorator
 
 
 type Int8 = Annotated[int, PackedInt8(), Ge(-128), Le(127)]
