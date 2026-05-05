@@ -536,7 +536,7 @@ class PackedModel(PackingSchema):
             if order is not None:
                 if order not in _BYTE_ORDERS:
                     raise TypeError(
-                        f"{self.__class__}.__byte_order__ must be one of: {list(_BYTE_ORDERS)}."
+                        f"`{self.__class__}.__byte_order__` must be one of: {list(_BYTE_ORDERS)}."
                     )
 
                 object.__setattr__(self, "order", order)
@@ -801,11 +801,17 @@ def packable[T: type[Any]](type: T, /) -> T: ...
 
 
 @overload
-def packable[T: type[Any]](*, size: int) -> Callable[[T], T]: ...
+def packable[T: type[Any]](
+    *, size: int | None = None, order: ByteOrder | None = None
+) -> Callable[[T], T]: ...
 
 
 def packable[T: type[Any]](
-    type: T | None = None, /, *, size: int | None = None
+    type: T | None = None,
+    /,
+    *,
+    size: int | None = None,
+    order: ByteOrder | None = None,
 ) -> T | Callable[[T], T]:
     """Class decorator that asserts a type is binary-packable at decoration time.
 
@@ -815,6 +821,7 @@ def packable[T: type[Any]](
     Args:
         type: The class to verify.
         size: If provided, assert that the packed size equals this value.
+        order: If provided, set `__byte_order__` on the class before validation.
 
     Returns:
         The decorated class, unchanged.
@@ -825,6 +832,9 @@ def packable[T: type[Any]](
     """
 
     def decorator(type: T) -> T:
+        if order is not None:
+            type.__byte_order__ = order  # type: ignore[union-attr]
+
         try:
             schema = packed(type)
         except Exception as exception:
@@ -835,9 +845,7 @@ def packable[T: type[Any]](
             ) from exception
 
         if size is not None and schema.size != size:
-            raise TypeError(
-                f"`{type.__name__}` packed size is {schema.size}, expected {size}."
-            )
+            raise TypeError(f"`{type.__name__}` packed size is {schema.size}, expected {size}.")
 
         return type
 
