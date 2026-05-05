@@ -26,6 +26,7 @@ from ceres.data import (
     PackedInt32,
     PackedInt64,
     PackedModel,
+    PackedSequence,
     PackedTuple,
     PackedUInt8,
     PackedUInt16,
@@ -373,6 +374,65 @@ class TestPackedTuple:
         data = schema.pack((3, 1, 2))
         result = schema.unpack(data)
         assert result == (1, 2, 3)
+
+
+class TestPackedSequence:
+    def test_tuple_round_trip(self):
+        schema = PackedSequence(element=PackedFloat32(), length=3)
+        data = schema.pack((1.5, 2.5, 3.5))
+        result = schema.unpack(data)
+        assert result == pytest.approx((1.5, 2.5, 3.5))
+        assert isinstance(result, tuple)
+
+    def test_size(self):
+        schema = PackedSequence(element=PackedFloat32(), length=8)
+        assert schema.size == 32
+
+    def test_format(self):
+        schema = PackedSequence(element=PackedUInt8(), length=4)
+        assert schema.format == "4B"
+
+    def test_offset(self):
+        prefix = b"\x00\x00"
+        schema = PackedSequence(element=PackedUInt16(), length=2)
+        data = prefix + struct.pack("<2H", 100, 200)
+        result = schema.unpack(data, offset=2)
+        assert result == (100, 200)
+
+    def test_empty_sequence(self):
+        schema = PackedSequence(element=PackedFloat32(), length=0)
+        assert schema.size == 0
+        data = schema.pack(())
+        assert data == b""
+        result = schema.unpack(data)
+        assert result == ()
+
+    def test_negative_length_raises(self):
+        with pytest.raises(TypeError):
+            PackedSequence(element=PackedFloat32(), length=-1)
+
+    def test_incomplete_without_element(self):
+        schema = PackedSequence(length=4)
+        assert schema.size == 0
+        with pytest.raises(TypeError):
+            schema.pack((1, 2, 3, 4))
+
+    def test_infers_element_from_tuple_annotation(self):
+        class Sensor(DataObject):
+            readings: Annotated[tuple[Float32, ...], PackedSequence(length=3)]
+
+        data = struct.pack("<3f", 10.0, 20.0, 30.0)
+        result = unpack(Sensor, data)
+        assert result.readings == pytest.approx((10.0, 20.0, 30.0))
+
+    def test_infers_element_from_list_annotation(self):
+        class Amplitudes(DataObject):
+            samples: Annotated[list[Int16], PackedSequence(length=4)]
+
+        data = struct.pack("<4h", 100, 200, 300, 400)
+        result = unpack(Amplitudes, data)
+        assert result.samples == [100, 200, 300, 400]
+        assert isinstance(result.samples, list)
 
 
 class TestPackedModel:
@@ -810,11 +870,11 @@ class TestDataObjectPacking:
         assert result.f == 6.0
         assert result.g is True
 
-    def test_tuple_with_ellipsis_in_data_object_raises(self):
+    def test_tuple_with_ellipsis_without_packed_sequence_raises(self):
         class Bad(DataObject):
             items: tuple[int, ...]
 
-        with pytest.raises(TypeError, match="cannot contain"):
+        with pytest.raises(TypeError, match="Failed to infer packing schema"):
             packed(Bad)
 
     def test_data_object_byte_order_round_trip(self):

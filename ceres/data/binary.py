@@ -31,6 +31,7 @@ __all__ = (
     "PackedComplex64",
     "PackedComplex128",
     "PackedTuple",
+    "PackedSequence",
     "PackedModel",
     "packed",
     "pack",
@@ -57,7 +58,7 @@ __all__ = (
 )
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import replace
 from dataclasses import dataclass, field, is_dataclass
 from struct import Struct
@@ -515,6 +516,77 @@ class PackedTuple(PackingSchema):
 
 
 @dataclass(frozen=True)
+class PackedSequence(PackingSchema):
+    """Schema for a fixed-length homogeneous sequence of packed values.
+
+    Packs and unpacks a sequence of `length` elements, each using the same `element` schema.
+    Both `element` and the output container type (tuple vs list) are inferred from the
+    annotation when not provided explicitly.
+    """
+
+    type = Sequence
+    symbol = ""
+    element: PackingSchema | None = None
+    """Schema for each element. Inferred from the annotation's generic arg when `None`."""
+    length: int | None = None
+    """Number of elements in the sequence."""
+
+    @override
+    def __post_init__(self) -> None:
+        if self.length is not None and self.length < 0:
+            raise TypeError(f"`{PackedSequence.__name__}.length` must be a non-negative integer.")
+
+        super().__post_init__()
+
+    @override
+    def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        if self.element is None:
+            raise TypeError("Cannot pack a `PackedSequence` without an `element` schema.")
+
+        order = self._resolve_order(order)
+        packed = bytearray()
+        for value in instance:
+            packed.extend(self.element.pack(value, order))
+        return bytes(packed)
+
+    @override
+    def unpack(
+        self,
+        data: bytes,
+        /,
+        offset: int = 0,
+        order: ByteOrder | None = None,
+        *,
+        validate_annotation: bool = True,
+    ) -> Any:
+        from ceres.data import validate
+
+        if self.element is None or self.length is None:
+            raise TypeError("Cannot unpack a `PackedSequence` without `element` and `length`.")
+
+        order = self._resolve_order(order)
+
+        values: list[Any] = []
+        for _ in range(self.length):
+            values.append(self.element.unpack(data, offset, order, validate_annotation=False))
+            offset += self.element.size
+
+        instance = tuple(values)
+        if self.validator is not None:
+            instance = self.validator(instance)
+        if validate_annotation and self.annotation is not MISSING:
+            instance = validate(self.annotation, instance)
+
+        return instance
+
+    @override
+    def _compute_inner_format(self) -> str:
+        if self.element is None or self.length is None:
+            return ""
+        return self.element.format * self.length
+
+
+@dataclass(frozen=True)
 class PackedModel(PackingSchema):
     """Schema for a Pydantic model or dataclass packed as a sequence of its fields."""
 
@@ -639,10 +711,7 @@ def _infer_packing_schema(
     if lenient_issubclass(annotated_type, tuple):
         values = extracted.generic_args
         if any(value is Ellipsis for value in values):
-            raise TypeError(
-                f"Cannot infer packing schema for `{extracted.annotation}`. Tuple fields must have "
-                "a specific number of items, meaning they cannot contain `...`."
-            )
+            return None
         if not values:
             raise TypeError(
                 f"Cannot infer packing schema for field `{extracted.annotation}` because it is a tuple"
@@ -651,6 +720,9 @@ def _infer_packing_schema(
             )
 
         return PackedTuple(values=tuple(packed(value) for value in values))
+
+    if lenient_issubclass(annotated_type, list):
+        return None
 
     if _supports_pydantic_fields(annotated_type) or is_dataclass(annotated_type):
         return PackedModel(
@@ -710,7 +782,6 @@ def packed(annotation: FieldInfo | TypeInput) -> PackingSchema:
         if inferred is None:
             raise TypeError(f"Failed to infer packing schema for `{annotation}`.")
 
-        # Place the inferred concrete schema first so its fields take precedence during the merge.
         schemas = [inferred, *schemas]
 
     if len(schemas) == 1:
@@ -740,8 +811,18 @@ def packed(annotation: FieldInfo | TypeInput) -> PackingSchema:
 
         schema = schema_class(**schema_arguments)
 
+    if isinstance(schema, PackedSequence) and schema.element is None:
+        generic_args = [arg for arg in extracted.generic_args if arg is not Ellipsis]
+        if len(generic_args) == 1:
+            schema = replace(schema, element=packed(generic_args[0]))
+        else:
+            raise TypeError(
+                f"Cannot infer element schema for `PackedSequence` from `{annotation}`. "
+                "Provide an explicit `element` or annotate with a single-element generic "
+                "like `tuple[Float32, ...]` or `list[Int16]`."
+            )
+
     if schema.annotation is MISSING:
-        # Stamp the annotation onto the schema so `unpack` can validate against it later.
         schema = replace(schema, annotation=annotation)
 
     if schema.validator is None:
