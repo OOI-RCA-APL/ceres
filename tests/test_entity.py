@@ -2,6 +2,7 @@ import pytest
 
 from ceres.alert import Alert
 from ceres.entity import EntityType
+from ceres.group import Group, GroupMembership
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.particle import Particle
@@ -12,7 +13,7 @@ from ceres.workspace import Workspace, WorkspaceEdit, WorkspaceMembership
 
 
 def test_entity_type_member_count():
-    assert len(EntityType) == 10
+    assert len(EntityType) == 12
 
 
 def test_entity_type_string_values():
@@ -26,6 +27,8 @@ def test_entity_type_string_values():
     assert EntityType.WORKSPACE == "workspace"
     assert EntityType.WORKSPACE_MEMBERSHIP == "workspace-membership"
     assert EntityType.WORKSPACE_EDIT == "workspace-edit"
+    assert EntityType.GROUP == "group"
+    assert EntityType.GROUP_MEMBERSHIP == "group-membership"
 
 
 EXPECTED_CLASSES: dict[EntityType, type] = {
@@ -39,6 +42,8 @@ EXPECTED_CLASSES: dict[EntityType, type] = {
     EntityType.WORKSPACE: Workspace,
     EntityType.WORKSPACE_MEMBERSHIP: WorkspaceMembership,
     EntityType.WORKSPACE_EDIT: WorkspaceEdit,
+    EntityType.GROUP: Group,
+    EntityType.GROUP_MEMBERSHIP: GroupMembership,
 }
 
 
@@ -69,6 +74,8 @@ EXPECTED_ALIASES: dict[str, EntityType] = {
     "workspaces": EntityType.WORKSPACE,
     "workspace-memberships": EntityType.WORKSPACE_MEMBERSHIP,
     "workspace-edits": EntityType.WORKSPACE_EDIT,
+    "groups": EntityType.GROUP,
+    "group-memberships": EntityType.GROUP_MEMBERSHIP,
 }
 
 

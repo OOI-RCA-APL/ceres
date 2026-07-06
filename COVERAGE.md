@@ -39,9 +39,9 @@
 | `ceres/address.py` | 94% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 92% |
-| `ceres/component.py` | 79% |
+| `ceres/component.py` | 81% |
 | `ceres/concurrency.py` | 91% |
-| `ceres/config.py` | 64% |
+| `ceres/config.py` | 65% |
 | `ceres/connection/__init__.py` | 57% |
 | `ceres/connection/buffer.py` | 80% |
 | `ceres/connection/source.py` | 87% |
@@ -49,7 +49,7 @@
 | `ceres/connectivity.py` | 100% |
 | `ceres/constants.py` | 100% |
 | `ceres/data/__init__.py` | 100% |
-| `ceres/data/binary.py` | 91% |
+| `ceres/data/binary.py` | 90% |
 | `ceres/data/converters.py` | 100% |
 | `ceres/data/object.py` | 78% |
 | `ceres/data/types.py` | 99% |
@@ -63,6 +63,7 @@
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |
+| `ceres/group.py` | 98% |
 | `ceres/interface.py` | 100% |
 | `ceres/item.py` | 90% |
 | `ceres/job.py` | 41% |
