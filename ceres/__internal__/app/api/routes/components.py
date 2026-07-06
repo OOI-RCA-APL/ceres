@@ -5,19 +5,21 @@ from fastapi import Body, Request, Response, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
 from ceres.__internal__.app.shared import (
-    OPERATOR,
     VIEWER,
     CurrentEngine,
     CurrentProcedureQueryArguments,
     CurrentRole,
     CurrentSocket,
+    CurrentUser,
     Router,
+    get_component_access,
 )
 from ceres.__internal__.utilities.text import strify
 from ceres.address import Address
 from ceres.component import (
     ActionBinding,
     Component,
+    ComponentAccessLevel,
     Output,
     ProcedureBinding,
     ProcedureType,
@@ -27,6 +29,7 @@ from ceres.data import DataModel, DataObject, Name, StrEnum, to_json
 from ceres.error import (
     NotConnectedError,
     NotFoundError,
+    NotPermittedError,
     ProcedureComponentNotFoundError,
     ProcedureError,
     ProcedureInternalError,
@@ -251,6 +254,7 @@ async def _call(
     *,
     request: Request,
     engine: CurrentEngine,
+    user: CurrentUser,
     role: CurrentRole,
     address: Address,
     procedure: Name,
@@ -258,8 +262,8 @@ async def _call(
 ) -> CallResult:
     """Execute a procedure on a component and return the result.
 
-    Validate that the component and procedure exist, that the caller's role permits the call,
-    and that GET requests are not used to invoke actions.
+    Validate that the component and procedure exist, that the caller has sufficient component-level
+    permission, and that GET requests are not used to invoke actions.
 
     Raises:
         ProcedureComponentNotFoundError: If the component is not found.
@@ -284,8 +288,13 @@ async def _call(
         if binding.type != ProcedureType.ACTION:
             raise ProcedureNotFoundError()
 
-    if binding.permissions != "public" and role is None:
-        raise ProcedureNotPermittedError()
+    if binding.permissions != "public":
+        if role is None:
+            raise ProcedureNotPermittedError()
+
+        access = await get_component_access(engine, user, component)
+        if access is None or access < binding.permissions:
+            raise ProcedureNotPermittedError()
 
     if request.method == "GET" and binding.type == ProcedureType.ACTION:
         raise ProcedureNotPermittedError()
@@ -319,6 +328,7 @@ def _get_namespace(request: HTTPConnection) -> _ProcedureNamespace:
 async def call_procedure(
     request: Request,
     engine: CurrentEngine,
+    user: CurrentUser,
     role: CurrentRole,
     address: Address,
     name: Name,
@@ -328,6 +338,7 @@ async def call_procedure(
     return await _call(
         request=request,
         engine=engine,
+        user=user,
         role=role,
         address=address,
         procedure=name,
@@ -348,6 +359,7 @@ for namespace, kind in (("procedures", "procedure"), ("queries", "query"), ("act
 async def call_procedure_by_get(
     request: Request,
     engine: CurrentEngine,
+    user: CurrentUser,
     role: CurrentRole,
     address: Address,
     name: Name,
@@ -365,6 +377,7 @@ async def call_procedure_by_get(
     return await _call(
         request=request,
         engine=engine,
+        user=user,
         role=role,
         address=address,
         procedure=name,
@@ -467,9 +480,10 @@ class SendMessageInput(DataModel):
     data: MessageData
 
 
-@router.post("/{address}/connections/{connection}/send", dependencies=[OPERATOR])
+@router.post("/{address}/connections/{connection}/send", dependencies=[VIEWER])
 async def send_message(
     engine: CurrentEngine,
+    user: CurrentUser,
     address: Address,
     connection: str,
     input: Annotated[SendMessageInput, Body()],
@@ -479,12 +493,18 @@ async def send_message(
     Raises:
         NotFoundError: If the component or connection is not found.
         NotConnectedError: If the connection has no active link.
+        NotPermittedError: If the caller lacks operate access on the component.
     """
     from ceres.connection import ConnectionInactive
 
     component = engine.get_component(address)
     if component is None:
         raise NotFoundError()
+
+    access = await get_component_access(engine, user, component)
+    if access is not None and access < ComponentAccessLevel.OPERATE:
+        raise NotPermittedError()
+
     target = component.system.connections.get(connection)
     if target is None:
         raise NotFoundError()

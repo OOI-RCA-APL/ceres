@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
     from ceres.__internal__.app.main import App
     from ceres.__internal__.server import Server
+    from ceres.component import Component, ComponentAccessLevel, ComponentSystem
     from ceres.config import ServerAuthenticationConfig
     from ceres.engine import Engine
     from ceres.message import BoundMessageManager, MessageFilter
@@ -568,6 +569,38 @@ def assert_found[T](value: T | None, /) -> T:
         raise NotFoundError()
 
     return value
+
+
+async def get_component_access(
+    engine: Engine,
+    user: User | None,
+    component: Component,
+) -> ComponentAccessLevel | None:
+    """Resolve the effective access level for a user on a component."""
+    if user is None:
+        return None
+
+    from ceres.access import resolve_access
+
+    system = component.system
+    return await resolve_access(
+        database=engine.database,
+        user=user,
+        address_chain=_build_address_chain(system),
+        resolved_access=system.get_resolved_access(),
+        inherited_tags=system.get_inherited_tags(),
+    )
+
+
+def _build_address_chain(system: ComponentSystem) -> list[str]:
+    """Build the list of addresses from a component up to root."""
+    chain: list[str] = []
+    current: ComponentSystem | None = system
+    while current is not None:
+        chain.append(str(current.address))
+        current = current.parent
+
+    return chain
 
 
 def create_record_get_route(router: Router, Record: type[Record]):
