@@ -686,8 +686,8 @@ class ProcedureAccessLevel(OrderedStrEnum):
 RawProcedureAccessLevel = Literal["public", "viewers", "operators", "admins"]
 ProcedureAccessLevelInput = ProcedureAccessLevel | RawProcedureAccessLevel
 
-ProcedurePermissions = ProcedureAccessLevel
-ProcedurePermissionsInput = ProcedureAccessLevelInput
+ProcedurePermissions = ComponentAccessLevel | Literal["public"]
+ProcedurePermissionsInput = ComponentAccessLevelInput | Literal["public"]
 
 
 class _ProcedureBinding(DataObject.Frozen):
@@ -911,7 +911,7 @@ def query[**P, T](
     *,
     poll: float | timedelta = timedelta(seconds=5),
     media: str | None = None,
-    permit: ProcedurePermissionsInput = ProcedureAccessLevel.PUBLIC,
+    permit: ProcedurePermissionsInput = ComponentAccessLevel.VIEW,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """Mark a method as a query, a read-only RPC endpoint with optional polling subscription.
 
@@ -923,7 +923,8 @@ def query[**P, T](
         poll: Interval used when subscribing to a non-live query.
         media: Media type for streaming queries, required when the return type is `StreamingOutput`
             and otherwise optional.
-        permit: Minimum access level required to call the query.
+        permit: Minimum access level required to call the query, or `"public"` to allow
+            unauthenticated access.
 
     Returns:
         Either the decorated method (when used without arguments) or a decorator returning the
@@ -932,11 +933,14 @@ def query[**P, T](
 
     def query(method: Callable[P, T]) -> Callable[P, T]:
         info = _get_procedure_method_info(method, ProcedureType.QUERY, media)
+        permissions: ProcedurePermissions = (
+            "public" if permit == "public" else ComponentAccessLevel(permit)
+        )
         _add_binding(
             method,
             QueryBinding(
                 name=_get_bound_name(method),
-                permissions=ProcedureAccessLevel(permit),
+                permissions=permissions,
                 method=get_function_name(method),
                 arguments=info.arguments,
                 output=info.output,
@@ -969,7 +973,7 @@ def action[**P, T](
     method: Callable[P, T] | None = None,
     *,
     media: str | None = None,
-    permit: ProcedurePermissionsInput = ProcedureAccessLevel.OPERATORS,
+    permit: ProcedurePermissionsInput = ComponentAccessLevel.OPERATE,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """Mark a method as an action, a mutating RPC endpoint that performs side effects.
 
@@ -980,7 +984,8 @@ def action[**P, T](
         method: When used without arguments, the method being decorated.
         media: Media type for streaming actions, required when the return type is
             `StreamingOutput` and otherwise optional.
-        permit: Minimum access level required to invoke the action, defaults to operator level.
+        permit: Minimum access level required to invoke the action, or `"public"` to allow
+            unauthenticated access.
 
     Returns:
         Either the decorated method (when used without arguments) or a decorator returning the
@@ -989,11 +994,14 @@ def action[**P, T](
 
     def action(method: Callable[P, T]) -> Callable[P, T]:
         validated = _get_procedure_method_info(method, ProcedureType.ACTION, media)
+        permissions: ProcedurePermissions = (
+            "public" if permit == "public" else ComponentAccessLevel(permit)
+        )
         _add_binding(
             method,
             ActionBinding(
                 name=_get_bound_name(method),
-                permissions=ProcedureAccessLevel(permit),
+                permissions=permissions,
                 method=get_function_name(method),
                 arguments=validated.arguments,
                 output=validated.output,

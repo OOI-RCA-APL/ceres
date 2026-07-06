@@ -19,7 +19,6 @@ from ceres.component import (
     ActionBinding,
     Component,
     Output,
-    ProcedureAccessLevel,
     ProcedureBinding,
     ProcedureType,
     QueryBinding,
@@ -35,7 +34,6 @@ from ceres.error import (
     ProcedureNotPermittedError,
 )
 from ceres.message import Message, MessageData
-from ceres.user import UserRole
 
 if TYPE_CHECKING:
     from starlette.requests import HTTPConnection
@@ -268,8 +266,7 @@ async def _call(
         ProcedureNotFoundError: If the procedure is not found.
         ProcedureNotPermittedError: If the caller lacks permission.
     """
-    access = ProcedureAccessLevel.PUBLIC if role is None else role
-    namespace = namespace = _get_namespace(request)
+    namespace = _get_namespace(request)
 
     component = engine.get_component(address)
     if component is None:
@@ -287,13 +284,10 @@ async def _call(
         if binding.type != ProcedureType.ACTION:
             raise ProcedureNotFoundError()
 
-    if access < binding.permissions:
+    if binding.permissions != "public" and role is None:
         raise ProcedureNotPermittedError()
 
     if request.method == "GET" and binding.type == ProcedureType.ACTION:
-        raise ProcedureNotPermittedError()
-
-    if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
         raise ProcedureNotPermittedError()
 
     output = await component.system.call(procedure, arguments)
@@ -436,7 +430,7 @@ async def subscribe_procedure(
                 to_json(ProcedureNotFoundError()),
             )
 
-    if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
+    if binding.permissions != "public" and role is None:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
             to_json(ProcedureNotPermittedError()),

@@ -11,6 +11,7 @@ from ceres.component import (
     ComponentAccessLevel,
     RoutineBinding,
     RoutineRestartPolicy,
+    get_procedure_bindings,
     get_routine_bindings,
 )
 from ceres.concurrency import sleep
@@ -564,6 +565,44 @@ def test_component_system_get_inherited_tags_combines_ancestors() -> None:
     )
     parent.system.attach(child)
     assert child.system.get_inherited_tags() == {"site-a", "pressure"}
+
+
+class _PermissionTestComponent:
+    @query
+    def default_query(self) -> str:
+        return "data"
+
+    @action
+    def default_action(self) -> str:
+        return "done"
+
+    @query(permit="public")
+    def public_query(self) -> str:
+        return "public"
+
+    @action(permit=ComponentAccessLevel.MANAGE)
+    def manage_action(self) -> str:
+        return "managed"
+
+
+async def test_query_default_permission_is_view() -> None:
+    bindings = get_procedure_bindings(_PermissionTestComponent)
+    assert bindings["default-query"].permissions == ComponentAccessLevel.VIEW
+
+
+async def test_action_default_permission_is_operate() -> None:
+    bindings = get_procedure_bindings(_PermissionTestComponent)
+    assert bindings["default-action"].permissions == ComponentAccessLevel.OPERATE
+
+
+async def test_query_public_permission() -> None:
+    bindings = get_procedure_bindings(_PermissionTestComponent)
+    assert bindings["public-query"].permissions == "public"
+
+
+async def test_action_custom_permission() -> None:
+    bindings = get_procedure_bindings(_PermissionTestComponent)
+    assert bindings["manage-action"].permissions == ComponentAccessLevel.MANAGE
 
 
 def test_component_repr() -> None:
