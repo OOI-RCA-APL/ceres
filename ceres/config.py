@@ -380,8 +380,7 @@ class ComponentAccessLevel(OrderedStrEnum):
 
     Defined here rather than in `ceres.component` because `ComponentConfig` needs it as a
     field type and `ceres.component` already imports from this module at load time.
-    `ceres.component` re-exports this enum for API discoverability alongside
-    `ProcedureAccessLevel`.
+    `ceres.component` re-exports this enum for API discoverability.
     """
 
     DENY = "deny"

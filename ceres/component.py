@@ -83,7 +83,6 @@ from ceres.data import (
     DataObject,
     MaybeSequence,
     Name,
-    OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
     WithDefaults,
@@ -650,41 +649,6 @@ ProcedureOutputInfo: TypeAlias = (
     ProcedureValueOutputInfo | ProcedureFileOutputInfo | ProcedureStreamingOutputInfo
 )
 
-
-class ProcedureAccessLevel(OrderedStrEnum):
-    """Access level controlling which user roles may invoke a procedure.
-
-    The order is derived from `UserRole`, with `PUBLIC` sitting one step below `VIEWER` so
-    unauthenticated callers can be permitted explicitly.
-    """
-
-    @classmethod
-    @override
-    def __order_mapping__(cls) -> dict[ProcedureAccessLevel, int]:
-        from ceres.user import UserRole
-
-        return {
-            cls.PUBLIC: UserRole.VIEWER.order - 1,
-            cls.VIEWERS: UserRole.VIEWER.order,
-            cls.OPERATORS: UserRole.OPERATOR.order,
-            cls.ADMINS: UserRole.ADMIN.order,
-        }
-
-    PUBLIC = "public"
-    """Anyone, including unauthenticated callers, may invoke the procedure."""
-
-    VIEWERS = "viewers"
-    """Authenticated users with viewer role or higher may invoke the procedure."""
-
-    OPERATORS = "operators"
-    """Operators or admins may invoke the procedure."""
-
-    ADMINS = "admins"
-    """Only admins may invoke the procedure."""
-
-
-RawProcedureAccessLevel = Literal["public", "viewers", "operators", "admins"]
-ProcedureAccessLevelInput = ProcedureAccessLevel | RawProcedureAccessLevel
 
 ProcedurePermissions = ComponentAccessLevel | Literal["public"]
 ProcedurePermissionsInput = ComponentAccessLevelInput | Literal["public"]

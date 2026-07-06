@@ -11,7 +11,7 @@
 | `ceres/__internal__/database/errors.py` | 36% |
 | `ceres/__internal__/database/types.py` | 100% |
 | `ceres/__internal__/database/writer.py` | 85% |
-| `ceres/__internal__/entity.py` | 79% |
+| `ceres/__internal__/entity.py` | 83% |
 | `ceres/__internal__/filter.py` | 94% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 75% |
@@ -36,6 +36,7 @@
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
 | `ceres/__main__.py` | 50% |
+| `ceres/access.py` | 88% |
 | `ceres/address.py` | 94% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 92% |
@@ -55,7 +56,7 @@
 | `ceres/data/types.py` | 99% |
 | `ceres/data/uuid.py` | 77% |
 | `ceres/database/__init__.py` | 100% |
-| `ceres/database/database.py` | 74% |
+| `ceres/database/database.py` | 77% |
 | `ceres/database/enums.py` | 100% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
@@ -89,9 +90,9 @@
 | `ceres/tasklet.py` | 98% |
 | `ceres/timing.py` | 99% |
 | `ceres/ui.py` | 90% |
-| `ceres/user.py` | 94% |
+| `ceres/user.py` | 97% |
 | `ceres/variable.py` | 83% |
 | `ceres/version.py` | 89% |
 | `ceres/workspace.py` | 92% |
-| **Total** | **81%** |
+| **Total** | **82%** |
 <!-- coverage:end -->
