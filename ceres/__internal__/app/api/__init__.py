@@ -7,6 +7,7 @@ from ceres.__internal__.app.api.routes.alerts import router as _router__alerts
 from ceres.__internal__.app.api.routes.auth import router as _router__auth
 from ceres.__internal__.app.api.routes.components import router as _router__components
 from ceres.__internal__.app.api.routes.config import router as _router__config
+from ceres.__internal__.app.api.routes.groups import router as _router__groups
 from ceres.__internal__.app.api.routes.logs import router as _router__logs
 from ceres.__internal__.app.api.routes.messages import router as _router__messages
 from ceres.__internal__.app.api.routes.particles import router as _router__particles
@@ -34,6 +35,7 @@ router.include_router(_router__alerts)
 router.include_router(_router__auth)
 router.include_router(_router__components)
 router.include_router(_router__config)
+router.include_router(_router__groups)
 router.include_router(_router__logs)
 router.include_router(_router__messages)
 router.include_router(_router__particles)
