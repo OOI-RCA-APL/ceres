@@ -45,6 +45,7 @@ else:
 with __lazy_imports__(__name__):
     from ceres.__internal__.auth import get_password_hash, verify_password, verify_password_hash
     from ceres.alert import AlertManager
+    from ceres.group import GroupManager, GroupMembershipManager
     from ceres.logs import LogManager
     from ceres.message import MessageManager
     from ceres.particle import ParticleManager
@@ -176,6 +177,16 @@ class Database:
     def workspace_edits(self) -> WorkspaceEditManager:
         """Manager for `WorkspaceEdit` records."""
         return WorkspaceEditManager(self)
+
+    @cached_property
+    def groups(self) -> GroupManager:
+        """Manager for `Group` records."""
+        return GroupManager(self)
+
+    @cached_property
+    def group_memberships(self) -> GroupMembershipManager:
+        """Manager for `GroupMembership` records."""
+        return GroupMembershipManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:
@@ -665,6 +676,7 @@ def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
 
 def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.alert import AlertRow
+    from ceres.group import GroupMembershipRow, GroupRow
     from ceres.logs import LogEntryRow
     from ceres.message import MessageRow
     from ceres.particle import ParticleRow
@@ -684,4 +696,6 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
         WorkspaceRow,
         WorkspaceMembershipRow,
         WorkspaceEditRow,
+        GroupRow,
+        GroupMembershipRow,
     ]

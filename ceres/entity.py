@@ -10,6 +10,8 @@ from ceres.data import StrEnum
 
 with __lazy_imports__(__name__, export=True):
     from ceres.alert import Alert as Alert
+    from ceres.group import Group as Group
+    from ceres.group import GroupMembership as GroupMembership
     from ceres.logs import LogEntry as LogEntry
     from ceres.message import Message as Message
     from ceres.particle import Particle as Particle
@@ -41,6 +43,8 @@ if TYPE_CHECKING:
         | Workspace
         | WorkspaceMembership
         | WorkspaceEdit
+        | Group
+        | GroupMembership
     )
     """Union of every persistent entity managed by the engine.
 
@@ -59,6 +63,7 @@ def __getattr__(name: str):
     if name == "Entity":
         if _Entity is None:
             from ceres.alert import Alert
+            from ceres.group import Group, GroupMembership
             from ceres.logs import LogEntry
             from ceres.message import Message
             from ceres.particle import Particle
@@ -78,6 +83,8 @@ def __getattr__(name: str):
                 | Workspace
                 | WorkspaceMembership
                 | WorkspaceEdit
+                | Group
+                | GroupMembership
             )
 
         return _Entity
@@ -102,6 +109,8 @@ class EntityType(StrEnum):
     WORKSPACE = "workspace"
     WORKSPACE_MEMBERSHIP = "workspace-membership"
     WORKSPACE_EDIT = "workspace-edit"
+    GROUP = "group"
+    GROUP_MEMBERSHIP = "group-membership"
 
     @property
     def cls(self) -> type[Entity]:
@@ -157,6 +166,14 @@ class EntityType(StrEnum):
                 from ceres.workspace import WorkspaceEdit
 
                 return WorkspaceEdit
+            case EntityType.GROUP:
+                from ceres.group import Group
+
+                return Group
+            case EntityType.GROUP_MEMBERSHIP:
+                from ceres.group import GroupMembership
+
+                return GroupMembership
 
         raise ValueError(self)
 
@@ -194,6 +211,10 @@ class EntityType(StrEnum):
                 return cls.WORKSPACE_MEMBERSHIP
             case "WorkspaceEdit":
                 return cls.WORKSPACE_EDIT
+            case "Group":
+                return cls.GROUP
+            case "GroupMembership":
+                return cls.GROUP_MEMBERSHIP
             case _:
                 raise ValueError(f"Unknown entity type: {source}")
 
@@ -212,6 +233,8 @@ _ENTITY_TYPE_ALIASES = {
     "workspaces": "workspace",
     "workspace-memberships": "workspace-membership",
     "workspace-edits": "workspace-edit",
+    "groups": "group",
+    "group-memberships": "group-membership",
 }
 
 _base__new__ = EntityType.__new__

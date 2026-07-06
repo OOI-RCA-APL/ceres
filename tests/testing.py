@@ -13,6 +13,8 @@ from ceres import (
     Address,
     Alert,
     Entity,
+    Group,
+    GroupMembership,
     Level,
     LogEntry,
     Message,
@@ -349,6 +351,36 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                     "user_id": user_id,
                     "name": randstr(printable, 8),
                     "value": 0,
+                    **values,
+                },
+            ),
+        ]
+
+    if cls is Group:
+        return [
+            validate(
+                cls,
+                {
+                    "name": randstr(ascii_letters, 8),
+                    "description": "",
+                    **values,
+                },
+            )
+        ]
+
+    if cls is GroupMembership:
+        user_id = values.get("user_id") or str(uuid7())
+        group_id = values.get("group_id") or str(uuid7())
+        user = (await arbitrary(User, {"id": user_id}))[0]
+        group = (await arbitrary(Group, {"id": group_id}))[0]
+        return [
+            user,
+            group,
+            validate(
+                cls,
+                {
+                    "user_id": user_id,
+                    "group_id": group_id,
                     **values,
                 },
             ),

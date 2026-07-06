@@ -72,6 +72,9 @@ __all__ = [
     # .event
     "Event",
     "StandardEvent",
+    # .group
+    "Group",
+    "GroupMembership",
     # .interface
     "Interface",
     # .item
@@ -187,6 +190,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.engine import Engine
     from ceres.entity import Entity, EntityType
     from ceres.event import Event, StandardEvent
+    from ceres.group import Group, GroupMembership
     from ceres.interface import Interface
     from ceres.item import Item, ItemType
     from ceres.level import Level
