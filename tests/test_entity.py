@@ -6,6 +6,7 @@ from ceres.group import Group, GroupMembership
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.particle import Particle
+from ceres.permission import GroupPermission, UserPermission
 from ceres.setting import Setting
 from ceres.user import User
 from ceres.variable import Variable
@@ -13,7 +14,7 @@ from ceres.workspace import Workspace, WorkspaceEdit, WorkspaceMembership
 
 
 def test_entity_type_member_count():
-    assert len(EntityType) == 12
+    assert len(EntityType) == 14
 
 
 def test_entity_type_string_values():
@@ -29,6 +30,8 @@ def test_entity_type_string_values():
     assert EntityType.WORKSPACE_EDIT == "workspace-edit"
     assert EntityType.GROUP == "group"
     assert EntityType.GROUP_MEMBERSHIP == "group-membership"
+    assert EntityType.USER_PERMISSION == "user-permission"
+    assert EntityType.GROUP_PERMISSION == "group-permission"
 
 
 EXPECTED_CLASSES: dict[EntityType, type] = {
@@ -44,6 +47,8 @@ EXPECTED_CLASSES: dict[EntityType, type] = {
     EntityType.WORKSPACE_EDIT: WorkspaceEdit,
     EntityType.GROUP: Group,
     EntityType.GROUP_MEMBERSHIP: GroupMembership,
+    EntityType.USER_PERMISSION: UserPermission,
+    EntityType.GROUP_PERMISSION: GroupPermission,
 }
 
 
@@ -76,6 +81,8 @@ EXPECTED_ALIASES: dict[str, EntityType] = {
     "workspace-edits": EntityType.WORKSPACE_EDIT,
     "groups": EntityType.GROUP,
     "group-memberships": EntityType.GROUP_MEMBERSHIP,
+    "user-permissions": EntityType.USER_PERMISSION,
+    "group-permissions": EntityType.GROUP_PERMISSION,
 }
 
 
