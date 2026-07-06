@@ -15,6 +15,8 @@ with __lazy_imports__(__name__, export=True):
     from ceres.logs import LogEntry as LogEntry
     from ceres.message import Message as Message
     from ceres.particle import Particle as Particle
+    from ceres.permission import GroupPermission as GroupPermission
+    from ceres.permission import UserPermission as UserPermission
     from ceres.setting import Setting as Setting
     from ceres.user import User as User
     from ceres.variable import Variable as Variable
@@ -45,6 +47,8 @@ if TYPE_CHECKING:
         | WorkspaceEdit
         | Group
         | GroupMembership
+        | UserPermission
+        | GroupPermission
     )
     """Union of every persistent entity managed by the engine.
 
@@ -67,6 +71,7 @@ def __getattr__(name: str):
             from ceres.logs import LogEntry
             from ceres.message import Message
             from ceres.particle import Particle
+            from ceres.permission import GroupPermission, UserPermission
             from ceres.setting import Setting
             from ceres.user import User
             from ceres.variable import Variable
@@ -85,6 +90,8 @@ def __getattr__(name: str):
                 | WorkspaceEdit
                 | Group
                 | GroupMembership
+                | UserPermission
+                | GroupPermission
             )
 
         return _Entity
@@ -111,6 +118,8 @@ class EntityType(StrEnum):
     WORKSPACE_EDIT = "workspace-edit"
     GROUP = "group"
     GROUP_MEMBERSHIP = "group-membership"
+    USER_PERMISSION = "user-permission"
+    GROUP_PERMISSION = "group-permission"
 
     @property
     def cls(self) -> type[Entity]:
@@ -174,6 +183,14 @@ class EntityType(StrEnum):
                 from ceres.group import GroupMembership
 
                 return GroupMembership
+            case EntityType.USER_PERMISSION:
+                from ceres.permission import UserPermission
+
+                return UserPermission
+            case EntityType.GROUP_PERMISSION:
+                from ceres.permission import GroupPermission
+
+                return GroupPermission
 
         raise ValueError(self)
 
@@ -215,6 +232,10 @@ class EntityType(StrEnum):
                 return cls.GROUP
             case "GroupMembership":
                 return cls.GROUP_MEMBERSHIP
+            case "UserPermission":
+                return cls.USER_PERMISSION
+            case "GroupPermission":
+                return cls.GROUP_PERMISSION
             case _:
                 raise ValueError(f"Unknown entity type: {source}")
 
@@ -235,6 +256,8 @@ _ENTITY_TYPE_ALIASES = {
     "workspace-edits": "workspace-edit",
     "groups": "group",
     "group-memberships": "group-membership",
+    "user-permissions": "user-permission",
+    "group-permissions": "group-permission",
 }
 
 _base__new__ = EntityType.__new__

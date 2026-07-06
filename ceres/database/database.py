@@ -49,6 +49,7 @@ with __lazy_imports__(__name__):
     from ceres.logs import LogManager
     from ceres.message import MessageManager
     from ceres.particle import ParticleManager
+    from ceres.permission import GroupPermissionManager, UserPermissionManager
     from ceres.setting import SettingManager
     from ceres.statistics import StatisticsManager
     from ceres.user import UserManager
@@ -187,6 +188,16 @@ class Database:
     def group_memberships(self) -> GroupMembershipManager:
         """Manager for `GroupMembership` records."""
         return GroupMembershipManager(self)
+
+    @cached_property
+    def user_permissions(self) -> UserPermissionManager:
+        """Manager for `UserPermission` records."""
+        return UserPermissionManager(self)
+
+    @cached_property
+    def group_permissions(self) -> GroupPermissionManager:
+        """Manager for `GroupPermission` records."""
+        return GroupPermissionManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:
@@ -680,6 +691,7 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.logs import LogEntryRow
     from ceres.message import MessageRow
     from ceres.particle import ParticleRow
+    from ceres.permission import GroupPermissionRow, UserPermissionRow
     from ceres.setting import SettingRow
     from ceres.user import UserRow
     from ceres.variable import VariableRow
@@ -698,4 +710,6 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
         WorkspaceEditRow,
         GroupRow,
         GroupMembershipRow,
+        UserPermissionRow,
+        GroupPermissionRow,
     ]

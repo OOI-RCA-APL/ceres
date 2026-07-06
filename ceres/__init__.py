@@ -103,6 +103,10 @@ __all__ = [
     "ParticleData",
     "RegexParticle",
     "GroupedRegexParticle",
+    # .permission
+    "GroupPermission",
+    "PermissionTargetType",
+    "UserPermission",
     # .record
     "Record",
     "RecordType",
@@ -207,6 +211,7 @@ with __lazy_imports__(__name__, export=True):
         ParticleData,
         RegexParticle,
     )
+    from ceres.permission import GroupPermission, PermissionTargetType, UserPermission
     from ceres.record import Record, RecordType
     from ceres.reference import Ref, Reference, unref
     from ceres.schedule import Schedule, ScheduleType

@@ -15,13 +15,16 @@ from ceres import (
     Entity,
     Group,
     GroupMembership,
+    GroupPermission,
     Level,
     LogEntry,
     Message,
     MessageDirection,
     Particle,
+    PermissionTargetType,
     Setting,
     User,
+    UserPermission,
     Variable,
     utc,
 )
@@ -34,7 +37,7 @@ from ceres.__internal__.entity import (
 from ceres.__internal__.utilities.collections import group_by
 from ceres.__internal__.utilities.randomize import randstr
 from ceres.concurrency import awaitify
-from ceres.config import BCryptHashingConfig
+from ceres.config import BCryptHashingConfig, ComponentAccessLevel
 from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
 from ceres.database import Database
 from ceres.timing import set_fake_now
@@ -381,6 +384,40 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                 {
                     "user_id": user_id,
                     "group_id": group_id,
+                    **values,
+                },
+            ),
+        ]
+
+    if cls is UserPermission:
+        user_id = values.get("user_id") or str(uuid7())
+        user = (await arbitrary(User, {"id": user_id}))[0]
+        return [
+            user,
+            validate(
+                cls,
+                {
+                    "user_id": user_id,
+                    "target_type": PermissionTargetType.COMPONENT,
+                    "target": randstr(printable, 8),
+                    "level": ComponentAccessLevel.VIEW,
+                    **values,
+                },
+            ),
+        ]
+
+    if cls is GroupPermission:
+        group_id = values.get("group_id") or str(uuid7())
+        group = (await arbitrary(Group, {"id": group_id}))[0]
+        return [
+            group,
+            validate(
+                cls,
+                {
+                    "group_id": group_id,
+                    "target_type": PermissionTargetType.COMPONENT,
+                    "target": randstr(printable, 8),
+                    "level": ComponentAccessLevel.VIEW,
                     **values,
                 },
             ),
