@@ -65,6 +65,21 @@ const routes: RouteRecordRaw[] = [
         component: Workspace,
       },
       {
+        path: '/components/:address(.*)',
+        component: () => import('@/pages/ComponentDetail.vue'),
+        meta: { auth: 'viewer' },
+      },
+      {
+        path: '/groups',
+        component: () => import('@/pages/Groups.vue'),
+        meta: { auth: 'admin' },
+      },
+      {
+        path: '/groups/:id',
+        component: () => import('@/pages/GroupDetail.vue'),
+        meta: { auth: 'admin' },
+      },
+      {
         path: '/developer/schema-form-playground',
         component: SchemaFormPlayground,
       },

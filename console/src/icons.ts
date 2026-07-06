@@ -24,6 +24,7 @@ const icons = {
   disable: 'mdi-minus-circle-outline',
   discard: 'mdi-arrow-u-left-top',
   drawer: 'mdi-menu',
+  group: 'mdi-account-group',
   duplicate: 'mdi-content-duplicate',
   edit: 'mdi-pencil',
   editor: 'mdi-account-edit',

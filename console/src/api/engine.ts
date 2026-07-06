@@ -6,9 +6,11 @@ import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { useComponents } from '@/api/components'
 import { Config, ConfigModel, useConfig } from '@/api/config'
+import { useGroups } from '@/api/groups'
 import { useLogs } from '@/api/logs'
 import { useMessages } from '@/api/messages'
 import { useParticles } from '@/api/particles'
+import { usePermissions } from '@/api/permissions'
 import { useStatistics } from '@/api/statistics'
 import { useStatuses } from '@/api/statuses'
 import { useUsers } from '@/api/users'
@@ -22,8 +24,10 @@ export const useEngine = defineStore('engine', () => {
   const auth = useAuth()
   const components = useComponents()
   const config = useConfig()
+  const groups = useGroups()
   const messages = useMessages()
   const particles = useParticles()
+  const permissions = usePermissions()
   const alerts = useAlerts()
   const logs = useLogs()
   const statistics = useStatistics()
@@ -83,9 +87,11 @@ export const useEngine = defineStore('engine', () => {
     auth,
     components,
     config,
+    groups,
     logs,
     messages,
     particles,
+    permissions,
     statistics,
     statuses,
     users,

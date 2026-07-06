@@ -29,7 +29,12 @@ function toggleExpanded() {
 </script>
 
 <template>
-  <q-item :class="[$style.root, 'items-center', 'row']" dense>
+  <q-item
+    :class="[$style.root, 'items-center', 'row']"
+    clickable
+    dense
+    :to="address.isRoot ? undefined : `/components/${address}`"
+  >
     <div
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
       :style="{ marginLeft: `${8 * address.depth}px` }"

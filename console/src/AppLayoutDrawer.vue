@@ -287,6 +287,14 @@ function promptReload() {
                     <q-item-label>Users</q-item-label>
                   </q-item-section>
                 </q-item>
+                <q-item to="/groups">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.group" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Groups</q-item-label>
+                  </q-item-section>
+                </q-item>
               </q-list>
             </q-card>
           </q-menu>

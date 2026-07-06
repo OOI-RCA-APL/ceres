@@ -77,6 +77,7 @@ export const ConnectionInfoModel = Zod.object({
 export type ComponentInfo = {
   name: string
   address: Address
+  tags: string[]
   roles: ComponentRole[]
   procedures: ProcedureInfo[]
   connections: ConnectionInfo[]
@@ -86,6 +87,7 @@ export type ComponentInfo = {
 export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   name: Zod.string(),
   address: AddressModel,
+  tags: Zod.array(Zod.string()),
   roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),
   connections: Zod.array(ConnectionInfoModel),
