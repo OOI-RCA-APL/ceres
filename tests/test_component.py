@@ -8,11 +8,13 @@ import pytest
 from ceres import Component, Engine, Event, Level, Ref, action, listener, query, routine
 from ceres.address import Address
 from ceres.component import (
+    ComponentAccessLevel,
     RoutineBinding,
     RoutineRestartPolicy,
     get_routine_bindings,
 )
 from ceres.concurrency import sleep
+from ceres.config import ComponentConfig
 from ceres.error import (
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
@@ -469,6 +471,99 @@ async def test_routines_wait_on_cancellation() -> None:
     assert not component.system.running
     assert component.cancelled
     assert component.count == 3
+
+
+async def test_component_access_level_ordering() -> None:
+    assert ComponentAccessLevel.DENY < ComponentAccessLevel.VIEW
+    assert ComponentAccessLevel.VIEW < ComponentAccessLevel.OPERATE
+    assert ComponentAccessLevel.OPERATE < ComponentAccessLevel.MANAGE
+    assert ComponentAccessLevel.MANAGE > ComponentAccessLevel.DENY
+    assert ComponentAccessLevel.VIEW > None
+
+
+async def test_component_access_level_values() -> None:
+    assert ComponentAccessLevel.DENY == "deny"
+    assert ComponentAccessLevel.VIEW == "view"
+    assert ComponentAccessLevel.OPERATE == "operate"
+    assert ComponentAccessLevel.MANAGE == "manage"
+
+
+async def test_component_config_tags_default_empty() -> None:
+    config = ComponentConfig(name="test")
+    assert config.tags == []
+
+
+async def test_component_config_tags_set() -> None:
+    config = ComponentConfig(name="test", tags=["pressure", "seabird"])
+    assert config.tags == ["pressure", "seabird"]
+
+
+async def test_component_config_access_default_none() -> None:
+    config = ComponentConfig(name="test")
+    assert config.access is None
+
+
+async def test_component_config_access_set() -> None:
+    config = ComponentConfig(name="test", access=ComponentAccessLevel.VIEW)
+    assert config.access == ComponentAccessLevel.VIEW
+
+
+async def test_component_config_access_deny() -> None:
+    config = ComponentConfig(name="test", access=ComponentAccessLevel.DENY)
+    assert config.access == ComponentAccessLevel.DENY
+
+
+def test_component_system_tags_empty_without_config() -> None:
+    component = Component()
+    assert component.system.tags == []
+
+
+def test_component_system_tags_from_config() -> None:
+    component = Component(__with_config__=ComponentConfig(name="test", tags=["pressure"]))
+    assert component.system.tags == ["pressure"]
+
+
+def test_component_system_access_none_without_config() -> None:
+    component = Component()
+    assert component.system.access is None
+
+
+def test_component_system_access_from_config() -> None:
+    component = Component(
+        __with_config__=ComponentConfig(name="test", access=ComponentAccessLevel.OPERATE)
+    )
+    assert component.system.access == ComponentAccessLevel.OPERATE
+
+
+def test_component_system_get_resolved_access_defaults_to_view() -> None:
+    component = Component()
+    assert component.system.get_resolved_access() == ComponentAccessLevel.VIEW
+
+
+def test_component_system_get_resolved_access_from_own_config() -> None:
+    component = Component(
+        __with_config__=ComponentConfig(name="test", access=ComponentAccessLevel.MANAGE)
+    )
+    assert component.system.get_resolved_access() == ComponentAccessLevel.MANAGE
+
+
+def test_component_system_get_resolved_access_from_ancestor() -> None:
+    parent = Component(
+        __with_config__=ComponentConfig(name="parent", access=ComponentAccessLevel.OPERATE)
+    )
+    child = Component(__with_name__="child")
+    parent.system.attach(child)
+    assert child.system.get_resolved_access() == ComponentAccessLevel.OPERATE
+
+
+def test_component_system_get_inherited_tags_combines_ancestors() -> None:
+    parent = Component(__with_config__=ComponentConfig(name="parent", tags=["site-a"]))
+    child = Component(
+        __with_name__="child",
+        __with_config__=ComponentConfig(name="child", tags=["pressure"]),
+    )
+    parent.system.attach(child)
+    assert child.system.get_inherited_tags() == {"site-a", "pressure"}
 
 
 def test_component_repr() -> None:

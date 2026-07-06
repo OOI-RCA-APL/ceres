@@ -68,6 +68,8 @@ from ceres.__internal__.utilities.validation import (
 )
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import awaitify, concurrently, sleep
+from ceres.config import ComponentAccessLevel as ComponentAccessLevel
+from ceres.config import ComponentAccessLevelInput as ComponentAccessLevelInput
 from ceres.config import (
     ComponentConfig,
     ConnectionConfig,
@@ -76,6 +78,7 @@ from ceres.config import (
     PrunerConfig,
     SieveConfig,
 )
+from ceres.config import RawComponentAccessLevel as RawComponentAccessLevel
 from ceres.data import (
     DataObject,
     MaybeSequence,
@@ -1681,6 +1684,47 @@ class ComponentSystem(Node, ComponentSource):
     def parent(self) -> ComponentSystem | None:
         """The parent component's system, or `None` if there is no parent."""
         return as_component_system(self._container)
+
+    @property
+    def tags(self) -> list[str]:
+        """Tags declared on this component's config, empty if none."""
+        if self._config is None:
+            return []
+        return self._config.tags
+
+    @property
+    def access(self) -> ComponentAccessLevel | None:
+        """Default access level from this component's config, or None if not set."""
+        if self._config is None:
+            return None
+        return self._config.access
+
+    def get_resolved_access(self) -> ComponentAccessLevel:
+        """Walk the ancestor chain to find the nearest declared access level.
+
+        Return the first non-None `access` found walking from this component up to root.
+        If no ancestor declares an access level, return `ComponentAccessLevel.VIEW`.
+        """
+        current: ComponentSystem | None = self
+
+        while current is not None:
+            if current.access is not None:
+                return current.access
+
+            current = current.parent
+
+        return ComponentAccessLevel.VIEW
+
+    def get_inherited_tags(self) -> set[str]:
+        """Collect tags from this component and all ancestors for permission resolution."""
+        result: set[str] = set()
+        current: ComponentSystem | None = self
+
+        while current is not None:
+            result.update(current.tags)
+            current = current.parent
+
+        return result
 
     @cached_property
     def jobs(self) -> JobManager:

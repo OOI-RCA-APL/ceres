@@ -33,6 +33,7 @@ from ceres.data import (
     Name,
     NonBlankStr,
     NonEmptyStr,
+    OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
     to_kwargs,
@@ -370,6 +371,36 @@ def _get_component_class() -> type[Component]:
     return Component
 
 
+class ComponentAccessLevel(OrderedStrEnum):
+    """Access level controlling what a user may do with a component.
+
+    The hierarchy is strict: each level implies all levels below it. `DENY` is only valid
+    as a default access level on a component definition and means no access unless
+    explicitly granted.
+
+    Defined here rather than in `ceres.component` because `ComponentConfig` needs it as a
+    field type and `ceres.component` already imports from this module at load time.
+    `ceres.component` re-exports this enum for API discoverability alongside
+    `ProcedureAccessLevel`.
+    """
+
+    DENY = "deny"
+    """No access, the component is invisible to the user."""
+
+    VIEW = "view"
+    """Can see the component and view its data."""
+
+    OPERATE = "operate"
+    """Can invoke actions and send data on connections."""
+
+    MANAGE = "manage"
+    """Can change configuration and manage permissions."""
+
+
+RawComponentAccessLevel = Literal["deny", "view", "operate", "manage"]
+ComponentAccessLevelInput = ComponentAccessLevel | RawComponentAccessLevel
+
+
 class ComponentConfig(DataObject):
     """Configuration tree for a single component and any nested child components.
 
@@ -393,6 +424,12 @@ class ComponentConfig(DataObject):
 
     logging: LoggingConfig | None = None
     """Per-component logging overrides, falls back to the engine config when omitted."""
+
+    tags: list[str] = Field(default_factory=list)
+    """Arbitrary labels for cross-cutting permission grants."""
+
+    access: ComponentAccessLevel | None = None
+    """Default access level for this component, inherited by children when not overridden."""
 
     connections: list[ConnectionConfig] = Field(default_factory=list)
     """Connections owned by this component."""

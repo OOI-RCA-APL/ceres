@@ -20,6 +20,7 @@ __all__ = [
     # .component
     "Bound",
     "Component",
+    "ComponentAccessLevel",
     "ComponentSystem",
     "Output",
     "FileOutput",
@@ -147,6 +148,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.component import (
         Bound,
         Component,
+        ComponentAccessLevel,
         ComponentSystem,
         FileOutput,
         Output,

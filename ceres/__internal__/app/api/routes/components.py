@@ -63,6 +63,7 @@ class ComponentInfo(DataObject):
     procedures: list[ProcedureBinding]
     connections: list[ConnectionInfo]
     components: list[ComponentInfo]
+    tags: list[str]
 
 
 ComponentInfo.__name__ = "Component"
@@ -123,6 +124,7 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
             procedures=procedures,
             connections=connections,
             components=subcomponents,
+            tags=component.system.tags,
         )
         return info
     except Exception:
