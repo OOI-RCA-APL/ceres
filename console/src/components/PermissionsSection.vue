@@ -114,7 +114,9 @@ async function addPermission() {
   notify.success('Permission added.')
   newPermissionTarget = null
   await permissionsQuery.refetch()
-  await access.refresh()
+  await guard(access.refresh(), () => {
+    notify.error('Failed to refresh access.')
+  })
 }
 
 function promptRemovePermission(targetType: PermissionTargetType, target: string) {
@@ -138,7 +140,9 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
       )
       notify.success('Permission removed.')
       await permissionsQuery.refetch()
-      await access.refresh()
+      await guard(access.refresh(), () => {
+        notify.error('Failed to refresh access.')
+      })
     })
 }
 </script>
