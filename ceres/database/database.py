@@ -424,7 +424,7 @@ class Database:
                 with wrap_database_errors():
                     try:
                         async with self._engine.begin() as connection:
-                            sql = migration.script_for(self.type.value)
+                            sql = migration.render(self.type.value)
                             if sql is not None:
                                 await self._execute_script(connection, sql)
 

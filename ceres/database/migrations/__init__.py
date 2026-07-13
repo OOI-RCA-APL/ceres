@@ -36,7 +36,7 @@ class Migration:
     scripts: Mapping[str | None, Path]
     """SQL script paths keyed by dialect (`sqlite`/`postgresql`), `None` for shared."""
 
-    def script_for(self, dialect: str) -> str | None:
+    def render(self, dialect: str) -> str | None:
         """Return the SQL text for `dialect`, or `None` when this migration has no script
         for it (a recorded no-op).
 

@@ -54,8 +54,8 @@ def test_migration_without_dialect_script_is_noop(tmp_path):
     _write(tmp_path, "0001-postgres-only.postgres.sql")
 
     migrations = load_migrations(tmp_path)
-    assert migrations[0].script_for("sqlite") is None
-    assert migrations[0].script_for("postgresql") is not None
+    assert migrations[0].render("sqlite") is None
+    assert migrations[0].render("postgresql") is not None
 
 
 def test_load_migrations_rejects_unrecognized_filename(tmp_path):
@@ -223,7 +223,7 @@ async def test_migration_2_transforms_old_schema(database):
             )
         )
 
-        await database._execute_script(connection, baseline.script_for("sqlite"))
+        await database._execute_script(connection, baseline.render("sqlite"))
         await connection.execute(
             text(
                 "INSERT INTO users (id, username, email, password, role, disabled) VALUES "
