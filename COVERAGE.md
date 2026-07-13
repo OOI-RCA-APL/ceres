@@ -40,9 +40,9 @@
 | `ceres/address.py` | 94% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 92% |
-| `ceres/component.py` | 82% |
+| `ceres/component.py` | 83% |
 | `ceres/concurrency.py` | 91% |
-| `ceres/config.py` | 65% |
+| `ceres/config.py` | 77% |
 | `ceres/connection/__init__.py` | 57% |
 | `ceres/connection/buffer.py` | 80% |
 | `ceres/connection/source.py` | 87% |
@@ -61,7 +61,7 @@
 | `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
-| `ceres/engine.py` | 32% |
+| `ceres/engine.py` | 68% |
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |
@@ -71,9 +71,9 @@
 | `ceres/job.py` | 41% |
 | `ceres/level.py` | 100% |
 | `ceres/loaded.py` | 94% |
-| `ceres/logs.py` | 86% |
+| `ceres/logs.py` | 89% |
 | `ceres/message.py` | 97% |
-| `ceres/node.py` | 78% |
+| `ceres/node.py` | 83% |
 | `ceres/notifier.py` | 100% |
 | `ceres/particle.py` | 89% |
 | `ceres/paths.py` | 100% |
@@ -95,5 +95,5 @@
 | `ceres/variable.py` | 87% |
 | `ceres/version.py` | 89% |
 | `ceres/workspace.py` | 97% |
-| **Total** | **82%** |
+| **Total** | **84%** |
 <!-- coverage:end -->

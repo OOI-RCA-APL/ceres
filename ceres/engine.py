@@ -18,7 +18,15 @@ from ceres.concurrency import sleep
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
 from ceres.data import DataObject, Name, PasswordHash, dump, to_json
 from ceres.directory import Directory
-from ceres.error import ComponentCombinedError, ConfigError, Error, ReloadConfigInvalidError
+from ceres.error import (
+    ComponentCombinedError,
+    ComponentError,
+    ComponentUnexpectedError,
+    ConfigError,
+    Error,
+    ReloadConfigInvalidError,
+    trace,
+)
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
 from ceres.node import Node
 
@@ -569,6 +577,7 @@ class Engine(Node):
                         config.root,
                         actions.components,
                         silent=silent,
+                        strict=not reloading,
                     )
 
                     if root is not None:
@@ -579,6 +588,11 @@ class Engine(Node):
                     if not silent:
                         self.log.info(f"Component configurations {verb}ed successfully.")
                 except Exception:
+                    # A component that cannot be created fails the initial load outright, while
+                    # a reload logs the failure and keeps the running engine alive.
+                    if not reloading:
+                        raise
+
                     self.log.error(
                         f"An issue occurred while {verb}ing components: {traceback.format_exc()}"
                     )
@@ -716,7 +730,9 @@ class Engine(Node):
         actions: Sequence[EngineComponentAction],
         *,
         silent: bool = False,
+        strict: bool = False,
     ) -> Component | None:
+        creation_errors: list[ComponentError] = []
         for action in actions:
             if root_component is not None:
                 container = root_component.system.get_node(action.address.container)
@@ -756,12 +772,9 @@ class Engine(Node):
                                     f"Created '{current.system.address}' as instance of {type(current)}."
                                 )
                     except Error as error:
+                        errors = self._unwrap_component_errors(error)
+                        creation_errors.extend(errors)
                         if not silent:
-                            if isinstance(error, ComponentCombinedError):
-                                errors = error.errors
-                            else:
-                                errors = [error]
-
                             self.log.error(
                                 f"Failed to create '{action.address}'. Errors: {to_json(errors, indent=2)}"
                             )
@@ -795,11 +808,9 @@ class Engine(Node):
                                     f"Recreated '{current.system.address}' as instance of {type(current)}."
                                 )
                     except Error as error:
+                        errors = self._unwrap_component_errors(error)
+                        creation_errors.extend(errors)
                         if not silent:
-                            if isinstance(error, ComponentCombinedError):
-                                errors = error.errors
-                            else:
-                                errors = [error]
                             self.log.error(
                                 f"Failed to recreate '{action.address}'. Errors: {to_json(errors, indent=2)}"
                             )
@@ -822,4 +833,15 @@ class Engine(Node):
             if action.address.is_root:
                 root_component = component
 
+        if strict and creation_errors:
+            raise ComponentCombinedError(errors=creation_errors)
+
         return root_component
+
+    @staticmethod
+    def _unwrap_component_errors(error: Error) -> list[ComponentError]:
+        """Flatten `error` into a list of component errors, wrapping unexpected kinds."""
+        if isinstance(error, ComponentCombinedError):
+            return list(error.errors)
+
+        return [ComponentUnexpectedError(exception=trace(error))]

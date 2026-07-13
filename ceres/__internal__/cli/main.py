@@ -33,7 +33,7 @@ from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import Address, AddressSelector
 from ceres.concurrency import cancel, el, race, spawn
 from ceres.data import to_json
-from ceres.error import Error
+from ceres.error import ComponentCombinedError, Error
 
 if TYPE_CHECKING:
     from ceres.database import Database
@@ -556,6 +556,13 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                 message = getattr(error, "message", None) or getattr(error, "reason", None)
                 if isinstance(message, str):
                     raise CLICommandFailed(f"Failed to load engine. {message}")
+
+                if isinstance(error, ComponentCombinedError):
+                    count = len(error.errors)
+                    raise CLICommandFailed(
+                        f"Failed to load engine. {count} component error(s) occurred, "
+                        "see the log output above."
+                    )
 
                 raise CLICommandFailed(
                     f"Failed to load engine with current configuration. {to_json(error, indent=2)}"
