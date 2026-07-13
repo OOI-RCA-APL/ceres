@@ -11,7 +11,7 @@
 | `ceres/__internal__/database/errors.py` | 36% |
 | `ceres/__internal__/database/types.py` | 100% |
 | `ceres/__internal__/database/writer.py` | 85% |
-| `ceres/__internal__/entity.py` | 83% |
+| `ceres/__internal__/entity.py` | 78% |
 | `ceres/__internal__/filter.py` | 94% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 75% |
@@ -56,9 +56,9 @@
 | `ceres/data/types.py` | 99% |
 | `ceres/data/uuid.py` | 77% |
 | `ceres/database/__init__.py` | 100% |
-| `ceres/database/database.py` | 80% |
+| `ceres/database/database.py` | 79% |
 | `ceres/database/enums.py` | 100% |
-| `ceres/database/migrations.py` | 65% |
+| `ceres/database/migrations.py` | 97% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
 | `ceres/engine.py` | 32% |

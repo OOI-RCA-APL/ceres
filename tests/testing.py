@@ -111,7 +111,7 @@ async def execute_filter_test(
                 entities[key] = entity
 
     database = Database()
-    await database.init()
+    await database.migrate()
     manager = cls.Manager(database)
 
     async def reset() -> None:

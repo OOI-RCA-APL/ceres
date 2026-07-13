@@ -76,13 +76,13 @@ ceres check
 
 ## Initializing the Database
 
-If you are using PostgreSQL, initialize the database schema.
+If you are using PostgreSQL, apply the database migrations to create the schema.
 
 ```sh
-ceres database init
+ceres database migrate
 ```
 
-SQLite databases are created and initialized automatically.
+SQLite databases are created and migrated automatically.
 
 ## Starting the Service
 
@@ -184,7 +184,7 @@ ceres service stop
 ceres service start
 ```
 
-If there are database schema changes, run `ceres database init` after upgrading and before starting the service.
+If there are database schema changes, run `ceres database migrate` after upgrading and before starting the service.
 
 ## Logging
 

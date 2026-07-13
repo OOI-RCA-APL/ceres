@@ -127,13 +127,17 @@ Write the service definition file to `PATH` or stdout. Useful for reviewing or c
 
 ## Database Management
 
-### `ceres database init`
+### `ceres database migrate`
 
-Create database tables and indexes. Shows the pending DDL statements and prompts for confirmation before executing.
+Apply pending schema migrations, including the initial creation of tables and indexes on an empty database. Shows the pending migrations and prompts for confirmation before applying them.
+
+### `ceres database migrations`
+
+Show every known migration alongside its applied or pending status.
 
 ### `ceres database ddl`
 
-Print the DDL statements that `init` would execute, without running them.
+Print the DDL statements for the current schema, without running them.
 
 ### `ceres database shell`
 

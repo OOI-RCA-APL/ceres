@@ -1,6 +1,5 @@
 import traceback
 from abc import abstractmethod
-from asyncio import Lock as AsyncLock
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -23,7 +22,7 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
-from ceres.error import DatabaseInitError, DatabaseMigrationError
+from ceres.error import DatabaseMigrationError
 from ceres.timing import utc
 
 if TYPE_CHECKING:
@@ -101,8 +100,6 @@ class Database:
         self._id = uuid4()
         self._config = config
         self._engine = self._create_engine()
-        self._init_lock = AsyncLock()
-        self._init_completed = False
 
     @property
     def __database__(self) -> Database:
@@ -323,12 +320,17 @@ class Database:
         return self._engine.connect()
 
     async def use(self) -> AsyncConnection:
-        """Ensure the schema is initialized, then open a new connection.
+        """Bootstrap an empty database through the migration chain, then open a new connection.
+
+        Databases that already have tables are left untouched here, `assert_schema_current`
+        is what guards against stale schemas on those.
 
         Returns:
-            An `AsyncConnection` ready for use against an initialized database.
+            An `AsyncConnection` ready for use against a bootstrapped database.
         """
-        await self.init()
+        if not await self.initialized():
+            await self.migrate()
+
         return self.connect()
 
     async def ping(self) -> bool:
@@ -353,35 +355,6 @@ class Database:
         """Dispose of the underlying engine, closing any pooled connections."""
         with wrap_database_errors():
             await self._engine.dispose()
-
-    async def init(self) -> None:
-        """Run every DDL statement needed to bring the schema up to date.
-
-        The work runs at most once per `Database` instance, subsequent calls are a cheap no-op so
-        it is safe to call at the start of any operation that needs the schema.
-
-        Raises:
-            DatabaseInitError: If schema creation fails.
-        """
-        with wrap_database_errors():
-            if self._init_completed:
-                return
-
-            async with self._init_lock:
-                if self._init_completed:
-                    return
-
-                try:
-                    async with self._engine.begin() as connection:
-                        for statement in self.ddl:
-                            await connection.execute(text(statement))
-
-                        await connection.execute(text(_MIGRATIONS_TABLE_DDL))
-                except Exception as error:
-                    raise DatabaseInitError(message=str(error)) from error
-
-                await self._stamp_migrations()
-                self._init_completed = True
 
     async def applied_migrations(self) -> list[int]:
         """Return the ids of every migration recorded as applied, in ascending order."""
@@ -434,19 +407,6 @@ class Database:
             applied.append(migration.id)
 
         return applied
-
-    async def _stamp_migrations(self) -> None:
-        """Record every known migration as applied without running it."""
-        from ceres.database.migrations import MIGRATIONS
-
-        applied = set(await self.applied_migrations())
-        async with self._engine.begin() as connection:
-            for migration in MIGRATIONS:
-                if migration.id not in applied:
-                    await connection.execute(
-                        text("INSERT INTO migrations (id, applied_at) VALUES (:id, :now)"),
-                        {"id": migration.id, "now": utc().isoformat()},
-                    )
 
     async def assert_schema_current(self) -> None:
         """Verify the database schema matches this version of ceres.

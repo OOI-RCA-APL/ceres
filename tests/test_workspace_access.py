@@ -10,7 +10,7 @@ from ceres.workspace import (
 
 async def _setup_database() -> Database:
     database = Database()
-    await database.init()
+    await database.migrate()
     return database
 
 

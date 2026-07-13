@@ -525,15 +525,6 @@ class DatabaseLoadError(Error, slots=True):
     """Description of the load failure."""
 
 
-class DatabaseInitError(Error, slots=True):
-    """Raised when the database fails to initialize."""
-
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
-    type: Literal["database-init-error"] = "database-init-error"
-    message: str
-    """Description of the initialization failure."""
-
-
 class DatabaseMigrationError(Error, slots=True):
     """Raised when the database schema does not match the running version."""
 
@@ -551,7 +542,6 @@ DatabaseError: TypeAlias = (
     | DatabaseProgrammingError
     | DatabaseUnexpectedError
     | DatabaseLoadError
-    | DatabaseInitError
     | DatabaseMigrationError
 )
 """Discriminated union of all database-related errors."""

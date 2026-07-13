@@ -447,15 +447,13 @@ class Engine(Node):
         return previous.component if previous is not None else None
 
     async def _load_database(self) -> None:
-        # `database.use()` is a no-op when the schema already exists, so calling it on a fresh
-        # database performs the initial setup as a side effect.
         if not await self.database.initialized():
-            self.log.info("Database appears empty, initializing database.")
+            self.log.info("Database appears empty, running migrations.")
             try:
-                await self.database.use()
-                self.log.info("Database initialized successfully.")
+                await self.database.migrate()
+                self.log.info("Database migrated successfully.")
             except Error:
-                self.log.error("Database initialization failed.")
+                self.log.error("Database migration failed.")
                 raise
         else:
             await self.database.assert_schema_current()
