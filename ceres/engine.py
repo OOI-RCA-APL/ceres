@@ -246,7 +246,6 @@ class Engine(Node):
         if self.local_directory is not None:
             self.local_directory.create()
 
-        await self._prepare_database()
         await self._apply(self.config_path, self.config)
 
         await self.__node_sync__()
@@ -447,22 +446,13 @@ class Engine(Node):
         return previous.component if previous is not None else None
 
     async def _prepare_database(self) -> None:
-        """Load the configured database and bring its schema current before starting anything.
+        """Bring the database schema current before components are created or servers start.
 
-        Applying the configuration starts the HTTP server and creates components as side
-        effects, so the database is swapped in and made ready first: an empty database has all
-        migrations applied, an existing one must already be current. Reapplying a changed
-        database configuration at runtime is not covered by this check.
+        An empty database has all migrations applied, an existing one must already be current.
 
         Raises:
             DatabaseVersionError: If the database has pending or unknown migrations.
         """
-        if self._database.config != self.config.database:
-            self.log.info("Database configuration will be loaded.")
-            await self._database.dispose()
-            self._database = Database(self.config.database)
-            self.log.info("Database configuration loaded successfully.")
-
         if not await self.database.initialized():
             self.log.info("Database appears empty, running migrations.")
             try:
@@ -534,6 +524,11 @@ class Engine(Node):
 
             actions = self._get_apply_actions(config)
             if actions.server is None and actions.database is None and not actions.components:
+                if not reloading:
+                    # A first load whose configuration matches the current state still needs
+                    # the database brought current before anything runs against it.
+                    await self._prepare_database()
+
                 if not silent:
                     self.log.info("Configuration appears up-to-date.")
 
@@ -542,20 +537,6 @@ class Engine(Node):
 
             if not silent:
                 self.log.debug("Actions pending: " + to_json(actions))
-
-            if actions.server is not None:
-                if not silent:
-                    self.log.info(f"Server configuration will be {verb}ed.")
-
-                try:
-                    await self._stop_server()
-                    await self._start_server()
-                    if not silent:
-                        self.log.info(f"Server configuration {verb}ed successfully.")
-                except Exception:
-                    self.log.error(
-                        f"An issue occurred while {verb}ing the server: {traceback.format_exc()}"
-                    )
 
             if actions.database is not None:
                 if not silent:
@@ -572,6 +553,11 @@ class Engine(Node):
                     self.log.error(
                         f"An issue occurred while reloading the database: {traceback.format_exc()}"
                     )
+
+            # Bring the database current before creating components or starting the server, so
+            # a version mismatch aborts the load before anything binds or constructs.
+            if not reloading or actions.database is not None:
+                await self._prepare_database()
 
             if actions.components:
                 if not silent:
@@ -595,6 +581,22 @@ class Engine(Node):
                 except Exception:
                     self.log.error(
                         f"An issue occurred while {verb}ing components: {traceback.format_exc()}"
+                    )
+
+            # The server starts after the component tree exists so nothing binds a port until
+            # the components have been created and validated.
+            if actions.server is not None:
+                if not silent:
+                    self.log.info(f"Server configuration will be {verb}ed.")
+
+                try:
+                    await self._stop_server()
+                    await self._start_server()
+                    if not silent:
+                        self.log.info(f"Server configuration {verb}ed successfully.")
+                except Exception:
+                    self.log.error(
+                        f"An issue occurred while {verb}ing the server: {traceback.format_exc()}"
                     )
 
             # Synchronize each component's configuration in place. Components whose configuration

@@ -552,6 +552,11 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             try:
                 await engine.load(config_path)
             except Error as error:
+                # Structured errors carry an actionable message, show it instead of a dump.
+                message = getattr(error, "message", None) or getattr(error, "reason", None)
+                if isinstance(message, str):
+                    raise CLICommandFailed(f"Failed to load engine. {message}")
+
                 raise CLICommandFailed(
                     f"Failed to load engine with current configuration. {to_json(error, indent=2)}"
                 )
@@ -579,7 +584,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             raise
 
         # Structured errors carry an actionable message, show it instead of a traceback.
-        message = getattr(exception, "message", None)
+        message = getattr(exception, "message", None) or getattr(exception, "reason", None)
         if isinstance(exception, Error) and isinstance(message, str):
             raise CLICommandFailed(f"Engine startup failed. {message}")
 
