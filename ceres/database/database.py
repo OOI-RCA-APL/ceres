@@ -535,10 +535,11 @@ class Database:
 
 @final
 class SQLiteDatabase(Database):
-    """`Database` backed by a local SQLite file or a per-process temporary file.
+    """`Database` backed by a local SQLite file, a per-process temporary file, or memory.
 
     When `config.path` is unset, `SQLiteDatabase` creates a temporary on-disk database whose files
-    are cleaned up when the instance is disposed.
+    are cleaned up when the instance is disposed. When `config.is_memory` is `True`, the database
+    lives entirely in memory for the lifetime of its engine and touches no disk at all.
     """
 
     @override
@@ -573,15 +574,19 @@ class SQLiteDatabase(Database):
     def path(self) -> Path:
         """Filesystem path of the SQLite database file.
 
-        Returns the configured `config.path` when set, otherwise a temporary path derived
-        from this instance's `id`.
+        Returns the configured `config.path` when set (including the `:memory:` sentinel for an
+        in-memory database, which is returned as-is rather than resolved to an absolute path),
+        otherwise a temporary path derived from this instance's `id`.
         """
-        # If a path is provided, create an database at the provided path.
-        if self.config.path is not None:
-            return self.config.path.absolute()
+        path = self.config.path
+        if path is None:
+            # No path was provided, create a temporary on-disk database.
+            return self._get_temporary_path()
 
-        # Otherwise create a temporary on-disk database.
-        return self._get_temporary_path()
+        if self.config.is_memory:
+            return path
+
+        return path.absolute()
 
     def __del__(self) -> None:
         try:
@@ -599,6 +604,21 @@ class SQLiteDatabase(Database):
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:
+        if self.config.is_memory:
+            return {
+                # A single connection kept alive for the life of the engine, a fresh connection
+                # would otherwise see a brand new empty database. "AsyncAdaptedQueuePool" blocks
+                # concurrent checkouts instead of handing the connection out twice, so overlapping
+                # callers wait their turn instead of interleaving transactions on the same
+                # connection, which "StaticPool" would allow and this database's manual "BEGIN
+                # IMMEDIATE" transaction handling can't tolerate.
+                "poolclass": AsyncAdaptedQueuePool,
+                "pool_size": 1,
+                "max_overflow": 0,
+                "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
+                **self.config.engine,
+            }
+
         return {
             "poolclass": AsyncAdaptedQueuePool,
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
@@ -614,7 +634,8 @@ class SQLiteDatabase(Database):
         @event.listens_for(engine.sync_engine, "do_connect")
         def do_connect(*args: object) -> None:
             # Create the directory containing the database file if it doesn't already exist.
-            if self.config.path is not None:
+            # An in-memory database has no directory to create.
+            if self.config.path is not None and not self.config.is_memory:
                 try:
                     self.config.path.parent.mkdir(parents=True, exist_ok=True)
                 except Exception:

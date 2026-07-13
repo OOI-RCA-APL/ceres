@@ -866,12 +866,33 @@ class _DatabaseConfig(DataObject):
     """Optional database-specific connection string query parameters."""
 
 
+_SQLITE_MEMORY_PATH = Path(":memory:")
+
+
 class SQLiteDatabaseConfig(_DatabaseConfig):
     """Configuration for a SQLite-backed database, the default for local deployments."""
 
     type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
     path: Path | None = None
-    """Path to the SQLite file, omit to use an in-memory database."""
+    """Path to the SQLite file. Omit to use a temporary on-disk file, or set to `:memory:` (see
+    `SQLiteDatabaseConfig.in_memory`) for a private in-memory database."""
+
+    @classmethod
+    def in_memory(cls) -> Self:
+        """Build a config for a private in-memory database scoped to this process.
+
+        The returned database exists only in memory for the lifetime of its engine, useful for
+        tests and other short-lived, detached databases that should never touch disk.
+
+        Returns:
+            A config whose `path` is the special `:memory:` sentinel.
+        """
+        return cls(path=_SQLITE_MEMORY_PATH)
+
+    @property
+    def is_memory(self) -> bool:
+        """`True` if `path` is the special `:memory:` sentinel used by `in_memory`."""
+        return self.path == _SQLITE_MEMORY_PATH
 
 
 class PostgresDatabaseConfig(_DatabaseConfig):
