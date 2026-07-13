@@ -88,7 +88,7 @@ async def test_migrate_bootstraps_empty_database(database):
 async def test_migrate_is_idempotent(database):
     await database.migrate()
     assert await database.migrate() == []
-    assert await database.pending_migrations() == []
+    assert await database.get_pending_migrations() == []
 
 
 async def test_migrate_applies_pending_in_order(database, monkeypatch, tmp_path):
@@ -98,7 +98,7 @@ async def test_migrate_applies_pending_in_order(database, monkeypatch, tmp_path)
 
     applied = await database.migrate()
     assert applied == [1, 2]
-    assert await database.pending_migrations() == []
+    assert await database.get_pending_migrations() == []
 
     async with database.engine.begin() as connection:
         tables = {
@@ -174,20 +174,20 @@ async def test_migrate_is_safe_under_concurrent_calls(database, monkeypatch, tmp
 
     # Force a yield point between "check what's pending" and "apply it" so two concurrent
     # `migrate()` calls are likely to interleave without the instance-level lock.
-    original_pending_migrations = database.pending_migrations
+    original_pending_migrations = database.get_pending_migrations
 
     async def delayed_pending_migrations():
         pending = await original_pending_migrations()
         await asyncio.sleep(0.01)
         return pending
 
-    monkeypatch.setattr(database, "pending_migrations", delayed_pending_migrations)
+    monkeypatch.setattr(database, "get_pending_migrations", delayed_pending_migrations)
 
     first_applied, second_applied = await asyncio.gather(database.migrate(), database.migrate())
 
     # Exactly one of the two callers applied the migration, the other found nothing pending.
     assert sorted(first_applied + second_applied) == [1]
-    assert await database.pending_migrations() == []
+    assert await database.get_pending_migrations() == []
 
     async with database.engine.begin() as connection:
         result = await connection.execute(text("SELECT id FROM migrations"))

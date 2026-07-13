@@ -371,7 +371,7 @@ class Database:
         with wrap_database_errors():
             await self._engine.dispose()
 
-    async def applied_migrations(self) -> list[int]:
+    async def get_applied_migrations(self) -> list[int]:
         """Return the IDs of every migration recorded as applied, in ascending order."""
         ddl = (
             _MIGRATIONS_TABLE_DDL_POSTGRES
@@ -384,19 +384,19 @@ class Database:
                 result = await connection.execute(text("SELECT id FROM migrations ORDER BY id"))
                 return [row[0] for row in result]
 
-    async def pending_migrations(self) -> list[Migration]:
+    async def get_pending_migrations(self) -> list[Migration]:
         """Return known migrations that have not been applied, in application order."""
         from ceres.database.migrations import MIGRATIONS
 
-        applied = set(await self.applied_migrations())
+        applied = set(await self.get_applied_migrations())
         return [migration for migration in MIGRATIONS if migration.id not in applied]
 
-    async def unknown_migrations(self) -> list[int]:
+    async def get_unknown_migrations(self) -> list[int]:
         """Return applied migration IDs this version of ceres does not know about."""
         from ceres.database.migrations import MIGRATIONS
 
         known = {migration.id for migration in MIGRATIONS}
-        return [id for id in await self.applied_migrations() if id not in known]
+        return [id for id in await self.get_applied_migrations() if id not in known]
 
     async def migrate(self) -> list[int]:
         """Apply every pending migration in order, recording each as it completes.
@@ -413,7 +413,7 @@ class Database:
         """
         async with self._migrate_lock:
             applied: list[int] = []
-            for migration in await self.pending_migrations():
+            for migration in await self.get_pending_migrations():
                 with wrap_database_errors():
                     try:
                         async with self._engine.begin() as connection:
@@ -450,23 +450,22 @@ class Database:
         Raises:
             DatabaseVersionError: If migrations are pending or unknown migrations are applied.
         """
-        unknown = await self.unknown_migrations()
+        unknown = await self.get_unknown_migrations()
         if unknown:
             raise DatabaseVersionError(
                 message=(
-                    f"Database contains migrations unknown to this version of ceres: "
+                    f"Database contains migrations unknown to this Ceres version: "
                     f"{', '.join(str(id) for id in unknown)}. The database is newer than the "
                     "running version."
                 )
             )
 
-        pending = await self.pending_migrations()
+        pending = await self.get_pending_migrations()
         if pending:
             count = len(pending)
-            noun = "migration" if count == 1 else "migrations"
             raise DatabaseVersionError(
                 message=(
-                    f"Database has {count} pending {noun}. "
+                    f"Database has {count} pending migration(s). "
                     f"Run `ceres database migrate` to apply {'it' if count == 1 else 'them'}."
                 )
             )

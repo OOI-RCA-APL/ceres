@@ -135,14 +135,14 @@ class MigrateCommand(CLICommand):
     async def __run__(self) -> None:
         """List pending migrations, prompt for confirmation, and apply them in order."""
         async with self.use_database(require_initialized=False) as database:
-            unknown = await database.unknown_migrations()
+            unknown = await database.get_unknown_migrations()
             if unknown:
                 raise CLICommandFailed(
                     "Database contains migrations unknown to this version of ceres: "
                     f"{', '.join(str(id) for id in unknown)}."
                 )
 
-            pending = await database.pending_migrations()
+            pending = await database.get_pending_migrations()
             if not pending:
                 self.write("Database is up to date.")
                 return
@@ -166,8 +166,8 @@ class MigrationsCommand(CLICommand):
     async def __run__(self) -> None:
         """Print each known migration with its applied/pending status."""
         async with self.use_database(require_initialized=False) as database:
-            applied = set(await database.applied_migrations())
-            unknown = await database.unknown_migrations()
+            applied = set(await database.get_applied_migrations())
+            unknown = await database.get_unknown_migrations()
 
             for migration in MIGRATIONS:
                 status = "applied" if migration.id in applied else "pending"
