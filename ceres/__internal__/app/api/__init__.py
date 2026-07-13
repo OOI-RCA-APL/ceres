@@ -22,7 +22,7 @@ from ceres.__internal__.app.api.routes.workspace_memberships import (
     router as _router__workspace_memberships,
 )
 from ceres.__internal__.app.api.routes.workspaces import router as _router__workspaces
-from ceres.__internal__.app.shared import OPERATOR, CurrentEngine, Router
+from ceres.__internal__.app.shared import ADMIN, AUTHENTICATED, CurrentEngine, Router
 from ceres.__internal__.utilities.collections import uniq
 from ceres.address import Address
 from ceres.component import ComponentFilter
@@ -62,7 +62,7 @@ async def get_api() -> RedirectResponse:
     return RedirectResponse(url="/api/openapi.json")
 
 
-@router.post("/reload", tags=["engine"], dependencies=[OPERATOR])
+@router.post("/reload", tags=["engine"], dependencies=[ADMIN])
 async def reload(engine: CurrentEngine) -> Config:
     return await engine.reload()
 
@@ -71,7 +71,7 @@ class StartResult(DataObject):
     started: list[Address]
 
 
-@router.post("/start", tags=["components"], dependencies=[OPERATOR])
+@router.post("/start", tags=["components"], dependencies=[AUTHENTICATED])
 async def start(engine: CurrentEngine, filter: ComponentFilter) -> StartResult:
     stopped = engine.get_components(filter, running=False)
     for component in stopped:
@@ -83,7 +83,7 @@ class StopResult(DataObject):
     stopped: list[Address]
 
 
-@router.post("/stop", tags=["components"], dependencies=[OPERATOR])
+@router.post("/stop", tags=["components"], dependencies=[AUTHENTICATED])
 async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     running = engine.get_components(filter, running=True)
     await concurrently(component.system.stop() for component in running)
@@ -95,7 +95,7 @@ class EnableResult(DataObject):
     enabled: list[Address]
 
 
-@router.post("/enable", tags=["components"], dependencies=[OPERATOR])
+@router.post("/enable", tags=["components"], dependencies=[AUTHENTICATED])
 async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult:
     disabled = engine.get_components(filter, enabled=False)
     await concurrently(component.system.enable() for component in disabled)
@@ -107,7 +107,7 @@ class DisableResult(DataObject):
     disabled: list[Address]
 
 
-@router.post("/disable", tags=["components"], dependencies=[OPERATOR])
+@router.post("/disable", tags=["components"], dependencies=[AUTHENTICATED])
 async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResult:
     enabled = engine.get_components(filter, enabled=True)
     await concurrently(system.system.disable() for system in enabled)
@@ -120,7 +120,7 @@ class UpResult(DataObject):
     started: list[Address]
 
 
-@router.post("/up", tags=["components"], dependencies=[OPERATOR])
+@router.post("/up", tags=["components"], dependencies=[AUTHENTICATED])
 async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     disabled = engine.get_components(filter, enabled=False)
     stopped = engine.get_components(filter, running=False)
@@ -137,7 +137,7 @@ class DownResult(DataObject):
     stopped: list[Address]
 
 
-@router.post("/down", tags=["components"], dependencies=[OPERATOR])
+@router.post("/down", tags=["components"], dependencies=[AUTHENTICATED])
 async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     enabled = engine.get_components(filter, enabled=True)
     running = engine.get_components(filter, running=True)

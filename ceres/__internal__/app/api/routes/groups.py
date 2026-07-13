@@ -2,7 +2,7 @@ from uuid import UUID
 
 from ceres.__internal__.app.shared import (
     ADMIN,
-    VIEWER,
+    AUTHENTICATED,
     CurrentEngine,
     Router,
     assert_found,
@@ -13,17 +13,17 @@ router = Router(prefix="/groups", tags=["groups"])
 user_router = Router(tags=["group-memberships"])
 
 
-@router.get("/{id:uuid}", dependencies=[VIEWER])
+@router.get("/{id:uuid}", dependencies=[AUTHENTICATED])
 async def get_group(engine: CurrentEngine, id: UUID) -> Group:
     return assert_found(await engine.database.groups.get(id))
 
 
-@router.get("", dependencies=[VIEWER])
+@router.get("", dependencies=[AUTHENTICATED])
 async def get_groups(engine: CurrentEngine) -> list[Group]:
     return await engine.database.groups.where()
 
 
-@router.get("/count", dependencies=[VIEWER])
+@router.get("/count", dependencies=[AUTHENTICATED])
 async def count_groups(engine: CurrentEngine) -> int:
     return await engine.database.groups.where().count()
 
@@ -43,7 +43,7 @@ async def delete_group(engine: CurrentEngine, id: UUID) -> int:
     return await engine.database.groups.where(id=id).delete()
 
 
-@router.get("/{id:uuid}/members", dependencies=[VIEWER])
+@router.get("/{id:uuid}/members", dependencies=[AUTHENTICATED])
 async def get_group_members(engine: CurrentEngine, id: UUID) -> list[GroupMembership]:
     assert_found(await engine.database.groups.get(id))
     return await engine.database.group_memberships.where(group_id=id)
@@ -71,7 +71,7 @@ async def remove_group_member(
     ).delete()
 
 
-@user_router.get("/users/{user_id:uuid}/group-memberships", dependencies=[VIEWER])
+@user_router.get("/users/{user_id:uuid}/group-memberships", dependencies=[AUTHENTICATED])
 async def get_user_group_memberships(
     engine: CurrentEngine,
     user_id: UUID,

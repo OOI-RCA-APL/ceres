@@ -3,7 +3,7 @@ from ceres.component import ComponentAccessLevel
 from ceres.database import Database
 from ceres.group import Group, GroupMembership
 from ceres.permission import GroupPermission, PermissionTargetType, UserPermission
-from ceres.user import User, UserRole
+from ceres.user import User
 
 
 async def _setup_database() -> Database:
@@ -16,9 +16,7 @@ async def test_resolve_access_admin_bypass() -> None:
     """Admin users always get manage regardless of grants."""
     database = await _setup_database()
     admin = await database.users.create(
-        User.Create(
-            username="admin", email="admin@test.com", password="hashed", role=UserRole.ADMIN
-        )
+        User.Create(username="admin", email="admin@test.com", password="hashed", admin=True)
     )
     result = await resolve_access(
         database=database,
@@ -34,7 +32,7 @@ async def test_resolve_access_deny_no_grants() -> None:
     """When default access is deny and no grants exist, returns None."""
     database = await _setup_database()
     user = await database.users.create(
-        User.Create(username="viewer", email="v@test.com", password="hashed", role=UserRole.VIEWER)
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
     )
     result = await resolve_access(
         database=database,
@@ -50,7 +48,7 @@ async def test_resolve_access_default_view() -> None:
     """When default access is view and no grants exist, returns view."""
     database = await _setup_database()
     user = await database.users.create(
-        User.Create(username="viewer", email="v@test.com", password="hashed", role=UserRole.VIEWER)
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
     )
     result = await resolve_access(
         database=database,
@@ -66,7 +64,7 @@ async def test_resolve_access_direct_user_grant_overrides_default() -> None:
     """A direct user grant takes the max with the default."""
     database = await _setup_database()
     user = await database.users.create(
-        User.Create(username="viewer", email="v@test.com", password="hashed", role=UserRole.VIEWER)
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
     )
     await database.user_permissions.create(
         UserPermission.Create(
@@ -90,7 +88,7 @@ async def test_resolve_access_tag_grant() -> None:
     """A user tag grant applies when the component has that tag."""
     database = await _setup_database()
     user = await database.users.create(
-        User.Create(username="viewer", email="v@test.com", password="hashed", role=UserRole.VIEWER)
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
     )
     await database.user_permissions.create(
         UserPermission.Create(
@@ -114,7 +112,7 @@ async def test_resolve_access_group_grant() -> None:
     """A group component grant applies via group membership."""
     database = await _setup_database()
     user = await database.users.create(
-        User.Create(username="viewer", email="v@test.com", password="hashed", role=UserRole.VIEWER)
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
     )
     group = await database.groups.create(Group.Create(name="field-ops"))
     await database.group_memberships.create(
@@ -142,7 +140,7 @@ async def test_resolve_access_most_permissive_wins() -> None:
     """The max across all sources wins."""
     database = await _setup_database()
     user = await database.users.create(
-        User.Create(username="viewer", email="v@test.com", password="hashed", role=UserRole.VIEWER)
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
     )
     group = await database.groups.create(Group.Create(name="ops"))
     await database.group_memberships.create(

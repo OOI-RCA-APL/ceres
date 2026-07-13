@@ -5,10 +5,10 @@ from fastapi import Body, Request, Response, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
 from ceres.__internal__.app.shared import (
-    VIEWER,
+    AUTHENTICATED,
+    CurrentActor,
     CurrentEngine,
     CurrentProcedureQueryArguments,
-    CurrentRole,
     CurrentSocket,
     CurrentUser,
     Router,
@@ -94,7 +94,7 @@ def _get_component_roles(component: Component | type[Component]) -> list[Compone
     return roles
 
 
-@router.get("/{address}", dependencies=[VIEWER])
+@router.get("/{address}", dependencies=[AUTHENTICATED])
 async def get_component(engine: CurrentEngine, address: Address) -> ComponentInfo:
     """Return a recursive description of a component and all its children.
 
@@ -255,7 +255,7 @@ async def _call(
     request: Request,
     engine: CurrentEngine,
     user: CurrentUser,
-    role: CurrentRole,
+    actor: CurrentActor,
     address: Address,
     procedure: Name,
     arguments: dict[Name, object] | None = None,
@@ -289,11 +289,11 @@ async def _call(
             raise ProcedureNotFoundError()
 
     if binding.permissions != "public":
-        if role is None:
+        if not actor.authenticated:
             raise ProcedureNotPermittedError()
 
         access = await get_component_access(engine, user, component)
-        if access is None or access < binding.permissions:
+        if not actor.unrestricted and (access is None or access < binding.permissions):
             raise ProcedureNotPermittedError()
 
     if request.method == "GET" and binding.type == ProcedureType.ACTION:
@@ -329,7 +329,7 @@ async def call_procedure(
     request: Request,
     engine: CurrentEngine,
     user: CurrentUser,
-    role: CurrentRole,
+    actor: CurrentActor,
     address: Address,
     name: Name,
     arguments: Annotated[dict[Name, object] | None, Body()] = None,
@@ -339,7 +339,7 @@ async def call_procedure(
         request=request,
         engine=engine,
         user=user,
-        role=role,
+        actor=actor,
         address=address,
         procedure=name,
         arguments=arguments,
@@ -360,7 +360,7 @@ async def call_procedure_by_get(
     request: Request,
     engine: CurrentEngine,
     user: CurrentUser,
-    role: CurrentRole,
+    actor: CurrentActor,
     address: Address,
     name: Name,
     query_arguments: CurrentProcedureQueryArguments,
@@ -378,7 +378,7 @@ async def call_procedure_by_get(
         request=request,
         engine=engine,
         user=user,
-        role=role,
+        actor=actor,
         address=address,
         procedure=name,
         arguments=arguments,
@@ -398,7 +398,7 @@ async def subscribe_procedure(
     socket: CurrentSocket,
     connection: WebSocket,
     engine: CurrentEngine,
-    role: CurrentRole,
+    actor: CurrentActor,
     address: Address,
     name: Name,
     query_arguments: CurrentProcedureQueryArguments,
@@ -443,7 +443,7 @@ async def subscribe_procedure(
                 to_json(ProcedureNotFoundError()),
             )
 
-    if binding.permissions != "public" and role is None:
+    if binding.permissions != "public" and not actor.authenticated:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
             to_json(ProcedureNotPermittedError()),
@@ -480,7 +480,7 @@ class SendMessageInput(DataModel):
     data: MessageData
 
 
-@router.post("/{address}/connections/{connection}/send", dependencies=[VIEWER])
+@router.post("/{address}/connections/{connection}/send", dependencies=[AUTHENTICATED])
 async def send_message(
     engine: CurrentEngine,
     user: CurrentUser,

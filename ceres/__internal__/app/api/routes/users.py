@@ -6,17 +6,17 @@ from starlette.status import HTTP_201_CREATED
 
 from ceres.__internal__.app.shared import (
     ADMIN,
+    AUTHENTICATED,
     EXCLUDE_PASSWORDS,
     SELF_OR_ADMIN,
-    VIEWER,
+    CurrentActor,
     CurrentEngine,
-    CurrentRole,
     Limit,
     Router,
     assert_found,
 )
 from ceres.error import NotFoundError, NotPermittedError
-from ceres.user import User, UserCreate, UserFilter, UserRole, UserUpdate
+from ceres.user import User, UserCreate, UserFilter, UserUpdate
 
 router = Router(
     prefix="/users",
@@ -25,7 +25,7 @@ router = Router(
 )
 
 
-@router.get("/{id:uuid}", dependencies=[VIEWER])
+@router.get("/{id:uuid}", dependencies=[AUTHENTICATED])
 async def get_user(engine: CurrentEngine, id: UUID) -> User:
     """Return a single user by ID.
 
@@ -35,7 +35,7 @@ async def get_user(engine: CurrentEngine, id: UUID) -> User:
     return assert_found(await engine.users.get(id))
 
 
-@router.get("", dependencies=[VIEWER])
+@router.get("", dependencies=[AUTHENTICATED])
 async def get_users(
     engine: CurrentEngine,
     filter: Annotated[UserFilter, Query(), Limit(1000)],
@@ -44,7 +44,7 @@ async def get_users(
     return await engine.users.where(filter)
 
 
-@router.get("/count", dependencies=[VIEWER])
+@router.get("/count", dependencies=[AUTHENTICATED])
 async def count_users(
     engine: CurrentEngine,
     filter: Annotated[UserFilter, Query()],
@@ -62,18 +62,18 @@ async def create_user(engine: CurrentEngine, data: UserCreate) -> User:
 @router.patch("/{id:uuid}", dependencies=[SELF_OR_ADMIN])
 async def update_user(
     engine: CurrentEngine,
-    role: CurrentRole,
+    actor: CurrentActor,
     id: UUID,
     assign: UserUpdate,
 ) -> User:
-    """Partially update a user. Non-admins cannot change `role` or `disabled` fields.
+    """Partially update a user. Non-admins cannot change `admin` or `disabled` fields.
 
     Raises:
         NotPermittedError: If the caller lacks permission.
         NotFoundError: If the user does not exist.
     """
-    if role < UserRole.ADMIN:
-        if "role" in assign or "disabled" in assign:
+    if not actor.admin:
+        if "admin" in assign or "disabled" in assign:
             raise NotPermittedError()
 
     updated = await engine.users.where(id=id).update(assign).first()

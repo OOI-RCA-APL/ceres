@@ -135,7 +135,6 @@ __all__ = [
     "utc",
     # .user
     "User",
-    "UserRole",
     # .variable
     "Variable",
     # .version
@@ -226,7 +225,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.statistics import Statistics
     from ceres.status import Status
     from ceres.timing import utc
-    from ceres.user import User, UserRole
+    from ceres.user import User
     from ceres.variable import Variable
     from ceres.version import __version__
     from ceres.workspace import Workspace, WorkspaceMembership

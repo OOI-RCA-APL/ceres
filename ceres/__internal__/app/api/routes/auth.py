@@ -3,8 +3,8 @@ import asyncio
 from fastapi import Response
 
 from ceres.__internal__.app.shared import (
+    AUTHENTICATED,
     EXCLUDE_PASSWORDS,
-    VIEWER,
     AuthorizationCookieType,
     CurrentEngine,
     CurrentIdentity,
@@ -138,7 +138,7 @@ class ChangePasswordInput(DataObject):
     new_password: Password
 
 
-@router.post("/change-password", dependencies=[VIEWER])
+@router.post("/change-password", dependencies=[AUTHENTICATED])
 async def change_password(
     engine: CurrentEngine,
     user: RequireUser,

@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 from ceres.component import ComponentAccessLevel
 from ceres.permission import PermissionTargetType
-from ceres.user import UserRole
 
 if TYPE_CHECKING:
     from ceres.database import Database
@@ -41,7 +40,7 @@ async def resolve_access(
     Returns:
         The effective `ComponentAccessLevel`, or `None` if the user has no access.
     """
-    if user.role == UserRole.ADMIN:
+    if user.admin:
         return ComponentAccessLevel.MANAGE
 
     levels: list[ComponentAccessLevel] = []

@@ -2,7 +2,7 @@ from uuid import UUID
 
 from ceres.__internal__.app.shared import (
     ADMIN,
-    VIEWER,
+    AUTHENTICATED,
     CurrentEngine,
     CurrentUser,
     Router,
@@ -18,18 +18,17 @@ from ceres.permission import (
     PermissionTargetType,
     UserPermission,
 )
-from ceres.user import UserRole
 
 router = Router(prefix="/permissions", tags=["permissions"])
 
 
-@router.get("/user/{user_id:uuid}", dependencies=[VIEWER])
+@router.get("/user/{user_id:uuid}", dependencies=[AUTHENTICATED])
 async def get_user_permissions(
     engine: CurrentEngine,
     user: CurrentUser,
     user_id: UUID,
 ) -> list[UserPermission]:
-    if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
+    if user is not None and not user.admin and user.id != user_id:
         raise NotPermittedError()
 
     return await engine.database.user_permissions.where(user_id=user_id)
@@ -162,14 +161,14 @@ class EffectiveAccessResult(DataObject):
     level: ComponentAccessLevel | None
 
 
-@router.get("/effective/{user_id:uuid}/{address:path}", dependencies=[VIEWER])
+@router.get("/effective/{user_id:uuid}/{address:path}", dependencies=[AUTHENTICATED])
 async def get_effective_access(
     engine: CurrentEngine,
     user: CurrentUser,
     user_id: UUID,
     address: Address,
 ) -> EffectiveAccessResult:
-    if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
+    if user is not None and not user.admin and user.id != user_id:
         raise NotPermittedError()
 
     target_user = await engine.database.users.get(user_id)

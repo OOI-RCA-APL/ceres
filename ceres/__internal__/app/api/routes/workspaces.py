@@ -5,15 +5,14 @@ from fastapi import Query
 
 from ceres.__internal__.app.shared import (
     SELF_OR_ADMIN,
+    CurrentActor,
     CurrentEngine,
-    CurrentRole,
     Limit,
-    RequireViewer,
+    RequireAuthenticated,
     Router,
     assert_found,
 )
 from ceres.error import NotFoundError, NotPermittedError
-from ceres.user import UserRole
 from ceres.workspace import (
     Workspace,
     WorkspaceCreate,
@@ -29,8 +28,8 @@ router = Router(tags=["workspaces"])
 @router.get("/workspaces/{id:uuid}")
 async def get_workspace(
     engine: CurrentEngine,
-    role: CurrentRole,
-    user: RequireViewer,
+    actor: CurrentActor,
+    user: RequireAuthenticated,
     id: UUID,
 ) -> Workspace:
     """Return a single workspace by ID. Non-admin callers only see workspaces they can view.
@@ -39,7 +38,7 @@ async def get_workspace(
         NotFoundError: If the workspace does not exist or the caller cannot view it.
     """
     scope = WorkspaceFilter(id=id)
-    if user is not None and role < UserRole.ADMIN:
+    if user is not None and not actor.admin:
         scope &= WorkspaceFilter(viewable_by=user.id)
 
     return assert_found(await engine.workspaces.where(scope).first())
@@ -48,15 +47,15 @@ async def get_workspace(
 @router.get("/workspaces")
 async def get_workspaces(
     engine: CurrentEngine,
-    role: CurrentRole,
-    user: RequireViewer,
+    actor: CurrentActor,
+    user: RequireAuthenticated,
     filter: Annotated[WorkspaceFilter, Query(), Limit(1000)],
 ) -> list[Workspace]:
     """Return workspaces matching the given filter. Non-admin callers only see workspaces they
     can view, capped at 1000 results.
     """
     scope = WorkspaceFilter.model_validate(filter, from_attributes=True)
-    if user is not None and role < UserRole.ADMIN:
+    if user is not None and not actor.admin:
         scope &= WorkspaceFilter(viewable_by=user.id)
 
     return await engine.workspaces.where(scope)
@@ -75,7 +74,7 @@ async def get_workspaces_for_user(
 @router.post("/workspaces")
 async def create_workspace(
     engine: CurrentEngine,
-    user: RequireViewer,
+    user: RequireAuthenticated,
     workspace: WorkspaceCreate,
 ) -> Workspace:
     """Create a new workspace and grant the creating user a manager membership in it."""
@@ -95,8 +94,8 @@ async def create_workspace(
 @router.patch("/workspaces/{id:uuid}")
 async def update_workspace(
     engine: CurrentEngine,
-    role: CurrentRole,
-    user: RequireViewer,
+    actor: CurrentActor,
+    user: RequireAuthenticated,
     id: UUID,
     update: WorkspaceUpdate,
 ) -> Workspace:
@@ -107,7 +106,7 @@ async def update_workspace(
         NotFoundError: If the workspace does not exist.
         NotPermittedError: If the caller lacks permission.
     """
-    if user is not None and role < UserRole.ADMIN:
+    if user is not None and not actor.admin:
         if (
             "name" in update
             or "general_viewership" in update
@@ -130,8 +129,8 @@ async def update_workspace(
 @router.delete("/workspaces/{id:uuid}")
 async def delete_workspace(
     engine: CurrentEngine,
-    role: CurrentRole,
-    user: RequireViewer,
+    actor: CurrentActor,
+    user: RequireAuthenticated,
     id: UUID,
 ) -> Workspace:
     """Delete a workspace by ID. Only workspace managers and admins can delete workspaces.
@@ -140,7 +139,7 @@ async def delete_workspace(
         NotFoundError: If the workspace does not exist.
         NotPermittedError: If the caller lacks permission.
     """
-    if user is not None and role < UserRole.ADMIN:
+    if user is not None and not actor.admin:
         if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
             raise NotFoundError()
         if not await engine.workspaces.where(id=id, manageable_by=user.id).any():

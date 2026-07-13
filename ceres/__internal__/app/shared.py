@@ -30,7 +30,7 @@ from ceres.concurrency import race, sleep
 from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
 from ceres.error import NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
-from ceres.user import User, UserRole
+from ceres.user import User
 
 # Allow using short JWT secrets without warnings.
 warnings.filterwarnings("ignore", category=jwt.warnings.InsecureKeyLengthWarning, module="jwt")
@@ -465,97 +465,71 @@ async def _require_current_user(user: CurrentUser) -> User:
 type RequireUser = Annotated[User, Depends(_require_current_user)]
 
 
-def _get_current_role(user: CurrentUser, cli: CurrentCLI) -> UserRole | None:
-    """Return the effective role of the current caller.
+@dataclass(frozen=True, kw_only=True)
+class Actor:
+    """The acting context of a request: the user plus CLI/auth-disabled bypass state."""
 
-    CLI mode always resolves to admin. Unauthenticated callers resolve to ``None``.
+    user: User | None
+    unrestricted: bool
+    """Whether the request bypasses all permission checks (CLI or auth disabled)."""
+
+    @property
+    def admin(self) -> bool:
+        """Whether the actor has admin capability."""
+        return self.unrestricted or (self.user is not None and self.user.admin)
+
+    @property
+    def authenticated(self) -> bool:
+        """Whether the actor is an authenticated user or an unrestricted context."""
+        return self.unrestricted or self.user is not None
+
+
+def _get_current_actor(engine: CurrentEngine, user: CurrentUser, cli: CurrentCLI) -> Actor:
+    """Return the acting context of the current caller.
+
+    CLI mode and disabled authentication are unrestricted. Otherwise the actor wraps the
+    current user, who may be ``None`` when unauthenticated.
     """
-    if cli:
-        return UserRole.ADMIN
-    if user is None:
-        return None
-    return user.role
+    unrestricted = cli or engine.config.server.authentication is None
+    return Actor(user=user, unrestricted=unrestricted)
 
 
-type CurrentRole = Annotated[UserRole | None, Depends(_get_current_role)]
+type CurrentActor = Annotated[Actor, Depends(_get_current_actor)]
 
 
-def _restrict(
-    required: UserRole,
-    engine: CurrentEngine,
-    user: CurrentUser,
-    cli: CurrentCLI,
-    role: CurrentRole,
-) -> User | None:
-    """Enforce a minimum role requirement for the current caller.
-
-    Bypass the check when authentication is disabled or the request comes from the CLI.
-
-    Args:
-        required: The minimum `UserRole` needed to proceed.
-        engine: The current engine instance (used to check the auth config).
-        user: The current user, or ``None`` if unauthenticated.
-        cli: Whether the app is in CLI mode.
-        role: The effective role of the caller.
+def _require_authenticated(actor: CurrentActor) -> User | None:
+    """Require an authenticated caller.
 
     Returns:
         The authenticated user, or ``None`` when access is granted without a user context.
 
     Raises:
         NotAuthenticatedError: If the caller is unauthenticated.
-        NotPermittedError: If the caller is disabled or lacks the required role.
+        NotPermittedError: If the caller is disabled.
     """
-    if engine.config.server.authentication is None:
-        # Authentication is disabled, so allow all users.
+    if actor.unrestricted:
         return None
-    if cli:
-        # The CLI is functionally an admin, and so can do anything.
-        return None
-
-    if user is None:
+    if actor.user is None:
         raise NotAuthenticatedError()
-    if user.disabled or role < required:
+    if actor.user.disabled:
+        raise NotPermittedError()
+
+    return actor.user
+
+
+def _require_admin(actor: CurrentActor) -> User | None:
+    """Require an admin caller."""
+    user = _require_authenticated(actor)
+    if user is not None and not user.admin:
         raise NotPermittedError()
 
     return user
 
 
-def _require_viewer(
-    engine: CurrentEngine,
-    user: CurrentUser,
-    cli: CurrentCLI,
-    role: CurrentRole,
-) -> User | None:
-    """Require at least viewer-level access for the current caller."""
-    return _restrict(UserRole.VIEWER, engine, user, cli, role)
-
-
-def _require_operator(
-    engine: CurrentEngine,
-    user: CurrentUser,
-    cli: CurrentCLI,
-    role: CurrentRole,
-) -> User | None:
-    """Require at least operator-level access for the current caller."""
-    return _restrict(UserRole.OPERATOR, engine, user, cli, role)
-
-
-def _require_admin(
-    engine: CurrentEngine,
-    user: CurrentUser,
-    cli: CurrentCLI,
-    role: CurrentRole,
-) -> User | None:
-    """Require admin-level access for the current caller."""
-    return _restrict(UserRole.ADMIN, engine, user, cli, role)
-
-
-VIEWER = Depends(_require_viewer)
-OPERATOR = Depends(_require_operator)
+AUTHENTICATED = Depends(_require_authenticated)
 ADMIN = Depends(_require_admin)
 
-type RequireViewer = Annotated[User | None, VIEWER]
-type RequireOperator = Annotated[User | None, OPERATOR]
+type RequireAuthenticated = Annotated[User | None, AUTHENTICATED]
 type RequireAdmin = Annotated[User | None, ADMIN]
 
 
@@ -615,7 +589,7 @@ def create_record_get_route(router: Router, Record: type[Record]):
     return router.get(
         "/{id:uuid}",
         response_model=Record,
-        dependencies=[VIEWER],
+        dependencies=[AUTHENTICATED],
         tags=[kebabcase(naming.plural)],
     )(get)
 
@@ -638,7 +612,7 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
     return router.get(
         "",
         response_model=list[Record],
-        dependencies=[VIEWER],
+        dependencies=[AUTHENTICATED],
         tags=[kebabcase(naming.plural)],
     )(get_all)
 
@@ -656,7 +630,7 @@ def create_record_count_route(router: Router, Record: type[Record]):
     count.__name__ = f"count_{snakecase(naming.plural)}"
     return router.get(
         "/count",
-        dependencies=[VIEWER],
+        dependencies=[AUTHENTICATED],
         tags=[kebabcase(naming.plural)],
     )(count)
 
@@ -679,7 +653,7 @@ def create_record_stream_route(router: Router, Record: type[Record]):
         await socket.execute(write)
 
     stream.__name__ = f"stream_{snakecase(naming.plural)}"
-    return router.websocket("", dependencies=[VIEWER])(stream)
+    return router.websocket("", dependencies=[AUTHENTICATED])(stream)
 
 
 def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
@@ -708,8 +682,8 @@ def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
 
 def _require_self_or_admin(
     connection: HTTPConnection,
-    user: RequireViewer,
-    role: CurrentRole,
+    user: RequireAuthenticated,
+    actor: CurrentActor,
 ) -> UUID:
     """Require that the caller is either the user identified in the URL path or an admin.
 
@@ -728,7 +702,7 @@ def _require_self_or_admin(
     except ValueError:
         raise NotPermittedError()
 
-    if role < UserRole.ADMIN:
+    if not actor.admin:
         if user is None or user.id != user_id:
             raise NotPermittedError()
 

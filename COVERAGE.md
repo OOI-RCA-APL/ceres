@@ -36,7 +36,7 @@
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
 | `ceres/__main__.py` | 50% |
-| `ceres/access.py` | 88% |
+| `ceres/access.py` | 87% |
 | `ceres/address.py` | 94% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 92% |

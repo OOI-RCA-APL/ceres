@@ -8,13 +8,12 @@ from ceres.__internal__.app.shared import (
     CurrentEngine,
     CurrentUser,
     Limit,
-    RequireViewer,
+    RequireAuthenticated,
     Router,
     assert_found,
 )
 from ceres.data import DataObject
 from ceres.error import NotFoundError, NotPermittedError
-from ceres.user import UserRole
 from ceres.workspace import (
     WorkspaceFilter,
     WorkspaceMembership,
@@ -29,7 +28,7 @@ router = Router(tags=["workspace-memberships"])
 @router.get("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
 async def get_workspace_membership(
     engine: CurrentEngine,
-    user: RequireViewer,
+    user: RequireAuthenticated,
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceMembership:
@@ -41,7 +40,7 @@ async def get_workspace_membership(
     Raises:
         NotFoundError: If the caller lacks access or the membership does not exist.
     """
-    if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
+    if user is not None and not user.admin and user.id != user_id:
         if not await engine.workspaces.where(viewable_by=user.id).any():
             raise NotFoundError()
 
@@ -61,7 +60,7 @@ async def get_workspace_memberships(
 @router.get("/workspaces/{workspace_id:uuid}/memberships")
 async def get_workspace_memberships_in_workspace(
     engine: CurrentEngine,
-    user: RequireViewer,
+    user: RequireAuthenticated,
     workspace_id: UUID,
     filter: Annotated[WorkspaceMembershipFilter, Query(), Limit(1000)],
 ) -> list[WorkspaceMembership]:
@@ -70,7 +69,7 @@ async def get_workspace_memberships_in_workspace(
     Raises:
         NotFoundError: If the caller lacks view access to the workspace.
     """
-    if user is not None and user.role < UserRole.ADMIN:
+    if user is not None and not user.admin:
         if not await engine.workspaces.where(viewable_by=user.id).any():
             raise NotFoundError()
 
@@ -101,7 +100,7 @@ async def _guard_membership_mutation(
     Raises:
         NotPermittedError: If the acting user lacks the required workspace-level permission.
     """
-    if acting_user is not None and acting_user.role < UserRole.ADMIN:
+    if acting_user is not None and not acting_user.admin:
         if assigning_workspace_role is not None:
             if acting_user.id == membership_user_id:
                 # The acting user owns the membership. Only allow them to change their workspace
@@ -130,7 +129,7 @@ class WorkspaceMembershipCreateData(DataObject):
 @router.post("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
 async def create_workspace_membership(
     engine: CurrentEngine,
-    user: RequireViewer,
+    user: RequireAuthenticated,
     user_id: UUID,
     workspace_id: UUID,
     data: WorkspaceMembershipCreateData,
@@ -159,7 +158,7 @@ class WorkspaceMembershipUpdateData(TypedDict, total=False):
 @router.patch("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
 async def update_workspace_membership(
     engine: CurrentEngine,
-    user: RequireViewer,
+    user: RequireAuthenticated,
     user_id: UUID,
     workspace_id: UUID,
     assign: WorkspaceMembershipUpdate,
@@ -186,7 +185,7 @@ async def update_workspace_membership(
 @router.delete("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
 async def delete_workspace_membership(
     engine: CurrentEngine,
-    user: RequireViewer,
+    user: RequireAuthenticated,
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceMembership:
@@ -197,7 +196,7 @@ async def delete_workspace_membership(
         NotPermittedError: If the caller lacks permission.
         NotFoundError: If the membership does not exist.
     """
-    if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
+    if user is not None and not user.admin and user.id != user_id:
         # Only editors or admins can delete memberships for other users.
         membership = await engine.workspace_memberships.get(user.id, workspace_id)
         if membership is None or membership.role < WorkspaceMembershipRole.EDITOR:

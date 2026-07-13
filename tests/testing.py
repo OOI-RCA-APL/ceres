@@ -41,7 +41,6 @@ from ceres.config import BCryptHashingConfig, ComponentAccessLevel
 from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
 from ceres.database import Database
 from ceres.timing import set_fake_now
-from ceres.user import UserRole
 
 if TYPE_CHECKING:
     from ceres.__internal__.record import BaseRecordFilterArgs
@@ -323,7 +322,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                         randstr(printable, 8),
                         BCryptHashingConfig(rounds=4),
                     ),
-                    "role": choice(list(UserRole)),
+                    "admin": choice([True, False]),
                     "disabled": choice([True, False]),
                     **values,
                 },
