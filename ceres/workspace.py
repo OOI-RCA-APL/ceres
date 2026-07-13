@@ -6,15 +6,11 @@ from pydantic import Field, model_validator
 from sqlalchemy import (
     JSON,
     ForeignKeyConstraint,
-    Integer,
     PrimaryKeyConstraint,
     Text,
-    case,
-    or_,
     select,
 )
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.elements import literal_column
 
 from ceres.__internal__.database.types import EnumConstraint, EnumMapper, UUIDMapper
 from ceres.__internal__.entity import (
@@ -38,7 +34,7 @@ from ceres.__internal__.entity import (
 )
 from ceres.__internal__.utilities.collections import seq
 from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, NonEmptyStr, OrderedStrEnum
-from ceres.user import UserRole, UserRow
+from ceres.user import UserRow
 
 if TYPE_CHECKING:
     from sqlalchemy import SQLColumnExpression
@@ -57,27 +53,21 @@ __all__ = [
 class WorkspaceAccessLevel(OrderedStrEnum):
     """General access level required for a user to gain a capability on a workspace.
 
-    Values are ordered from least to most restrictive. A workspace sets one of these levels for
-    viewership, editorship, and managership, any user whose `UserRole` meets the level gains the
-    corresponding capability without needing an explicit membership.
+    A workspace sets one of these levels for viewership, editorship, and managership. `ANYONE`
+    grants the capability to any authenticated user, `PRIVATE` requires an explicit membership.
+    Admin users bypass general access restrictions entirely.
     """
 
     @classmethod
     @override
     def __order_mapping__(cls) -> dict[WorkspaceAccessLevel, int]:
         return {
-            cls.ANYONE: UserRole.VIEWER.order,
-            cls.OPERATORS: UserRole.OPERATOR.order,
-            cls.ADMINS: UserRole.ADMIN.order,
-            cls.PRIVATE: UserRole.ADMIN.order + 1,
+            cls.ANYONE: 0,
+            cls.PRIVATE: 1,
         }
 
     ANYONE = "anyone"
-    """Any authenticated user with at least `UserRole.VIEWER` qualifies."""
-    OPERATORS = "operators"
-    """Users with at least `UserRole.OPERATOR` qualify."""
-    ADMINS = "admins"
-    """Users with at least `UserRole.ADMIN` qualify."""
+    """Any authenticated user qualifies."""
     PRIVATE = "private"
     """No one qualifies via general access, explicit membership is required."""
 
@@ -532,21 +522,6 @@ def _membership_roles_ge(access: WorkspaceMembershipRole) -> list[WorkspaceMembe
     return [current for current in WorkspaceMembershipRole if current >= access]
 
 
-def _ordered_enum_value[T: OrderedStrEnum](
-    enum: type[T],
-    value: SQLColumnExpression[T],
-) -> SQLColumnExpression[int | None]:
-    return case(
-        *[
-            (
-                value == literal_column("'" + current + "'"),
-                literal_column(str(current.order), type_=Integer),
-            )
-            for current in enum
-        ],
-    )
-
-
 class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
     """SQLAlchemy row type backing the `Workspace` entity."""
 
@@ -732,25 +707,7 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
             if user_id is None:
                 continue
 
-            yield or_(
-                *(
-                    columns.id.in_(
-                        select(columns.id).where(
-                            _ordered_enum_value(
-                                WorkspaceAccessLevel,
-                                general_access_restriction,
-                            )
-                            <= _ordered_enum_value(
-                                UserRole,
-                                select(UserRow.role)
-                                .where(UserRow.id == current_user_id)
-                                .label("role"),
-                            )
-                        )
-                    )
-                    for current_user_id in seq(user_id)
-                )
-            ) | (
+            yield (general_access_restriction == WorkspaceAccessLevel.ANYONE) | (
                 columns.id.in_(
                     select(WorkspaceMembershipRow.workspace_id).where(
                         WorkspaceMembershipRow.user_id.in_(seq(user_id)),
@@ -782,11 +739,11 @@ class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
     name: NonEmptyStr
     """Human-readable name of the workspace."""
     general_viewership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
-    """Minimum user role required to view the workspace without an explicit membership."""
+    """General access level required to view the workspace without an explicit membership."""
     general_editorship: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
-    """Minimum user role required to edit the workspace without an explicit membership."""
+    """General access level required to edit the workspace without an explicit membership."""
     general_managership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
-    """Minimum user role required to manage the workspace without an explicit membership."""
+    """General access level required to manage the workspace without an explicit membership."""
     data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
     """Free-form structured payload attached to the workspace."""
 
@@ -897,9 +854,10 @@ class Workspace(
 ):
     """Named collection that groups users and content under shared access-control settings.
 
-    Access to a workspace is granted in two ways: general access, where any user whose `UserRole`
-    meets one of the `general_*` levels automatically gains the corresponding capability, and
-    explicit `WorkspaceMembership`, which grants a specific `role` to a single user.
+    Access to a workspace is granted in two ways: general access, where any authenticated user
+    automatically gains a capability whose `general_*` level is set to
+    `WorkspaceAccessLevel.ANYONE`, and explicit `WorkspaceMembership`, which grants a specific
+    `role` to a single user.
     """
 
     Manager = WorkspaceManager

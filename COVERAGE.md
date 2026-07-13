@@ -56,7 +56,7 @@
 | `ceres/data/types.py` | 99% |
 | `ceres/data/uuid.py` | 77% |
 | `ceres/database/__init__.py` | 100% |
-| `ceres/database/database.py` | 79% |
+| `ceres/database/database.py` | 80% |
 | `ceres/database/enums.py` | 100% |
 | `ceres/database/migrations.py` | 65% |
 | `ceres/directory.py` | 93% |
@@ -94,6 +94,6 @@
 | `ceres/user.py` | 97% |
 | `ceres/variable.py` | 83% |
 | `ceres/version.py` | 89% |
-| `ceres/workspace.py` | 92% |
+| `ceres/workspace.py` | 97% |
 | **Total** | **82%** |
 <!-- coverage:end -->
