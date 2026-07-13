@@ -333,18 +333,7 @@ export const WorkspaceDataModel = Zod.object({
 })
 
 export type WorkspaceAccessRestriction = Zod.infer<typeof WorkspaceAccessRestrictionModel>
-export const WorkspaceAccessRestrictionModel = Zod.enum([
-  'anyone',
-  'operators',
-  'admins',
-  'private',
-])
-export const WorkspaceAccessRestrictionOf = {
-  anyone: 0,
-  operators: 1,
-  admins: 2,
-  private: 3,
-} as const
+export const WorkspaceAccessRestrictionModel = Zod.enum(['anyone', 'private'])
 
 export type Workspace = Zod.infer<typeof WorkspaceModel>
 export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
@@ -1095,10 +1084,11 @@ export function resolveWidgetWidths(
 }
 
 export function userCouldViewWorkspace(user: User | null, workspace: Workspace) {
-  return (
-    user != null &&
-    (user.admin ? 2 : 0) >= WorkspaceAccessRestrictionOf[workspace.general_viewership]
-  )
+  if (user == null) {
+    return false
+  }
+
+  return user.admin || workspace.general_viewership === 'anyone'
 }
 
 export function userCanViewWorkspace(user: User | null, membership: WorkspaceMembership | null) {
@@ -1113,10 +1103,11 @@ export function userCanViewWorkspace(user: User | null, membership: WorkspaceMem
 }
 
 export function userCouldEditWorkspace(user: User | null, workspace: Workspace) {
-  return (
-    user != null &&
-    (user.admin ? 2 : 0) >= WorkspaceAccessRestrictionOf[workspace.general_editorship]
-  )
+  if (user == null) {
+    return false
+  }
+
+  return user.admin || workspace.general_editorship === 'anyone'
 }
 
 export function userCanEditWorkspace(user: User | null, membership: WorkspaceMembership | null) {
@@ -1131,10 +1122,11 @@ export function userCanEditWorkspace(user: User | null, membership: WorkspaceMem
 }
 
 export function userCouldManageWorkspace(user: User | null, workspace: Workspace) {
-  return (
-    user != null &&
-    (user.admin ? 2 : 0) >= WorkspaceAccessRestrictionOf[workspace.general_managership]
-  )
+  if (user == null) {
+    return false
+  }
+
+  return user.admin || workspace.general_managership === 'anyone'
 }
 
 export function userCanManageWorkspace(user: User | null, membership: WorkspaceMembership | null) {

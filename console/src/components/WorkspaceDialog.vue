@@ -21,7 +21,6 @@ import {
   userCanManageWorkspace,
   WorkspaceAccessRestriction,
   WorkspaceAccessRestrictionModel,
-  WorkspaceAccessRestrictionOf,
   WorkspaceData,
   WorkspaceMembership,
   WorkspaceMembershipRole,
@@ -143,19 +142,19 @@ const form = useForm({
   },
 })
 
+// With only 'anyone' and 'private' as restriction levels, a restriction is stricter than
+// another exactly when it is 'private' and the other is 'anyone'.
+function isStricter(restriction: WorkspaceAccessRestriction, other: WorkspaceAccessRestriction) {
+  return restriction === 'private' && other === 'anyone'
+}
+
 watch(
   () => form.data.general_managership,
   () => {
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_editorship] >
-      WorkspaceAccessRestrictionOf[form.data.general_managership]
-    ) {
+    if (isStricter(form.data.general_editorship, form.data.general_managership)) {
       form.data.general_editorship = form.data.general_managership
     }
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_viewership] >
-      WorkspaceAccessRestrictionOf[form.data.general_editorship]
-    ) {
+    if (isStricter(form.data.general_viewership, form.data.general_editorship)) {
       form.data.general_viewership = form.data.general_editorship
     }
   }
@@ -164,17 +163,11 @@ watch(
 watch(
   () => form.data.general_editorship,
   () => {
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_editorship] >
-      WorkspaceAccessRestrictionOf[form.data.general_managership]
-    ) {
+    if (isStricter(form.data.general_editorship, form.data.general_managership)) {
       form.data.general_managership = form.data.general_editorship
     }
 
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_viewership] >
-      WorkspaceAccessRestrictionOf[form.data.general_editorship]
-    ) {
+    if (isStricter(form.data.general_viewership, form.data.general_editorship)) {
       form.data.general_viewership = form.data.general_editorship
     }
   }
@@ -183,17 +176,11 @@ watch(
 watch(
   () => form.data.general_viewership,
   () => {
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_viewership] >
-      WorkspaceAccessRestrictionOf[form.data.general_managership]
-    ) {
+    if (isStricter(form.data.general_viewership, form.data.general_managership)) {
       form.data.general_managership = form.data.general_viewership
     }
 
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_viewership] >
-      WorkspaceAccessRestrictionOf[form.data.general_editorship]
-    ) {
+    if (isStricter(form.data.general_viewership, form.data.general_editorship)) {
       form.data.general_editorship = form.data.general_viewership
     }
   }
@@ -214,7 +201,7 @@ function getRestrictionLabel(restriction: WorkspaceAccessRestriction) {
     return 'Private (Members Only)'
   }
 
-  return upperFirst(restriction)
+  return 'Anyone'
 }
 
 async function addMember(user: User, role: WorkspaceMembershipRole) {
