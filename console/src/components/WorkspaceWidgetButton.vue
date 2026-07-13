@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { useAuth } from '@/api/auth'
+import { useAccess } from '@/api/access'
 import { useEngine } from '@/api/engine'
 import { isError } from '@/api/shared'
 import { useNotify } from '@/notify'
@@ -10,10 +10,14 @@ const { widget } = defineProps<{
   widget: ButtonWidget
 }>()
 
+const access = useAccess()
 const engine = useEngine()
-const auth = useAuth()
 const notify = useNotify()
 const preferences = usePreferences()
+
+const canOperate = $computed(
+  () => widget.address != null && access.canOperate(widget.address.toString())
+)
 
 const color = $computed(() => {
   if (widget.color == null) {
@@ -54,7 +58,7 @@ const label = $computed(() => {
 })
 
 async function onClick() {
-  if (!auth.isAdmin) {
+  if (!canOperate) {
     return
   }
 
@@ -79,7 +83,7 @@ async function onClick() {
     <q-btn
       :color="color"
       dense
-      :disabled="!auth.isAdmin || action == null"
+      :disabled="!canOperate || action == null"
       :flat="widget.styling === 'flat'"
       :label="label"
       :loading="isRunning"

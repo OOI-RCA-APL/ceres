@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 
+import { useAccess } from '@/api/access'
 import { AddressSelector } from '@/api/address'
 import { useAlerts } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
@@ -27,6 +28,7 @@ export const useEngine = defineStore('engine', () => {
   const groups = useGroups()
   const messages = useMessages()
   const particles = useParticles()
+  const access = useAccess()
   const permissions = usePermissions()
   const alerts = useAlerts()
   const logs = useLogs()
@@ -83,6 +85,7 @@ export const useEngine = defineStore('engine', () => {
   }
 
   return {
+    access,
     alerts,
     auth,
     components,

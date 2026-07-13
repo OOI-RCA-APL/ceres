@@ -30,6 +30,12 @@ export const EffectiveAccessModel = Zod.object({
   level: ComponentAccessLevelModel.nullable(),
 })
 
+export type ComponentEffectiveAccess = Zod.infer<typeof ComponentEffectiveAccessModel>
+export const ComponentEffectiveAccessModel = Zod.object({
+  address: Zod.string(),
+  level: ComponentAccessLevelModel,
+})
+
 export const usePermissions = defineStore('permissions', () => {
   const client = useClient()
 
@@ -89,6 +95,12 @@ export const usePermissions = defineStore('permissions', () => {
     })
   }
 
+  async function getAllEffectiveAccess(userId: string): Promise<ComponentEffectiveAccess[]> {
+    return await client.get(`/api/permissions/effective/${userId}`, {
+      parse: Zod.array(ComponentEffectiveAccessModel),
+    })
+  }
+
   return {
     getUserPermissions,
     getGroupPermissions,
@@ -97,5 +109,6 @@ export const usePermissions = defineStore('permissions', () => {
     setGroupPermission,
     deleteGroupPermission,
     getEffectiveAccess,
+    getAllEffectiveAccess,
   }
 })

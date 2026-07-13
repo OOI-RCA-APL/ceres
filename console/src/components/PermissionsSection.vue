@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { upperFirst } from 'lodash-es'
 import { computed } from 'vue'
 
+import { useAccess } from '@/api/access'
 import { useEngine } from '@/api/engine'
 import { ComponentAccessLevel, PermissionTargetType } from '@/api/permissions'
 import CardPageSection from '@/components/CardPageSection.vue'
@@ -16,6 +17,7 @@ const { subjectType, subjectId } = defineProps<{
   subjectId: string
 }>()
 
+const access = useAccess()
 const dialogs = useDialogs()
 const engine = useEngine()
 const notify = useNotify()
@@ -112,6 +114,7 @@ async function addPermission() {
   notify.success('Permission added.')
   newPermissionTarget = null
   await permissionsQuery.refetch()
+  await access.refresh()
 }
 
 function promptRemovePermission(targetType: PermissionTargetType, target: string) {
@@ -135,6 +138,7 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
       )
       notify.success('Permission removed.')
       await permissionsQuery.refetch()
+      await access.refresh()
     })
 }
 </script>

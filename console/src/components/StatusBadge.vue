@@ -1,18 +1,19 @@
 <script lang="ts" setup>
 import { upperFirst } from 'lodash-es'
 
+import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import StatusBadgeAffectedCounter from '@/components/StatusBadgeAffectedCounter.vue'
 import icons from '@/icons'
 import { debouncedComputed } from '@/utilities'
 
-const { address, readonly = false } = defineProps<{
+const { address } = defineProps<{
   address: Address
-  readonly?: boolean
 }>()
 
 const engine = useEngine()
+const access = useAccess()
 
 const status = $computed(() => ({
   running: engine.statuses.get(address)?.running ?? null,
@@ -20,7 +21,8 @@ const status = $computed(() => ({
   connectivity: engine.statuses.get(address)?.connectivity ?? null,
 }))
 
-const canControl = $computed(() => engine.auth.isAdmin && !readonly)
+const canControl = $computed(() => access.canOperate(address.toString()))
+const readonly = $computed(() => !canControl && engine.auth.user != null)
 
 let menuIsOpen = $ref(false)
 

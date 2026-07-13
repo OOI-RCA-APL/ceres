@@ -1,9 +1,8 @@
 <script lang="ts" setup>
-import { useQuery } from '@tanstack/vue-query'
 import { upperFirst } from 'lodash-es'
-import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import CardPage from '@/components/CardPage.vue'
@@ -11,25 +10,14 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import icons from '@/icons'
 
 const engine = useEngine()
+const access = useAccess()
 const route = useRoute()
 
 const address = $computed(() => new Address(route.params.address as string))
 const component = $computed(() => engine.components.get(address))
 
-const effectiveAccessQuery = useQuery({
-  queryKey: computed(() => ['effective-access', engine.auth.user?.id, address.toString()]),
-  queryFn: async () => {
-    if (engine.auth.user == null) {
-      return null
-    }
-
-    return await engine.permissions.getEffectiveAccess(engine.auth.user.id, address.toString())
-  },
-  enabled: computed(() => engine.auth.user != null),
-})
-
-const effectiveAccess = $computed(() => effectiveAccessQuery.data.value?.level ?? null)
-const canOperate = $computed(() => effectiveAccess === 'operate' || effectiveAccess === 'manage')
+const effectiveAccess = $computed(() => access.levelFor(address.toString()))
+const canOperate = $computed(() => access.canOperate(address.toString()))
 
 const queries = $computed(() => component?.procedures.filter((p) => p.type === 'query') ?? [])
 const actions = $computed(() => component?.procedures.filter((p) => p.type === 'action') ?? [])
@@ -46,7 +34,7 @@ const hasConnectivity = $computed(
   <card-page :title="component?.address?.toString() ?? address.toString()">
     <template #header-append>
       <q-space />
-      <status-badge v-if="component" :address :readonly="!canOperate" />
+      <status-badge v-if="component" :address />
     </template>
     <q-card-section v-if="component == null">
       <div class="text-grey-6">Component not found.</div>
