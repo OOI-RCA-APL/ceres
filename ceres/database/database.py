@@ -371,7 +371,7 @@ class Database:
         with wrap_database_errors():
             await self._engine.dispose()
 
-    async def get_applied_migrations(self) -> list[int]:
+    async def _get_applied_migration_ids(self) -> list[int]:
         """Return the IDs of every migration recorded as applied, in ascending order."""
         ddl = (
             _MIGRATIONS_TABLE_DDL_POSTGRES
@@ -384,11 +384,18 @@ class Database:
                 result = await connection.execute(text("SELECT id FROM migrations ORDER BY id"))
                 return [row[0] for row in result]
 
+    async def get_applied_migrations(self) -> list[Migration]:
+        """Return known migrations recorded as applied, in application order."""
+        from ceres.database.migrations import MIGRATIONS
+
+        applied = set(await self._get_applied_migration_ids())
+        return [migration for migration in MIGRATIONS if migration.id in applied]
+
     async def get_pending_migrations(self) -> list[Migration]:
         """Return known migrations that have not been applied, in application order."""
         from ceres.database.migrations import MIGRATIONS
 
-        applied = set(await self.get_applied_migrations())
+        applied = set(await self._get_applied_migration_ids())
         return [migration for migration in MIGRATIONS if migration.id not in applied]
 
     async def get_unknown_migrations(self) -> list[int]:
@@ -396,7 +403,7 @@ class Database:
         from ceres.database.migrations import MIGRATIONS
 
         known = {migration.id for migration in MIGRATIONS}
-        return [id for id in await self.get_applied_migrations() if id not in known]
+        return [id for id in await self._get_applied_migration_ids() if id not in known]
 
     async def migrate(self) -> list[int]:
         """Apply every pending migration in order, recording each as it completes.

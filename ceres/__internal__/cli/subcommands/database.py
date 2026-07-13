@@ -166,7 +166,7 @@ class MigrationsCommand(CLICommand):
     async def __run__(self) -> None:
         """Print each known migration with its applied/pending status."""
         async with self.use_database(require_initialized=False) as database:
-            applied = set(await database.get_applied_migrations())
+            applied = {migration.id for migration in await database.get_applied_migrations()}
             unknown = await database.get_unknown_migrations()
 
             for migration in MIGRATIONS:
