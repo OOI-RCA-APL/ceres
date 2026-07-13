@@ -154,11 +154,12 @@ class Sensor(Component):
         return {"calibrated": True}
 ```
 
-Both decorators accept a `permit` parameter controlling who can call them.
+Both decorators accept a `permit` parameter controlling who can call them. It takes `"public"` or a `ComponentAccessLevel`, checked against the caller's effective access on the component.
 
-- `"public"` (default for queries): Anyone can call.
-- `"operators"` (default for actions): Requires operator or admin role.
-- `"admins"`: Requires admin role.
+- `"public"`: Anyone can call, including unauthenticated requests.
+- `"view"` (default for queries): Requires `VIEW` access or higher.
+- `"operate"` (default for actions): Requires `OPERATE` access or higher.
+- `"manage"`: Requires `MANAGE` access.
 
 ## Events
 
