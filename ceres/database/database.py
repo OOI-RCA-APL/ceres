@@ -23,7 +23,8 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
-from ceres.error import DatabaseInitError
+from ceres.error import DatabaseInitError, DatabaseMigrationError
+from ceres.timing import utc
 
 if TYPE_CHECKING:
     import sqlite3
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 
     from ceres.__internal__.entity import BaseEntityManager, BaseEntityRow
     from ceres.database import DatabaseType
+    from ceres.database.migrations import Migration
     from ceres.entity import Entity
 
     _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
@@ -61,6 +63,16 @@ __all__ = [
     "SQLiteDatabase",
     "PostgresDatabase",
 ]
+
+
+_MIGRATIONS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS migrations (
+    id INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL
+)
+""".strip()
+# The migrations table is intentionally not an entity row, it is bookkeeping owned by the
+# database layer.
 
 
 class Database:
@@ -363,10 +375,104 @@ class Database:
                     async with self._engine.begin() as connection:
                         for statement in self.ddl:
                             await connection.execute(text(statement))
+
+                        await connection.execute(text(_MIGRATIONS_TABLE_DDL))
                 except Exception as error:
                     raise DatabaseInitError(message=str(error)) from error
 
+                await self._stamp_migrations()
                 self._init_completed = True
+
+    async def applied_migrations(self) -> list[int]:
+        """Return the ids of every migration recorded as applied, in ascending order."""
+        with wrap_database_errors():
+            async with self._engine.begin() as connection:
+                await connection.execute(text(_MIGRATIONS_TABLE_DDL))
+                result = await connection.execute(text("SELECT id FROM migrations ORDER BY id"))
+                return [row[0] for row in result]
+
+    async def pending_migrations(self) -> list[Migration]:
+        """Return known migrations that have not been applied, in application order."""
+        from ceres.database.migrations import MIGRATIONS
+
+        applied = set(await self.applied_migrations())
+        return [migration for migration in MIGRATIONS if migration.id not in applied]
+
+    async def unknown_migrations(self) -> list[int]:
+        """Return applied migration ids this version of ceres does not know about."""
+        from ceres.database.migrations import MIGRATIONS
+
+        known = {migration.id for migration in MIGRATIONS}
+        return [id for id in await self.applied_migrations() if id not in known]
+
+    async def migrate(self) -> list[int]:
+        """Apply every pending migration in order, recording each as it completes.
+
+        Returns:
+            The ids of the migrations that were applied.
+
+        Raises:
+            DatabaseMigrationError: If a migration fails.
+        """
+        applied: list[int] = []
+        for migration in await self.pending_migrations():
+            with wrap_database_errors():
+                try:
+                    async with self._engine.begin() as connection:
+                        await migration.upgrade(connection)
+                        await connection.execute(
+                            text("INSERT INTO migrations (id, applied_at) VALUES (:id, :now)"),
+                            {"id": migration.id, "now": utc().isoformat()},
+                        )
+                except Exception as error:
+                    raise DatabaseMigrationError(
+                        message=(
+                            f"Migration {migration.id} ({migration.description}) failed: {error}"
+                        )
+                    ) from error
+
+            applied.append(migration.id)
+
+        return applied
+
+    async def _stamp_migrations(self) -> None:
+        """Record every known migration as applied without running it."""
+        from ceres.database.migrations import MIGRATIONS
+
+        applied = set(await self.applied_migrations())
+        async with self._engine.begin() as connection:
+            for migration in MIGRATIONS:
+                if migration.id not in applied:
+                    await connection.execute(
+                        text("INSERT INTO migrations (id, applied_at) VALUES (:id, :now)"),
+                        {"id": migration.id, "now": utc().isoformat()},
+                    )
+
+    async def assert_schema_current(self) -> None:
+        """Verify the database schema matches this version of ceres.
+
+        Raises:
+            DatabaseMigrationError: If migrations are pending or unknown migrations are applied.
+        """
+        unknown = await self.unknown_migrations()
+        if unknown:
+            raise DatabaseMigrationError(
+                message=(
+                    f"Database contains migrations unknown to this version of ceres: "
+                    f"{', '.join(str(id) for id in unknown)}. The database is newer than the "
+                    "running version."
+                )
+            )
+
+        pending = await self.pending_migrations()
+        if pending:
+            ids = ", ".join(str(migration.id) for migration in pending)
+            raise DatabaseMigrationError(
+                message=(
+                    f"Database has pending migrations: {ids}. "
+                    "Run `ceres database migrate` to apply them."
+                )
+            )
 
     async def clear(self) -> None:
         """Delete every row from every known entity table, preserving the schema itself."""

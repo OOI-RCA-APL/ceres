@@ -534,6 +534,15 @@ class DatabaseInitError(Error, slots=True):
     """Description of the initialization failure."""
 
 
+class DatabaseMigrationError(Error, slots=True):
+    """Raised when the database schema does not match the running version."""
+
+    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    type: Literal["database-migration-error"] = "database-migration-error"
+    message: str
+    """Description of the migration failure."""
+
+
 DatabaseError: TypeAlias = (
     AlreadyExistsError
     | IntegrityError
@@ -543,6 +552,7 @@ DatabaseError: TypeAlias = (
     | DatabaseUnexpectedError
     | DatabaseLoadError
     | DatabaseInitError
+    | DatabaseMigrationError
 )
 """Discriminated union of all database-related errors."""
 

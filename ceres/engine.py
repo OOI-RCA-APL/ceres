@@ -457,6 +457,8 @@ class Engine(Node):
             except Error:
                 self.log.error("Database initialization failed.")
                 raise
+        else:
+            await self.database.assert_schema_current()
 
     def _create_server(self) -> Server | None:
         if self.config_path is None:
