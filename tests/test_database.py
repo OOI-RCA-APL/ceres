@@ -50,3 +50,31 @@ async def test_in_memory_database_creates_no_temporary_file():
         assert list(Path(gettempdir()).glob(f"*{database.id}*")) == []
     finally:
         await database.dispose()
+
+
+async def test_use_only_checks_initialized_once_per_instance(monkeypatch):
+    """A second `use()` call does not re-run schema introspection on an already bootstrapped
+    instance."""
+    database = Database(SQLiteDatabaseConfig.in_memory())
+    try:
+        calls = 0
+        original_initialized = database.initialized
+
+        async def counting_initialized() -> bool:
+            nonlocal calls
+            calls += 1
+            return await original_initialized()
+
+        monkeypatch.setattr(database, "initialized", counting_initialized)
+
+        async with await database.use():
+            pass
+
+        assert calls == 1
+
+        async with await database.use():
+            pass
+
+        assert calls == 1
+    finally:
+        await database.dispose()

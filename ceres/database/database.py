@@ -108,6 +108,7 @@ class Database:
         self._config = config
         self._engine = self._create_engine()
         self._migrate_lock = AsyncLock()
+        self._bootstrapped = False
 
     @property
     def __database__(self) -> Database:
@@ -331,13 +332,19 @@ class Database:
         """Bootstrap an empty database through the migration chain, then open a new connection.
 
         Databases that already have tables are left untouched here, `assert_schema_current`
-        is what guards against stale schemas on those.
+        is what guards against stale schemas on those. Bootstrapping only happens once per
+        instance, a cached flag makes every later call zero-I/O. Concurrent first calls may
+        each run `initialized()` and `migrate()`, but `migrate()` serializes on the instance's
+        migration lock, so migrations are still only applied once.
 
         Returns:
             An `AsyncConnection` ready for use against a bootstrapped database.
         """
-        if not await self.initialized():
-            await self.migrate()
+        if not self._bootstrapped:
+            if not await self.initialized():
+                await self.migrate()
+
+            self._bootstrapped = True
 
         return self.connect()
 
