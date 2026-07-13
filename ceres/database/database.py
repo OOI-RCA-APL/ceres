@@ -24,7 +24,6 @@ from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
 from ceres.error import DatabaseMigrationError
-from ceres.timing import utc
 
 if TYPE_CHECKING:
     import sqlite3
@@ -65,10 +64,17 @@ __all__ = [
 ]
 
 
-_MIGRATIONS_TABLE_DDL = """
+_MIGRATIONS_TABLE_DDL_SQLITE = """
 CREATE TABLE IF NOT EXISTS migrations (
     id INTEGER PRIMARY KEY,
-    applied_at TEXT NOT NULL
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+)
+""".strip()
+
+_MIGRATIONS_TABLE_DDL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS migrations (
+    id INTEGER PRIMARY KEY,
+    applied_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 )
 """.strip()
 # The migrations table is intentionally not an entity row, it is bookkeeping owned by the
@@ -359,10 +365,15 @@ class Database:
             await self._engine.dispose()
 
     async def applied_migrations(self) -> list[int]:
-        """Return the ids of every migration recorded as applied, in ascending order."""
+        """Return the IDs of every migration recorded as applied, in ascending order."""
+        ddl = (
+            _MIGRATIONS_TABLE_DDL_POSTGRES
+            if self.type.value == "postgres"
+            else _MIGRATIONS_TABLE_DDL_SQLITE
+        )
         with wrap_database_errors():
             async with self._engine.begin() as connection:
-                await connection.execute(text(_MIGRATIONS_TABLE_DDL))
+                await connection.execute(text(ddl))
                 result = await connection.execute(text("SELECT id FROM migrations ORDER BY id"))
                 return [row[0] for row in result]
 
@@ -374,7 +385,7 @@ class Database:
         return [migration for migration in MIGRATIONS if migration.id not in applied]
 
     async def unknown_migrations(self) -> list[int]:
-        """Return applied migration ids this version of ceres does not know about."""
+        """Return applied migration IDs this version of ceres does not know about."""
         from ceres.database.migrations import MIGRATIONS
 
         known = {migration.id for migration in MIGRATIONS}
@@ -385,10 +396,10 @@ class Database:
 
         Holds an instance-level lock for the duration of the call, so concurrent callers on
         the same `Database` instance apply migrations one at a time instead of racing to
-        insert the same migration id.
+        insert the same migration ID.
 
         Returns:
-            The ids of the migrations that were applied.
+            The IDs of the migrations that were applied.
 
         Raises:
             DatabaseMigrationError: If a migration fails.
@@ -404,15 +415,12 @@ class Database:
                                 await self._execute_script(connection, sql)
 
                             await connection.execute(
-                                text("INSERT INTO migrations (id, applied_at) VALUES (:id, :now)"),
-                                {"id": migration.id, "now": utc().isoformat()},
+                                text("INSERT INTO migrations (id) VALUES (:id)"),
+                                {"id": migration.id},
                             )
                     except Exception as error:
                         raise DatabaseMigrationError(
-                            message=(
-                                f"Migration {migration.id} ({migration.description}) failed: "
-                                f"{error}"
-                            )
+                            message=(f"Migration {migration.id} ({migration.name}) failed: {error}")
                         ) from error
 
                 applied.append(migration.id)
