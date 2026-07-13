@@ -1,5 +1,6 @@
 import traceback
 from abc import abstractmethod
+from asyncio import Lock as AsyncLock
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -100,6 +101,7 @@ class Database:
         self._id = uuid4()
         self._config = config
         self._engine = self._create_engine()
+        self._migrate_lock = AsyncLock()
 
     @property
     def __database__(self) -> Database:
@@ -381,32 +383,51 @@ class Database:
     async def migrate(self) -> list[int]:
         """Apply every pending migration in order, recording each as it completes.
 
+        Holds an instance-level lock for the duration of the call, so concurrent callers on
+        the same `Database` instance apply migrations one at a time instead of racing to
+        insert the same migration id.
+
         Returns:
             The ids of the migrations that were applied.
 
         Raises:
             DatabaseMigrationError: If a migration fails.
         """
-        applied: list[int] = []
-        for migration in await self.pending_migrations():
-            with wrap_database_errors():
-                try:
-                    async with self._engine.begin() as connection:
-                        await migration.upgrade(connection)
-                        await connection.execute(
-                            text("INSERT INTO migrations (id, applied_at) VALUES (:id, :now)"),
-                            {"id": migration.id, "now": utc().isoformat()},
-                        )
-                except Exception as error:
-                    raise DatabaseMigrationError(
-                        message=(
-                            f"Migration {migration.id} ({migration.description}) failed: {error}"
-                        )
-                    ) from error
+        async with self._migrate_lock:
+            applied: list[int] = []
+            for migration in await self.pending_migrations():
+                with wrap_database_errors():
+                    try:
+                        async with self._engine.begin() as connection:
+                            sql = migration.script_for(self.type.value)
+                            if sql is not None:
+                                await self._execute_script(connection, sql)
 
-            applied.append(migration.id)
+                            await connection.execute(
+                                text("INSERT INTO migrations (id, applied_at) VALUES (:id, :now)"),
+                                {"id": migration.id, "now": utc().isoformat()},
+                            )
+                    except Exception as error:
+                        raise DatabaseMigrationError(
+                            message=(
+                                f"Migration {migration.id} ({migration.description}) failed: "
+                                f"{error}"
+                            )
+                        ) from error
 
-        return applied
+                applied.append(migration.id)
+
+            return applied
+
+    @abstractmethod
+    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
+        """Execute a possibly multi-statement SQL script through the backend driver.
+
+        Args:
+            connection: Connection whose transaction the script runs within.
+            sql: SQL script text, which may contain multiple `;`-terminated statements.
+        """
+        ...
 
     async def assert_schema_current(self) -> None:
         """Verify the database schema matches this version of ceres.
@@ -633,6 +654,13 @@ class SQLiteDatabase(Database):
         # Enable a 30 second busy timeout.
         yield "PRAGMA busy_timeout = 30000"
 
+    @override
+    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
+        # Run the script through aiosqlite's "executescript", which handles multiple
+        # ";"-terminated statements in a single call.
+        raw_connection = await connection.get_raw_connection()
+        await raw_connection.driver_connection.executescript(sql)
+
     def _get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
 
@@ -715,6 +743,13 @@ class PostgresDatabase(Database):
             "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
+
+    @override
+    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
+        # asyncpg's simple query protocol executes an entire multi-statement string in one
+        # call, including the "$$"-quoted function bodies the baseline schema defines.
+        raw_connection = await connection.get_raw_connection()
+        await raw_connection.driver_connection.execute(sql)
 
 
 def _ceres_tokenize_bytes(value: bytes) -> str:

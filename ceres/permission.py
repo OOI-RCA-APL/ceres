@@ -75,14 +75,9 @@ class UserPermissionRow(BaseEntityRow, kw_only=True):
                 PermissionTargetType,
                 name=f"ck_{cls.__tablename__}__target_type",
             ),
-            EnumConstraint(
-                cls.level,
-                ComponentAccessLevel,
-                name=f"ck_{cls.__tablename__}__level",
-            ),
             CheckConstraint(
                 cls.level.in_(["view", "operate", "manage"]),
-                name=f"ck_{cls.__tablename__}__level_no_deny",
+                name=f"ck_{cls.__tablename__}__level",
             ),
         )
 
@@ -326,14 +321,9 @@ class GroupPermissionRow(BaseEntityRow, kw_only=True):
                 PermissionTargetType,
                 name=f"ck_{cls.__tablename__}__target_type",
             ),
-            EnumConstraint(
-                cls.level,
-                ComponentAccessLevel,
-                name=f"ck_{cls.__tablename__}__level",
-            ),
             CheckConstraint(
                 cls.level.in_(["view", "operate", "manage"]),
-                name=f"ck_{cls.__tablename__}__level_no_deny",
+                name=f"ck_{cls.__tablename__}__level",
             ),
         )
 

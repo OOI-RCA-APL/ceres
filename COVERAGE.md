@@ -58,7 +58,7 @@
 | `ceres/database/__init__.py` | 100% |
 | `ceres/database/database.py` | 79% |
 | `ceres/database/enums.py` | 100% |
-| `ceres/database/migrations.py` | 97% |
+| `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
 | `ceres/engine.py` | 32% |
