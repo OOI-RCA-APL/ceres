@@ -91,7 +91,7 @@
 | `ceres/tasklet.py` | 98% |
 | `ceres/timing.py` | 99% |
 | `ceres/ui.py` | 90% |
-| `ceres/user.py` | 97% |
+| `ceres/user.py` | 98% |
 | `ceres/variable.py` | 87% |
 | `ceres/version.py` | 89% |
 | `ceres/workspace.py` | 97% |

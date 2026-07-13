@@ -161,6 +161,43 @@ class EffectiveAccessResult(DataObject):
     level: ComponentAccessLevel | None
 
 
+class ComponentEffectiveAccess(DataObject):
+    """Effective access level a user holds on a single component."""
+
+    address: Address
+    level: ComponentAccessLevel
+
+
+@router.get("/effective/{user_id:uuid}", dependencies=[AUTHENTICATED])
+async def get_all_effective_access(
+    engine: CurrentEngine,
+    user: CurrentUser,
+    user_id: UUID,
+) -> list[ComponentEffectiveAccess]:
+    """Resolve the effective access level for every component the target user can access.
+
+    Components the user has no access to are omitted.
+
+    Raises:
+        NotFoundError: If the target user does not exist.
+        NotPermittedError: If a non-admin caller queries another user.
+    """
+    if user is not None and not user.admin and user.id != user_id:
+        raise NotPermittedError()
+
+    target_user = await engine.database.users.get(user_id)
+    if target_user is None:
+        raise NotFoundError()
+
+    result: list[ComponentEffectiveAccess] = []
+    for component in engine.get_components():
+        level = await get_component_access(engine, target_user, component)
+        if level is not None:
+            result.append(ComponentEffectiveAccess(address=component.system.address, level=level))
+
+    return result
+
+
 @router.get("/effective/{user_id:uuid}/{address:path}", dependencies=[AUTHENTICATED])
 async def get_effective_access(
     engine: CurrentEngine,
