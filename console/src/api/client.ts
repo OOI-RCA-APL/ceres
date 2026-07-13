@@ -333,7 +333,7 @@ function createQueryParameters(values: Record<string, unknown>): string {
       continue
     }
 
-    if (value !== undefined) {
+    if (value != undefined) {
       result.append(key, stringify(value))
     }
   }

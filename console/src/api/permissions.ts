@@ -83,10 +83,7 @@ export const usePermissions = defineStore('permissions', () => {
     })
   }
 
-  async function getEffectiveAccess(
-    userId: string,
-    address: string
-  ): Promise<EffectiveAccess> {
+  async function getEffectiveAccess(userId: string, address: string): Promise<EffectiveAccess> {
     return await client.get(`/api/permissions/effective/${userId}/${address}`, {
       parse: EffectiveAccessModel,
     })

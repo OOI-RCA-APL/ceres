@@ -70,6 +70,11 @@ const routes: RouteRecordRaw[] = [
         meta: { auth: 'viewer' },
       },
       {
+        path: '/groups/create',
+        component: () => import('@/pages/CreateGroup.vue'),
+        meta: { auth: 'admin' },
+      },
+      {
         path: '/groups',
         component: () => import('@/pages/Groups.vue'),
         meta: { auth: 'admin' },

@@ -1,5 +1,9 @@
+import { mdiPlus } from '@quasar/extras/mdi-v7'
+
 const icons = {
-  add: 'mdi-plus',
+  // The webfont mdi-plus glyph can rasterize slightly off-center in small round buttons at some
+  // zoom levels, the SVG version centers geometrically.
+  add: mdiPlus,
   admin: 'admin_panel_settings', // Material Icons
   all: 'mdi-asterisk',
   arrowDown: 'mdi-arrow-down',
@@ -40,6 +44,7 @@ const icons = {
   leave: 'mdi-exit-run',
   lightMode: 'light_mode', // Material Icons
   logout: 'mdi-logout', // Material Icons
+  manage: 'mdi-cog',
   manager: 'mdi-account-star',
   menuDown: 'mdi-menu-down',
   menuLeft: 'mdi-menu-left',
@@ -47,6 +52,7 @@ const icons = {
   menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
   moreVertical: 'mdi-dots-vertical',
+  operate: 'mdi-tune',
   operations: 'mdi-cog-transfer',
   operator: 'mdi-account-cog',
   password: 'password', // Material Icons
@@ -65,6 +71,7 @@ const icons = {
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',
+  view: 'mdi-eye',
   viewOriginal: 'mdi-eye-arrow-left',
   viewer: 'mdi-account-eye',
   workspace: 'mdi-dots-grid',

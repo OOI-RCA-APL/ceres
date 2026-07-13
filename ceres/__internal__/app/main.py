@@ -3,11 +3,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, final
 
 from fastapi import FastAPI, Request, Response
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import RequestValidationError, WebSocketRequestValidationError
 from fastapi.requests import HTTPConnection
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException
-from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
+from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT, WS_1008_POLICY_VIOLATION
 
 from ceres.__internal__.app.shared import CurrentEngine, Router
 from ceres.__internal__.utilities.collections import seq
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         ASGISendEvent,
         Scope,
     )
+    from starlette.websockets import WebSocket
 
     from ceres.config import ServerConfig
     from ceres.engine import Engine
@@ -142,6 +143,9 @@ class App(FastAPI):
 
         self.exception_handler(HTTPException)(self._http_exception_handler)
         self.exception_handler(RequestValidationError)(self._request_validation_error_handler)
+        self.exception_handler(WebSocketRequestValidationError)(
+            self._websocket_validation_error_handler
+        )
 
         from ceres.__internal__.app.api import router as api
 
@@ -185,6 +189,17 @@ class App(FastAPI):
         """Convert FastAPI request validation errors into a structured JSON response."""
         error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
         return JSONResponse(simplify(error), HTTP_422_UNPROCESSABLE_CONTENT)
+
+    async def _websocket_validation_error_handler(
+        self,
+        websocket: WebSocket,
+        exception: WebSocketRequestValidationError,
+    ) -> None:
+        """Close the WebSocket with a policy violation code on validation failure."""
+        try:
+            await websocket.close(code=WS_1008_POLICY_VIOLATION)
+        except RuntimeError:
+            pass
 
 
 class LoggingMiddleware:

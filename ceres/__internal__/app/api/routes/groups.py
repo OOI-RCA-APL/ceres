@@ -10,6 +10,7 @@ from ceres.__internal__.app.shared import (
 from ceres.group import Group, GroupMembership
 
 router = Router(prefix="/groups", tags=["groups"])
+user_router = Router(tags=["group-memberships"])
 
 
 @router.get("/{id:uuid}", dependencies=[VIEWER])
@@ -67,4 +68,45 @@ async def remove_group_member(
     return await engine.database.group_memberships.where(
         user_id=user_id,
         group_id=id,
+    ).delete()
+
+
+@user_router.get("/users/{user_id:uuid}/group-memberships", dependencies=[VIEWER])
+async def get_user_group_memberships(
+    engine: CurrentEngine,
+    user_id: UUID,
+) -> list[GroupMembership]:
+    """Return all group memberships for a user."""
+    return await engine.database.group_memberships.where(user_id=user_id)
+
+
+@user_router.post(
+    "/users/{user_id:uuid}/group-memberships/{group_id:uuid}",
+    dependencies=[ADMIN],
+)
+async def add_user_to_group(
+    engine: CurrentEngine,
+    user_id: UUID,
+    group_id: UUID,
+) -> GroupMembership:
+    """Add a user to a group."""
+    assert_found(await engine.database.groups.get(group_id))
+    return await engine.database.group_memberships.create(
+        GroupMembership(user_id=user_id, group_id=group_id),
+    )
+
+
+@user_router.delete(
+    "/users/{user_id:uuid}/group-memberships/{group_id:uuid}",
+    dependencies=[ADMIN],
+)
+async def remove_user_from_group(
+    engine: CurrentEngine,
+    user_id: UUID,
+    group_id: UUID,
+) -> int:
+    """Remove a user from a group."""
+    return await engine.database.group_memberships.where(
+        user_id=user_id,
+        group_id=group_id,
     ).delete()

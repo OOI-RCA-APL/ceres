@@ -7,8 +7,9 @@ import StatusBadgeAffectedCounter from '@/components/StatusBadgeAffectedCounter.
 import icons from '@/icons'
 import { debouncedComputed } from '@/utilities'
 
-const { address } = defineProps<{
+const { address, readonly = false } = defineProps<{
   address: Address
+  readonly?: boolean
 }>()
 
 const engine = useEngine()
@@ -18,6 +19,8 @@ const status = $computed(() => ({
   enabled: engine.statuses.get(address)?.enabled ?? null,
   connectivity: engine.statuses.get(address)?.connectivity ?? null,
 }))
+
+const canControl = $computed(() => engine.auth.isOperator && !readonly)
 
 let menuIsOpen = $ref(false)
 
@@ -91,7 +94,7 @@ const connectionColor = $computed(() => {
         $style.root,
         status.running && $style.running,
         status.enabled && $style.enabled,
-        engine.auth.isOperator && 'cursor-pointer',
+        canControl && 'cursor-pointer',
       ]"
       rounded
     >
@@ -101,12 +104,16 @@ const connectionColor = $computed(() => {
       >
         <span v-if="status.running != null">{{ status.running ? 'Running' : 'Stopped' }}</span>
         <template v-if="status.enabled != null">
-          <span> ⸱ </span>
+          <span> &#x2E31; </span>
           <span>{{ status.enabled ? 'Enabled' : 'Disabled' }}</span>
+        </template>
+        <template v-if="readonly">
+          <span> &#x2E31; </span>
+          <span>Read-only</span>
         </template>
       </q-tooltip>
       <q-menu
-        v-if="engine.auth.isOperator"
+        v-if="canControl"
         v-model="menuIsOpen"
         anchor="top right"
         class="relative-position"
@@ -221,6 +228,7 @@ const connectionColor = $computed(() => {
         </q-card>
       </q-menu>
     </q-badge>
+    <q-icon v-if="readonly" :class="$style.lock" color="grey-6" name="lock" size="12px" />
   </div>
 </template>
 
@@ -257,5 +265,10 @@ const connectionColor = $computed(() => {
 .allIcon {
   margin-top: 5px;
   margin-left: 2px;
+}
+
+.lock {
+  margin-left: 2px;
+  opacity: 0.7;
 }
 </style>

@@ -69,6 +69,22 @@ export const useGroups = defineStore('groups', () => {
     return await client.delete(`/api/groups/${groupId}/members/${userId}`)
   }
 
+  async function getMembershipsForUser(userId: string): Promise<GroupMembership[]> {
+    return await client.get(`/api/users/${userId}/group-memberships`, {
+      parse: Zod.array(GroupMembershipModel),
+    })
+  }
+
+  async function addUserToGroup(userId: string, groupId: string): Promise<GroupMembership> {
+    return await client.post(`/api/users/${userId}/group-memberships/${groupId}`, {
+      parse: GroupMembershipModel,
+    })
+  }
+
+  async function removeUserFromGroup(userId: string, groupId: string) {
+    return await client.delete(`/api/users/${userId}/group-memberships/${groupId}`)
+  }
+
   return {
     get,
     getAll,
@@ -78,5 +94,8 @@ export const useGroups = defineStore('groups', () => {
     getMembers,
     addMember,
     removeMember,
+    getMembershipsForUser,
+    addUserToGroup,
+    removeUserFromGroup,
   }
 })

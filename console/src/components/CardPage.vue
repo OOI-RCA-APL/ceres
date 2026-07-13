@@ -13,23 +13,29 @@ const navigation = useNavigation()
 <template>
   <q-page :class="$style.root">
     <q-card bordered :class="$style.card" flat>
-      <div :class="[$style.header, 'items-center q-pr-md row']">
-        <q-btn
-          :class="[$style.backButton, 'gt-xs']"
-          dense
-          flat
-          :icon="icons.arrowLeft"
-          round
-          @click="navigation.back()"
-        >
-          <q-tooltip :delay="500">Back</q-tooltip>
-        </q-btn>
-        <common-text class="q-mx-md q-my-sm" element="h1" variant="title1">{{ title }}</common-text>
-        <slot name="header-append" />
+      <div :class="[$style.header, 'q-pr-md']">
+        <div class="items-center row">
+          <q-btn
+            :class="[$style.backButton, 'gt-xs']"
+            dense
+            flat
+            :icon="icons.arrowLeft"
+            round
+            @click="navigation.back()"
+          >
+            <q-tooltip :delay="500">Back</q-tooltip>
+          </q-btn>
+          <common-text class="q-mx-md q-my-sm" element="h1" variant="title1">
+            {{ title }}
+          </common-text>
+          <slot name="header-append" />
+        </div>
+        <slot name="subtitle" />
       </div>
       <q-separator />
       <slot />
     </q-card>
+    <slot name="sections" />
   </q-page>
 </template>
 
