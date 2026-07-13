@@ -23,7 +23,7 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
-from ceres.error import DatabaseMigrationError
+from ceres.error import DatabaseMigrationError, DatabaseVersionError
 
 if TYPE_CHECKING:
     import sqlite3
@@ -448,11 +448,11 @@ class Database:
         """Verify the database schema matches this version of ceres.
 
         Raises:
-            DatabaseMigrationError: If migrations are pending or unknown migrations are applied.
+            DatabaseVersionError: If migrations are pending or unknown migrations are applied.
         """
         unknown = await self.unknown_migrations()
         if unknown:
-            raise DatabaseMigrationError(
+            raise DatabaseVersionError(
                 message=(
                     f"Database contains migrations unknown to this version of ceres: "
                     f"{', '.join(str(id) for id in unknown)}. The database is newer than the "
@@ -462,11 +462,12 @@ class Database:
 
         pending = await self.pending_migrations()
         if pending:
-            ids = ", ".join(str(migration.id) for migration in pending)
-            raise DatabaseMigrationError(
+            count = len(pending)
+            noun = "migration" if count == 1 else "migrations"
+            raise DatabaseVersionError(
                 message=(
-                    f"Database has pending migrations: {ids}. "
-                    "Run `ceres database migrate` to apply them."
+                    f"Database has {count} pending {noun}. "
+                    f"Run `ceres database migrate` to apply {'it' if count == 1 else 'them'}."
                 )
             )
 
@@ -784,8 +785,9 @@ class PostgresDatabase(Database):
     async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
         # asyncpg's simple query protocol executes an entire multi-statement string in one
         # call, including the "$$"-quoted function bodies the baseline schema defines.
-        raw_connection = await connection.get_raw_connection()
-        await raw_connection.driver_connection.execute(sql)
+        raw = await connection.get_raw_connection()
+        assert raw.driver_connection is not None
+        await raw.driver_connection.execute(sql)
 
 
 def _ceres_tokenize_bytes(value: bytes) -> str:

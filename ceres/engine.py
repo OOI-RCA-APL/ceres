@@ -246,9 +246,9 @@ class Engine(Node):
         if self.local_directory is not None:
             self.local_directory.create()
 
+        await self._prepare_database()
         await self._apply(self.config_path, self.config)
 
-        await self._load_database()
         await self.__node_sync__()
 
         # Hydrate every component's persisted state in a single connection, then start the tree
@@ -446,7 +446,23 @@ class Engine(Node):
 
         return previous.component if previous is not None else None
 
-    async def _load_database(self) -> None:
+    async def _prepare_database(self) -> None:
+        """Load the configured database and bring its schema current before starting anything.
+
+        Applying the configuration starts the HTTP server and creates components as side
+        effects, so the database is swapped in and made ready first: an empty database has all
+        migrations applied, an existing one must already be current. Reapplying a changed
+        database configuration at runtime is not covered by this check.
+
+        Raises:
+            DatabaseVersionError: If the database has pending or unknown migrations.
+        """
+        if self._database.config != self.config.database:
+            self.log.info("Database configuration will be loaded.")
+            await self._database.dispose()
+            self._database = Database(self.config.database)
+            self.log.info("Database configuration loaded successfully.")
+
         if not await self.database.initialized():
             self.log.info("Database appears empty, running migrations.")
             try:

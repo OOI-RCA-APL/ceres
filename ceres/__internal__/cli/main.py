@@ -575,10 +575,15 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
-        if not isinstance(exception, CLICommandFailed):
-            raise CLICommandFailed(f"Engine startup failed. {trace(exception)}")
-        else:
+        if isinstance(exception, CLICommandFailed):
             raise
+
+        # Structured errors carry an actionable message, show it instead of a traceback.
+        message = getattr(exception, "message", None)
+        if isinstance(exception, Error) and isinstance(message, str):
+            raise CLICommandFailed(f"Engine startup failed. {message}")
+
+        raise CLICommandFailed(f"Engine startup failed. {trace(exception)}")
 
 
 async def _run_watch(

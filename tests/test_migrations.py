@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ceres.database import Database
 from ceres.database.migrations import load_migrations
-from ceres.error import DatabaseMigrationError
+from ceres.error import DatabaseVersionError
 
 
 @pytest.fixture
@@ -149,7 +149,7 @@ async def test_assert_schema_current_raises_on_pending(database, monkeypatch, tm
     async with database.engine.begin() as connection:
         await connection.execute(text("DELETE FROM migrations"))
 
-    with pytest.raises(DatabaseMigrationError) as context:
+    with pytest.raises(DatabaseVersionError) as context:
         await database.assert_schema_current()
 
     assert "ceres database migrate" in context.value.message
@@ -162,7 +162,7 @@ async def test_assert_schema_current_raises_on_unknown(database):
             text("INSERT INTO migrations (id, applied_at) VALUES (9999, '2026-01-01')")
         )
 
-    with pytest.raises(DatabaseMigrationError) as context:
+    with pytest.raises(DatabaseVersionError) as context:
         await database.assert_schema_current()
 
     assert "newer" in context.value.message
