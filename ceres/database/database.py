@@ -427,7 +427,7 @@ class Database:
                             )
                     except Exception as error:
                         raise DatabaseMigrationError(
-                            message=(f"Migration {migration.id} ({migration.name}) failed: {error}")
+                            message=(f"Migration {migration.id} ({migration.name}) failed. {error}")
                         ) from error
 
                 applied.append(migration.id)
@@ -695,8 +695,9 @@ class SQLiteDatabase(Database):
     async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
         # Run the script through aiosqlite's "executescript", which handles multiple
         # ";"-terminated statements in a single call.
-        raw_connection = await connection.get_raw_connection()
-        await raw_connection.driver_connection.executescript(sql)
+        raw = await connection.get_raw_connection()
+        assert raw.driver_connection is not None
+        await raw.driver_connection.executescript(sql)
 
     def _get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
