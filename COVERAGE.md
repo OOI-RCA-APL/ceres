@@ -56,8 +56,9 @@
 | `ceres/data/types.py` | 99% |
 | `ceres/data/uuid.py` | 77% |
 | `ceres/database/__init__.py` | 100% |
-| `ceres/database/database.py` | 77% |
+| `ceres/database/database.py` | 79% |
 | `ceres/database/enums.py` | 100% |
+| `ceres/database/migrations.py` | 65% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
 | `ceres/engine.py` | 32% |

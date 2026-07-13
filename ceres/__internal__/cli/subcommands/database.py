@@ -12,6 +12,7 @@ from ceres.__internal__.cli.shared import (
     get_confirmation,
     temporary_signal_handler,
 )
+from ceres.database.migrations import MIGRATIONS
 from ceres.timing import sdelta, utc
 
 
@@ -151,6 +152,57 @@ class ClearCommand(CLICommand):
             self.write(f"Cleared all data from database in {sdelta(duration, decimals=2)}.")
 
 
+class MigrateCommand(CLICommand):
+    """
+    Apply pending database migrations.
+    """
+
+    @override
+    async def __run__(self) -> None:
+        """List pending migrations, prompt for confirmation, and apply them in order."""
+        async with self.use_database() as database:
+            unknown = await database.unknown_migrations()
+            if unknown:
+                raise CLICommandFailed(
+                    "Database contains migrations unknown to this version of ceres: "
+                    f"{', '.join(str(id) for id in unknown)}."
+                )
+
+            pending = await database.pending_migrations()
+            if not pending:
+                self.write("Database is up to date.")
+                return
+
+            for migration in pending:
+                self.write(f"{migration.id}: {migration.description}")
+
+            if get_confirmation("Apply the above migrations now?"):
+                applied = await database.migrate()
+                self.write(f"Applied {len(applied)} migration(s).")
+            else:
+                self.write("Database has not been modified.")
+
+
+class MigrationsCommand(CLICommand):
+    """
+    Show applied and pending database migrations.
+    """
+
+    @override
+    async def __run__(self) -> None:
+        """Print each known migration with its applied/pending status."""
+        async with self.use_database() as database:
+            applied = set(await database.applied_migrations())
+            unknown = await database.unknown_migrations()
+
+            for migration in MIGRATIONS:
+                status = "applied" if migration.id in applied else "pending"
+                self.write(f"{migration.id}: {migration.description} ({status})")
+
+            for id in unknown:
+                self.write(f"{id}: unknown (database is newer than this version)")
+
+
 class DatabaseCommand(CLICommandGroup):
     """
     Manage the project database.
@@ -160,3 +212,5 @@ class DatabaseCommand(CLICommandGroup):
     ddl: CliSubCommand[DDLCommand]
     shell: CliSubCommand[ShellCommand]
     clear: CliSubCommand[ClearCommand]
+    migrate: CliSubCommand[MigrateCommand]
+    migrations: CliSubCommand[MigrationsCommand]
