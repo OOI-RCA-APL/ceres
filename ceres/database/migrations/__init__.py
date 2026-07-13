@@ -33,8 +33,6 @@ class Migration:
     """Unique sequential identifier parsed from the filename prefix."""
     name: str
     """Kebab-case name parsed from the filename (e.g. `init`)."""
-    description: str
-    """Human-readable form of `name` (e.g. `Init`)."""
     scripts: Mapping[str | None, Path]
     """SQL script paths keyed by dialect (`sqlite`/`postgresql`), `None` for shared."""
 
@@ -104,7 +102,6 @@ def load_migrations(directory: Path) -> list[Migration]:
         Migration(
             id=id,
             name=names[id],
-            description=names[id].replace("-", " ").capitalize(),
             scripts=scripts_by_id[id],
         )
         for id in sorted(scripts_by_id)

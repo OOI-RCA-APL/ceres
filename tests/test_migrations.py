@@ -29,7 +29,6 @@ def test_load_migrations_parses_ids_names_and_dialects(tmp_path):
     migrations = load_migrations(tmp_path)
     assert [migration.id for migration in migrations] == [1, 2]
     assert migrations[0].name == "init"
-    assert migrations[0].description == "Init"
     assert set(migrations[0].scripts) == {"sqlite", "postgresql"}
     assert set(migrations[1].scripts) == {None}
 

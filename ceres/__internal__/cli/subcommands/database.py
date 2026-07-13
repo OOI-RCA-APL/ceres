@@ -143,7 +143,7 @@ class MigrateCommand(CLICommand):
                 return
 
             for migration in pending:
-                self.write(f"{migration.id}: {migration.description}")
+                self.write(f"{migration.id}: {migration.name}")
 
             if get_confirmation("Apply the above migrations now?"):
                 applied = await database.migrate()
@@ -166,7 +166,7 @@ class MigrationsCommand(CLICommand):
 
             for migration in MIGRATIONS:
                 status = "applied" if migration.id in applied else "pending"
-                self.write(f"{migration.id}: {migration.description} ({status})")
+                self.write(f"{migration.id}: {migration.name} ({status})")
 
             for id in unknown:
                 self.write(f"{id}: unknown (database is newer than this version)")
