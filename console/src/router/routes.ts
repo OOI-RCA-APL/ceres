@@ -26,7 +26,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: '/account',
         meta: {
-          auth: 'viewer',
+          auth: true,
         },
         component: Account,
       },
@@ -57,7 +57,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: '/workspaces/:id',
         meta: {
-          auth: 'viewer',
+          auth: true,
         },
         props: (route) => ({
           id: parseStringOrNull(route.params.id),
@@ -67,7 +67,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: '/components/:address(.*)',
         component: () => import('@/pages/ComponentDetail.vue'),
-        meta: { auth: 'viewer' },
+        meta: { auth: true },
       },
       {
         path: '/groups/create',

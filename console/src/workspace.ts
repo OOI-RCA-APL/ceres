@@ -27,7 +27,7 @@ import { LogEntryFilterModel } from '@/api/logs'
 import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
-import { User, UserRoleOf } from '@/api/users'
+import { User } from '@/api/users'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
@@ -1097,7 +1097,7 @@ export function resolveWidgetWidths(
 export function userCouldViewWorkspace(user: User | null, workspace: Workspace) {
   return (
     user != null &&
-    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_viewership]
+    (user.admin ? 2 : 0) >= WorkspaceAccessRestrictionOf[workspace.general_viewership]
   )
 }
 
@@ -1115,7 +1115,7 @@ export function userCanViewWorkspace(user: User | null, membership: WorkspaceMem
 export function userCouldEditWorkspace(user: User | null, workspace: Workspace) {
   return (
     user != null &&
-    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_editorship]
+    (user.admin ? 2 : 0) >= WorkspaceAccessRestrictionOf[workspace.general_editorship]
   )
 }
 
@@ -1133,7 +1133,7 @@ export function userCanEditWorkspace(user: User | null, membership: WorkspaceMem
 export function userCouldManageWorkspace(user: User | null, workspace: Workspace) {
   return (
     user != null &&
-    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_managership]
+    (user.admin ? 2 : 0) >= WorkspaceAccessRestrictionOf[workspace.general_managership]
   )
 }
 

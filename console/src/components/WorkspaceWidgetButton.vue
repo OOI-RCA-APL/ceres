@@ -54,7 +54,7 @@ const label = $computed(() => {
 })
 
 async function onClick() {
-  if (!auth.isOperator) {
+  if (!auth.isAdmin) {
     return
   }
 
@@ -79,7 +79,7 @@ async function onClick() {
     <q-btn
       :color="color"
       dense
-      :disabled="!auth.isOperator || action == null"
+      :disabled="!auth.isAdmin || action == null"
       :flat="widget.styling === 'flat'"
       :label="label"
       :loading="isRunning"

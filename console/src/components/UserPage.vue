@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { omit, upperFirst } from 'lodash-es'
+import { omit } from 'lodash-es'
 import { computed } from 'vue'
 
 import { useEngine } from '@/api/engine'
 import { Group } from '@/api/groups'
-import { UserRole, UserCreate } from '@/api/users'
+import { UserCreate } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
 import CardPageSection from '@/components/CardPageSection.vue'
 import PermissionsSection from '@/components/PermissionsSection.vue'
@@ -86,7 +86,7 @@ const form = useForm({
     email: '',
     password: '',
     disabled: false,
-    role: 'operator',
+    admin: false,
   },
   validators: {
     username: validate.isUsername(
@@ -112,7 +112,7 @@ const form = useForm({
 
     const update = engine.auth.isAdmin
       ? omit(data, ['password'])
-      : omit(data, ['password', 'role', 'disabled'])
+      : omit(data, ['password', 'admin', 'disabled'])
     const updated = await guard(engine.users.update(id, update), [
       {
         type: 'already-exists-error',
@@ -208,21 +208,18 @@ function promptRemoveFromGroup(group: Group) {
     <template #header-append>
       <q-space />
       <q-chip
+        v-if="form.data.admin"
         class="q-px-sm"
         color="primary"
         dense
-        :icon="icons[form.data.role]"
+        :icon="icons.admin"
         size="13px"
         text-color="white"
       >
-        {{ upperFirst(form.data.role) }}
+        Admin
         <q-tooltip class="bg-primary" :delay="250">
-          <template v-if="isAccountPage">
-            Your account has {{ form.data.role }}-level permissions.
-          </template>
-          <template v-else>
-            This user's account has {{ form.data.role }}-level permissions.
-          </template>
+          <template v-if="isAccountPage">Your account has full administrative access.</template>
+          <template v-else>This user's account has full administrative access.</template>
         </q-tooltip>
       </q-chip>
     </template>
@@ -290,20 +287,14 @@ function promptRemoveFromGroup(group: Group) {
           </template>
         </q-input>
         <div v-if="engine.auth.isAdmin" class="q-col-gutter-md row">
-          <div class="col-8">
-            <q-select
-              v-model="form.data.role"
-              dense
-              hint="Set user permissions level."
-              label="Role"
-              :option-label="(role: UserRole) => upperFirst(role)"
-              :options="['viewer', 'operator', 'admin']"
-              options-dense
-              outlined
-              :readonly="form.readonly"
-            />
+          <div class="col-6">
+            <q-toggle v-model="form.data.admin" :disable="form.readonly" label="Administrator">
+              <q-tooltip class="bg-primary text-white">
+                Grant full access to every component and setting.
+              </q-tooltip>
+            </q-toggle>
           </div>
-          <div class="col-4">
+          <div class="col-6">
             <q-toggle
               v-model="form.data.disabled"
               color="negative"

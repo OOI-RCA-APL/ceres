@@ -193,7 +193,7 @@ async function submit() {
         />
       </div>
     </template>
-    <template v-if="engine.auth.isOperator" #default>
+    <template v-if="engine.auth.isAdmin" #default>
       <q-form @submit.prevent="submit">
         <q-separator />
         <div class="row">

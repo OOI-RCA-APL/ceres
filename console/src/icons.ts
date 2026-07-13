@@ -54,7 +54,6 @@ const icons = {
   moreVertical: 'mdi-dots-vertical',
   operate: 'mdi-tune',
   operations: 'mdi-cog-transfer',
-  operator: 'mdi-account-cog',
   password: 'password', // Material Icons
   preferences: 'mdi-theme-light-dark',
   reload: 'mdi-cog-sync',

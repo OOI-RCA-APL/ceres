@@ -7,30 +7,21 @@ import {
   createWebHistory,
 } from 'vue-router'
 
-import { UserRole } from '@/api/users'
 import routes from '@/router/routes'
 
-export function userCanAccess(user: { role?: UserRole } | null, route: RouteLocation): boolean {
+export function userCanAccess(user: { admin?: boolean } | null, route: RouteLocation): boolean {
   const requiresAdmin = route.matched.some((record) => record.meta.auth === 'admin')
-  const requiresOperator = route.matched.some((record) => record.meta.auth === 'operator')
-  const requiresViewer = route.matched.some((record) => record.meta.auth === 'viewer')
+  const requiresAuthenticated = route.matched.some((record) => record.meta.auth === true)
 
-  let allowed: UserRole[]
   if (requiresAdmin) {
-    allowed = ['admin']
-  } else if (requiresOperator) {
-    allowed = ['admin', 'operator']
-  } else if (requiresViewer) {
-    allowed = ['admin', 'operator', 'viewer']
-  } else {
-    return true
+    return user?.admin === true
   }
 
-  if (user?.role == null) {
-    return false
+  if (requiresAuthenticated) {
+    return user != null
   }
 
-  return allowed.includes(user.role)
+  return true
 }
 
 export default route(() => {

@@ -299,7 +299,7 @@ function promptReload() {
             </q-card>
           </q-menu>
         </q-item>
-        <q-item v-if="engine.auth.isOperator" clickable>
+        <q-item v-if="engine.auth.isAdmin" clickable>
           <q-item-section avatar>
             <q-icon :name="icons.configuration" />
           </q-item-section>
@@ -423,18 +423,18 @@ function promptReload() {
               {{ engine.auth.user != null ? engine.auth.user.username : 'Login' }}
             </q-item-label>
           </q-item-section>
-          <q-item-section v-if="engine.auth.user" side>
+          <q-item-section v-if="engine.auth.user?.admin" side>
             <q-chip
               class="q-px-sm"
               color="primary"
               dense
-              :icon="icons[engine.auth.user.role]"
+              :icon="icons.admin"
               size="10px"
               text-color="white"
             >
-              {{ upperFirst(engine.auth.user.role) }}
+              Admin
               <q-tooltip class="bg-primary" :offset="[0, 8]">
-                You are currently logged in with {{ engine.auth.user.role }}-level permissions.
+                You are logged in with administrative access.
               </q-tooltip>
             </q-chip>
           </q-item-section>

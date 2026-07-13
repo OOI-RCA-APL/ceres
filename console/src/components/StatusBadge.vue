@@ -20,7 +20,7 @@ const status = $computed(() => ({
   connectivity: engine.statuses.get(address)?.connectivity ?? null,
 }))
 
-const canControl = $computed(() => engine.auth.isOperator && !readonly)
+const canControl = $computed(() => engine.auth.isAdmin && !readonly)
 
 let menuIsOpen = $ref(false)
 

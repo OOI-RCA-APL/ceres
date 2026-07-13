@@ -87,8 +87,7 @@ export const useAuth = defineStore('auth', () => {
     assignPassword,
     identity: computed(() => identity.value),
     user: computed(() => identity.value?.user ?? null),
-    isAdmin: computed(() => identity.value?.user?.role === 'admin'),
-    isOperator: computed(() => ['operator', 'admin'].includes(identity.value?.user?.role ?? '')),
+    isAdmin: computed(() => identity.value?.user?.admin ?? false),
     isViewer: computed(() => identity.value?.user),
   }
 })
