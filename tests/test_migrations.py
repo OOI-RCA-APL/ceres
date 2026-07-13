@@ -192,3 +192,83 @@ async def test_migrate_is_safe_under_concurrent_calls(database, monkeypatch, tmp
     async with database.engine.begin() as connection:
         result = await connection.execute(text("SELECT id FROM migrations"))
         assert [row[0] for row in result] == [1]
+
+
+async def test_migration_2_transforms_old_schema(database):
+    from ceres.database.migrations import MIGRATIONS
+
+    baseline = next(migration for migration in MIGRATIONS if migration.id == 1)
+    async with database.engine.begin() as connection:
+        # Create workspaces with the pre-collapse check constraint first, so the baseline
+        # script's `CREATE TABLE IF NOT EXISTS` leaves it alone. This reproduces a database
+        # that predates the baseline snapshot, where `general_*` still allowed the wider
+        # 'operators' and 'admins' values migration 2 is responsible for narrowing.
+        await connection.execute(
+            text(
+                "CREATE TABLE workspaces ("
+                "id CHAR(32) NOT NULL, "
+                "name TEXT NOT NULL, "
+                "general_viewership VARCHAR DEFAULT 'private' NOT NULL, "
+                "general_editorship VARCHAR DEFAULT 'private' NOT NULL, "
+                "general_managership VARCHAR DEFAULT 'private' NOT NULL, "
+                "data JSON DEFAULT '{}' NOT NULL, "
+                "CONSTRAINT pk_workspaces PRIMARY KEY (id), "
+                "CONSTRAINT ck_workspaces__general_viewership "
+                "CHECK (general_viewership IN ('anyone', 'operators', 'admins', 'private')), "
+                "CONSTRAINT ck_workspaces__general_editorship "
+                "CHECK (general_editorship IN ('anyone', 'operators', 'admins', 'private')), "
+                "CONSTRAINT ck_workspaces__general_managership "
+                "CHECK (general_managership IN ('anyone', 'operators', 'admins', 'private'))"
+                ")"
+            )
+        )
+
+        await database._execute_script(connection, baseline.script_for("sqlite"))
+        await connection.execute(
+            text(
+                "INSERT INTO users (id, username, email, password, role, disabled) VALUES "
+                "('u1', 'alice', 'a@a', 'x', 'admin', 0), "
+                "('u2', 'bob', 'b@b', 'x', 'operator', 0), "
+                "('u3', 'carol', 'c@c', 'x', 'viewer', 0)"
+            )
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO workspaces (id, name, general_viewership, general_editorship, "
+                "general_managership, data) VALUES "
+                "('w1', 'open', 'anyone', 'operators', 'admins', '{}')"
+            )
+        )
+        await connection.execute(
+            text("INSERT INTO settings (user_id, name, value) VALUES ('u1', 'theme', '\"dark\"')")
+        )
+
+    await database.migrate()
+
+    async with database.engine.begin() as connection:
+        users = {
+            row[0]: row[1] for row in await connection.execute(text("SELECT id, admin FROM users"))
+        }
+        assert users == {"u1": 1, "u2": 0, "u3": 0}
+
+        columns = [row[1] for row in await connection.execute(text("PRAGMA table_info(users)"))]
+        assert "role" not in columns
+
+        workspace = (
+            await connection.execute(
+                text(
+                    "SELECT general_viewership, general_editorship, general_managership "
+                    "FROM workspaces WHERE id = 'w1'"
+                )
+            )
+        ).one()
+        assert tuple(workspace) == ("anyone", "private", "private")
+
+        # The users table rebuild (required to drop `role` alongside its check
+        # constraint) must preserve rows in tables that reference users by foreign key.
+        setting = (
+            await connection.execute(
+                text("SELECT user_id, name, value FROM settings WHERE user_id = 'u1'")
+            )
+        ).one()
+        assert tuple(setting) == ("u1", "theme", '"dark"')

@@ -6,6 +6,9 @@ UPDATE users SET admin = TRUE WHERE role = 'admin';
 
 ALTER TABLE users DROP COLUMN role;
 
+-- These statements only matter for databases that predate the baseline snapshot. The
+-- baseline's workspaces check constraints already restrict general_* values to 'anyone' and
+-- 'private', so on any database bootstrapped from the baseline this is a no-op.
 UPDATE workspaces SET general_viewership = 'private'
     WHERE general_viewership IN ('operators', 'admins');
 
