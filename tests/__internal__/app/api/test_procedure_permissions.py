@@ -1,5 +1,7 @@
 from typing import Any
 
+from starlette.requests import Request
+
 from ceres import Component, Engine, action
 from ceres.__internal__.app.api.routes.components import _call
 from ceres.__internal__.app.shared import Actor
@@ -42,8 +44,6 @@ async def _build_engine() -> tuple[Engine, Component]:
 
 async def test_call_action_unrestricted_actor_bypasses_permission_check() -> None:
     """CLI mode (an unrestricted actor) may call a non-public action without any grant."""
-    from starlette.requests import Request
-
     engine, widget = await _build_engine()
     request = Request(_http_scope(f"/api/components/{widget.system.address}/actions/turn/call"))
     actor = Actor(user=None, unrestricted=True)
