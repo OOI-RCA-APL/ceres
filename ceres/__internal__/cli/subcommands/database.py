@@ -68,6 +68,11 @@ class ShellCommand(CLICommand):
 
                 case DatabaseType.SQLITE:
                     assert isinstance(database, SQLiteDatabase)
+                    if database.config.is_memory:
+                        raise CLICommandFailed(
+                            "Database is in-memory and has no file to open a shell against."
+                        )
+
                     command = ["sqlite3", str(database.path)]
                     command.extend(["-cmd", f".output {os.devnull}"])
                     for statement in database._get_connect_commands():
