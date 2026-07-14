@@ -230,7 +230,8 @@ class AddressSelector:
                     if address._text != "~":
                         return True
                 elif modifier == "children":
-                    return address._text.startswith("@") and "." not in address._text
+                    if address._text.startswith("@") and "." not in address._text:
+                        return True
 
                 continue
 
@@ -313,7 +314,7 @@ class DynamicAddress(AddressSelector):
     `path`, etc.) and operators for joining segments (`/`).
     """
 
-    REGEX: Final = re.compile(rf"^~|@?{_NAME}(\.{_NAME})*$")  # type: ignore
+    REGEX: Final = re.compile(rf"^(?:~|@?{_NAME}(\.{_NAME})*)$")  # type: ignore
 
     _cache: LRUCache[str, Self] = LRUCache(256)
 
@@ -483,7 +484,7 @@ class Address(DynamicAddress):
     dot-separated names, e.g. `@parent.child.grandchild`.
     """
 
-    REGEX: Final = re.compile(rf"^~|@{_NAME}(\.{_NAME})*$")  # type: ignore
+    REGEX: Final = re.compile(rf"^(?:~|@{_NAME}(\.{_NAME})*)$")  # type: ignore
 
     @class_property
     @classmethod

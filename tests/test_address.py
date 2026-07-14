@@ -671,6 +671,18 @@ class TestAddressGrammarTightening:
     def test_truediv_joins_names(self) -> None:
         assert Address("@a") / "b" == Address("@a.b")
 
+    def test_tilde_prefixed_garbage_address_is_invalid(self) -> None:
+        with pytest.raises(ValueError):
+            Address("~garbage")
+
+        with pytest.raises(ValueError):
+            Address("~x")
+
+        with pytest.raises(ValueError):
+            DynamicAddress("~garbage")
+
+        assert Address("~") == Address("~")
+
     def test_as_relative_strips_leading_at(self) -> None:
         assert Address("@a").as_relative() == DynamicAddress("a")
 
@@ -730,3 +742,13 @@ class TestAddressMatchesExpressionParity:
 
     def test_engine_all_parity(self) -> None:
         _assert_matches_expression_parity(AddressSelector("~:all"), None, self.CANDIDATES)
+
+    def test_piped_children_selector_falls_through_parity(self) -> None:
+        _assert_matches_expression_parity(
+            AddressSelector("@:children|@a.b"),
+            None,
+            ["@a", "@a.b", "@x.y.z", "~"],
+        )
+
+    def test_piped_children_selector_matches_second_segment(self) -> None:
+        assert AddressSelector("@:children|@a.b").matches(Address("@a.b"), None)
