@@ -80,7 +80,7 @@
 | `ceres/permission.py` | 98% |
 | `ceres/pruner.py` | 45% |
 | `ceres/record.py` | 89% |
-| `ceres/reference.py` | 67% |
+| `ceres/reference.py` | 71% |
 | `ceres/rtsp.py` | 29% |
 | `ceres/schedule.py` | 96% |
 | `ceres/server.py` | 66% |
