@@ -41,6 +41,9 @@ from ceres.message import Message, MessageData
 if TYPE_CHECKING:
     from starlette.requests import HTTPConnection
 
+    from ceres.__internal__.app.shared import Actor
+    from ceres.engine import Engine
+
 
 class ComponentRole(StrEnum):
     """Role a component can fulfill in the system."""
@@ -262,6 +265,32 @@ else:
     type CallResult = Any
 
 
+async def _assert_procedure_access(
+    engine: Engine,
+    actor: Actor,
+    component: Component,
+    binding: ProcedureBinding,
+) -> None:
+    """Check that `actor` may invoke `binding` on `component`.
+
+    Public procedures are open to everyone. Every other procedure requires an authenticated
+    caller whose effective access level on the component meets the binding's minimum, with
+    unrestricted actors bypassing the level check.
+
+    Raises:
+        ProcedureNotPermittedError: If the caller lacks the required access level.
+    """
+    if binding.permissions == "public":
+        return
+
+    if not actor.authenticated:
+        raise ProcedureNotPermittedError()
+
+    access = await get_component_access(engine, actor.user, component)
+    if not actor.unrestricted and (access is None or access < binding.permissions):
+        raise ProcedureNotPermittedError()
+
+
 async def _call(
     *,
     request: Request,
@@ -300,13 +329,7 @@ async def _call(
         if binding.type != ProcedureType.ACTION:
             raise ProcedureNotFoundError()
 
-    if binding.permissions != "public":
-        if not actor.authenticated:
-            raise ProcedureNotPermittedError()
-
-        access = await get_component_access(engine, user, component)
-        if not actor.unrestricted and (access is None or access < binding.permissions):
-            raise ProcedureNotPermittedError()
+    await _assert_procedure_access(engine, actor, component, binding)
 
     if request.method == "GET" and binding.type == ProcedureType.ACTION:
         raise ProcedureNotPermittedError()
@@ -455,10 +478,12 @@ async def subscribe_procedure(
                 to_json(ProcedureNotFoundError()),
             )
 
-    if binding.permissions != "public" and not actor.authenticated:
+    try:
+        await _assert_procedure_access(engine, actor, component, binding)
+    except ProcedureNotPermittedError as error:
         raise WebSocketException(
             WS_1008_POLICY_VIOLATION,
-            to_json(ProcedureNotPermittedError()),
+            to_json(error),
         )
 
     async def write() -> None:

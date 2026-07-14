@@ -1,11 +1,16 @@
 from typing import Any
 
+import pytest
 from starlette.requests import Request
 
 from ceres import Component, Engine, action
-from ceres.__internal__.app.api.routes.components import _call
+from ceres.__internal__.app.api.routes.components import _assert_procedure_access, _call
 from ceres.__internal__.app.shared import Actor
 from ceres.address import Address
+from ceres.component import ComponentAccessLevel
+from ceres.error import ProcedureNotPermittedError
+from ceres.permission import PermissionTargetType, UserPermission
+from ceres.user import User
 
 
 class _Widget(Component):
@@ -58,5 +63,58 @@ async def test_call_action_unrestricted_actor_bypasses_permission_check() -> Non
     )
 
     assert result == "turned"
+
+    await engine.database.dispose()
+
+
+async def test_procedure_access_denies_unauthenticated_actor() -> None:
+    """An unauthenticated actor may not access a non-public procedure."""
+    engine, widget = await _build_engine()
+    binding = widget.system.get_procedure_bindings()["turn"]
+
+    with pytest.raises(ProcedureNotPermittedError):
+        await _assert_procedure_access(
+            engine, Actor(user=None, unrestricted=False), widget, binding
+        )
+
+    await engine.database.dispose()
+
+
+async def test_procedure_access_denies_user_below_required_level() -> None:
+    """A user whose effective access is below the binding's minimum is denied."""
+    engine, widget = await _build_engine()
+    user = await engine.database.users.create(
+        User.Create(username="viewer", email="viewer@test.com", password="hashed", admin=False)
+    )
+
+    # Actions require operate access and the user's effective access defaults to view.
+    binding = widget.system.get_procedure_bindings()["turn"]
+
+    with pytest.raises(ProcedureNotPermittedError):
+        await _assert_procedure_access(
+            engine, Actor(user=user, unrestricted=False), widget, binding
+        )
+
+    await engine.database.dispose()
+
+
+async def test_procedure_access_allows_user_with_operate_grant() -> None:
+    """A user granted operate access passes the check for a non-public action."""
+    engine, widget = await _build_engine()
+    user = await engine.database.users.create(
+        User.Create(username="operator", email="operator@test.com", password="hashed", admin=False)
+    )
+    await engine.database.user_permissions.create(
+        UserPermission.Create(
+            user_id=user.id,
+            target_type=PermissionTargetType.ALL,
+            target="",
+            level=ComponentAccessLevel.OPERATE,
+        )
+    )
+
+    binding = widget.system.get_procedure_bindings()["turn"]
+
+    await _assert_procedure_access(engine, Actor(user=user, unrestricted=False), widget, binding)
 
     await engine.database.dispose()

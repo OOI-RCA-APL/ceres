@@ -107,20 +107,21 @@ async def update_workspace(
         NotPermittedError: If the caller lacks permission.
     """
     if user is not None and not actor.admin:
+        if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
+            raise NotFoundError()
+
         if (
             "name" in update
             or "general_viewership" in update
-            or "general_viewership" in update
+            or "general_editorship" in update
             or "general_managership" in update
         ):
-            if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
-                raise NotFoundError()
             # Only managers and admins can change these workspace settings.
             membership = await engine.workspace_memberships.get(user.id, id)
             if membership is None or membership.role < WorkspaceMembershipRole.MANAGER:
                 raise NotPermittedError()
-        elif not await engine.workspaces.where(editable_by=user.id).any():
-            # Only editors can update workspaces.
+        elif not await engine.workspaces.where(id=id, editable_by=user.id).any():
+            # Only editors of this workspace can update it.
             raise NotPermittedError()
 
     return assert_found(await engine.workspaces.where(id=id).update(update).first())
