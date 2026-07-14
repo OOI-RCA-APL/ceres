@@ -94,6 +94,18 @@ def _get_component_roles(component: Component | type[Component]) -> list[Compone
     return roles
 
 
+@router.get("", dependencies=[AUTHENTICATED])
+async def get_components(engine: CurrentEngine) -> list[ComponentInfo]:
+    """Return every top-level component as a recursive description."""
+    result: list[ComponentInfo] = []
+    for component in engine.get_components():
+        address = component.system.address
+        if address.parent is None:
+            result.append(await get_component(engine, address))
+
+    return result
+
+
 @router.get("/{address}", dependencies=[AUTHENTICATED])
 async def get_component(engine: CurrentEngine, address: Address) -> ComponentInfo:
     """Return a recursive description of a component and all its children.

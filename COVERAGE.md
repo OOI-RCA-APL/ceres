@@ -14,7 +14,7 @@
 | `ceres/__internal__/entity.py` | 78% |
 | `ceres/__internal__/filter.py` | 94% |
 | `ceres/__internal__/lazy.py` | 82% |
-| `ceres/__internal__/manager.py` | 75% |
+| `ceres/__internal__/manager.py` | 76% |
 | `ceres/__internal__/project.py` | 52% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 78% |

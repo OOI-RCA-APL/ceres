@@ -177,6 +177,26 @@ class StatusCommand(CLICommand):
                     )
 
 
+async def _assert_matches(client: Client, address: AddressSelector) -> None:
+    """Fail with a quoting hint when a selector matches no components.
+
+    Shell glob expansion can silently rewrite selectors (for example `sensor.*` matching a
+    file named `sensor.yaml`), surfacing as a selector that matches nothing.
+    """
+    from ceres.status import Status
+
+    statuses = await client.get(
+        "/statuses",
+        params=ComponentFilter(address=address),
+        result=list[Status],
+    )
+    if not statuses:
+        raise CLICommandFailed(
+            f"No components match '{address}'. If your shell expanded a wildcard, quote "
+            "the selector."
+        )
+
+
 class StartCommand(CLICommand):
     """
     Start components at the provided addresses.
@@ -192,6 +212,7 @@ class StartCommand(CLICommand):
         """Send a start request to the running engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
+        await _assert_matches(client, address)
         query = ComponentFilter(address=address)
         await self.put(await client.post("/start", query))
 
@@ -209,6 +230,7 @@ class StopCommand(CLICommand):
         """Send a stop request to the running engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
+        await _assert_matches(client, address)
         query = ComponentFilter(address=address)
         await self.put(await client.post("/stop", query))
 
@@ -228,6 +250,7 @@ class EnableCommand(CLICommand):
         address = AddressSelector(self.addresses)
 
         if await client.alive():
+            await _assert_matches(client, address)
             query = ComponentFilter(address=address)
             result = await client.post("/enable", query)
         else:
@@ -252,6 +275,7 @@ class DisableCommand(CLICommand):
         address = AddressSelector(self.addresses)
 
         if await client.alive():
+            await _assert_matches(client, address)
             query = ComponentFilter(address=address)
             result = await client.post("/disable", query)
         else:
@@ -274,6 +298,7 @@ class UpCommand(CLICommand):
         """Send a combined start-and-enable request to the engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
+        await _assert_matches(client, address)
         query = ComponentFilter(address=address)
         await self.put(await client.post("/up", query))
 
@@ -291,6 +316,7 @@ class DownCommand(CLICommand):
         """Send a combined stop-and-disable request to the engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
+        await _assert_matches(client, address)
         query = ComponentFilter(address=address)
         await self.put(await client.post("/down", query))
 
