@@ -10,6 +10,7 @@ const engine = useEngine()
 const access = useAccess()
 
 const components = $computed(() => engine.components.all)
+const topLevel = $computed(() => engine.components.topLevel)
 
 const canControl = $computed(() =>
   components.some((component) => access.canOperate(component.address.toString()))
@@ -18,6 +19,8 @@ const readonly = $computed(() => !canControl && engine.auth.user != null)
 
 let menuIsOpen = $ref(false)
 
+// The badge state reflects the top-level components while the affected counters count every
+// component, since the menu actions apply to all of them.
 const states = $(
   debouncedComputed(() => {
     let running = 0
@@ -41,15 +44,30 @@ const states = $(
       }
     }
 
+    let topLevelRunning = 0
+    let topLevelEnabled = 0
+
+    for (const component of topLevel) {
+      const componentStatus = engine.statuses.get(component.address)
+      if (componentStatus) {
+        if (componentStatus.running) {
+          topLevelRunning++
+        }
+        if (componentStatus.enabled) {
+          topLevelEnabled++
+        }
+      }
+    }
+
     return {
       running,
       stopped,
       enabled,
       disabled,
-      allRunning: running === components.length,
-      someRunning: running > 0,
-      allEnabled: enabled === components.length,
-      someEnabled: enabled > 0,
+      allRunning: topLevel.length > 0 && topLevelRunning === topLevel.length,
+      someRunning: topLevelRunning > 0,
+      allEnabled: topLevel.length > 0 && topLevelEnabled === topLevel.length,
+      someEnabled: topLevelEnabled > 0,
     }
   }, 250)
 )

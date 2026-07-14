@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import StatusBadgeAggregate from '@/components/StatusBadgeAggregate.vue'
 </script>
 
@@ -11,7 +10,6 @@ import StatusBadgeAggregate from '@/components/StatusBadgeAggregate.vue'
     </q-item-section>
     <q-item-section side>
       <div class="items-center q-mr-xs row">
-        <alerts-indicator class="q-mr-xs" />
         <status-badge-aggregate />
       </div>
     </q-item-section>

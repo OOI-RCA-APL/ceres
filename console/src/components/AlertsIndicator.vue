@@ -5,7 +5,7 @@ import { usePreferences } from '@/preferences'
 import { displayDuration, useTime } from '@/time'
 
 const { address } = defineProps<{
-  address?: Address
+  address: Address
 }>()
 
 const engine = useEngine()
@@ -14,21 +14,9 @@ const time = useTime()
 
 let isShowingMenu = $ref(false)
 
-const subjectText = $computed(() => {
-  if (address == null) {
-    return ''
-  }
+const subjectText = 'by this component'
 
-  return 'by this component'
-})
-
-const info = $computed(() => {
-  if (address == null) {
-    return null
-  }
-
-  return engine.statistics.getLevel(address)
-})
+const info = $computed(() => engine.statistics.getLevel(address))
 
 const color = $computed(() => {
   if (info == null) {
