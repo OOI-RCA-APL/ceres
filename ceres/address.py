@@ -223,10 +223,9 @@ class AddressSelector:
                 continue
 
             if base == "@":
-                if modifier == "all":
-                    if address._text != "~":
-                        return True
-                elif modifier == "descendants":
+                # With no root component, `@` selects every component, so `descendants` and `all`
+                # both match anything that is not the engine.
+                if modifier in ("all", "descendants"):
                     if address._text != "~":
                         return True
                 elif modifier == "children":
@@ -287,9 +286,9 @@ class AddressSelector:
                 continue
 
             if base == "@":
-                if modifier == "all":
-                    conditions.append(address != "~")
-                elif modifier == "descendants":
+                # With no root component, `@` selects every component, so `descendants` and `all`
+                # both match anything that is not the engine.
+                if modifier in ("all", "descendants"):
                     conditions.append(address != "~")
                 elif modifier == "children":
                     conditions.append(address.like("@%") & address.not_like("%.%"))

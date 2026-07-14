@@ -222,3 +222,87 @@ async def test_resolve_access_most_permissive_wins() -> None:
         inherited_tags=set(),
     )
     assert result == ComponentAccessLevel.MANAGE
+
+
+async def test_fetch_access_grants_merges_user_and_group_grants_by_highest_level() -> None:
+    """A single fetch merges direct and group grants, keeping the most permissive per target."""
+    from ceres.access import fetch_access_grants, resolve_access_from
+
+    database = await _setup_database()
+    user = await database.users.create(
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
+    )
+    first = await database.groups.create(Group.Create(name="first"))
+    second = await database.groups.create(Group.Create(name="second"))
+    for group in (first, second):
+        await database.group_memberships.create(
+            GroupMembership.Create(user_id=user.id, group_id=group.id)
+        )
+
+    await database.user_permissions.create(
+        UserPermission.Create(
+            user_id=user.id,
+            target_type=PermissionTargetType.COMPONENT,
+            target="@rack",
+            level=ComponentAccessLevel.VIEW,
+        )
+    )
+    await database.group_permissions.create(
+        GroupPermission.Create(
+            group_id=first.id,
+            target_type=PermissionTargetType.COMPONENT,
+            target="@rack",
+            level=ComponentAccessLevel.OPERATE,
+        )
+    )
+    await database.group_permissions.create(
+        GroupPermission.Create(
+            group_id=second.id,
+            target_type=PermissionTargetType.TAG,
+            target="scpr",
+            level=ComponentAccessLevel.MANAGE,
+        )
+    )
+
+    grants = await fetch_access_grants(database, user)
+
+    assert grants.component["@rack"] == ComponentAccessLevel.OPERATE
+    assert grants.tag["scpr"] == ComponentAccessLevel.MANAGE
+
+    # The pre-fetched grants resolve per component with no further queries.
+    by_address = resolve_access_from(
+        grants,
+        address_chain=["@rack"],
+        resolved_access=ComponentAccessLevel.DENY,
+        inherited_tags=set(),
+    )
+    assert by_address == ComponentAccessLevel.OPERATE
+
+    by_tag = resolve_access_from(
+        grants,
+        address_chain=["@other"],
+        resolved_access=ComponentAccessLevel.DENY,
+        inherited_tags={"scpr"},
+    )
+    assert by_tag == ComponentAccessLevel.MANAGE
+
+
+async def test_fetch_access_grants_admin_skips_grant_queries() -> None:
+    """An admin's grants short-circuit to `admin=True` and resolve to manage everywhere."""
+    from ceres.access import fetch_access_grants, resolve_access_from
+
+    database = await _setup_database()
+    admin = await database.users.create(
+        User.Create(username="admin", email="a@test.com", password="hashed", admin=True)
+    )
+
+    grants = await fetch_access_grants(database, admin)
+    assert grants.admin is True
+
+    level = resolve_access_from(
+        grants,
+        address_chain=["@anything"],
+        resolved_access=ComponentAccessLevel.DENY,
+        inherited_tags=set(),
+    )
+    assert level == ComponentAccessLevel.MANAGE

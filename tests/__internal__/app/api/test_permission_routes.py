@@ -1,7 +1,9 @@
-from uuid import uuid4
+from typing import Any
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
+from starlette.requests import HTTPConnection
 
 from ceres import Component, Engine
 from ceres.__internal__.app.api.routes.permissions import (
@@ -9,12 +11,18 @@ from ceres.__internal__.app.api.routes.permissions import (
     get_all_effective_access,
     get_effective_access,
 )
-from ceres.__internal__.app.shared import _build_address_chain
+from ceres.__internal__.app.shared import Actor, _build_address_chain, _require_self_or_admin
 from ceres.address import Address
 from ceres.component import ComponentAccessLevel, ComponentConfig
 from ceres.error import NotFoundError, NotPermittedError
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
+
+
+def _connection_for(user_id: UUID) -> HTTPConnection:
+    """Build a minimal HTTP connection carrying `user_id` as its `user_id` path parameter."""
+    scope: dict[str, Any] = {"type": "http", "headers": [], "path_params": {"user_id": user_id}}
+    return HTTPConnection(scope)
 
 
 async def _build_engine() -> tuple[Engine, Component, Component, Component]:
@@ -67,7 +75,7 @@ async def test_batch_effective_access_lists_accessible_components() -> None:
     user = await _create_user(engine)
     await _grant_operate(engine, user, granted)
 
-    result = await get_all_effective_access(engine=engine, user=user, user_id=user.id)
+    result = await get_all_effective_access(engine=engine, user_id=user.id)
 
     entries = {str(entry.address): entry.level for entry in result}
     assert entries[str(granted.system.address)] == ComponentAccessLevel.OPERATE
@@ -76,14 +84,35 @@ async def test_batch_effective_access_lists_accessible_components() -> None:
     await engine.database.dispose()
 
 
-async def test_batch_effective_access_forbidden_for_other_user() -> None:
-    """A non-admin caller cannot query another user's effective access."""
-    engine, root, granted, hidden = await _build_engine()
+async def test_self_or_admin_forbids_querying_another_user() -> None:
+    """The dependency guarding the effective-access routes rejects a non-admin querying others."""
+    engine, *_ = await _build_engine()
     user = await _create_user(engine)
-    other = await _create_user(engine)
+    connection = _connection_for(uuid4())
 
     with pytest.raises(NotPermittedError):
-        await get_all_effective_access(engine=engine, user=user, user_id=other.id)
+        _require_self_or_admin(connection, user, Actor(user=user, unrestricted=False))
+
+    await engine.database.dispose()
+
+
+async def test_self_or_admin_allows_self_and_admin() -> None:
+    """The dependency allows a user querying themselves and any admin querying anyone."""
+    engine, *_ = await _build_engine()
+    user = await _create_user(engine)
+    admin = await _create_user(engine, admin=True)
+    other_id = uuid4()
+
+    assert (
+        _require_self_or_admin(_connection_for(user.id), user, Actor(user=user, unrestricted=False))
+        == user.id
+    )
+    assert (
+        _require_self_or_admin(
+            _connection_for(other_id), admin, Actor(user=admin, unrestricted=False)
+        )
+        == other_id
+    )
 
     await engine.database.dispose()
 
@@ -93,7 +122,7 @@ async def test_batch_effective_access_admin_sees_manage_everywhere() -> None:
     engine, root, granted, hidden = await _build_engine()
     admin = await _create_user(engine, admin=True)
 
-    result = await get_all_effective_access(engine=engine, user=admin, user_id=admin.id)
+    result = await get_all_effective_access(engine=engine, user_id=admin.id)
 
     entries = {str(entry.address): entry.level for entry in result}
     assert entries[str(root.system.address)] == ComponentAccessLevel.MANAGE
@@ -103,14 +132,17 @@ async def test_batch_effective_access_admin_sees_manage_everywhere() -> None:
     await engine.database.dispose()
 
 
-async def test_batch_effective_access_admin_may_query_other_user() -> None:
-    """An admin caller may query another user's effective access without a grant of their own."""
+async def test_batch_effective_access_resolves_the_target_users_grants() -> None:
+    """The route resolves the access of the user named in the path, whoever the caller is.
+
+    The self-or-admin gate lives on the route dependency and is covered by
+    `test_self_or_admin_forbids_querying_another_user`.
+    """
     engine, root, granted, hidden = await _build_engine()
-    admin = await _create_user(engine, admin=True)
     user = await _create_user(engine)
     await _grant_operate(engine, user, granted)
 
-    result = await get_all_effective_access(engine=engine, user=admin, user_id=user.id)
+    result = await get_all_effective_access(engine=engine, user_id=user.id)
 
     entries = {str(entry.address): entry.level for entry in result}
     assert entries[str(granted.system.address)] == ComponentAccessLevel.OPERATE
@@ -122,10 +154,9 @@ async def test_batch_effective_access_admin_may_query_other_user() -> None:
 async def test_batch_effective_access_missing_user_not_found() -> None:
     """Querying a nonexistent user raises a not-found error."""
     engine, root, granted, hidden = await _build_engine()
-    admin = await _create_user(engine, admin=True)
 
     with pytest.raises(NotFoundError):
-        await get_all_effective_access(engine=engine, user=admin, user_id=uuid4())
+        await get_all_effective_access(engine=engine, user_id=uuid4())
 
     await engine.database.dispose()
 
@@ -138,7 +169,6 @@ async def test_single_effective_access_route_still_matches_with_address() -> Non
 
     result = await get_effective_access(
         engine=engine,
-        user=user,
         user_id=user.id,
         address=Address(str(granted.system.address)),
     )

@@ -5,17 +5,16 @@ from pydantic import model_validator
 
 from ceres.__internal__.app.shared import (
     ADMIN,
-    AUTHENTICATED,
+    SELF_OR_ADMIN,
     CurrentEngine,
-    CurrentUser,
     Router,
-    assert_found,
     get_component_access,
+    get_components_access,
 )
 from ceres.address import Address
 from ceres.component import ComponentAccessLevel
 from ceres.data import DataObject
-from ceres.error import NotFoundError, NotPermittedError
+from ceres.error import NotFoundError
 from ceres.permission import (
     GroupPermission,
     PermissionTargetType,
@@ -25,15 +24,11 @@ from ceres.permission import (
 router = Router(prefix="/permissions", tags=["permissions"])
 
 
-@router.get("/user/{user_id:uuid}", dependencies=[AUTHENTICATED])
+@router.get("/user/{user_id:uuid}", dependencies=[SELF_OR_ADMIN])
 async def get_user_permissions(
     engine: CurrentEngine,
-    user: CurrentUser,
     user_id: UUID,
 ) -> list[UserPermission]:
-    if user is not None and not user.admin and user.id != user_id:
-        raise NotPermittedError()
-
     return await engine.database.user_permissions.where(user_id=user_id)
 
 
@@ -72,33 +67,14 @@ async def set_user_permission(
     user_id: UUID,
     data: UserPermissionData,
 ) -> UserPermission:
-    existing = await engine.database.user_permissions.where(
-        user_id=user_id,
-        target_type=data.target_type,
-        target=data.target,
-    ).first()
-
-    if existing is not None:
-        await engine.database.user_permissions.where(
-            user_id=user_id,
-            target_type=data.target_type,
-            target=data.target,
-        ).update(UserPermission.Update(level=data.level))
-        return assert_found(
-            await engine.database.user_permissions.where(
-                user_id=user_id,
-                target_type=data.target_type,
-                target=data.target,
-            ).first()
-        )
-
     return await engine.database.user_permissions.create(
         UserPermission.Create(
             user_id=user_id,
             target_type=data.target_type,
             target=data.target,
             level=data.level,
-        )
+        ),
+        upsert=True,
     )
 
 
@@ -129,33 +105,14 @@ async def set_group_permission(
     group_id: UUID,
     data: GroupPermissionData,
 ) -> GroupPermission:
-    existing = await engine.database.group_permissions.where(
-        group_id=group_id,
-        target_type=data.target_type,
-        target=data.target,
-    ).first()
-
-    if existing is not None:
-        await engine.database.group_permissions.where(
-            group_id=group_id,
-            target_type=data.target_type,
-            target=data.target,
-        ).update(GroupPermission.Update(level=data.level))
-        return assert_found(
-            await engine.database.group_permissions.where(
-                group_id=group_id,
-                target_type=data.target_type,
-                target=data.target,
-            ).first()
-        )
-
     return await engine.database.group_permissions.create(
         GroupPermission.Create(
             group_id=group_id,
             target_type=data.target_type,
             target=data.target,
             level=data.level,
-        )
+        ),
+        upsert=True,
     )
 
 
@@ -183,10 +140,9 @@ class ComponentEffectiveAccess(DataObject):
     level: ComponentAccessLevel
 
 
-@router.get("/effective/{user_id:uuid}", dependencies=[AUTHENTICATED])
+@router.get("/effective/{user_id:uuid}", dependencies=[SELF_OR_ADMIN])
 async def get_all_effective_access(
     engine: CurrentEngine,
-    user: CurrentUser,
     user_id: UUID,
 ) -> list[ComponentEffectiveAccess]:
     """Resolve the effective access level for every component the target user can access.
@@ -197,32 +153,25 @@ async def get_all_effective_access(
         NotFoundError: If the target user does not exist.
         NotPermittedError: If a non-admin caller queries another user.
     """
-    if user is not None and not user.admin and user.id != user_id:
-        raise NotPermittedError()
-
     target_user = await engine.database.users.get(user_id)
     if target_user is None:
         raise NotFoundError()
 
-    result: list[ComponentEffectiveAccess] = []
-    for component in engine.get_components():
-        level = await get_component_access(engine, target_user, component)
-        if level is not None:
-            result.append(ComponentEffectiveAccess(address=component.system.address, level=level))
+    access = await get_components_access(engine, target_user, engine.get_components())
 
-    return result
+    return [
+        ComponentEffectiveAccess(address=address, level=level)
+        for address, level in access.items()
+        if level is not None
+    ]
 
 
-@router.get("/effective/{user_id:uuid}/{address:path}", dependencies=[AUTHENTICATED])
+@router.get("/effective/{user_id:uuid}/{address:path}", dependencies=[SELF_OR_ADMIN])
 async def get_effective_access(
     engine: CurrentEngine,
-    user: CurrentUser,
     user_id: UUID,
     address: Address,
 ) -> EffectiveAccessResult:
-    if user is not None and not user.admin and user.id != user_id:
-        raise NotPermittedError()
-
     target_user = await engine.database.users.get(user_id)
     if target_user is None:
         raise NotFoundError()

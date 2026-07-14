@@ -29,7 +29,7 @@ from ceres.__internal__.app.shared import (
     CurrentActor,
     CurrentEngine,
     Router,
-    get_component_access,
+    get_components_access,
 )
 from ceres.__internal__.utilities.collections import uniq
 from ceres.address import Address
@@ -90,13 +90,14 @@ async def _filter_operable(
     if actor.unrestricted:
         return components
 
-    result: list[Component] = []
-    for component in components:
-        access = await get_component_access(engine, actor.user, component)
-        if access is not None and access >= ComponentAccessLevel.OPERATE:
-            result.append(component)
+    access = await get_components_access(engine, actor.user, components)
 
-    return result
+    return [
+        component
+        for component in components
+        if (level := access[component.system.address]) is not None
+        and level >= ComponentAccessLevel.OPERATE
+    ]
 
 
 class StartResult(DataObject):

@@ -13,6 +13,7 @@ from ceres.__internal__.app.shared import (
     CurrentUser,
     Router,
     get_component_access,
+    get_components_access,
 )
 from ceres.__internal__.utilities.text import strify
 from ceres.address import Address
@@ -97,55 +98,117 @@ def _get_component_roles(component: Component | type[Component]) -> list[Compone
     return roles
 
 
+def _describe_component(component: Component, *, visible: bool) -> ComponentInfo:
+    """Build a `ComponentInfo` for `component`, its own details omitted when `visible` is `False`.
+
+    A component the caller cannot view is still returned as a bare container so the tree stays
+    connected to any visible descendant, but its procedures, connections, and tags are withheld.
+    """
+    system = component.system
+    if visible:
+        procedures = list(system.get_procedure_bindings().values())
+        connections = [
+            ConnectionInfo(name=connection.name, label=connection.label)
+            for connection in system.connections.all()
+            if connection.name is not None
+        ]
+        tags = system.tags
+    else:
+        procedures = []
+        connections = []
+        tags = []
+
+    return ComponentInfo(
+        name=system.name,
+        address=system.address,
+        roles=_get_component_roles(component),
+        procedures=procedures,
+        connections=connections,
+        components=[],
+        tags=tags,
+    )
+
+
+def _build_tree(
+    component: Component,
+    access: dict[Address, ComponentAccessLevel | None] | None,
+) -> ComponentInfo | None:
+    """Recursively describe `component` and its children, pruned to what the caller may view.
+
+    When `access` is `None` the caller is unrestricted and the whole subtree is described. Otherwise
+    a subtree is kept only if the component or one of its descendants is viewable, and non-viewable
+    ancestors are returned as bare containers.
+
+    Returns:
+        The described component, or `None` if neither it nor any descendant is viewable.
+    """
+    children: list[ComponentInfo] = []
+    for child in component.system.children:
+        described = _build_tree(child.component, access)
+        if described is not None:
+            children.append(described)
+
+    visible = access is None or access.get(component.system.address) is not None
+    if not visible and not children:
+        return None
+
+    info = _describe_component(component, visible=visible)
+    info.components = children
+    return info
+
+
 @router.get("", dependencies=[AUTHENTICATED])
-async def get_components(engine: CurrentEngine) -> list[ComponentInfo]:
-    """Return every top-level component as a recursive description."""
+async def get_components(engine: CurrentEngine, actor: CurrentActor) -> list[ComponentInfo]:
+    """Return every top-level component the caller may view as a recursive description."""
+    components = engine.get_components()
+    if actor.unrestricted:
+        access = None
+    else:
+        access = await get_components_access(engine, actor.user, components)
+
     result: list[ComponentInfo] = []
-    for component in engine.get_components():
-        address = component.system.address
-        if address.parent is None:
-            result.append(await get_component(engine, address))
+    for component in components:
+        if component.system.parent is not None:
+            continue
+
+        described = _build_tree(component, access)
+        if described is not None:
+            result.append(described)
 
     return result
 
 
 @router.get("/{address}", dependencies=[AUTHENTICATED])
-async def get_component(engine: CurrentEngine, address: Address) -> ComponentInfo:
-    """Return a recursive description of a component and all its children.
+async def get_component(
+    engine: CurrentEngine, actor: CurrentActor, address: Address
+) -> ComponentInfo:
+    """Return a recursive description of a component and all its children the caller may view.
 
     Raises:
-        NotFoundError: If no component matches the given address.
+        NotFoundError: If no component matches the given address or the caller cannot view it or
+            any of its descendants.
     """
     component = engine.get_component(address)
     if component is None:
         raise NotFoundError()
 
-    subcomponents: list[ComponentInfo] = []
-    for subcomponent in component.system.children:
-        subcomponents.append(await get_component(engine, address / subcomponent.name))
-
-    roles = _get_component_roles(component)
-    procedures = list(component.system.get_procedure_bindings().values())
-    connections = [
-        ConnectionInfo(name=connection.name, label=connection.label)
-        for connection in component.system.connections.all()
-        if connection.name is not None
-    ]
+    if actor.unrestricted:
+        access = None
+    else:
+        access = await get_components_access(
+            engine, actor.user, component.system.get_components(inclusive=True)
+        )
 
     try:
-        info = ComponentInfo(
-            name=component.system.name,
-            address=address,
-            roles=roles,
-            procedures=procedures,
-            connections=connections,
-            components=subcomponents,
-            tags=component.system.tags,
-        )
-        return info
+        info = _build_tree(component, access)
     except Exception:
         traceback.print_exc()
         raise
+
+    if info is None:
+        raise NotFoundError()
+
+    return info
 
 
 @router.get("/{address}/procedures", tags=["procedures"])
@@ -520,7 +583,7 @@ class SendMessageInput(DataModel):
 @router.post("/{address}/connections/{connection}/send", dependencies=[AUTHENTICATED])
 async def send_message(
     engine: CurrentEngine,
-    user: CurrentUser,
+    actor: CurrentActor,
     address: Address,
     connection: str,
     input: Annotated[SendMessageInput, Body()],
@@ -538,8 +601,8 @@ async def send_message(
     if component is None:
         raise NotFoundError()
 
-    access = await get_component_access(engine, user, component)
-    if access is not None and access < ComponentAccessLevel.OPERATE:
+    access = await get_component_access(engine, actor.user, component)
+    if not actor.unrestricted and (access is None or access < ComponentAccessLevel.OPERATE):
         raise NotPermittedError()
 
     target = component.system.connections.get(connection)

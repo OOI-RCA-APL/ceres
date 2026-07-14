@@ -1,6 +1,6 @@
 import ssl
 from abc import abstractmethod
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from re import Pattern
@@ -72,6 +72,7 @@ if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
     from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
+    from ceres.reference import Reference
     from ceres.sieve import FunctionSieve, Sieve
 else:
     Sieve = Any
@@ -373,6 +374,7 @@ def _get_component_class() -> type[Component]:
 
 def collect_unresolved_reference_errors(
     components: Iterable[Component],
+    skip: Callable[[Reference], bool] | None = None,
 ) -> list[ComponentError]:
     """Re-resolve every component's references and report those that still do not resolve.
 
@@ -381,6 +383,8 @@ def collect_unresolved_reference_errors(
 
     Args:
         components: The components whose references to re-synchronize.
+        skip: Optional predicate that returns `True` for a reference whose non-resolution should
+            not be reported, used to defer cross-tree references until every tree exists.
 
     Returns:
         A `ComponentReferenceInvalidError` for each reference that remains unresolved.
@@ -391,6 +395,9 @@ def collect_unresolved_reference_errors(
     for component in components:
         _, unresolved = component.system.sync_references()
         for reference in unresolved:
+            if skip is not None and skip(reference):
+                continue
+
             errors.append(
                 ComponentReferenceInvalidError(
                     address=component.system.address,
@@ -417,13 +424,10 @@ class ComponentAccessLevel(OrderedStrEnum):
 
     DENY = "deny"
     """No access, the component is invisible to the user."""
-
     VIEW = "view"
     """Can see the component and view its data."""
-
     OPERATE = "operate"
     """Can invoke actions and send data on connections."""
-
     MANAGE = "manage"
     """Can change configuration and manage permissions."""
 
@@ -576,8 +580,6 @@ class ComponentConfig(DataObject):
         self,
         container: ComponentSystem | Engine | None,
     ) -> tuple[Component | None, list[ComponentError]]:
-        from ceres.reference import unref
-
         parent = as_component_system(container)
         if parent is not None:
             address = parent.address / self.name
@@ -588,6 +590,10 @@ class ComponentConfig(DataObject):
         # reference into a sibling tree cannot resolve until every tree exists. Defer those
         # out of the per-tree check and let the engine validate them across all trees.
         defer_absolute = as_engine(container) is not None
+
+        def skip(reference: Reference) -> bool:
+            target = reference.__reference_ultimate_target__
+            return defer_absolute and isinstance(target, DynamicAddress) and target.is_absolute
 
         errors: list[ComponentError] = []
         instance = self._create(
@@ -600,22 +606,12 @@ class ComponentConfig(DataObject):
         # references, any references that cannot be resolved are reported as errors so
         # the caller can present them all at once.
         if instance is not None and not errors:
-            components = instance.system.get_components(inclusive=True)
-            for component in components:
-                _, unresolved = component.system.sync_references()
-                for reference in unresolved:
-                    target = reference.__reference_ultimate_target__
-                    if defer_absolute and isinstance(target, DynamicAddress) and target.is_absolute:
-                        continue
-
-                    errors.append(
-                        ComponentReferenceInvalidError(
-                            address=component.system.address,
-                            referenced=target,
-                            expected=reference.__reference_constraint__ or Component,
-                            actual=type(unref(reference)),
-                        )
-                    )
+            errors.extend(
+                collect_unresolved_reference_errors(
+                    instance.system.get_components(inclusive=True),
+                    skip=skip,
+                )
+            )
 
         # Detach a partially constructed tree on error so we never leak components into
         # the parent system.

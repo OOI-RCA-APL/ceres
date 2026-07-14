@@ -1858,10 +1858,18 @@ class ComponentSystem(Node, ComponentSource):
         return get_connection_bindings(type(self.component))
 
     def __propagate_tree_change(self) -> None:
-        # Notify every component in the tree that the structure changed so they can recompute
-        # cached child order and re-resolve references that may now point somewhere different.
-        for component in self.root.get_components():
-            component.system.__on_tree_change()
+        # Notify every component that the structure changed so they can recompute cached child
+        # order and re-resolve references that may now point somewhere different. When the system
+        # belongs to an engine the notification spans every top-level tree, since absolute
+        # references can cross between them, otherwise it stays within the local tree.
+        engine = self.engine
+        if engine is not None:
+            systems = [component.system for component in engine.get_components()]
+        else:
+            systems = [component.system for component in self.root.get_components()]
+
+        for system in systems:
+            system.__on_tree_change()
 
     def __on_tree_change(self) -> None:
         self.sync_child_order()
@@ -2052,7 +2060,12 @@ class ComponentSystem(Node, ComponentSource):
 
             self._container = None
             engine.detach(self)
-            self.__propagate_tree_change()
+
+            # The detached subtree is no longer part of the engine, so notify both it and the
+            # remaining trees. Sibling trees re-resolve to drop stale references into the removed
+            # subtree, and the subtree re-resolves so its references into the engine unresolve.
+            for component in [*engine.get_components(), *self.get_components(inclusive=True)]:
+                component.system.__on_tree_change()
 
             engine.events.propagate(
                 DetachedEvent(address=address_before),

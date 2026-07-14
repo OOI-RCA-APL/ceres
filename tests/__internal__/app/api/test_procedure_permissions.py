@@ -4,11 +4,16 @@ import pytest
 from starlette.requests import Request
 
 from ceres import Component, Engine, action
-from ceres.__internal__.app.api.routes.components import _assert_procedure_access, _call
+from ceres.__internal__.app.api.routes.components import (
+    SendMessageInput,
+    _assert_procedure_access,
+    _call,
+    send_message,
+)
 from ceres.__internal__.app.shared import Actor
 from ceres.address import Address
 from ceres.component import ComponentAccessLevel
-from ceres.error import ProcedureNotPermittedError
+from ceres.error import NotFoundError, NotPermittedError, ProcedureNotPermittedError
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
 
@@ -116,5 +121,42 @@ async def test_procedure_access_allows_user_with_operate_grant() -> None:
     binding = widget.system.get_procedure_bindings()["turn"]
 
     await _assert_procedure_access(engine, Actor(user=user, unrestricted=False), widget, binding)
+
+    await engine.database.dispose()
+
+
+async def test_send_message_denies_user_without_operate_access() -> None:
+    """An authenticated user with no grants cannot send over a component's connection."""
+    engine, widget = await _build_engine()
+    user = await engine.database.users.create(
+        User.Create(username="viewer", email="viewer@test.com", password="hashed", admin=False)
+    )
+
+    with pytest.raises(NotPermittedError):
+        await send_message(
+            engine=engine,
+            actor=Actor(user=user, unrestricted=False),
+            address=Address(str(widget.system.address)),
+            connection="serial",
+            input=SendMessageInput(data=b""),
+        )
+
+    await engine.database.dispose()
+
+
+async def test_send_message_allows_unrestricted_actor_past_the_permission_gate() -> None:
+    """An unrestricted actor passes the permission gate and fails only on the missing connection."""
+    engine, widget = await _build_engine()
+
+    # The widget declares no connections, so passing the permission gate surfaces as a
+    # not-found error on the connection rather than a permission error.
+    with pytest.raises(NotFoundError):
+        await send_message(
+            engine=engine,
+            actor=Actor(user=None, unrestricted=True),
+            address=Address(str(widget.system.address)),
+            connection="serial",
+            input=SendMessageInput(data=b""),
+        )
 
     await engine.database.dispose()

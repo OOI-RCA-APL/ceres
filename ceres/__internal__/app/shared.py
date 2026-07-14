@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
     from ceres.__internal__.app.main import App
     from ceres.__internal__.server import Server
+    from ceres.address import Address
     from ceres.component import Component, ComponentAccessLevel, ComponentSystem
     from ceres.config import ServerAuthenticationConfig
     from ceres.engine import Engine
@@ -564,6 +565,45 @@ async def get_component_access(
         resolved_access=system.get_resolved_access(),
         inherited_tags=system.get_inherited_tags(),
     )
+
+
+async def get_components_access(
+    engine: Engine,
+    user: User | None,
+    components: Iterable[Component],
+) -> dict[Address, ComponentAccessLevel | None]:
+    """Resolve the effective access level for a user across many components in one grant fetch.
+
+    Fetch the user's grants once, then resolve each component in memory. Prefer this over calling
+    `get_component_access` in a loop, which re-queries the grants for every component.
+
+    Args:
+        engine: The engine whose database holds the grants.
+        user: The user to check, or `None` for an unauthenticated caller with no access.
+        components: The components to resolve access for.
+
+    Returns:
+        A mapping from each component's address to its effective level, or `None` where the user
+        has no access.
+    """
+    if user is None:
+        return {component.system.address: None for component in components}
+
+    from ceres.access import fetch_access_grants, resolve_access_from
+
+    grants = await fetch_access_grants(engine.database, user)
+
+    result: dict[Address, ComponentAccessLevel | None] = {}
+    for component in components:
+        system = component.system
+        result[system.address] = resolve_access_from(
+            grants,
+            address_chain=_build_address_chain(system),
+            resolved_access=system.get_resolved_access(),
+            inherited_tags=system.get_inherited_tags(),
+        )
+
+    return result
 
 
 def _build_address_chain(system: ComponentSystem) -> list[str]:

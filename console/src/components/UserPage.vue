@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { omit } from 'lodash-es'
+import { QMenu } from 'quasar'
 import { computed } from 'vue'
 
 import { useEngine } from '@/api/engine'
@@ -8,6 +9,7 @@ import { Group } from '@/api/groups'
 import { UserCreate } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
 import CardPageSection from '@/components/CardPageSection.vue'
+import GroupChooser from '@/components/GroupChooser.vue'
 import PermissionsSection from '@/components/PermissionsSection.vue'
 import { useDialogs } from '@/dialogs'
 import { NotFoundError, guard } from '@/errors'
@@ -163,15 +165,14 @@ const userGroups = $computed(
   () => allGroupsQuery?.data.value?.filter((group: Group) => userGroupIds.has(group.id)) ?? []
 )
 
-const availableGroups = $computed(
-  () => allGroupsQuery?.data.value?.filter((group: Group) => !userGroupIds.has(group.id)) ?? []
-)
+let addToGroupMenu = $ref<QMenu | null>(null)
 
 async function addToGroup(group: Group) {
   if (id == null) {
     return
   }
 
+  addToGroupMenu?.hide()
   await guard(engine.groups.addUserToGroup(id, group.id), () => {
     notify.error('Failed to add user to group.')
   })
@@ -421,34 +422,18 @@ function promptRemoveFromGroup(group: Group) {
           <div class="justify-center q-mt-sm row">
             <q-btn color="primary" dense :icon="icons.add" round size="10px" unelevated>
               <q-tooltip class="bg-primary text-white">Add to Group</q-tooltip>
-              <q-menu anchor="top middle" :offset="[0, 12]" self="bottom middle">
+              <q-menu
+                ref="addToGroupMenu"
+                anchor="top middle"
+                :offset="[0, 12]"
+                self="bottom middle"
+              >
                 <q-card bordered :class="$style.addMenu" flat>
-                  <div class="q-pa-sm">
-                    <q-card bordered flat>
-                      <div
-                        v-if="availableGroups.length === 0"
-                        :class="[$style.emptyMessageText, 'q-pa-sm']"
-                      >
-                        No groups available.
-                      </div>
-                      <q-list v-else dense>
-                        <q-item
-                          v-for="group in availableGroups"
-                          :key="group.id"
-                          v-close-popup
-                          clickable
-                          @click="addToGroup(group)"
-                        >
-                          <q-item-section>
-                            <q-item-label>{{ group.name }}</q-item-label>
-                            <q-item-label v-if="group.description" caption>
-                              {{ group.description }}
-                            </q-item-label>
-                          </q-item-section>
-                        </q-item>
-                      </q-list>
-                    </q-card>
-                  </div>
+                  <group-chooser
+                    empty="No groups available."
+                    :omit="(group: Group) => userGroupIds.has(group.id)"
+                    @select="(group) => addToGroup(group)"
+                  />
                 </q-card>
               </q-menu>
             </q-btn>
@@ -463,11 +448,5 @@ function promptRemoveFromGroup(group: Group) {
 <style lang="scss" module>
 .addMenu {
   min-width: 220px;
-}
-
-.emptyMessageText {
-  text-align: center;
-  font-size: 13px;
-  opacity: 0.5;
 }
 </style>
