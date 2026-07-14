@@ -1674,8 +1674,8 @@ class ComponentSystem(Node, ComponentSource):
     def get_resolved_access(self) -> ComponentAccessLevel:
         """Walk the ancestor chain to find the nearest declared access level.
 
-        Return the first non-None `access` found walking from this component up to root.
-        If no ancestor declares an access level, return `ComponentAccessLevel.VIEW`.
+        Return the first non-None `access` found walking from this component up to its
+        top-level ancestor, then the config-level default, then `ComponentAccessLevel.VIEW`.
         """
         current: ComponentSystem | None = self
 
@@ -1685,16 +1685,24 @@ class ComponentSystem(Node, ComponentSource):
 
             current = current.parent
 
+        engine = self.engine
+        if engine is not None and engine.default_access is not None:
+            return engine.default_access
+
         return ComponentAccessLevel.VIEW
 
     def get_inherited_tags(self) -> set[str]:
-        """Collect tags from this component and all ancestors for permission resolution."""
+        """Collect tags from this component, all ancestors, and the config level."""
         result: set[str] = set()
         current: ComponentSystem | None = self
 
         while current is not None:
             result.update(current.tags)
             current = current.parent
+
+        engine = self.engine
+        if engine is not None:
+            result.update(engine.default_tags)
 
         return result
 

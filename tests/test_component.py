@@ -15,7 +15,8 @@ from ceres.component import (
     get_routine_bindings,
 )
 from ceres.concurrency import sleep
-from ceres.config import ComponentConfig
+from ceres.config import ComponentConfig, Config
+from ceres.data import validate
 from ceres.error import (
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
@@ -566,6 +567,82 @@ def test_component_system_get_inherited_tags_combines_ancestors() -> None:
     )
     parent.system.attach(child)
     assert child.system.get_inherited_tags() == {"site-a", "pressure"}
+
+
+async def test_component_system_get_resolved_access_falls_back_to_config_default() -> None:
+    engine = Engine()
+    config = validate(
+        Config,
+        {
+            "database": {"type": "sqlite", "path": ":memory:"},
+            "access": "operate",
+            "components": [{"name": "leaf", "class": "ceres.component:Component"}],
+        },
+    )
+    await engine.load(config, checks=())
+
+    leaf = engine.get_component(Address("@leaf"))
+    assert leaf is not None
+    assert leaf.system.get_resolved_access() == ComponentAccessLevel.OPERATE
+
+    await engine.database.dispose()
+
+
+async def test_component_system_get_resolved_access_ancestor_wins_over_config_default() -> None:
+    engine = Engine()
+    config = validate(
+        Config,
+        {
+            "database": {"type": "sqlite", "path": ":memory:"},
+            "access": "operate",
+            "components": [
+                {
+                    "name": "parent",
+                    "class": "ceres.component:Component",
+                    "access": "view",
+                    "components": [{"name": "child", "class": "ceres.component:Component"}],
+                }
+            ],
+        },
+    )
+    await engine.load(config, checks=())
+
+    child = engine.get_component(Address("@parent.child"))
+    assert child is not None
+    assert child.system.get_resolved_access() == ComponentAccessLevel.VIEW
+
+    await engine.database.dispose()
+
+
+async def test_component_system_get_resolved_access_detached_defaults_to_view() -> None:
+    component = Component()
+    assert component.system.engine is None
+    assert component.system.get_resolved_access() == ComponentAccessLevel.VIEW
+
+
+async def test_component_system_get_inherited_tags_falls_back_to_config_default() -> None:
+    engine = Engine()
+    config = validate(
+        Config,
+        {
+            "database": {"type": "sqlite", "path": ":memory:"},
+            "tags": ["site"],
+            "components": [{"name": "leaf", "class": "ceres.component:Component"}],
+        },
+    )
+    await engine.load(config, checks=())
+
+    leaf = engine.get_component(Address("@leaf"))
+    assert leaf is not None
+    assert leaf.system.get_inherited_tags() == {"site"}
+
+    await engine.database.dispose()
+
+
+async def test_component_system_get_inherited_tags_detached_has_no_config_tags() -> None:
+    component = Component()
+    assert component.system.engine is None
+    assert component.system.get_inherited_tags() == set()
 
 
 class _PermissionTestComponent:

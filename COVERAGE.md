@@ -40,7 +40,7 @@
 | `ceres/address.py` | 94% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 92% |
-| `ceres/component.py` | 83% |
+| `ceres/component.py` | 84% |
 | `ceres/concurrency.py` | 91% |
 | `ceres/config.py` | 78% |
 | `ceres/connection/__init__.py` | 57% |
@@ -61,7 +61,7 @@
 | `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
-| `ceres/engine.py` | 70% |
+| `ceres/engine.py` | 71% |
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |

@@ -32,7 +32,13 @@ from ceres.node import Node
 
 if TYPE_CHECKING:
     from ceres.__internal__.entity import BaseEntityManager
-    from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
+    from ceres.component import (
+        Component,
+        ComponentAccessLevel,
+        ComponentFilter,
+        ComponentFilterArgs,
+        ComponentSystem,
+    )
     from ceres.entity import Entity
 
 with __lazy_imports__(__name__):
@@ -222,6 +228,16 @@ class Engine(Node):
     def config_path(self) -> Path | None:
         """Filesystem path the current configuration was loaded from, if any."""
         return self._config_path
+
+    @property
+    def default_tags(self) -> list[str]:
+        """Tags from the top-level configuration, inherited by every component."""
+        return self._config.tags
+
+    @property
+    def default_access(self) -> ComponentAccessLevel | None:
+        """Config-level default access for components with none declared, or `None`."""
+        return self._config.access
 
     @property
     def project_directory(self) -> Directory | None:
