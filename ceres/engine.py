@@ -120,12 +120,12 @@ class EngineActions(DataObject):
 
 @final
 class Engine(Node):
-    """Top-level container that owns the component forest and the supporting infrastructure.
+    """Top-level container that owns the engine's components and the supporting infrastructure.
 
     The engine is the entry point for a Ceres process. It owns the `Database`, the optional HTTP
-    `Server`, and the forest of top-level components. It loads configuration, reconciles the
-    running component forest with the desired configuration, and drives the lifecycle
-    (start/stop) of everything beneath it.
+    `Server`, and the top-level components. It loads configuration, reconciles the running
+    components with the desired configuration, and drives the lifecycle (start/stop) of
+    everything beneath it.
 
     There is exactly one engine per Ceres process. Components reach it through
     `ComponentSystem.engine`.
@@ -286,7 +286,7 @@ class Engine(Node):
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None) -> Component | None:
-        """Look up a component by address anywhere in the forest.
+        """Look up a component by address anywhere in the component tree.
 
         Args:
             address: An address string or `DynamicAddress`. `None` or an empty value
@@ -320,7 +320,7 @@ class Engine(Node):
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Component]:
-        """Walk every tree in the forest and return components matching the given filter.
+        """Walk every top-level component tree and return components matching the given filter.
 
         Args:
             filter: A `ComponentFilter` or `AddressSelector` to apply, or `None` to skip
@@ -330,7 +330,7 @@ class Engine(Node):
             **kwargs: Additional filter overrides forwarded as `ComponentFilterArgs`.
 
         Returns:
-            A list of matching components, or an empty list when the forest is empty.
+            A list of matching components, or an empty list when the engine has no components.
         """
         components: list[Component] = []
         for system in self._components.values():
@@ -344,7 +344,7 @@ class Engine(Node):
         /,
         name: Name | None = None,
     ) -> Component | None:
-        """Attach a component as a top-level component of the engine's forest.
+        """Attach a component as a top-level component of the engine.
 
         Args:
             component: The component or component system to attach.
@@ -376,7 +376,7 @@ class Engine(Node):
         return previous.component if previous is not None else None
 
     def detach(self, component: Component | ComponentSystem, /) -> None:
-        """Remove a top-level component from the engine's forest."""
+        """Remove a top-level component from the engine."""
         system = as_component_system(component)
         assert system is not None
 

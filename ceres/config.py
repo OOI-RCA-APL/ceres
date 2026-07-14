@@ -1057,7 +1057,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
 
 
 class Config(ConfigMeta, config={"extra": "forbid"}):
-    """Top-level Ceres configuration, including the component forest.
+    """Top-level Ceres configuration, including the component tree.
 
     `Config` is the strict, fully-typed view of a configuration file. Unknown fields
     are rejected here so users get clear errors for typos. `components` holds every
@@ -1065,7 +1065,7 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
     """
 
     components: list[ComponentConfig] = Field(default_factory=list)
-    """Top-level component configurations, the engine's component forest."""
+    """Top-level component configurations, the engine's components."""
 
     tags: list[str] = Field(default_factory=list)
     """Tags inherited by every component that does not override them."""
@@ -1131,7 +1131,7 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         return errors
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
-        """Look up a component configuration anywhere in the forest."""
+        """Look up a component configuration anywhere in the tree."""
         names = address.names
         if not names:
             return None
@@ -1146,11 +1146,11 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         self,
         address: AddressSelector | None = None,
     ) -> dict[Address, ComponentConfig]:
-        """Return every component configuration in the forest, optionally filtered.
+        """Return every component configuration in the tree, optionally filtered.
 
         Args:
             address: Optional selector restricting which addresses are returned, omit
-                to return every component in the forest.
+                to return every component in the tree.
 
         Returns:
             Mapping from absolute address to component configuration.
@@ -1170,7 +1170,7 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         return configs
 
     def get_component_class(self, address: DynamicAddress) -> type[Component] | None:
-        """Look up the component class declared at `address`, anywhere in the forest."""
+        """Look up the component class declared at `address`, anywhere in the tree."""
         config = self.get_component(address)
         if config is None:
             return None
