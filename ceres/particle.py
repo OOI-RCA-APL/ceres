@@ -56,7 +56,6 @@ from ceres.__internal__.record import (
 from ceres.__internal__.utilities.classes import fields_cached_class_property
 from ceres.__internal__.utilities.typing import extract_annotation
 from ceres.__internal__.utilities.undefined import Undefined
-from ceres.address import Address
 from ceres.data import (
     DataObject,
     DateTime,
@@ -80,6 +79,7 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
+    from ceres.address import Address
     from ceres.connection import Buffer
     from ceres.database import DatabaseType
     from ceres.message import Message
@@ -745,7 +745,7 @@ class ParseableParticle[DataT: ParticleData = ParticleData](Particle[DataT]):
         cls,
         bytes: bytes,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
         span: tuple[int, int] | None = None,
     ) -> Self:
@@ -802,7 +802,7 @@ class BinaryParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         bytes: bytes,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
         span: tuple[int, int] | None = None,
     ) -> Self:
@@ -922,7 +922,7 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         bytes: bytes,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
         span: tuple[int, int] | None = None,
     ) -> Self:
@@ -952,7 +952,7 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         match: Match[bytes],
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
     ) -> Self:
         """Build a particle instance from a regex `match`.
@@ -975,7 +975,7 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         data: Buffer,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
     ) -> Iterable[RegexParticleMatch[Self]]:
         """Yield every regex match in `data` paired with its resolved chunk timestamp.
@@ -1010,7 +1010,7 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         data: Buffer,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
         errors: Literal["ignore", "raise"] | Callable[[ParseFailed], Any] = "ignore",
     ) -> Iterable[Self]:
@@ -1104,7 +1104,7 @@ class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
     def from_match(
         cls,
         match: Match[bytes],
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
     ) -> Self:
         """Build a particle by mapping named regex groups onto `ParticleData` fields.
@@ -1156,7 +1156,7 @@ class BinaryRegexParticle[T: ParticleData](BinaryParticle[T], RegexParticle[T]):
     def from_match(
         cls,
         match: Match[bytes],
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
     ) -> Self:
         """Decode a particle by unpacking the matched byte range as fixed-layout binary.

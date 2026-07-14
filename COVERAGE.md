@@ -37,7 +37,7 @@
 | `ceres/__internal__/utilities/validation.py` | 100% |
 | `ceres/__main__.py` | 50% |
 | `ceres/access.py` | 89% |
-| `ceres/address.py` | 94% |
+| `ceres/address.py` | 96% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 92% |
 | `ceres/component.py` | 84% |
@@ -61,7 +61,7 @@
 | `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
-| `ceres/engine.py` | 71% |
+| `ceres/engine.py` | 70% |
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |

@@ -77,7 +77,7 @@ class StatisticsManager(BaseDatabaseManager):
         filter: StatisticsFilter | None = None,
         /,
         *,
-        relative_to: Address = Address.root(),
+        relative_to: Address | None = None,
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> Statistics | None:
         """Return the first `Statistics` result matching the given filter.
@@ -98,7 +98,7 @@ class StatisticsManager(BaseDatabaseManager):
         filter: StatisticsFilter | None = None,
         /,
         *,
-        relative_to: Address = Address.root(),
+        relative_to: Address | None = None,
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> list[Statistics]:
         """Compute `Statistics` for every address that has matching alerts.

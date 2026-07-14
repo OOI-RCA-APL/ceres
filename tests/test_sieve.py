@@ -24,7 +24,7 @@ class SimpleParticle(Particle[SimpleData]):
 def _make_message(
     data: bytes,
     connection: str | None = None,
-    address: Address = Address.ROOT,
+    address: Address = Address("@test"),
 ) -> Message:
     return Message(
         data=data,
@@ -53,7 +53,7 @@ class TestSieveAbstract:
                 async for message in messages:
                     yield SimpleParticle(
                         type="test/simple",
-                        address=Address.ROOT,
+                        address=Address("@test"),
                         data=SimpleData(value=int(message.data)),
                     )
 
@@ -191,7 +191,7 @@ class TestFunctionSievePolySieve:
                 total += int(message.data)
             yield SimpleParticle(
                 type="test/simple",
-                address=Address.ROOT,
+                address=Address("@test"),
                 data=SimpleData(value=total),
             )
 
@@ -218,7 +218,7 @@ class TestFunctionSieveBufferSieve:
                 results.append(
                     SimpleParticle(
                         type="test/simple",
-                        address=Address.ROOT,
+                        address=Address("@test"),
                         data=SimpleData(value=value),
                         span=match.span(),
                     )
@@ -250,7 +250,7 @@ class TestFunctionSieveBufferSieve:
                 results.append(
                     SimpleParticle(
                         type="test/simple",
-                        address=Address.ROOT,
+                        address=Address("@test"),
                         data=SimpleData(value=value),
                         span=match.span(),
                     )
@@ -274,7 +274,7 @@ class TestFunctionSieveBufferSieve:
             return [
                 SimpleParticle(
                     type="test/simple",
-                    address=Address.ROOT,
+                    address=Address("@test"),
                     data=SimpleData(value=1),
                 )
             ]
@@ -340,7 +340,7 @@ class TestFunctionSieveSignatureValidation:
             async for message in messages:
                 yield SimpleParticle(
                     type="test/simple",
-                    address=Address.ROOT,
+                    address=Address("@test"),
                     data=SimpleData(value=0),
                 )
 
@@ -354,7 +354,7 @@ class TestFunctionSieveEmptyStream:
         def parse(message: Message) -> SimpleParticle | None:
             return SimpleParticle(
                 type="test/simple",
-                address=Address.ROOT,
+                address=Address("@test"),
                 data=SimpleData(value=0),
             )
 

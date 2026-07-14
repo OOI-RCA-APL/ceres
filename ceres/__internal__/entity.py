@@ -1558,7 +1558,7 @@ class BaseAddressEntityFilterArgs[
 ](BaseEntityFilterArgs[FieldT, OrderT], total=False):
     """TypedDict adding ``address`` and ``root`` keyword arguments for address-based filters."""
 
-    root: Address
+    root: Address | None
     address: AddressSelector | str | None
 
 
@@ -1571,8 +1571,9 @@ class BaseAddressEntityFilter[
 
     address: AddressSelector | None = None
     """Filter by `address` matching one or more address selectors."""
-    root: Address = Address.ROOT
-    """The address which relative address selectors in `address` are relative to."""
+    root: Address | None = None
+    """The address which relative address selectors in `address` are relative to, `None` means
+    all components."""
 
     @override
     def _matches(self, obj: ItemT) -> bool:

@@ -180,6 +180,20 @@ def test_permission_data_rejects_invalid_component_address() -> None:
         )
 
 
+def test_permission_data_rejects_bare_root_component_target() -> None:
+    """A `component` grant targeting bare `@` is rejected, `@` no longer parses as an `Address`.
+
+    This is a 422 at the route layer, `UserPermissionData` validation raises before the PUT
+    handler runs.
+    """
+    with pytest.raises(ValidationError):
+        UserPermissionData(
+            target_type=PermissionTargetType.COMPONENT,
+            target="@",
+            level=ComponentAccessLevel.VIEW,
+        )
+
+
 def test_permission_data_rejects_empty_tag_target() -> None:
     """A `tag` grant with an empty target is rejected."""
     with pytest.raises(ValidationError):

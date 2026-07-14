@@ -264,7 +264,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "direction": choice(list(MessageDirection)),
                     "data": randbytes(32),
                     **values,
@@ -277,7 +277,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "type": randstr(printable, 8),
                     "data": {},
                     **values,
@@ -290,7 +290,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "level": choice(list(Level)),
                     "type": randstr(printable, 8),
                     **values,
@@ -303,7 +303,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "level": choice(list(Level)),
                     "content": randstr(printable, 32),
                     **values,
@@ -334,7 +334,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "name": randstr(printable, 8),
                     "value": 0,
                     **values,
@@ -610,7 +610,6 @@ async def execute_email_filter_test(
 async def execute_address_filter_test(cls: type[Item]):
     group: FilterTestGroup[BaseAddressEntityFilterArgs] = {
         "entities": {
-            "@": {"address": "@"},
             "@abc": {"address": "@abc"},
             "@abc.cde": {"address": "@abc.cde"},
             "@abc.cde.efg": {"address": "@abc.cde.efg"},
@@ -624,14 +623,13 @@ async def execute_address_filter_test(cls: type[Item]):
             {"filter": {"address": "none"}, "keys": []},
             {"filter": {"address": "none:all"}, "keys": []},
             {"filter": {"address": "~"}, "keys": ["~"]},
-            {"filter": {"address": "@"}, "keys": ["@"]},
             {"filter": {"address": "@abc"}, "keys": ["@abc"]},
             {"filter": {"address": "@abc.cde"}, "keys": ["@abc.cde"]},
-            {"filter": {"address": ["@", "@cde"]}, "keys": ["@", "@cde"]},
+            {"filter": {"address": ["@abc", "@cde"]}, "keys": ["@abc", "@cde"]},
             {"filter": {"address": "~:all"}, "keys": None},
             {
                 "filter": {"address": "@:all"},
-                "keys": ["@", "@abc", "@abc.cde", "@abc.cde.efg", "@cde"],
+                "keys": ["@abc", "@abc.cde", "@abc.cde.efg", "@cde"],
             },
             {"filter": {"address": "~:all|@:all"}, "keys": None},
             # {"filter": {"address": "all"}, "keys": None}, # TODO: Fix bare all.

@@ -1211,7 +1211,7 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         configs: dict[Address, ComponentConfig] = {}
 
         def recurse(config: ComponentConfig, address: Address, selector: AddressSelector | None):
-            if not selector or selector.matches(address, Address.ROOT):
+            if not selector or selector.matches(address, None):
                 configs[address] = config
 
             for child in config.components:

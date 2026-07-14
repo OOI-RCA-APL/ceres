@@ -163,7 +163,7 @@ __all__ = [
 class ComponentFilterArgs(BaseFilterArgs, total=False):
     """Keyword-form arguments for `ComponentFilter`, used by helpers like `get_components`."""
 
-    root: Address
+    root: Address | None
     address: AddressSelector | None
     enabled: bool | None
     running: bool | None
@@ -172,8 +172,8 @@ class ComponentFilterArgs(BaseFilterArgs, total=False):
 class ComponentFilter(BaseFilter):
     """Filter for selecting components by address and lifecycle state."""
 
-    root: Address = Address.ROOT
-    """Address to interpret relative selectors against, defaults to the absolute root."""
+    root: Address | None = None
+    """Address to interpret relative selectors against, `None` means all components."""
 
     address: AddressSelector | None = None
     """Optional selector restricting matches by address."""

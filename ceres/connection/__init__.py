@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast, overload, overri
 from pydantic import ByteSize, Field
 
 from ceres.__internal__.manager import BaseComponentTaskManager
-from ceres.address import Address
 from ceres.channel import Channel
 from ceres.component import BoundField, BoundFieldArgs
 from ceres.concurrency import sleep
@@ -556,7 +555,7 @@ class Connection(DataObject, Tasklet, slots=True):
                             dropped=ByteSize(len(dropped.data)),
                         )
 
-                    address = Address.ROOT if self.__system__ is None else self.__system__.address
+                    address = self.__system__.address
                     for chunk in buffer.drain(self.splitter, linearize=True):
                         message = Message(
                             address=address,
