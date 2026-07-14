@@ -43,6 +43,8 @@ class PermissionTargetType(StrEnum):
     """Grant applies to a specific component by address."""
     TAG = "tag"
     """Grant applies to all components carrying a given tag."""
+    ALL = "all"
+    """Grant applies to every component. The target string is empty."""
 
 
 class UserPermissionRow(BaseEntityRow, kw_only=True):

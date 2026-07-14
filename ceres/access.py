@@ -25,14 +25,15 @@ async def resolve_access(
     """Compute the effective access level for a user on a component.
 
     Take the maximum across the component's default access, direct user grants,
-    user tag grants, group component grants, and group tag grants. Admin users
-    always receive `MANAGE` regardless of grants.
+    user tag grants, user all-grants, group component grants, group tag grants,
+    and group all-grants. Admin users always receive `MANAGE` regardless of
+    grants. All-grants apply to every component regardless of address or tags.
 
     Args:
         database: Database instance for querying grants.
         user: The user to check.
-        address_chain: List of addresses from the component up to root (e.g.,
-            `["sensors.nortek.vector", "sensors.nortek", "sensors"]`).
+        address_chain: List of addresses from the component up to its top-level
+            ancestor (e.g., `["sensors.nortek.vector", "sensors.nortek", "sensors"]`).
         resolved_access: The component's resolved default access (from config
             inheritance).
         inherited_tags: Tags from the component and all its ancestors.
@@ -66,6 +67,13 @@ async def resolve_access(
             if grant.target in inherited_tags:
                 levels.append(grant.level)
 
+    user_all_grants = await database.user_permissions.where(
+        user_id=user.id,
+        target_type=PermissionTargetType.ALL,
+    )
+    for grant in user_all_grants:
+        levels.append(grant.level)
+
     memberships = await database.group_memberships.where(user_id=user.id)
     group_ids = [membership.group_id for membership in memberships]
 
@@ -89,6 +97,14 @@ async def resolve_access(
                 for grant in group_tag_grants:
                     if grant.target in inherited_tags:
                         levels.append(grant.level)
+
+        for group_id in group_ids:
+            group_all_grants = await database.group_permissions.where(
+                group_id=group_id,
+                target_type=PermissionTargetType.ALL,
+            )
+            for grant in group_all_grants:
+                levels.append(grant.level)
 
     if not levels:
         return None

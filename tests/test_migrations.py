@@ -301,3 +301,51 @@ async def test_migration_2_transforms_old_schema(database):
                     "('w2', 'stale', 'operators')"
                 )
             )
+
+
+def test_migrations_include_migration_3():
+    from ceres.database.migrations import MIGRATIONS
+
+    assert len(MIGRATIONS) == 3
+    migration = next(migration for migration in MIGRATIONS if migration.id == 3)
+    assert migration.render("sqlite") is not None
+    assert migration.render("postgres") is not None
+
+
+async def test_migration_3_converts_root_grants_and_deletes_root_state(database):
+    from ceres.database.migrations import MIGRATIONS
+
+    baseline = next(migration for migration in MIGRATIONS if migration.id == 1)
+
+    async with database.engine.begin() as connection:
+        await database._execute_script(connection, baseline.render("sqlite"))
+        await connection.execute(
+            text(
+                "INSERT INTO users (id, username, email, password, role, disabled) VALUES "
+                "('u1', 'alice', 'a@a', 'x', 'admin', 0)"
+            )
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO user_permissions (user_id, target_type, target, level) VALUES "
+                "('u1', 'component', '@', 'operate')"
+            )
+        )
+        await connection.execute(
+            text("INSERT INTO variables (address, name, value) VALUES ('@', 'enabled', 'true')")
+        )
+
+    await database.migrate()
+
+    async with database.engine.begin() as connection:
+        grant = (
+            await connection.execute(
+                text("SELECT target_type, target, level FROM user_permissions WHERE user_id = 'u1'")
+            )
+        ).one()
+        assert tuple(grant) == ("all", "", "operate")
+
+        variables = (
+            await connection.execute(text("SELECT COUNT(*) FROM variables WHERE address = '@'"))
+        ).scalar_one()
+        assert variables == 0

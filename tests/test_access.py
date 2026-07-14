@@ -136,6 +136,58 @@ async def test_resolve_access_group_grant() -> None:
     assert result == ComponentAccessLevel.MANAGE
 
 
+async def test_resolve_access_user_all_grant_applies_to_every_component() -> None:
+    """A user all-grant applies even to a component absent from `address_chain`."""
+    database = await _setup_database()
+    user = await database.users.create(
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
+    )
+    await database.user_permissions.create(
+        UserPermission.Create(
+            user_id=user.id,
+            target_type=PermissionTargetType.ALL,
+            target="",
+            level=ComponentAccessLevel.OPERATE,
+        )
+    )
+    result = await resolve_access(
+        database=database,
+        user=user,
+        address_chain=["@sensor.motor", "@sensor"],
+        resolved_access=ComponentAccessLevel.DENY,
+        inherited_tags=set(),
+    )
+    assert result == ComponentAccessLevel.OPERATE
+
+
+async def test_resolve_access_group_all_grant_applies_to_every_component() -> None:
+    """A group all-grant applies even to a component absent from `address_chain`."""
+    database = await _setup_database()
+    user = await database.users.create(
+        User.Create(username="viewer", email="v@test.com", password="hashed", admin=False)
+    )
+    group = await database.groups.create(Group.Create(name="field-ops"))
+    await database.group_memberships.create(
+        GroupMembership.Create(user_id=user.id, group_id=group.id)
+    )
+    await database.group_permissions.create(
+        GroupPermission.Create(
+            group_id=group.id,
+            target_type=PermissionTargetType.ALL,
+            target="",
+            level=ComponentAccessLevel.MANAGE,
+        )
+    )
+    result = await resolve_access(
+        database=database,
+        user=user,
+        address_chain=["@sensor.motor", "@sensor"],
+        resolved_access=ComponentAccessLevel.DENY,
+        inherited_tags=set(),
+    )
+    assert result == ComponentAccessLevel.MANAGE
+
+
 async def test_resolve_access_most_permissive_wins() -> None:
     """The max across all sources wins."""
     database = await _setup_database()

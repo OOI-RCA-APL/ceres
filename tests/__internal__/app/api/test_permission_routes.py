@@ -1,9 +1,11 @@
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from ceres import Component, Engine
 from ceres.__internal__.app.api.routes.permissions import (
+    UserPermissionData,
     get_all_effective_access,
     get_effective_access,
 )
@@ -143,3 +145,43 @@ async def test_single_effective_access_route_still_matches_with_address() -> Non
     assert result.level == ComponentAccessLevel.OPERATE
 
     await engine.database.dispose()
+
+
+def test_permission_data_accepts_all_target_type_with_empty_target() -> None:
+    """An explicit empty `target` is valid for an 'all' grant."""
+    data = UserPermissionData(
+        target_type=PermissionTargetType.ALL, target="", level=ComponentAccessLevel.VIEW
+    )
+    assert data.target == ""
+
+
+def test_permission_data_accepts_all_target_type_with_omitted_target() -> None:
+    """Omitting `target` entirely is also valid for an 'all' grant, it defaults to empty."""
+    data = UserPermissionData(target_type=PermissionTargetType.ALL, level=ComponentAccessLevel.VIEW)
+    assert data.target == ""
+
+
+def test_permission_data_rejects_all_target_type_with_nonempty_target() -> None:
+    """An 'all' grant with a non-empty target is rejected."""
+    with pytest.raises(ValidationError):
+        UserPermissionData(
+            target_type=PermissionTargetType.ALL, target="x", level=ComponentAccessLevel.VIEW
+        )
+
+
+def test_permission_data_rejects_invalid_component_address() -> None:
+    """A `component` grant with a malformed address is rejected."""
+    with pytest.raises(ValidationError):
+        UserPermissionData(
+            target_type=PermissionTargetType.COMPONENT,
+            target="not a valid address!",
+            level=ComponentAccessLevel.VIEW,
+        )
+
+
+def test_permission_data_rejects_empty_tag_target() -> None:
+    """A `tag` grant with an empty target is rejected."""
+    with pytest.raises(ValidationError):
+        UserPermissionData(
+            target_type=PermissionTargetType.TAG, target="", level=ComponentAccessLevel.VIEW
+        )

@@ -1,4 +1,7 @@
+from typing import Self
 from uuid import UUID
+
+from pydantic import model_validator
 
 from ceres.__internal__.app.shared import (
     ADMIN,
@@ -42,9 +45,24 @@ async def get_group_permissions(
     return await engine.database.group_permissions.where(group_id=group_id)
 
 
-class UserPermissionData(DataObject):
+class PermissionTargetData(DataObject):
     target_type: PermissionTargetType
-    target: str
+    target: str = ""
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> Self:
+        if self.target_type == PermissionTargetType.ALL:
+            if self.target:
+                raise ValueError("target must be empty for 'all' permissions")
+        elif self.target_type == PermissionTargetType.COMPONENT:
+            Address(self.target)
+        elif not self.target:
+            raise ValueError("target must not be empty for 'tag' permissions")
+
+        return self
+
+
+class UserPermissionData(PermissionTargetData):
     level: ComponentAccessLevel
 
 
@@ -84,9 +102,8 @@ async def set_user_permission(
     )
 
 
-class DeletePermissionData(DataObject):
-    target_type: PermissionTargetType
-    target: str
+class DeletePermissionData(PermissionTargetData):
+    pass
 
 
 @router.delete("/user/{user_id:uuid}", dependencies=[ADMIN])
@@ -102,9 +119,7 @@ async def delete_user_permission(
     ).delete()
 
 
-class GroupPermissionData(DataObject):
-    target_type: PermissionTargetType
-    target: str
+class GroupPermissionData(PermissionTargetData):
     level: ComponentAccessLevel
 
 
