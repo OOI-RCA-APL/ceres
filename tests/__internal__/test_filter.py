@@ -14,10 +14,10 @@ async def test_filter_defaults():
         "address": Address.ENGINE.all(),
     }
     assert root.__get_filter_defaults__() == {
-        "root": Address.ROOT,
-        "address": Address.ROOT.all(),
+        "root": Address("@root"),
+        "address": Address("@root").all(),
     }
     assert child.__get_filter_defaults__() == {
-        "root": Address("@child"),
-        "address": Address("@child").all(),
+        "root": Address("@root.child"),
+        "address": Address("@root.child").all(),
     }

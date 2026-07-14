@@ -37,7 +37,7 @@ async def _build_engine() -> tuple[Engine, Component]:
     await engine.database.migrate()
 
     widget = _Widget(__with_name__="widget")
-    engine.root = widget
+    engine.attach(widget)
 
     return engine, widget
 

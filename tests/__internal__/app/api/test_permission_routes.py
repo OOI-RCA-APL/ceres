@@ -9,6 +9,7 @@ from ceres.__internal__.app.api.routes.permissions import (
     get_all_effective_access,
     get_effective_access,
 )
+from ceres.__internal__.app.shared import _build_address_chain
 from ceres.address import Address
 from ceres.component import ComponentAccessLevel, ComponentConfig
 from ceres.error import NotFoundError, NotPermittedError
@@ -30,7 +31,7 @@ async def _build_engine() -> tuple[Engine, Component, Component, Component]:
         __with_config__=ComponentConfig(name="hidden", access=ComponentAccessLevel.DENY)
     )
 
-    engine.root = root
+    engine.attach(root)
     root.system.attach(granted)
     root.system.attach(hidden)
 
@@ -185,3 +186,12 @@ def test_permission_data_rejects_empty_tag_target() -> None:
         UserPermissionData(
             target_type=PermissionTargetType.TAG, target="", level=ComponentAccessLevel.VIEW
         )
+
+
+def test_build_address_chain_stops_at_top_level_component() -> None:
+    """The chain walks from a component up to its top-level ancestor, with no bare `@` entry."""
+    sensor = Component(__with_name__="sensor")
+    motor = Component(__with_name__="motor")
+    sensor.system.attach(motor)
+
+    assert _build_address_chain(motor.system) == ["@sensor.motor", "@sensor"]

@@ -15,7 +15,7 @@ async def _build_engine() -> tuple[Engine, Component, Component, Component]:
     granted = Component(__with_name__="granted")
     restricted = Component(__with_name__="restricted")
 
-    engine.root = root
+    engine.attach(root)
     root.system.attach(granted)
     root.system.attach(restricted)
 

@@ -32,21 +32,21 @@ from ceres.event import (
 )
 
 
-def test_assign_engine_root_component() -> None:
+def test_attach_engine_top_level_component() -> None:
     engine = Engine()
 
     root = Component()
-    engine.root = root
-    assert engine.root is root.system
+    engine.attach(root)
+    assert engine.get_component(root.system.address) is root
     assert root.system.engine is engine
 
 
-def test_assign_engine_root_component_system() -> None:
+def test_attach_engine_top_level_component_system() -> None:
     engine = Engine()
 
     root = Component()
-    engine.root = root.system
-    assert engine.root is root.system
+    engine.attach(root.system)
+    assert engine.get_component(root.system.address) is root
     assert root.system.engine is engine
 
 
@@ -54,17 +54,18 @@ def test_detach_from_engine() -> None:
     engine = Engine()
 
     root = Component()
-    engine.root = root
-    assert engine.root is root.system
+    engine.attach(root)
+    address = root.system.address
+    assert engine.get_component(address) is root
     assert root.system.engine is engine
 
     root.system.detach()
-    assert engine.root is None
+    assert engine.get_component(address) is None
     assert root.system.engine is None
     assert root.system.container is None
 
     root.system.detach()
-    assert engine.root is None
+    assert engine.get_component(address) is None
     assert root.system.engine is None
     assert root.system.container is None
 
@@ -78,7 +79,7 @@ def test_tree(with_engine: bool) -> None:
     grandchild = Component(__with_name__="grandchild")
 
     if engine is not None:
-        engine.root = root
+        engine.attach(root)
 
     root.system.attach(child)
     child.system.attach(grandchild)
@@ -99,9 +100,9 @@ def test_tree(with_engine: bool) -> None:
     assert child.system.children == [grandchild.system]
     assert grandchild.system.children == []
 
-    assert root.system.address == Address.ROOT
-    assert child.system.address == Address("@child")
-    assert grandchild.system.address == Address("@child.grandchild")
+    assert root.system.address == Address("@root")
+    assert child.system.address == Address("@root.child")
+    assert grandchild.system.address == Address("@root.child.grandchild")
 
     assert root.system.database is child.system.database is grandchild.system.database
 

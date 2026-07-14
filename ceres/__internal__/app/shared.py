@@ -567,7 +567,7 @@ async def get_component_access(
 
 
 def _build_address_chain(system: ComponentSystem) -> list[str]:
-    """Build the list of addresses from a component up to root."""
+    """Build the list of addresses from a component up to its top-level ancestor."""
     chain: list[str] = []
     current: ComponentSystem | None = system
     while current is not None:

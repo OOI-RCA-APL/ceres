@@ -523,7 +523,8 @@ class ComponentConfig(DataObject):
 
         Args:
             container: The parent component, component system, or engine to attach
-                the new component to. Pass `None` to construct a root component.
+                the new component to. Pass `None` to construct a detached top-level
+                component.
 
         Returns:
             The instantiated component, fully wired with children and references resolved.
@@ -549,7 +550,7 @@ class ComponentConfig(DataObject):
         if parent is not None:
             address = parent.address / self.name
         else:
-            address = Address.ROOT
+            address = Address(f"@{self.name}")
 
         errors: list[ComponentError] = []
         instance = self._create(
@@ -1056,32 +1057,32 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
 
 
 class Config(ConfigMeta, config={"extra": "forbid"}):
-    """Top-level Ceres configuration, including the component tree.
+    """Top-level Ceres configuration, including the component forest.
 
     `Config` is the strict, fully-typed view of a configuration file. Unknown fields
-    are rejected here so users get clear errors for typos. The root of the component
-    tree is always present, callers can also write `components:` at the top level as
-    a shorthand and it will be folded into `root.components` automatically.
+    are rejected here so users get clear errors for typos. `components` holds every
+    top-level component configuration, there is no implicit wrapping root component.
     """
 
-    root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
-    """Root of the component tree, every other component nests under this one."""
+    components: list[ComponentConfig] = Field(default_factory=list)
+    """Top-level component configurations, the engine's component forest."""
+
+    tags: list[str] = Field(default_factory=list)
+    """Tags inherited by every component that does not override them."""
+
+    access: ComponentAccessLevel | None = None
+    """Default access level for components with none declared in their ancestor chain."""
 
     @model_validator(mode="before")
     @to_kwargs
     @classmethod
     def _validate_before(cls, values: object | Mapping[str, Any]) -> object:
-        # Accept `components:` at the top level as shorthand for `root: { components: ... }`,
-        # this lets simple configurations skip the explicit root wrapper.
-        if isinstance(values, Mapping):
-            values = dict(values)
-            if "components" in values:
-                if "root" in values:
-                    raise ValueError(
-                        "cannot have both `root` and `components` defined at base level of config"
-                    )
-
-                values["root"] = {"components": values.pop("components")}
+        # The implicit root component was removed, `components` is the only spelling.
+        if isinstance(values, Mapping) and "root" in values:
+            raise ValueError(
+                "The `root` key has been removed. Declare top-level components under "
+                "`components` instead."
+            )
 
         return values
 
@@ -1103,45 +1104,53 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
 
         return self
 
-    @field_validator("root", mode="before")
-    @to_kwargs
-    def _validate_root(cls, values: object | Mapping[str, Any]) -> object:
-        # The root component's name is fixed, default it when omitted so users do not
-        # have to repeat it in every configuration file.
-        if isinstance(values, Mapping):
-            if "name" not in values:
-                values = {"name": "root", **values}
+    @field_validator("components")
+    def _validate_components(cls, components: list[ComponentConfig]) -> list[ComponentConfig]:
+        for component_name, group in group_by(components, lambda current: current.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate top-level component name '{component_name}'")
 
-        return values
+        return components
 
     @override
     async def _check_components(self) -> list[ComponentError]:
-        try:
-            self.root.create()
-            return []
-        except Error as error:
-            if isinstance(error, ComponentCombinedError):
-                return error.errors
-            elif isinstance(error, ComponentError):
-                return [error]
-            else:
-                return [ComponentUnexpectedError(exception=trace(error))]
-        except Exception as exception:
-            return [ComponentUnexpectedError(exception=trace(exception))]
+        errors: list[ComponentError] = []
+        for config in self.components:
+            try:
+                config.create()
+            except Error as error:
+                if isinstance(error, ComponentCombinedError):
+                    errors.extend(error.errors)
+                elif isinstance(error, ComponentError):
+                    errors.append(error)
+                else:
+                    errors.append(ComponentUnexpectedError(exception=trace(error)))
+            except Exception as exception:
+                errors.append(ComponentUnexpectedError(exception=trace(exception)))
+
+        return errors
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
-        """Look up a component configuration anywhere under the root."""
-        return self.root.get_component(address)
+        """Look up a component configuration anywhere in the forest."""
+        names = address.names
+        if not names:
+            return None
+
+        current = next((child for child in self.components if child.name == names[0]), None)
+        if current is None:
+            return None
+
+        return current.get_component(DynamicAddress(".".join(names[1:]))) if names[1:] else current
 
     def get_components(
         self,
         address: AddressSelector | None = None,
     ) -> dict[Address, ComponentConfig]:
-        """Return every component configuration in the tree, optionally filtered.
+        """Return every component configuration in the forest, optionally filtered.
 
         Args:
             address: Optional selector restricting which addresses are returned, omit
-                to return every component including the root.
+                to return every component in the forest.
 
         Returns:
             Mapping from absolute address to component configuration.
@@ -1155,12 +1164,13 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
             for child in config.components:
                 recurse(child, address / child.name, selector)
 
-        recurse(self.root, Address.ROOT, address)
+        for config in self.components:
+            recurse(config, Address(f"@{config.name}"), address)
 
         return configs
 
     def get_component_class(self, address: DynamicAddress) -> type[Component] | None:
-        """Look up the component class declared at `address`, anywhere under the root."""
+        """Look up the component class declared at `address`, anywhere in the forest."""
         config = self.get_component(address)
         if config is None:
             return None

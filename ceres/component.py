@@ -1568,18 +1568,18 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def address(self) -> Address:
-        """The current address of the component, derived by walking up to the root."""
+        """The current address of the component, derived by walking up to its top-level ancestor."""
         if self.parent is not None:
             return self.parent.address / self.name
 
-        return Address.ROOT
+        return Address(f"@{self.name}")
 
     @property
     def container(self) -> ComponentSystem | Engine | None:
         """The container of the component system.
 
         This is either another `ComponentSystem` (the parent component) or an `Engine` (when
-        this component is the engine's root). Returns `None` when the component is detached.
+        this component is a top-level component). Returns `None` when the component is detached.
         """
         return self._container
 
@@ -1591,7 +1591,7 @@ class ComponentSystem(Node, ComponentSource):
         # Make sure the container actually knows about us, calling `attach` is idempotent when
         # the relationship is already in sync.
         if isinstance(container, Engine):
-            if container.root is not self:
+            if container.get_component(Address(f"@{self.name}")) is not self.component:
                 container.attach(self)
         elif isinstance(container, ComponentSystem):
             if container._children.get(self._name) is not self:
@@ -1644,9 +1644,8 @@ class ComponentSystem(Node, ComponentSource):
         self._config = config
 
     @property
-    @override
     def root(self) -> ComponentSystem:
-        """The root of this component's tree, or this component itself when it has no parent."""
+        """The top-level system of this component's tree, or itself when it has no parent."""
         current: ComponentSystem | None = self
         while current.parent is not None:
             current = current.parent
@@ -2044,7 +2043,7 @@ class ComponentSystem(Node, ComponentSource):
             logging_before = self.get_resolved_logging_config()
 
             self._container = None
-            engine.root = None
+            engine.detach(self)
             self.__propagate_tree_change()
 
             engine.events.propagate(
@@ -2104,8 +2103,20 @@ class ComponentSystem(Node, ComponentSource):
         if address.is_absolute and self.parent is not None:
             return self.root.get_component(address)
 
+        names = list(address.names)
+        if address.is_absolute:
+            # An absolute address's first segment names the top-level component itself, not
+            # one of its children, strip it before walking down into the tree.
+            if not names:
+                return self.component
+
+            if names[0] != self.name:
+                return None
+
+            names = names[1:]
+
         current: ComponentSystem | None = self
-        for name in address.names:
+        for name in names:
             if current is None:
                 break
 
