@@ -92,7 +92,7 @@ ceres/
 ### Key Modules
 
 - `component.py`: The `Component` class, `ComponentSystem`, and all decorators (`@routine`, `@listener`, `@query`, `@action`, `@sieve`). This is the largest and most important module.
-- `engine.py`: The `Engine` class that owns the root component, database, and server. Handles configuration loading and reconciliation.
+- `engine.py`: The `Engine` class that owns the component tree, database, and server. Handles configuration loading and reconciliation.
 - `config.py`: Pydantic models for every section of `ceres.yaml`. Configuration validation and type checking.
 - `connection/`: `Connection`, `Source` (TCP, Unix), `Splitter`, and `Buffer` classes.
 - `event.py`: `Event` base class and all standard event types.

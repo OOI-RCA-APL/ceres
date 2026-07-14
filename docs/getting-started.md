@@ -102,7 +102,6 @@ $ ceres status
 ╭────────────┬─────────┬─────────╮
 │ Address    │ Running │ Enabled │
 ├────────────┼─────────┼─────────┤
-│ @          │ Yes     │ No      │
 │ @counter-a │ Yes     │ No      │
 │ @counter-b │ Yes     │ No      │
 ╰────────────┴─────────┴─────────╯
