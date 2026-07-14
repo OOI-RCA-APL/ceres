@@ -1113,19 +1113,6 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
     access: ComponentAccessLevel | None = None
     """Default access level for components with none declared in their ancestor chain."""
 
-    @model_validator(mode="before")
-    @to_kwargs
-    @classmethod
-    def _validate_before(cls, values: object | Mapping[str, Any]) -> object:
-        # The implicit root component was removed, `components` is the only spelling.
-        if isinstance(values, Mapping) and "root" in values:
-            raise ValueError(
-                "The `root` key has been removed. Declare top-level components under "
-                "`components` instead."
-            )
-
-        return values
-
     @model_validator(mode="after")
     def _validate_after(self) -> Self:
         from ceres.interface import Interface

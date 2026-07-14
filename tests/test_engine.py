@@ -104,7 +104,8 @@ def test_engine_get_components_filters_across_the_forest() -> None:
     assert addresses(":all") == {"@alpha", "@alpha.child", "@beta"}
 
 
-async def test_root_config_key_is_rejected() -> None:
+async def test_root_config_key_is_rejected_as_unknown() -> None:
+    # `Config` forbids extra fields, so the removed `root` key fails like any unknown key.
     with pytest.raises(ValidationError, match="root"):
         validate(Config, {"root": {"components": []}})
 
