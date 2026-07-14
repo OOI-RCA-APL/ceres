@@ -1,6 +1,6 @@
 import ssl
 from abc import abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from re import Pattern
@@ -371,6 +371,38 @@ def _get_component_class() -> type[Component]:
     return Component
 
 
+def collect_unresolved_reference_errors(
+    components: Iterable[Component],
+) -> list[ComponentError]:
+    """Re-resolve every component's references and report those that still do not resolve.
+
+    Run this after every top-level tree exists so absolute cross-tree references can route
+    through the engine. Intra-tree references have already been resolved during creation.
+
+    Args:
+        components: The components whose references to re-synchronize.
+
+    Returns:
+        A `ComponentReferenceInvalidError` for each reference that remains unresolved.
+    """
+    from ceres.reference import unref
+
+    errors: list[ComponentError] = []
+    for component in components:
+        _, unresolved = component.system.sync_references()
+        for reference in unresolved:
+            errors.append(
+                ComponentReferenceInvalidError(
+                    address=component.system.address,
+                    referenced=reference.__reference_ultimate_target__,
+                    expected=reference.__reference_constraint__ or Component,
+                    actual=type(unref(reference)),
+                )
+            )
+
+    return errors
+
+
 class ComponentAccessLevel(OrderedStrEnum):
     """Access level controlling what a user may do with a component.
 
@@ -552,6 +584,11 @@ class ComponentConfig(DataObject):
         else:
             address = Address(f"@{self.name}")
 
+        # Top-level trees under an engine are created one at a time, so an absolute
+        # reference into a sibling tree cannot resolve until every tree exists. Defer those
+        # out of the per-tree check and let the engine validate them across all trees.
+        defer_absolute = as_engine(container) is not None
+
         errors: list[ComponentError] = []
         instance = self._create(
             address=address,
@@ -566,16 +603,19 @@ class ComponentConfig(DataObject):
             components = instance.system.get_components(inclusive=True)
             for component in components:
                 _, unresolved = component.system.sync_references()
-                if unresolved:
-                    for reference in unresolved:
-                        errors.append(
-                            ComponentReferenceInvalidError(
-                                address=component.system.address,
-                                referenced=reference.__reference_ultimate_target__,
-                                expected=reference.__reference_constraint__ or Component,
-                                actual=type(unref(reference)),
-                            )
+                for reference in unresolved:
+                    target = reference.__reference_ultimate_target__
+                    if defer_absolute and isinstance(target, DynamicAddress) and target.is_absolute:
+                        continue
+
+                    errors.append(
+                        ComponentReferenceInvalidError(
+                            address=component.system.address,
+                            referenced=target,
+                            expected=reference.__reference_constraint__ or Component,
+                            actual=type(unref(reference)),
                         )
+                    )
 
         # Detach a partially constructed tree on error so we never leak components into
         # the parent system.
@@ -1114,19 +1154,32 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
 
     @override
     async def _check_components(self) -> list[ComponentError]:
+        from ceres.engine import Engine
+
         errors: list[ComponentError] = []
-        for config in self.components:
-            try:
-                config.create()
-            except Error as error:
-                if isinstance(error, ComponentCombinedError):
-                    errors.extend(error.errors)
-                elif isinstance(error, ComponentError):
-                    errors.append(error)
-                else:
-                    errors.append(ComponentUnexpectedError(exception=trace(error)))
-            except Exception as exception:
-                errors.append(ComponentUnexpectedError(exception=trace(exception)))
+
+        # Create every top-level tree under a shared throwaway engine so absolute
+        # cross-tree references resolve during checks exactly as they do at load time.
+        engine = Engine()
+        try:
+            for config in self.components:
+                try:
+                    config.create(engine)
+                except Error as error:
+                    if isinstance(error, ComponentCombinedError):
+                        errors.extend(error.errors)
+                    elif isinstance(error, ComponentError):
+                        errors.append(error)
+                    else:
+                        errors.append(ComponentUnexpectedError(exception=trace(error)))
+                except Exception as exception:
+                    errors.append(ComponentUnexpectedError(exception=trace(exception)))
+
+            # Cross-tree references were deferred during per-tree creation, validate them
+            # now that every tree exists.
+            errors.extend(collect_unresolved_reference_errors(engine.get_components()))
+        finally:
+            await engine.database.dispose()
 
         return errors
 

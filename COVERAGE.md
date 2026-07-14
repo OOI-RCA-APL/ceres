@@ -42,7 +42,7 @@
 | `ceres/channel.py` | 92% |
 | `ceres/component.py` | 83% |
 | `ceres/concurrency.py` | 91% |
-| `ceres/config.py` | 75% |
+| `ceres/config.py` | 78% |
 | `ceres/connection/__init__.py` | 57% |
 | `ceres/connection/buffer.py` | 80% |
 | `ceres/connection/source.py` | 87% |
@@ -61,7 +61,7 @@
 | `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
-| `ceres/engine.py` | 69% |
+| `ceres/engine.py` | 70% |
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |
@@ -80,7 +80,7 @@
 | `ceres/permission.py` | 98% |
 | `ceres/pruner.py` | 45% |
 | `ceres/record.py` | 89% |
-| `ceres/reference.py` | 71% |
+| `ceres/reference.py` | 67% |
 | `ceres/rtsp.py` | 29% |
 | `ceres/schedule.py` | 96% |
 | `ceres/server.py` | 66% |

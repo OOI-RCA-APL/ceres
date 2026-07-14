@@ -15,7 +15,7 @@ from ceres.__internal__.utilities.collections import uniq
 from ceres.__internal__.utilities.typing import as_component_system
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import sleep
-from ceres.config import Config, ConfigCheckType, ConfigSource
+from ceres.config import Config, ConfigCheckType, ConfigSource, collect_unresolved_reference_errors
 from ceres.data import DataObject, Name, PasswordHash, dump, to_json
 from ceres.directory import Directory
 from ceres.error import (
@@ -380,6 +380,13 @@ class Engine(Node):
         system = as_component_system(component)
         assert system is not None
 
+        # A system that still points at this engine hasn't gone through `ComponentSystem.detach`
+        # yet, route through it so the system's container is cleared too. That re-enters here
+        # with the container already cleared, which falls through to the removal below.
+        if system.container is self:
+            system.detach()
+            return
+
         # Match by identity rather than name so a component renamed while attached still has
         # its old registration removed.
         for name, current in list(self._components.items()):
@@ -725,11 +732,14 @@ class Engine(Node):
         strict: bool = False,
     ) -> None:
         creation_errors: list[ComponentError] = []
+        created_components: list[Component] = []
         for action in actions:
             parent_address = action.address.parent
             if parent_address is None:
                 container: ComponentSystem | Engine = self
             else:
+                # A top-level action's parent address resolves to no component, so it falls
+                # back to the engine, which is where top-level components attach.
                 parent = self.get_component(parent_address)
                 container = parent.system if parent is not None else self
 
@@ -759,6 +769,7 @@ class Engine(Node):
 
                     try:
                         component = config_entry.create(container)
+                        created_components.append(component)
                         for current in component.system.get_components(inclusive=True):
                             if not silent:
                                 self.log.info(
@@ -795,6 +806,7 @@ class Engine(Node):
 
                     try:
                         component = config_entry.create(container)
+                        created_components.append(component)
                         for current in component.system.get_components(inclusive=True):
                             if not silent:
                                 self.log.info(
@@ -822,6 +834,23 @@ class Engine(Node):
                             self.log.warning(
                                 f"Component at {action.address} does not exist to remove. Skipping."
                             )
+
+        if created_components:
+            # Cross-tree references were deferred while their target tree might not exist yet,
+            # validate them now that every action in this apply has run.
+            reference_targets = [
+                descendant
+                for component in created_components
+                for descendant in component.system.get_components(inclusive=True)
+            ]
+            reference_errors = collect_unresolved_reference_errors(reference_targets)
+            if reference_errors and not silent:
+                self.log.error(
+                    f"Unresolved cross-tree references found. Errors: "
+                    f"{to_json(reference_errors, indent=2)}"
+                )
+
+            creation_errors.extend(reference_errors)
 
         if strict and creation_errors:
             raise ComponentCombinedError(errors=creation_errors)

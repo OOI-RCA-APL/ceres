@@ -2089,7 +2089,9 @@ class ComponentSystem(Node, ComponentSource):
 
         Args:
             address: Address string or `DynamicAddress`. An empty value returns this component.
-                Absolute addresses on a non-root system are resolved against the tree root.
+                Absolute addresses route through the engine when this system is attached to
+                one, so they can reach components in any top-level tree. On a detached system,
+                absolute addresses are resolved against the local tree root instead.
 
         Returns:
             The matching component, or `None` if no component exists at that address.
@@ -2100,11 +2102,16 @@ class ComponentSystem(Node, ComponentSource):
         if not isinstance(address, DynamicAddress):
             address = DynamicAddress(address)
 
-        if address.is_absolute and self.parent is not None:
-            return self.root.get_component(address)
-
-        names = list(address.names)
         if address.is_absolute:
+            # Cross-tree references route through the engine so an absolute address can name a
+            # component in any top-level tree, not just this one.
+            if self.engine is not None:
+                return self.engine.get_component(address)
+
+            if self.parent is not None:
+                return self.root.get_component(address)
+
+            names = list(address.names)
             # An absolute address's first segment names the top-level component itself, not
             # one of its children, strip it before walking down into the tree.
             if not names:
@@ -2114,6 +2121,8 @@ class ComponentSystem(Node, ComponentSource):
                 return None
 
             names = names[1:]
+        else:
+            names = list(address.names)
 
         current: ComponentSystem | None = self
         for name in names:

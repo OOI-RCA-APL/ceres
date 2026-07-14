@@ -148,6 +148,18 @@ def test_indirect_references():
     assert d.system.get_referencing_components() == []
 
 
+def test_absolute_reference_into_foreign_tree_resolves_to_none_when_detached():
+    class Referencer(Component):
+        target: Ref[Component]
+
+    # A detached tree has no engine to route absolute cross-tree addresses through, so a
+    # reference into a foreign tree resolves to `None`.
+    referencer = Referencer("alpha", target=ref("@beta.x", Component))
+    referencer.system.sync_references()
+
+    assert unref(referencer.target) is None
+
+
 def test_init_with_invalid_target_type():
     with pytest.raises(ValueError, match="first argument must be"):
         Reference(42)  # type: ignore[arg-type]
