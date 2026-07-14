@@ -4,7 +4,7 @@ import Zod from 'zod'
 import { useClient } from '@/api/client'
 
 export type PermissionTargetType = Zod.infer<typeof PermissionTargetTypeModel>
-export const PermissionTargetTypeModel = Zod.enum(['component', 'tag'])
+export const PermissionTargetTypeModel = Zod.enum(['component', 'tag', 'all'])
 
 export type ComponentAccessLevel = Zod.infer<typeof ComponentAccessLevelModel>
 export const ComponentAccessLevelModel = Zod.enum(['view', 'operate', 'manage'])

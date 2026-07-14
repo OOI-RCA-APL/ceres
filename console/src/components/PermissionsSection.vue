@@ -65,17 +65,9 @@ let newPermissionTargetType = $ref<PermissionTargetType>('component')
 let newPermissionTarget = $ref<string | null>(null)
 let newPermissionLevel = $ref<ComponentAccessLevel>('view')
 
-const componentAddresses = $computed(() => {
-  const addresses = engine.components.all.map((component) => component.address.toString())
-
-  // Move the root component to the end of the list.
-  const rootIndex = addresses.indexOf('@')
-  if (rootIndex !== -1) {
-    addresses.push(...addresses.splice(rootIndex, 1))
-  }
-
-  return addresses
-})
+const componentAddresses = $computed(() =>
+  engine.components.all.map((component) => component.address.toString())
+)
 
 const allTags = $computed(() => {
   const tags = new Set<string>()
@@ -88,19 +80,36 @@ const allTags = $computed(() => {
   return [...tags].sort()
 })
 
+function targetTypeLabel(type: string): string {
+  return type === 'all' ? 'All components' : upperFirst(type)
+}
+
+function permissionTargetLabel(permission: {
+  target_type?: PermissionTargetType
+  target?: string
+}) {
+  if (permission.target_type === 'all') {
+    return 'All components'
+  } else if (permission.target_type === 'tag') {
+    return `#${permission.target}`
+  }
+
+  return permission.target
+}
+
 function onTargetTypeChange(type: PermissionTargetType) {
   newPermissionTargetType = type
-  newPermissionTarget = null
+  newPermissionTarget = type === 'all' ? '' : null
 }
 
 async function addPermission() {
-  if (newPermissionTarget == null) {
+  if (newPermissionTargetType !== 'all' && newPermissionTarget == null) {
     return
   }
 
   const data = {
     target_type: newPermissionTargetType,
-    target: newPermissionTarget,
+    target: newPermissionTarget ?? '',
     level: newPermissionLevel,
   }
   await guard(
@@ -120,7 +129,7 @@ async function addPermission() {
 }
 
 function promptRemovePermission(targetType: PermissionTargetType, target: string) {
-  const targetLabel = targetType === 'tag' ? `#${target}` : target
+  const targetLabel = permissionTargetLabel({ target_type: targetType, target })
   dialogs
     .show({
       title: 'Remove Permission',
@@ -157,7 +166,7 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
         >
           <q-item-section>
             <q-item-label>
-              {{ permission.target_type === 'tag' ? `#${permission.target}` : permission.target }}
+              {{ permissionTargetLabel(permission) }}
             </q-item-label>
           </q-item-section>
           <q-item-section side>
@@ -192,7 +201,7 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
         >
           <q-item-section>
             <q-item-label>
-              {{ permission.target_type === 'tag' ? `#${permission.target}` : permission.target }}
+              {{ permissionTargetLabel(permission) }}
             </q-item-label>
             <q-item-label caption>From group "{{ permission.groupName }}"</q-item-label>
           </q-item-section>
@@ -234,13 +243,14 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
                   dense
                   label="Type"
                   :model-value="newPermissionTargetType"
-                  :option-label="(option: string) => upperFirst(option)"
-                  :options="['component', 'tag']"
+                  :option-label="targetTypeLabel"
+                  :options="['component', 'tag', 'all']"
                   options-dense
                   outlined
                   @update:model-value="onTargetTypeChange"
                 />
                 <q-select
+                  v-if="newPermissionTargetType !== 'all'"
                   v-model="newPermissionTarget"
                   dense
                   :label="upperFirst(newPermissionTargetType)"
@@ -254,7 +264,7 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
                     class="full-width"
                     color="primary"
                     dense
-                    :disable="newPermissionTarget == null"
+                    :disable="newPermissionTargetType !== 'all' && newPermissionTarget == null"
                     label="Add"
                     @click="addPermission"
                   />

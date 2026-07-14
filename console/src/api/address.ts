@@ -3,7 +3,7 @@ import Zod from 'zod'
 const namePattern = '^[a-zA-Z_-][a-zA-Z0-9_-]*$'
 const name = namePattern.slice(1, -1)
 const modifier = ':(all|children|descendants)'
-const segment = `\\~(${modifier})?|@?[a-z-A-Z_\\-.]+(${modifier})?|@(${modifier})?|${modifier}`
+const segment = `\\~(:(all|descendants))?|@?[a-z-A-Z_\\-.]+(${modifier})?|@${modifier}|${modifier}`
 
 const addressSelectorRegex = new RegExp(`^${segment}(\\|${segment})*$`)
 
@@ -44,7 +44,7 @@ export class AddressSelector {
   }
 }
 
-const addressRegex = new RegExp(`^~|@(${name}(\\.${name})*)*$`)
+const addressRegex = new RegExp(`^~|@${name}(\\.${name})*$`)
 
 export class Address extends AddressSelector {
   constructor(value: string | AddressSelector) {
@@ -64,15 +64,10 @@ export class Address extends AddressSelector {
     return new Address(address)
   }
 
-  public get isRoot(): boolean {
-    return this.value === '@'
-  }
-
   public get name(): string | null {
-    if (this.isRoot) {
-    }
-
-    return this.value.slice(this.value.lastIndexOf('.') + 1).trim() || null
+    const index = this.value.lastIndexOf('.')
+    const tail = index === -1 ? this.value.replace(/^@/, '') : this.value.slice(index + 1)
+    return tail.trim() || null
   }
 
   public get names(): string[] {
@@ -81,18 +76,10 @@ export class Address extends AddressSelector {
   }
 
   public get depth(): number {
-    if (this.isRoot) {
-      return 0
-    }
-
     return [...this.value].filter((current) => current === '.').length + 1
   }
 
   public append(name: string): Address {
-    if (this.isRoot) {
-      return new Address('@' + name)
-    }
-
     return new Address(this.value + '.' + name)
   }
 

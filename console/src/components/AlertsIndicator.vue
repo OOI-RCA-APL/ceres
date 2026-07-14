@@ -15,7 +15,7 @@ const time = useTime()
 let isShowingMenu = $ref(false)
 
 const subjectText = $computed(() => {
-  if (address == null || address.isRoot) {
+  if (address == null) {
     return ''
   }
 
@@ -23,7 +23,7 @@ const subjectText = $computed(() => {
 })
 
 const info = $computed(() => {
-  if (address == null || address.isRoot) {
+  if (address == null) {
     return null
   }
 

@@ -5,8 +5,8 @@ import { useRoute } from 'vue-router'
 import Zod from 'zod'
 
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
+import AppLayoutDrawerHeader from '@/AppLayoutDrawerHeader.vue'
 import AppLayoutDrawerWorkspace from '@/AppLayoutDrawerWorkspace.vue'
-import { Address } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
 import ResizeHandle from '@/components/ResizeHandle.vue'
@@ -88,8 +88,6 @@ function clearLocalStorage() {
       })
     })
 }
-
-const root = new Address('@')
 
 function promptReload() {
   dialogs
@@ -255,10 +253,12 @@ function promptReload() {
               />
             </div>
             <div class="scroll">
+              <app-layout-drawer-header v-if="engine.components.topLevel.length > 0" />
               <app-layout-drawer-component
-                v-if="engine.components.root != null"
-                :address="root"
-                :component="engine.components.root"
+                v-for="component in engine.components.topLevel"
+                :key="component.address.toString()"
+                :address="component.address"
+                :component="component"
               />
             </div>
           </template>

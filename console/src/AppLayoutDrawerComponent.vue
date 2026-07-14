@@ -15,9 +15,8 @@ const { address, component } = defineProps<{
 const drawer = useDrawer()
 
 const isExpanded = $computed(() => !drawer.collapsed.some((current) => current.equals(address)))
-const isRoot = $computed(() => address.isRoot)
-const isRootChild = $computed(() => address.depth === 1)
-const isLeaf = $computed(() => !isRoot && component.components.length === 0)
+const isTopLevel = $computed(() => address.depth === 1)
+const isLeaf = $computed(() => component.components.length === 0)
 
 function toggleExpanded() {
   if (isExpanded) {
@@ -33,7 +32,7 @@ function toggleExpanded() {
     :class="[$style.root, 'items-center', 'row']"
     clickable
     dense
-    :to="address.isRoot ? undefined : `/components/${address}`"
+    :to="`/components/${address}`"
   >
     <div
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
@@ -53,8 +52,8 @@ function toggleExpanded() {
       </q-btn>
     </div>
     <q-item-section no-wrap>
-      <q-item-label class="q-ml-md text-no-wrap" :style="!isRootChild && { paddingLeft: '1.5px' }">
-        {{ address.isRoot ? 'Components' : isRootChild ? component.address : '.' + component.name }}
+      <q-item-label class="q-ml-md text-no-wrap" :style="!isTopLevel && { paddingLeft: '1.5px' }">
+        {{ isTopLevel ? component.address : '.' + component.name }}
       </q-item-label>
     </q-item-section>
     <q-item-section side>

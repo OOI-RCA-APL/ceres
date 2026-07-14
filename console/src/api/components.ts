@@ -101,14 +101,8 @@ export const useComponents = defineStore('components', () => {
   const client = useClient()
   const auth = useAuth()
 
-  async function getComponent(address: Address) {
-    try {
-      return await client.get(`/api/components/${address}`, {
-        parse: ComponentInfoModel,
-      })
-    } catch {
-      return null
-    }
+  async function getComponents(): Promise<ComponentInfo[]> {
+    return await client.get('/api/components', { parse: Zod.array(ComponentInfoModel) })
   }
 
   async function call(
@@ -158,23 +152,19 @@ export const useComponents = defineStore('components', () => {
   }
 
   const query = useQuery({
-    queryKey: computed(() => ['root-component', auth.user?.id ?? null]),
+    queryKey: computed(() => ['components', auth.user?.id ?? null]),
     queryFn: async () => {
       if (auth.user == null) {
         return null
       }
 
-      return await getComponent(new Address('@'))
+      return await getComponents()
     },
   })
 
-  const root = $computed<ComponentInfo | null>(() => query.data.value ?? null)
+  const topLevel = $computed<ComponentInfo[]>(() => query.data.value ?? [])
 
   const mapping = $computed<Record<string, ComponentInfo>>(() => {
-    if (root == null) {
-      return {}
-    }
-
     const mapping: Record<string, ComponentInfo> = {}
 
     function traverse(current: ComponentInfo) {
@@ -184,7 +174,10 @@ export const useComponents = defineStore('components', () => {
       }
     }
 
-    traverse(root)
+    for (const component of topLevel) {
+      traverse(component)
+    }
+
     return mapping
   })
 
@@ -255,7 +248,7 @@ export const useComponents = defineStore('components', () => {
 
   return {
     ...query,
-    root: computed(() => root),
+    topLevel: computed(() => topLevel),
     get: computed(() => get),
     getDescendants: computed(() => getDescendants),
     all: computed(() => all),
