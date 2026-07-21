@@ -42,7 +42,9 @@ class ShellCommand(CLICommand):
 
         from ceres.database import DatabaseType, PostgresDatabase, SQLiteDatabase
 
-        async with self.use_database() as database:
+        # The shell is for inspecting and repairing the database, so it must open regardless of
+        # whether the schema is initialized or current.
+        async with self.use_database(require_initialized=False) as database:
             command: list[str] = []
             env: dict[str, str] = {**os.environ}
 
