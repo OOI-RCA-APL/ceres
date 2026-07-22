@@ -80,7 +80,6 @@ const configHighlighted = $computed(() =>
 
 // Track which section groups have content so separators only render between non-empty groups.
 const hasOverview = $computed(() => (component?.tags.length ?? 0) > 0)
-const hasProcedures = $computed(() => queries.length > 0 || actions.length > 0)
 const hasConnectivity = $computed(
   () => (component?.connections.length ?? 0) > 0 || (component?.components.length ?? 0) > 0
 )
@@ -117,7 +116,7 @@ const hasConnectivity = $computed(
             </q-expansion-item>
           </q-list>
         </q-card-section>
-        <q-separator v-if="hasOverview || hasProcedures || hasConnectivity" />
+        <q-separator />
       </template>
 
       <q-card-section v-if="component.tags.length > 0">
@@ -127,17 +126,17 @@ const hasConnectivity = $computed(
         </div>
       </q-card-section>
 
-      <q-separator v-if="hasOverview && hasProcedures" />
+      <q-separator v-if="hasOverview" />
 
-      <q-card-section v-if="hasProcedures">
+      <q-card-section>
         <q-list bordered class="rounded-borders" dense>
-          <q-expansion-item
-            v-if="queries.length > 0"
-            dense
-            dense-toggle
-            :label="`Queries (${queries.length})`"
-          >
+          <q-expansion-item dense dense-toggle :label="`Queries (${queries.length})`">
             <q-list class="q-pb-sm" dense>
+              <q-item v-if="queries.length === 0">
+                <q-item-section>
+                  <q-item-label class="text-grey-6">No queries.</q-item-label>
+                </q-item-section>
+              </q-item>
               <q-item v-for="query in queries" :key="query.name">
                 <q-item-section>
                   <q-item-label>{{ query.name }}</q-item-label>
@@ -166,14 +165,14 @@ const hasConnectivity = $computed(
               </q-item>
             </q-list>
           </q-expansion-item>
-          <q-separator v-if="queries.length > 0 && actions.length > 0" />
-          <q-expansion-item
-            v-if="actions.length > 0"
-            dense
-            dense-toggle
-            :label="`Actions (${actions.length})`"
-          >
+          <q-separator />
+          <q-expansion-item dense dense-toggle :label="`Actions (${actions.length})`">
             <q-list class="q-pb-sm" dense>
+              <q-item v-if="actions.length === 0">
+                <q-item-section>
+                  <q-item-label class="text-grey-6">No actions.</q-item-label>
+                </q-item-section>
+              </q-item>
               <q-item v-for="action in actions" :key="action.name">
                 <q-item-section>
                   <q-item-label>{{ action.name }}</q-item-label>
@@ -190,7 +189,7 @@ const hasConnectivity = $computed(
         </q-list>
       </q-card-section>
 
-      <q-separator v-if="(hasOverview || hasProcedures) && hasConnectivity" />
+      <q-separator v-if="hasConnectivity" />
 
       <q-card-section v-if="component.connections.length > 0">
         <div class="q-mb-xs text-subtitle2">Connections</div>
