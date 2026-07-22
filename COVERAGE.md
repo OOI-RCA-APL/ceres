@@ -11,7 +11,7 @@
 | `ceres/__internal__/database/errors.py` | 36% |
 | `ceres/__internal__/database/types.py` | 100% |
 | `ceres/__internal__/database/writer.py` | 86% |
-| `ceres/__internal__/entity.py` | 79% |
+| `ceres/__internal__/entity.py` | 82% |
 | `ceres/__internal__/filter.py` | 94% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |

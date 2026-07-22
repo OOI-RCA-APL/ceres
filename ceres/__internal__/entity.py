@@ -355,6 +355,10 @@ class BaseEntityFilter[
         and__ = cls.__pydantic_fields__["and__"]
         and__.annotation = cast("type[Any]", FromYAML[MaybeSequence[FromYAML[cls]]] | None)
 
+        # The core schema is already built by this point, so it still validates subfilters against
+        # the inherited annotation. Rebuild so subfilters accept the fields this subclass declares.
+        cls.model_rebuild(force=True)
+
     @model_validator(mode="after")
     def _resolve_and_or(self) -> Self:
         if self.or__:
