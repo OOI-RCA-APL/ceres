@@ -7,11 +7,12 @@ import { stringify } from 'yaml'
 
 import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
-import { ProcedureInfo } from '@/api/components'
+import { JobInfo, ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import CardPage from '@/components/CardPage.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import icons from '@/icons'
+import { utc } from '@/time'
 import { highlight } from '@/utilities'
 
 const engine = useEngine()
@@ -64,6 +65,24 @@ const configQuery = useQuery({
   retry: false,
 })
 
+const jobsQuery = useQuery({
+  queryKey: computed(() => ['component-jobs', address.toString()]),
+  queryFn: () => engine.components.getJobs(address),
+  retry: false,
+})
+
+const jobs = $computed(() => jobsQuery.data.value ?? [])
+
+/** Describe a job's schedule and expected next run for display beneath its name. */
+function jobLabel(job: JobInfo): string {
+  const schedule = `Schedule "${job.schedule}"`
+  if (job.next_run == null) {
+    return `${schedule}, not scheduled to run.`
+  }
+
+  return `${schedule}, next run at ${utc(job.next_run).format('YYYY-MM-DD HH:mm')} UTC.`
+}
+
 const configText = $computed(() => {
   const config = configQuery.data.value
   if (config == null) {
@@ -80,9 +99,7 @@ const configHighlighted = $computed(() =>
 
 // Track which section groups have content so separators only render between non-empty groups.
 const hasOverview = $computed(() => (component?.tags.length ?? 0) > 0)
-const hasConnectivity = $computed(
-  () => (component?.connections.length ?? 0) > 0 || (component?.components.length ?? 0) > 0
-)
+const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
 </script>
 
 <template>
@@ -99,8 +116,11 @@ const hasConnectivity = $computed(
         text-color="white"
       >
         {{ upperFirst(effectiveAccess) }}
+        <q-tooltip class="bg-primary text-white">
+          You have permissions to {{ effectiveAccess }} this component.
+        </q-tooltip>
       </q-chip>
-      <status-badge v-if="component" :address />
+      <status-badge v-if="component" :address :scale="0.75" />
     </template>
     <q-card-section v-if="component == null">
       <div class="text-grey-6">Component not found.</div>
@@ -118,6 +138,52 @@ const hasConnectivity = $computed(
         </q-card-section>
         <q-separator />
       </template>
+
+      <q-card-section>
+        <q-list bordered class="rounded-borders" dense>
+          <q-expansion-item
+            dense
+            dense-toggle
+            :label="`Connections (${component.connections.length})`"
+          >
+            <q-list class="q-pb-sm" dense>
+              <q-item v-if="component.connections.length === 0">
+                <q-item-section>
+                  <q-item-label class="text-grey-6">No connections.</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item
+                v-for="connection in component.connections"
+                :key="connection.name"
+                :class="$style.item"
+              >
+                <q-item-section>
+                  <q-item-label>{{ connection.label }}</q-item-label>
+                  <q-item-label caption>{{ connection.name }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-expansion-item>
+          <q-separator />
+          <q-expansion-item dense dense-toggle :label="`Jobs (${jobs.length})`">
+            <q-list class="q-pb-sm" dense>
+              <q-item v-if="jobs.length === 0">
+                <q-item-section>
+                  <q-item-label class="text-grey-6">No jobs.</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item v-for="job in jobs" :key="job.name" :class="$style.item">
+                <q-item-section>
+                  <q-item-label>{{ job.name }}</q-item-label>
+                  <q-item-label caption>{{ jobLabel(job) }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-expansion-item>
+        </q-list>
+      </q-card-section>
+
+      <q-separator />
 
       <q-card-section v-if="component.tags.length > 0">
         <div class="q-mb-xs text-subtitle2">Tags</div>
@@ -189,23 +255,7 @@ const hasConnectivity = $computed(
         </q-list>
       </q-card-section>
 
-      <q-separator v-if="hasConnectivity" />
-
-      <q-card-section v-if="component.connections.length > 0">
-        <div class="q-mb-xs text-subtitle2">Connections</div>
-        <q-list bordered class="rounded-borders" dense separator>
-          <q-item
-            v-for="connection in component.connections"
-            :key="connection.name"
-            :class="$style.item"
-          >
-            <q-item-section>
-              <q-item-label>{{ connection.label }}</q-item-label>
-              <q-item-label caption>{{ connection.name }}</q-item-label>
-            </q-item-section>
-          </q-item>
-        </q-list>
-      </q-card-section>
+      <q-separator v-if="hasChildren" />
 
       <q-card-section v-if="component.components.length > 0">
         <div class="q-mb-xs text-subtitle2">Child Components</div>

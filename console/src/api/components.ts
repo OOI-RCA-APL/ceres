@@ -69,6 +69,14 @@ export const ActionInfoModel = BaseProcedureInfoModel.extend({
 export type ProcedureInfo = Zod.infer<typeof ProcedureInfoModel>
 export const ProcedureInfoModel = Zod.discriminatedUnion('type', [QueryInfoModel, ActionInfoModel])
 
+export type JobInfo = Zod.infer<typeof JobInfoModel>
+export const JobInfoModel = Zod.object({
+  name: Zod.string(),
+  action: Zod.string(),
+  schedule: Zod.string(),
+  next_run: Zod.string().nullable(),
+})
+
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
 export const ComponentRoleModel = Zod.enum(['interface'])
 
@@ -109,10 +117,17 @@ export const useComponents = defineStore('components', () => {
     return await client.get('/api/components', { parse: Zod.array(ComponentInfoModel) })
   }
 
-  /** Fetch a component's configuration. Requires manage access, so this rejects for most users. */
+  /** Fetch a component's configuration. Rejects for callers with no access to the component. */
   async function getConfig(address: Address): Promise<Record<string, any> | null> {
     return await client.get(`/api/components/${address}/config`, {
       parse: Zod.record(Zod.string(), Zod.any()).nullable(),
+    })
+  }
+
+  /** Fetch a component's scheduled jobs. Rejects for callers with no access to the component. */
+  async function getJobs(address: Address): Promise<JobInfo[]> {
+    return await client.get(`/api/components/${address}/jobs`, {
+      parse: Zod.array(JobInfoModel),
     })
   }
 
@@ -267,6 +282,7 @@ export const useComponents = defineStore('components', () => {
     getQuery: computed(() => getQuery),
     getAction: computed(() => getAction),
     getConfig,
+    getJobs,
     call,
     send,
     useElementStream,

@@ -8,8 +8,9 @@ import StatusBadgeAffectedCounter from '@/components/StatusBadgeAffectedCounter.
 import icons from '@/icons'
 import { debouncedComputed } from '@/utilities'
 
-const { address } = defineProps<{
+const { address, scale = 0.55 } = defineProps<{
   address: Address
+  scale?: number
 }>()
 
 const engine = useEngine()
@@ -99,6 +100,7 @@ const connectionColor = $computed(() => {
         canControl && 'cursor-pointer',
       ]"
       rounded
+      :style="{ scale: String(scale) }"
     >
       <q-tooltip
         v-if="!menuIsOpen && (status.running != null || status.enabled != null)"
@@ -238,7 +240,6 @@ const connectionColor = $computed(() => {
 .root {
   background-color: black;
   outline: 3.5px dotted black;
-  scale: 0.55;
 }
 
 :global(.dark) .root {
