@@ -85,9 +85,10 @@ const effectiveEntries = $computed(() => {
 })
 
 // The server reports which input conferred each level, so nothing here has to be inferred.
+// The trailing period is appended in `sourceLabel` so group suffixes compose cleanly.
 const SOURCE_LABELS: Record<AccessSource, string> = {
   admin: 'Administrator',
-  default: 'Default access level',
+  default: 'From default access level',
   component: 'Granted on this component',
   tag: 'Granted through a tag',
   all: 'Granted on all components',
@@ -108,11 +109,11 @@ const groupNames = $computed(() => {
 function sourceLabel(entry: ComponentEffectiveAccess): string {
   const label = SOURCE_LABELS[entry.source]
   if (entry.origin !== 'group' || entry.group_id == null) {
-    return label
+    return `${label}.`
   }
 
   const name = groupNames.get(entry.group_id)
-  return name == null ? `${label}, through a group` : `${label}, from group "${name}"`
+  return name == null ? `${label}, through a group.` : `${label}, from group "${name}".`
 }
 
 const effectiveAccess = $computed(() =>
@@ -238,6 +239,7 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
         <q-item
           v-for="permission in permissions"
           :key="`${permission.target_type}-${permission.target}`"
+          :class="$style.item"
         >
           <q-item-section>
             <q-item-label>
@@ -272,13 +274,14 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
         <q-item
           v-for="permission in inheritedPermissions"
           :key="`${permission.group_id}-${permission.target_type}-${permission.target}`"
+          :class="$style.item"
           :to="`/groups/${permission.group_id}`"
         >
           <q-item-section>
             <q-item-label>
               {{ permissionTargetLabel(permission) }}
             </q-item-label>
-            <q-item-label caption>From group "{{ permission.groupName }}"</q-item-label>
+            <q-item-label caption>From group "{{ permission.groupName }}".</q-item-label>
           </q-item-section>
           <q-item-section side>
             <q-chip
@@ -293,7 +296,10 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
             </q-chip>
           </q-item-section>
         </q-item>
-        <q-item v-if="permissions.length === 0 && inheritedPermissions.length === 0">
+        <q-item
+          v-if="permissions.length === 0 && inheritedPermissions.length === 0"
+          :class="$style.item"
+        >
           <q-item-section>
             <q-item-label class="text-grey-6">No permissions granted.</q-item-label>
             <q-item-label caption>
@@ -367,11 +373,12 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
         <q-item
           v-for="entry in effectiveAccess"
           :key="entry.address"
+          :class="$style.item"
           :to="entry.groupId != null ? `/groups/${entry.groupId}` : undefined"
         >
           <q-item-section>
             <q-item-label>{{ entry.address }}</q-item-label>
-            <q-item-label caption>{{ entry.source ?? 'No access' }}</q-item-label>
+            <q-item-label caption>{{ entry.source ?? 'No access.' }}</q-item-label>
           </q-item-section>
           <q-item-section side>
             <q-chip
@@ -388,7 +395,7 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
             <q-icon v-else class="text-grey-6" :name="icons.locked" size="16px" />
           </q-item-section>
         </q-item>
-        <q-item v-if="effectiveAccess.length === 0">
+        <q-item v-if="effectiveAccess.length === 0" :class="$style.item">
           <q-item-section>
             <q-item-label class="text-grey-6">No components.</q-item-label>
           </q-item-section>
@@ -399,6 +406,11 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
 </template>
 
 <style lang="scss" module>
+.item {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .caption {
   font-size: 12px;
   line-height: 1.4;

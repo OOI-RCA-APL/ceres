@@ -394,7 +394,12 @@ function promptRemoveFromGroup(group: Group) {
       <card-page-section :title="`Groups (${userGroups.length})`">
         <q-card-section>
           <q-list bordered class="rounded-borders" dense separator>
-            <q-item v-for="group in userGroups" :key="group.id" :to="`/groups/${group.id}`">
+            <q-item
+              v-for="group in userGroups"
+              :key="group.id"
+              :class="$style.item"
+              :to="`/groups/${group.id}`"
+            >
               <q-item-section>
                 <q-item-label>{{ group.name }}</q-item-label>
                 <q-item-label v-if="group.description" caption>
@@ -413,7 +418,7 @@ function promptRemoveFromGroup(group: Group) {
                 />
               </q-item-section>
             </q-item>
-            <q-item v-if="userGroups.length === 0">
+            <q-item v-if="userGroups.length === 0" :class="$style.item">
               <q-item-section>
                 <q-item-label class="text-grey-6"> No groups. </q-item-label>
               </q-item-section>
@@ -446,6 +451,11 @@ function promptRemoveFromGroup(group: Group) {
 </template>
 
 <style lang="scss" module>
+.item {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .addMenu {
   min-width: 220px;
 }
