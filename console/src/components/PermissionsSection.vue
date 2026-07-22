@@ -5,7 +5,12 @@ import { computed } from 'vue'
 
 import { useAccess } from '@/api/access'
 import { useEngine } from '@/api/engine'
-import { ComponentAccessLevel, PermissionTargetType } from '@/api/permissions'
+import {
+  AccessSource,
+  ComponentAccessLevel,
+  ComponentEffectiveAccess,
+  PermissionTargetType,
+} from '@/api/permissions'
 import CardPageSection from '@/components/CardPageSection.vue'
 import { useDialogs } from '@/dialogs'
 import { guard } from '@/errors'
@@ -70,109 +75,56 @@ const effectiveQuery =
       })
     : null
 
-const effectiveLevels = $computed(() => {
-  const levels = new Map<string, ComponentAccessLevel>()
+const effectiveEntries = $computed(() => {
+  const entries = new Map<string, ComponentEffectiveAccess>()
   for (const entry of effectiveQuery?.data.value ?? []) {
-    levels.set(entry.address, entry.level)
+    entries.set(entry.address, entry)
   }
 
-  return levels
+  return entries
 })
 
-const LEVEL_RANK: Record<ComponentAccessLevel, number> = { view: 0, operate: 1, manage: 2 }
-
-type MatchablePermission = {
-  target_type?: PermissionTargetType
-  target?: string
-  level?: ComponentAccessLevel
+// The server reports which input conferred each level, so nothing here has to be inferred.
+const SOURCE_LABELS: Record<AccessSource, string> = {
+  admin: 'Administrator',
+  default: 'Default access level',
+  component: 'Granted on this component',
+  tag: 'Granted through a tag',
+  all: 'Granted on all components',
 }
 
-/** Return an address and each of its ancestors, from the component up to its top-level parent. */
-function addressChain(address: string): string[] {
-  const parts = address.replace(/^@/, '').split('.')
-  return parts.map((_, index) => `@${parts.slice(0, index + 1).join('.')}`).reverse()
-}
-
-/** Collect the tags on a component and every ancestor above it. */
-function inheritedTags(address: string): Set<string> {
-  const tags = new Set<string>()
-  for (const ancestor of addressChain(address)) {
-    const component = engine.components.get(ancestor)
-    for (const tag of component?.tags ?? []) {
-      tags.add(tag)
-    }
-  }
-
-  return tags
-}
-
-/** Return the highest level any of `candidates` confers on `address`, or `null` for none. */
-function highestMatch(
-  candidates: MatchablePermission[],
-  address: string
-): ComponentAccessLevel | null {
-  const chain = addressChain(address)
-  const tags = inheritedTags(address)
-
-  let highest: ComponentAccessLevel | null = null
-  for (const candidate of candidates) {
-    const level = candidate.level
-    if (level == null) {
-      continue
-    }
-
-    const target = candidate.target ?? ''
-    const matches =
-      candidate.target_type === 'all' ||
-      (candidate.target_type === 'component' && chain.includes(target)) ||
-      (candidate.target_type === 'tag' && tags.has(target))
-
-    if (matches && (highest == null || LEVEL_RANK[level] > LEVEL_RANK[highest])) {
-      highest = level
-    }
-  }
-
-  return highest
-}
-
-/** Describe where a component's effective level came from, for display beneath it. */
-function accessSource(address: string, level: ComponentAccessLevel): string {
-  const direct = highestMatch(permissions, address)
-  if (direct != null && LEVEL_RANK[direct] === LEVEL_RANK[level]) {
-    return 'Granted directly'
-  }
-
-  const groups = new Map<string, ComponentAccessLevel>()
+const groupNames = $computed(() => {
+  const names = new Map<string, string>()
   for (const permission of inheritedPermissions) {
-    const matched = highestMatch([permission], address)
-    if (matched == null) {
-      continue
-    }
-
-    const existing = groups.get(permission.groupName)
-    if (existing == null || LEVEL_RANK[matched] > LEVEL_RANK[existing]) {
-      groups.set(permission.groupName, matched)
+    if (permission.group_id != null) {
+      names.set(permission.group_id, permission.groupName)
     }
   }
 
-  for (const [name, matched] of groups) {
-    if (LEVEL_RANK[matched] === LEVEL_RANK[level]) {
-      return `From group "${name}"`
-    }
+  return names
+})
+
+/** Label a resolved level, naming the group when a group's grant is what conferred it. */
+function sourceLabel(entry: ComponentEffectiveAccess): string {
+  const label = SOURCE_LABELS[entry.source]
+  if (entry.origin !== 'group' || entry.group_id == null) {
+    return label
   }
 
-  return 'Default access level'
+  const name = groupNames.get(entry.group_id)
+  return name == null ? `${label}, through a group` : `${label}, from group "${name}"`
 }
 
 const effectiveAccess = $computed(() =>
   engine.components.all
     .map((component) => {
       const address = component.address.toString()
-      const level = effectiveLevels.get(address) ?? null
+      const entry = effectiveEntries.get(address)
       return {
         address,
-        level,
-        source: level == null ? null : accessSource(address, level),
+        level: entry?.level ?? null,
+        source: entry == null ? null : sourceLabel(entry),
+        groupId: entry?.origin === 'group' ? entry.group_id ?? null : null,
       }
     })
     .sort((first, second) => first.address.localeCompare(second.address))
@@ -412,7 +364,11 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
         default access level are resolved together.
       </div>
       <q-list bordered class="rounded-borders" dense separator>
-        <q-item v-for="entry in effectiveAccess" :key="entry.address">
+        <q-item
+          v-for="entry in effectiveAccess"
+          :key="entry.address"
+          :to="entry.groupId != null ? `/groups/${entry.groupId}` : undefined"
+        >
           <q-item-section>
             <q-item-label>{{ entry.address }}</q-item-label>
             <q-item-label caption>{{ entry.source ?? 'No access' }}</q-item-label>

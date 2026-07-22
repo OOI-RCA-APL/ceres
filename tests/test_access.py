@@ -1,4 +1,15 @@
-from ceres.access import resolve_access
+from uuid import UUID, uuid4
+
+from ceres.access import (
+    AccessGrants,
+    AccessSource,
+    Grant,
+    GrantOrigin,
+    fetch_access_grants,
+    resolve_access,
+    resolve_access_detail_from,
+    resolve_access_from,
+)
 from ceres.component import ComponentAccessLevel
 from ceres.database import Database
 from ceres.group import Group, GroupMembership
@@ -266,8 +277,8 @@ async def test_fetch_access_grants_merges_user_and_group_grants_by_highest_level
 
     grants = await fetch_access_grants(database, user)
 
-    assert grants.component["@rack"] == ComponentAccessLevel.OPERATE
-    assert grants.tag["scpr"] == ComponentAccessLevel.MANAGE
+    assert grants.component["@rack"].level == ComponentAccessLevel.OPERATE
+    assert grants.tag["scpr"].level == ComponentAccessLevel.MANAGE
 
     # The pre-fetched grants resolve per component with no further queries.
     by_address = resolve_access_from(
@@ -306,3 +317,245 @@ async def test_fetch_access_grants_admin_skips_grant_queries() -> None:
         inherited_tags=set(),
     )
     assert level == ComponentAccessLevel.MANAGE
+
+
+def _grants(
+    *,
+    admin: bool = False,
+    everything: Grant | None = None,
+    component: dict[str, Grant] | None = None,
+    tag: dict[str, Grant] | None = None,
+) -> AccessGrants:
+    return AccessGrants(
+        admin=admin,
+        everything=everything,
+        component=component or {},
+        tag=tag or {},
+    )
+
+
+def _user_grant(level: ComponentAccessLevel) -> Grant:
+    return Grant(level=level, origin=GrantOrigin.USER)
+
+
+def _group_grant(level: ComponentAccessLevel, group_id: UUID) -> Grant:
+    return Grant(level=level, origin=GrantOrigin.GROUP, group_id=group_id)
+
+
+class TestResolveAccessDetail:
+    """`resolve_access_detail_from` reports which input produced the effective level."""
+
+    def test_admin_is_reported_as_admin(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(admin=True),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.DENY,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.level == ComponentAccessLevel.MANAGE
+        assert resolved.source == AccessSource.ADMIN
+
+    def test_default_is_reported_when_no_grant_matches(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.level == ComponentAccessLevel.VIEW
+        assert resolved.source == AccessSource.DEFAULT
+
+    def test_no_access_returns_none(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.DENY,
+            inherited_tags=set(),
+        )
+        assert resolved is None
+
+    def test_component_grant_is_reported(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(component={"@sensor": _user_grant(ComponentAccessLevel.OPERATE)}),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.level == ComponentAccessLevel.OPERATE
+        assert resolved.source == AccessSource.COMPONENT
+
+    def test_ancestor_grant_is_reported_as_a_component_grant(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(component={"@rack": _user_grant(ComponentAccessLevel.MANAGE)}),
+            address_chain=["@rack.sensor", "@rack"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.source == AccessSource.COMPONENT
+
+    def test_tag_grant_is_reported(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(tag={"hardware": _user_grant(ComponentAccessLevel.OPERATE)}),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags={"hardware"},
+        )
+        assert resolved is not None
+        assert resolved.source == AccessSource.TAG
+
+    def test_all_grant_is_reported(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(everything=_user_grant(ComponentAccessLevel.MANAGE)),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.source == AccessSource.ALL
+
+    def test_a_grant_tying_the_default_is_reported_over_the_default(self) -> None:
+        """A redundant grant still shows as the source, since removing it is what matters."""
+        resolved = resolve_access_detail_from(
+            _grants(component={"@sensor": _user_grant(ComponentAccessLevel.VIEW)}),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.level == ComponentAccessLevel.VIEW
+        assert resolved.source == AccessSource.COMPONENT
+
+    def test_component_grant_wins_a_tie_against_a_tag_grant(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(
+                component={"@sensor": _user_grant(ComponentAccessLevel.OPERATE)},
+                tag={"hardware": _user_grant(ComponentAccessLevel.OPERATE)},
+            ),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags={"hardware"},
+        )
+        assert resolved is not None
+        assert resolved.source == AccessSource.COMPONENT
+
+    def test_the_highest_level_still_wins_over_specificity(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(
+                component={"@sensor": _user_grant(ComponentAccessLevel.VIEW)},
+                tag={"hardware": _user_grant(ComponentAccessLevel.MANAGE)},
+            ),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags={"hardware"},
+        )
+        assert resolved is not None
+        assert resolved.level == ComponentAccessLevel.MANAGE
+        assert resolved.source == AccessSource.TAG
+
+    def test_level_matches_resolve_access_from(self) -> None:
+        """The detailed resolver must not disagree with the level-only one."""
+        grants = _grants(
+            component={"@rack": _user_grant(ComponentAccessLevel.OPERATE)},
+            tag={"hardware": _user_grant(ComponentAccessLevel.VIEW)},
+            everything=_user_grant(ComponentAccessLevel.VIEW),
+        )
+        arguments = {
+            "address_chain": ["@rack.sensor", "@rack"],
+            "resolved_access": ComponentAccessLevel.DENY,
+            "inherited_tags": {"hardware"},
+        }
+        resolved = resolve_access_detail_from(grants, **arguments)
+        assert resolved is not None
+        assert resolved.level == resolve_access_from(grants, **arguments)
+
+    def test_group_grant_reports_the_group_it_came_from(self) -> None:
+        group_id = uuid4()
+        resolved = resolve_access_detail_from(
+            _grants(component={"@sensor": _group_grant(ComponentAccessLevel.OPERATE, group_id)}),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.source == AccessSource.COMPONENT
+        assert resolved.origin == GrantOrigin.GROUP
+        assert resolved.group_id == group_id
+
+    def test_user_grant_reports_no_group(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(component={"@sensor": _user_grant(ComponentAccessLevel.OPERATE)}),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.origin == GrantOrigin.USER
+        assert resolved.group_id is None
+
+    def test_the_default_reports_no_origin(self) -> None:
+        resolved = resolve_access_detail_from(
+            _grants(),
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.VIEW,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.origin is None
+        assert resolved.group_id is None
+
+    def test_a_user_grant_wins_a_tie_against_a_group_grant(self) -> None:
+        """Ties favour the user's own grant, since that is the one to remove to change access."""
+        grants = AccessGrants()
+        grants._add(
+            PermissionTargetType.COMPONENT,
+            "@sensor",
+            _group_grant(ComponentAccessLevel.OPERATE, uuid4()),
+        )
+        grants._add(
+            PermissionTargetType.COMPONENT,
+            "@sensor",
+            _user_grant(ComponentAccessLevel.OPERATE),
+        )
+
+        resolved = resolve_access_detail_from(
+            grants,
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.DENY,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.origin == GrantOrigin.USER
+
+    async def test_group_provenance_survives_a_real_fetch(self) -> None:
+        """Provenance is populated by `fetch_access_grants`, not just by hand-built grants."""
+        database = await _setup_database()
+        user = await database.users.create(
+            User.Create(username="member", email="m@test.com", password="hashed", admin=False)
+        )
+        group = await database.groups.create(Group.Create(name="field-ops"))
+        await database.group_memberships.create(
+            GroupMembership.Create(user_id=user.id, group_id=group.id)
+        )
+        await database.group_permissions.create(
+            GroupPermission.Create(
+                group_id=group.id,
+                target_type=PermissionTargetType.COMPONENT,
+                target="@sensor",
+                level=ComponentAccessLevel.MANAGE,
+            )
+        )
+
+        grants = await fetch_access_grants(database, user)
+        resolved = resolve_access_detail_from(
+            grants,
+            address_chain=["@sensor"],
+            resolved_access=ComponentAccessLevel.DENY,
+            inherited_tags=set(),
+        )
+        assert resolved is not None
+        assert resolved.origin == GrantOrigin.GROUP
+        assert resolved.group_id == group.id

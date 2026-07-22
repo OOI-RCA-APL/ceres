@@ -30,10 +30,19 @@ export const EffectiveAccessModel = Zod.object({
   level: ComponentAccessLevelModel.nullable(),
 })
 
+export type AccessSource = Zod.infer<typeof AccessSourceModel>
+export const AccessSourceModel = Zod.enum(['admin', 'default', 'component', 'tag', 'all'])
+
+export type GrantOrigin = Zod.infer<typeof GrantOriginModel>
+export const GrantOriginModel = Zod.enum(['user', 'group'])
+
 export type ComponentEffectiveAccess = Zod.infer<typeof ComponentEffectiveAccessModel>
 export const ComponentEffectiveAccessModel = Zod.object({
   address: Zod.string(),
   level: ComponentAccessLevelModel,
+  source: AccessSourceModel,
+  origin: GrantOriginModel.nullish(),
+  group_id: Zod.string().nullish(),
 })
 
 export const usePermissions = defineStore('permissions', () => {

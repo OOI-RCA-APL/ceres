@@ -9,8 +9,9 @@ from ceres.__internal__.app.shared import (
     CurrentEngine,
     Router,
     get_component_access,
-    get_components_access,
+    get_components_access_detail,
 )
+from ceres.access import AccessSource, GrantOrigin
 from ceres.address import Address
 from ceres.component import ComponentAccessLevel
 from ceres.data import DataObject
@@ -138,6 +139,12 @@ class ComponentEffectiveAccess(DataObject):
 
     address: Address
     level: ComponentAccessLevel
+    source: AccessSource
+    """Which input conferred `level`, so callers can explain it rather than infer it."""
+    origin: GrantOrigin | None = None
+    """Whether the winning grant was the user's own or a group's, absent for non-grant sources."""
+    group_id: UUID | None = None
+    """The group that supplied the winning grant, when `origin` is `group`."""
 
 
 @router.get("/effective/{user_id:uuid}", dependencies=[SELF_OR_ADMIN])
@@ -157,12 +164,18 @@ async def get_all_effective_access(
     if target_user is None:
         raise NotFoundError()
 
-    access = await get_components_access(engine, target_user, engine.get_components())
+    access = await get_components_access_detail(engine, target_user, engine.get_components())
 
     return [
-        ComponentEffectiveAccess(address=address, level=level)
-        for address, level in access.items()
-        if level is not None
+        ComponentEffectiveAccess(
+            address=address,
+            level=resolved.level,
+            source=resolved.source,
+            origin=resolved.origin,
+            group_id=resolved.group_id,
+        )
+        for address, resolved in access.items()
+        if resolved is not None
     ]
 
 
