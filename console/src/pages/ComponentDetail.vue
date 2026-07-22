@@ -149,7 +149,11 @@ const hasConnectivity = $computed(
       <q-card-section v-if="component.connections.length > 0">
         <div class="q-mb-xs text-subtitle2">Connections</div>
         <q-list bordered class="rounded-borders" dense separator>
-          <q-item v-for="connection in component.connections" :key="connection.name">
+          <q-item
+            v-for="connection in component.connections"
+            :key="connection.name"
+            :class="$style.item"
+          >
             <q-item-section>
               <q-item-label>{{ connection.label }}</q-item-label>
               <q-item-label caption>{{ connection.name }}</q-item-label>
@@ -194,6 +198,11 @@ const hasConnectivity = $computed(
 </template>
 
 <style lang="scss" module>
+.item {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .config {
   margin: 0;
   overflow-x: auto;
