@@ -29,10 +29,10 @@ const actions = $computed(() => component?.procedures.filter((p) => p.type === '
 // control, since procedures are invoked from workspaces and interfaces instead of this page.
 function permissionsLabel(procedure: ProcedureInfo): string {
   if (procedure.permissions === 'public') {
-    return 'Public'
+    return 'Public, requires no permissions.'
   }
 
-  return `Requires ${procedure.permissions} access`
+  return `Requires "${procedure.permissions}" access permission.`
 }
 
 // Configuration can carry credentials in component arguments, so the endpoint requires manage

@@ -87,7 +87,7 @@ const effectiveEntries = $computed(() => {
 // The server reports which input conferred each level, so nothing here has to be inferred.
 // The trailing period is appended in `sourceLabel` so group suffixes compose cleanly.
 const SOURCE_LABELS: Record<AccessSource, string> = {
-  admin: 'Administrator',
+  admin: 'From administrator status',
   default: 'From default access level',
   component: 'Granted on this component',
   tag: 'Granted through a tag',
