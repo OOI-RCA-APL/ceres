@@ -43,6 +43,7 @@ const icons = {
   json: 'mdi-code-json',
   leave: 'mdi-exit-run',
   lightMode: 'light_mode', // Material Icons
+  locked: 'mdi-lock-outline',
   logout: 'mdi-logout', // Material Icons
   manage: 'mdi-cog',
   manager: 'mdi-account-star',
