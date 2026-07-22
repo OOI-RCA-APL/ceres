@@ -133,6 +133,38 @@ class TestAddressSelector:
         selector = AddressSelector(":all")
         assert selector.text == ":all"
 
+    def test_name_with_digits(self) -> None:
+        selector = AddressSelector("@vectorg2")
+        assert selector.text == "@vectorg2"
+
+    def test_name_with_digits_and_modifier(self) -> None:
+        selector = AddressSelector("@vectorg2:all")
+        assert selector.text == "@vectorg2:all"
+
+    def test_nested_name_with_digits(self) -> None:
+        selector = AddressSelector("@vectorg2.sbe54:children")
+        assert selector.text == "@vectorg2.sbe54:children"
+
+    def test_relative_name_with_digits(self) -> None:
+        selector = AddressSelector("vectorg2:descendants")
+        assert selector.text == "vectorg2:descendants"
+
+    def test_name_cannot_start_with_a_digit(self) -> None:
+        with pytest.raises(ValueError, match="must match regex"):
+            AddressSelector("@2vector")
+
+    def test_leading_dot_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must match regex"):
+            AddressSelector("@.sensor")
+
+    def test_trailing_dot_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must match regex"):
+            AddressSelector("@sensor.")
+
+    def test_unknown_modifier_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must match regex"):
+            AddressSelector("@sensor:everything")
+
 
 class TestAddressSelectorMatching:
     def test_exact_match(self) -> None:

@@ -68,7 +68,7 @@
 | `ceres/group.py` | 98% |
 | `ceres/interface.py` | 100% |
 | `ceres/item.py` | 90% |
-| `ceres/job.py` | 41% |
+| `ceres/job.py` | 42% |
 | `ceres/level.py` | 100% |
 | `ceres/loaded.py` | 94% |
 | `ceres/logs.py` | 89% |

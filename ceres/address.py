@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 
 _NAME = _NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
-_SEGMENT = rf"\~(:(all|descendants))?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@{_MODIFIER}|{_MODIFIER}"
+_PATH = rf"@?{_NAME}(\.{_NAME})*"
+_SEGMENT = rf"\~(:(all|descendants))?|{_PATH}({_MODIFIER})?|@{_MODIFIER}|{_MODIFIER}"
 
 __all__ = [
     "AddressSelector",
