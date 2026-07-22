@@ -77,6 +77,18 @@ const hasConnectivity = $computed(
     </q-card-section>
 
     <template v-else>
+      <template v-if="configHighlighted != null">
+        <q-card-section>
+          <q-list bordered class="rounded-borders" dense>
+            <q-expansion-item dense dense-toggle label="Configuration">
+              <!-- eslint-disable-next-line vue/no-v-html -->
+              <pre :class="$style.config"><code v-html="configHighlighted" /></pre>
+            </q-expansion-item>
+          </q-list>
+        </q-card-section>
+        <q-separator v-if="hasOverview || hasProcedures || hasConnectivity" />
+      </template>
+
       <q-card-section v-if="component.tags.length > 0">
         <div class="q-mb-xs text-subtitle2">Tags</div>
         <div class="q-gutter-xs row">
@@ -183,18 +195,6 @@ const hasConnectivity = $computed(
           </q-item>
         </q-list>
       </q-card-section>
-
-      <template v-if="configHighlighted != null">
-        <q-separator />
-        <q-card-section>
-          <q-list bordered class="rounded-borders" dense>
-            <q-expansion-item dense dense-toggle label="Configuration">
-              <!-- eslint-disable-next-line vue/no-v-html -->
-              <pre :class="$style.config"><code v-html="configHighlighted" /></pre>
-            </q-expansion-item>
-          </q-list>
-        </q-card-section>
-      </template>
     </template>
   </card-page>
 </template>

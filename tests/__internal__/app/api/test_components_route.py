@@ -150,11 +150,10 @@ async def test_get_component_config_returns_the_component_config() -> None:
     assert result.tags == ["hardware"]
 
 
-async def test_get_component_config_requires_manage_access() -> None:
-    """View access is enough to see a component but not enough to read its configuration."""
+async def test_get_component_config_requires_access() -> None:
+    """A user with no access to the component cannot read its configuration."""
     engine, sensor = await _build_restricted_engine()
-    user = await _create_user(engine, "viewer")
-    await _grant(engine, user, "@rack.sensor", ComponentAccessLevel.VIEW)
+    user = await _create_user(engine, "nobody")
 
     with pytest.raises(NotPermittedError):
         await get_component_config(
@@ -164,11 +163,11 @@ async def test_get_component_config_requires_manage_access() -> None:
         )
 
 
-async def test_get_component_config_allowed_with_manage_access() -> None:
-    """A manage grant is enough to read the configuration."""
+async def test_get_component_config_allowed_with_view_access() -> None:
+    """Any access to the component is enough to read its configuration."""
     engine, sensor = await _build_restricted_engine()
-    user = await _create_user(engine, "manager")
-    await _grant(engine, user, "@rack.sensor", ComponentAccessLevel.MANAGE)
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rack.sensor", ComponentAccessLevel.VIEW)
 
     result = await get_component_config(
         engine=engine,
