@@ -26,6 +26,7 @@ from ceres.component import (
     ProcedureType,
     QueryBinding,
 )
+from ceres.config import ComponentConfig
 from ceres.data import DataModel, DataObject, Name, StrEnum, to_json
 from ceres.error import (
     NotConnectedError,
@@ -209,6 +210,39 @@ async def get_component(
         raise NotFoundError()
 
     return info
+
+
+@router.get(
+    "/{address}/config",
+    dependencies=[AUTHENTICATED],
+    response_model_exclude_defaults=True,
+)
+async def get_component_config(
+    engine: CurrentEngine,
+    actor: CurrentActor,
+    address: Address,
+) -> ComponentConfig | None:
+    """Return the configuration for the component at the given address.
+
+    Fields left at their defaults are omitted so the result reads like the source YAML rather
+    than a fully expanded model.
+
+    Component arguments may carry credentials, so this requires manage access rather than the
+    view access that the rest of the component description needs.
+
+    Raises:
+        NotFoundError: If no component matches the given address.
+        NotPermittedError: If the caller lacks manage access on the component.
+    """
+    component = engine.get_component(address)
+    if component is None:
+        raise NotFoundError()
+
+    access = await get_component_access(engine, actor.user, component)
+    if not actor.unrestricted and (access is None or access < ComponentAccessLevel.MANAGE):
+        raise NotPermittedError()
+
+    return component.system.config
 
 
 @router.get("/{address}/procedures", tags=["procedures"])

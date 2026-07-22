@@ -1,7 +1,10 @@
-from ceres import Component, Engine
-from ceres.__internal__.app.api.routes.components import get_components
+import pytest
+
+from ceres import Address, Component, Engine
+from ceres.__internal__.app.api.routes.components import get_component_config, get_components
 from ceres.__internal__.app.shared import Actor
 from ceres.component import ComponentAccessLevel, ComponentConfig
+from ceres.error import NotFoundError, NotPermittedError
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
 
@@ -108,3 +111,77 @@ async def test_get_components_empty_for_user_with_no_access() -> None:
     result = await get_components(engine=engine, actor=Actor(user=user, unrestricted=False))
 
     assert result == []
+
+
+async def _create_user(engine: Engine, username: str) -> User:
+    return await engine.database.users.create(
+        User.Create(username=username, email=f"{username}@test.com", password="hashed", admin=False)
+    )
+
+
+async def _grant(engine: Engine, user: User, target: str, level: ComponentAccessLevel) -> None:
+    await engine.database.user_permissions.create(
+        UserPermission.Create(
+            user_id=user.id,
+            target_type=PermissionTargetType.COMPONENT,
+            target=target,
+            level=level,
+        )
+    )
+
+
+async def test_get_component_config_returns_the_component_config() -> None:
+    """An unrestricted caller receives the component's own configuration."""
+    engine = Engine()
+    await engine.database.migrate()
+    engine.attach(
+        Component(
+            __with_name__="rack",
+            __with_config__=ComponentConfig(name="rack", tags=["hardware"]),
+        )
+    )
+
+    result = await get_component_config(
+        engine=engine, actor=_UNRESTRICTED, address=Address("@rack")
+    )
+
+    assert result is not None
+    assert result.name == "rack"
+    assert result.tags == ["hardware"]
+
+
+async def test_get_component_config_requires_manage_access() -> None:
+    """View access is enough to see a component but not enough to read its configuration."""
+    engine, sensor = await _build_restricted_engine()
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rack.sensor", ComponentAccessLevel.VIEW)
+
+    with pytest.raises(NotPermittedError):
+        await get_component_config(
+            engine=engine,
+            actor=Actor(user=user, unrestricted=False),
+            address=sensor.system.address,
+        )
+
+
+async def test_get_component_config_allowed_with_manage_access() -> None:
+    """A manage grant is enough to read the configuration."""
+    engine, sensor = await _build_restricted_engine()
+    user = await _create_user(engine, "manager")
+    await _grant(engine, user, "@rack.sensor", ComponentAccessLevel.MANAGE)
+
+    result = await get_component_config(
+        engine=engine,
+        actor=Actor(user=user, unrestricted=False),
+        address=sensor.system.address,
+    )
+
+    assert result is None or result.name == "sensor"
+
+
+async def test_get_component_config_rejects_an_unknown_address() -> None:
+    """An address with no matching component is a not-found, not a permission failure."""
+    engine, _ = await _build_restricted_engine()
+
+    with pytest.raises(NotFoundError):
+        await get_component_config(engine=engine, actor=_UNRESTRICTED, address=Address("@missing"))

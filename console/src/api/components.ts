@@ -44,10 +44,14 @@ export const ProcedureOutputInfoModel = Zod.discriminatedUnion('type', [
   ProcedureFileOutputInfoModel,
 ])
 
+export type ProcedurePermissions = Zod.infer<typeof ProcedurePermissionsModel>
+export const ProcedurePermissionsModel = Zod.enum(['public', 'deny', 'view', 'operate', 'manage'])
+
 const BaseProcedureInfoModel = Zod.object({
   name: Zod.string(),
   type: ProcedureTypeModel,
   live: Zod.boolean(),
+  permissions: ProcedurePermissionsModel,
   arguments: ProcedureArgumentsInfoModel,
   output: ProcedureOutputInfoModel,
 })
@@ -103,6 +107,13 @@ export const useComponents = defineStore('components', () => {
 
   async function getComponents(): Promise<ComponentInfo[]> {
     return await client.get('/api/components', { parse: Zod.array(ComponentInfoModel) })
+  }
+
+  /** Fetch a component's configuration. Requires manage access, so this rejects for most users. */
+  async function getConfig(address: Address): Promise<Record<string, any> | null> {
+    return await client.get(`/api/components/${address}/config`, {
+      parse: Zod.record(Zod.string(), Zod.any()).nullable(),
+    })
   }
 
   async function call(
@@ -255,6 +266,7 @@ export const useComponents = defineStore('components', () => {
     getProcedure: computed(() => getProcedure),
     getQuery: computed(() => getQuery),
     getAction: computed(() => getAction),
+    getConfig,
     call,
     send,
     useElementStream,
