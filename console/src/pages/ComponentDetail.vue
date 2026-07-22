@@ -36,8 +36,28 @@ function permissionsLabel(procedure: ProcedureInfo): string {
   return `Requires "${procedure.permissions}" access permission.`
 }
 
-// Configuration can carry credentials in component arguments, so the endpoint requires manage
-// access. Failures are expected for everyone else and simply hide the section.
+const PERMISSION_RANK: Record<Exclude<ProcedureInfo['permissions'], 'public'>, number> = {
+  view: 0,
+  operate: 1,
+  manage: 2,
+  deny: 3,
+}
+
+// Whether the current user's access level meets the procedure's declared minimum.
+function canInvoke(procedure: ProcedureInfo): boolean {
+  if (procedure.permissions === 'public') {
+    return true
+  }
+
+  if (effectiveAccess == null) {
+    return false
+  }
+
+  return PERMISSION_RANK[effectiveAccess] >= PERMISSION_RANK[procedure.permissions]
+}
+
+// The endpoint rejects callers with no access to the component, in which case the failure is
+// expected and simply hides the section.
 const configQuery = useQuery({
   queryKey: computed(() => ['component-config', address.toString()]),
   queryFn: () => engine.components.getConfig(address),
@@ -59,7 +79,7 @@ const configHighlighted = $computed(() =>
 )
 
 // Track which section groups have content so separators only render between non-empty groups.
-const hasOverview = $computed(() => (component?.tags.length ?? 0) > 0 || effectiveAccess != null)
+const hasOverview = $computed(() => (component?.tags.length ?? 0) > 0)
 const hasProcedures = $computed(() => queries.length > 0 || actions.length > 0)
 const hasConnectivity = $computed(
   () => (component?.connections.length ?? 0) > 0 || (component?.components.length ?? 0) > 0
@@ -70,6 +90,17 @@ const hasConnectivity = $computed(
   <card-page :title="component?.address?.toString() ?? address.toString()">
     <template #header-append>
       <q-space />
+      <q-chip
+        v-if="effectiveAccess != null"
+        class="q-mr-sm q-px-sm"
+        color="primary"
+        dense
+        :icon="icons[effectiveAccess]"
+        size="10px"
+        text-color="white"
+      >
+        {{ upperFirst(effectiveAccess) }}
+      </q-chip>
       <status-badge v-if="component" :address />
     </template>
     <q-card-section v-if="component == null">
@@ -96,20 +127,6 @@ const hasConnectivity = $computed(
         </div>
       </q-card-section>
 
-      <q-card-section v-if="effectiveAccess != null">
-        <div class="q-mb-xs text-subtitle2">Your Access</div>
-        <q-chip
-          class="q-px-sm"
-          color="primary"
-          dense
-          :icon="icons[effectiveAccess]"
-          size="10px"
-          text-color="white"
-        >
-          {{ upperFirst(effectiveAccess) }}
-        </q-chip>
-      </q-card-section>
-
       <q-separator v-if="hasOverview && hasProcedures" />
 
       <q-card-section v-if="hasProcedures">
@@ -127,14 +144,24 @@ const hasConnectivity = $computed(
                   <q-item-label caption>{{ permissionsLabel(query) }}</q-item-label>
                 </q-item-section>
                 <q-item-section side>
-                  <q-chip
-                    v-if="query.live"
-                    color="green"
-                    dense
-                    label="live"
-                    size="10px"
-                    text-color="white"
-                  />
+                  <div class="items-center q-gutter-xs row">
+                    <q-chip
+                      v-if="query.live"
+                      color="green"
+                      dense
+                      label="live"
+                      size="10px"
+                      text-color="white"
+                    />
+                    <q-icon
+                      v-if="!canInvoke(query)"
+                      class="text-grey-6"
+                      :name="icons.locked"
+                      size="16px"
+                    >
+                      <q-tooltip>Not available with your access.</q-tooltip>
+                    </q-icon>
+                  </div>
                 </q-item-section>
               </q-item>
             </q-list>
@@ -151,6 +178,11 @@ const hasConnectivity = $computed(
                 <q-item-section>
                   <q-item-label>{{ action.name }}</q-item-label>
                   <q-item-label caption>{{ permissionsLabel(action) }}</q-item-label>
+                </q-item-section>
+                <q-item-section v-if="!canInvoke(action)" side>
+                  <q-icon class="text-grey-6" :name="icons.locked" size="16px">
+                    <q-tooltip>Not available with your access.</q-tooltip>
+                  </q-icon>
                 </q-item-section>
               </q-item>
             </q-list>
