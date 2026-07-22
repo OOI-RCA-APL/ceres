@@ -27,7 +27,7 @@ from ceres.component import (
     QueryBinding,
 )
 from ceres.config import ComponentConfig
-from ceres.data import DataModel, DataObject, Name, StrEnum, to_json
+from ceres.data import DataModel, DataObject, DateTime, Name, StrEnum, to_json
 from ceres.error import (
     NotConnectedError,
     NotFoundError,
@@ -242,6 +242,64 @@ async def get_component_config(
         raise NotPermittedError()
 
     return component.system.config
+
+
+class JobInfo(DataObject):
+    """Description of a scheduled job on a component."""
+
+    name: Name
+    action: Name
+    schedule: str
+    """Human-readable form of the job's schedule."""
+    next_run: DateTime | None
+    """When the job is next expected to run, or `None` when the scheduler is not running."""
+
+
+def _describe_schedule(schedule: object) -> str:
+    """Render a job schedule in the short form it is written as in configuration."""
+    from ceres.schedule import CronSchedule, IntervalSchedule
+
+    if isinstance(schedule, CronSchedule):
+        return schedule.crontab
+
+    if isinstance(schedule, IntervalSchedule):
+        return strify(schedule.interval)
+
+    return strify(schedule)
+
+
+@router.get("/{address}/jobs", dependencies=[AUTHENTICATED])
+async def get_component_jobs(
+    engine: CurrentEngine,
+    actor: CurrentActor,
+    address: Address,
+) -> list[JobInfo]:
+    """Return the scheduled jobs for the component at the given address.
+
+    Available to anyone who can access the component at all.
+
+    Raises:
+        NotFoundError: If no component matches the given address.
+        NotPermittedError: If the caller has no access to the component.
+    """
+    component = engine.get_component(address)
+    if component is None:
+        raise NotFoundError()
+
+    access = await get_component_access(engine, actor.user, component)
+    if not actor.unrestricted and access is None:
+        raise NotPermittedError()
+
+    jobs = component.system.jobs
+    return [
+        JobInfo(
+            name=job.name,
+            action=job.action,
+            schedule=_describe_schedule(job.schedule),
+            next_run=jobs.get_next_fire_time(job.name),
+        )
+        for job in jobs.get_all()
+    ]
 
 
 @router.get("/{address}/procedures", tags=["procedures"])

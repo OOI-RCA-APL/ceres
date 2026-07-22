@@ -42,7 +42,7 @@
 | `ceres/channel.py` | 92% |
 | `ceres/component.py` | 84% |
 | `ceres/concurrency.py` | 91% |
-| `ceres/config.py` | 78% |
+| `ceres/config.py` | 79% |
 | `ceres/connection/__init__.py` | 57% |
 | `ceres/connection/buffer.py` | 80% |
 | `ceres/connection/source.py` | 87% |
@@ -68,7 +68,7 @@
 | `ceres/group.py` | 98% |
 | `ceres/interface.py` | 100% |
 | `ceres/item.py` | 90% |
-| `ceres/job.py` | 42% |
+| `ceres/job.py` | 59% |
 | `ceres/level.py` | 100% |
 | `ceres/loaded.py` | 94% |
 | `ceres/logs.py` | 89% |

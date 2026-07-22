@@ -129,6 +129,24 @@ class JobManager(BaseComponentManager):
         """Return all currently registered jobs."""
         return list(self._jobs.values())
 
+    def get_next_fire_time(self, name: str) -> datetime | None:
+        """Return when the named job is next expected to run.
+
+        Returns:
+            The next scheduled fire time, or `None` if the job is unknown or the scheduler is
+            not running.
+        """
+        if not self._scheduler.running:
+            return None
+
+        with self._lock:
+            internal: InternalJob | None = self._scheduler.get_job(name)
+
+        if internal is None:
+            return None
+
+        return internal.next_run_time
+
     def remove(self, name: str) -> JobConfig | None:
         """Unregister the job with the given name.
 

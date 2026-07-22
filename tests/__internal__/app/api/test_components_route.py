@@ -1,9 +1,15 @@
 import pytest
 
-from ceres import Address, Component, Engine
-from ceres.__internal__.app.api.routes.components import get_component_config, get_components
+from ceres import Address, Component, Engine, action
+from ceres.__internal__.app.api.routes.components import (
+    get_component_config,
+    get_component_jobs,
+    get_components,
+)
 from ceres.__internal__.app.shared import Actor
 from ceres.component import ComponentAccessLevel, ComponentConfig
+from ceres.config import JobConfig
+from ceres.data import create, validate
 from ceres.error import NotFoundError, NotPermittedError
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
@@ -184,3 +190,56 @@ async def test_get_component_config_rejects_an_unknown_address() -> None:
 
     with pytest.raises(NotFoundError):
         await get_component_config(engine=engine, actor=_UNRESTRICTED, address=Address("@missing"))
+
+
+class _JobbedComponent(Component):
+    @action
+    async def poke(self) -> None:
+        pass
+
+
+async def test_get_component_jobs_describes_each_job() -> None:
+    """Each configured job is returned with its schedule and no next run while stopped."""
+    engine = Engine()
+    await engine.database.migrate()
+    job = validate(JobConfig, {"name": "poke", "action": "poke", "schedule": "0 * * * *"})
+    config = create(ComponentConfig, {"name": "jobbed", "jobs": [job]})
+    engine.attach(_JobbedComponent(__with_name__="jobbed", __with_config__=config))
+
+    result = await get_component_jobs(
+        engine=engine, actor=_UNRESTRICTED, address=Address("@jobbed")
+    )
+
+    assert len(result) == 1
+    assert result[0].name == "poke"
+    assert result[0].action == "poke"
+    assert result[0].schedule == "0 * * * *"
+    assert result[0].next_run is None
+
+
+async def test_get_component_jobs_requires_access() -> None:
+    """A user with no access to the component cannot list its jobs."""
+    engine, sensor = await _build_restricted_engine()
+    user = await _create_user(engine, "nobody")
+
+    with pytest.raises(NotPermittedError):
+        await get_component_jobs(
+            engine=engine,
+            actor=Actor(user=user, unrestricted=False),
+            address=sensor.system.address,
+        )
+
+
+async def test_get_component_jobs_empty_without_jobs() -> None:
+    """A component with no configured jobs returns an empty list."""
+    engine, sensor = await _build_restricted_engine()
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rack.sensor", ComponentAccessLevel.VIEW)
+
+    result = await get_component_jobs(
+        engine=engine,
+        actor=Actor(user=user, unrestricted=False),
+        address=sensor.system.address,
+    )
+
+    assert result == []
