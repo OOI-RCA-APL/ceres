@@ -216,7 +216,7 @@ export function selectFile({
   })
 }
 
-export type HighlightLanguage = 'json' | 'log'
+export type HighlightLanguage = 'json' | 'log' | 'yaml'
 
 export function highlight(text: string, language: HighlightLanguage): string {
   return Prism.highlight(text, Prism.languages[language], language)

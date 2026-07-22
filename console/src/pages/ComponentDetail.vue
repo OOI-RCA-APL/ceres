@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { upperFirst } from 'lodash-es'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { stringify } from 'yaml'
 
 import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
@@ -49,11 +50,12 @@ const configText = $computed(() => {
     return null
   }
 
-  return JSON.stringify(config, null, 2)
+  // Shown as YAML to match how the configuration is written in `ceres.yaml`.
+  return stringify(config)
 })
 
 const configHighlighted = $computed(() =>
-  configText == null ? null : highlight(configText, 'json')
+  configText == null ? null : highlight(configText, 'yaml')
 )
 
 // Track which section groups have content so separators only render between non-empty groups.

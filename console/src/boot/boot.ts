@@ -4,6 +4,7 @@ import { boot } from 'quasar/wrappers'
 import 'echarts'
 import 'prismjs/components/prism-json'
 import 'prismjs/components/prism-log'
+import 'prismjs/components/prism-yaml'
 
 export default boot(({ app }) => {
   app.use(createPinia())
