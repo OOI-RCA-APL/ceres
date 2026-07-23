@@ -73,7 +73,7 @@
 | `ceres/loaded.py` | 94% |
 | `ceres/logs.py` | 89% |
 | `ceres/message.py` | 97% |
-| `ceres/node.py` | 78% |
+| `ceres/node.py` | 79% |
 | `ceres/notifier.py` | 100% |
 | `ceres/particle.py` | 89% |
 | `ceres/paths.py` | 100% |

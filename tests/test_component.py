@@ -690,3 +690,65 @@ def test_component_repr() -> None:
     child = Component(__with_name__="child")
     component.system.attach(child)
     assert repr(child) == "Component()"
+
+
+async def test_status_reports_per_connection_connectivity() -> None:
+    from ceres.config import ConnectionConfig
+    from ceres.connectivity import Connectivity
+    from ceres.data import validate
+
+    engine = Engine()
+    connection = validate(
+        ConnectionConfig,
+        {
+            "name": "link",
+            "arguments": {
+                "name": "link",
+                "source": {
+                    "class": "ceres.TCPSource",
+                    "arguments": {"host": "localhost", "port": 2999},
+                },
+            },
+        },
+    )
+    config = ComponentConfig(name="wired", connections=[connection])
+    component = Component(__with_name__="wired", __with_config__=config)
+    engine.attach(component)
+
+    status = await component.system.get_status()
+
+    assert status.connectivity is None
+    assert len(status.connections) == 1
+    assert status.connections[0].name == "link"
+    assert status.connections[0].connectivity == Connectivity.DISCONNECTED
+
+
+async def test_status_has_no_connections_without_any() -> None:
+    engine = Engine()
+    component = Component(__with_name__="bare")
+    engine.attach(component)
+
+    status = await component.system.get_status()
+
+    assert status.connections == []
+    assert status.connectivity is None
+
+
+class _ConnectivityComponent(Component):
+    @override
+    def __connectivity__(self):
+        from ceres.connectivity import Connectivity
+
+        return Connectivity.CONNECTED
+
+
+async def test_status_uses_defined_connectivity_override() -> None:
+    from ceres.connectivity import Connectivity
+
+    engine = Engine()
+    component = _ConnectivityComponent(__with_name__="explicit")
+    engine.attach(component)
+
+    status = await component.system.get_status()
+
+    assert status.connectivity == Connectivity.CONNECTED

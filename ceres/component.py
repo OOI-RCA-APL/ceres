@@ -2202,10 +2202,21 @@ class ComponentSystem(Node, ComponentSource):
 
     @override
     async def get_status(self) -> Status:
-        """Return the component's status augmented with its enabled flag and connectivity."""
+        """Return the component's status augmented with its enabled flag and connectivity.
+
+        A component may define `__connectivity__` to report a single overall connectivity state.
+        Otherwise the per-connection states are reported so observers can represent each one.
+        """
+        from ceres.status import ConnectionStatus
+
         status = await super().get_status()
         status.enabled = self.enabled
         status.connectivity = self.component.__connectivity__()
+        status.connections = [
+            ConnectionStatus(name=connection.name, connectivity=connection.connectivity)
+            for connection in self.connections.all()
+            if connection.name is not None
+        ]
         return status
 
     def contains(
