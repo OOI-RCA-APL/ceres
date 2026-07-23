@@ -679,5 +679,9 @@ def test_filter_matches_by_particle_class() -> None:
     from ceres.particle import ParticleFilter
 
     particle = _cls_filter_particle(_ClsFilterAParticle, 1)
-    assert ParticleFilter(cls=_ClsFilterAParticle).matches(particle)
-    assert not ParticleFilter(cls=_ClsFilterBParticle).matches(particle)
+
+    # The `cls` field is aliased to "class", a keyword, so construct via validation.
+    filter_a = ParticleFilter.model_validate({"cls": _ClsFilterAParticle})
+    filter_b = ParticleFilter.model_validate({"cls": _ClsFilterBParticle})
+    assert filter_a.matches(particle)
+    assert not filter_b.matches(particle)
