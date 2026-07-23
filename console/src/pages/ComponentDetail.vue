@@ -79,12 +79,14 @@ const connectionsQuery = useQuery({
   retry: false,
 })
 
-// The statuses stream pushes on connect, disconnect, and connect-failed events, so a refetch on
-// each push keeps connection states current without polling.
+// The statuses stream pushes on lifecycle and connectivity events, so a refetch on each push keeps
+// connection states and job schedules current without polling. Jobs are included because a
+// component's scheduler stops and starts with it, changing each job's next run time.
 watch(
   () => engine.statuses.get(address),
   () => {
     void connectionsQuery.refetch()
+    void jobsQuery.refetch()
   }
 )
 
@@ -96,6 +98,14 @@ const connectivityColors: Record<Connectivity, string> = {
   connected: 'positive',
   connecting: 'warning',
   disconnected: 'negative',
+}
+
+const running = $computed(() => engine.statuses.get(address)?.running ?? false)
+
+// A stopped component's connections are expectedly down, shown inert grey rather than alarming
+// red, with the pulse stilled to match.
+function connectivityColor(connectivity: Connectivity): string {
+  return running ? connectivityColors[connectivity] : 'grey'
 }
 
 const jobs = $computed(() => jobsQuery.data.value ?? [])
@@ -203,11 +213,17 @@ const persisted = usePersisted({
               </q-item>
               <q-item v-for="connection in connections" :key="connection.name" :class="$style.item">
                 <q-item-section>
-                  <q-item-label>{{ connection.label }}</q-item-label>
-                  <q-item-label caption>{{ connection.name }}</q-item-label>
+                  <q-item-label>{{ connection.name }}</q-item-label>
+                  <q-item-label caption>{{ connection.label }}</q-item-label>
                 </q-item-section>
                 <q-item-section v-if="'connectivity' in connection" side>
-                  <span :class="[$style.dot, `bg-${connectivityColors[connection.connectivity]}`]">
+                  <span
+                    :class="[
+                      $style.dot,
+                      !running && $style.still,
+                      `bg-${connectivityColor(connection.connectivity)}`,
+                    ]"
+                  >
                     <q-tooltip>{{ upperFirst(connection.connectivity) }}</q-tooltip>
                   </span>
                 </q-item-section>
@@ -361,10 +377,14 @@ const persisted = usePersisted({
 
 .dot {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   animation: pulse 2s ease-in-out infinite;
+}
+
+.still {
+  animation: none;
 }
 
 @keyframes pulse {
