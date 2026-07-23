@@ -11,6 +11,7 @@ import { getter } from '@/getter'
 export type ConnectionStatus = Zod.infer<typeof ConnectionStatusModel>
 export const ConnectionStatusModel = Zod.object({
   name: Zod.string(),
+  label: Zod.string(),
   connectivity: ConnectivityModel,
 })
 

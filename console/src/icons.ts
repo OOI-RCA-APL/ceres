@@ -53,7 +53,7 @@ const icons = {
   menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
   moreVertical: 'mdi-dots-vertical',
-  operate: 'mdi-tune',
+  operate: 'mdi-wrench',
   operations: 'mdi-cog-transfer',
   password: 'password', // Material Icons
   preferences: 'mdi-theme-light-dark',

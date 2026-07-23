@@ -5,9 +5,8 @@ import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import { Connectivity } from '@/api/shared'
-import StatusBadgeAffectedCounter from '@/components/StatusBadgeAffectedCounter.vue'
+import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
-import { debouncedComputed } from '@/utilities'
 
 const { address, scale = 0.55 } = defineProps<{
   address: Address
@@ -16,6 +15,7 @@ const { address, scale = 0.55 } = defineProps<{
 
 const engine = useEngine()
 const access = useAccess()
+const dialogs = useDialogs()
 
 const status = $computed(() => ({
   running: engine.statuses.get(address)?.running ?? null,
@@ -27,49 +27,16 @@ const status = $computed(() => ({
 const canControl = $computed(() => access.canOperate(address.toString()))
 const readonly = $computed(() => !canControl && engine.auth.user != null)
 
-let menuIsOpen = $ref(false)
-
-const descendants = $computed(() => engine.components.getDescendants(address))
-const states = $(
-  debouncedComputed(() => {
-    let running = status.running ? 1 : 0
-    let stopped = status.running ? 0 : 1
-    let enabled = status.enabled ? 1 : 0
-    let disabled = status.enabled ? 0 : 1
-
-    for (const descendant of descendants) {
-      const descendantStatus = engine.statuses.get(descendant.address)
-      if (descendantStatus) {
-        if (descendantStatus.running) {
-          running++
-        } else {
-          stopped++
-        }
-        if (descendantStatus.enabled) {
-          enabled++
-        } else {
-          disabled++
-        }
-      }
-    }
-
-    return {
-      running,
-      stopped,
-      enabled,
-      disabled,
-      allRunning: running === descendants.length + 1,
-      someRunning: running > 0,
-      allEnabled: enabled === descendants.length + 1,
-      someEnabled: enabled > 0,
-    }
-  }, 250)
-)
-
 const connectivityColors: Record<Connectivity, string> = {
   connected: 'positive',
   connecting: 'warning',
   disconnected: 'negative',
+}
+
+// A stopped component's connections are expectedly down, so they show inert grey rather than the
+// alarming red reserved for failures while running.
+function connectivityColor(connectivity: Connectivity): string {
+  return status.running === true ? connectivityColors[connectivity] : 'grey'
 }
 
 // Segments drawn in the connectivity indicator: a single overall state when the component defines
@@ -83,42 +50,71 @@ const connectionSegments = $computed<Connectivity[]>(() => {
 })
 
 const hasConnectivity = $computed(() => connectionSegments.length > 0)
+
+// Keep the indicator's size proportional to the badge, which renders at 0.55 scale by default
+// with an 8px indicator and a 4px hit-area extension on every side.
+const connectivitySize = $computed(() => `${Math.round((8 * scale) / 0.55)}px`)
+const connectivityHitInset = $computed(() => `${-Math.round((4 * scale) / 0.55)}px`)
+
+// One menu covers the whole cluster, opening on hover or click anywhere over the indicator or
+// badge. It summarizes the component's status, lists the applicable actions, and shows each
+// connection's state. Leaving the cluster and menu closes it after a short grace period that lets
+// the pointer cross the gap.
+let badgeMenuIsOpen = $ref(false)
+let badgeMenuCloseTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelBadgeMenuClose() {
+  if (badgeMenuCloseTimer != null) {
+    clearTimeout(badgeMenuCloseTimer)
+    badgeMenuCloseTimer = null
+  }
+}
+
+function closeBadgeMenu() {
+  cancelBadgeMenuClose()
+  badgeMenuIsOpen = false
+}
+
+function onBadgeEnter() {
+  cancelBadgeMenuClose()
+  badgeMenuIsOpen = true
+}
+
+function onBadgeLeave() {
+  cancelBadgeMenuClose()
+  badgeMenuCloseTimer = setTimeout(closeBadgeMenu, 200)
+}
+
+// A state row opens the dialog holding its actions, closing the menu so the two never stack.
+function openActions(kind: 'run' | 'enable') {
+  closeBadgeMenu()
+  dialogs.statusActions(address, kind)
+}
 </script>
 
 <template>
-  <div class="items-center no-wrap row">
+  <div
+    :class="['items-center', 'no-wrap', 'row', $style.cluster]"
+    @click.stop.prevent="onBadgeEnter"
+    @mouseenter="onBadgeEnter"
+    @mouseleave="onBadgeLeave"
+  >
     <div v-if="hasConnectivity" :class="[$style.connectivity, 'q-mr-sm']">
+      <span :class="$style.connectivityHit" :style="{ inset: connectivityHitInset }" />
       <div
-        v-for="(connectivity, index) in connectionSegments"
-        :key="index"
-        :class="[$style.stripe, `bg-${connectivityColors[connectivity]}`]"
-      />
-      <q-tooltip :class="$style.connectivityTooltip">
-        <q-list :class="$style.connectivityList" bordered dense separator>
-          <q-item v-if="status.connectivity != null" :class="$style.connectivityRow">
-            <q-item-section>
-              <q-item-label>Component</q-item-label>
-              <q-item-label caption>{{ upperFirst(status.connectivity) }}</q-item-label>
-            </q-item-section>
-            <q-item-section side>
-              <span :class="[$style.dot, `bg-${connectivityColors[status.connectivity]}`]" />
-            </q-item-section>
-          </q-item>
-          <q-item
-            v-for="connection in status.connections"
-            :key="connection.name"
-            :class="$style.connectivityRow"
-          >
-            <q-item-section>
-              <q-item-label>{{ connection.name }}</q-item-label>
-              <q-item-label caption>{{ upperFirst(connection.connectivity) }}</q-item-label>
-            </q-item-section>
-            <q-item-section side>
-              <span :class="[$style.dot, `bg-${connectivityColors[connection.connectivity]}`]" />
-            </q-item-section>
-          </q-item>
-        </q-list>
-      </q-tooltip>
+        :class="$style.connectivityShape"
+        :style="{ width: connectivitySize, height: connectivitySize }"
+      >
+        <span
+          v-for="(connectivity, index) in connectionSegments"
+          :key="index"
+          :class="[
+            $style.segment,
+            !status.running && $style.still,
+            `bg-${connectivityColor(connectivity)}`,
+          ]"
+        />
+      </div>
     </div>
     <span :class="$style.badgeWrapper">
       <q-badge
@@ -131,130 +127,102 @@ const hasConnectivity = $computed(() => connectionSegments.length > 0)
         rounded
         :style="{ scale: String(scale) }"
       >
-        <q-tooltip
-          v-if="!menuIsOpen && (status.running != null || status.enabled != null)"
-          class="bg-primary text-white"
-        >
-          <span v-if="status.running != null">{{ status.running ? 'Running' : 'Stopped' }}</span>
-          <template v-if="status.enabled != null">
-            <span> &#x2E31; </span>
-            <span>{{ status.enabled ? 'Enabled' : 'Disabled' }}</span>
-          </template>
-          <template v-if="readonly">
-            <span> &#x2E31; </span>
-            <span>Read-only</span>
-          </template>
-        </q-tooltip>
         <q-menu
-          v-if="canControl"
-          v-model="menuIsOpen"
-          anchor="top right"
-          class="relative-position"
-          :offset="[12, 12]"
+          v-model="badgeMenuIsOpen"
+          anchor="bottom right"
+          no-focus
+          no-parent-event
+          :offset="[-4, 6]"
           self="top left"
         >
-          <q-card bordered>
+          <q-card bordered flat @mouseenter="cancelBadgeMenuClose" @mouseleave="onBadgeLeave">
             <q-list dense>
-              <q-item v-if="!status.running" clickable @click="engine.start(address)">
-                <q-item-section avatar class="text-positive">
-                  <q-icon :name="icons.start" size="16px" />
+              <q-item-label :class="$style.sectionHeader" header>Status</q-item-label>
+              <q-item
+                v-if="status.running != null"
+                :class="$style.connectivityRow"
+                :clickable="canControl"
+                @click="canControl && openActions('run')"
+              >
+                <q-item-section
+                  avatar
+                  :class="[$style.stateAvatar, status.running ? 'text-positive' : 'text-grey']"
+                >
+                  <q-icon :name="status.running ? icons.start : icons.stop" size="14px" />
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>Start</q-item-label>
+                  <q-item-label>{{ status.running ? 'Running' : 'Stopped' }}</q-item-label>
+                </q-item-section>
+                <q-item-section v-if="canControl" side>
+                  <q-icon :name="icons.menuRight" size="16px" />
                 </q-item-section>
               </q-item>
               <q-item
-                v-if="!states.allRunning && descendants.length > 0"
-                clickable
-                @click="engine.start(address.all())"
+                v-if="status.enabled != null"
+                :class="$style.connectivityRow"
+                :clickable="canControl"
+                @click="canControl && openActions('enable')"
               >
-                <q-item-section avatar class="text-positive">
-                  <div class="items-center row">
-                    <q-icon :name="icons.start" size="16px" />
-                    <span :class="$style.allIcon">*</span>
-                  </div>
+                <q-item-section
+                  avatar
+                  :class="[$style.stateAvatar, status.enabled ? 'text-primary' : 'text-grey']"
+                >
+                  <q-icon :name="status.enabled ? icons.enable : icons.disable" size="14px" />
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>Start All</q-item-label>
+                  <q-item-label>{{ status.enabled ? 'Enabled' : 'Disabled' }}</q-item-label>
                 </q-item-section>
-                <q-item-section side>
-                  <status-badge-affected-counter>
-                    {{ states.stopped }}
-                  </status-badge-affected-counter>
+                <q-item-section v-if="canControl" side>
+                  <q-icon :name="icons.menuRight" size="16px" />
                 </q-item-section>
               </q-item>
-              <q-item v-show="states.someRunning" clickable @click="engine.stop(address)">
-                <q-item-section avatar class="text-negative">
-                  <q-icon :name="icons.stop" size="16px" />
+              <q-item v-if="readonly" :class="$style.connectivityRow">
+                <q-item-section avatar :class="[$style.stateAvatar, 'text-grey-6']">
+                  <q-icon name="lock" size="14px" />
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>
-                    {{ descendants.length > 0 ? 'Stop All' : 'Stop' }}
-                  </q-item-label>
-                </q-item-section>
-                <q-item-section v-if="descendants.length > 0" side>
-                  <status-badge-affected-counter>
-                    {{ states.running }}
-                  </status-badge-affected-counter>
+                  <q-item-label caption>Read-only</q-item-label>
                 </q-item-section>
               </q-item>
-              <q-separator />
-              <q-item v-if="!status.enabled" clickable @click="engine.enable(address)">
-                <q-item-section avatar class="text-positive">
-                  <q-icon :name="icons.enable" size="16px" />
+              <template v-if="status.connectivity != null || status.connections.length > 0">
+                <q-separator :class="$style.sectionSeparator" />
+                <q-item-label :class="$style.sectionHeader" header>Connections</q-item-label>
+              </template>
+              <q-item v-if="status.connectivity != null" :class="$style.connectivityRow">
+                <q-item-section avatar :class="$style.stateAvatar">
+                  <span
+                    :class="[
+                      $style.dot,
+                      !status.running && $style.still,
+                      `bg-${connectivityColor(status.connectivity)}`,
+                    ]"
+                  >
+                    <q-tooltip>{{ upperFirst(status.connectivity) }}</q-tooltip>
+                  </span>
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>Enable</q-item-label>
+                  <q-item-label>Component</q-item-label>
                 </q-item-section>
               </q-item>
               <q-item
-                v-if="!states.allEnabled && descendants.length > 0"
-                clickable
-                @click="engine.enable(address.all())"
+                v-for="connection in status.connections"
+                :key="connection.name"
+                :class="$style.connectivityRow"
               >
-                <q-item-section avatar class="text-positive">
-                  <div class="items-center row">
-                    <q-icon :name="icons.enable" size="16px" />
-                    <span :class="$style.allIcon">*</span>
-                  </div>
+                <q-item-section avatar :class="$style.stateAvatar">
+                  <span
+                    :class="[
+                      $style.dot,
+                      !status.running && $style.still,
+                      `bg-${connectivityColor(connection.connectivity)}`,
+                    ]"
+                  >
+                    <q-tooltip>{{ upperFirst(connection.connectivity) }}</q-tooltip>
+                  </span>
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>
-                    <q-item-label>Enable All</q-item-label>
-                  </q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <status-badge-affected-counter>
-                    {{ states.disabled }}
-                  </status-badge-affected-counter>
-                </q-item-section>
-              </q-item>
-              <q-item v-else clickable @click="engine.disable(address)">
-                <q-item-section avatar class="text-warning">
-                  <q-icon :name="icons.disable" size="16px" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Disable</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item
-                v-if="states.someEnabled && descendants.length > 0"
-                clickable
-                @click="engine.disable(address.all())"
-              >
-                <q-item-section avatar class="text-warning">
-                  <div class="items-center row">
-                    <q-icon :name="icons.disable" size="16px" />
-                    <span :class="$style.allIcon">*</span>
-                  </div>
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Disable All</q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <status-badge-affected-counter>
-                    {{ states.enabled }}
-                  </status-badge-affected-counter>
+                  <q-item-label>{{ connection.name }}</q-item-label>
+                  <q-item-label caption>{{ connection.label }}</q-item-label>
                 </q-item-section>
               </q-item>
             </q-list>
@@ -267,36 +235,58 @@ const hasConnectivity = $computed(() => connectionSegments.length > 0)
 </template>
 
 <style lang="scss" module>
-.connectivity {
-  display: flex;
-  width: 16px;
-  height: 11px;
-  border-radius: 2px;
-  overflow: hidden;
-  cursor: default;
+// The indicator keeps the same dot silhouette used in the flyout and connection lists, split into
+// one vertical segment per connection so mixed states stay visible at a glance.
+.cluster {
+  cursor: pointer;
 }
 
-.stripe {
+.connectivity {
+  position: relative;
+  display: flex;
+}
+
+// Invisible hit-area extension so the small indicator stays comfortable to hover and click.
+.connectivityHit {
+  position: absolute;
+}
+
+.connectivityShape {
+  display: flex;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.segment {
   flex: 1;
   animation: pulse 2s ease-in-out infinite;
 
   &:not(:last-child) {
-    border-right: 1px solid rgba(0, 0, 0, 0.55);
+    margin-right: 1px;
   }
 }
 
-.connectivityTooltip {
-  padding: 4px;
-  background: $dark;
+.sectionHeader {
+  padding: 6px 10px 2px;
+  min-height: 0;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
-.connectivityList {
-  border-radius: 4px;
+.sectionSeparator {
+  margin-top: 4px;
 }
 
-.connectivityRow {
+.connectivityRow.connectivityRow {
   min-height: 26px;
   padding: 2px 10px;
+}
+
+.stateAvatar {
+  min-width: 14px;
+  align-items: center;
+  padding-right: 8px;
 }
 
 .dot {
@@ -305,6 +295,11 @@ const hasConnectivity = $computed(() => connectionSegments.length > 0)
   height: 8px;
   border-radius: 50%;
   animation: pulse 2s ease-in-out infinite;
+}
+
+// A stopped component's indicator holds still, the pulse implies liveness it does not have.
+.still {
+  animation: none;
 }
 
 @keyframes pulse {
