@@ -618,3 +618,66 @@ async def test_particle_type_filtering():
 
 async def test_particle_data_filtering():
     await testing.execute_json_data_filter_test(Particle, "data")
+
+
+class _ClsFilterData(ParticleData):
+    value: int
+
+
+class _ClsFilterAParticle(Particle[_ClsFilterData]):
+    type = "test/cls-filter-a"
+
+
+class _ClsFilterBParticle(Particle[_ClsFilterData]):
+    type = "test/cls-filter-b"
+
+
+def _cls_filter_particle(cls: type, value: int) -> Particle:
+    return cls(
+        type=cls.type,
+        address=Address("@cls-filter"),
+        timestamp=utc(),
+        data=_ClsFilterData(value=value),
+    )
+
+
+async def _cls_filter_engine():
+    from ceres import Engine
+
+    engine = Engine()
+    await engine.database.migrate()
+
+    for cls, count in ((_ClsFilterAParticle, 3), (_ClsFilterBParticle, 2)):
+        for value in range(count):
+            particle = _cls_filter_particle(cls, value)
+            await engine.database.particles.create(particle.to_dynamic())
+
+    return engine
+
+
+async def test_where_cls_constrains_the_query_to_the_particle_type() -> None:
+    """`where(cls=...)` with a `Particle` subclass must filter in SQL, not by dropped rows."""
+    engine = await _cls_filter_engine()
+
+    rows = await engine.database.particles.where(cls=_ClsFilterAParticle).all()
+    assert len(rows) == 3
+    assert all(row.type == "test/cls-filter-a" for row in rows)
+
+    rows = await engine.database.particles.where(cls=_ClsFilterBParticle).all()
+    assert len(rows) == 2
+
+
+async def test_where_cls_count_matches_all() -> None:
+    """`count()` must agree with `all()` when filtering by particle class."""
+    engine = await _cls_filter_engine()
+
+    count = await engine.database.particles.where(cls=_ClsFilterAParticle).count()
+    assert count == 3
+
+
+def test_filter_matches_by_particle_class() -> None:
+    from ceres.particle import ParticleFilter
+
+    particle = _cls_filter_particle(_ClsFilterAParticle, 1)
+    assert ParticleFilter(cls=_ClsFilterAParticle).matches(particle)
+    assert not ParticleFilter(cls=_ClsFilterBParticle).matches(particle)

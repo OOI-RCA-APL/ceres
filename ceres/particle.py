@@ -293,7 +293,11 @@ class ParticleFilter(
             return False
 
         if self.cls is not None:
-            if not isinstance(obj.data, self.cls):
+            expected = _get_cls_particle_type(self.cls)
+            if expected is not None:
+                if obj.type != expected:
+                    return False
+            elif not isinstance(obj.data, self.cls):
                 return False
 
         if not self._match_value(obj.type, self.type):
@@ -339,7 +343,10 @@ class ParticleFilter(
         columns = self._get_row_cls()
 
         if self.cls is not None:
-            if issubclass(self.cls, ParticleData):
+            expected = _get_cls_particle_type(self.cls)
+            if expected is not None:
+                yield columns.type == expected
+            elif issubclass(self.cls, ParticleData):
                 yield columns.type == self.cls.type
 
         if self.type is not None:
@@ -699,12 +706,32 @@ class Particle(
 _particle_class_is_defined = True
 
 
+def _get_cls_particle_type(cls: type) -> str | None:
+    """Return the `type` discriminator a `Particle` subclass declares, or `None`.
+
+    Concrete particle classes declare `type` as a `Literal` field with a default. Classes
+    without one (including the base `Particle` and `ParticleData` subclasses) return `None`.
+    """
+    if not (isinstance(cls, type) and issubclass(cls, Particle)):
+        return None
+
+    field = cls.__pydantic_fields__.get("type")
+    default = field.default if field is not None else None
+    if isinstance(default, str):
+        return default
+
+    attribute = getattr(cls, "type", None)
+    return attribute if isinstance(attribute, str) else None
+
+
 def _convert_or_none[ParticleT: Particle[Any]](
     particle: Particle | None,
     cls: type[ParticleT] | None,
 ) -> ParticleT | None:
     # Pass `None` through unchanged, when no target class is requested return the particle
-    # as-is, and swallow validation failures so the stream filter simply drops mismatches.
+    # as-is, and drop validation failures so the stream filter simply skips mismatches. Drops
+    # are logged because a systematic mismatch (for example a data class that cannot re-validate
+    # its own stored payload) silently empties every query result.
     if particle is None:
         return None
 
@@ -713,7 +740,13 @@ def _convert_or_none[ParticleT: Particle[Any]](
 
     try:
         return particle.convert(cls)
-    except ValueError:
+    except ValueError as error:
+        from ceres.logs import get_logger
+
+        get_logger("ceres.particle").warning(
+            f"Dropped particle {particle.id} of type {particle.type!r} while converting to "
+            f"{cls.__name__}. {error}"
+        )
         return None
 
 

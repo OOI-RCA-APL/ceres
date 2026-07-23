@@ -75,7 +75,7 @@
 | `ceres/message.py` | 97% |
 | `ceres/node.py` | 79% |
 | `ceres/notifier.py` | 100% |
-| `ceres/particle.py` | 89% |
+| `ceres/particle.py` | 90% |
 | `ceres/paths.py` | 100% |
 | `ceres/permission.py` | 98% |
 | `ceres/pruner.py` | 45% |
