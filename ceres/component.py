@@ -2213,7 +2213,11 @@ class ComponentSystem(Node, ComponentSource):
         status.enabled = self.enabled
         status.connectivity = self.component.__connectivity__()
         status.connections = [
-            ConnectionStatus(name=connection.name, connectivity=connection.connectivity)
+            ConnectionStatus(
+                name=connection.name,
+                label=connection.label,
+                connectivity=connection.connectivity,
+            )
             for connection in self.connections.all()
             if connection.name is not None
         ]

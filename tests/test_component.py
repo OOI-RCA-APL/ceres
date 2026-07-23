@@ -720,6 +720,7 @@ async def test_status_reports_per_connection_connectivity() -> None:
     assert status.connectivity is None
     assert len(status.connections) == 1
     assert status.connections[0].name == "link"
+    assert status.connections[0].label == "tcp://localhost:2999"
     assert status.connections[0].connectivity == Connectivity.DISCONNECTED
 
 
