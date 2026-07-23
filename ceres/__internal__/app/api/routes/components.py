@@ -27,6 +27,7 @@ from ceres.component import (
     QueryBinding,
 )
 from ceres.config import ComponentConfig
+from ceres.connectivity import Connectivity
 from ceres.data import DataModel, DataObject, DateTime, Name, StrEnum, to_json
 from ceres.error import (
     NotConnectedError,
@@ -242,6 +243,47 @@ async def get_component_config(
         raise NotPermittedError()
 
     return component.system.config
+
+
+class ConnectionStateInfo(DataObject):
+    """A component connection together with its current connectivity state."""
+
+    name: Name
+    label: str
+    connectivity: Connectivity
+
+
+@router.get("/{address}/connections", dependencies=[AUTHENTICATED])
+async def get_component_connections(
+    engine: CurrentEngine,
+    actor: CurrentActor,
+    address: Address,
+) -> list[ConnectionStateInfo]:
+    """Return the component's connections with their live connectivity states.
+
+    Available to anyone who can access the component at all.
+
+    Raises:
+        NotFoundError: If no component matches the given address.
+        NotPermittedError: If the caller has no access to the component.
+    """
+    component = engine.get_component(address)
+    if component is None:
+        raise NotFoundError()
+
+    access = await get_component_access(engine, actor.user, component)
+    if not actor.unrestricted and access is None:
+        raise NotPermittedError()
+
+    return [
+        ConnectionStateInfo(
+            name=connection.name,
+            label=connection.label,
+            connectivity=connection.connectivity,
+        )
+        for connection in component.system.connections.all()
+        if connection.name is not None
+    ]
 
 
 class JobInfo(DataObject):

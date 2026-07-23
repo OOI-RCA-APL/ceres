@@ -3,6 +3,7 @@ import pytest
 from ceres import Address, Component, Engine, action
 from ceres.__internal__.app.api.routes.components import (
     get_component_config,
+    get_component_connections,
     get_component_jobs,
     get_components,
 )
@@ -224,6 +225,51 @@ async def test_get_component_jobs_requires_access() -> None:
 
     with pytest.raises(NotPermittedError):
         await get_component_jobs(
+            engine=engine,
+            actor=Actor(user=user, unrestricted=False),
+            address=sensor.system.address,
+        )
+
+
+async def test_get_component_connections_reports_connectivity() -> None:
+    """Each named connection is returned with its current connectivity state."""
+    from ceres.config import ConnectionConfig
+    from ceres.connectivity import Connectivity
+
+    engine = Engine()
+    await engine.database.migrate()
+    connection = validate(
+        ConnectionConfig,
+        {
+            "name": "link",
+            "arguments": {
+                "name": "link",
+                "source": {
+                    "class": "ceres.TCPSource",
+                    "arguments": {"host": "localhost", "port": 2999},
+                },
+            },
+        },
+    )
+    config = create(ComponentConfig, {"name": "wired", "connections": [connection]})
+    engine.attach(Component(__with_name__="wired", __with_config__=config))
+
+    result = await get_component_connections(
+        engine=engine, actor=_UNRESTRICTED, address=Address("@wired")
+    )
+
+    assert len(result) == 1
+    assert result[0].name == "link"
+    assert result[0].connectivity == Connectivity.DISCONNECTED
+
+
+async def test_get_component_connections_requires_access() -> None:
+    """A user with no access to the component cannot list its connections."""
+    engine, sensor = await _build_restricted_engine()
+    user = await _create_user(engine, "nobody")
+
+    with pytest.raises(NotPermittedError):
+        await get_component_connections(
             engine=engine,
             actor=Actor(user=user, unrestricted=False),
             address=sensor.system.address,
