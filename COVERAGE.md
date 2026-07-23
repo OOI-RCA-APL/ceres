@@ -40,12 +40,12 @@
 | `ceres/address.py` | 96% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 92% |
-| `ceres/component.py` | 84% |
+| `ceres/component.py` | 85% |
 | `ceres/concurrency.py` | 91% |
-| `ceres/config.py` | 79% |
-| `ceres/connection/__init__.py` | 57% |
+| `ceres/config.py` | 80% |
+| `ceres/connection/__init__.py` | 61% |
 | `ceres/connection/buffer.py` | 80% |
-| `ceres/connection/source.py` | 87% |
+| `ceres/connection/source.py` | 90% |
 | `ceres/connection/splitter.py` | 100% |
 | `ceres/connectivity.py` | 100% |
 | `ceres/constants.py` | 100% |
