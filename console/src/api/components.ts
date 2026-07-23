@@ -8,7 +8,7 @@ import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { ElementModel } from '@/api/elements'
 import { MessageModel } from '@/api/messages'
-import { AnyResultModel, ResultModel } from '@/api/shared'
+import { AnyResultModel, ConnectivityModel, ResultModel } from '@/api/shared'
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
 export const ProcedureTypeModel = Zod.enum(['query', 'action'])
@@ -69,6 +69,13 @@ export const ActionInfoModel = BaseProcedureInfoModel.extend({
 export type ProcedureInfo = Zod.infer<typeof ProcedureInfoModel>
 export const ProcedureInfoModel = Zod.discriminatedUnion('type', [QueryInfoModel, ActionInfoModel])
 
+export type ConnectionStateInfo = Zod.infer<typeof ConnectionStateInfoModel>
+export const ConnectionStateInfoModel = Zod.object({
+  name: Zod.string(),
+  label: Zod.string(),
+  connectivity: ConnectivityModel,
+})
+
 export type JobInfo = Zod.infer<typeof JobInfoModel>
 export const JobInfoModel = Zod.object({
   name: Zod.string(),
@@ -128,6 +135,13 @@ export const useComponents = defineStore('components', () => {
   async function getJobs(address: Address): Promise<JobInfo[]> {
     return await client.get(`/api/components/${address}/jobs`, {
       parse: Zod.array(JobInfoModel),
+    })
+  }
+
+  /** Fetch a component's connections with their live connectivity states. */
+  async function getConnections(address: Address): Promise<ConnectionStateInfo[]> {
+    return await client.get(`/api/components/${address}/connections`, {
+      parse: Zod.array(ConnectionStateInfoModel),
     })
   }
 
@@ -283,6 +297,7 @@ export const useComponents = defineStore('components', () => {
     getAction: computed(() => getAction),
     getConfig,
     getJobs,
+    getConnections,
     call,
     send,
     useElementStream,

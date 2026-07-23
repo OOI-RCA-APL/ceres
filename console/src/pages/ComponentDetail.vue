@@ -1,14 +1,15 @@
 <script lang="ts" setup>
 import { useQuery } from '@tanstack/vue-query'
 import { upperFirst } from 'lodash-es'
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { stringify } from 'yaml'
 
 import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
-import { JobInfo, ProcedureInfo } from '@/api/components'
+import { ConnectionInfo, ConnectionStateInfo, JobInfo, ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
+import { Connectivity } from '@/api/shared'
 import CardPage from '@/components/CardPage.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import icons from '@/icons'
@@ -70,6 +71,35 @@ const jobsQuery = useQuery({
   queryFn: () => engine.components.getJobs(address),
   retry: false,
 })
+
+const connectionsQuery = useQuery({
+  queryKey: computed(() => ['component-connections', address.toString()]),
+  queryFn: () => engine.components.getConnections(address),
+  retry: false,
+})
+
+// The statuses stream pushes on connect, disconnect, and connect-failed events, so a refetch on
+// each push keeps connection states current without polling.
+watch(
+  () => engine.statuses.get(address),
+  () => {
+    void connectionsQuery.refetch()
+  }
+)
+
+const connections = $computed<(ConnectionInfo | ConnectionStateInfo)[]>(
+  () => connectionsQuery.data.value ?? component?.connections ?? []
+)
+
+const CONNECTIVITY_COLORS = {
+  connected: 'green',
+  connecting: 'orange',
+  disconnected: 'red',
+} as const
+
+function connectivityColor(connectivity: Connectivity): string {
+  return CONNECTIVITY_COLORS[connectivity]
+}
 
 const jobs = $computed(() => jobsQuery.data.value ?? [])
 
@@ -141,25 +171,27 @@ const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
 
       <q-card-section>
         <q-list bordered class="rounded-borders" dense>
-          <q-expansion-item
-            dense
-            dense-toggle
-            :label="`Connections (${component.connections.length})`"
-          >
+          <q-expansion-item dense dense-toggle :label="`Connections (${connections.length})`">
             <q-list class="q-pb-sm" dense>
-              <q-item v-if="component.connections.length === 0">
+              <q-item v-if="connections.length === 0">
                 <q-item-section>
                   <q-item-label class="text-grey-6">No connections.</q-item-label>
                 </q-item-section>
               </q-item>
-              <q-item
-                v-for="connection in component.connections"
-                :key="connection.name"
-                :class="$style.item"
-              >
+              <q-item v-for="connection in connections" :key="connection.name" :class="$style.item">
                 <q-item-section>
                   <q-item-label>{{ connection.label }}</q-item-label>
                   <q-item-label caption>{{ connection.name }}</q-item-label>
+                </q-item-section>
+                <q-item-section v-if="'connectivity' in connection" side>
+                  <q-chip
+                    class="q-px-sm"
+                    :color="connectivityColor(connection.connectivity)"
+                    dense
+                    :label="connection.connectivity"
+                    size="10px"
+                    text-color="white"
+                  />
                 </q-item-section>
               </q-item>
             </q-list>
