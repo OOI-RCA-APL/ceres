@@ -86,7 +86,7 @@ const effectiveEntries = $computed(() => {
 
 // The server reports which input conferred each level, so nothing here has to be inferred.
 // The trailing period is appended in `sourceLabel` so group suffixes compose cleanly.
-const SOURCE_LABELS: Record<AccessSource, string> = {
+const sourceLabels: Record<AccessSource, string> = {
   admin: 'From administrator status',
   default: 'From default access level',
   component: 'Granted on this component',
@@ -107,7 +107,7 @@ const groupNames = $computed(() => {
 
 /** Label a resolved level, naming the group when a group's grant is what conferred it. */
 function sourceLabel(entry: ComponentEffectiveAccess): string {
-  const label = SOURCE_LABELS[entry.source]
+  const label = sourceLabels[entry.source]
   if (entry.origin !== 'group' || entry.group_id == null) {
     return `${label}.`
   }

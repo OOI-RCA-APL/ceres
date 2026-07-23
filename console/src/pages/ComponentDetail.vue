@@ -13,6 +13,7 @@ import { Connectivity } from '@/api/shared'
 import CardPage from '@/components/CardPage.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import icons from '@/icons'
+import { usePersisted } from '@/persistence'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
 
@@ -38,7 +39,7 @@ function permissionsLabel(procedure: ProcedureInfo): string {
   return `Requires "${procedure.permissions}" access permission.`
 }
 
-const PERMISSION_RANK: Record<Exclude<ProcedureInfo['permissions'], 'public'>, number> = {
+const permissionRank: Record<Exclude<ProcedureInfo['permissions'], 'public'>, number> = {
   view: 0,
   operate: 1,
   manage: 2,
@@ -55,7 +56,7 @@ function canInvoke(procedure: ProcedureInfo): boolean {
     return false
   }
 
-  return PERMISSION_RANK[effectiveAccess] >= PERMISSION_RANK[procedure.permissions]
+  return permissionRank[effectiveAccess] >= permissionRank[procedure.permissions]
 }
 
 // The endpoint rejects callers with no access to the component, in which case the failure is
@@ -91,14 +92,10 @@ const connections = $computed<(ConnectionInfo | ConnectionStateInfo)[]>(
   () => connectionsQuery.data.value ?? component?.connections ?? []
 )
 
-const CONNECTIVITY_COLORS = {
-  connected: 'green',
-  connecting: 'orange',
-  disconnected: 'red',
-} as const
-
-function connectivityColor(connectivity: Connectivity): string {
-  return CONNECTIVITY_COLORS[connectivity]
+const connectivityColors: Record<Connectivity, string> = {
+  connected: 'positive',
+  connecting: 'warning',
+  disconnected: 'negative',
 }
 
 const jobs = $computed(() => jobsQuery.data.value ?? [])
@@ -130,6 +127,22 @@ const configHighlighted = $computed(() =>
 // Track which section groups have content so separators only render between non-empty groups.
 const hasOverview = $computed(() => (component?.tags.length ?? 0) > 0)
 const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
+
+// Persist each drawer's open state per component address. The page remounts on navigation between
+// components (the page container is keyed by route path), so this re-reads for the new address.
+const persisted = usePersisted({
+  schema: ({ object, boolean }) =>
+    object({
+      configuration: boolean().default(true),
+      connections: boolean().default(false),
+      jobs: boolean().default(false),
+      queries: boolean().default(false),
+      actions: boolean().default(false),
+    }),
+  methods: computed(() => [
+    { type: 'local-storage' as const, key: ['component-detail-drawers', address] },
+  ]),
+})
 </script>
 
 <template>
@@ -160,7 +173,12 @@ const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
       <template v-if="configHighlighted != null">
         <q-card-section>
           <q-list bordered class="rounded-borders" dense>
-            <q-expansion-item dense dense-toggle label="Configuration">
+            <q-expansion-item
+              v-model="persisted.configuration"
+              dense
+              dense-toggle
+              label="Configuration"
+            >
               <!-- eslint-disable-next-line vue/no-v-html -->
               <pre :class="$style.config"><code v-html="configHighlighted" /></pre>
             </q-expansion-item>
@@ -171,7 +189,12 @@ const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
 
       <q-card-section>
         <q-list bordered class="rounded-borders" dense>
-          <q-expansion-item dense dense-toggle :label="`Connections (${connections.length})`">
+          <q-expansion-item
+            v-model="persisted.connections"
+            dense
+            dense-toggle
+            :label="`Connections (${connections.length})`"
+          >
             <q-list class="q-pb-sm" dense>
               <q-item v-if="connections.length === 0">
                 <q-item-section>
@@ -184,20 +207,20 @@ const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
                   <q-item-label caption>{{ connection.name }}</q-item-label>
                 </q-item-section>
                 <q-item-section v-if="'connectivity' in connection" side>
-                  <q-chip
-                    class="q-px-sm"
-                    :color="connectivityColor(connection.connectivity)"
-                    dense
-                    :label="connection.connectivity"
-                    size="10px"
-                    text-color="white"
-                  />
+                  <span :class="[$style.dot, `bg-${connectivityColors[connection.connectivity]}`]">
+                    <q-tooltip>{{ upperFirst(connection.connectivity) }}</q-tooltip>
+                  </span>
                 </q-item-section>
               </q-item>
             </q-list>
           </q-expansion-item>
           <q-separator />
-          <q-expansion-item dense dense-toggle :label="`Jobs (${jobs.length})`">
+          <q-expansion-item
+            v-model="persisted.jobs"
+            dense
+            dense-toggle
+            :label="`Jobs (${jobs.length})`"
+          >
             <q-list class="q-pb-sm" dense>
               <q-item v-if="jobs.length === 0">
                 <q-item-section>
@@ -228,7 +251,12 @@ const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
 
       <q-card-section>
         <q-list bordered class="rounded-borders" dense>
-          <q-expansion-item dense dense-toggle :label="`Queries (${queries.length})`">
+          <q-expansion-item
+            v-model="persisted.queries"
+            dense
+            dense-toggle
+            :label="`Queries (${queries.length})`"
+          >
             <q-list class="q-pb-sm" dense>
               <q-item v-if="queries.length === 0">
                 <q-item-section>
@@ -264,7 +292,12 @@ const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
             </q-list>
           </q-expansion-item>
           <q-separator />
-          <q-expansion-item dense dense-toggle :label="`Actions (${actions.length})`">
+          <q-expansion-item
+            v-model="persisted.actions"
+            dense
+            dense-toggle
+            :label="`Actions (${actions.length})`"
+          >
             <q-list class="q-pb-sm" dense>
               <q-item v-if="actions.length === 0">
                 <q-item-section>
@@ -324,5 +357,23 @@ const hasChildren = $computed(() => (component?.components.length ?? 0) > 0)
   padding: 8px 12px 12px;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
 }
 </style>
