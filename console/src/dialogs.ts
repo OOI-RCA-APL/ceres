@@ -2,9 +2,7 @@ import { merge } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { QDialogOptions, useQuasar } from 'quasar'
 
-import { Address } from '@/api/address'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
-import StatusActionsDialog from '@/components/StatusActionsDialog.vue'
 import WorkspaceDialog from '@/components/WorkspaceDialog.vue'
 import { WorkspaceData } from '@/workspace'
 
@@ -59,16 +57,6 @@ export const useDialogs = defineStore('dialogs', () => {
           },
           options
         )
-      ),
-    statusActions: (address: Address, kind: 'run' | 'enable') =>
-      quasar.dialog(
-        withDefaults({
-          component: StatusActionsDialog,
-          componentProps: {
-            address,
-            kind,
-          },
-        })
       ),
     changePassword: (userId: string) =>
       quasar.dialog(
