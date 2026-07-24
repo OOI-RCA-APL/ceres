@@ -175,24 +175,38 @@ async def update_workspace(
     id: UUID,
     update: WorkspaceUpdate,
 ) -> Workspace:
-    """Partially update a workspace. Changing name or viewership/managership settings requires
-    manager-level access. Other updates require editor-level access.
+    """Partially update a workspace. Changing name, scope, or viewership/managership settings
+    requires manager-level access. Other updates require editor-level access.
 
     Raises:
         NotFoundError: If the workspace does not exist.
         NotPermittedError: If the caller lacks permission.
     """
     workspace = assert_found(await engine.workspaces.where(id=id).first())
+
+    new_scope = update["scope"] if "scope" in update else workspace.scope
+    rescoping = new_scope != workspace.scope
+    if rescoping and new_scope is not None:
+        # Setting or changing the scope always requires manage access on the target component,
+        # regardless of whether the workspace is currently global or scoped.
+        await require_scope_access(engine, actor, user, new_scope, ComponentAccessLevel.MANAGE)
+
     if workspace.scope is not None:
         await require_scope_access(
             engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
         )
-        new_scope = update.get("scope")
-        if new_scope is not None and new_scope != workspace.scope:
-            # Rescoping also requires manage on the new scope.
-            await require_scope_access(engine, actor, user, new_scope, ComponentAccessLevel.MANAGE)
+        updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
+        if rescoping and new_scope is None and user is not None:
+            # Unscoping would otherwise leave the workspace without any accessible membership.
+            await engine.workspace_memberships.create(
+                WorkspaceMembershipCreate(
+                    user_id=user.id,
+                    workspace_id=updated.id,
+                    role=WorkspaceMembershipRole.MANAGER,
+                )
+            )
 
-        return assert_found(await engine.workspaces.where(id=id).update(update).first())
+        return updated
 
     if user is not None and not actor.admin:
         if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
@@ -200,6 +214,7 @@ async def update_workspace(
 
         if (
             "name" in update
+            or "scope" in update
             or "general_viewership" in update
             or "general_editorship" in update
             or "general_managership" in update
