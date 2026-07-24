@@ -498,6 +498,112 @@ async def test_workspace_response_redacts_denied_widget() -> None:
     await engine.database.dispose()
 
 
+async def test_update_scoped_workspace_preserves_config_behind_redacted_stub() -> None:
+    """Round-tripping a redacted GET through PATCH must not destroy the real widget config
+    stored behind a stub. The caller has manage on the scope but no view on `@secret`.
+    """
+    engine = await _build_engine_with_component(secret=True)
+    manager = await _create_user(engine, "manager")
+    await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(
+            name="dash",
+            scope=Address("@rig"),
+            data={
+                "layout": [
+                    {
+                        "widgets": [
+                            {
+                                "id": "w1",
+                                "type": "button",
+                                "name": "Peek",
+                                "address": "@secret",
+                                "action": "peek",
+                                "arguments": {"depth": 1},
+                                "width": 60,
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+    )
+
+    fetched = await get_workspace(
+        engine=engine, actor=Actor(user=manager, unrestricted=False), user=manager, id=workspace.id
+    )
+    stub = fetched.data["layout"][0]["widgets"][0]
+    assert stub["restricted"] is True
+
+    await update_workspace(
+        engine=engine,
+        actor=Actor(user=manager, unrestricted=False),
+        user=manager,
+        id=workspace.id,
+        update={"data": fetched.data},
+    )
+
+    stored = await engine.workspaces.where(id=workspace.id).first()
+    assert stored is not None
+    widget = stored.data["layout"][0]["widgets"][0]
+    assert widget["address"] == "@secret"
+    assert widget["action"] == "peek"
+    assert widget["arguments"] == {"depth": 1}
+
+    await engine.database.dispose()
+
+
+async def test_update_global_workspace_preserves_config_behind_redacted_stub() -> None:
+    """The same stub-preservation guarantee applies to global workspaces, since redaction
+    applies to them too.
+    """
+    engine = await _build_engine_with_component(secret=True)
+    editor = await _create_user(engine, "editor")
+    workspace = await engine.workspaces.create(
+        Workspace.Create(
+            name="ops",
+            data={
+                "layout": [
+                    {
+                        "widgets": [
+                            {
+                                "id": "w1",
+                                "type": "button",
+                                "name": "Peek",
+                                "address": "@secret",
+                                "action": "peek",
+                                "width": 60,
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+    )
+    await _add_member(engine, editor, workspace, WorkspaceMembershipRole.EDITOR)
+
+    fetched = await get_workspace(
+        engine=engine, actor=Actor(user=editor, unrestricted=False), user=editor, id=workspace.id
+    )
+    assert fetched.data["layout"][0]["widgets"][0]["restricted"] is True
+
+    await update_workspace(
+        engine=engine,
+        actor=Actor(user=editor, unrestricted=False),
+        user=editor,
+        id=workspace.id,
+        update={"data": fetched.data},
+    )
+
+    stored = await engine.workspaces.where(id=workspace.id).first()
+    assert stored is not None
+    widget = stored.data["layout"][0]["widgets"][0]
+    assert widget["address"] == "@secret"
+    assert widget["action"] == "peek"
+
+    await engine.database.dispose()
+
+
 async def test_workspace_response_not_redacted_for_admin() -> None:
     engine = await _build_engine_with_component()
     admin = await _create_user(engine, "boss")

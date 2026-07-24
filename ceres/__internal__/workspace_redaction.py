@@ -19,6 +19,7 @@ from ceres.address import Address, AddressSelector
 
 __all__ = [
     "iter_widget_targets",
+    "merge_redacted_widgets",
     "redact_workspace_data",
 ]
 
@@ -85,6 +86,30 @@ def iter_widget_targets(widget: dict[str, Any], scope: Address | None) -> Iterat
         yield from _selector_bases(value, scope)
 
 
+def _iter_widget_slots(data: dict[str, Any]) -> Iterator[tuple[list[Any], int]]:
+    """Yield `(widgets, index)` for every widget slot in `data`'s layout.
+
+    Each yielded pair identifies a widget's list and its position, so a caller can read or
+    replace the widget in place. Only slots holding a dict widget are yielded, malformed layout
+    structure and non-dict entries are skipped rather than raised on.
+    """
+    layout = data.get("layout")
+    if not isinstance(layout, list):
+        return
+
+    for row in layout:
+        if not isinstance(row, dict):
+            continue
+
+        widgets = row.get("widgets")
+        if not isinstance(widgets, list):
+            continue
+
+        for index, widget in enumerate(widgets):
+            if isinstance(widget, dict):
+                yield widgets, index
+
+
 def redact_workspace_data(
     data: dict[str, Any],
     *,
@@ -97,30 +122,49 @@ def redact_workspace_data(
     widget's identity and layout fields plus `restricted: true`, everything else is stripped.
     """
     result = deepcopy(data)
-    layout = result.get("layout")
-    if not isinstance(layout, list):
-        return result
+    for widgets, index in _iter_widget_slots(result):
+        widget = widgets[index]
+        targets = list(iter_widget_targets(widget, scope))
+        if targets and not all(can_view(target) for target in targets):
+            widgets[index] = {
+                "id": widget.get("id"),
+                "type": widget.get("type"),
+                "name": "",
+                "width": widget.get("width"),
+                "restricted": True,
+            }
 
-    for row in layout:
-        if not isinstance(row, dict):
+    return result
+
+
+def merge_redacted_widgets(
+    stored: dict[str, Any],
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a copy of `incoming` with every restricted-stub widget replaced by its stored form.
+
+    A widget carrying `restricted: true` is a redaction stub the caller received on a prior read
+    and could not have knowingly edited. Restoring it from `stored` by matching `id` ensures a
+    stub can never overwrite a widget's real configuration, whether the caller round-trips a GET
+    response unmodified or an attacker crafts a stub for a widget they cannot view. A stub whose
+    `id` has no match in `stored` passes through unchanged, since there is nothing to restore it
+    from and dropping it or trusting it would both be worse than leaving it alone.
+    """
+    result = deepcopy(incoming)
+    stored_by_id: dict[Any, dict[str, Any]] = {}
+    for widgets, index in _iter_widget_slots(stored):
+        widget = widgets[index]
+        widget_id = widget.get("id")
+        if widget_id is not None:
+            stored_by_id[widget_id] = widget
+
+    for widgets, index in _iter_widget_slots(result):
+        widget = widgets[index]
+        if widget.get("restricted") is not True:
             continue
 
-        widgets = row.get("widgets")
-        if not isinstance(widgets, list):
-            continue
-
-        for index, widget in enumerate(widgets):
-            if not isinstance(widget, dict):
-                continue
-
-            targets = list(iter_widget_targets(widget, scope))
-            if targets and not all(can_view(target) for target in targets):
-                widgets[index] = {
-                    "id": widget.get("id"),
-                    "type": widget.get("type"),
-                    "name": "",
-                    "width": widget.get("width"),
-                    "restricted": True,
-                }
+        stored_widget = stored_by_id.get(widget.get("id"))
+        if stored_widget is not None:
+            widgets[index] = deepcopy(stored_widget)
 
     return result

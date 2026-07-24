@@ -16,7 +16,7 @@ from ceres.__internal__.app.shared import (
     build_address_chain,
     get_component_access,
 )
-from ceres.__internal__.workspace_redaction import redact_workspace_data
+from ceres.__internal__.workspace_redaction import merge_redacted_widgets, redact_workspace_data
 from ceres.access import fetch_access_grants, resolve_access_from
 from ceres.config import ComponentAccessLevel
 from ceres.data import construct, to_dict
@@ -259,6 +259,11 @@ async def update_workspace(
         NotPermittedError: If the caller lacks permission.
     """
     workspace = assert_found(await engine.workspaces.where(id=id).first())
+
+    if "data" in update:
+        # Never trust the client's copy of a restricted stub. Merge it against the stored data
+        # so a stub can never overwrite a widget's real configuration.
+        update["data"] = merge_redacted_widgets(workspace.data, update["data"])
 
     new_scope = update["scope"] if "scope" in update else workspace.scope
     rescoping = new_scope != workspace.scope
