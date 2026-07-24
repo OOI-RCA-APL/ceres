@@ -444,15 +444,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return data != null && workspace != null && !isStructurallyEqual(data, workspace?.data)
   })
 
-  async function resetToShared() {
-    if (workspace == null) {
-      return
-    }
-
-    data = deepClone(workspace.data) as WorkspaceData
-    await workspaces.discardEdit(id)
-  }
-
   async function rename(newName: string) {
     return await workspaces.rename(id, newName)
   }
@@ -708,8 +699,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     originalData: computed(() => workspace?.data ?? null),
     data: computed(() => data),
     edited: computed(() => edited),
-    isModified: computed(() => edited),
-    resetToShared,
     delete: del,
     rename,
     update,
