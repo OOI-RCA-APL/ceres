@@ -73,7 +73,9 @@ function removeParticle(index: number) {
               <workspace-address-select
                 :model-value="particle.address?.toString() ?? null"
                 @update:model-value="
-                  (value) => (particle.address = value ? new AddressSelector(value) : null)
+                  (value) =>
+                    (particle.address =
+                      value != null && value !== '' ? new AddressSelector(value) : null)
                 "
               />
             </div>

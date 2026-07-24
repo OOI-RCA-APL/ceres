@@ -62,7 +62,9 @@ watchEffect(() => {
         <workspace-address-select
           :model-value="widget.procedureAddress?.toString() ?? null"
           @update:model-value="
-            (value) => (widget.procedureAddress = value ? Address.parse(value) : null)
+            (value) =>
+              (widget.procedureAddress =
+                value != null && value !== '' ? Address.parse(value) : null)
           "
         />
       </div>

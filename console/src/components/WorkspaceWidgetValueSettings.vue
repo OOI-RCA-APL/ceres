@@ -24,7 +24,9 @@ const { widget } = defineProps<{
           <workspace-address-select
             :model-value="widget.particleAddress?.toString() ?? null"
             @update:model-value="
-              (value) => (widget.particleAddress = value ? AddressSelector.parse(value) : null)
+              (value) =>
+                (widget.particleAddress =
+                  value != null && value !== '' ? AddressSelector.parse(value) : null)
             "
           />
         </div>

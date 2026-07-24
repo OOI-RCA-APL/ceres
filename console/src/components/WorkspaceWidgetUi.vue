@@ -21,7 +21,8 @@ const resolvedInterfaceAddress = $computed(() => {
     <workspace-address-select
       :model-value="widget.interfaceAddress?.toString() ?? null"
       @update:model-value="
-        (value) => (widget.interfaceAddress = value ? Address.parse(value) : null)
+        (value) =>
+          (widget.interfaceAddress = value != null && value !== '' ? Address.parse(value) : null)
       "
     />
     <interface

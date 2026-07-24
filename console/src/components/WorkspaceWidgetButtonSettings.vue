@@ -58,7 +58,10 @@ const action = $computed(() => {
       <div class="col-sm-6 col-xs-12">
         <workspace-address-select
           :model-value="widget.address?.toString() ?? null"
-          @update:model-value="(value) => (widget.address = value ? Address.parse(value) : null)"
+          @update:model-value="
+            (value) =>
+              (widget.address = value != null && value !== '' ? Address.parse(value) : null)
+          "
         />
       </div>
       <div class="col-sm-6 col-xs-12">
