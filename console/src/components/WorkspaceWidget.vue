@@ -46,6 +46,27 @@ const key = $computed(() => {
 
   return String(reloads)
 })
+
+// The first address-like field on the widget resolved through the scope, or null when the
+// widget has no single target.
+const targetAddress = $computed(() => {
+  if (widget.restricted) {
+    return null
+  }
+
+  const raw =
+    ('address' in widget ? widget.address : null) ??
+    ('procedureAddress' in widget ? widget.procedureAddress : null) ??
+    ('interfaceAddress' in widget ? widget.interfaceAddress : null) ??
+    ('particleAddress' in widget ? widget.particleAddress : null)
+  if (raw == null) {
+    return null
+  }
+
+  const resolved = workspace.resolveAddress(raw)
+  const text = resolved?.toString() ?? null
+  return text != null && text.startsWith('@') && !text.includes(':') ? text : null
+})
 </script>
 
 <template>
@@ -177,6 +198,19 @@ const key = $computed(() => {
             </q-menu>
           </q-btn>
         </div>
+        <q-btn
+          v-if="targetAddress != null"
+          dense
+          flat
+          :icon="icons.chevronRight"
+          round
+          size="xs"
+          :to="`/components/${targetAddress}`"
+          @mousedown.stop
+          @touchstart.stop
+        >
+          <q-tooltip>Open {{ targetAddress }}</q-tooltip>
+        </q-btn>
         <q-space />
         <q-btn
           v-if="$q.screen.gt.xs"

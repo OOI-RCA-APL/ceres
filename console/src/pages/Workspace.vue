@@ -321,6 +321,21 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
           </q-card>
         </q-popup-edit>
       </div>
+      <q-chip v-if="workspace.isModified" dense size="10px">
+        Modified
+        <q-tooltip>Your local version differs from the shared workspace.</q-tooltip>
+      </q-chip>
+      <q-btn
+        v-if="workspace.isModified"
+        dense
+        flat
+        :icon="icons.revertToOriginal"
+        round
+        size="sm"
+        @click="workspace.resetToShared()"
+      >
+        <q-tooltip>Reset to shared</q-tooltip>
+      </q-btn>
       <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
         Join
         <q-menu :offset="[0, 8]">
