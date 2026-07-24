@@ -111,9 +111,9 @@ export class Address extends AddressSelector {
   }
 
   public asAbsolute(root: Address | null): Address {
-    if (this.isAbsolute || root == null) {
+    if (this.isAbsolute) {
       return this
-    } else if (root.value === '~') {
+    } else if (root == null || root.value === '~') {
       return new Address('@' + this.value)
     } else {
       return new Address(`${root.value}.${this.value}`)
