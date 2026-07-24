@@ -61,14 +61,20 @@ async def _add_member(
     )
 
 
-async def _build_engine_with_component(access: str | None = None) -> Engine:
+async def _build_engine_with_component(access: str | None = None, secret: bool = False) -> Engine:
     engine = Engine()
     await engine.database.migrate()
     component: dict[str, object] = {"name": "rig", "class": "ceres.component:Component"}
     if access is not None:
         component["access"] = access
 
-    config = validate(Config, {"components": [component]})
+    components: list[dict[str, object]] = [component]
+    if secret:
+        components.append(
+            {"name": "secret", "class": "ceres.component:Component", "access": "deny"}
+        )
+
+    config = validate(Config, {"components": components})
     await engine.load(config, checks=())
     return engine
 
@@ -371,5 +377,75 @@ async def test_list_excludes_scoped_workspace_when_scope_not_viewable() -> None:
         filter=WorkspaceFilter(),
     )
     assert [workspace.id for workspace in listed] == [visible.id]
+
+    await engine.database.dispose()
+
+
+async def test_workspace_response_redacts_denied_widget() -> None:
+    engine = await _build_engine_with_component(secret=True)
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rig", ComponentAccessLevel.VIEW)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(
+            name="dash",
+            scope=Address("@rig"),
+            data={
+                "layout": [
+                    {
+                        "widgets": [
+                            {
+                                "id": "w1",
+                                "type": "button",
+                                "name": "Peek",
+                                "address": "@secret",
+                                "action": "peek",
+                                "width": 60,
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+    )
+
+    result = await get_workspace(
+        engine=engine, actor=Actor(user=user, unrestricted=False), user=user, id=workspace.id
+    )
+    widget = result.data["layout"][0]["widgets"][0]
+    assert widget["restricted"] is True
+    assert "address" not in widget
+
+    await engine.database.dispose()
+
+
+async def test_workspace_response_not_redacted_for_admin() -> None:
+    engine = await _build_engine_with_component()
+    admin = await _create_user(engine, "boss")
+    workspace = await engine.workspaces.create(
+        Workspace.Create(
+            name="dash",
+            scope=Address("@rig"),
+            data={
+                "layout": [
+                    {
+                        "widgets": [
+                            {
+                                "id": "w1",
+                                "type": "button",
+                                "address": "@rig",
+                                "name": "Go",
+                                "width": 60,
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+    )
+
+    result = await get_workspace(
+        engine=engine, actor=Actor(user=admin, unrestricted=True), user=admin, id=workspace.id
+    )
+    assert result.data["layout"][0]["widgets"][0]["address"] == "@rig"
 
     await engine.database.dispose()

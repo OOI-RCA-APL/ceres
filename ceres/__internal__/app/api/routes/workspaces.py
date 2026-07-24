@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
@@ -12,9 +13,13 @@ from ceres.__internal__.app.shared import (
     RequireAuthenticated,
     Router,
     assert_found,
+    build_address_chain,
     get_component_access,
 )
+from ceres.__internal__.workspace_redaction import redact_workspace_data
+from ceres.access import fetch_access_grants, resolve_access_from
 from ceres.config import ComponentAccessLevel
+from ceres.data import construct, to_dict
 from ceres.error import NotFoundError, NotPermittedError
 from ceres.workspace import (
     Workspace,
@@ -31,6 +36,51 @@ if TYPE_CHECKING:
     from ceres.user import User
 
 router = Router(tags=["workspaces"])
+
+
+async def build_can_view(engine: Engine, user: User) -> Callable[[Address], bool]:
+    """Build a per-request predicate testing view access on a component address.
+
+    Fetch the user's access grants once so the returned predicate can be called repeatedly
+    without re-querying the database.
+    """
+    grants = await fetch_access_grants(engine.database, user)
+
+    def can_view(address: Address) -> bool:
+        component = engine.get_component(address)
+        if component is None:
+            # There is no live component to protect, so nothing to hide.
+            return True
+
+        system = component.system
+        access = resolve_access_from(
+            grants,
+            address_chain=build_address_chain(system),
+            resolved_access=system.get_resolved_access(),
+            inherited_tags=system.get_inherited_tags(),
+        )
+        return access is not None and access >= ComponentAccessLevel.VIEW
+
+    return can_view
+
+
+async def redact_workspace(
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
+    workspace: Workspace,
+) -> Workspace:
+    """Return `workspace` with widgets the caller cannot view replaced by stubs.
+
+    Admins receive the payload untouched. The copy skips validation, because a workspace may
+    hold field combinations that predate a validator and would otherwise fail on reconstruction.
+    """
+    if actor.admin or user is None:
+        return workspace
+
+    can_view = await build_can_view(engine, user)
+    data = redact_workspace_data(workspace.data, scope=workspace.scope, can_view=can_view)
+    return construct(Workspace, **{**to_dict(workspace), "data": data})
 
 
 async def require_scope_access(
@@ -79,13 +129,13 @@ async def get_workspace(
     workspace = assert_found(await engine.workspaces.where(id=id).first())
     if workspace.scope is not None:
         await require_scope_access(engine, actor, user, workspace.scope, ComponentAccessLevel.VIEW)
-        return workspace
+        return await redact_workspace(engine, actor, user, workspace)
 
     if user is not None and not actor.admin:
         if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
             raise NotFoundError()
 
-    return workspace
+    return await redact_workspace(engine, actor, user, workspace)
 
 
 @router.get("/workspaces")
@@ -120,17 +170,20 @@ async def get_workspaces(
         if access is not None and access >= ComponentAccessLevel.VIEW:
             visible_scoped.append(workspace)
 
-    return [*visible_global, *visible_scoped]
+    results = [*visible_global, *visible_scoped]
+    return [await redact_workspace(engine, actor, user, workspace) for workspace in results]
 
 
 @router.get("/users/{user_id:uuid}/workspaces", dependencies=[SELF_OR_ADMIN])
 async def get_workspaces_for_user(
     engine: CurrentEngine,
+    actor: CurrentActor,
     user_id: UUID,
     filter: Annotated[WorkspaceFilter, Query()],
 ) -> list[Workspace]:
     """Return workspaces that a specific user has joined, filtered by the given criteria."""
-    return await engine.workspaces.where(joined_by=user_id, and__=filter)
+    results = await engine.workspaces.where(joined_by=user_id, and__=filter)
+    return [await redact_workspace(engine, actor, actor.user, workspace) for workspace in results]
 
 
 @router.post("/workspaces")
@@ -164,7 +217,7 @@ async def create_workspace(
             )
         )
 
-    return created
+    return await redact_workspace(engine, actor, user, created)
 
 
 @router.patch("/workspaces/{id:uuid}")
@@ -206,7 +259,7 @@ async def update_workspace(
                 )
             )
 
-        return updated
+        return await redact_workspace(engine, actor, user, updated)
 
     if user is not None and not actor.admin:
         if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
@@ -227,7 +280,8 @@ async def update_workspace(
             # Only editors of this workspace can update it.
             raise NotPermittedError()
 
-    return assert_found(await engine.workspaces.where(id=id).update(update).first())
+    updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
+    return await redact_workspace(engine, actor, user, updated)
 
 
 @router.delete("/workspaces/{id:uuid}")
@@ -248,7 +302,8 @@ async def delete_workspace(
         await require_scope_access(
             engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
         )
-        return assert_found(await engine.workspaces.where(id=id).delete().first())
+        deleted = assert_found(await engine.workspaces.where(id=id).delete().first())
+        return await redact_workspace(engine, actor, user, deleted)
 
     if user is not None and not actor.admin:
         if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
@@ -257,4 +312,5 @@ async def delete_workspace(
             # Only workspace managers and admins can delete a workspaces.
             raise NotPermittedError()
 
-    return assert_found(await engine.workspaces.where(id=id).delete().first())
+    deleted = assert_found(await engine.workspaces.where(id=id).delete().first())
+    return await redact_workspace(engine, actor, user, deleted)

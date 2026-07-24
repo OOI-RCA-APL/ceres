@@ -11,7 +11,7 @@ from ceres.__internal__.app.api.routes.permissions import (
     get_all_effective_access,
     get_effective_access,
 )
-from ceres.__internal__.app.shared import Actor, _build_address_chain, _require_self_or_admin
+from ceres.__internal__.app.shared import Actor, _require_self_or_admin, build_address_chain
 from ceres.address import Address
 from ceres.component import ComponentAccessLevel, ComponentConfig
 from ceres.error import NotFoundError, NotPermittedError
@@ -238,4 +238,4 @@ def test_build_address_chain_stops_at_top_level_component() -> None:
     motor = Component(__with_name__="motor")
     sensor.system.attach(motor)
 
-    assert _build_address_chain(motor.system) == ["@sensor.motor", "@sensor"]
+    assert build_address_chain(motor.system) == ["@sensor.motor", "@sensor"]

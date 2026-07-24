@@ -562,7 +562,7 @@ async def get_component_access(
     return await resolve_access(
         database=engine.database,
         user=user,
-        address_chain=_build_address_chain(system),
+        address_chain=build_address_chain(system),
         resolved_access=system.get_resolved_access(),
         inherited_tags=system.get_inherited_tags(),
     )
@@ -596,7 +596,7 @@ async def get_components_access_detail(
         system = component.system
         result[system.address] = resolve_access_detail_from(
             grants,
-            address_chain=_build_address_chain(system),
+            address_chain=build_address_chain(system),
             resolved_access=system.get_resolved_access(),
             inherited_tags=system.get_inherited_tags(),
         )
@@ -635,7 +635,7 @@ async def get_components_access(
         system = component.system
         result[system.address] = resolve_access_from(
             grants,
-            address_chain=_build_address_chain(system),
+            address_chain=build_address_chain(system),
             resolved_access=system.get_resolved_access(),
             inherited_tags=system.get_inherited_tags(),
         )
@@ -643,7 +643,7 @@ async def get_components_access(
     return result
 
 
-def _build_address_chain(system: ComponentSystem) -> list[str]:
+def build_address_chain(system: ComponentSystem) -> list[str]:
     """Build the list of addresses from a component up to its top-level ancestor."""
     chain: list[str] = []
     current: ComponentSystem | None = system
