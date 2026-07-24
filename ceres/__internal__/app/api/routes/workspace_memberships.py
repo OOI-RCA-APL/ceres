@@ -1,12 +1,10 @@
-from typing import TYPE_CHECKING, Annotated, TypedDict
+from typing import Annotated, TypedDict
 from uuid import UUID
 
 from fastapi import Query
 
-from ceres.__internal__.app.api.routes.workspaces import build_can_view
 from ceres.__internal__.app.shared import (
     SELF_OR_ADMIN,
-    CurrentActor,
     CurrentEngine,
     CurrentUser,
     Limit,
@@ -14,8 +12,7 @@ from ceres.__internal__.app.shared import (
     Router,
     assert_found,
 )
-from ceres.__internal__.workspace_redaction import redact_workspace_data
-from ceres.data import DataObject, construct, to_dict
+from ceres.data import DataObject
 from ceres.error import NotFoundError, NotPermittedError
 from ceres.workspace import (
     WorkspaceFilter,
@@ -25,38 +22,12 @@ from ceres.workspace import (
     WorkspaceMembershipUpdate,
 )
 
-if TYPE_CHECKING:
-    from ceres.address import Address
-    from ceres.engine import Engine
-
 router = Router(tags=["workspace-memberships"])
-
-
-async def _redact_membership(
-    engine: Engine,
-    actor: CurrentActor,
-    membership: WorkspaceMembership,
-) -> WorkspaceMembership:
-    """Return `membership` with its workspace data redacted for widgets the acting user cannot
-    view.
-
-    Admins receive the payload untouched.
-    """
-    if actor.admin or actor.user is None or membership.data is None:
-        return membership
-
-    workspace = await engine.workspaces.where(id=membership.workspace_id).first()
-    scope: Address | None = workspace.scope if workspace is not None else None
-
-    can_view = await build_can_view(engine, actor.user)
-    data = redact_workspace_data(membership.data, scope=scope, can_view=can_view)
-    return construct(WorkspaceMembership, **{**to_dict(membership), "data": data})
 
 
 @router.get("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
 async def get_workspace_membership(
     engine: CurrentEngine,
-    actor: CurrentActor,
     user: RequireAuthenticated,
     user_id: UUID,
     workspace_id: UUID,
@@ -73,26 +44,22 @@ async def get_workspace_membership(
         if not await engine.workspaces.where(viewable_by=user.id).any():
             raise NotFoundError()
 
-    membership = assert_found(await engine.workspace_memberships.get(user_id, workspace_id))
-    return await _redact_membership(engine, actor, membership)
+    return assert_found(await engine.workspace_memberships.get(user_id, workspace_id))
 
 
 @router.get("/users/{user_id:uuid}/workspace-memberships", dependencies=[SELF_OR_ADMIN])
 async def get_workspace_memberships(
     engine: CurrentEngine,
-    actor: CurrentActor,
     user_id: UUID,
     filter: Annotated[WorkspaceMembershipFilter, Query(), Limit(1000)],
 ) -> list[WorkspaceMembership]:
     """Return workspace memberships for a user, filtered and capped at 1000 results."""
-    results = await engine.workspace_memberships.where(user_id=user_id, and__=filter)
-    return [await _redact_membership(engine, actor, membership) for membership in results]
+    return await engine.workspace_memberships.where(user_id=user_id, and__=filter)
 
 
 @router.get("/workspaces/{workspace_id:uuid}/memberships")
 async def get_workspace_memberships_in_workspace(
     engine: CurrentEngine,
-    actor: CurrentActor,
     user: RequireAuthenticated,
     workspace_id: UUID,
     filter: Annotated[WorkspaceMembershipFilter, Query(), Limit(1000)],
@@ -106,8 +73,7 @@ async def get_workspace_memberships_in_workspace(
         if not await engine.workspaces.where(viewable_by=user.id).any():
             raise NotFoundError()
 
-    results = await engine.workspace_memberships.where(workspace_id=workspace_id, and__=filter)
-    return [await _redact_membership(engine, actor, membership) for membership in results]
+    return await engine.workspace_memberships.where(workspace_id=workspace_id, and__=filter)
 
 
 async def _guard_membership_mutation(

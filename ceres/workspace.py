@@ -121,7 +121,6 @@ type WorkspaceMembershipField = Literal[
     "user_id",
     "workspace_id",
     "role",
-    "data",
 ]
 """Field names selectable in `WorkspaceMembership` queries."""
 
@@ -295,11 +294,6 @@ class WorkspaceMembership(
     slots=True,
 ):
     """Association record linking a `User` to a `Workspace` with a specific role."""
-
-    data: JSONSerializableDict | None = None
-    """The membership's workspace data, redacted for the viewer. Not persisted, computed on
-    read.
-    """
 
     Manager = WorkspaceMembershipManager
     Create = WorkspaceMembershipCreate
