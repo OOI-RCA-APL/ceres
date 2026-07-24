@@ -5,7 +5,7 @@ const name = namePattern.slice(1, -1)
 const modifier = ':(all|children|descendants)'
 const segment = `\\~(:(all|descendants))?|@?[a-z-A-Z_\\-.]+(${modifier})?|@${modifier}|${modifier}`
 
-const addressSelectorRegex = new RegExp(`^${segment}(\\|${segment})*$`)
+const addressSelectorRegex = new RegExp(`^(?:${segment})(?:\\|(?:${segment}))*$`)
 
 export class AddressSelector {
   public readonly value: string
@@ -67,7 +67,7 @@ export class AddressSelector {
   }
 }
 
-const addressRegex = new RegExp(`^~|@?${name}(\\.${name})*$`)
+const addressRegex = new RegExp(`^(?:~|@?${name}(\\.${name})*)$`)
 
 export class Address extends AddressSelector {
   constructor(value: string | AddressSelector) {
@@ -113,9 +113,11 @@ export class Address extends AddressSelector {
   public asAbsolute(root: Address | null): Address {
     if (this.isAbsolute || root == null) {
       return this
+    } else if (root.value === '~') {
+      return new Address('@' + this.value)
+    } else {
+      return new Address(`${root.value}.${this.value}`)
     }
-
-    return new Address(`${root.value}.${this.value}`)
   }
 
   public all(): AddressSelector {
