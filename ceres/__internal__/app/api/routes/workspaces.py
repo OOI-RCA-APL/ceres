@@ -138,6 +138,28 @@ async def get_workspace(
     return await redact_workspace(engine, actor, user, workspace)
 
 
+async def filter_viewable_scoped(
+    engine: Engine, user: User, workspaces: list[Workspace]
+) -> list[Workspace]:
+    """Return the subset of `workspaces` whose scope component `user` can view.
+
+    Every workspace in `workspaces` must be scoped. A workspace whose scope component no longer
+    exists is dropped, since there is nothing left to check access against.
+    """
+    visible: list[Workspace] = []
+    for workspace in workspaces:
+        assert workspace.scope is not None
+        component = engine.get_component(workspace.scope)
+        if component is None:
+            continue
+
+        access = await get_component_access(engine, user, component)
+        if access is not None and access >= ComponentAccessLevel.VIEW:
+            visible.append(workspace)
+
+    return visible
+
+
 @router.get("/workspaces")
 async def get_workspaces(
     engine: CurrentEngine,
@@ -158,17 +180,7 @@ async def get_workspaces(
         scope & WorkspaceFilter(scoped=False, viewable_by=user.id)
     )
     candidates = await engine.workspaces.where(scope & WorkspaceFilter(scoped=True))
-
-    visible_scoped: list[Workspace] = []
-    for workspace in candidates:
-        assert workspace.scope is not None
-        component = engine.get_component(workspace.scope)
-        if component is None:
-            continue
-
-        access = await get_component_access(engine, user, component)
-        if access is not None and access >= ComponentAccessLevel.VIEW:
-            visible_scoped.append(workspace)
+    visible_scoped = await filter_viewable_scoped(engine, user, candidates)
 
     results = [*visible_global, *visible_scoped]
     return [await redact_workspace(engine, actor, user, workspace) for workspace in results]
@@ -181,8 +193,19 @@ async def get_workspaces_for_user(
     user_id: UUID,
     filter: Annotated[WorkspaceFilter, Query()],
 ) -> list[Workspace]:
-    """Return workspaces that a specific user has joined, filtered by the given criteria."""
+    """Return workspaces that a specific user has joined, filtered by the given criteria.
+
+    Non-admin callers only see joined scoped workspaces whose scope component they can still
+    view. A membership alone does not guarantee visibility once a workspace gains a scope, and a
+    stale membership can otherwise linger from before the workspace was scoped.
+    """
     results = await engine.workspaces.where(joined_by=user_id, and__=filter)
+    if not actor.admin and actor.user is not None:
+        global_results = [workspace for workspace in results if workspace.scope is None]
+        scoped_results = [workspace for workspace in results if workspace.scope is not None]
+        visible_scoped = await filter_viewable_scoped(engine, actor.user, scoped_results)
+        results = [*global_results, *visible_scoped]
+
     return [await redact_workspace(engine, actor, actor.user, workspace) for workspace in results]
 
 
@@ -281,6 +304,11 @@ async def update_workspace(
             raise NotPermittedError()
 
     updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
+    if rescoping and new_scope is not None:
+        # A scoped workspace derives access from its component and does not support memberships,
+        # so a leftover membership must not be allowed to linger and leak visibility.
+        await engine.workspace_memberships.where(workspace_id=id).delete()
+
     return await redact_workspace(engine, actor, user, updated)
 
 

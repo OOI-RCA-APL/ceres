@@ -9,6 +9,7 @@ from ceres.__internal__.app.api.routes.workspaces import (
     create_workspace,
     get_workspace,
     get_workspaces,
+    get_workspaces_for_user,
     update_workspace,
 )
 from ceres.__internal__.app.shared import Actor
@@ -377,6 +378,85 @@ async def test_list_excludes_scoped_workspace_when_scope_not_viewable() -> None:
         filter=WorkspaceFilter(),
     )
     assert [workspace.id for workspace in listed] == [visible.id]
+
+    await engine.database.dispose()
+
+
+async def test_workspaces_for_user_hides_scoped_workspace_without_scope_access() -> None:
+    """A stale membership on a scoped workspace must not leak the workspace through the user
+    listing endpoint. `_guard_membership_mutation` blocks new memberships on scoped workspaces,
+    but a membership can still be left over from before the workspace gained its scope.
+    """
+    engine = await _build_engine_with_component(access="deny")
+    user = await _create_user(engine, "bob")
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="rig-dash", scope=Address("@rig"))
+    )
+    await engine.workspace_memberships.create(
+        WorkspaceMembership.Create(
+            user_id=user.id, workspace_id=workspace.id, role=WorkspaceMembershipRole.VIEWER
+        )
+    )
+
+    results = await get_workspaces_for_user(
+        engine=engine,
+        actor=Actor(user=user, unrestricted=False),
+        user_id=user.id,
+        filter=WorkspaceFilter(),
+    )
+    assert results == []
+
+    await engine.database.dispose()
+
+
+async def test_workspaces_for_user_includes_scoped_workspace_with_scope_access() -> None:
+    engine = await _build_engine_with_component()
+    user = await _create_user(engine, "bob")
+    await _grant(engine, user, "@rig", ComponentAccessLevel.VIEW)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="rig-dash", scope=Address("@rig"))
+    )
+    await engine.workspace_memberships.create(
+        WorkspaceMembership.Create(
+            user_id=user.id, workspace_id=workspace.id, role=WorkspaceMembershipRole.VIEWER
+        )
+    )
+
+    results = await get_workspaces_for_user(
+        engine=engine,
+        actor=Actor(user=user, unrestricted=False),
+        user_id=user.id,
+        filter=WorkspaceFilter(),
+    )
+    assert [result.id for result in results] == [workspace.id]
+
+    await engine.database.dispose()
+
+
+async def test_rescoping_workspace_deletes_existing_memberships() -> None:
+    """Rescoping a global workspace to a component must drop its memberships. Scoped workspaces
+    derive access from their component, so a leftover membership would otherwise leak visibility
+    through `get_workspaces_for_user`.
+    """
+    engine = await _build_engine_with_component()
+    manager = await _create_user(engine, "manager")
+    viewer = await _create_user(engine, "viewer")
+    workspace = await _create_workspace(engine, "ops")
+    await _add_member(engine, manager, workspace, WorkspaceMembershipRole.MANAGER)
+    await _add_member(engine, viewer, workspace, WorkspaceMembershipRole.VIEWER)
+    await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
+
+    updated = await update_workspace(
+        engine=engine,
+        actor=Actor(user=manager, unrestricted=False),
+        user=manager,
+        id=workspace.id,
+        update={"scope": Address("@rig")},
+    )
+    assert updated.scope == Address("@rig")
+
+    assert await engine.workspace_memberships.get(manager.id, workspace.id) is None
+    assert await engine.workspace_memberships.get(viewer.id, workspace.id) is None
 
     await engine.database.dispose()
 
