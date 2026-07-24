@@ -42,9 +42,32 @@ export class AddressSelector {
   public equals(other: string | Address): boolean {
     return other.valueOf() === this.value
   }
+
+  public get isAbsolute(): boolean {
+    return this.value === '~' || this.value.startsWith('@') || this.value.startsWith(':')
+  }
+
+  // Resolve relative segments against a root address, mirroring the backend `as_absolute`.
+  public asAbsolute(root: Address | null): AddressSelector {
+    const base = root == null || root.value === '~' ? '@' : root.value
+    const segments = this.value.split('|').map((segment) => {
+      if (segment.startsWith(':')) {
+        return base + segment
+      } else if (segment.startsWith('~') || segment.startsWith('@')) {
+        return segment
+      } else if (base === '@') {
+        return base + segment
+      } else if (segment === '') {
+        return base
+      } else {
+        return `${base}.${segment}`
+      }
+    })
+    return new AddressSelector(segments.join('|'))
+  }
 }
 
-const addressRegex = new RegExp(`^~|@${name}(\\.${name})*$`)
+const addressRegex = new RegExp(`^~|@?${name}(\\.${name})*$`)
 
 export class Address extends AddressSelector {
   constructor(value: string | AddressSelector) {
@@ -81,6 +104,18 @@ export class Address extends AddressSelector {
 
   public append(name: string): Address {
     return new Address(this.value + '.' + name)
+  }
+
+  public get isAbsolute(): boolean {
+    return this.value === '~' || this.value.startsWith('@')
+  }
+
+  public asAbsolute(root: Address | null): Address {
+    if (this.isAbsolute || root == null) {
+      return this
+    }
+
+    return new Address(`${root.value}.${this.value}`)
   }
 
   public all(): AddressSelector {

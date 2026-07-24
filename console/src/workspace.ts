@@ -18,7 +18,7 @@ import {
 } from 'vue'
 import Zod from 'zod'
 
-import { AddressModel, AddressSelectorModel } from '@/api/address'
+import { AddressModel, AddressSelector, AddressSelectorModel } from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
@@ -39,6 +39,7 @@ const BaseWidgetModel = Zod.object({
   name: Zod.string(),
   // Fraction of row width out of 120, not pixels.
   width: Zod.number().catch(() => widgetWidthSubdivisions),
+  restricted: Zod.boolean().catch(false),
 })
 
 export type MessageDataDisplay = Zod.infer<typeof MessageDataDisplayModel>
@@ -340,6 +341,7 @@ export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
   id: Zod.string().catch(() => v7()),
   name: Zod.string(),
+  scope: AddressModel.nullish().catch(null),
   general_viewership: WorkspaceAccessRestrictionModel.default('private'),
   general_editorship: WorkspaceAccessRestrictionModel.default('private'),
   general_managership: WorkspaceAccessRestrictionModel.default('private'),
@@ -404,6 +406,18 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   const membership = $computed(
     () => (query.data.value?.membership ?? null) as WorkspaceMembership | null
   )
+
+  const scope = $computed(() => workspace?.scope ?? null)
+
+  function resolveAddress(
+    value: string | AddressSelector | null | undefined
+  ): AddressSelector | null {
+    if (value == null) {
+      return null
+    }
+
+    return AddressSelector.parse(value).asAbsolute(scope)
+  }
 
   let data = $ref<WorkspaceData | null>(null)
 
@@ -676,6 +690,8 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     load,
     refresh,
     name: computed(() => workspace?.name ?? null),
+    scope: computed(() => scope),
+    resolveAddress,
     membership: computed(() => membership),
     defaultViewership: computed(() => workspace?.general_viewership ?? 'private'),
     defaultEditorship: computed(() => workspace?.general_editorship ?? 'private'),
