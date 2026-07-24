@@ -1,14 +1,13 @@
 <script lang="ts" setup>
 import { Address } from '@/api/address'
-import { useEngine } from '@/api/engine'
 import Interface from '@/components/Interface.vue'
+import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import { UIWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: UIWidget
 }>()
 
-const engine = useEngine()
 const workspace = useWorkspace()
 
 const resolvedInterfaceAddress = $computed(() => {
@@ -19,17 +18,11 @@ const resolvedInterfaceAddress = $computed(() => {
 
 <template>
   <div>
-    <q-select
-      v-model="widget.interfaceAddress"
-      dense
-      filled
-      label="Component"
-      :options="
-        engine.components.all
-          .filter((current) => current.roles.includes('interface'))
-          .map((current) => current.address.toString())
+    <workspace-address-select
+      :model-value="widget.interfaceAddress?.toString() ?? null"
+      @update:model-value="
+        (value) => (widget.interfaceAddress = value ? Address.parse(value) : null)
       "
-      options-dense
     />
     <interface
       v-if="resolvedInterfaceAddress != null"

@@ -6,6 +6,7 @@ import { Address } from '@/api/address'
 import { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import Procedure from '@/components/Procedure.vue'
+import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import { ProceduresWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -27,12 +28,6 @@ const component = $computed(() => {
 
   return engine.components.get(resolvedProcedureAddress)
 })
-
-const componentAddresses = $computed(() =>
-  engine.components.all
-    .filter((component) => component.procedures.length > 0)
-    .map((component) => component.address)
-)
 
 const actions = $computed(
   () => component?.procedures.filter((procedure) => procedure.type === 'action') ?? []
@@ -64,13 +59,11 @@ watchEffect(() => {
   <div>
     <div class="q-col-gutter-sm row">
       <div class="col">
-        <q-select
-          v-model="widget.procedureAddress"
-          dense
-          filled
-          label="Component"
-          :options="componentAddresses"
-          options-dense
+        <workspace-address-select
+          :model-value="widget.procedureAddress?.toString() ?? null"
+          @update:model-value="
+            (value) => (widget.procedureAddress = value ? Address.parse(value) : null)
+          "
         />
       </div>
       <div :class="$style.procedureTypeColumn">

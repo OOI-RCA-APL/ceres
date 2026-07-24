@@ -104,7 +104,7 @@ async function onClick() {
         Button action is not configured.
       </q-tooltip>
       <q-tooltip v-else-if="action == null" class="bg-negative text-white">
-        Button action {{ widget.address }}::action::{{ widget.action }} not found.
+        Button action {{ resolvedAddress }}::action::{{ widget.action }} not found.
       </q-tooltip>
       <q-tooltip v-else-if="widget.tooltip" :class="`bg-${color} text-white`">
         {{ widget.tooltip }}

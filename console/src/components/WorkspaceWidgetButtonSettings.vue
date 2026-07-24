@@ -5,28 +5,26 @@ import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import Procedure from '@/components/Procedure.vue'
+import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
-import { ButtonWidget, ColorModel, ButtonStylingModel } from '@/workspace'
+import { ButtonWidget, ColorModel, ButtonStylingModel, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ButtonWidget
 }>()
 
 const engine = useEngine()
+const workspace = useWorkspace()
 
 const title = $computed(() => widget.name?.trim() || 'Button')
-const possibleComponents = $computed(() =>
-  engine.components.all.filter(
-    (current) => current.procedures.filter((current) => current.type === 'action').length > 0
-  )
-)
 
-const possibleAddresses = $computed(() =>
-  possibleComponents.map((component) => component.address.toString())
-)
+const resolvedAddress = $computed(() => {
+  const resolved = workspace.resolveAddress(widget.address)
+  return resolved == null ? null : Address.parse(resolved)
+})
 
 const component = $computed(() =>
-  widget.address != null ? engine.components.get(widget.address) : null
+  resolvedAddress != null ? engine.components.get(resolvedAddress) : null
 )
 
 const possibleActions = $computed(
@@ -45,11 +43,11 @@ watchEffect(() => {
 })
 
 const action = $computed(() => {
-  if (widget.address == null || widget.action == null) {
+  if (resolvedAddress == null || widget.action == null) {
     return null
   }
 
-  return engine.components.getAction(widget.address, widget.action)
+  return engine.components.getAction(resolvedAddress, widget.action)
 })
 </script>
 
@@ -58,17 +56,9 @@ const action = $computed(() => {
     <common-text class="q-mb-sm" variant="title1">{{ title }}</common-text>
     <div class="q-col-gutter-sm q-mb-sm row">
       <div class="col-sm-6 col-xs-12">
-        <schema-form-value
-          :model-value="widget.address?.toString()"
-          :schema="{
-            type: 'string',
-            title: 'Component',
-            enum: possibleAddresses,
-            optional: true,
-          }"
-          @update:model-value="
-            (value: string) => (widget.address = value ? Address.parse(value) : null)
-          "
+        <workspace-address-select
+          :model-value="widget.address?.toString() ?? null"
+          @update:model-value="(value) => (widget.address = value ? Address.parse(value) : null)"
         />
       </div>
       <div class="col-sm-6 col-xs-12">
@@ -126,9 +116,9 @@ const action = $computed(() => {
       </div>
     </div>
     <procedure
-      v-if="action != null"
+      v-if="action != null && resolvedAddress != null"
       v-model:arguments="widget.arguments"
-      :address="widget.address"
+      :address="resolvedAddress"
       :procedure="action"
     />
   </div>
