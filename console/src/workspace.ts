@@ -18,7 +18,7 @@ import {
 } from 'vue'
 import Zod from 'zod'
 
-import { AddressModel, AddressSelector, AddressSelectorModel } from '@/api/address'
+import { Address, AddressModel, AddressSelector, AddressSelectorModel } from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
@@ -777,6 +777,15 @@ export const useWorkspaces = defineStore('workspaces', () => {
     })
   }
 
+  async function listScoped(scope: Address) {
+    return await client.get(`/api/workspaces`, {
+      parse: Zod.array(WorkspaceModel),
+      query: {
+        scope: scope.toString(),
+      },
+    })
+  }
+
   const query = useQuery({
     queryKey: computed(() => ['workspaces', auth.user?.id]),
     queryFn: async () => {
@@ -1032,6 +1041,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     get,
     getAll,
     getAllJoined,
+    listScoped,
     create,
     rename,
     update,

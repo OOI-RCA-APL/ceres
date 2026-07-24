@@ -13,18 +13,44 @@ import { Connectivity } from '@/api/shared'
 import CardPage from '@/components/CardPage.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import icons from '@/icons'
+import { useNavigation } from '@/navigation'
+import WorkspacePage from '@/pages/Workspace.vue'
 import { usePersisted } from '@/persistence'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
+import { useWorkspaces, Workspace } from '@/workspace'
 
 const engine = useEngine()
 const access = useAccess()
+const navigation = useNavigation()
 const route = useRoute()
+const workspaces = useWorkspaces()
 
 const address = $computed(() => new Address(route.params.address as string))
 const component = $computed(() => engine.components.get(address))
 
 const effectiveAccess = $computed(() => access.levelFor(address.toString()))
+
+const canManage = $computed(() => access.canManage(address.toString()))
+
+const activeWorkspaceId = $computed(() => {
+  const value = navigation.route.query.workspace
+  return typeof value === 'string' ? value : null
+})
+
+let scopedWorkspaces = $ref<Workspace[]>([])
+
+async function refreshScoped() {
+  scopedWorkspaces = await workspaces.listScoped(address)
+}
+
+async function createScoped() {
+  const created = await workspaces.create({ name: 'New Workspace', scope: address })
+  await refreshScoped()
+  await navigation.replace({ query: { workspace: created.id } })
+}
+
+await refreshScoped()
 
 const queries = $computed(() => component?.procedures.filter((p) => p.type === 'query') ?? [])
 const actions = $computed(() => component?.procedures.filter((p) => p.type === 'action') ?? [])
@@ -175,190 +201,218 @@ const persisted = usePersisted({
       </q-chip>
       <status-badge v-if="component" :address :scale="0.75" />
     </template>
-    <q-card-section v-if="component == null">
-      <div class="text-grey-6">Component not found.</div>
-    </q-card-section>
+    <template #subtitle>
+      <q-tabs align="left" dense no-caps>
+        <q-route-tab exact label="Overview" :to="{ query: {} }" />
+        <q-route-tab
+          v-for="workspace in scopedWorkspaces"
+          :key="workspace.id"
+          :label="workspace.name"
+          :to="{ query: { workspace: workspace.id } }"
+        />
+        <q-btn
+          v-if="canManage"
+          dense
+          flat
+          :icon="icons.add"
+          round
+          size="sm"
+          @click="createScoped"
+        />
+      </q-tabs>
+    </template>
 
+    <workspace-page v-if="activeWorkspaceId != null" :id="activeWorkspaceId" />
     <template v-else>
-      <template v-if="configHighlighted != null">
+      <q-card-section v-if="component == null">
+        <div class="text-grey-6">Component not found.</div>
+      </q-card-section>
+
+      <template v-else>
+        <template v-if="configHighlighted != null">
+          <q-card-section>
+            <q-list bordered class="rounded-borders" dense>
+              <q-expansion-item
+                v-model="persisted.configuration"
+                dense
+                dense-toggle
+                label="Configuration"
+              >
+                <!-- eslint-disable-next-line vue/no-v-html -->
+                <pre :class="$style.config"><code v-html="configHighlighted" /></pre>
+              </q-expansion-item>
+            </q-list>
+          </q-card-section>
+          <q-separator />
+        </template>
+
         <q-card-section>
           <q-list bordered class="rounded-borders" dense>
             <q-expansion-item
-              v-model="persisted.configuration"
+              v-model="persisted.connections"
               dense
               dense-toggle
-              label="Configuration"
+              :label="`Connections (${connections.length})`"
             >
-              <!-- eslint-disable-next-line vue/no-v-html -->
-              <pre :class="$style.config"><code v-html="configHighlighted" /></pre>
+              <q-list class="q-pb-sm" dense>
+                <q-item v-if="connections.length === 0">
+                  <q-item-section>
+                    <q-item-label class="text-grey-6">No connections.</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item
+                  v-for="connection in connections"
+                  :key="connection.name"
+                  :class="$style.item"
+                >
+                  <q-item-section>
+                    <q-item-label>{{ connection.name }}</q-item-label>
+                    <q-item-label caption>{{ connection.label }}</q-item-label>
+                  </q-item-section>
+                  <q-item-section v-if="'connectivity' in connection" side>
+                    <span
+                      :class="[
+                        $style.dot,
+                        !running && $style.still,
+                        `bg-${connectivityColor(connection.connectivity)}`,
+                      ]"
+                    >
+                      <q-tooltip :class="`bg-${connectivityColor(connection.connectivity)}`">
+                        {{ upperFirst(connection.connectivity) }}
+                      </q-tooltip>
+                    </span>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-expansion-item>
+            <q-separator />
+            <q-expansion-item
+              v-model="persisted.jobs"
+              dense
+              dense-toggle
+              :label="`Jobs (${jobs.length})`"
+            >
+              <q-list class="q-pb-sm" dense>
+                <q-item v-if="jobs.length === 0">
+                  <q-item-section>
+                    <q-item-label class="text-grey-6">No jobs.</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item v-for="job in jobs" :key="job.name" :class="$style.item">
+                  <q-item-section>
+                    <q-item-label>{{ job.name }}</q-item-label>
+                    <q-item-label caption>{{ jobLabel(job) }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
             </q-expansion-item>
           </q-list>
         </q-card-section>
+
         <q-separator />
-      </template>
 
-      <q-card-section>
-        <q-list bordered class="rounded-borders" dense>
-          <q-expansion-item
-            v-model="persisted.connections"
-            dense
-            dense-toggle
-            :label="`Connections (${connections.length})`"
-          >
-            <q-list class="q-pb-sm" dense>
-              <q-item v-if="connections.length === 0">
-                <q-item-section>
-                  <q-item-label class="text-grey-6">No connections.</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item v-for="connection in connections" :key="connection.name" :class="$style.item">
-                <q-item-section>
-                  <q-item-label>{{ connection.name }}</q-item-label>
-                  <q-item-label caption>{{ connection.label }}</q-item-label>
-                </q-item-section>
-                <q-item-section v-if="'connectivity' in connection" side>
-                  <span
-                    :class="[
-                      $style.dot,
-                      !running && $style.still,
-                      `bg-${connectivityColor(connection.connectivity)}`,
-                    ]"
-                  >
-                    <q-tooltip :class="`bg-${connectivityColor(connection.connectivity)}`">
-                      {{ upperFirst(connection.connectivity) }}
-                    </q-tooltip>
-                  </span>
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </q-expansion-item>
-          <q-separator />
-          <q-expansion-item
-            v-model="persisted.jobs"
-            dense
-            dense-toggle
-            :label="`Jobs (${jobs.length})`"
-          >
-            <q-list class="q-pb-sm" dense>
-              <q-item v-if="jobs.length === 0">
-                <q-item-section>
-                  <q-item-label class="text-grey-6">No jobs.</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item v-for="job in jobs" :key="job.name" :class="$style.item">
-                <q-item-section>
-                  <q-item-label>{{ job.name }}</q-item-label>
-                  <q-item-label caption>{{ jobLabel(job) }}</q-item-label>
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </q-expansion-item>
-        </q-list>
-      </q-card-section>
+        <q-card-section v-if="component.tags.length > 0">
+          <div class="q-mb-xs text-subtitle2">Tags</div>
+          <div class="q-gutter-xs row">
+            <q-chip v-for="tag in component.tags" :key="tag" dense :label="tag" outline size="sm" />
+          </div>
+        </q-card-section>
 
-      <q-separator />
+        <q-separator v-if="hasOverview" />
 
-      <q-card-section v-if="component.tags.length > 0">
-        <div class="q-mb-xs text-subtitle2">Tags</div>
-        <div class="q-gutter-xs row">
-          <q-chip v-for="tag in component.tags" :key="tag" dense :label="tag" outline size="sm" />
-        </div>
-      </q-card-section>
-
-      <q-separator v-if="hasOverview" />
-
-      <q-card-section>
-        <q-list bordered class="rounded-borders" dense>
-          <q-expansion-item
-            v-model="persisted.queries"
-            dense
-            dense-toggle
-            :label="`Queries (${queries.length})`"
-          >
-            <q-list class="q-pb-sm" dense>
-              <q-item v-if="queries.length === 0">
-                <q-item-section>
-                  <q-item-label class="text-grey-6">No queries.</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item v-for="query in queries" :key="query.name">
-                <q-item-section>
-                  <q-item-label>{{ query.name }}</q-item-label>
-                  <q-item-label caption>{{ permissionsLabel(query) }}</q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <div class="items-center q-gutter-xs row">
-                    <q-chip
-                      v-if="query.live"
-                      color="green"
-                      dense
-                      label="live"
-                      size="10px"
-                      text-color="white"
-                    />
-                    <q-icon
-                      v-if="!canInvoke(query)"
-                      class="text-grey-6"
-                      :name="icons.locked"
-                      size="16px"
-                    >
+        <q-card-section>
+          <q-list bordered class="rounded-borders" dense>
+            <q-expansion-item
+              v-model="persisted.queries"
+              dense
+              dense-toggle
+              :label="`Queries (${queries.length})`"
+            >
+              <q-list class="q-pb-sm" dense>
+                <q-item v-if="queries.length === 0">
+                  <q-item-section>
+                    <q-item-label class="text-grey-6">No queries.</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item v-for="query in queries" :key="query.name">
+                  <q-item-section>
+                    <q-item-label>{{ query.name }}</q-item-label>
+                    <q-item-label caption>{{ permissionsLabel(query) }}</q-item-label>
+                  </q-item-section>
+                  <q-item-section side>
+                    <div class="items-center q-gutter-xs row">
+                      <q-chip
+                        v-if="query.live"
+                        color="green"
+                        dense
+                        label="live"
+                        size="10px"
+                        text-color="white"
+                      />
+                      <q-icon
+                        v-if="!canInvoke(query)"
+                        class="text-grey-6"
+                        :name="icons.locked"
+                        size="16px"
+                      >
+                        <q-tooltip>Not available with your access.</q-tooltip>
+                      </q-icon>
+                    </div>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-expansion-item>
+            <q-separator />
+            <q-expansion-item
+              v-model="persisted.actions"
+              dense
+              dense-toggle
+              :label="`Actions (${actions.length})`"
+            >
+              <q-list class="q-pb-sm" dense>
+                <q-item v-if="actions.length === 0">
+                  <q-item-section>
+                    <q-item-label class="text-grey-6">No actions.</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item v-for="action in actions" :key="action.name">
+                  <q-item-section>
+                    <q-item-label>{{ action.name }}</q-item-label>
+                    <q-item-label caption>{{ permissionsLabel(action) }}</q-item-label>
+                  </q-item-section>
+                  <q-item-section v-if="!canInvoke(action)" side>
+                    <q-icon class="text-grey-6" :name="icons.locked" size="16px">
                       <q-tooltip>Not available with your access.</q-tooltip>
                     </q-icon>
-                  </div>
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </q-expansion-item>
-          <q-separator />
-          <q-expansion-item
-            v-model="persisted.actions"
-            dense
-            dense-toggle
-            :label="`Actions (${actions.length})`"
-          >
-            <q-list class="q-pb-sm" dense>
-              <q-item v-if="actions.length === 0">
-                <q-item-section>
-                  <q-item-label class="text-grey-6">No actions.</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item v-for="action in actions" :key="action.name">
-                <q-item-section>
-                  <q-item-label>{{ action.name }}</q-item-label>
-                  <q-item-label caption>{{ permissionsLabel(action) }}</q-item-label>
-                </q-item-section>
-                <q-item-section v-if="!canInvoke(action)" side>
-                  <q-icon class="text-grey-6" :name="icons.locked" size="16px">
-                    <q-tooltip>Not available with your access.</q-tooltip>
-                  </q-icon>
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </q-expansion-item>
-        </q-list>
-      </q-card-section>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-expansion-item>
+          </q-list>
+        </q-card-section>
 
-      <q-separator v-if="hasChildren" />
+        <q-separator v-if="hasChildren" />
 
-      <q-card-section v-if="component.components.length > 0">
-        <div class="q-mb-xs text-subtitle2">Child Components</div>
-        <q-list bordered class="rounded-borders" dense separator>
-          <q-item
-            v-for="child in component.components"
-            :key="child.name"
-            clickable
-            :to="`/components/${child.address}`"
-          >
-            <q-item-section>
-              <q-item-label>{{ child.name }}</q-item-label>
-              <q-item-label caption>{{ child.address }}</q-item-label>
-            </q-item-section>
-            <q-item-section side>
-              <status-badge :address="new Address(child.address.toString())" />
-            </q-item-section>
-          </q-item>
-        </q-list>
-      </q-card-section>
+        <q-card-section v-if="component.components.length > 0">
+          <div class="q-mb-xs text-subtitle2">Child Components</div>
+          <q-list bordered class="rounded-borders" dense separator>
+            <q-item
+              v-for="child in component.components"
+              :key="child.name"
+              clickable
+              :to="`/components/${child.address}`"
+            >
+              <q-item-section>
+                <q-item-label>{{ child.name }}</q-item-label>
+                <q-item-label caption>{{ child.address }}</q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <status-badge :address="new Address(child.address.toString())" />
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+      </template>
     </template>
   </card-page>
 </template>
