@@ -604,6 +604,45 @@ async def test_update_global_workspace_preserves_config_behind_redacted_stub() -
     await engine.database.dispose()
 
 
+async def test_workspace_response_redacts_video_widget_query_target() -> None:
+    """A video widget's `query` field encodes a component address as
+    `@component::queries::name`, that address must be redacted the same as any other target.
+    """
+    engine = await _build_engine_with_component(secret=True)
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rig", ComponentAccessLevel.VIEW)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(
+            name="dash",
+            scope=Address("@rig"),
+            data={
+                "layout": [
+                    {
+                        "widgets": [
+                            {
+                                "id": "w1",
+                                "type": "video",
+                                "name": "Feed",
+                                "query": "@secret::queries::stream",
+                                "width": 60,
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+    )
+
+    result = await get_workspace(
+        engine=engine, actor=Actor(user=user, unrestricted=False), user=user, id=workspace.id
+    )
+    widget = result.data["layout"][0]["widgets"][0]
+    assert widget["restricted"] is True
+    assert "query" not in widget
+
+    await engine.database.dispose()
+
+
 async def test_workspace_response_not_redacted_for_admin() -> None:
     engine = await _build_engine_with_component()
     admin = await _create_user(engine, "boss")

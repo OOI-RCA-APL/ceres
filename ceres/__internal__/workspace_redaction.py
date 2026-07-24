@@ -37,6 +37,13 @@ def _iter_raw_values(widget: dict[str, Any]) -> Iterator[Any]:
     for key in _ADDRESS_KEYS:
         yield widget.get(key)
 
+    # The video widget's `query` field encodes a component address as
+    # `@component::queries::name` (or a relative address in place of `@component`). Only the
+    # leading address portion is a target, the rest names a query on that component.
+    query_value = widget.get("query")
+    if isinstance(query_value, str):
+        yield query_value.split("::", 1)[0]
+
     filter_value = widget.get("filter")
     if isinstance(filter_value, dict):
         yield filter_value.get("address")
