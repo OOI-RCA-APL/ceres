@@ -12,7 +12,7 @@ from ceres.__internal__.app.shared import (
     Router,
     assert_found,
 )
-from ceres.__internal__.workspace_redaction import redact_workspace_data
+from ceres.__internal__.workspace_redaction import merge_redacted_widgets, redact_workspace_data
 from ceres.data import DataObject, JSONSerializableDict, construct, to_dict
 from ceres.workspace import WorkspaceEdit, WorkspaceEditCreate, WorkspaceEditFilter
 
@@ -116,12 +116,22 @@ async def assign_workspace_edit(
     workspace_id: UUID,
     values: AssignWorkspaceEditData,
 ) -> WorkspaceEdit:
-    """Create or replace a workspace edit for the given user and workspace via upsert."""
+    """Create or replace a workspace edit for the given user and workspace via upsert.
+
+    If an edit already exists, merge the incoming data against it first, so a redaction stub
+    the caller received on a prior read can never overwrite real widget configuration already
+    stored in the edit.
+    """
+    data = values.data
+    existing = await engine.workspace_edits.get(user_id, workspace_id)
+    if existing is not None:
+        data = merge_redacted_widgets(existing.data, data)
+
     return await engine.workspace_edits.create(
         WorkspaceEditCreate(
             user_id=user_id,
             workspace_id=workspace_id,
-            data=values.data,
+            data=data,
         ),
         upsert=True,
     )
