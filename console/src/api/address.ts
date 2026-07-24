@@ -3,7 +3,8 @@ import Zod from 'zod'
 const namePattern = '^[a-zA-Z_-][a-zA-Z0-9_-]*$'
 const name = namePattern.slice(1, -1)
 const modifier = ':(all|children|descendants)'
-const segment = `\\~(:(all|descendants))?|@?[a-z-A-Z_\\-.]+(${modifier})?|@${modifier}|${modifier}`
+const base = `@?${name}(\\.${name})*`
+const segment = `\\~(:(all|descendants))?|${base}(${modifier})?|@${modifier}|${modifier}`
 
 const addressSelectorRegex = new RegExp(`^(?:${segment})(?:\\|(?:${segment}))*$`)
 
