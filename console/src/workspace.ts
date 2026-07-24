@@ -762,11 +762,14 @@ export const useWorkspaces = defineStore('workspaces', () => {
     })
   }
 
+  // The drawer's Workspaces section only lists global workspaces. Scoped workspaces are
+  // reached from their scope component's details page instead.
   async function getAll() {
     return await client.get(`/api/workspaces`, {
       parse: Zod.array(WorkspaceModel),
       query: {
         'viewable-by': getUserId(),
+        scoped: false,
       },
     })
   }
@@ -774,6 +777,9 @@ export const useWorkspaces = defineStore('workspaces', () => {
   async function getAllJoined() {
     return await client.get(`/api/users/${getUserId()}/workspaces`, {
       parse: Zod.array(WorkspaceModel),
+      query: {
+        scoped: false,
+      },
     })
   }
 

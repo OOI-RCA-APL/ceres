@@ -3,6 +3,7 @@ import { QPopupEdit } from 'quasar'
 
 import CommonText from '@/components/CommonText.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
+import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
 import { getWidgetInfo, useWorkspace, Widget, WidgetRow } from '@/workspace'
@@ -207,8 +208,10 @@ const key = $computed(() => {
         :key="key"
         :class="[$style.content, 'col-grow overflow-auto', info.options.paddingClass]"
       >
+        <workspace-widget-restricted v-if="widget.restricted" :widget />
         <component
           :is="info.component as any"
+          v-else
           :class="info.options.fullHeight && 'full-height'"
           :widget="widget"
           @reload-requested="onReloadRequested"
