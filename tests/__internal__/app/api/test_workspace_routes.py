@@ -1,13 +1,27 @@
 import pytest
 
 from ceres import Engine
-from ceres.__internal__.app.api.routes.workspaces import update_workspace
+from ceres.__internal__.app.api.routes.workspace_memberships import (
+    WorkspaceMembershipCreateData,
+    create_workspace_membership,
+)
+from ceres.__internal__.app.api.routes.workspaces import (
+    create_workspace,
+    get_workspace,
+    get_workspaces,
+    update_workspace,
+)
 from ceres.__internal__.app.shared import Actor
+from ceres.address import Address
+from ceres.config import ComponentAccessLevel, Config
+from ceres.data import validate
 from ceres.error import NotFoundError, NotPermittedError
+from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
 from ceres.workspace import (
     Workspace,
     WorkspaceAccessLevel,
+    WorkspaceFilter,
     WorkspaceMembership,
     WorkspaceMembershipRole,
 )
@@ -44,6 +58,29 @@ async def _add_member(
 ) -> None:
     await engine.workspace_memberships.create(
         WorkspaceMembership.Create(user_id=user.id, workspace_id=workspace.id, role=role)
+    )
+
+
+async def _build_engine_with_component(access: str | None = None) -> Engine:
+    engine = Engine()
+    await engine.database.migrate()
+    component: dict[str, object] = {"name": "rig", "class": "ceres.component:Component"}
+    if access is not None:
+        component["access"] = access
+
+    config = validate(Config, {"components": [component]})
+    await engine.load(config, checks=())
+    return engine
+
+
+async def _grant(engine: Engine, user: User, target: str, level: ComponentAccessLevel) -> None:
+    await engine.database.user_permissions.create(
+        UserPermission.Create(
+            user_id=user.id,
+            target_type=PermissionTargetType.COMPONENT,
+            target=target,
+            level=level,
+        )
     )
 
 
@@ -120,5 +157,145 @@ async def test_editor_can_update_workspace_data() -> None:
     )
 
     assert updated.data == {"widgets": []}
+
+    await engine.database.dispose()
+
+
+async def test_scoped_workspace_visible_with_view_on_scope() -> None:
+    engine = await _build_engine_with_component()
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rig", ComponentAccessLevel.VIEW)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="rig-dash", scope=Address("@rig"))
+    )
+
+    result = await get_workspace(
+        engine=engine, actor=Actor(user=user, unrestricted=False), user=user, id=workspace.id
+    )
+    assert result.id == workspace.id
+
+    await engine.database.dispose()
+
+
+async def test_scoped_workspace_hidden_without_view_on_scope() -> None:
+    engine = await _build_engine_with_component(access="deny")
+    user = await _create_user(engine, "outsider")
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="rig-dash", scope=Address("@rig"))
+    )
+
+    with pytest.raises(NotFoundError):
+        await get_workspace(
+            engine=engine,
+            actor=Actor(user=user, unrestricted=False),
+            user=user,
+            id=workspace.id,
+        )
+
+    await engine.database.dispose()
+
+
+async def test_scoped_workspace_update_requires_manage() -> None:
+    engine = await _build_engine_with_component()
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rig", ComponentAccessLevel.VIEW)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="rig-dash", scope=Address("@rig"))
+    )
+
+    with pytest.raises(NotPermittedError):
+        await update_workspace(
+            engine=engine,
+            actor=Actor(user=user, unrestricted=False),
+            user=user,
+            id=workspace.id,
+            update={"data": {}},
+        )
+
+    await engine.database.dispose()
+
+
+async def test_scoped_workspace_update_allowed_with_manage() -> None:
+    engine = await _build_engine_with_component()
+    user = await _create_user(engine, "manager")
+    await _grant(engine, user, "@rig", ComponentAccessLevel.MANAGE)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="rig-dash", scope=Address("@rig"))
+    )
+
+    result = await update_workspace(
+        engine=engine,
+        actor=Actor(user=user, unrestricted=False),
+        user=user,
+        id=workspace.id,
+        update={"data": {"layout": []}},
+    )
+    assert result.data == {"layout": []}
+
+    await engine.database.dispose()
+
+
+async def test_create_scoped_workspace_requires_manage_and_skips_membership() -> None:
+    engine = await _build_engine_with_component()
+    manager = await _create_user(engine, "manager")
+    viewer = await _create_user(engine, "viewer")
+    await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
+    await _grant(engine, viewer, "@rig", ComponentAccessLevel.VIEW)
+
+    with pytest.raises(NotPermittedError):
+        await create_workspace(
+            engine=engine,
+            actor=Actor(user=viewer, unrestricted=False),
+            user=viewer,
+            workspace=Workspace.Create(name="rig-dash", scope=Address("@rig")),
+        )
+
+    created = await create_workspace(
+        engine=engine,
+        actor=Actor(user=manager, unrestricted=False),
+        user=manager,
+        workspace=Workspace.Create(name="rig-dash", scope=Address("@rig")),
+    )
+    assert created.scope == Address("@rig")
+    assert await engine.workspace_memberships.get(manager.id, created.id) is None
+
+    await engine.database.dispose()
+
+
+async def test_memberships_rejected_on_scoped_workspace() -> None:
+    engine = await _build_engine_with_component()
+    manager = await _create_user(engine, "manager")
+    await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="rig-dash", scope=Address("@rig"))
+    )
+
+    with pytest.raises(NotPermittedError):
+        await create_workspace_membership(
+            engine=engine,
+            user=manager,
+            user_id=manager.id,
+            workspace_id=workspace.id,
+            data=WorkspaceMembershipCreateData(role=WorkspaceMembershipRole.VIEWER),
+        )
+
+    await engine.database.dispose()
+
+
+async def test_list_includes_scoped_only_with_view() -> None:
+    engine = await _build_engine_with_component(access="deny")
+    user = await _create_user(engine, "viewer")
+    visible = await engine.workspaces.create(
+        Workspace.Create(name="visible", scope=Address("@rig"))
+    )
+    await _grant(engine, user, "@rig", ComponentAccessLevel.VIEW)
+
+    listed = await get_workspaces(
+        engine=engine,
+        actor=Actor(user=user, unrestricted=False),
+        user=user,
+        filter=WorkspaceFilter(),
+    )
+    assert [workspace.id for workspace in listed] == [visible.id]
 
     await engine.database.dispose()

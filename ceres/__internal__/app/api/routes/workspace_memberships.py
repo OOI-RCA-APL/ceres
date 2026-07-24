@@ -98,8 +98,15 @@ async def _guard_membership_mutation(
             is not being changed.
 
     Raises:
-        NotPermittedError: If the acting user lacks the required workspace-level permission.
+        NotPermittedError: If the acting user lacks the required workspace-level permission, or
+            the workspace is scoped, since scoped workspaces derive access from their component
+            and do not support memberships.
     """
+    workspace = await engine.workspaces.where(id=membership_workspace_id).first()
+    if workspace is not None and workspace.scope is not None:
+        # Scoped workspaces derive access from their component, memberships do not apply.
+        raise NotPermittedError()
+
     if acting_user is not None and not acting_user.admin:
         if assigning_workspace_role is not None:
             if acting_user.id == membership_user_id:
