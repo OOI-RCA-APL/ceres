@@ -11,7 +11,7 @@
 | `ceres/__internal__/database/errors.py` | 36% |
 | `ceres/__internal__/database/types.py` | 100% |
 | `ceres/__internal__/database/writer.py` | 86% |
-| `ceres/__internal__/entity.py` | 82% |
+| `ceres/__internal__/entity.py` | 83% |
 | `ceres/__internal__/filter.py` | 94% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |
@@ -35,6 +35,7 @@
 | `ceres/__internal__/utilities/typing.py` | 86% |
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
+| `ceres/__internal__/workspace_redaction.py` | 86% |
 | `ceres/__main__.py` | 50% |
 | `ceres/access.py` | 99% |
 | `ceres/address.py` | 96% |
@@ -94,6 +95,6 @@
 | `ceres/user.py` | 98% |
 | `ceres/variable.py` | 87% |
 | `ceres/version.py` | 89% |
-| `ceres/workspace.py` | 97% |
+| `ceres/workspace.py` | 98% |
 | **Total** | **85%** |
 <!-- coverage:end -->

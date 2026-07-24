@@ -4,9 +4,8 @@ import { watch } from 'vue'
 import { useEngine } from '@/api/engine'
 import { useWorkspace } from '@/workspace'
 
-const { modelValue, selector = false } = defineProps<{
+const { modelValue } = defineProps<{
   modelValue: string | null
-  selector?: boolean
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>()
