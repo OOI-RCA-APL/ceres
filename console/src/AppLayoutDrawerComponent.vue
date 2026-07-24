@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
+import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
 import { ComponentInfo } from '@/api/components'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
@@ -13,6 +14,12 @@ const { address, component } = defineProps<{
 }>()
 
 const drawer = useDrawer()
+const access = useAccess()
+
+const badge = $ref<InstanceType<typeof StatusBadge> | null>(null)
+
+// Components the user can only look at read slightly quieter than the ones they can control.
+const canControl = $computed(() => access.canOperate(address.toString()))
 
 const isExpanded = $computed(() => !drawer.collapsed.some((current) => current.equals(address)))
 const isTopLevel = $computed(() => address.depth === 1)
@@ -52,14 +59,21 @@ function toggleExpanded() {
       </q-btn>
     </div>
     <q-item-section no-wrap>
-      <q-item-label class="q-ml-md text-no-wrap" :style="!isTopLevel && { paddingLeft: '1.5px' }">
+      <q-item-label
+        :class="['q-ml-md', 'text-no-wrap', !canControl && $style.readonly]"
+        :style="!isTopLevel && { paddingLeft: '1.5px' }"
+      >
         {{ isTopLevel ? component.address : '.' + component.name }}
       </q-item-label>
     </q-item-section>
     <q-item-section side>
-      <div class="items-center q-mr-xs row">
+      <div
+        :class="[$style.status, 'items-center', 'justify-end', 'q-mr-xs', 'row']"
+        @mouseenter="badge?.menu.onEnter()"
+        @mouseleave="badge?.menu.onLeave()"
+      >
         <alerts-indicator :address class="q-mr-xs" />
-        <status-badge :address />
+        <status-badge ref="badge" :address />
       </div>
     </q-item-section>
   </q-item>
@@ -80,5 +94,14 @@ function toggleExpanded() {
 
 .iconContainer {
   min-width: 40px;
+}
+
+.readonly {
+  opacity: 0.9;
+}
+
+/* Reserve the width an indicator would take so every row has the same status hover target. */
+.status {
+  min-width: 56px;
 }
 </style>

@@ -35,6 +35,7 @@ const persisted = usePersisted({
   schema: ({ object, boolean, number }) =>
     object({
       isShowingWorkspaces: boolean().default(false),
+      isShowingComponents: boolean().default(true),
       workspaceDropdownHeight: number().default(200),
       workspaceFilter: Zod.enum(['all', 'joined', 'unjoined']).default('all'),
     }),
@@ -253,13 +254,18 @@ function promptReload() {
               />
             </div>
             <div class="scroll">
-              <app-layout-drawer-header v-if="engine.components.topLevel.length > 0" />
-              <app-layout-drawer-component
-                v-for="component in engine.components.topLevel"
-                :key="component.address.toString()"
-                :address="component.address"
-                :component="component"
+              <app-layout-drawer-header
+                v-if="engine.components.topLevel.length > 0"
+                v-model:expanded="persisted.isShowingComponents"
               />
+              <template v-if="persisted.isShowingComponents">
+                <app-layout-drawer-component
+                  v-for="component in engine.components.topLevel"
+                  :key="component.address.toString()"
+                  :address="component.address"
+                  :component="component"
+                />
+              </template>
             </div>
           </template>
         </q-list>

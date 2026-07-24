@@ -224,7 +224,9 @@ const persisted = usePersisted({
                       `bg-${connectivityColor(connection.connectivity)}`,
                     ]"
                   >
-                    <q-tooltip>{{ upperFirst(connection.connectivity) }}</q-tooltip>
+                    <q-tooltip :class="`bg-${connectivityColor(connection.connectivity)}`">
+                      {{ upperFirst(connection.connectivity) }}
+                    </q-tooltip>
                   </span>
                 </q-item-section>
               </q-item>
