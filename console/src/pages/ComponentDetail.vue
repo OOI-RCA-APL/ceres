@@ -54,6 +54,13 @@ function selectWorkspace(id: string) {
 
 async function refreshScoped() {
   scopedWorkspaces = await workspaces.listScoped(address)
+
+  // Name the defaulted workspace in the URL so the address bar always matches what is shown and
+  // stays worth copying.
+  const first = scopedWorkspaces[0]
+  if (first != null && navigation.route.query.workspace == null) {
+    await navigation.replace({ query: { workspace: first.id } })
+  }
 }
 
 async function createScoped() {
