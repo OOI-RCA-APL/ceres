@@ -7,24 +7,36 @@ import RecordView from '@/components/RecordView.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
-import { MessagesWidget } from '@/workspace'
+import { MessagesWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: MessagesWidget
 }>()
 
 const engine = useEngine()
+const workspace = useWorkspace()
+
+const resolvedCommandAddress = $computed(() => {
+  const resolved = workspace.resolveAddress(widget.commandAddress)
+  return resolved == null ? null : Address.parse(resolved)
+})
+
+const resolvedFilter = $computed(() => ({
+  ...widget.filter,
+  address: workspace.resolveAddress(widget.filter.address),
+}))
+
 const connectionEntries = $computed(() =>
   engine.components.all.flatMap((component) =>
     component.connections.map((connection) => [component.address, connection.name])
   )
 )
 const connectionModelValue = $computed(() => {
-  if (widget.commandAddress == null || widget.commandConnection == null) {
+  if (resolvedCommandAddress == null || widget.commandConnection == null) {
     return null
   }
 
-  return `${widget.commandAddress}::connections::${widget.commandConnection}`
+  return `${resolvedCommandAddress}::connections::${widget.commandConnection}`
 })
 const connectionOptions = $computed(() =>
   connectionEntries.map(([address, name]) => `${address}::connections::${name}`)
@@ -118,7 +130,7 @@ const isConnected = true
 
 async function submit() {
   if (
-    widget.commandAddress == null ||
+    resolvedCommandAddress == null ||
     widget.commandText == null ||
     widget.commandText.trim() === ''
   ) {
@@ -130,7 +142,7 @@ async function submit() {
     return
   }
 
-  await engine.components.send(widget.commandAddress, widget.commandConnection, {
+  await engine.components.send(resolvedCommandAddress, widget.commandConnection, {
     data: widget.commandText,
   })
 
@@ -147,7 +159,7 @@ async function submit() {
 </script>
 
 <template>
-  <record-view :columns="columns" :filter="widget.filter" :widget>
+  <record-view :columns="columns" :filter="resolvedFilter" :widget>
     <template #column-filter-connection>
       <div style="min-width: 200px">
         <schema-form-value

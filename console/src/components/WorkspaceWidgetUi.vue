@@ -1,13 +1,20 @@
 <script lang="ts" setup>
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import Interface from '@/components/Interface.vue'
-import { UIWidget } from '@/workspace'
+import { UIWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: UIWidget
 }>()
 
 const engine = useEngine()
+const workspace = useWorkspace()
+
+const resolvedInterfaceAddress = $computed(() => {
+  const resolved = workspace.resolveAddress(widget.interfaceAddress)
+  return resolved == null ? null : Address.parse(resolved)
+})
 </script>
 
 <template>
@@ -25,8 +32,8 @@ const engine = useEngine()
       options-dense
     />
     <interface
-      v-if="widget.interfaceAddress != null"
-      :address="widget.interfaceAddress"
+      v-if="resolvedInterfaceAddress != null"
+      :address="resolvedInterfaceAddress"
       class="q-mt-sm"
     />
   </div>

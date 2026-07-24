@@ -5,7 +5,7 @@ import { useClient } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import { Particle, ParticleModel } from '@/api/particles'
 import { utc, displayDuration, useTime } from '@/time'
-import { ValueWidget } from '@/workspace'
+import { useWorkspace, ValueWidget } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ValueWidget
@@ -14,6 +14,9 @@ const { widget } = defineProps<{
 const client = useClient()
 const engine = useEngine()
 const time = useTime()
+const workspace = useWorkspace()
+
+const resolvedParticleAddress = $computed(() => workspace.resolveAddress(widget.particleAddress))
 
 let particle = $ref<Particle | null>(null)
 
@@ -35,7 +38,7 @@ let value = $computed(() => {
 onMounted(async () => {
   const latest = (
     await engine.particles.getAll({
-      address: widget.particleAddress,
+      address: resolvedParticleAddress,
       type: widget.particleType,
       order: 'timestamp:desc',
       limit: 1,
@@ -121,7 +124,7 @@ client.useStream({
   stream: computed(() => ({
     path: '/api/particles',
     query: {
-      address: widget.particleAddress,
+      address: resolvedParticleAddress,
       type: widget.particleType,
     },
   })),

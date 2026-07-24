@@ -2,11 +2,18 @@
 import { LevelModel } from '@/api/shared'
 import RecordView from '@/components/RecordView.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
-import { LogsWidget } from '@/workspace'
+import { LogsWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: LogsWidget
 }>()
+
+const workspace = useWorkspace()
+
+const resolvedFilter = $computed(() => ({
+  ...widget.filter,
+  address: workspace.resolveAddress(widget.filter.address),
+}))
 
 const columns = $computed(() => [
   {
@@ -24,7 +31,7 @@ const columns = $computed(() => [
 </script>
 
 <template>
-  <record-view :columns="columns" :filter="widget.filter" :widget>
+  <record-view :columns="columns" :filter="resolvedFilter" :widget>
     <template #column-filter-level>
       <div style="min-width: 280px">
         <div class="q-col-gutter-xs row">

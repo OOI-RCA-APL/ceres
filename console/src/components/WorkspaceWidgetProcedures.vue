@@ -2,23 +2,30 @@
 import { upperFirst } from 'lodash-es'
 import { watchEffect } from 'vue'
 
+import { Address } from '@/api/address'
 import { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import Procedure from '@/components/Procedure.vue'
-import { ProceduresWidget } from '@/workspace'
+import { ProceduresWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ProceduresWidget
 }>()
 
 const engine = useEngine()
+const workspace = useWorkspace()
+
+const resolvedProcedureAddress = $computed(() => {
+  const resolved = workspace.resolveAddress(widget.procedureAddress)
+  return resolved == null ? null : Address.parse(resolved)
+})
 
 const component = $computed(() => {
-  if (widget.procedureAddress == null) {
+  if (resolvedProcedureAddress == null) {
     return null
   }
 
-  return engine.components.get(widget.procedureAddress)
+  return engine.components.get(resolvedProcedureAddress)
 })
 
 const componentAddresses = $computed(() =>
