@@ -12,7 +12,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper, UUIDMapper
+from ceres.__internal__.database.types import AddressMapper, EnumConstraint, EnumMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
@@ -33,6 +33,7 @@ from ceres.__internal__.entity import (
     EntityQuery,
 )
 from ceres.__internal__.utilities.collections import seq
+from ceres.address import Address
 from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, NonEmptyStr, OrderedStrEnum
 from ceres.user import UserRow
 
@@ -528,6 +529,7 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "workspaces"
 
     name: Mapped[str] = mapped_column(Text)
+    scope: Mapped[Address | None] = mapped_column(AddressMapper, nullable=True, default=None)
     general_viewership: Mapped[WorkspaceAccessLevel] = mapped_column(
         EnumMapper(WorkspaceAccessLevel),
         default=WorkspaceAccessLevel.PRIVATE,
@@ -577,6 +579,7 @@ type WorkspaceField = (
     BaseUUIDEntityField
     | Literal[
         "name",
+        "scope",
         "general_viewership",
         "general_editorship",
         "general_managership",
@@ -591,6 +594,9 @@ type WorkspaceOrder = (
         "name",
         "name:asc",
         "name:desc",
+        "scope",
+        "scope:asc",
+        "scope:desc",
         "general_viewership",
         "general_viewership:asc",
         "general_viewership:desc",
@@ -615,6 +621,8 @@ class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrde
     name_contains: MaybeSequence[str] | None
     name_prefix: MaybeSequence[str] | None
     name_suffix: MaybeSequence[str] | None
+    scope: MaybeSequence[Address] | None
+    scoped: bool | None
     general_viewership: MaybeSequence[WorkspaceAccessLevel]
     general_editorship: MaybeSequence[WorkspaceAccessLevel]
     general_managership: MaybeSequence[WorkspaceAccessLevel]
@@ -635,6 +643,10 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
     """Filter by `name` starting with one or more given prefixes."""
     name_suffix: MaybeSequence[str] | None = None
     """Filter by `name` ending with one or more given suffixes."""
+    scope: MaybeSequence[Address] | None = None
+    """Filter by `scope` being equal to one or more given component addresses."""
+    scoped: bool | None = None
+    """Filter by whether the workspace has a scope at all."""
     general_viewership: MaybeSequence[WorkspaceAccessLevel] | None = None
     """Filter by `general_viewership` being equal to one or more given access levels."""
     general_editorship: MaybeSequence[WorkspaceAccessLevel] | None = None
@@ -669,6 +681,11 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         if not self._match_string_suffix(obj.name, self.name_suffix):
             return False
 
+        if not self._match_value(obj.scope, self.scope):
+            return False
+        if self.scoped is not None and (obj.scope is not None) != self.scoped:
+            return False
+
         if not self._match_value(obj.general_viewership, self.general_viewership):
             return False
         if not self._match_value(obj.general_editorship, self.general_editorship):
@@ -691,6 +708,11 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
             yield self._sql_match_string_prefix(columns.name, self.name_prefix)
         if self.name_suffix is not None:
             yield self._sql_match_string_suffix(columns.name, self.name_suffix)
+
+        if self.scope is not None:
+            yield self._sql_match_value(columns.scope, self.scope)
+        if self.scoped is not None:
+            yield columns.scope.is_not(None) if self.scoped else columns.scope.is_(None)
 
         if self.general_viewership is not None:
             yield self._sql_match_value(columns.general_viewership, self.general_viewership)
@@ -738,6 +760,8 @@ class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
 
     name: NonEmptyStr
     """Human-readable name of the workspace."""
+    scope: Address | None = None
+    """Component address this workspace is scoped to, or None for a global workspace."""
     general_viewership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
     """General access level required to view the workspace without an explicit membership."""
     general_editorship: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
@@ -774,6 +798,7 @@ class WorkspaceUpdate(TypedDict, total=False):
     """Partial update for an existing `Workspace` record."""
 
     name: NonEmptyStr
+    scope: Address | None
     general_viewership: WorkspaceAccessLevel
     general_editorship: WorkspaceAccessLevel
     general_managership: WorkspaceAccessLevel
