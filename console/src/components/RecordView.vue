@@ -21,7 +21,13 @@ import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
 import { utc, type Datetime } from '@/time'
 import { debouncedComputed } from '@/utilities'
-import { MessagesWidget, ParticlesWidget, AlertsWidget, LogsWidget } from '@/workspace'
+import {
+  MessagesWidget,
+  ParticlesWidget,
+  AlertsWidget,
+  LogsWidget,
+  useWorkspace,
+} from '@/workspace'
 
 type ColumnDefinition = {
   label: string
@@ -66,7 +72,25 @@ const columns = $computed(() => [
 ])
 
 const engine = useEngine()
+const workspace = useWorkspace()
 const slots = useSlots()
+
+// The address filter offers every component and its subtree selector, but a scoped workspace
+// must only offer components within its own scope, matching what the record APIs can actually
+// return once the filter resolves through the workspace.
+const addressFilterOptions = $computed(() => {
+  const scope = workspace.scope
+  const base = scope?.toString() ?? null
+
+  return engine.components.all
+    .filter(
+      (component) =>
+        base == null ||
+        component.address.toString() === base ||
+        component.address.toString().startsWith(`${base}.`)
+    )
+    .flatMap((component) => [component.address.toString(), component.address.all().toString()])
+})
 
 const get = $computed(() => {
   switch (widget.type) {
@@ -601,10 +625,7 @@ useStream(debouncedFilter, async (record: Record) => {
                       :schema="{
                         title: 'Address',
                         type: 'string',
-                        enum: engine.components.all.flatMap((current) => [
-                          current.address.toString(),
-                          current.address.all().toString(),
-                        ]),
+                        enum: addressFilterOptions,
                         optional: true,
                       }"
                       @update:model-value="
