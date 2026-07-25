@@ -1,12 +1,13 @@
 <script lang="ts" setup>
 import { QPopupEdit } from 'quasar'
+import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
-import { getWidgetInfo, useWorkspace, Widget, WidgetRow } from '@/workspace'
+import { getWidgetInfo, useWorkspace, widgetTargetSignature, Widget, WidgetRow } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: Widget
@@ -67,6 +68,19 @@ const targetAddress = $computed(() => {
   const text = resolved?.toString() ?? null
   return text != null && text.startsWith('@') && !text.includes(':') ? text : null
 })
+
+// A restricted stub loads with its address fields redacted, so the user could not have set
+// them knowingly. Once the user repoints the widget to a new target, the stub is stale and its
+// lock placeholder should give way to a fresh, editable widget.
+const targetSignature = $computed(() => widgetTargetSignature(widget))
+watch(
+  () => targetSignature,
+  () => {
+    if (widget.restricted) {
+      widget.restricted = false
+    }
+  }
+)
 </script>
 
 <template>

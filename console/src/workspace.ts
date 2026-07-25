@@ -1159,6 +1159,40 @@ export function resolveWidgetWidths(
   }
 }
 
+// Build a value that changes whenever any of a widget's address-bearing fields change. Used to
+// detect when a user repoints a restricted stub so its lock placeholder can be cleared, since
+// the redacted field the widget loaded with is not something the user could have knowingly set.
+export function widgetTargetSignature(widget: Widget): string {
+  const values: unknown[] = []
+
+  if ('address' in widget) {
+    values.push(widget.address)
+  }
+  if ('commandAddress' in widget) {
+    values.push(widget.commandAddress)
+  }
+  if ('procedureAddress' in widget) {
+    values.push(widget.procedureAddress)
+  }
+  if ('interfaceAddress' in widget) {
+    values.push(widget.interfaceAddress)
+  }
+  if ('particleAddress' in widget) {
+    values.push(widget.particleAddress)
+  }
+  if ('query' in widget) {
+    values.push(widget.query)
+  }
+  if ('filter' in widget) {
+    values.push(widget.filter.address)
+  }
+  if ('particles' in widget) {
+    values.push(widget.particles.map((particle) => particle.address?.toString() ?? null))
+  }
+
+  return JSON.stringify(values.map((value) => value?.toString() ?? null))
+}
+
 export function userCouldViewWorkspace(user: User | null, workspace: Workspace) {
   if (user == null) {
     return false
