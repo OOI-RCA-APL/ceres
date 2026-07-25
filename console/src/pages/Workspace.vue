@@ -164,8 +164,16 @@ function promptDelete() {
         '</i>',
     })
     .onOk(async () => {
+      const scope = workspace.scope
       await workspace.delete()
-      await navigation.go('/')
+
+      // A scoped workspace is hosted by its component's page, so deleting it returns to that
+      // page with no workspace selected rather than leaving the component entirely.
+      if (scope != null) {
+        await navigation.replace(`/components/${scope}`)
+      } else {
+        await navigation.go('/')
+      }
     })
 }
 

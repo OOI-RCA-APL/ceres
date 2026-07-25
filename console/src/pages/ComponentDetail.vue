@@ -37,15 +37,11 @@ const canManage = $computed(() => access.canManage(address.toString()))
 
 let scopedWorkspaces = $ref<Workspace[]>([])
 
-// The workspace named in the URL wins, otherwise the first workspace is shown so the page
-// always pairs the pinned overview with a live canvas when one exists.
+// Only the workspace named in the URL is shown, so the overview on its own stays a reachable
+// state, which is where deleting a workspace lands.
 const activeWorkspaceId = $computed(() => {
   const value = navigation.route.query.workspace
-  if (typeof value === 'string') {
-    return value
-  }
-
-  return scopedWorkspaces[0]?.id ?? null
+  return typeof value === 'string' ? value : null
 })
 
 function selectWorkspace(id: string) {
@@ -54,14 +50,18 @@ function selectWorkspace(id: string) {
 
 async function refreshScoped() {
   scopedWorkspaces = await workspaces.listScoped(address)
-
-  // Name the defaulted workspace in the URL so the address bar always matches what is shown and
-  // stays worth copying.
-  const first = scopedWorkspaces[0]
-  if (first != null && navigation.route.query.workspace == null) {
-    await navigation.replace({ query: { workspace: first.id } })
-  }
 }
+
+// Clearing the selection also happens when a workspace is deleted from its own tab, and the page
+// does not remount because only the query changed, so the tab list is refetched here.
+watch(
+  () => activeWorkspaceId,
+  (current) => {
+    if (current == null) {
+      void refreshScoped()
+    }
+  }
+)
 
 async function createScoped() {
   const created = await workspaces.create({ name: 'New Workspace', scope: address })
