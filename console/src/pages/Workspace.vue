@@ -321,124 +321,126 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
           </q-card>
         </q-popup-edit>
       </div>
-      <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
-        Join
-        <q-menu :offset="[0, 8]">
-          <q-card bordered flat>
-            <q-list dense>
-              <q-item
-                v-if="workspace.couldView"
-                v-close-popup
-                clickable
-                @click="workspace.join('viewer')"
-              >
-                <q-item-section avatar>
-                  <q-icon :name="icons.viewer" />
-                </q-item-section>
-                <q-item-section>As Viewer</q-item-section>
-              </q-item>
-              <q-item
-                v-if="workspace.couldEdit"
-                v-close-popup
-                clickable
-                @click="workspace.join('editor')"
-              >
-                <q-item-section avatar>
-                  <q-icon :name="icons.editor" />
-                </q-item-section>
-                <q-item-section>As Editor</q-item-section>
-              </q-item>
-              <q-item
-                v-if="workspace.couldManage"
-                v-close-popup
-                clickable
-                @click="workspace.join('manager')"
-              >
-                <q-item-section avatar>
-                  <q-icon :name="icons.manager" />
-                </q-item-section>
-                <q-item-section>As Manager</q-item-section>
-              </q-item>
-            </q-list>
-          </q-card>
-        </q-menu>
-      </q-chip>
-      <q-chip
-        v-else
-        class="no-shadow q-px-sm"
-        clickable
-        color="primary"
-        dense
-        flat
-        :icon="icons[workspace.membership.role]"
-        size="sm"
-        text-color="white"
-      >
-        {{ upperFirst(workspace.membership.role) }}
-        <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
-
-        <q-tooltip v-if="!isMembershipMenuOpen" class="bg-primary text-white" :delay="500">
-          You are {{ workspace.membership.role === 'editor' ? 'an' : 'a' }}
-          {{ workspace.membership.role }} of this workspace.
-        </q-tooltip>
-        <q-menu
-          v-if="workspace.membership != null"
-          v-model="isMembershipMenuOpen"
-          anchor="bottom left"
-          :offset="[0, 8]"
-          self="top left"
+      <template v-if="workspace.scope == null">
+        <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
+          Join
+          <q-menu :offset="[0, 8]">
+            <q-card bordered flat>
+              <q-list dense>
+                <q-item
+                  v-if="workspace.couldView"
+                  v-close-popup
+                  clickable
+                  @click="workspace.join('viewer')"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="icons.viewer" />
+                  </q-item-section>
+                  <q-item-section>As Viewer</q-item-section>
+                </q-item>
+                <q-item
+                  v-if="workspace.couldEdit"
+                  v-close-popup
+                  clickable
+                  @click="workspace.join('editor')"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="icons.editor" />
+                  </q-item-section>
+                  <q-item-section>As Editor</q-item-section>
+                </q-item>
+                <q-item
+                  v-if="workspace.couldManage"
+                  v-close-popup
+                  clickable
+                  @click="workspace.join('manager')"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="icons.manager" />
+                  </q-item-section>
+                  <q-item-section>As Manager</q-item-section>
+                </q-item>
+              </q-list>
+            </q-card>
+          </q-menu>
+        </q-chip>
+        <q-chip
+          v-else
+          class="no-shadow q-px-sm"
+          clickable
+          color="primary"
+          dense
+          flat
+          :icon="icons[workspace.membership.role]"
+          size="sm"
+          text-color="white"
         >
-          <q-card bordered flat>
-            <q-list dense>
-              <q-item clickable>
-                <q-item-section avatar>
-                  <q-icon :name="icons.changeRole" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Change Role</q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <q-icon :name="icons.menuRight" size="16px" />
-                </q-item-section>
-                <q-menu anchor="top right" :offset="[8, 0]" self="top left">
-                  <q-card bordered flat>
-                    <q-list dense>
-                      <q-item
-                        v-for="role in WorkspaceMembershipRoleModel.options.filter(
-                          (role) =>
-                            workspace.membership?.role != role &&
-                            (WorkspaceMembershipRoleOf[role] <=
-                              WorkspaceMembershipRoleOf[workspace.membership?.role ?? 'viewer'] ||
-                              (role === 'viewer' && workspace.couldView) ||
-                              (role === 'editor' && workspace.couldEdit) ||
-                              (role === 'manager' && workspace.couldManage))
-                        )"
-                        :key="role"
-                        v-close-popup
-                        clickable
-                        @click="promptChangeRole(role)"
-                      >
-                        <q-item-section avatar>
-                          <q-icon :name="icons[role]" />
-                        </q-item-section>
-                        <q-item-section>
-                          <q-item-label>To {{ upperFirst(role) }}</q-item-label>
-                        </q-item-section>
-                      </q-item>
-                    </q-list>
-                  </q-card>
-                </q-menu>
-              </q-item>
-              <q-item v-close-popup clickable @click="promptLeave">
-                <q-item-section avatar>
-                  <q-icon :name="icons.leave" />
-                </q-item-section>
-                <q-item-section>Leave Workspace</q-item-section>
-              </q-item>
-            </q-list>
-          </q-card>
-        </q-menu>
-      </q-chip>
+          {{ upperFirst(workspace.membership.role) }}
+          <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
+
+          <q-tooltip v-if="!isMembershipMenuOpen" class="bg-primary text-white" :delay="500">
+            You are {{ workspace.membership.role === 'editor' ? 'an' : 'a' }}
+            {{ workspace.membership.role }} of this workspace.
+          </q-tooltip>
+          <q-menu
+            v-if="workspace.membership != null"
+            v-model="isMembershipMenuOpen"
+            anchor="bottom left"
+            :offset="[0, 8]"
+            self="top left"
+          >
+            <q-card bordered flat>
+              <q-list dense>
+                <q-item clickable>
+                  <q-item-section avatar>
+                    <q-icon :name="icons.changeRole" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Change Role</q-item-label>
+                  </q-item-section>
+                  <q-item-section side>
+                    <q-icon :name="icons.menuRight" size="16px" />
+                  </q-item-section>
+                  <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+                    <q-card bordered flat>
+                      <q-list dense>
+                        <q-item
+                          v-for="role in WorkspaceMembershipRoleModel.options.filter(
+                            (role) =>
+                              workspace.membership?.role != role &&
+                              (WorkspaceMembershipRoleOf[role] <=
+                                WorkspaceMembershipRoleOf[workspace.membership?.role ?? 'viewer'] ||
+                                (role === 'viewer' && workspace.couldView) ||
+                                (role === 'editor' && workspace.couldEdit) ||
+                                (role === 'manager' && workspace.couldManage))
+                          )"
+                          :key="role"
+                          v-close-popup
+                          clickable
+                          @click="promptChangeRole(role)"
+                        >
+                          <q-item-section avatar>
+                            <q-icon :name="icons[role]" />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>To {{ upperFirst(role) }}</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                      </q-list>
+                    </q-card>
+                  </q-menu>
+                </q-item>
+                <q-item v-close-popup clickable @click="promptLeave">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.leave" />
+                  </q-item-section>
+                  <q-item-section>Leave Workspace</q-item-section>
+                </q-item>
+              </q-list>
+            </q-card>
+          </q-menu>
+        </q-chip>
+      </template>
       <q-btn
         v-if="workspace.data != null"
         class="faded-hover q-ml-xs"

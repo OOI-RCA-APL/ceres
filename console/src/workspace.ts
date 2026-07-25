@@ -18,6 +18,7 @@ import {
 } from 'vue'
 import Zod from 'zod'
 
+import { useAccess } from '@/api/access'
 import { Address, AddressModel, AddressSelector, AddressSelectorModel } from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
@@ -382,6 +383,7 @@ export type Drag = {
 
 function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   const auth = useAuth()
+  const access = useAccess()
   const workspaces = useWorkspaces()
   const id = $computed(() => unref(workspaceId))
 
@@ -716,11 +718,38 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     moveWidget,
     duplicateWidget,
     drag: null as Drag | null,
-    canView: computed(() => workspace != null && userCanViewWorkspace(auth.user, membership)),
+    // Scoped workspaces have no memberships by design, so their capabilities derive from the
+    // caller's component access on the scope instead: view grants canView, manage grants both
+    // canEdit and canManage. Global workspaces keep the membership-based rules.
+    canView: computed(() => {
+      if (workspace == null) {
+        return false
+      }
+
+      return scope != null
+        ? access.levelFor(scope.toString()) != null
+        : userCanViewWorkspace(auth.user, membership)
+    }),
     couldView: computed(() => workspace != null && userCouldViewWorkspace(auth.user, workspace)),
-    canEdit: computed(() => workspace != null && userCanEditWorkspace(auth.user, membership)),
+    canEdit: computed(() => {
+      if (workspace == null) {
+        return false
+      }
+
+      return scope != null
+        ? access.canManage(scope.toString())
+        : userCanEditWorkspace(auth.user, membership)
+    }),
     couldEdit: computed(() => workspace != null && userCouldEditWorkspace(auth.user, workspace)),
-    canManage: computed(() => workspace != null && userCanManageWorkspace(auth.user, membership)),
+    canManage: computed(() => {
+      if (workspace == null) {
+        return false
+      }
+
+      return scope != null
+        ? access.canManage(scope.toString())
+        : userCanManageWorkspace(auth.user, membership)
+    }),
     couldManage: computed(
       () => workspace != null && userCouldManageWorkspace(auth.user, workspace)
     ),
