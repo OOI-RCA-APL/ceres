@@ -52,14 +52,13 @@ async function refreshScoped() {
   scopedWorkspaces = await workspaces.listScoped(address)
 }
 
-// Clearing the selection also happens when a workspace is deleted from its own tab, and the page
-// does not remount because only the query changed, so the tab list is refetched here.
+// Scoped workspaces are fetched separately from the store's own list, so the tabs are refetched
+// whenever that list changes. The store refreshes it after every create, update, and delete,
+// which covers a workspace being renamed or deleted from the tab shown below.
 watch(
-  () => activeWorkspaceId,
-  (current) => {
-    if (current == null) {
-      void refreshScoped()
-    }
+  () => workspaces.all,
+  () => {
+    void refreshScoped()
   }
 )
 

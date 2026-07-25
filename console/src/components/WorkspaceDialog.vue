@@ -4,6 +4,7 @@ import { compact, orderBy, upperFirst } from 'lodash-es'
 import { useDialogPluginComponent } from 'quasar'
 import { reactive, computed, watch, nextTick } from 'vue'
 
+import { useAccess } from '@/api/access'
 import { useAuth } from '@/api/auth'
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
@@ -45,6 +46,7 @@ defineEmits([...useDialogPluginComponent.emits])
 
 const { dialogRef, onDialogHide, onDialogOK, onDialogCancel } = useDialogPluginComponent()
 
+const access = useAccess()
 const auth = useAuth()
 const dialogs = useDialogs()
 const engine = useEngine()
@@ -92,8 +94,16 @@ const canManage = $computed(() => {
     return false
   }
 
+  // A scoped workspace has no memberships, its capabilities come from the scope component.
+  if (workspace.scope != null) {
+    return access.canManage(workspace.scope.toString())
+  }
+
   return userCanManageWorkspace(auth.user, membership)
 })
+
+// Memberships do not apply to a scoped workspace, so its members tab has nothing to show.
+const hasMembers = $computed(() => workspace?.scope == null)
 
 const userMemberships = $computed(() =>
   compact(
@@ -285,7 +295,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
         <q-spinner-orbit color="primary" size="25px" />
       </div>
       <template v-else>
-        <template v-if="action === 'view'">
+        <template v-if="action === 'view' && hasMembers">
           <q-separator />
           <q-tabs
             v-model="tab"
@@ -319,6 +329,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
             <q-separator :class="[tab === 'members' && $style.invisible, 'col']" />
           </div>
         </template>
+        <q-separator v-else-if="action === 'view'" />
         <q-tab-panels v-model="tab">
           <q-tab-panel class="q-px-none" name="general">
             <q-form :ref="form.bind" @submit="form.submit">
@@ -340,10 +351,15 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
                   outlined
                   :readonly="form.readonly"
                 />
-                <div class="q-pb-sm">
+                <div v-if="!hasMembers" class="q-mb-lg text-grey-6">
+                  Access to this workspace follows the
+                  <span class="monospace-xs">{{ workspace?.scope }}</span> component, so anyone who
+                  can view that component can see it, and anyone who can manage it can edit it.
+                </div>
+                <div v-if="hasMembers" class="q-pb-sm">
                   <common-text element="t3" variant="title3">General Permissions</common-text>
                 </div>
-                <div class="column q-col-gutter-y-sm q-mb-lg q-pt-none">
+                <div v-if="hasMembers" class="column q-col-gutter-y-sm q-mb-lg q-pt-none">
                   <q-select
                     v-model="form.data.general_viewership"
                     color="primary"
