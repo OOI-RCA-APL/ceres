@@ -421,6 +421,20 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return AddressSelector.parse(value).asAbsolute(scope)
   }
 
+  // Like resolveAddress, but an unset value falls back to the scope's own subtree instead of
+  // staying null. Record widgets (messages, logs, alerts, particles) use this for their
+  // `filter.address` field, since a widget added to a scoped workspace with no address chosen
+  // yet must default to showing only the scope and its descendants, not every component.
+  function resolveFilterAddress(
+    value: string | AddressSelector | null | undefined
+  ): AddressSelector | null {
+    if (value == null) {
+      return scope == null ? null : AddressSelector.parse(`${scope}:all`)
+    }
+
+    return AddressSelector.parse(value).asAbsolute(scope)
+  }
+
   let data = $ref<WorkspaceData | null>(null)
 
   async function saveEdit() {
@@ -694,6 +708,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     name: computed(() => workspace?.name ?? null),
     scope: computed(() => scope),
     resolveAddress,
+    resolveFilterAddress,
     membership: computed(() => membership),
     defaultViewership: computed(() => workspace?.general_viewership ?? 'private'),
     defaultEditorship: computed(() => workspace?.general_editorship ?? 'private'),

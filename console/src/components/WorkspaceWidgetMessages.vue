@@ -23,7 +23,7 @@ const resolvedCommandAddress = $computed(() => {
 
 const resolvedFilter = $computed(() => ({
   ...widget.filter,
-  address: workspace.resolveAddress(widget.filter.address),
+  address: workspace.resolveFilterAddress(widget.filter.address),
 }))
 
 const connectionEntries = $computed(() =>
