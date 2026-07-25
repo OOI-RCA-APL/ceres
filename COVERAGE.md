@@ -35,7 +35,7 @@
 | `ceres/__internal__/utilities/typing.py` | 86% |
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
-| `ceres/__internal__/workspace_redaction.py` | 86% |
+| `ceres/__internal__/workspace_redaction.py` | 91% |
 | `ceres/__main__.py` | 50% |
 | `ceres/access.py` | 99% |
 | `ceres/address.py` | 96% |
@@ -62,7 +62,7 @@
 | `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
-| `ceres/engine.py` | 71% |
+| `ceres/engine.py` | 72% |
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |
@@ -95,6 +95,6 @@
 | `ceres/user.py` | 98% |
 | `ceres/variable.py` | 87% |
 | `ceres/version.py` | 89% |
-| `ceres/workspace.py` | 98% |
+| `ceres/workspace.py` | 99% |
 | **Total** | **85%** |
 <!-- coverage:end -->
