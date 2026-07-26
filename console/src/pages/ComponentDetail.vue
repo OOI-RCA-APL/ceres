@@ -221,18 +221,30 @@ const persisted = usePersisted({
       </q-btn>
       <template v-if="scopedWorkspaces.length > 0 || canManage">
         <q-separator class="q-ml-sm" inset vertical />
-        <q-tabs class="q-ml-sm" dense inline-label :model-value="activeWorkspaceId" no-caps shrink>
+        <q-tabs
+          :class="[$style.workspaceTabs, 'q-ml-sm']"
+          dense
+          indicator-color="transparent"
+          inline-label
+          :model-value="activeWorkspaceId"
+          no-caps
+          shrink
+        >
           <q-tab
             v-for="workspace in scopedWorkspaces"
             :key="workspace.id"
+            :class="$style.workspaceTab"
+            :icon="icons.workspace"
             :label="workspace.name"
             :name="workspace.id"
             @click="selectWorkspace(workspace.id)"
-          />
+          >
+            <q-tooltip>Workspace "{{ workspace.name }}".</q-tooltip>
+          </q-tab>
         </q-tabs>
         <q-btn
           v-if="canManage"
-          class="q-ml-xs"
+          :class="[$style.addWorkspace, 'q-ml-xs']"
           dense
           flat
           :icon="icons.add"
@@ -264,11 +276,16 @@ const persisted = usePersisted({
     <template v-else>
       <div v-if="!persisted.overviewCollapsed" class="relative-position">
         <div
-          :class="[$style.overviewContent, activeWorkspaceId != null && 'scroll']"
-          :style="activeWorkspaceId != null ? { height: `${persisted.overviewHeight}px` } : {}"
+          :class="[$style.overviewContent, 'scroll']"
+          :style="
+            activeWorkspaceId != null ? { height: `${persisted.overviewHeight}px` } : undefined
+          "
         >
-          <div class="q-col-gutter-md q-pa-md row">
-            <div v-if="configHighlighted != null" :class="$style.configColumn">
+          <div :class="[$style.overviewGrid, 'q-col-gutter-md', 'q-pa-md', 'row']">
+            <div
+              v-if="configHighlighted != null"
+              :class="[$style.configColumn, persisted.configuration && $style.configFill]"
+            >
               <q-list bordered class="rounded-borders" dense>
                 <q-expansion-item
                   v-model="persisted.configuration"
@@ -458,7 +475,6 @@ const persisted = usePersisted({
           :min="120"
         />
       </div>
-      <q-separator v-if="!persisted.overviewCollapsed && activeWorkspaceId != null" />
       <workspace-page
         v-if="activeWorkspaceId != null"
         :id="activeWorkspaceId"
@@ -472,14 +488,89 @@ const persisted = usePersisted({
 // The config and connections blocks sit side by side above this width and stack below it.
 $overview-columns-min: 720px;
 
+// With a workspace below, the panel takes the height dragged onto it. On its own it fills what
+// is left of the viewport under the app and page headers, so the configuration has a bottom edge
+// to reach in both cases.
 .overviewContent {
   overflow-x: hidden;
+  height: calc(100vh - 92px);
+}
+
+// Each tab carries the workspace icon so the group reads as workspaces rather than as page
+// sections, and the selected one is marked by a filled pill instead of an underline, which sits
+// better in a header rail that already uses chips and icon buttons.
+.workspaceTabs {
+  height: 30px;
+}
+
+.workspaceTab {
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  opacity: 0.7;
+  transition: background-color 0.2s, opacity 0.2s;
+
+  &:hover {
+    opacity: 1;
+  }
+
+  :global(.q-tab__icon) {
+    font-size: 15px;
+    margin-right: 5px;
+  }
+
+  :global(.q-tab__label) {
+    font-size: 13px;
+  }
+
+  &:global(.q-tab--active) {
+    opacity: 1;
+    background-color: rgba($primary, 0.18);
+    color: $primary;
+  }
+}
+
+.addWorkspace {
+  opacity: 0.7;
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
+// The grid fills the panel so the configuration can reach its bottom edge, and grows past it
+// when the other column is taller.
+.overviewGrid {
+  min-height: 100%;
 }
 
 .configColumn,
 .detailsColumn {
   flex: 0 0 100%;
   max-width: 100%;
+}
+
+// An expanded configuration stretches to the bottom of the panel and scrolls its own contents,
+// rather than ending wherever the file happens to end.
+.configFill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  > :global(.q-list),
+  :global(.q-expansion-item),
+  :global(.q-expansion-item__container) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  :global(.q-expansion-item__content) {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
 }
 
 @media (min-width: $overview-columns-min) {
