@@ -467,9 +467,11 @@ const persisted = usePersisted({
         :id="activeWorkspaceId"
         :key="activeWorkspaceId"
       >
-        <template #header-prepend>
+        <template #header-prepend="{ actions, state }">
           <component-workspace-tabs
             :active="activeWorkspaceId"
+            :active-actions="actions"
+            :active-state="state"
             :can-manage="canManage"
             class="q-ml-sm"
             :workspaces="scopedWorkspaces"
@@ -477,7 +479,6 @@ const persisted = usePersisted({
             @reorder="reorderScoped"
             @select="selectWorkspace"
           />
-          <q-separator class="q-ml-sm" inset vertical />
         </template>
       </workspace-page>
       <template v-else-if="scopedWorkspaces.length > 0 || canManage">
@@ -506,48 +507,6 @@ $overview-columns-min: 720px;
 .overviewContent {
   overflow-x: hidden;
   height: calc(100vh - 92px);
-}
-
-// Each tab carries the workspace icon so the group reads as workspaces rather than as page
-// sections, and the selected one is marked by a filled pill instead of an underline, which sits
-// better in a header rail that already uses chips and icon buttons.
-.workspaceTabs {
-  height: 30px;
-}
-
-.workspaceTab {
-  min-height: 26px;
-  padding: 0 10px;
-  border-radius: 13px;
-  opacity: 0.7;
-  transition: background-color 0.2s, opacity 0.2s;
-
-  &:hover {
-    opacity: 1;
-  }
-
-  :global(.q-tab__icon) {
-    font-size: 15px;
-    margin-right: 5px;
-  }
-
-  :global(.q-tab__label) {
-    font-size: 13px;
-  }
-
-  &:global(.q-tab--active) {
-    opacity: 1;
-    background-color: rgba($primary, 0.18);
-    color: $primary;
-  }
-}
-
-.addWorkspace {
-  opacity: 0.7;
-
-  &:hover {
-    opacity: 1;
-  }
 }
 
 // The grid fills the panel so the configuration can reach its bottom edge, and grows past it
