@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useQuery } from '@tanstack/vue-query'
-import { upperFirst } from 'lodash-es'
+import { orderBy, upperFirst } from 'lodash-es'
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { stringify } from 'yaml'
@@ -11,6 +11,7 @@ import { ConnectionInfo, ConnectionStateInfo, JobInfo, ProcedureInfo } from '@/a
 import { useEngine } from '@/api/engine'
 import { Connectivity } from '@/api/shared'
 import CommonText from '@/components/CommonText.vue'
+import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import FullPage from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -49,7 +50,29 @@ function selectWorkspace(id: string) {
 }
 
 async function refreshScoped() {
-  scopedWorkspaces = await workspaces.listScoped(address)
+  const listed = await workspaces.listScoped(address)
+
+  // Workspaces carry their tab position in their own data, and those without one sort last so a
+  // newly created workspace lands at the end.
+  scopedWorkspaces = orderBy(listed, [
+    (workspace) => workspace.data.meta.order ?? Number.MAX_SAFE_INTEGER,
+    (workspace) => workspace.name,
+  ])
+}
+
+// Reordering rewrites each workspace's stored position, so the order holds for everyone rather
+// than only in this browser.
+async function reorderScoped(ordered: Workspace[]) {
+  scopedWorkspaces = ordered
+  await Promise.all(
+    ordered.map((workspace, index) =>
+      workspace.data.meta.order === index
+        ? Promise.resolve()
+        : workspaces.update(workspace.id, {
+            data: { ...workspace.data, meta: { ...workspace.data.meta, order: index } },
+          })
+    )
+  )
 }
 
 // Scoped workspaces are fetched separately from the store's own list, so the tabs are refetched
@@ -219,42 +242,6 @@ const persisted = usePersisted({
           >{{ persisted.overviewCollapsed ? 'Show' : 'Hide' }} the overview panel.</q-tooltip
         >
       </q-btn>
-      <template v-if="scopedWorkspaces.length > 0 || canManage">
-        <q-separator class="q-ml-sm" inset vertical />
-        <q-tabs
-          :class="[$style.workspaceTabs, 'q-ml-sm']"
-          dense
-          indicator-color="transparent"
-          inline-label
-          :model-value="activeWorkspaceId"
-          no-caps
-          shrink
-        >
-          <q-tab
-            v-for="workspace in scopedWorkspaces"
-            :key="workspace.id"
-            :class="$style.workspaceTab"
-            :icon="icons.workspace"
-            :label="workspace.name"
-            :name="workspace.id"
-            @click="selectWorkspace(workspace.id)"
-          >
-            <q-tooltip>Workspace "{{ workspace.name }}".</q-tooltip>
-          </q-tab>
-        </q-tabs>
-        <q-btn
-          v-if="canManage"
-          :class="[$style.addWorkspace, 'q-ml-xs']"
-          dense
-          flat
-          :icon="icons.add"
-          round
-          size="sm"
-          @click="createScoped"
-        >
-          <q-tooltip>Add a workspace for this component.</q-tooltip>
-        </q-btn>
-      </template>
       <q-space />
       <q-chip
         v-if="effectiveAccess != null"
@@ -479,7 +466,32 @@ const persisted = usePersisted({
         v-if="activeWorkspaceId != null"
         :id="activeWorkspaceId"
         :key="activeWorkspaceId"
-      />
+      >
+        <template #header-prepend>
+          <component-workspace-tabs
+            :active="activeWorkspaceId"
+            :can-manage="canManage"
+            class="q-ml-sm"
+            :workspaces="scopedWorkspaces"
+            @create="createScoped"
+            @reorder="reorderScoped"
+            @select="selectWorkspace"
+          />
+          <q-separator class="q-ml-sm" inset vertical />
+        </template>
+      </workspace-page>
+      <template v-else-if="scopedWorkspaces.length > 0 || canManage">
+        <q-separator />
+        <component-workspace-tabs
+          :active="activeWorkspaceId"
+          :can-manage="canManage"
+          class="q-px-sm q-py-xs"
+          :workspaces="scopedWorkspaces"
+          @create="createScoped"
+          @reorder="reorderScoped"
+          @select="selectWorkspace"
+        />
+      </template>
     </template>
   </full-page>
 </template>

@@ -328,10 +328,24 @@ export const WidgetRowModel = Zod.object({
   widgets: safeArrayOf(WidgetModel),
 })
 
+export type WorkspaceMeta = Zod.infer<typeof WorkspaceMetaModel>
+
+/** Presentation state the console keeps alongside a workspace's contents.
+
+The engine stores this without interpreting it, so nothing here may affect how a workspace
+behaves, only how the console chooses to display it.
+*/
+export const WorkspaceMetaModel = Zod.object({
+  // Position among the workspaces scoped to the same component, ascending. Workspaces without
+  // one sort last, which is where a newly created workspace belongs.
+  order: Zod.number().nullish().catch(undefined),
+})
+
 export type WorkspaceDataInput = Zod.input<typeof WorkspaceDataModel>
 export type WorkspaceData = Zod.infer<typeof WorkspaceDataModel>
 export const WorkspaceDataModel = Zod.object({
   layout: WidgetRowModel.array().catch(() => []),
+  meta: WorkspaceMetaModel.catch(() => ({ order: undefined })),
 })
 
 export type WorkspaceAccessRestriction = Zod.infer<typeof WorkspaceAccessRestrictionModel>
@@ -437,6 +451,54 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   let data = $ref<WorkspaceData | null>(null)
 
+  // Undo history for the working copy, capped so a long editing session cannot grow without
+  // bound. Snapshots are recorded on the same debounce as the autosave, which groups a burst of
+  // drags or keystrokes into one undo step rather than one per frame.
+  const historyLimit = 50
+  let history = $ref<WorkspaceData[]>([])
+  let historyIndex = $ref(-1)
+
+  const canUndo = $computed(() => historyIndex > 0)
+  const canRedo = $computed(() => historyIndex >= 0 && historyIndex < history.length - 1)
+
+  function recordHistory() {
+    if (data == null) {
+      return
+    }
+
+    // An undo or redo assigns a state already in the history, which must not be recorded again
+    // or it would erase the redo tail it just moved through.
+    if (historyIndex >= 0 && isStructurallyEqual(data, history[historyIndex])) {
+      return
+    }
+
+    const snapshot = deepClone(data) as WorkspaceData
+    const kept = [
+      ...history.slice(Math.max(0, history.length - historyLimit + 1), historyIndex + 1),
+      snapshot,
+    ]
+    history = kept
+    historyIndex = kept.length - 1
+  }
+
+  function undo() {
+    if (!canUndo) {
+      return
+    }
+
+    historyIndex--
+    data = deepClone(history[historyIndex]) as WorkspaceData
+  }
+
+  function redo() {
+    if (!canRedo) {
+      return
+    }
+
+    historyIndex++
+    data = deepClone(history[historyIndex]) as WorkspaceData
+  }
+
   async function saveEdit() {
     if (workspace == null || data == null) {
       return
@@ -446,7 +508,14 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     await workspaces.assignEdit(id, data)
   }
 
-  watch(() => data, debounce(saveEdit, 500), { deep: true })
+  watch(
+    () => data,
+    debounce(() => {
+      recordHistory()
+      void saveEdit()
+    }, 500),
+    { deep: true }
+  )
 
   useEventListener(window, 'beforeunload', async () => {
     try {
@@ -688,6 +757,12 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   async function afterFetch() {
     if (data == null) {
       data = (await workspaces.getEdit(id))?.data ?? deepClone(workspace?.data ?? null) ?? null
+
+      // Seed the history with the loaded state so the first edit has something to undo back to.
+      if (data != null) {
+        history = [deepClone(data) as WorkspaceData]
+        historyIndex = 0
+      }
     }
   }
 
@@ -716,6 +791,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     originalData: computed(() => workspace?.data ?? null),
     data: computed(() => data),
     edited: computed(() => edited),
+    canUndo: computed(() => canUndo),
+    canRedo: computed(() => canRedo),
+    undo,
+    redo,
     delete: del,
     rename,
     update,

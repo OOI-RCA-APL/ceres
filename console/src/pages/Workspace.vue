@@ -95,6 +95,32 @@ useEventListener(window, 'mouseup', () => {
   workspace.drag = null
 })
 
+const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
+const undoShortcut = isApple ? '⌘Z' : 'Ctrl+Z'
+const redoShortcut = isApple ? '⇧⌘Z' : 'Ctrl+Y'
+
+// Undo and redo on the usual shortcuts, skipped while the user is typing so a text field keeps
+// its own history. Redo accepts both spellings, since editors are split between them.
+useEventListener(window, 'keydown', (event: KeyboardEvent) => {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+    return
+  }
+
+  const target = event.target as HTMLElement | null
+  if (target?.isContentEditable || ['INPUT', 'TEXTAREA'].includes(target?.tagName ?? '')) {
+    return
+  }
+
+  const key = event.key.toLowerCase()
+  if (key === 'z' && !event.shiftKey) {
+    event.preventDefault()
+    workspace.undo()
+  } else if ((key === 'z' && event.shiftKey) || key === 'y') {
+    event.preventDefault()
+    workspace.redo()
+  }
+})
+
 useResizeObserver($$(layout), (resizes) => {
   for (const resize of resizes) {
     layoutWidth = resize.contentRect.width
@@ -298,6 +324,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
       </q-card>
     </div>
     <template #header-append>
+      <slot name="header-prepend" />
       <div>
         <common-text
           class="q-ml-md q-mr-sm"
@@ -471,6 +498,29 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                 </q-item-section>
                 <q-item-section>
                   <q-item-label>Settings</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item clickable dense :disable="!workspace.canUndo" @click="workspace.undo()">
+                <q-item-section avatar>
+                  <q-icon :name="icons.discard" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Undo</q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <span :class="$style.shortcut">{{ undoShortcut }}</span>
+                </q-item-section>
+              </q-item>
+              <q-item clickable dense :disable="!workspace.canRedo" @click="workspace.redo()">
+                <q-item-section avatar>
+                  <q-icon :class="$style.redoIcon" :name="icons.discard" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Redo</q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <span :class="$style.shortcut">{{ redoShortcut }}</span>
                 </q-item-section>
               </q-item>
               <q-separator />
@@ -714,6 +764,16 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
 <style lang="scss" module>
 .root {
   overflow-x: hidden;
+}
+
+.shortcut {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+// Redo is the undo arrow mirrored, which reads as its opposite without needing a second icon.
+.redoIcon {
+  transform: scaleX(-1);
 }
 
 .nameEditable:hover {
