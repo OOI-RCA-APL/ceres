@@ -53,6 +53,7 @@ const icons = {
   menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
   moreVertical: 'mdi-dots-vertical',
+  open: 'mdi-open-in-new',
   operate: 'mdi-wrench',
   operations: 'mdi-cog-transfer',
   password: 'password', // Material Icons
@@ -74,6 +75,7 @@ const icons = {
   view: 'mdi-eye',
   viewOriginal: 'mdi-eye-arrow-left',
   viewer: 'mdi-account-eye',
+  workingCopy: 'mdi-pencil-box-multiple',
   workspace: 'mdi-dots-grid',
 } as const
 

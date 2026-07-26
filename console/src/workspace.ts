@@ -389,6 +389,33 @@ export const WorkspaceEditModel = Zod.object({
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
+/** Handlers a `Workspace.vue` instance exposes to whatever renders its `header-prepend` slot,
+so a scoped workspace's tab strip can drive the same actions the standalone header would.
+*/
+export type WorkspaceHeaderActions = {
+  rename: (name: string) => void
+  openSettings: () => void
+  undo: () => void
+  redo: () => void
+  duplicate: () => void
+  exportFile: () => void
+  promptDelete: () => void
+  promptCommit: () => void
+  promptRevert: () => void
+  startViewingOriginal: () => void
+  stopViewingOriginal: () => void
+}
+
+/** State a `Workspace.vue` instance exposes alongside `WorkspaceHeaderActions`, read-only. */
+export type WorkspaceHeaderState = {
+  edited: boolean
+  canManage: boolean
+  canEdit: boolean
+  canUndo: boolean
+  canRedo: boolean
+  isViewingOriginal: boolean
+}
+
 export type Drag = {
   widget: Widget
   row: number
@@ -1084,6 +1111,22 @@ export const useWorkspaces = defineStore('workspaces', () => {
     })
   }
 
+  // Used by the component-scoped tab strip to learn which of several workspaces it is not
+  // currently displaying still have unsaved local changes, without loading each one's full
+  // workspace context.
+  async function getEdits(workspaceIds: string[]) {
+    if (auth.user == null || workspaceIds.length === 0) {
+      return []
+    }
+
+    return await client.get(`/api/users/${auth.user.id}/workspace-edits`, {
+      parse: Zod.array(WorkspaceEditModel),
+      query: {
+        'workspace-id': workspaceIds,
+      },
+    })
+  }
+
   async function discardEdit(workspaceId: string) {
     if (auth.user == null) {
       return null
@@ -1184,6 +1227,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     updateMembership,
     deleteMembership,
     getEdit,
+    getEdits,
     assignEdit,
     discardEdit,
     importFiles,
