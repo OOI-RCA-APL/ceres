@@ -24,6 +24,8 @@ import {
   widgetWidthSubdivisions,
   Widget,
   WorkspaceData,
+  WorkspaceHeaderActions,
+  WorkspaceHeaderState,
   WorkspaceMembershipRole,
   WorkspaceMembershipRoleModel,
   WorkspaceMembershipRoleOf,
@@ -148,6 +150,10 @@ function duplicate() {
 
 function exportFile() {
   workspace.exportFile()
+}
+
+function openSettings() {
+  dialogs.workspaceSettings(id).onOk(() => workspace.refresh())
 }
 
 function promptLeave() {
@@ -307,6 +313,33 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
       await workspace.refresh()
     })
 }
+
+// Exposed through the `header-prepend` slot so a scoped workspace's tab strip can drive these
+// same handlers instead of the built-in header, which that slot replaces.
+const headerActions: WorkspaceHeaderActions = {
+  rename: (value) => {
+    name = value
+  },
+  openSettings,
+  undo: () => workspace.undo(),
+  redo: () => workspace.redo(),
+  duplicate,
+  exportFile,
+  promptDelete,
+  promptCommit,
+  promptRevert,
+  startViewingOriginal,
+  stopViewingOriginal,
+}
+
+const headerState = $computed<WorkspaceHeaderState>(() => ({
+  edited: workspace.edited,
+  canManage: workspace.canManage,
+  canEdit: workspace.canEdit,
+  canUndo: workspace.canUndo,
+  canRedo: workspace.canRedo,
+  isViewingOriginal,
+}))
 </script>
 
 <template>
@@ -324,319 +357,318 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
       </q-card>
     </div>
     <template #header-append>
-      <slot name="header-prepend" />
-      <div>
-        <common-text
-          class="q-ml-md q-mr-sm"
-          :class="workspace.canManage && $style.nameEditable"
-          variant="title2"
-        >
-          {{ name }}
-        </common-text>
-        <q-popup-edit
-          v-if="workspace.canManage && workspace.data != null"
-          ref="renamePopup"
-          v-slot="scope"
-          v-model="name"
-          anchor="bottom left"
-          auto-save
-          :class="$style.popupEdit"
-          self="top left"
-          :validate="(value: string) => value.trim() !== ''"
-        >
-          <q-card bordered class="q-pa-sm" flat>
-            <q-input
-              v-model.trim="scope.value"
-              autofocus
-              dense
-              filled
-              label="Workspace Name"
-              @keyup.enter="scope.set()"
-            />
-          </q-card>
-        </q-popup-edit>
-      </div>
-      <template v-if="workspace.scope == null">
-        <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
-          Join
-          <q-menu :offset="[0, 8]">
-            <q-card bordered flat>
-              <q-list dense>
-                <q-item
-                  v-if="workspace.couldView"
-                  v-close-popup
-                  clickable
-                  @click="workspace.join('viewer')"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="icons.viewer" />
-                  </q-item-section>
-                  <q-item-section>As Viewer</q-item-section>
-                </q-item>
-                <q-item
-                  v-if="workspace.couldEdit"
-                  v-close-popup
-                  clickable
-                  @click="workspace.join('editor')"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="icons.editor" />
-                  </q-item-section>
-                  <q-item-section>As Editor</q-item-section>
-                </q-item>
-                <q-item
-                  v-if="workspace.couldManage"
-                  v-close-popup
-                  clickable
-                  @click="workspace.join('manager')"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="icons.manager" />
-                  </q-item-section>
-                  <q-item-section>As Manager</q-item-section>
-                </q-item>
-              </q-list>
-            </q-card>
-          </q-menu>
-        </q-chip>
-        <q-chip
-          v-else
-          class="no-shadow q-px-sm"
-          clickable
-          color="primary"
-          dense
-          flat
-          :icon="icons[workspace.membership.role]"
-          size="sm"
-          text-color="white"
-        >
-          {{ upperFirst(workspace.membership.role) }}
-          <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
-
-          <q-tooltip v-if="!isMembershipMenuOpen" class="bg-primary text-white" :delay="500">
-            You are {{ workspace.membership.role === 'editor' ? 'an' : 'a' }}
-            {{ workspace.membership.role }} of this workspace.
-          </q-tooltip>
-          <q-menu
-            v-if="workspace.membership != null"
-            v-model="isMembershipMenuOpen"
-            anchor="bottom left"
-            :offset="[0, 8]"
-            self="top left"
+      <slot :actions="headerActions" name="header-prepend" :state="headerState" />
+      <template v-if="!$slots['header-prepend']">
+        <div>
+          <common-text
+            class="q-ml-md q-mr-sm"
+            :class="workspace.canManage && $style.nameEditable"
+            variant="title2"
           >
-            <q-card bordered flat>
+            {{ name }}
+          </common-text>
+          <q-popup-edit
+            v-if="workspace.canManage && workspace.data != null"
+            ref="renamePopup"
+            v-slot="scope"
+            v-model="name"
+            anchor="bottom left"
+            auto-save
+            :class="$style.popupEdit"
+            self="top left"
+            :validate="(value: string) => value.trim() !== ''"
+          >
+            <q-card bordered class="q-pa-sm" flat>
+              <q-input
+                v-model.trim="scope.value"
+                autofocus
+                dense
+                filled
+                label="Workspace Name"
+                @keyup.enter="scope.set()"
+              />
+            </q-card>
+          </q-popup-edit>
+        </div>
+        <template v-if="workspace.scope == null">
+          <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
+            Join
+            <q-menu :offset="[0, 8]">
+              <q-card bordered flat>
+                <q-list dense>
+                  <q-item
+                    v-if="workspace.couldView"
+                    v-close-popup
+                    clickable
+                    @click="workspace.join('viewer')"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :name="icons.viewer" />
+                    </q-item-section>
+                    <q-item-section>As Viewer</q-item-section>
+                  </q-item>
+                  <q-item
+                    v-if="workspace.couldEdit"
+                    v-close-popup
+                    clickable
+                    @click="workspace.join('editor')"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :name="icons.editor" />
+                    </q-item-section>
+                    <q-item-section>As Editor</q-item-section>
+                  </q-item>
+                  <q-item
+                    v-if="workspace.couldManage"
+                    v-close-popup
+                    clickable
+                    @click="workspace.join('manager')"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :name="icons.manager" />
+                    </q-item-section>
+                    <q-item-section>As Manager</q-item-section>
+                  </q-item>
+                </q-list>
+              </q-card>
+            </q-menu>
+          </q-chip>
+          <q-chip
+            v-else
+            class="no-shadow q-px-sm"
+            clickable
+            color="primary"
+            dense
+            flat
+            :icon="icons[workspace.membership.role]"
+            size="sm"
+            text-color="white"
+          >
+            {{ upperFirst(workspace.membership.role) }}
+            <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
+
+            <q-tooltip v-if="!isMembershipMenuOpen" class="bg-primary text-white" :delay="500">
+              You are {{ workspace.membership.role === 'editor' ? 'an' : 'a' }}
+              {{ workspace.membership.role }} of this workspace.
+            </q-tooltip>
+            <q-menu
+              v-if="workspace.membership != null"
+              v-model="isMembershipMenuOpen"
+              anchor="bottom left"
+              :offset="[0, 8]"
+              self="top left"
+            >
+              <q-card bordered flat>
+                <q-list dense>
+                  <q-item clickable>
+                    <q-item-section avatar>
+                      <q-icon :name="icons.changeRole" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Change Role</q-item-label>
+                    </q-item-section>
+                    <q-item-section side>
+                      <q-icon :name="icons.menuRight" size="16px" />
+                    </q-item-section>
+                    <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+                      <q-card bordered flat>
+                        <q-list dense>
+                          <q-item
+                            v-for="role in WorkspaceMembershipRoleModel.options.filter(
+                              (role) =>
+                                workspace.membership?.role != role &&
+                                (WorkspaceMembershipRoleOf[role] <=
+                                  WorkspaceMembershipRoleOf[
+                                    workspace.membership?.role ?? 'viewer'
+                                  ] ||
+                                  (role === 'viewer' && workspace.couldView) ||
+                                  (role === 'editor' && workspace.couldEdit) ||
+                                  (role === 'manager' && workspace.couldManage))
+                            )"
+                            :key="role"
+                            v-close-popup
+                            clickable
+                            @click="promptChangeRole(role)"
+                          >
+                            <q-item-section avatar>
+                              <q-icon :name="icons[role]" />
+                            </q-item-section>
+                            <q-item-section>
+                              <q-item-label>To {{ upperFirst(role) }}</q-item-label>
+                            </q-item-section>
+                          </q-item>
+                        </q-list>
+                      </q-card>
+                    </q-menu>
+                  </q-item>
+                  <q-item v-close-popup clickable @click="promptLeave">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.leave" />
+                    </q-item-section>
+                    <q-item-section>Leave Workspace</q-item-section>
+                  </q-item>
+                </q-list>
+              </q-card>
+            </q-menu>
+          </q-chip>
+        </template>
+        <q-btn
+          v-if="workspace.data != null"
+          class="faded-hover q-ml-xs"
+          flat
+          :icon="icons.more"
+          round
+          size="8px"
+        >
+          <q-menu anchor="top right" :offset="[8, 5]" self="top left">
+            <q-card bordered>
               <q-list dense>
-                <q-item clickable>
+                <q-item v-close-popup clickable dense @click="openSettings">
                   <q-item-section avatar>
-                    <q-icon :name="icons.changeRole" />
+                    <q-icon :name="icons.settings" />
                   </q-item-section>
                   <q-item-section>
-                    <q-item-label>Change Role</q-item-label>
+                    <q-item-label>Settings</q-item-label>
                   </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item clickable dense :disable="!workspace.canUndo" @click="workspace.undo()">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.discard" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Undo</q-item-label>
+                  </q-item-section>
+                  <q-item-section side>
+                    <span :class="$style.shortcut">{{ undoShortcut }}</span>
+                  </q-item-section>
+                </q-item>
+                <q-item clickable dense :disable="!workspace.canRedo" @click="workspace.redo()">
+                  <q-item-section avatar>
+                    <q-icon :class="$style.redoIcon" :name="icons.discard" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Redo</q-item-label>
+                  </q-item-section>
+                  <q-item-section side>
+                    <span :class="$style.shortcut">{{ redoShortcut }}</span>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item clickable dense>
+                  <q-item-section avatar>
+                    <q-icon :name="icons.add" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Add Widget</q-item-label>
+                  </q-item-section>
+                  <workspace-add-widget-menu
+                    anchor="top right"
+                    :offset="[8, 0]"
+                    :row="-1"
+                    self="top left"
+                  />
                   <q-item-section side>
                     <q-icon :name="icons.menuRight" size="16px" />
                   </q-item-section>
-                  <q-menu anchor="top right" :offset="[8, 0]" self="top left">
-                    <q-card bordered flat>
-                      <q-list dense>
-                        <q-item
-                          v-for="role in WorkspaceMembershipRoleModel.options.filter(
-                            (role) =>
-                              workspace.membership?.role != role &&
-                              (WorkspaceMembershipRoleOf[role] <=
-                                WorkspaceMembershipRoleOf[workspace.membership?.role ?? 'viewer'] ||
-                                (role === 'viewer' && workspace.couldView) ||
-                                (role === 'editor' && workspace.couldEdit) ||
-                                (role === 'manager' && workspace.couldManage))
-                          )"
-                          :key="role"
-                          v-close-popup
-                          clickable
-                          @click="promptChangeRole(role)"
-                        >
-                          <q-item-section avatar>
-                            <q-icon :name="icons[role]" />
-                          </q-item-section>
-                          <q-item-section>
-                            <q-item-label>To {{ upperFirst(role) }}</q-item-label>
-                          </q-item-section>
-                        </q-item>
-                      </q-list>
-                    </q-card>
-                  </q-menu>
                 </q-item>
-                <q-item v-close-popup clickable @click="promptLeave">
+                <q-separator />
+                <q-item v-close-popup clickable dense @click="duplicate">
                   <q-item-section avatar>
-                    <q-icon :name="icons.leave" />
+                    <q-icon :name="icons.duplicate" />
                   </q-item-section>
-                  <q-item-section>Leave Workspace</q-item-section>
+                  <q-item-section>
+                    <q-item-label>Duplicate</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item v-close-popup clickable dense @click="exportFile">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.export" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Export</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item
+                  v-if="workspace.canManage"
+                  v-close-popup
+                  clickable
+                  dense
+                  @click="promptDelete"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="icons.delete" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Delete</q-item-label>
+                  </q-item-section>
                 </q-item>
               </q-list>
             </q-card>
           </q-menu>
-        </q-chip>
+        </q-btn>
+        <q-space />
+        <div class="q-mr-md">
+          <q-btn
+            v-if="workspace.edited && isViewingOriginal"
+            class="q-mr-sm"
+            clickable
+            color="warning"
+            dense
+            flat
+            :icon="icons.revertToOriginal"
+            label="Revert to Original Version"
+            style="padding-top: 2px; padding-bottom: 2px"
+            @click="promptRevert"
+          />
+          <q-btn
+            v-if="workspace.edited && isViewingOriginal"
+            clickable
+            dense
+            :icon="icons.close"
+            round
+            size="12px"
+            unelevated
+            @click="stopViewingOriginal"
+          />
+          <q-chip
+            v-else-if="workspace.edited"
+            class="q-px-sm"
+            clickable
+            color="warning"
+            dense
+            :icon="icons.workingCopy"
+            label="Working Copy"
+            size="12px"
+            text-color="white"
+          >
+            <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
+            <q-menu :offset="[0, 10]">
+              <q-card bordered>
+                <q-list dense>
+                  <q-item clickable :disable="!workspace.canEdit" @click="promptCommit">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.confirm" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Commit Changes</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item clickable @click="startViewingOriginal">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.viewOriginal" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>View Original</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </q-list>
+              </q-card>
+            </q-menu>
+          </q-chip>
+        </div>
       </template>
-      <q-btn
-        v-if="workspace.data != null"
-        class="faded-hover q-ml-xs"
-        flat
-        :icon="icons.more"
-        round
-        size="8px"
-      >
-        <q-menu anchor="top right" :offset="[8, 5]" self="top left">
-          <q-card bordered>
-            <q-list dense>
-              <q-item
-                v-close-popup
-                clickable
-                dense
-                @click="dialogs.workspaceSettings(id).onOk(() => workspace.refresh())"
-              >
-                <q-item-section avatar>
-                  <q-icon :name="icons.settings" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Settings</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-separator />
-              <q-item clickable dense :disable="!workspace.canUndo" @click="workspace.undo()">
-                <q-item-section avatar>
-                  <q-icon :name="icons.discard" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Undo</q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <span :class="$style.shortcut">{{ undoShortcut }}</span>
-                </q-item-section>
-              </q-item>
-              <q-item clickable dense :disable="!workspace.canRedo" @click="workspace.redo()">
-                <q-item-section avatar>
-                  <q-icon :class="$style.redoIcon" :name="icons.discard" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Redo</q-item-label>
-                </q-item-section>
-                <q-item-section side>
-                  <span :class="$style.shortcut">{{ redoShortcut }}</span>
-                </q-item-section>
-              </q-item>
-              <q-separator />
-              <q-item clickable dense>
-                <q-item-section avatar>
-                  <q-icon :name="icons.add" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Add Widget</q-item-label>
-                </q-item-section>
-                <workspace-add-widget-menu
-                  anchor="top right"
-                  :offset="[8, 0]"
-                  :row="-1"
-                  self="top left"
-                />
-                <q-item-section side>
-                  <q-icon :name="icons.menuRight" size="16px" />
-                </q-item-section>
-              </q-item>
-              <q-separator />
-              <q-item v-close-popup clickable dense @click="duplicate">
-                <q-item-section avatar>
-                  <q-icon :name="icons.duplicate" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Duplicate</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item v-close-popup clickable dense @click="exportFile">
-                <q-item-section avatar>
-                  <q-icon :name="icons.export" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Export</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-separator />
-              <q-item
-                v-if="workspace.canManage"
-                v-close-popup
-                clickable
-                dense
-                @click="promptDelete"
-              >
-                <q-item-section avatar>
-                  <q-icon :name="icons.delete" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Delete</q-item-label>
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </q-card>
-        </q-menu>
-      </q-btn>
-      <q-space />
-      <div class="q-mr-md">
-        <q-btn
-          v-if="workspace.edited && isViewingOriginal"
-          class="q-mr-sm"
-          clickable
-          color="warning"
-          dense
-          flat
-          :icon="icons.revertToOriginal"
-          label="Revert to Original Version"
-          style="padding-top: 2px; padding-bottom: 2px"
-          @click="promptRevert"
-        />
-        <q-btn
-          v-if="workspace.edited && isViewingOriginal"
-          clickable
-          dense
-          :icon="icons.close"
-          round
-          size="12px"
-          unelevated
-          @click="stopViewingOriginal"
-        />
-        <q-chip
-          v-else-if="workspace.edited"
-          class="q-px-sm"
-          clickable
-          color="warning"
-          dense
-          icon="mdi-pencil-box-multiple"
-          label="Working Copy"
-          size="12px"
-          text-color="white"
-        >
-          <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
-          <q-menu :offset="[0, 10]">
-            <q-card bordered>
-              <q-list dense>
-                <q-item clickable :disable="!workspace.canEdit" @click="promptCommit">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.confirm" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Commit Changes</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-item clickable @click="startViewingOriginal">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.viewOriginal" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>View Original</q-item-label>
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-card>
-          </q-menu>
-        </q-chip>
-      </div>
     </template>
     <div
       :key="key"
