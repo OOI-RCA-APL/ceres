@@ -10,6 +10,8 @@ from ceres.__internal__.app.shared import (
     Router,
     get_component_access,
     get_components_access_detail,
+    get_engine_access,
+    get_engine_access_detail,
 )
 from ceres.access import AccessSource, GrantOrigin
 from ceres.address import Address
@@ -152,9 +154,11 @@ async def get_all_effective_access(
     engine: CurrentEngine,
     user_id: UUID,
 ) -> list[ComponentEffectiveAccess]:
-    """Resolve the effective access level for every component the target user can access.
+    """Resolve the effective access level for every target the user can access.
 
-    Components the user has no access to are omitted.
+    The engine root is included alongside the components, since it is a placement in its own right
+    and callers need its level to decide what may be created there. Targets the user has no access
+    to are omitted.
 
     Raises:
         NotFoundError: If the target user does not exist.
@@ -165,6 +169,7 @@ async def get_all_effective_access(
         raise NotFoundError()
 
     access = await get_components_access_detail(engine, target_user, engine.get_components())
+    access[Address.ENGINE] = await get_engine_access_detail(engine, target_user)
 
     return [
         ComponentEffectiveAccess(
@@ -185,9 +190,18 @@ async def get_effective_access(
     user_id: UUID,
     address: Address,
 ) -> EffectiveAccessResult:
+    """Resolve the target user's effective access on one component or on the engine root.
+
+    Raises:
+        NotFoundError: If the target user or the addressed component does not exist.
+        NotPermittedError: If a non-admin caller queries another user.
+    """
     target_user = await engine.database.users.get(user_id)
     if target_user is None:
         raise NotFoundError()
+
+    if address.is_engine:
+        return EffectiveAccessResult(level=await get_engine_access(engine, target_user))
 
     component = engine.get_component(address)
     if component is None:

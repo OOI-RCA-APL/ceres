@@ -178,6 +178,52 @@ async def test_single_effective_access_route_still_matches_with_address() -> Non
     await engine.database.dispose()
 
 
+async def test_batch_effective_access_includes_the_engine_root() -> None:
+    """The engine root is a placement of its own, so it is listed alongside the components."""
+    engine, *_ = await _build_engine()
+    user = await _create_user(engine)
+
+    result = await get_all_effective_access(engine=engine, user_id=user.id)
+
+    entries = {str(entry.address): entry.level for entry in result}
+    assert entries["~"] == ComponentAccessLevel.VIEW
+
+    await engine.database.dispose()
+
+
+async def test_batch_effective_access_raises_the_engine_root_with_an_all_grant() -> None:
+    """An all-target grant is what confers engine-level manage, without the user being an admin."""
+    engine, *_ = await _build_engine()
+    user = await _create_user(engine)
+    await engine.database.user_permissions.create(
+        UserPermission.Create(
+            user_id=user.id,
+            target_type=PermissionTargetType.ALL,
+            target="",
+            level=ComponentAccessLevel.MANAGE,
+        )
+    )
+
+    result = await get_all_effective_access(engine=engine, user_id=user.id)
+
+    entries = {str(entry.address): entry.level for entry in result}
+    assert entries["~"] == ComponentAccessLevel.MANAGE
+
+    await engine.database.dispose()
+
+
+async def test_single_effective_access_resolves_the_engine_root() -> None:
+    """The single-address route answers for `~` rather than treating it as a missing component."""
+    engine, *_ = await _build_engine()
+    user = await _create_user(engine)
+
+    result = await get_effective_access(engine=engine, user_id=user.id, address=Address("~"))
+
+    assert result.level == ComponentAccessLevel.VIEW
+
+    await engine.database.dispose()
+
+
 def test_permission_data_accepts_all_target_type_with_empty_target() -> None:
     """An explicit empty `target` is valid for an 'all' grant."""
     data = UserPermissionData(

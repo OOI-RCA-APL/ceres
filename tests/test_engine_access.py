@@ -1,5 +1,6 @@
 from ceres import Engine
-from ceres.__internal__.app.shared import get_engine_access
+from ceres.__internal__.app.shared import get_engine_access, get_engine_access_detail
+from ceres.access import AccessSource, GrantOrigin
 from ceres.config import ComponentAccessLevel, Config
 from ceres.data import validate
 from ceres.permission import PermissionTargetType, UserPermission
@@ -58,10 +59,32 @@ async def test_all_target_grant_raises_engine_access() -> None:
 
 
 async def test_config_default_lowers_engine_access() -> None:
+    """A denying default reads as no access, the same as it does on a component."""
     engine = await _build_engine(access="deny")
     user = await _create_user(engine, "viewer")
 
-    assert await get_engine_access(engine, user) == ComponentAccessLevel.DENY
+    assert await get_engine_access(engine, user) is None
+
+    await engine.database.dispose()
+
+
+async def test_engine_access_detail_names_what_conferred_the_level() -> None:
+    engine = await _build_engine(access="deny")
+    user = await _create_user(engine, "operator")
+    await engine.database.user_permissions.create(
+        UserPermission.Create(
+            user_id=user.id,
+            target_type=PermissionTargetType.ALL,
+            target="",
+            level=ComponentAccessLevel.MANAGE,
+        )
+    )
+
+    resolved = await get_engine_access_detail(engine, user)
+    assert resolved is not None
+    assert resolved.level == ComponentAccessLevel.MANAGE
+    assert resolved.source == AccessSource.ALL
+    assert resolved.origin == GrantOrigin.USER
 
     await engine.database.dispose()
 
