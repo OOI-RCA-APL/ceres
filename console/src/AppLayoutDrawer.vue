@@ -1,20 +1,24 @@
 <script lang="ts" setup>
 import { upperFirst } from 'lodash-es'
 import { LocalStorage } from 'quasar'
+import { watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Zod from 'zod'
 
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import AppLayoutDrawerHeader from '@/AppLayoutDrawerHeader.vue'
 import AppLayoutDrawerWorkspace from '@/AppLayoutDrawerWorkspace.vue'
+import { useAccess } from '@/api/access'
 import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
+import { User, useUsers } from '@/api/users'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
 import { guard } from '@/errors'
 import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
+import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
 import { usePreferences } from '@/preferences'
@@ -22,9 +26,12 @@ import { duration } from '@/time'
 import { displayDuration } from '@/utilities'
 import { useWorkspaces, Workspace } from '@/workspace'
 
+const access = useAccess()
 const auth = useAuth()
 const engine = useEngine()
+const users = useUsers()
 const drawer = useDrawer()
+const navigation = useNavigation()
 const notify = useNotify()
 const dialogs = useDialogs()
 const workspaces = useWorkspaces()
@@ -67,6 +74,38 @@ async function importWorkspaces() {
   if (imported != null && imported.length > 0) {
     await workspaces.open(imported[0].id)
   }
+}
+
+// The engine decides whether switching exists at all, and only an administrator may do it.
+const canSwitchUser = $computed(() => engine.auth.canSwitchUser && engine.auth.isAdmin)
+
+let switchableUsers = $ref<User[]>([])
+
+void engine.auth.loadFeatures()
+
+watch(
+  () => canSwitchUser,
+  async (allowed) => {
+    switchableUsers = allowed ? await users.getAll({ order: 'username' }) : []
+  },
+  { immediate: true }
+)
+
+// Everything the console shows is filtered by who the caller is, so the access map, the workspace
+// list and the current page all have to be rebuilt around the new identity.
+async function adoptIdentity(change: Promise<unknown>) {
+  await guard(change, () => notify.error('Failed to switch user.'))
+  await access.refresh()
+  await workspaces.refresh()
+  navigation.reload()
+}
+
+async function switchTo(userId: string) {
+  await adoptIdentity(engine.auth.switchUser(userId))
+}
+
+async function returnFromSwitch() {
+  await adoptIdentity(engine.auth.returnFromSwitch())
 }
 
 // Dropping an exported workspace file on the list imports it, landing on the engine root like
@@ -431,6 +470,54 @@ function promptReload() {
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Schema Form Playground</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </q-item>
+        </template>
+        <!-- Switching is administrators only and needs the engine to have turned it on, which is
+        off by default and warned about on every load. It is not gated on the build, so an operator
+        can check what a user sees on the deployment they are actually running. -->
+        <template v-if="engine.auth.isSwitched">
+          <q-separator />
+          <q-item clickable @click="returnFromSwitch">
+            <q-item-section avatar>
+              <q-icon color="warning" :name="icons.viewer" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>Viewing as {{ engine.auth.user?.username }}</q-item-label>
+              <q-item-label caption>Return to your own account.</q-item-label>
+            </q-item-section>
+          </q-item>
+        </template>
+        <template v-else-if="canSwitchUser">
+          <q-separator />
+          <q-item clickable>
+            <q-item-section avatar>
+              <q-icon :name="icons.viewer" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>View As</q-item-label>
+              <q-item-label caption>Intended for development.</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <q-icon :name="icons.menuRight" />
+            </q-item-section>
+            <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+              <q-list bordered dense :style="{ maxHeight: '400px', overflowY: 'auto' }">
+                <q-item
+                  v-for="candidate in switchableUsers"
+                  :key="candidate.id"
+                  v-close-popup
+                  clickable
+                  @click="switchTo(candidate.id)"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="candidate.admin ? icons.admin : icons.user" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>{{ candidate.username }}</q-item-label>
                   </q-item-section>
                 </q-item>
               </q-list>

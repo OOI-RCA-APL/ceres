@@ -746,6 +746,15 @@ class ServerAuthenticationConfig(DataObject):
     duration: PositiveTimeDelta = timedelta(minutes=30)
     """Lifetime of an issued authentication token."""
 
+    allow_user_switching: bool = False
+    """Whether an administrator may take on another user's identity without their password.
+
+    Turn this on to check what a given user can see, which is otherwise hard to answer with
+    confidence. It also means anyone who reaches an administrator's session reaches every account
+    without a password, so it belongs in development and should stay off in production. It is off
+    unless asked for, and the engine logs a warning on every load while it is on.
+    """
+
 
 class ServerCORSConfig(DataObject):
     """Cross-origin resource sharing settings for the engine's HTTP server."""

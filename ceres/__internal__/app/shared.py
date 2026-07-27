@@ -297,17 +297,27 @@ class Identity(DataObject):
     token: str
     expires: DateTime
     user: User
+    switched_from: UUID | None = None
+    """Administrator who switched into this identity, marking it as not their own account.
+
+    A marker for the console to show, not a right. Switching is administrators only, and a
+    switched identity is somebody else's, so it confers nothing.
+    """
 
 
 def create_identity(
     user: User,
     authentication: ServerAuthenticationConfig,
+    switched_from: UUID | None = None,
 ) -> Identity:
     """Create a signed JWT identity for the given user using the server authentication config.
 
     Args:
         user: The user to issue a token for.
         authentication: Server auth config providing the signing secret and token duration.
+        switched_from: Administrator who took on this identity through user switching, recorded
+            so they can return to their own account without their password. `None` for a token
+            issued to the user themselves.
 
     Returns:
         An `Identity` containing the encoded token, its expiration time, and the user.
@@ -315,19 +325,20 @@ def create_identity(
     import jwt
 
     expires = utc() + authentication.duration
-    token = jwt.encode(
-        {
-            "sub": str(user.id),
-            "exp": expires,
-        },
-        authentication.secret,
-        "HS256",
-    )
+    claims: dict[str, Any] = {
+        "sub": str(user.id),
+        "exp": expires,
+    }
+    if switched_from is not None:
+        claims["swf"] = str(switched_from)
+
+    token = jwt.encode(claims, authentication.secret, "HS256")
 
     return Identity(
         user=user,
         token=token,
         expires=expires,
+        switched_from=switched_from,
     )
 
 
@@ -416,10 +427,17 @@ async def _get_current_identity(
         if user is None:
             return None
 
+        switched_from = info.get("swf")
+        try:
+            switched_from = UUID(str(switched_from)) if switched_from is not None else None
+        except ValueError:
+            return None
+
         return Identity(
             token=token,
             expires=expires,
             user=user,
+            switched_from=switched_from,
         )
 
 

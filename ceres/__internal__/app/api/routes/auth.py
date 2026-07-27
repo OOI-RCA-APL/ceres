@@ -1,4 +1,5 @@
 import asyncio
+from uuid import UUID
 
 from fastapi import Response
 
@@ -21,6 +22,7 @@ from ceres.error import (
     BadCredentialsError,
     NotAuthenticatedError,
     NotFoundError,
+    NotPermittedError,
 )
 from ceres.user import User
 
@@ -102,6 +104,78 @@ async def refresh(
         assign_authorization_cookie(response, identity, input.cookie)
 
     return identity
+
+
+class AuthFeatures(DataObject):
+    """Optional authentication behavior the console adapts itself to."""
+
+    user_switching: bool
+    """Whether an administrator may take on another user's identity."""
+
+
+@router.get("/features")
+async def get_auth_features(engine: CurrentEngine) -> AuthFeatures:
+    """Report which optional authentication behavior this engine allows.
+
+    Only a boolean, which probing the routes would reveal anyway, so the console can hide an
+    affordance that would not work rather than offer one that fails.
+    """
+    authentication = engine.config.server.authentication
+    return AuthFeatures(
+        user_switching=authentication is not None and authentication.allow_user_switching
+    )
+
+
+class SwitchUserInput(DataObject):
+    """Request body for taking on another user's identity."""
+
+    user_id: UUID
+    cookie: AuthorizationCookieType | None = None
+
+
+@router.post("/switch")
+async def switch_user(
+    engine: CurrentEngine,
+    identity: CurrentIdentity,
+    response: Response,
+    input: SwitchUserInput,
+) -> Identity:
+    """Issue an identity for another user without their password.
+
+    A way to see the console as each user sees it, off unless
+    `server.authentication.allow_user_switching` is set, which belongs in development. It is a
+    full bypass of password authentication, so the route reports itself missing rather than
+    forbidden when the setting is off, and nothing about it is reachable in a default deployment.
+
+    Only an administrator may switch, and the issued identity is not one, so a switch cannot be
+    chained onward into a third account. Returning needs no route, because the caller still holds
+    the token they had before switching.
+
+    Raises:
+        AuthenticationDisabledError: If authentication is disabled.
+        NotFoundError: If user switching is off, or the target user does not exist.
+        NotAuthenticatedError: If the caller is not authenticated.
+        NotPermittedError: If the caller is not an administrator.
+    """
+    authentication = engine.config.server.authentication
+    if authentication is None:
+        raise AuthenticationDisabledError()
+    if not authentication.allow_user_switching:
+        raise NotFoundError()
+    if identity is None:
+        raise NotAuthenticatedError()
+    if not identity.user.admin:
+        raise NotPermittedError()
+
+    user = await engine.users.get(input.user_id)
+    if user is None:
+        raise NotFoundError()
+
+    switched = create_identity(user, authentication, switched_from=identity.user.id)
+    if input.cookie is not None:
+        assign_authorization_cookie(response, switched, input.cookie)
+
+    return switched
 
 
 @router.post("/logout")
