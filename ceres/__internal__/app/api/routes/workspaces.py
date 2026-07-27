@@ -5,7 +5,6 @@ from uuid import UUID
 from fastapi import Query
 
 from ceres.__internal__.app.shared import (
-    SELF_OR_ADMIN,
     Actor,
     CurrentActor,
     CurrentEngine,
@@ -15,6 +14,7 @@ from ceres.__internal__.app.shared import (
     assert_found,
     build_address_chain,
     get_component_access,
+    get_engine_access,
 )
 from ceres.__internal__.workspace_redaction import merge_redacted_widgets, redact_workspace_data
 from ceres.access import fetch_access_grants, resolve_access_from
@@ -25,8 +25,6 @@ from ceres.workspace import (
     Workspace,
     WorkspaceCreate,
     WorkspaceFilter,
-    WorkspaceMembershipCreate,
-    WorkspaceMembershipRole,
     WorkspaceUpdate,
 )
 
@@ -83,32 +81,85 @@ async def redact_workspace(
     return construct(Workspace, **{**to_dict(workspace), "data": data})
 
 
-async def require_scope_access(
+async def require_placement_access(
     engine: Engine,
     actor: Actor,
     user: User | None,
     scope: Address,
     minimum: ComponentAccessLevel,
 ) -> None:
-    """Raise unless the caller holds at least `minimum` access on the scope component.
+    """Raise unless the caller holds at least `minimum` access on a workspace's placement.
+
+    A workspace is placed on the engine root or on a component, and each resolves its access a
+    different way. Everything else about a workspace's permissions follows from this one check.
 
     Raises:
-        NotFoundError: If the scope component is missing, or the caller cannot even view it,
-            hiding the workspace's existence.
-        NotPermittedError: If the caller can view the scope but lacks `minimum`.
+        NotFoundError: If the placement is missing, or the caller cannot even view it, which
+            hides the workspace's existence.
+        NotPermittedError: If the caller can view the placement but lacks `minimum`.
     """
     if actor.admin:
         return
 
-    component = engine.get_component(scope)
-    if component is None:
-        raise NotFoundError()
+    if scope.is_engine:
+        access = await get_engine_access(engine, user)
+    else:
+        component = engine.get_component(scope)
+        if component is None:
+            raise NotFoundError()
 
-    access = await get_component_access(engine, user, component)
+        access = await get_component_access(engine, user, component)
+
     if access is None or access < ComponentAccessLevel.VIEW:
         raise NotFoundError()
     if access < minimum:
         raise NotPermittedError()
+
+
+async def require_visible(
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
+    workspace: Workspace,
+) -> None:
+    """Raise unless the caller may see `workspace` at all.
+
+    A private workspace belongs to exactly one user, and administrators do not bypass that. The
+    owner must still hold view access on the placement, so losing access to a component also
+    removes the private workspaces placed on it.
+
+    Raises:
+        NotFoundError: If the workspace is private to somebody else, or its placement is not
+            viewable by the caller.
+    """
+    if workspace.owner_id is not None and (user is None or workspace.owner_id != user.id):
+        raise NotFoundError()
+
+    await require_placement_access(engine, actor, user, workspace.scope, ComponentAccessLevel.VIEW)
+
+
+async def require_writable(
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
+    workspace: Workspace,
+) -> None:
+    """Raise unless the caller may edit and manage `workspace`.
+
+    An owner has full rights over their own private workspace, whatever their access on the
+    placement, since nobody else can see it. A shared workspace requires manage on its placement.
+
+    Raises:
+        NotFoundError: If the workspace is not visible to the caller.
+        NotPermittedError: If it is visible but not writable.
+    """
+    await require_visible(engine, actor, user, workspace)
+    if workspace.owner_id is not None:
+        return
+
+    await require_placement_access(
+        engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
+    )
 
 
 @router.get("/workspaces/{id:uuid}")
@@ -120,42 +171,33 @@ async def get_workspace(
 ) -> Workspace:
     """Return a single workspace by ID.
 
-    Global workspaces are visible to members and per general access. Scoped workspaces are
-    visible to anyone with view access on their scope component.
+    A workspace is visible when the caller can view its placement, and, for a private workspace,
+    only to its owner.
 
     Raises:
         NotFoundError: If the workspace does not exist or the caller cannot view it.
     """
     workspace = assert_found(await engine.workspaces.where(id=id).first())
-    if not workspace.scope.is_engine:
-        await require_scope_access(engine, actor, user, workspace.scope, ComponentAccessLevel.VIEW)
-        return await redact_workspace(engine, actor, user, workspace)
-
-    if user is not None and not actor.admin:
-        if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
-            raise NotFoundError()
-
+    await require_visible(engine, actor, user, workspace)
     return await redact_workspace(engine, actor, user, workspace)
 
 
-async def filter_viewable_scoped(
-    engine: Engine, user: User, workspaces: list[Workspace]
+async def filter_visible(
+    engine: Engine, actor: Actor, user: User | None, workspaces: list[Workspace]
 ) -> list[Workspace]:
-    """Return the subset of `workspaces` whose scope component `user` can view.
+    """Return the subset of `workspaces` the caller may see.
 
-    Every workspace in `workspaces` must be scoped. A workspace whose scope component no longer
-    exists is dropped, since there is nothing left to check access against.
+    A workspace whose placement component no longer exists is dropped, since there is nothing
+    left to check access against.
     """
     visible: list[Workspace] = []
     for workspace in workspaces:
-        assert not workspace.scope.is_engine
-        component = engine.get_component(workspace.scope)
-        if component is None:
+        try:
+            await require_visible(engine, actor, user, workspace)
+        except NotFoundError, NotPermittedError:
             continue
 
-        access = await get_component_access(engine, user, component)
-        if access is not None and access >= ComponentAccessLevel.VIEW:
-            visible.append(workspace)
+        visible.append(workspace)
 
     return visible
 
@@ -169,44 +211,13 @@ async def get_workspaces(
 ) -> list[Workspace]:
     """Return workspaces matching the given filter, capped at 1000 results.
 
-    Non-admin callers see global workspaces they can view plus scoped workspaces whose scope
-    component they can view.
+    Callers see the workspaces whose placement they can view, plus the private ones they own.
+    Administrators do not see other users' private workspaces.
     """
     scope = WorkspaceFilter.model_validate(filter, from_attributes=True)
-    if user is None or actor.admin:
-        return await engine.workspaces.where(scope)
-
-    visible_global = await engine.workspaces.where(
-        scope & WorkspaceFilter(placed_on_engine=True, viewable_by=user.id)
-    )
-    candidates = await engine.workspaces.where(scope & WorkspaceFilter(placed_on_engine=False))
-    visible_scoped = await filter_viewable_scoped(engine, user, candidates)
-
-    results = [*visible_global, *visible_scoped]
-    return [await redact_workspace(engine, actor, user, workspace) for workspace in results]
-
-
-@router.get("/users/{user_id:uuid}/workspaces", dependencies=[SELF_OR_ADMIN])
-async def get_workspaces_for_user(
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    user_id: UUID,
-    filter: Annotated[WorkspaceFilter, Query()],
-) -> list[Workspace]:
-    """Return workspaces that a specific user has joined, filtered by the given criteria.
-
-    Non-admin callers only see joined scoped workspaces whose scope component they can still
-    view. A membership alone does not guarantee visibility once a workspace gains a scope, and a
-    stale membership can otherwise linger from before the workspace was scoped.
-    """
-    results = await engine.workspaces.where(joined_by=user_id, and__=filter)
-    if not actor.admin and actor.user is not None:
-        global_results = [workspace for workspace in results if workspace.scope.is_engine]
-        scoped_results = [workspace for workspace in results if not workspace.scope.is_engine]
-        visible_scoped = await filter_viewable_scoped(engine, actor.user, scoped_results)
-        results = [*global_results, *visible_scoped]
-
-    return [await redact_workspace(engine, actor, actor.user, workspace) for workspace in results]
+    candidates = await engine.workspaces.where(scope)
+    visible = await filter_visible(engine, actor, user, candidates)
+    return [await redact_workspace(engine, actor, user, workspace) for workspace in visible]
 
 
 @router.post("/workspaces")
@@ -218,28 +229,24 @@ async def create_workspace(
 ) -> Workspace:
     """Create a new workspace.
 
-    Creating a scoped workspace requires manage access on the scope component. Creating a
-    global workspace grants the creating user a manager membership in it.
+    A private workspace needs only view access on its placement, since nobody else will see it. A
+    shared one needs manage, because it appears for everybody who can see that placement.
 
     Raises:
-        NotFoundError: If the scope component is missing or invisible to the caller.
-        NotPermittedError: If the caller lacks manage access on the scope.
+        NotFoundError: If the placement is missing or invisible to the caller.
+        NotPermittedError: If the caller lacks the access their choice of workspace requires, or
+            tries to create a workspace owned by somebody else.
     """
-    if not workspace.scope.is_engine:
-        await require_scope_access(
-            engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
-        )
+    minimum = (
+        ComponentAccessLevel.VIEW if workspace.owner_id is not None else ComponentAccessLevel.MANAGE
+    )
+    await require_placement_access(engine, actor, user, workspace.scope, minimum)
+
+    if workspace.owner_id is not None and user is not None and workspace.owner_id != user.id:
+        # A caller may only claim ownership for themselves.
+        raise NotPermittedError()
 
     created = await engine.workspaces.create(workspace)
-    if workspace.scope.is_engine and user is not None:
-        await engine.workspace_memberships.create(
-            WorkspaceMembershipCreate(
-                user_id=user.id,
-                workspace_id=created.id,
-                role=WorkspaceMembershipRole.MANAGER,
-            )
-        )
-
     return await redact_workspace(engine, actor, user, created)
 
 
@@ -251,12 +258,15 @@ async def update_workspace(
     id: UUID,
     update: WorkspaceUpdate,
 ) -> Workspace:
-    """Partially update a workspace. Changing name, scope, or viewership/managership settings
-    requires manager-level access. Other updates require editor-level access.
+    """Partially update a workspace.
+
+    Ownership only ever moves one way, from an owner to nobody, which is what publishing a
+    private workspace means. Taking a shared workspace private would remove a tab other people
+    may have open and hold working copies against, so it is refused.
 
     Raises:
-        NotFoundError: If the workspace does not exist.
-        NotPermittedError: If the caller lacks permission.
+        NotFoundError: If the workspace does not exist or is not visible to the caller.
+        NotPermittedError: If the caller lacks permission for the change they asked for.
     """
     workspace = assert_found(await engine.workspaces.where(id=id).first())
 
@@ -265,55 +275,23 @@ async def update_workspace(
         # so a stub can never overwrite a widget's real configuration.
         update["data"] = merge_redacted_widgets(workspace.data, update["data"])
 
-    new_scope = update["scope"] if "scope" in update else workspace.scope
-    rescoping = new_scope != workspace.scope
-    if rescoping and not new_scope.is_engine:
-        # Setting or changing the scope always requires manage access on the target component,
-        # regardless of whether the workspace is currently global or scoped.
-        await require_scope_access(engine, actor, user, new_scope, ComponentAccessLevel.MANAGE)
+    await require_writable(engine, actor, user, workspace)
 
-    if not workspace.scope.is_engine:
-        await require_scope_access(
-            engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
-        )
-        updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
-        if rescoping and new_scope.is_engine and user is not None:
-            # Unscoping would otherwise leave the workspace without any accessible membership.
-            await engine.workspace_memberships.create(
-                WorkspaceMembershipCreate(
-                    user_id=user.id,
-                    workspace_id=updated.id,
-                    role=WorkspaceMembershipRole.MANAGER,
-                )
-            )
-
-        return await redact_workspace(engine, actor, user, updated)
-
-    if user is not None and not actor.admin:
-        if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
-            raise NotFoundError()
-
-        if (
-            "name" in update
-            or "scope" in update
-            or "general_viewership" in update
-            or "general_editorship" in update
-            or "general_managership" in update
-        ):
-            # Only managers and admins can change these workspace settings.
-            membership = await engine.workspace_memberships.get(user.id, id)
-            if membership is None or membership.role < WorkspaceMembershipRole.MANAGER:
-                raise NotPermittedError()
-        elif not await engine.workspaces.where(id=id, editable_by=user.id).any():
-            # Only editors of this workspace can update it.
+    if "owner_id" in update and update["owner_id"] != workspace.owner_id:
+        if workspace.owner_id is None or update["owner_id"] is not None:
             raise NotPermittedError()
 
-    updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
-    if rescoping and not new_scope.is_engine:
-        # A scoped workspace derives access from its component and does not support memberships,
-        # so a leftover membership must not be allowed to linger and leak visibility.
-        await engine.workspace_memberships.where(workspace_id=id).delete()
+        await require_placement_access(
+            engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
+        )
 
+    if "scope" in update and update["scope"] != workspace.scope:
+        # Moving a workspace requires manage on where it is going, not just where it came from.
+        await require_placement_access(
+            engine, actor, user, update["scope"], ComponentAccessLevel.MANAGE
+        )
+
+    updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
     return await redact_workspace(engine, actor, user, updated)
 
 
@@ -324,26 +302,16 @@ async def delete_workspace(
     user: RequireAuthenticated,
     id: UUID,
 ) -> Workspace:
-    """Delete a workspace by ID. Only workspace managers and admins can delete workspaces.
+    """Delete a workspace by ID.
+
+    An owner may delete their own private workspace. Deleting a shared one requires manage access
+    on its placement.
 
     Raises:
-        NotFoundError: If the workspace does not exist.
+        NotFoundError: If the workspace does not exist or is not visible to the caller.
         NotPermittedError: If the caller lacks permission.
     """
     workspace = assert_found(await engine.workspaces.where(id=id).first())
-    if not workspace.scope.is_engine:
-        await require_scope_access(
-            engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
-        )
-        deleted = assert_found(await engine.workspaces.where(id=id).delete().first())
-        return await redact_workspace(engine, actor, user, deleted)
-
-    if user is not None and not actor.admin:
-        if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
-            raise NotFoundError()
-        if not await engine.workspaces.where(id=id, manageable_by=user.id).any():
-            # Only workspace managers and admins can delete a workspaces.
-            raise NotPermittedError()
-
+    await require_writable(engine, actor, user, workspace)
     deleted = assert_found(await engine.workspaces.where(id=id).delete().first())
     return await redact_workspace(engine, actor, user, deleted)
