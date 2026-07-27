@@ -7,6 +7,7 @@ import { stringify } from 'yaml'
 
 import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
+import { useAuth } from '@/api/auth'
 import { ConnectionInfo, ConnectionStateInfo, JobInfo, ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import { Connectivity } from '@/api/shared'
@@ -26,6 +27,7 @@ import { useWorkspaces, Workspace } from '@/workspace'
 
 const engine = useEngine()
 const access = useAccess()
+const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
 const route = useRoute()
@@ -109,6 +111,19 @@ function createScoped() {
     await refreshScoped()
     selectWorkspace(created.id)
   })
+}
+
+// A file dropped on this component's strip belongs to this component, and is shared or private on
+// the same terms as one created here.
+async function importScoped(files: File[]) {
+  const imported = await workspaces.importWorkspaces(files, {
+    scope: address,
+    owner_id: canManage ? null : auth.user?.id,
+  })
+  await refreshScoped()
+  if (imported.length > 0) {
+    selectWorkspace(imported[0].id)
+  }
 }
 
 await refreshScoped()
@@ -494,6 +509,7 @@ const persisted = usePersisted({
             class="q-ml-sm"
             :workspaces="scopedWorkspaces"
             @create="createScoped"
+            @import="importScoped"
             @reorder="reorderScoped"
             @select="selectWorkspace"
           />
@@ -510,6 +526,7 @@ const persisted = usePersisted({
           class="q-px-sm q-py-xs"
           :workspaces="scopedWorkspaces"
           @create="createScoped"
+          @import="importScoped"
           @reorder="reorderScoped"
           @select="selectWorkspace"
         />

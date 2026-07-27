@@ -1036,17 +1036,18 @@ export const useWorkspaces = defineStore('workspaces', () => {
     download(`${workspace.name}.workspace.json`, json)
   }
 
-  async function importFiles() {
-    const files = await selectFile({ multiple: true, accept: 'application/json' })
-    if (files == null) {
-      return null
-    }
-
+  /** Import exported workspace files, placing each one on `placement`. */
+  async function importWorkspaces(
+    files: Iterable<File>,
+    placement?: { scope?: Address; owner_id?: string | null }
+  ) {
     const imported: Workspace[] = []
 
     for (const file of files) {
-      const parsed = JSON.parse(await file.text())
-      if (parsed === undefined) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(await file.text())
+      } catch {
         notify.error(`Import of '${file.name}' failed. Invalid JSON.`)
         continue
       }
@@ -1057,18 +1058,30 @@ export const useWorkspaces = defineStore('workspaces', () => {
         continue
       }
 
+      // An exported file carries the identity of where it came from. Only its name and contents
+      // travel, so the import lands where the user dropped it rather than where it was made.
       const created = await create({
         name: workspace.name,
         data: workspace.data,
+        ...placement,
       })
       imported.push(created)
     }
 
-    if (imported.length == 0) {
+    if (imported.length > 0) {
       notify.success(`${imported.length} workspace(s) imported successfully.`)
     }
 
     return imported
+  }
+
+  async function importFiles(placement?: { scope?: Address; owner_id?: string | null }) {
+    const files = await selectFile({ multiple: true, accept: 'application/json' })
+    if (files == null) {
+      return null
+    }
+
+    return await importWorkspaces(files, placement)
   }
 
   return {
@@ -1088,6 +1101,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     assignEdit,
     discardEdit,
     importFiles,
+    importWorkspaces,
     exportFile,
   }
 })

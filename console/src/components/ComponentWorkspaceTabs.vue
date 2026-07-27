@@ -3,6 +3,7 @@ import { QPopupEdit } from 'quasar'
 import { nextTick, watch } from 'vue'
 
 import { useDialogs } from '@/dialogs'
+import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
 import { isStructurallyEqual } from '@/utilities'
 import {
@@ -21,10 +22,19 @@ const { workspaces, active, canManage, activeActions, activeState } = defineProp
   activeState?: WorkspaceHeaderState
 }>()
 
-const emit = defineEmits<{ select: [id: string]; create: []; reorder: [workspaces: Workspace[]] }>()
+const emit = defineEmits<{
+  select: [id: string]
+  create: []
+  import: [files: File[]]
+  reorder: [workspaces: Workspace[]]
+}>()
 
 const dialogs = useDialogs()
 const workspaceStore = useWorkspaces()
+
+// Dropping an exported workspace file onto the strip adds it to this component, the same as
+// dropping a file onto a browser's tab bar opens it there.
+const fileDrop = useFileDrop((files) => emit('import', files), isWorkspaceFile)
 
 const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
 const undoShortcut = isApple ? '⌘Z' : 'Ctrl+Z'
@@ -286,7 +296,11 @@ function promptDeleteById(workspace: Workspace) {
 </script>
 
 <template>
-  <div ref="rootElement" :class="[$style.root, 'no-wrap', 'row']">
+  <div
+    ref="rootElement"
+    :class="[$style.root, fileDrop.active.value && $style.dropTarget, 'no-wrap', 'row']"
+    v-bind="canManage ? fileDrop.handlers : {}"
+  >
     <q-tabs
       :class="$style.tabs"
       dense
@@ -571,6 +585,13 @@ function promptDeleteById(workspace: Workspace) {
   align-items: stretch;
   padding-top: 4px;
   overflow: hidden;
+}
+
+// An inset outline rather than a border, so the strip does not shift by a pixel when a file is
+// dragged over it.
+.dropTarget {
+  box-shadow: inset 0 0 0 2px $primary;
+  border-radius: 4px;
 }
 
 .tabs {

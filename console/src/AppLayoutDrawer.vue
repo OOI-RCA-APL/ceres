@@ -13,6 +13,7 @@ import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
 import { guard } from '@/errors'
+import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
@@ -64,9 +65,18 @@ function createWorkspace() {
 async function importWorkspaces() {
   const imported = await workspaces.importFiles()
   if (imported != null && imported.length > 0) {
-    workspaces.open(imported[0].id)
+    await workspaces.open(imported[0].id)
   }
 }
+
+// Dropping an exported workspace file on the list imports it, landing on the engine root like
+// anything else created from here.
+const fileDrop = useFileDrop(async (files) => {
+  const imported = await workspaces.importWorkspaces(files)
+  if (imported.length > 0) {
+    await workspaces.open(imported[0].id)
+  }
+}, isWorkspaceFile)
 
 function clearLocalStorage() {
   dialogs
@@ -242,7 +252,11 @@ function promptReload() {
               </q-item-section>
             </q-item>
             <div v-if="persisted.isShowingWorkspaces" class="relative-position">
-              <q-list class="scroll" :style="{ height: `${persisted.workspaceDropdownHeight}px` }">
+              <q-list
+                :class="['scroll', fileDrop.active.value && $style.dropTarget]"
+                :style="{ height: `${persisted.workspaceDropdownHeight}px` }"
+                v-bind="fileDrop.handlers"
+              >
                 <app-layout-drawer-workspace
                   v-for="workspace in displayedWorkspaces"
                   :key="workspace.id"
@@ -477,6 +491,13 @@ function promptReload() {
   position: absolute;
   bottom: 0;
   left: 0;
+}
+
+// An inset outline rather than a border, so the list does not shift by a pixel when a file is
+// dragged over it.
+.dropTarget {
+  box-shadow: inset 0 0 0 2px $primary;
+  border-radius: 4px;
 }
 
 .largeItem {
