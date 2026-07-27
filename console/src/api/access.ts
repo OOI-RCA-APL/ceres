@@ -57,5 +57,10 @@ export const useAccess = defineStore('access', () => {
     return levelFor(address) === 'manage'
   }
 
-  return { refresh, levelFor, canOperate, canManage }
+  function canView(address: string): boolean {
+    // The cache only holds levels the user actually has, so a missing entry is no access.
+    return levelFor(address) != null
+  }
+
+  return { refresh, levelFor, canView, canOperate, canManage }
 })

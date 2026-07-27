@@ -75,6 +75,7 @@ const icons = {
   view: 'mdi-eye',
   viewOriginal: 'mdi-eye-arrow-left',
   viewer: 'mdi-account-eye',
+  privateWorkspace: 'mdi-lock',
   workingCopy: 'mdi-pencil-box-multiple',
   workspace: 'mdi-dots-grid',
 } as const

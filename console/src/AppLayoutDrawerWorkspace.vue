@@ -1,20 +1,19 @@
 <script lang="ts" setup>
+import { useAuth } from '@/api/auth'
 import icons from '@/icons'
-import { useWorkspaces, Workspace } from '@/workspace'
+import { Workspace } from '@/workspace'
 
 const { workspace } = defineProps<{
   workspace: Workspace
 }>()
 
-const workspaces = useWorkspaces()
-const membership = $computed(() => workspaces.getStoredMembership(workspace.id))
-const icon = $computed(() => {
-  if (membership == null) {
-    return null
-  }
+const auth = useAuth()
 
-  return icons[membership.role]
-})
+// A private workspace only ever appears here for its own owner, so the lock is a reminder that
+// nobody else can see it rather than a permission the viewer might lack.
+const isPrivate = $computed(
+  () => workspace.owner_id != null && workspace.owner_id === auth.user?.id
+)
 </script>
 
 <template>
@@ -29,16 +28,16 @@ const icon = $computed(() => {
         </span>
       </q-item-label>
     </q-item-section>
-    <q-item-section v-if="membership != null" side>
-      <q-icon v-if="icon != null" :class="$style.membershipIcon" :name="icon" size="14px">
-        <q-tooltip :delay="1000">You are a {{ membership.role }} of this workspace.</q-tooltip>
+    <q-item-section v-if="isPrivate" side>
+      <q-icon :class="$style.privateIcon" :name="icons.privateWorkspace" size="14px">
+        <q-tooltip :delay="1000">This workspace is private to you.</q-tooltip>
       </q-icon>
     </q-item-section>
   </q-item>
 </template>
 
 <style module>
-.membershipIcon {
+.privateIcon {
   margin-right: 5px;
 }
 </style>

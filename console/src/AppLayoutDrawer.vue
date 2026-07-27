@@ -37,19 +37,22 @@ const persisted = usePersisted({
       isShowingWorkspaces: boolean().default(false),
       isShowingComponents: boolean().default(true),
       workspaceDropdownHeight: number().default(200),
-      workspaceFilter: Zod.enum(['all', 'joined', 'unjoined']).default('all'),
+      workspaceFilter: Zod.enum(['all', 'shared', 'private']).default('all'),
     }),
   methods: [{ type: 'local-storage', key: 'component/app-layout-drawer' }],
 })
 
+// A private workspace is only ever returned to its own owner, so filtering on the owner being
+// set is the same as filtering on it being yours.
 const displayedWorkspaces = $computed(() => {
-  if (persisted.workspaceFilter === 'all') {
-    return [...workspaces.joined, ...workspaces.unjoined]
-  } else if (persisted.workspaceFilter === 'joined') {
-    return workspaces.joined
-  } else if (persisted.workspaceFilter === 'unjoined') {
-    return workspaces.unjoined
+  if (persisted.workspaceFilter === 'shared') {
+    return workspaces.all.filter((workspace) => workspace.owner_id == null)
   }
+  if (persisted.workspaceFilter === 'private') {
+    return workspaces.all.filter((workspace) => workspace.owner_id != null)
+  }
+
+  return workspaces.all
 })
 
 async function createWorkspace() {
@@ -187,19 +190,19 @@ function promptReload() {
                           <q-item
                             v-close-popup
                             clickable
-                            @click="persisted.workspaceFilter = 'joined'"
+                            @click="persisted.workspaceFilter = 'shared'"
                           >
                             <q-item-section>
-                              <q-item-label>Joined</q-item-label>
+                              <q-item-label>Shared</q-item-label>
                             </q-item-section>
                           </q-item>
                           <q-item
                             v-close-popup
                             clickable
-                            @click="persisted.workspaceFilter = 'unjoined'"
+                            @click="persisted.workspaceFilter = 'private'"
                           >
                             <q-item-section>
-                              <q-item-label>Unjoined</q-item-label>
+                              <q-item-label>Private</q-item-label>
                             </q-item-section>
                           </q-item>
                         </q-list>

@@ -111,6 +111,11 @@ export class Address extends AddressSelector {
     return this.value === '~' || this.value.startsWith('@')
   }
 
+  /** Whether this addresses the engine root rather than a component. */
+  public get isEngine(): boolean {
+    return this.value === '~'
+  }
+
   public asAbsolute(root: Address | null): Address {
     if (this.isAbsolute) {
       return this

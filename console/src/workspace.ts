@@ -28,7 +28,6 @@ import { LogEntryFilterModel } from '@/api/logs'
 import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
-import { User } from '@/api/users'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
@@ -348,36 +347,18 @@ export const WorkspaceDataModel = Zod.object({
   meta: WorkspaceMetaModel.catch(() => ({ order: undefined })),
 })
 
-export type WorkspaceAccessRestriction = Zod.infer<typeof WorkspaceAccessRestrictionModel>
-export const WorkspaceAccessRestrictionModel = Zod.enum(['anyone', 'private'])
+/** Address of the engine root, the placement every workspace not bound to a component sits on. */
+export const engineRoot = '~'
 
 export type Workspace = Zod.infer<typeof WorkspaceModel>
 export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
   id: Zod.string().catch(() => v7()),
   name: Zod.string(),
-  scope: AddressModel.nullish().catch(null),
-  general_viewership: WorkspaceAccessRestrictionModel.default('private'),
-  general_editorship: WorkspaceAccessRestrictionModel.default('private'),
-  general_managership: WorkspaceAccessRestrictionModel.default('private'),
+  scope: AddressModel.catch(() => Address.parse(engineRoot)),
+  owner_id: Zod.string().nullish().catch(null),
+  show_when_logged_out: Zod.boolean().catch(false),
   data: WorkspaceDataModel.catch(() => WorkspaceDataModel.parse({})),
-})
-
-export type WorkspaceMembershipRole = Zod.infer<typeof WorkspaceMembershipRoleModel>
-export const WorkspaceMembershipRoleModel = Zod.enum(['viewer', 'editor', 'manager'])
-
-export const WorkspaceMembershipRoleOf = {
-  viewer: 0,
-  editor: 1,
-  manager: 2,
-} as const
-
-export type WorkspaceMembership = Zod.infer<typeof WorkspaceMembershipModel>
-export const WorkspaceMembershipModel = Zod.object({
-  user_id: Zod.string(),
-  workspace_id: Zod.string(),
-  role: WorkspaceMembershipRoleModel.default('viewer'),
-  data: WorkspaceDataModel.nullish().catch(null),
 })
 
 export type WorkspaceEdit = Zod.infer<typeof WorkspaceEditModel>
@@ -432,10 +413,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     queryKey: computed(() => ['workspace-context', id, auth.user?.id]),
     experimental_prefetchInRender: true,
     queryFn: async () => {
-      return {
-        workspace: await workspaces.get(id),
-        membership: await workspaces.getMembership(id),
-      }
+      return { workspace: await workspaces.get(id) }
     },
   })
 
@@ -446,11 +424,28 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
         : null) as Workspace | null
   )
 
-  const membership = $computed(
-    () => (query.data.value?.membership ?? null) as WorkspaceMembership | null
-  )
-
   const scope = $computed(() => workspace?.scope ?? null)
+
+  function isEnginePlaced(): boolean {
+    return workspace != null && workspace.scope.toString() === engineRoot
+  }
+
+  /** Whether the caller may edit and manage this workspace, which are the same right. */
+  function isWritable(): boolean {
+    if (workspace == null) {
+      return false
+    }
+    if (workspace.owner_id != null) {
+      return workspace.owner_id === auth.user?.id
+    }
+    if (isEnginePlaced()) {
+      // Engine-level manage comes from an all-target grant, which the console models as manage
+      // on every component rather than as a level on the root itself.
+      return auth.user?.admin === true
+    }
+
+    return access.canManage(workspace.scope.toString())
+  }
 
   function resolveAddress(
     value: string | AddressSelector | null | undefined
@@ -593,18 +588,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   async function del() {
     return await workspaces.delete(id)
-  }
-
-  async function join(role: WorkspaceMembershipRole) {
-    const result = await workspaces.join(id, role)
-    await refresh()
-    return result
-  }
-
-  async function leave() {
-    const result = await workspaces.leave(id)
-    await refresh()
-    return result
   }
 
   async function exportFile() {
@@ -834,10 +817,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     scope: computed(() => scope),
     resolveAddress,
     resolveFilterAddress,
-    membership: computed(() => membership),
-    defaultViewership: computed(() => workspace?.general_viewership ?? 'private'),
-    defaultEditorship: computed(() => workspace?.general_editorship ?? 'private'),
-    defaultManagership: computed(() => workspace?.general_managership ?? 'private'),
+    owner: computed(() => workspace?.owner_id ?? null),
+    isPrivate: computed(() => workspace?.owner_id != null),
+    isEnginePlaced: computed(() => isEnginePlaced()),
     originalData: computed(() => workspace?.data ?? null),
     data: computed(() => data),
     edited: computed(() => edited),
@@ -850,8 +832,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     update,
     save,
     revert,
-    join,
-    leave,
     exportFile,
     getWidget,
     getWidgetAt,
@@ -862,41 +842,21 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     moveWidget,
     duplicateWidget,
     drag: null as Drag | null,
-    // Scoped workspaces have no memberships by design, so their capabilities derive from the
-    // caller's component access on the scope instead: view grants canView, manage grants both
-    // canEdit and canManage. Global workspaces keep the membership-based rules.
+    // A workspace is placed on a component or on the engine root, and its access is that
+    // placement's access. A private workspace belongs to its owner alone, whatever the placement
+    // says, since nobody else can see it at all.
     canView: computed(() => {
       if (workspace == null) {
         return false
       }
-
-      return scope != null
-        ? access.levelFor(scope.toString()) != null
-        : userCanViewWorkspace(auth.user, membership)
-    }),
-    couldView: computed(() => workspace != null && userCouldViewWorkspace(auth.user, workspace)),
-    canEdit: computed(() => {
-      if (workspace == null) {
-        return false
+      if (workspace.owner_id != null) {
+        return workspace.owner_id === auth.user?.id
       }
 
-      return scope != null
-        ? access.canManage(scope.toString())
-        : userCanEditWorkspace(auth.user, membership)
+      return isEnginePlaced() ? auth.user != null : access.canView(workspace.scope.toString())
     }),
-    couldEdit: computed(() => workspace != null && userCouldEditWorkspace(auth.user, workspace)),
-    canManage: computed(() => {
-      if (workspace == null) {
-        return false
-      }
-
-      return scope != null
-        ? access.canManage(scope.toString())
-        : userCanManageWorkspace(auth.user, membership)
-    }),
-    couldManage: computed(
-      () => workspace != null && userCouldManageWorkspace(auth.user, workspace)
-    ),
+    canEdit: computed(() => isWritable()),
+    canManage: computed(() => isWritable()),
   })
 }
 
@@ -937,24 +897,14 @@ export const useWorkspaces = defineStore('workspaces', () => {
 
   // The drawer's Workspaces section only lists global workspaces. Scoped workspaces are
   // reached from their scope component's details page instead.
+  // The server already limits this to what the caller may see, which is the workspaces whose
+  // placement they can view plus the private ones they own.
   async function getAll() {
     return await client.get(`/api/workspaces`, {
       parse: Zod.array(WorkspaceModel),
-      query: {
-        'viewable-by': getUserId(),
-        scoped: false,
-      },
     })
   }
 
-  async function getAllJoined() {
-    return await client.get(`/api/users/${getUserId()}/workspaces`, {
-      parse: Zod.array(WorkspaceModel),
-      query: {
-        scoped: false,
-      },
-    })
-  }
 
   async function listScoped(scope: Address) {
     return await client.get(`/api/workspaces`, {
@@ -968,12 +918,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
   const query = useQuery({
     queryKey: computed(() => ['workspaces', auth.user?.id]),
     queryFn: async () => {
-      const [all, joined, memberships] = await Promise.all([
-        getAll(),
-        getAllJoined(),
-        getMemberships(),
-      ])
-      return { all, joined, memberships }
+      return { all: await getAll() }
     },
   })
 
@@ -987,29 +932,6 @@ export const useWorkspaces = defineStore('workspaces', () => {
 
   const allWorkspaces = $computed(
     () => new Map((query.data.value?.all ?? []).map((workspace) => [workspace.id, workspace]))
-  )
-
-  const joinedWorkspaces = $computed(
-    () => new Map((query.data.value?.joined ?? []).map((workspace) => [workspace.id, workspace]))
-  )
-
-  const unjoinedWorkspaces = $computed(
-    () =>
-      new Map(
-        [...allWorkspaces.values()]
-          .filter((workspace) => !joinedWorkspaces.has(workspace.id))
-          .map((workspace) => [workspace.id, workspace])
-      )
-  )
-
-  const memberships = $computed(
-    () =>
-      new Map(
-        (query.data.value?.memberships ?? []).map((membership) => [
-          membership.workspace_id,
-          membership,
-        ])
-      )
   )
 
   async function create(
@@ -1049,67 +971,12 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return result
   }
 
-  async function getMembership(workspaceId: string) {
-    if (auth.user == null) {
-      return null
-    }
 
-    try {
-      return await client.get(`/api/users/${auth.user.id}/workspace-memberships/${workspaceId}`, {
-        parse: WorkspaceMembershipModel,
-      })
-    } catch {
-      return null
-    }
-  }
 
-  function getStoredMembership(workspaceId: string) {
-    return memberships.get(workspaceId)
-  }
 
-  async function getMemberships() {
-    if (auth.user == null) {
-      return []
-    }
 
-    return await client.get(`/api/users/${auth.user.id}/workspace-memberships`, {
-      parse: Zod.array(WorkspaceMembershipModel),
-    })
-  }
 
-  async function getMembershipsInWorkspace(workspaceId: string) {
-    return await client.get(`/api/workspaces/${workspaceId}/memberships`, {
-      parse: Zod.array(WorkspaceMembershipModel),
-    })
-  }
 
-  async function createMembership(
-    userId: string,
-    workspaceId: string,
-    role: WorkspaceMembershipRole
-  ) {
-    return await client.post(`/api/users/${userId}/workspace-memberships/${workspaceId}`, {
-      data: {
-        role,
-      },
-      parse: WorkspaceMembershipModel,
-    })
-  }
-
-  async function updateMembership(
-    userId: string,
-    workspaceId: string,
-    data: Partial<WorkspaceMembership>
-  ) {
-    return await client.patch(`/api/users/${userId}/workspace-memberships/${workspaceId}`, {
-      data,
-      parse: WorkspaceMembershipModel,
-    })
-  }
-
-  async function deleteMembership(userId: string, workspaceId: string) {
-    return await client.delete(`/api/users/${userId}/workspace-memberships/${workspaceId}`)
-  }
 
   async function getEdit(workspaceId: string) {
     if (auth.user == null) {
@@ -1164,13 +1031,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     }
   }
 
-  async function join(workspaceId: string, role: WorkspaceMembershipRole) {
-    return await createMembership(getUserId(), workspaceId, role)
-  }
 
-  async function leave(workspaceId: string) {
-    return await deleteMembership(getUserId(), workspaceId)
-  }
 
   async function exportFile(workspaceOrId: string | WorkspaceInput) {
     const workspace = typeof workspaceOrId === 'string' ? await get(workspaceOrId) : workspaceOrId
@@ -1230,33 +1091,20 @@ export const useWorkspaces = defineStore('workspaces', () => {
     load,
     refresh,
     all: computed(() => [...allWorkspaces.values()]),
-    joined: computed(() => [...joinedWorkspaces.values()]),
-    unjoined: computed(() => [...unjoinedWorkspaces.values()]),
-    memberships: computed(() => [...memberships.values()]),
     get,
     getAll,
-    getAllJoined,
     listScoped,
     create,
     rename,
     update,
     open,
     delete: del,
-    getMembership,
-    getStoredMembership,
-    getMemberships,
-    getMembershipsInWorkspace,
-    createMembership,
-    updateMembership,
-    deleteMembership,
     getEdit,
     getEdits,
     assignEdit,
     discardEdit,
     importFiles,
     exportFile,
-    join,
-    leave,
   }
 })
 
@@ -1339,59 +1187,3 @@ export function widgetTargetSignature(widget: Widget): string {
   return JSON.stringify(values.map((value) => value?.toString() ?? null))
 }
 
-export function userCouldViewWorkspace(user: User | null, workspace: Workspace) {
-  if (user == null) {
-    return false
-  }
-
-  return user.admin || workspace.general_viewership === 'anyone'
-}
-
-export function userCanViewWorkspace(user: User | null, membership: WorkspaceMembership | null) {
-  if (user == null) {
-    return false
-  }
-
-  return (
-    membership != null &&
-    WorkspaceMembershipRoleOf[membership.role] >= WorkspaceMembershipRoleOf.viewer
-  )
-}
-
-export function userCouldEditWorkspace(user: User | null, workspace: Workspace) {
-  if (user == null) {
-    return false
-  }
-
-  return user.admin || workspace.general_editorship === 'anyone'
-}
-
-export function userCanEditWorkspace(user: User | null, membership: WorkspaceMembership | null) {
-  if (user == null) {
-    return false
-  }
-
-  return (
-    membership != null &&
-    WorkspaceMembershipRoleOf[membership.role] >= WorkspaceMembershipRoleOf.editor
-  )
-}
-
-export function userCouldManageWorkspace(user: User | null, workspace: Workspace) {
-  if (user == null) {
-    return false
-  }
-
-  return user.admin || workspace.general_managership === 'anyone'
-}
-
-export function userCanManageWorkspace(user: User | null, membership: WorkspaceMembership | null) {
-  if (user == null) {
-    return false
-  }
-
-  return (
-    membership != null &&
-    WorkspaceMembershipRoleOf[membership.role] >= WorkspaceMembershipRoleOf.manager
-  )
-}

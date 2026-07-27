@@ -221,7 +221,7 @@ const persisted = usePersisted({
 </script>
 
 <template>
-  <full-page>
+  <full-page :fill="activeWorkspaceId == null">
     <template #header-append>
       <common-text class="q-ml-md" variant="title2">
         {{ component?.address?.toString() ?? address.toString() }}
@@ -479,7 +479,12 @@ const persisted = usePersisted({
           />
         </template>
       </workspace-page>
-      <template v-else-if="scopedWorkspaces.length > 0 || canManage">
+      <!-- With no workspace open the strip sits at the bottom of the page rather than
+      floating below the overview with empty space under it. -->
+      <div
+        v-else-if="scopedWorkspaces.length > 0 || canManage"
+        :class="$style.pinnedTabs"
+      >
         <q-separator />
         <component-workspace-tabs
           :active="activeWorkspaceId"
@@ -490,7 +495,7 @@ const persisted = usePersisted({
           @reorder="reorderScoped"
           @select="selectWorkspace"
         />
-      </template>
+      </div>
     </template>
   </full-page>
 </template>
@@ -499,12 +504,17 @@ const persisted = usePersisted({
 // The config and connections blocks sit side by side above this width and stack below it.
 $overview-columns-min: 720px;
 
-// With a workspace below, the panel takes the height dragged onto it. On its own it fills what
-// is left of the viewport under the app and page headers, so the configuration has a bottom edge
-// to reach in both cases.
+// With a workspace below, the panel takes the height dragged onto it, set inline. On its own it
+// grows with its content up to what is left of the viewport, then scrolls. This is a maximum
+// rather than a fixed height so a collapsed configuration does not leave the panel padded out
+// with empty space down to the fold.
+.pinnedTabs {
+  margin-top: auto;
+}
+
 .overviewContent {
   overflow-x: hidden;
-  height: calc(100vh - 92px);
+  max-height: calc(100vh - 92px);
 }
 
 // The grid fills the panel so the configuration can reach its bottom edge, and grows past it

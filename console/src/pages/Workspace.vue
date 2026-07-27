@@ -1,11 +1,8 @@
 <script lang="ts" setup>
 import { useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
-import { upperFirst } from 'lodash-es'
 import { QPopupEdit, colors } from 'quasar'
 import { computed, onMounted, reactive, watchEffect, watch } from 'vue'
 
-import { useAuth } from '@/api/auth'
-import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import FullPage from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
@@ -26,9 +23,6 @@ import {
   WorkspaceData,
   WorkspaceHeaderActions,
   WorkspaceHeaderState,
-  WorkspaceMembershipRole,
-  WorkspaceMembershipRoleModel,
-  WorkspaceMembershipRoleOf,
   getWidgetInfo,
 } from '@/workspace'
 
@@ -36,8 +30,6 @@ const { id } = defineProps<{
   id: string
 }>()
 
-const engine = useEngine()
-const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
 const notify = useNotify()
@@ -48,7 +40,6 @@ await workspace.load()
 const layout = $ref<HTMLDivElement | null>(null)
 let original = $ref<WorkspaceData | null>(null)
 let isViewingOriginal = $computed(() => original != null)
-let isMembershipMenuOpen = $ref(false)
 
 if (workspace.data == null || workspace.name == null) {
   throw new NotFoundError('workspace', id)
@@ -162,33 +153,6 @@ function openSettings() {
   dialogs.workspaceSettings(id).onOk(() => workspace.refresh())
 }
 
-function promptLeave() {
-  const role = workspace.membership?.role
-  if (role == null) {
-    return
-  }
-
-  dialogs
-    .confirm({
-      title: 'Leave Workspace',
-      html: true,
-      message:
-        `Are you sure you'd like to leave workspace "${workspace.name}"?\n\n` +
-        '<i>' +
-        'You will no longer be a member. If the workspace does not allow general access for your ' +
-        `account's role level (${role}) you will not be able to rejoin on your own.` +
-        '</i>',
-      ok: {
-        label: 'Leave',
-        color: 'negative',
-      },
-    })
-    .onOk(async () => {
-      await workspace.leave()
-      await navigation.go('/')
-    })
-}
-
 function promptDelete() {
   dialogs
     .delete({
@@ -205,9 +169,9 @@ function promptDelete() {
       const scope = workspace.scope
       await workspace.delete()
 
-      // A scoped workspace is hosted by its component's page, so deleting it returns to that
-      // page with no workspace selected rather than leaving the component entirely.
-      if (scope != null) {
+      // A component-placed workspace is hosted by that component's page, so deleting it
+      // returns there with no workspace selected rather than leaving the component entirely.
+      if (scope != null && !scope.isEngine) {
         await navigation.replace(`/components/${scope}`)
       } else {
         await navigation.go('/')
@@ -287,39 +251,6 @@ onMounted(() => {
   resolveAllWidgetWidths()
 })
 
-function promptChangeRole(role: WorkspaceMembershipRole) {
-  const user = auth.user
-  const membership = workspace.membership
-  if (user == null || membership == null) {
-    return
-  }
-
-  const isDemotion = WorkspaceMembershipRoleOf[role] < WorkspaceMembershipRoleOf[membership.role]
-  const verb = isDemotion ? 'Demote' : 'Change'
-
-  dialogs
-    .confirm({
-      title: 'Change Workspace Role',
-      message: `${verb} your workspace role from ${membership.role} to ${role}?`,
-      ok: {
-        label: 'Yes',
-        color: isDemotion ? 'negative' : 'primary',
-      },
-    })
-    .onOk(async () => {
-      if (membership == null || workspace == null) {
-        return
-      }
-
-      await engine.workspaces.updateMembership(membership.user_id, id, {
-        role,
-      })
-
-      notify.success(`Workspace role changed to ${role} successfully.`)
-      await workspace.refresh()
-    })
-}
-
 // Exposed through the `header-prepend` slot so a scoped workspace's tab strip can drive these
 // same handlers instead of the built-in header, which that slot replaces.
 const headerActions: WorkspaceHeaderActions = {
@@ -398,128 +329,6 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
             </q-card>
           </q-popup-edit>
         </div>
-        <template v-if="workspace.scope == null">
-          <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
-            Join
-            <q-menu :offset="[0, 8]">
-              <q-card bordered flat>
-                <q-list dense>
-                  <q-item
-                    v-if="workspace.couldView"
-                    v-close-popup
-                    clickable
-                    @click="workspace.join('viewer')"
-                  >
-                    <q-item-section avatar>
-                      <q-icon :name="icons.viewer" />
-                    </q-item-section>
-                    <q-item-section>As Viewer</q-item-section>
-                  </q-item>
-                  <q-item
-                    v-if="workspace.couldEdit"
-                    v-close-popup
-                    clickable
-                    @click="workspace.join('editor')"
-                  >
-                    <q-item-section avatar>
-                      <q-icon :name="icons.editor" />
-                    </q-item-section>
-                    <q-item-section>As Editor</q-item-section>
-                  </q-item>
-                  <q-item
-                    v-if="workspace.couldManage"
-                    v-close-popup
-                    clickable
-                    @click="workspace.join('manager')"
-                  >
-                    <q-item-section avatar>
-                      <q-icon :name="icons.manager" />
-                    </q-item-section>
-                    <q-item-section>As Manager</q-item-section>
-                  </q-item>
-                </q-list>
-              </q-card>
-            </q-menu>
-          </q-chip>
-          <q-chip
-            v-else
-            class="no-shadow q-px-sm"
-            clickable
-            color="primary"
-            dense
-            flat
-            :icon="icons[workspace.membership.role]"
-            size="sm"
-            text-color="white"
-          >
-            {{ upperFirst(workspace.membership.role) }}
-            <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
-
-            <q-tooltip v-if="!isMembershipMenuOpen" class="bg-primary text-white" :delay="500">
-              You are {{ workspace.membership.role === 'editor' ? 'an' : 'a' }}
-              {{ workspace.membership.role }} of this workspace.
-            </q-tooltip>
-            <q-menu
-              v-if="workspace.membership != null"
-              v-model="isMembershipMenuOpen"
-              anchor="bottom left"
-              :offset="[0, 8]"
-              self="top left"
-            >
-              <q-card bordered flat>
-                <q-list dense>
-                  <q-item clickable>
-                    <q-item-section avatar>
-                      <q-icon :name="icons.changeRole" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Change Role</q-item-label>
-                    </q-item-section>
-                    <q-item-section side>
-                      <q-icon :name="icons.menuRight" size="16px" />
-                    </q-item-section>
-                    <q-menu anchor="top right" :offset="[8, 0]" self="top left">
-                      <q-card bordered flat>
-                        <q-list dense>
-                          <q-item
-                            v-for="role in WorkspaceMembershipRoleModel.options.filter(
-                              (role) =>
-                                workspace.membership?.role != role &&
-                                (WorkspaceMembershipRoleOf[role] <=
-                                  WorkspaceMembershipRoleOf[
-                                    workspace.membership?.role ?? 'viewer'
-                                  ] ||
-                                  (role === 'viewer' && workspace.couldView) ||
-                                  (role === 'editor' && workspace.couldEdit) ||
-                                  (role === 'manager' && workspace.couldManage))
-                            )"
-                            :key="role"
-                            v-close-popup
-                            clickable
-                            @click="promptChangeRole(role)"
-                          >
-                            <q-item-section avatar>
-                              <q-icon :name="icons[role]" />
-                            </q-item-section>
-                            <q-item-section>
-                              <q-item-label>To {{ upperFirst(role) }}</q-item-label>
-                            </q-item-section>
-                          </q-item>
-                        </q-list>
-                      </q-card>
-                    </q-menu>
-                  </q-item>
-                  <q-item v-close-popup clickable @click="promptLeave">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.leave" />
-                    </q-item-section>
-                    <q-item-section>Leave Workspace</q-item-section>
-                  </q-item>
-                </q-list>
-              </q-card>
-            </q-menu>
-          </q-chip>
-        </template>
         <q-btn
           v-if="workspace.data != null"
           class="faded-hover q-ml-xs"
@@ -651,7 +460,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
             size="12px"
             text-color="white"
           >
-            <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
+            <q-icon class="q-ml-xs" :name="icons.menuDown" />
             <q-menu :offset="[0, 10]">
               <q-card bordered>
                 <q-list dense>
