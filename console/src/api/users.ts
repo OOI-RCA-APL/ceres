@@ -30,7 +30,6 @@ export type UserFilter = FilterOperators<
       admin: boolean | null
       disabled: boolean | null
       order: UserOrder | null
-      has_workspace_membership: string | string[] | null
     }>
 >
 

@@ -169,7 +169,7 @@ ceres <entity> <operation> [FILTERS] [OPTIONS]
 
 ### Entities
 
-`logs`, `alerts`, `messages`, `particles`, `users`, `settings`, `variables`, `workspaces`, `workspace-memberships`
+`logs`, `alerts`, `messages`, `particles`, `users`, `settings`, `variables`, `workspaces`
 
 ### Operations
 

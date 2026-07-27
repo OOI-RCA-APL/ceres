@@ -889,10 +889,9 @@ export const useWorkspaces = defineStore('workspaces', () => {
     })
   }
 
-  // The drawer's Workspaces section only lists global workspaces. Scoped workspaces are
-  // reached from their scope component's details page instead.
-  // The server already limits this to what the caller may see, which is the workspaces whose
-  // placement they can view plus the private ones they own.
+  // Every workspace the caller may see, whatever it is placed on, which is what the drawer's
+  // Workspaces section lists. The server does the limiting, returning the workspaces whose
+  // placement the caller can view plus the private ones they own.
   async function getAll() {
     return await client.get(`/api/workspaces`, {
       parse: Zod.array(WorkspaceModel),

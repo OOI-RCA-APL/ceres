@@ -117,7 +117,7 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
 
 
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
-    """Filter for selecting `User` records by identity, admin status, or workspace membership."""
+    """Filter for selecting `User` records by identity or admin status."""
 
     username: MaybeSequence[str] | None = None
     """Filter by `username` being equal to one or more given usernames."""

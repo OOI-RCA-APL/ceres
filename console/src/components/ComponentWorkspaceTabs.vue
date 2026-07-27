@@ -2,6 +2,7 @@
 import { QPopupEdit } from 'quasar'
 import { nextTick, watch } from 'vue'
 
+import { useAuth } from '@/api/auth'
 import { useDialogs } from '@/dialogs'
 import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
@@ -14,10 +15,13 @@ import {
   WorkspaceHeaderState,
 } from '@/workspace'
 
-const { workspaces, active, canManage, activeActions, activeState } = defineProps<{
+const { workspaces, active, canManage, canCreate, activeActions, activeState } = defineProps<{
   workspaces: Workspace[]
   active: string | null
+  /** Whether the caller may manage the component, which is what a shared workspace here follows. */
   canManage: boolean
+  /** Whether the caller may add a workspace here, which needs only view since it lands private. */
+  canCreate: boolean
   activeActions?: WorkspaceHeaderActions
   activeState?: WorkspaceHeaderState
 }>()
@@ -29,12 +33,23 @@ const emit = defineEmits<{
   reorder: [workspaces: Workspace[]]
 }>()
 
+const auth = useAuth()
 const dialogs = useDialogs()
 const workspaceStore = useWorkspaces()
 
 // Dropping an exported workspace file onto the strip adds it to this component, the same as
 // dropping a file onto a browser's tab bar opens it there.
 const fileDrop = useFileDrop((files) => emit('import', files), isWorkspaceFile)
+
+// A private workspace belongs to its owner alone, so they may edit and delete it whatever their
+// access on the component. A shared one follows the component.
+function isWritable(workspace: Workspace): boolean {
+  if (workspace.owner_id != null) {
+    return workspace.owner_id === auth.user?.id
+  }
+
+  return canManage
+}
 
 const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
 const undoShortcut = isApple ? '⌘Z' : 'Ctrl+Z'
@@ -299,7 +314,7 @@ function promptDeleteById(workspace: Workspace) {
   <div
     ref="rootElement"
     :class="[$style.root, fileDrop.active.value && $style.dropTarget, 'no-wrap', 'row']"
-    v-bind="canManage ? fileDrop.handlers : {}"
+    v-bind="canCreate ? fileDrop.handlers : {}"
   >
     <q-tabs
       :class="$style.tabs"
@@ -538,7 +553,7 @@ function promptDeleteById(workspace: Workspace) {
                         <q-item-label>Duplicate</q-item-label>
                       </q-item-section>
                     </q-item>
-                    <template v-if="canManage">
+                    <template v-if="isWritable(workspace)">
                       <q-separator />
                       <q-item v-close-popup clickable dense @click="promptDeleteById(workspace)">
                         <q-item-section avatar>
@@ -558,7 +573,7 @@ function promptDeleteById(workspace: Workspace) {
       </q-tab>
     </q-tabs>
     <q-btn
-      v-if="canManage"
+      v-if="canCreate"
       :class="[$style.add, 'q-ml-xs']"
       dense
       flat

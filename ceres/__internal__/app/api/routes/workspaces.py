@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
@@ -14,10 +14,12 @@ from ceres.__internal__.app.shared import (
     assert_found,
     build_address_chain,
     get_component_access,
+    get_components_access,
     get_engine_access,
 )
 from ceres.__internal__.workspace_redaction import merge_redacted_widgets, redact_workspace_data
 from ceres.access import fetch_access_grants, resolve_access_from
+from ceres.address import Address
 from ceres.config import ComponentAccessLevel
 from ceres.data import construct, to_dict
 from ceres.error import NotFoundError, NotPermittedError
@@ -29,7 +31,6 @@ from ceres.workspace import (
 )
 
 if TYPE_CHECKING:
-    from ceres.address import Address
     from ceres.engine import Engine
     from ceres.user import User
 
@@ -81,6 +82,61 @@ async def redact_workspace(
     return construct(Workspace, **{**to_dict(workspace), "data": data})
 
 
+async def resolve_placement_level(
+    engine: Engine, actor: Actor, user: User | None, scope: Address
+) -> ComponentAccessLevel | None:
+    """Resolve the caller's access on a workspace's placement.
+
+    A workspace is placed on the engine root or on a component, and each resolves its access a
+    different way. Everything else about a workspace's permissions follows from this one answer.
+
+    Returns:
+        The effective level, or `None` where the caller has no access or the placement component
+        no longer exists.
+    """
+    if actor.admin:
+        return ComponentAccessLevel.MANAGE
+
+    if scope.is_engine:
+        return await get_engine_access(engine, user)
+
+    component = engine.get_component(scope)
+    if component is None:
+        return None
+
+    return await get_component_access(engine, user, component)
+
+
+async def resolve_placement_levels(
+    engine: Engine, actor: Actor, user: User | None, scopes: Iterable[Address]
+) -> dict[Address, ComponentAccessLevel | None]:
+    """Resolve the caller's access on each distinct placement in `scopes`, reading grants once.
+
+    Resolving one placement at a time re-reads the caller's grants for every one of them, which
+    costs a handful of queries per workspace on a listing. Listings resolve their placements
+    through here so the grants are read once for the whole response.
+    """
+    distinct = set(scopes)
+    if actor.admin:
+        return {scope: ComponentAccessLevel.MANAGE for scope in distinct}
+
+    levels: dict[Address, ComponentAccessLevel | None] = {}
+    components = []
+    for scope in distinct:
+        if scope.is_engine:
+            levels[scope] = await get_engine_access(engine, user)
+            continue
+
+        component = engine.get_component(scope)
+        if component is None:
+            levels[scope] = None
+        else:
+            components.append(component)
+
+    levels.update(await get_components_access(engine, user, components))
+    return levels
+
+
 async def require_placement_access(
     engine: Engine,
     actor: Actor,
@@ -90,30 +146,41 @@ async def require_placement_access(
 ) -> None:
     """Raise unless the caller holds at least `minimum` access on a workspace's placement.
 
-    A workspace is placed on the engine root or on a component, and each resolves its access a
-    different way. Everything else about a workspace's permissions follows from this one check.
-
     Raises:
         NotFoundError: If the placement is missing, or the caller cannot even view it, which
             hides the workspace's existence.
         NotPermittedError: If the caller can view the placement but lacks `minimum`.
     """
-    if actor.admin:
-        return
-
-    if scope.is_engine:
-        access = await get_engine_access(engine, user)
-    else:
-        component = engine.get_component(scope)
-        if component is None:
-            raise NotFoundError()
-
-        access = await get_component_access(engine, user, component)
-
+    access = await resolve_placement_level(engine, actor, user, scope)
     if access is None or access < ComponentAccessLevel.VIEW:
         raise NotFoundError()
     if access < minimum:
         raise NotPermittedError()
+
+
+async def require_engine_manage(engine: Engine, actor: Actor, user: User | None) -> None:
+    """Raise unless the caller may manage the engine root.
+
+    The logged-out marker decides what an anonymous visitor sees, which is an engine-wide question
+    however the workspace carrying it is placed.
+
+    Raises:
+        NotPermittedError: If the caller lacks manage on the engine root.
+    """
+    await require_placement_access(engine, actor, user, Address.ENGINE, ComponentAccessLevel.MANAGE)
+
+
+def is_visible(user: User | None, workspace: Workspace, level: ComponentAccessLevel | None) -> bool:
+    """Whether the caller may see `workspace`, given their resolved access on its placement.
+
+    A private workspace belongs to exactly one user, and administrators do not bypass that. The
+    owner must still hold view access on the placement, so losing access to a component also
+    removes the private workspaces placed on it.
+    """
+    if workspace.owner_id is not None and (user is None or workspace.owner_id != user.id):
+        return False
+
+    return level is not None and level >= ComponentAccessLevel.VIEW
 
 
 async def require_visible(
@@ -122,20 +189,15 @@ async def require_visible(
     user: User | None,
     workspace: Workspace,
 ) -> None:
-    """Raise unless the caller may see `workspace` at all.
-
-    A private workspace belongs to exactly one user, and administrators do not bypass that. The
-    owner must still hold view access on the placement, so losing access to a component also
-    removes the private workspaces placed on it.
+    """Raise unless the caller may see `workspace` at all, per `is_visible`.
 
     Raises:
         NotFoundError: If the workspace is private to somebody else, or its placement is not
             viewable by the caller.
     """
-    if workspace.owner_id is not None and (user is None or workspace.owner_id != user.id):
+    level = await resolve_placement_level(engine, actor, user, workspace.scope)
+    if not is_visible(user, workspace, level):
         raise NotFoundError()
-
-    await require_placement_access(engine, actor, user, workspace.scope, ComponentAccessLevel.VIEW)
 
 
 async def require_writable(
@@ -190,16 +252,14 @@ async def filter_visible(
     A workspace whose placement component no longer exists is dropped, since there is nothing
     left to check access against.
     """
-    visible: list[Workspace] = []
-    for workspace in workspaces:
-        try:
-            await require_visible(engine, actor, user, workspace)
-        except NotFoundError, NotPermittedError:
-            continue
-
-        visible.append(workspace)
-
-    return visible
+    levels = await resolve_placement_levels(
+        engine, actor, user, (workspace.scope for workspace in workspaces)
+    )
+    return [
+        workspace
+        for workspace in workspaces
+        if is_visible(user, workspace, levels.get(workspace.scope))
+    ]
 
 
 @router.get("/workspaces")
@@ -246,6 +306,9 @@ async def create_workspace(
         # A caller may only claim ownership for themselves.
         raise NotPermittedError()
 
+    if workspace.show_when_logged_out:
+        await require_engine_manage(engine, actor, user)
+
     created = await engine.workspaces.create(workspace)
     return await redact_workspace(engine, actor, user, created)
 
@@ -263,6 +326,9 @@ async def update_workspace(
     Ownership only ever moves one way, from an owner to nobody, which is what publishing a
     private workspace means. Taking a shared workspace private would remove a tab other people
     may have open and hold working copies against, so it is refused.
+
+    Writing a workspace is not enough to change what a logged-out visitor sees, so the logged-out
+    marker takes manage on the engine root on top of whatever the workspace itself requires.
 
     Raises:
         NotFoundError: If the workspace does not exist or is not visible to the caller.
@@ -284,6 +350,12 @@ async def update_workspace(
         await require_placement_access(
             engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
         )
+
+    if (
+        "show_when_logged_out" in update
+        and update["show_when_logged_out"] != workspace.show_when_logged_out
+    ):
+        await require_engine_manage(engine, actor, user)
 
     if "scope" in update and update["scope"] != workspace.scope:
         # Moving a workspace requires manage on where it is going, not just where it came from.

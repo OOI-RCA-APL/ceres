@@ -443,12 +443,7 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
 
 
 class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
-    """Payload for creating a new `Workspace` record.
-
-    The three general access fields must be ordered from least to most restrictive, viewership must
-    be at least as permissive as editorship, which must be at least as permissive as managership.
-    Creation fails with a validation error if that invariant is violated.
-    """
+    """Payload for creating a new `Workspace` record."""
 
     name: NonEmptyStr
     """Human-readable name of the workspace."""

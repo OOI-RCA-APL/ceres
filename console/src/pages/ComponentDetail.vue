@@ -40,6 +40,10 @@ const effectiveAccess = $computed(() => access.levelFor(address.toString()))
 
 const canManage = $computed(() => access.canManage(address.toString()))
 
+// Adding a workspace here needs only view, because a user without manage gets a private one,
+// which nobody else sees.
+const canCreate = $computed(() => access.canView(address.toString()))
+
 let scopedWorkspaces = $ref<Workspace[]>([])
 
 // Only the workspace named in the URL is shown. Without one the page falls back to the first tab,
@@ -505,6 +509,7 @@ const persisted = usePersisted({
             :active="activeWorkspaceId"
             :active-actions="actions"
             :active-state="state"
+            :can-create="canCreate"
             :can-manage="canManage"
             class="q-ml-sm"
             :workspaces="scopedWorkspaces"
@@ -516,12 +521,13 @@ const persisted = usePersisted({
         </template>
       </workspace-page>
       <div
-        v-else-if="scopedWorkspaces.length > 0 || canManage"
+        v-else-if="scopedWorkspaces.length > 0 || canCreate"
         :class="pinTabs && $style.pinnedTabs"
       >
         <q-separator />
         <component-workspace-tabs
           :active="activeWorkspaceId"
+          :can-create="canCreate"
           :can-manage="canManage"
           class="q-px-sm q-py-xs"
           :workspaces="scopedWorkspaces"

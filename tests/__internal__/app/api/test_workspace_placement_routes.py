@@ -18,15 +18,35 @@ from ceres.user import User
 from ceres.workspace import Workspace, WorkspaceFilter
 
 
-async def _build_engine(access: str | None = None) -> Engine:
+async def _build_engine(access: str | None = None, secret: bool = False) -> Engine:
     engine = Engine()
     await engine.database.migrate()
     component: dict[str, object] = {"name": "rig", "class": "ceres.component:Component"}
     if access is not None:
         component["access"] = access
 
-    await engine.load(validate(Config, {"components": [component]}), checks=())
+    components: list[dict[str, object]] = [component]
+    if secret:
+        components.append(
+            {"name": "secret", "class": "ceres.component:Component", "access": "deny"}
+        )
+
+    await engine.load(validate(Config, {"components": components}), checks=())
     return engine
+
+
+def _widget_layout(**overrides: object) -> dict[str, object]:
+    """Build a one-widget layout pointing at `@secret`, which no test user may view."""
+    widget: dict[str, object] = {
+        "id": "w1",
+        "type": "button",
+        "name": "Peek",
+        "address": "@secret",
+        "action": "peek",
+        "width": 60,
+    }
+    widget.update(overrides)
+    return {"layout": [{"widgets": [widget]}]}
 
 
 async def _create_user(engine: Engine, username: str, admin: bool = False) -> User:
@@ -397,5 +417,131 @@ async def test_moving_a_workspace_requires_manage_on_the_destination() -> None:
             id=private.id,
             update={"scope": Address("~")},
         )
+
+    await engine.database.dispose()
+
+
+async def test_private_workspace_redacts_a_denied_widget() -> None:
+    """Owning a workspace does not grant its owner access to what its widgets point at."""
+    engine = await _build_engine(secret=True)
+    owner = await _create_user(engine, "owner")
+    await _grant(engine, owner, "@rig", ComponentAccessLevel.VIEW)
+    private = await engine.workspaces.create(
+        Workspace.Create(
+            name="scratch", scope=Address("@rig"), owner_id=owner.id, data=_widget_layout()
+        )
+    )
+
+    result = await get_workspace(
+        engine=engine, actor=Actor(user=owner, unrestricted=False), user=owner, id=private.id
+    )
+
+    widget = result.data["layout"][0]["widgets"][0]
+    assert widget["restricted"] is True
+    assert "address" not in widget
+
+    await engine.database.dispose()
+
+
+async def test_update_private_workspace_preserves_config_behind_redacted_stub() -> None:
+    """An owner writing back what they read must not destroy configuration they cannot see."""
+    engine = await _build_engine(secret=True)
+    owner = await _create_user(engine, "owner")
+    await _grant(engine, owner, "@rig", ComponentAccessLevel.VIEW)
+    private = await engine.workspaces.create(
+        Workspace.Create(
+            name="scratch",
+            scope=Address("@rig"),
+            owner_id=owner.id,
+            data=_widget_layout(arguments={"depth": 1}),
+        )
+    )
+
+    fetched = await get_workspace(
+        engine=engine, actor=Actor(user=owner, unrestricted=False), user=owner, id=private.id
+    )
+    assert fetched.data["layout"][0]["widgets"][0]["restricted"] is True
+
+    await update_workspace(
+        engine=engine,
+        actor=Actor(user=owner, unrestricted=False),
+        user=owner,
+        id=private.id,
+        update={"data": fetched.data},
+    )
+
+    stored = await engine.workspaces.where(id=private.id).first()
+    assert stored is not None
+    widget = stored.data["layout"][0]["widgets"][0]
+    assert widget["address"] == "@secret"
+    assert widget["action"] == "peek"
+    assert widget["arguments"] == {"depth": 1}
+
+    await engine.database.dispose()
+
+
+async def test_setting_the_logged_out_marker_requires_engine_manage() -> None:
+    """Writing a workspace is not enough to change what an anonymous visitor sees."""
+    engine = await _build_engine()
+    manager = await _create_user(engine, "manager")
+    await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
+    shared = await engine.workspaces.create(Workspace.Create(name="dash", scope=Address("@rig")))
+
+    with pytest.raises(NotPermittedError):
+        await update_workspace(
+            engine=engine,
+            actor=Actor(user=manager, unrestricted=False),
+            user=manager,
+            id=shared.id,
+            update={"show_when_logged_out": True},
+        )
+
+    await engine.database.dispose()
+
+
+async def test_creating_a_logged_out_workspace_requires_engine_manage() -> None:
+    engine = await _build_engine()
+    owner = await _create_user(engine, "owner")
+    await _grant(engine, owner, "@rig", ComponentAccessLevel.VIEW)
+
+    with pytest.raises(NotPermittedError):
+        await create_workspace(
+            engine=engine,
+            actor=Actor(user=owner, unrestricted=False),
+            user=owner,
+            workspace=Workspace.Create(
+                name="scratch",
+                scope=Address("@rig"),
+                owner_id=owner.id,
+                show_when_logged_out=True,
+            ),
+        )
+
+    await engine.database.dispose()
+
+
+async def test_engine_manager_sets_the_logged_out_marker() -> None:
+    """An all-target manage grant is what confers the right, without the user being an admin."""
+    engine = await _build_engine()
+    operator = await _create_user(engine, "operator")
+    await engine.database.user_permissions.create(
+        UserPermission.Create(
+            user_id=operator.id,
+            target_type=PermissionTargetType.ALL,
+            target="",
+            level=ComponentAccessLevel.MANAGE,
+        )
+    )
+    shared = await engine.workspaces.create(Workspace.Create(name="home", scope=Address("~")))
+
+    updated = await update_workspace(
+        engine=engine,
+        actor=Actor(user=operator, unrestricted=False),
+        user=operator,
+        id=shared.id,
+        update={"show_when_logged_out": True},
+    )
+
+    assert updated.show_when_logged_out is True
 
     await engine.database.dispose()
