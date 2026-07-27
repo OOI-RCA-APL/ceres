@@ -2,7 +2,7 @@
 import { useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
 import { upperFirst } from 'lodash-es'
 import { QPopupEdit, colors } from 'quasar'
-import { onMounted, reactive, watchEffect, watch } from 'vue'
+import { computed, onMounted, reactive, watchEffect, watch } from 'vue'
 
 import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
@@ -42,7 +42,7 @@ const dialogs = useDialogs()
 const navigation = useNavigation()
 const notify = useNotify()
 
-const workspace = provideWorkspace(id)
+const workspace = provideWorkspace(computed(() => id))
 await workspace.load()
 
 const layout = $ref<HTMLDivElement | null>(null)
@@ -79,6 +79,12 @@ let name = $ref<string>(workspace.name)
 watch(
   () => name,
   async () => {
+    // Switching workspaces reseeds this from the newly loaded one, which must not be mistaken
+    // for the user having renamed anything.
+    if (name === workspace.name) {
+      return
+    }
+
     await workspace.rename(name)
   }
 )
@@ -675,7 +681,8 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       class="q-px-sm"
       :style="isViewingOriginal && { border: `1px dashed ${colors.getPaletteColor('warning')}` }"
     >
-      <div v-if="data == null" ref="layout" class="q-py-lg text-center">
+      <div v-if="workspace.loading" ref="layout" class="q-py-lg" />
+      <div v-else-if="data == null" ref="layout" class="q-py-lg text-center">
         <div>No workspace named "{{ name }}" exists.</div>
       </div>
       <div v-else ref="layout">

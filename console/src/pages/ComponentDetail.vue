@@ -462,11 +462,9 @@ const persisted = usePersisted({
           :min="120"
         />
       </div>
-      <workspace-page
-        v-if="activeWorkspaceId != null"
-        :id="activeWorkspaceId"
-        :key="activeWorkspaceId"
-      >
+      <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
+      switching tabs updates this page in place and leaves the tab strip in its header mounted. -->
+      <workspace-page v-if="activeWorkspaceId != null" :id="activeWorkspaceId">
         <template #header-prepend="{ actions, state }">
           <component-workspace-tabs
             :active="activeWorkspaceId"

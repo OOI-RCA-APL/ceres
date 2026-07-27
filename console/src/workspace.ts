@@ -793,9 +793,14 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   }
 
+  // True while a workspace is being fetched and its working copy seeded, so a host can tell an
+  // empty context apart from one whose workspace does not exist.
+  let loading = $ref(true)
+
   async function load() {
     await query.promise.value
     await afterFetch()
+    loading = false
   }
 
   async function refresh() {
@@ -804,9 +809,27 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     await afterFetch()
   }
 
+  // The context follows its workspace ID rather than being rebuilt for each one, so a host that
+  // switches between workspaces keeps its surrounding chrome mounted. Everything derived from the
+  // previous workspace has to be cleared first, since the working copy and its history belong to
+  // the workspace they were loaded for.
+  watch(
+    () => id,
+    async () => {
+      loading = true
+      data = null
+      history = []
+      historyIndex = -1
+      await query.promise.value
+      await afterFetch()
+      loading = false
+    }
+  )
+
   return reactive({
     load,
     refresh,
+    loading: computed(() => loading),
     name: computed(() => workspace?.name ?? null),
     scope: computed(() => scope),
     resolveAddress,
@@ -877,7 +900,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   })
 }
 
-export function provideWorkspace(id: string) {
+export function provideWorkspace(id: MaybeRef<string>) {
   const context = createWorkspaceContext(id)
   provide(workspaceInjectionKey, context)
   return context
