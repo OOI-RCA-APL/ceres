@@ -1,9 +1,10 @@
 """Replay every migration against a real PostgreSQL server.
 
-Production runs on PostgreSQL while the rest of the suite exercises SQLite, so SQL that is only
+Production runs on PostgreSQL while the rest of the suite defaults to SQLite, so SQL that is only
 valid on one backend can pass every other test. Migration 5 originally declared `owner_id` as
 `CHAR(32)`, which SQLite accepts and PostgreSQL rejects against its `uuid` primary keys, and
-nothing caught it. These tests close that gap.
+nothing caught it. These tests close that gap for the migrations themselves, and `tests.postgres`
+covers everything the running engine does afterwards.
 
 Each test runs inside a throwaway schema so it never touches the deployment's own tables, and the
 whole module skips when no server is reachable, keeping the suite runnable offline.
@@ -16,14 +17,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from ceres.database.migrations import MIGRATIONS
+from tests.postgres import POSTGRES_URL
 
-POSTGRES_URL = os.environ.get(
-    "CERES_TEST_POSTGRES_URL", "postgresql+asyncpg://ceres:ceres@localhost:5432/ceres"
-)
-"""Server to test against. Override to point at a different PostgreSQL instance."""
+SCHEMA = f"ceres_migration_test_{os.getpid()}"
+"""Throwaway schema every statement runs in, so the deployment's own tables are never touched.
 
-SCHEMA = "ceres_migration_test"
-"""Throwaway schema every statement runs in, so the deployment's own tables are never touched."""
+The process ID is part of the name because the fixture drops the schema on the way in and out, and
+two suite runs against one server would otherwise pull it out from under each other.
+"""
 
 
 async def _reachable() -> bool:

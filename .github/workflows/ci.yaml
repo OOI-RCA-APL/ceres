@@ -55,3 +55,35 @@ jobs:
         run: make build
       - name: Ensure Generated Files Match
         run: git diff --exit-code -- ':!**/package-lock.json'
+
+  postgres:
+    # The same tests again, against the backend deployments actually run on. The `main` job covers
+    # SQLite, so a query only one of the two accepts fails here rather than in production. This
+    # job runs the Python suite only, everything else is already covered above.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ceres
+          POSTGRES_PASSWORD: ceres
+          POSTGRES_DB: ceres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ceres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CERES_TEST_POSTGRES_URL: postgresql+asyncpg://ceres:ceres@localhost:5432/ceres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install UV
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          python-version: "3.14"
+          enable-cache: false
+      - name: Test
+        run: make test-postgres

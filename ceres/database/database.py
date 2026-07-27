@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
 )
+from sqlalchemy.pool import QueuePool
 
 from ceres.__internal__.database.bytes import tokenize_bytes
 from ceres.__internal__.database.errors import wrap_database_errors
@@ -71,6 +72,7 @@ __all__ = [
     "Database",
     "SQLiteDatabase",
     "PostgresDatabase",
+    "default_database_config",
 ]
 
 
@@ -91,6 +93,19 @@ CREATE TABLE IF NOT EXISTS migrations (
 # database layer.
 
 
+def default_database_config() -> DatabaseConfig:
+    """Build the configuration a `Database` uses when it is constructed without one.
+
+    Every unconfigured `Database`, including the one an unconfigured `Engine` creates for itself,
+    runs through here. Deployments always pass a config, so in practice this serves throwaway
+    databases, and the test suite replaces it to run the same code against another backend.
+
+    Returns:
+        A `SQLiteDatabaseConfig` for a temporary on-disk database.
+    """
+    return SQLiteDatabaseConfig()
+
+
 class Database:
     """Asynchronous database handle backing all persisted Ceres state.
 
@@ -98,20 +113,28 @@ class Database:
     persisted record type, and handles one-time schema initialization. Instantiating the base
     class dispatches to the appropriate concrete subclass based on the configuration, so
     `Database(SQLiteDatabaseConfig())` returns a `SQLiteDatabase` and
-    `Database(PostgresDatabaseConfig(...))` returns a `PostgresDatabase`.
+    `Database(PostgresDatabaseConfig(...))` returns a `PostgresDatabase`. Omitting the config
+    entirely dispatches on whatever `default_database_config` returns.
     """
 
     def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
-            match config:
-                case None | SQLiteDatabaseConfig():
-                    return SQLiteDatabase(config)
-                case PostgresDatabaseConfig():
-                    return PostgresDatabase(config)
+            match config if config is not None else default_database_config():
+                case SQLiteDatabaseConfig() as resolved:
+                    return SQLiteDatabase(resolved)
+                case PostgresDatabaseConfig() as resolved:
+                    return PostgresDatabase(resolved)
 
         return cls(config)
 
     def __init__(self, config: DatabaseConfig | None = None, /) -> None:
+        # Every subclass builds itself from `__new__`, and Python then calls `__init__` a second
+        # time with the arguments the caller wrote, which are not necessarily the resolved ones.
+        # The first call wins, so that second pass neither rebuilds the engine nor overwrites the
+        # resolved config with the `None` a caller who wanted the default passed.
+        if getattr(self, "_config", None) is not None:
+            return
+
         assert config is not None
 
         self._id = uuid4()
@@ -732,12 +755,12 @@ class SQLiteDatabase(Database):
 class PostgresDatabase(Database):
     """`Database` backed by a PostgreSQL server reached over `asyncpg`."""
 
-    def __new__(cls, /, config: PostgresDatabaseConfig) -> Self:
+    def __new__(cls, /, config: PostgresDatabaseConfig | None = None) -> Self:
         instance = object.__new__(cls)
         cls.__init__(instance, config)
         return instance
 
-    def __init__(self, /, config: PostgresDatabaseConfig) -> None:
+    def __init__(self, /, config: PostgresDatabaseConfig | None = None) -> None:
         super().__init__(config)
 
     @property
@@ -792,7 +815,7 @@ class PostgresDatabase(Database):
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:
-        return {
+        config: dict[str, Any] = {
             "poolclass": AsyncAdaptedQueuePool,
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
@@ -801,6 +824,14 @@ class PostgresDatabase(Database):
             "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
+
+        # Pools that hold nothing between checkouts, such as `NullPool`, reject the sizing
+        # arguments outright, so they only travel with a pool that queues connections.
+        if not issubclass(config["poolclass"], QueuePool):
+            config.pop("pool_size", None)
+            config.pop("max_overflow", None)
+
+        return config
 
     @override
     async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:

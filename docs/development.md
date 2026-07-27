@@ -119,6 +119,26 @@ uv run pytest tests/test_error.py -vv
 uv run pytest tests/test_error.py::TestErrorIsException -vv
 ```
 
+### Running Against PostgreSQL
+
+The suite runs on SQLite by default, while deployments run on PostgreSQL, so SQL that only one
+backend accepts can pass every test. `make test-postgres` runs the same tests against a real
+PostgreSQL server instead.
+
+It expects a server on `localhost:5432` with the `ceres` role, and a database of its own. Create
+that database once, as a superuser, since the `ceres` role cannot create databases:
+
+```sh
+psql postgres -c "CREATE DATABASE ceres_test OWNER ceres"
+```
+
+The database is deliberately separate from the one a local deployment uses, because the suite
+deletes rows and drops schemas wholesale. Set `CERES_TEST_POSTGRES_URL` to point somewhere else.
+
+Every test gets a private schema, so the two runs assert exactly the same things. Two modules are
+backend-specific by nature and stay that way: `tests/test_migrations.py` reads `sqlite_master`, and
+`tests/test_migrations_postgres.py` replays the migrations against PostgreSQL on either run.
+
 ## Documentation
 
 Build and preview the documentation locally:

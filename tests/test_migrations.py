@@ -1,8 +1,16 @@
+"""Cover the migration runner itself, against SQLite specifically.
+
+These tests read `sqlite_master` and write legacy schemas in SQLite's own types, so they name
+SQLite rather than taking whatever backend the run defaults to. `test_migrations_postgres.py`
+replays the same migrations against PostgreSQL.
+"""
+
 import asyncio
 
 import pytest
 from sqlalchemy import text
 
+from ceres.config import SQLiteDatabaseConfig
 from ceres.database import Database
 from ceres.database.migrations import load_migrations
 from ceres.error import DatabaseVersionError
@@ -10,7 +18,7 @@ from ceres.error import DatabaseVersionError
 
 @pytest.fixture
 async def database():
-    database = Database()
+    database = Database(SQLiteDatabaseConfig())
     try:
         yield database
     finally:
