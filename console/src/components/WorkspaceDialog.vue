@@ -11,6 +11,7 @@ import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import { useForm } from '@/form'
 import icons from '@/icons'
+import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
 import { WorkspaceData } from '@/workspace'
@@ -49,6 +50,7 @@ const { dialogRef, onDialogHide, onDialogOK, onDialogCancel } = useDialogPluginC
 const access = useAccess()
 const auth = useAuth()
 const engine = useEngine()
+const navigation = useNavigation()
 const notify = useNotify()
 const validate = useValidate()
 
@@ -115,17 +117,25 @@ const form = useForm({
       owner_id: values.isPrivate ? auth.user?.id : null,
       data: action === 'duplicate' ? data ?? workspace?.data ?? {} : undefined,
     })
-    notify.success(
-      action === 'duplicate'
-        ? 'Workspace duplicated successfully.'
-        : 'Workspace created successfully.'
-    )
+    if (action === 'duplicate') {
+      // A copy opens on its own page. Its callers duplicate from wherever they happen to be, so
+      // the dialog takes them to the copy rather than leaving them on the original.
+      notify.success('Workspace duplicated successfully.')
+      await navigation.go(`/workspaces/${created.id}`)
+    } else {
+      // A new workspace is handed back so the caller can place it, since where it belongs depends
+      // on whether it was created from the sidebar or from a component's tab strip.
+      notify.success('Workspace created successfully.')
+    }
+
     onDialogOK(created)
   },
 })
 
+// Creating and duplicating both explain the workspace the form is about to make, which the form's
+// own choice decides. Only the settings view describes a workspace that already exists.
 const isPrivate = $computed(() =>
-  action === 'create' ? form.data.isPrivate : workspace?.owner_id != null
+  action === 'view' ? workspace?.owner_id != null : form.data.isPrivate
 )
 
 const canManage = $computed(() => {
@@ -199,10 +209,14 @@ nextTick(async () => {
               v-model="form.data.isPrivate"
               class="q-mb-sm"
               dense
-              label="Private to me"
+              label="Private"
             />
             <div class="q-mb-sm text-grey-6">
-              <template v-if="isPrivate">
+              <template v-if="isPrivate && placement?.isEngine">
+                <q-icon class="q-mr-xs" :name="icons.privateWorkspace" />
+                This workspace is private to you. Nobody else can see it.
+              </template>
+              <template v-else-if="isPrivate">
                 <q-icon class="q-mr-xs" :name="icons.privateWorkspace" />
                 This workspace is private to you. Nobody else can see it, whatever access they have
                 to <span class="monospace-xs">{{ placement }}</span
