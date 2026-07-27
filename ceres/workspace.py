@@ -5,9 +5,11 @@ from uuid import UUID
 from pydantic import Field, model_validator
 from sqlalchemy import (
     JSON,
+    Boolean,
     ForeignKeyConstraint,
     PrimaryKeyConstraint,
     Text,
+    false,
     select,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -529,6 +531,14 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
 
     name: Mapped[str] = mapped_column(Text)
     scope: Mapped[Address | None] = mapped_column(AddressMapper, nullable=True, default=None)
+    owner_id: Mapped[UUID | None] = mapped_column(UUIDMapper, nullable=True, default=None)
+    """Owning user when this workspace is private, `None` when it is shared."""
+    show_when_logged_out: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+    )
+    """Whether this workspace is part of the set an unauthenticated visitor sees."""
     general_viewership: Mapped[WorkspaceAccessLevel] = mapped_column(
         EnumMapper(WorkspaceAccessLevel),
         default=WorkspaceAccessLevel.PRIVATE,
@@ -556,6 +566,13 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             PrimaryKeyConstraint(cls.id, name=f"pk_{cls.__tablename__}"),
+            ForeignKeyConstraint(
+                [cls.owner_id],
+                [UserRow.id],
+                name=f"fk_{cls.__tablename__}__owner_id__users__id",
+                ondelete="CASCADE",
+                onupdate="CASCADE",
+            ),
             EnumConstraint(
                 cls.general_viewership,
                 WorkspaceAccessLevel,
@@ -579,6 +596,8 @@ type WorkspaceField = (
     | Literal[
         "name",
         "scope",
+        "owner_id",
+        "show_when_logged_out",
         "general_viewership",
         "general_editorship",
         "general_managership",
@@ -596,6 +615,12 @@ type WorkspaceOrder = (
         "scope",
         "scope:asc",
         "scope:desc",
+        "owner_id",
+        "owner_id:asc",
+        "owner_id:desc",
+        "show_when_logged_out",
+        "show_when_logged_out:asc",
+        "show_when_logged_out:desc",
         "general_viewership",
         "general_viewership:asc",
         "general_viewership:desc",
@@ -622,6 +647,9 @@ class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrde
     name_suffix: MaybeSequence[str] | None
     scope: MaybeSequence[Address] | None
     scoped: bool | None
+    owner_id: MaybeSequence[UUID] | None
+    owned: bool | None
+    show_when_logged_out: bool | None
     general_viewership: MaybeSequence[WorkspaceAccessLevel]
     general_editorship: MaybeSequence[WorkspaceAccessLevel]
     general_managership: MaybeSequence[WorkspaceAccessLevel]
@@ -646,6 +674,12 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
     """Filter by `scope` being equal to one or more given component addresses."""
     scoped: bool | None = None
     """Filter by whether the workspace has a scope at all."""
+    owner_id: MaybeSequence[UUID] | None = None
+    """Filter by `owner_id` being equal to one or more given user IDs."""
+    owned: bool | None = None
+    """Filter by whether the workspace is private to an owner at all."""
+    show_when_logged_out: bool | None = None
+    """Filter by whether the workspace is shown to unauthenticated visitors."""
     general_viewership: MaybeSequence[WorkspaceAccessLevel] | None = None
     """Filter by `general_viewership` being equal to one or more given access levels."""
     general_editorship: MaybeSequence[WorkspaceAccessLevel] | None = None
@@ -685,6 +719,16 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         if self.scoped is not None and (obj.scope is not None) != self.scoped:
             return False
 
+        if not self._match_value(obj.owner_id, self.owner_id):
+            return False
+        if self.owned is not None and (obj.owner_id is not None) != self.owned:
+            return False
+        if (
+            self.show_when_logged_out is not None
+            and obj.show_when_logged_out != self.show_when_logged_out
+        ):
+            return False
+
         if not self._match_value(obj.general_viewership, self.general_viewership):
             return False
         if not self._match_value(obj.general_editorship, self.general_editorship):
@@ -712,6 +756,13 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
             yield self._sql_match_value(columns.scope, self.scope)
         if self.scoped is not None:
             yield columns.scope.is_not(None) if self.scoped else columns.scope.is_(None)
+
+        if self.owner_id is not None:
+            yield self._sql_match_value(columns.owner_id, self.owner_id)
+        if self.owned is not None:
+            yield columns.owner_id.is_not(None) if self.owned else columns.owner_id.is_(None)
+        if self.show_when_logged_out is not None:
+            yield columns.show_when_logged_out == self.show_when_logged_out
 
         if self.general_viewership is not None:
             yield self._sql_match_value(columns.general_viewership, self.general_viewership)
@@ -761,6 +812,10 @@ class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
     """Human-readable name of the workspace."""
     scope: Address | None = None
     """Component address this workspace is scoped to, or None for a global workspace."""
+    owner_id: UUID | None = None
+    """Owning user when this workspace is private, `None` when it is shared."""
+    show_when_logged_out: bool = False
+    """Whether this workspace is part of the set an unauthenticated visitor sees."""
     general_viewership: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
     """General access level required to view the workspace without an explicit membership."""
     general_editorship: WorkspaceAccessLevel = WorkspaceAccessLevel.PRIVATE
@@ -798,6 +853,8 @@ class WorkspaceUpdate(TypedDict, total=False):
 
     name: NonEmptyStr
     scope: Address | None
+    owner_id: UUID | None
+    show_when_logged_out: bool
     general_viewership: WorkspaceAccessLevel
     general_editorship: WorkspaceAccessLevel
     general_managership: WorkspaceAccessLevel
