@@ -725,7 +725,10 @@ class ServerSSLConfig(DataObject):
     """Path to the server private key file."""
 
     key_password: str | None = None
-    """Password for an encrypted private key."""
+    """Password for an encrypted private key.
+
+    Never served over the API, dropped from config responses by `EXCLUDE_CREDENTIALS`.
+    """
 
     cert: Path | None = None
     """Path to the server certificate file."""
@@ -741,7 +744,11 @@ class ServerAuthenticationConfig(DataObject):
     """Authentication settings for the engine's HTTP server."""
 
     secret: NonEmptyStr
-    """Secret used to sign and verify authentication tokens."""
+    """Secret used to sign and verify authentication tokens.
+
+    Never served over the API. The config routes drop it, along with every other credential in the
+    configuration, through `EXCLUDE_CREDENTIALS`.
+    """
 
     duration: PositiveTimeDelta = timedelta(minutes=30)
     """Lifetime of an issued authentication token."""

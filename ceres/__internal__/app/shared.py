@@ -72,6 +72,14 @@ def exclude_recursively(fields: Iterable[str]) -> IncEx:
 
 EXCLUDE_PASSWORDS: IncEx = exclude_recursively(["password"])
 
+EXCLUDE_CREDENTIALS: IncEx = exclude_recursively(["secret", "password", "key_password"])
+"""Credential fields dropped from any serialized configuration.
+
+The signing secret mints a token for any user, so serving it to an administrator hands over every
+account. Excluded by name at every nesting level, which also covers a credential named this way
+inside a component's own configuration.
+"""
+
 
 class Router(APIRouter):
     """An `APIRouter` subclass that supports default response model include/exclude settings.

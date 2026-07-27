@@ -1,7 +1,14 @@
-from ceres.__internal__.app.shared import ADMIN, CurrentEngine, Router
+from ceres.__internal__.app.shared import ADMIN, EXCLUDE_CREDENTIALS, CurrentEngine, Router
 from ceres.config import Config, ConsoleConfig, DatabaseConfig, ServerConfig, ServiceConfig
 
-router = Router(prefix="/config", tags=["config"])
+# Every route here serves part of the engine's configuration, which holds the credentials the
+# engine was started with. Being an administrator is permission to read the configuration, not
+# permission to walk away with the signing secret.
+router = Router(
+    prefix="/config",
+    tags=["config"],
+    default_response_model_exclude=EXCLUDE_CREDENTIALS,
+)
 
 
 @router.get("", dependencies=[ADMIN])
