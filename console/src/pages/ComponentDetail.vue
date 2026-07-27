@@ -15,6 +15,7 @@ import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import FullPage from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import WorkspacePage from '@/pages/Workspace.vue'
@@ -25,6 +26,7 @@ import { useWorkspaces, Workspace } from '@/workspace'
 
 const engine = useEngine()
 const access = useAccess()
+const dialogs = useDialogs()
 const navigation = useNavigation()
 const route = useRoute()
 const workspaces = useWorkspaces()
@@ -38,12 +40,17 @@ const canManage = $computed(() => access.canManage(address.toString()))
 
 let scopedWorkspaces = $ref<Workspace[]>([])
 
-// Only the workspace named in the URL is shown, so the overview on its own stays a reachable
-// state, which is where deleting a workspace lands.
+// Only the workspace named in the URL is shown. Without one the page falls back to the first tab,
+// so a component with workspaces opens on one rather than on a bare overview.
 const activeWorkspaceId = $computed(() => {
   const value = navigation.route.query.workspace
   return typeof value === 'string' ? value : null
 })
+
+// With the overview open and no workspace beneath it, the tab strip sits at the bottom of the page
+// rather than floating below the overview with empty space under it. Collapsing the overview
+// leaves nothing to push it away from, so it goes back to the top.
+const pinTabs = $computed(() => activeWorkspaceId == null && !persisted.overviewCollapsed)
 
 function selectWorkspace(id: string) {
   void navigation.replace({ query: { workspace: id } })
@@ -85,10 +92,23 @@ watch(
   }
 )
 
-async function createScoped() {
-  const created = await workspaces.create({ name: 'Workspace', scope: address })
-  await refreshScoped()
-  await navigation.replace({ query: { workspace: created.id } })
+// Landing on a component opens its first workspace, which is also where deleting or closing the
+// open one lands. The overview alone is only reached by a component having no workspaces at all.
+watch(
+  () => [activeWorkspaceId, scopedWorkspaces] as const,
+  ([active, listed]) => {
+    if (active == null && listed.length > 0) {
+      selectWorkspace(listed[0].id)
+    }
+  },
+  { immediate: true }
+)
+
+function createScoped() {
+  dialogs.createWorkspace(address.toString()).onOk(async (created: Workspace) => {
+    await refreshScoped()
+    selectWorkspace(created.id)
+  })
 }
 
 await refreshScoped()
@@ -221,7 +241,7 @@ const persisted = usePersisted({
 </script>
 
 <template>
-  <full-page :fill="activeWorkspaceId == null">
+  <full-page :fill="pinTabs">
     <template #header-append>
       <common-text class="q-ml-md" variant="title2">
         {{ component?.address?.toString() ?? address.toString() }}
@@ -479,11 +499,9 @@ const persisted = usePersisted({
           />
         </template>
       </workspace-page>
-      <!-- With no workspace open the strip sits at the bottom of the page rather than
-      floating below the overview with empty space under it. -->
       <div
         v-else-if="scopedWorkspaces.length > 0 || canManage"
-        :class="$style.pinnedTabs"
+        :class="pinTabs && $style.pinnedTabs"
       >
         <q-separator />
         <component-workspace-tabs
