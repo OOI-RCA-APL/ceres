@@ -1,8 +1,7 @@
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
-from uuid import UUID
 
-from sqlalchemy import Boolean, Text, UniqueConstraint, select
+from sqlalchemy import Boolean, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
@@ -30,6 +29,8 @@ from ceres.data import (
 )
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
@@ -113,10 +114,6 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
     email_suffix: MaybeSequence[str] | None
     admin: bool | None
     disabled: bool | None
-    can_view_workspace: MaybeSequence[UUID] | None
-    can_edit_workspace: MaybeSequence[UUID] | None
-    can_own_workspace: MaybeSequence[UUID] | None
-    has_workspace_membership: MaybeSequence[UUID] | None
 
 
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
@@ -142,14 +139,6 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     """Filter by `admin` being either `True` or `False`."""
     disabled: bool | None = None
     """Filter by `disabled` being either `True` or `False`."""
-    can_view_workspace: MaybeSequence[UUID] | None = None
-    """Filter, matching only users who can view at least one of the given workspaces."""
-    can_edit_workspace: MaybeSequence[UUID] | None = None
-    """Filter, matching only users who can edit at least one of the given workspaces."""
-    can_own_workspace: MaybeSequence[UUID] | None = None
-    """Filter, matching only users who can own at least one of the given workspaces."""
-    has_workspace_membership: MaybeSequence[UUID] | None = None
-    """Filter, matching only users who have a membership in at least one of the given workspaces."""
 
     @classmethod
     @override
@@ -215,26 +204,6 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
             yield columns.admin == self.admin
         if self.disabled is not None:
             yield columns.disabled == self.disabled
-
-        if (
-            self.can_view_workspace is not None
-            or self.can_edit_workspace is not None
-            or self.can_own_workspace is not None
-            or self.has_workspace_membership is not None
-        ):
-            from ceres.workspace import WorkspaceFilter, WorkspaceRow
-
-            filter = WorkspaceFilter()
-            if self.can_view_workspace is not None:
-                filter = filter.with_overrides(WorkspaceFilter(viewable_by=self.id))
-            if self.can_edit_workspace is not None:
-                filter = filter.with_overrides(WorkspaceFilter(editable_by=self.id))
-            if self.can_own_workspace is not None:
-                filter = filter.with_overrides(WorkspaceFilter(manageable_by=self.id))
-            if self.has_workspace_membership is not None:
-                filter = filter.with_overrides(WorkspaceFilter(joined_by=self.id))
-
-            yield filter.apply(select(WorkspaceRow.id), dialect).exists()
 
     @override
     def _get_default_order(self) -> MaybeSequence[UserOrder]:

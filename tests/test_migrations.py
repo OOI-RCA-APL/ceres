@@ -2,7 +2,6 @@ import asyncio
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 
 from ceres.database import Database
 from ceres.database.migrations import load_migrations
@@ -260,16 +259,6 @@ async def test_migration_2_transforms_old_schema(database):
         columns = [row[1] for row in await connection.execute(text("PRAGMA table_info(users)"))]
         assert "role" not in columns
 
-        workspace = (
-            await connection.execute(
-                text(
-                    "SELECT general_viewership, general_editorship, general_managership "
-                    "FROM workspaces WHERE id = 'w1'"
-                )
-            )
-        ).one()
-        assert tuple(workspace) == ("anyone", "private", "private")
-
         # The users table rebuild (required to drop `role` alongside its check
         # constraint) must preserve rows in tables that reference users by foreign key.
         setting = (
@@ -279,34 +268,35 @@ async def test_migration_2_transforms_old_schema(database):
         ).one()
         assert tuple(setting) == ("u1", "theme", '"dark"')
 
-        # The workspaces table rebuild (required to narrow its check constraints alongside
-        # the data) must preserve rows in tables that reference workspaces by foreign key.
-        membership = (
-            await connection.execute(
-                text(
-                    "SELECT user_id, workspace_id, role FROM workspace_memberships "
-                    "WHERE workspace_id = 'w1'"
-                )
-            )
+        # The workspaces table is rebuilt three separate times across the migration sequence, to
+        # narrow its check constraints, to make the placement column required, and to drop the
+        # general access columns. The row has to survive every one of them.
+        workspace = (
+            await connection.execute(text("SELECT id, name, scope FROM workspaces WHERE id = 'w1'"))
         ).one()
-        assert tuple(membership) == ("u1", "w1", "viewer")
+        assert tuple(workspace) == ("w1", "open", "~")
 
-    # The rebuilt workspaces table must enforce the narrowed check constraints, not just the
-    # narrowed data, so pre-baseline databases reject wide values going forward too.
-    with pytest.raises(IntegrityError):
-        async with database.engine.begin() as connection:
-            await connection.execute(
-                text(
-                    "INSERT INTO workspaces (id, name, general_viewership) VALUES "
-                    "('w2', 'stale', 'operators')"
-                )
+        # The general access columns and the memberships table are gone by the end of the
+        # sequence, so a database that predates the baseline still lands on the current schema.
+        columns = [
+            row[1] for row in await connection.execute(text("PRAGMA table_info(workspaces)"))
+        ]
+        assert "general_viewership" not in columns
+        assert "owner_id" in columns
+
+        tables = {
+            row[0]
+            for row in await connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
             )
+        }
+        assert "workspace_memberships" not in tables
 
 
 def test_migrations_include_migration_3():
     from ceres.database.migrations import MIGRATIONS
 
-    assert len(MIGRATIONS) == 6
+    assert len(MIGRATIONS) == 7
     migration = next(migration for migration in MIGRATIONS if migration.id == 3)
     assert migration.render("sqlite") is not None
     assert migration.render("postgres") is not None

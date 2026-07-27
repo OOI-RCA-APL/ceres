@@ -45,7 +45,7 @@ with __lazy_imports__(__name__):
     from ceres.database import Database
     from ceres.setting import SettingManager
     from ceres.user import UserManager
-    from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
+    from ceres.workspace import WorkspaceEditManager, WorkspaceManager
 
 __all__ = [
     "Engine",
@@ -207,11 +207,6 @@ class Engine(Node):
     def workspaces(self) -> WorkspaceManager:
         """Manager for workspaces."""
         return WorkspaceManager(self)
-
-    @cached_property
-    def workspace_memberships(self) -> WorkspaceMembershipManager:
-        """Manager for workspace memberships, mapping users into workspaces."""
-        return WorkspaceMembershipManager(self)
 
     @cached_property
     def workspace_edits(self) -> WorkspaceEditManager:

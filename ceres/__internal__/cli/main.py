@@ -27,7 +27,6 @@ from ceres.__internal__.cli.shared import (
     write,
     write_table,
 )
-from ceres.__internal__.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
 from ceres.__internal__.lazy import __lazy_imports__, unlazy
 from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import Address, AddressSelector
@@ -461,7 +460,6 @@ with __lazy_imports__(__name__):
     from ceres.__internal__.cli.subcommands.settings import SettingsCommand
     from ceres.__internal__.cli.subcommands.users import UsersCommand
     from ceres.__internal__.cli.subcommands.variables import VariablesCommand
-    from ceres.__internal__.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
     from ceres.__internal__.cli.subcommands.workspaces import WorkspacesCommand
 
 
@@ -510,7 +508,6 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
         "users": UsersCommand,
         "variables": VariablesCommand,
         "workspaces": WorkspacesCommand,
-        "workspace-memberships": WorkspaceMembershipsCommand,
     }
 
     if subcommand in subcommands:

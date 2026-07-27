@@ -24,6 +24,16 @@ from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
 from ceres.error import DatabaseMigrationError, DatabaseVersionError
+from ceres.logs import get_logger
+
+DESTRUCTIVE_MIGRATIONS = {
+    "remove-workspace-memberships": (
+        "Workspace memberships are dropped and cannot be recovered. Any workspace that was "
+        "shared with specific users becomes visible to everyone who can access the component or "
+        "engine root it is placed on."
+    ),
+}
+"""Migrations that discard data, keyed by name, with the warning logged before they run."""
 
 if TYPE_CHECKING:
     import sqlite3
@@ -55,7 +65,7 @@ with __lazy_imports__(__name__):
     from ceres.statistics import StatisticsManager
     from ceres.user import UserManager
     from ceres.variable import VariableManager
-    from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
+    from ceres.workspace import WorkspaceEditManager, WorkspaceManager
 
 __all__ = [
     "Database",
@@ -186,11 +196,6 @@ class Database:
     def workspaces(self) -> WorkspaceManager:
         """Manager for `Workspace` records."""
         return WorkspaceManager(self)
-
-    @cached_property
-    def workspace_memberships(self) -> WorkspaceMembershipManager:
-        """Manager for `WorkspaceMembership` records."""
-        return WorkspaceMembershipManager(self)
 
     @cached_property
     def workspace_edits(self) -> WorkspaceEditManager:
@@ -421,6 +426,15 @@ class Database:
         async with self._migrate_lock:
             applied: list[int] = []
             for migration in await self.get_pending_migrations():
+                warning = DESTRUCTIVE_MIGRATIONS.get(migration.name)
+                if warning is not None:
+                    get_logger("ceres.database").warning(
+                        "Migration %s (%s) is destructive. %s",
+                        migration.id,
+                        migration.name,
+                        warning,
+                    )
+
                 with wrap_database_errors():
                     try:
                         async with self._engine.begin() as connection:
@@ -841,7 +855,7 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.setting import SettingRow
     from ceres.user import UserRow
     from ceres.variable import VariableRow
-    from ceres.workspace import WorkspaceEditRow, WorkspaceMembershipRow, WorkspaceRow
+    from ceres.workspace import WorkspaceEditRow, WorkspaceRow
 
     return [
         MessageRow,
@@ -852,7 +866,6 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
         SettingRow,
         VariableRow,
         WorkspaceRow,
-        WorkspaceMembershipRow,
         WorkspaceEditRow,
         GroupRow,
         GroupMembershipRow,

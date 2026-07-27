@@ -140,7 +140,6 @@ __all__ = [
     # .version
     "__version__",
     "Workspace",
-    "WorkspaceMembership",
 ]
 
 from ceres.__internal__.lazy import __lazy_imports__
@@ -228,4 +227,4 @@ with __lazy_imports__(__name__, export=True):
     from ceres.user import User
     from ceres.variable import Variable
     from ceres.version import __version__
-    from ceres.workspace import Workspace, WorkspaceMembership
+    from ceres.workspace import Workspace

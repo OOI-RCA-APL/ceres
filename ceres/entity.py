@@ -22,7 +22,6 @@ with __lazy_imports__(__name__, export=True):
     from ceres.variable import Variable as Variable
     from ceres.workspace import Workspace as Workspace
     from ceres.workspace import WorkspaceEdit as WorkspaceEdit
-    from ceres.workspace import WorkspaceMembership as WorkspaceMembership
 
 __all__ = [
     "Entity",
@@ -43,7 +42,6 @@ if TYPE_CHECKING:
         | Variable
         | Setting
         | Workspace
-        | WorkspaceMembership
         | WorkspaceEdit
         | Group
         | GroupMembership
@@ -75,7 +73,7 @@ def __getattr__(name: str):
             from ceres.setting import Setting
             from ceres.user import User
             from ceres.variable import Variable
-            from ceres.workspace import Workspace, WorkspaceEdit, WorkspaceMembership
+            from ceres.workspace import Workspace, WorkspaceEdit
 
             _Entity = (
                 Message
@@ -86,7 +84,6 @@ def __getattr__(name: str):
                 | Variable
                 | Setting
                 | Workspace
-                | WorkspaceMembership
                 | WorkspaceEdit
                 | Group
                 | GroupMembership
@@ -114,7 +111,6 @@ class EntityType(StrEnum):
     VARIABLE = "variable"
     SETTING = "setting"
     WORKSPACE = "workspace"
-    WORKSPACE_MEMBERSHIP = "workspace-membership"
     WORKSPACE_EDIT = "workspace-edit"
     GROUP = "group"
     GROUP_MEMBERSHIP = "group-membership"
@@ -167,10 +163,6 @@ class EntityType(StrEnum):
                 from ceres.workspace import Workspace
 
                 return Workspace
-            case EntityType.WORKSPACE_MEMBERSHIP:
-                from ceres.workspace import WorkspaceMembership
-
-                return WorkspaceMembership
             case EntityType.WORKSPACE_EDIT:
                 from ceres.workspace import WorkspaceEdit
 
@@ -224,8 +216,6 @@ class EntityType(StrEnum):
                 return cls.SETTING
             case "Workspace":
                 return cls.WORKSPACE
-            case "WorkspaceMembership":
-                return cls.WORKSPACE_MEMBERSHIP
             case "WorkspaceEdit":
                 return cls.WORKSPACE_EDIT
             case "Group":
@@ -252,7 +242,6 @@ _ENTITY_TYPE_ALIASES = {
     "variables": "variable",
     "settings": "setting",
     "workspaces": "workspace",
-    "workspace-memberships": "workspace-membership",
     "workspace-edits": "workspace-edit",
     "groups": "group",
     "group-memberships": "group-membership",

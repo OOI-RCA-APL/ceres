@@ -18,9 +18,6 @@ from ceres.__internal__.app.api.routes.statistics import router as _router__stat
 from ceres.__internal__.app.api.routes.statuses import router as _router__statuses
 from ceres.__internal__.app.api.routes.users import router as _router__users
 from ceres.__internal__.app.api.routes.workspace_edits import router as _router__workspace_edits
-from ceres.__internal__.app.api.routes.workspace_memberships import (
-    router as _router__workspace_memberships,
-)
 from ceres.__internal__.app.api.routes.workspaces import router as _router__workspaces
 from ceres.__internal__.app.shared import (
     ADMIN,
@@ -59,7 +56,6 @@ router.include_router(_router__statistics)
 router.include_router(_router__statuses)
 router.include_router(_router__users)
 router.include_router(_router__workspace_edits)
-router.include_router(_router__workspace_memberships)
 router.include_router(_router__workspaces)
 
 
