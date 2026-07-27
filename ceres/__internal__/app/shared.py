@@ -305,25 +305,25 @@ class Identity(DataObject):
     token: str
     expires: DateTime
     user: User
-    switched_from: UUID | None = None
-    """Administrator who switched into this identity, marking it as not their own account.
+    impersonated_by: UUID | None = None
+    """Administrator impersonating this identity, marking it as not their own account.
 
-    A marker for the console to show, not a right. Switching is administrators only, and a
-    switched identity is somebody else's, so it confers nothing.
+    A marker for the console to show, not a right. Impersonating is administrators only, and the
+    identity it issues is somebody else's, so it confers nothing.
     """
 
 
 def create_identity(
     user: User,
     authentication: ServerAuthenticationConfig,
-    switched_from: UUID | None = None,
+    impersonated_by: UUID | None = None,
 ) -> Identity:
     """Create a signed JWT identity for the given user using the server authentication config.
 
     Args:
         user: The user to issue a token for.
         authentication: Server auth config providing the signing secret and token duration.
-        switched_from: Administrator who took on this identity through user switching, recorded
+        impersonated_by: Administrator who took on this identity by impersonating, recorded
             so they can return to their own account without their password. `None` for a token
             issued to the user themselves.
 
@@ -337,8 +337,8 @@ def create_identity(
         "sub": str(user.id),
         "exp": expires,
     }
-    if switched_from is not None:
-        claims["swf"] = str(switched_from)
+    if impersonated_by is not None:
+        claims["imp"] = str(impersonated_by)
 
     token = jwt.encode(claims, authentication.secret, "HS256")
 
@@ -346,7 +346,7 @@ def create_identity(
         user=user,
         token=token,
         expires=expires,
-        switched_from=switched_from,
+        impersonated_by=impersonated_by,
     )
 
 
@@ -435,9 +435,9 @@ async def _get_current_identity(
         if user is None:
             return None
 
-        switched_from = info.get("swf")
+        impersonated_by = info.get("swf")
         try:
-            switched_from = UUID(str(switched_from)) if switched_from is not None else None
+            impersonated_by = UUID(str(impersonated_by)) if impersonated_by is not None else None
         except ValueError:
             return None
 
@@ -445,7 +445,7 @@ async def _get_current_identity(
             token=token,
             expires=expires,
             user=user,
-            switched_from=switched_from,
+            impersonated_by=impersonated_by,
         )
 
 

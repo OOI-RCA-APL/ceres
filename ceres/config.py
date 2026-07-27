@@ -753,7 +753,7 @@ class ServerAuthenticationConfig(DataObject):
     duration: PositiveTimeDelta = timedelta(minutes=30)
     """Lifetime of an issued authentication token."""
 
-    allow_user_switching: bool = False
+    allow_impersonate: bool = False
     """Whether an administrator may take on another user's identity without their password.
 
     Turn this on to check what a given user can see, which is otherwise hard to answer with

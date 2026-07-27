@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import { upperFirst } from 'lodash-es'
 import { LocalStorage } from 'quasar'
-import { watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Zod from 'zod'
 
@@ -11,8 +10,8 @@ import AppLayoutDrawerWorkspace from '@/AppLayoutDrawerWorkspace.vue'
 import { useAccess } from '@/api/access'
 import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
-import { User, useUsers } from '@/api/users'
 import ResizeHandle from '@/components/ResizeHandle.vue'
+import UserChooser from '@/components/UserChooser.vue'
 import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
 import { guard } from '@/errors'
@@ -29,7 +28,6 @@ import { useWorkspaces, Workspace } from '@/workspace'
 const access = useAccess()
 const auth = useAuth()
 const engine = useEngine()
-const users = useUsers()
 const drawer = useDrawer()
 const navigation = useNavigation()
 const notify = useNotify()
@@ -76,36 +74,28 @@ async function importWorkspaces() {
   }
 }
 
-// The engine decides whether switching exists at all, and only an administrator may do it.
-const canSwitchUser = $computed(() => engine.auth.canSwitchUser && engine.auth.isAdmin)
+const isDeveloperMode = $computed(() => isDevelopment && preferences.isDeveloperModeEnabled)
 
-let switchableUsers = $ref<User[]>([])
+// The engine decides whether impersonation exists at all, and only an administrator may do it.
+const canImpersonate = $computed(() => engine.auth.canImpersonate && engine.auth.isAdmin)
 
 void engine.auth.loadFeatures()
-
-watch(
-  () => canSwitchUser,
-  async (allowed) => {
-    switchableUsers = allowed ? await users.getAll({ order: 'username' }) : []
-  },
-  { immediate: true }
-)
 
 // Everything the console shows is filtered by who the caller is, so the access map, the workspace
 // list and the current page all have to be rebuilt around the new identity.
 async function adoptIdentity(change: Promise<unknown>) {
-  await guard(change, () => notify.error('Failed to switch user.'))
+  await guard(change, () => notify.error('Failed to change user.'))
   await access.refresh()
   await workspaces.refresh()
   navigation.reload()
 }
 
-async function switchTo(userId: string) {
-  await adoptIdentity(engine.auth.switchUser(userId))
+async function impersonate(userId: string) {
+  await adoptIdentity(engine.auth.impersonate(userId))
 }
 
-async function returnFromSwitch() {
-  await adoptIdentity(engine.auth.returnFromSwitch())
+async function stopImpersonating() {
+  await adoptIdentity(engine.auth.stopImpersonating())
 }
 
 // Dropping an exported workspace file on the list imports it, landing on the engine root like
@@ -442,7 +432,10 @@ function promptReload() {
             </q-card>
           </q-menu>
         </q-item>
-        <template v-if="isDevelopment && preferences.isDeveloperModeEnabled">
+        <!-- The developer tools belong to a development build, but impersonation is allowed by the
+        engine rather than by the build, so the menu also appears on a deployment that turned it
+        on. -->
+        <template v-if="isDeveloperMode || canImpersonate">
           <q-separator />
           <q-item clickable>
             <q-item-section avatar>
@@ -456,7 +449,7 @@ function promptReload() {
             </q-item-section>
             <q-menu anchor="bottom right" :offset="[8, 0]" self="bottom left">
               <q-list bordered dense>
-                <q-item clickable @click="clearLocalStorage">
+                <q-item v-if="isDeveloperMode" clickable @click="clearLocalStorage">
                   <q-item-section avatar>
                     <q-icon :name="icons.clearLocalStorage" />
                   </q-item-section>
@@ -464,7 +457,7 @@ function promptReload() {
                     <q-item-label>Clear Local Storage</q-item-label>
                   </q-item-section>
                 </q-item>
-                <q-item clickable to="/developer/schema-form-playground">
+                <q-item v-if="isDeveloperMode" clickable to="/developer/schema-form-playground">
                   <q-item-section avatar>
                     <q-icon :name="icons.json" />
                   </q-item-section>
@@ -472,56 +465,44 @@ function promptReload() {
                     <q-item-label>Schema Form Playground</q-item-label>
                   </q-item-section>
                 </q-item>
+                <q-item v-if="canImpersonate" clickable>
+                  <q-item-section avatar>
+                    <q-icon :name="icons.viewer" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Impersonate</q-item-label>
+                    <q-item-label caption>Intended for development.</q-item-label>
+                  </q-item-section>
+                  <q-item-section side>
+                    <q-icon :name="icons.menuRight" />
+                  </q-item-section>
+                  <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+                    <q-card bordered flat :style="{ width: '300px' }">
+                      <user-chooser
+                        empty="No other users to impersonate."
+                        :omit="(user) => user.id === engine.auth.user?.id"
+                        @select="(user) => impersonate(user.id)"
+                      />
+                    </q-card>
+                  </q-menu>
+                </q-item>
               </q-list>
             </q-menu>
           </q-item>
         </template>
-        <!-- Switching is administrators only and needs the engine to have turned it on, which is
-        off by default and warned about on every load. It is not gated on the build, so an operator
-        can check what a user sees on the deployment they are actually running. -->
-        <template v-if="engine.auth.isSwitched">
+        <!-- Impersonating is a state the whole console is in, so getting back out of it stays
+        at the top level rather than inside the menu that started it. -->
+
+        <template v-if="engine.auth.isImpersonating">
           <q-separator />
-          <q-item clickable @click="returnFromSwitch">
+          <q-item clickable @click="stopImpersonating">
             <q-item-section avatar>
               <q-icon color="warning" :name="icons.viewer" />
             </q-item-section>
             <q-item-section>
-              <q-item-label>Viewing as {{ engine.auth.user?.username }}</q-item-label>
+              <q-item-label>Impersonating {{ engine.auth.user?.username }}</q-item-label>
               <q-item-label caption>Return to your own account.</q-item-label>
             </q-item-section>
-          </q-item>
-        </template>
-        <template v-else-if="canSwitchUser">
-          <q-separator />
-          <q-item clickable>
-            <q-item-section avatar>
-              <q-icon :name="icons.viewer" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>View As</q-item-label>
-              <q-item-label caption>Intended for development.</q-item-label>
-            </q-item-section>
-            <q-item-section side>
-              <q-icon :name="icons.menuRight" />
-            </q-item-section>
-            <q-menu anchor="top right" :offset="[8, 0]" self="top left">
-              <q-list bordered dense :style="{ maxHeight: '400px', overflowY: 'auto' }">
-                <q-item
-                  v-for="candidate in switchableUsers"
-                  :key="candidate.id"
-                  v-close-popup
-                  clickable
-                  @click="switchTo(candidate.id)"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="candidate.admin ? icons.admin : icons.user" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>{{ candidate.username }}</q-item-label>
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-menu>
           </q-item>
         </template>
         <q-separator />

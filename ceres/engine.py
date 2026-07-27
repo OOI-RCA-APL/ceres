@@ -624,11 +624,11 @@ class Engine(Node):
                     self.log.info(f"Server configuration will be {verb}ed.")
 
                 authentication = config.server.authentication
-                if authentication is not None and authentication.allow_user_switching:
+                if authentication is not None and authentication.allow_impersonate:
                     self.log.warning(
-                        "User switching is enabled. Any administrator can take on any other "
+                        "Impersonation is enabled. Any administrator can take on any other "
                         "user's identity without their password. This belongs in development, "
-                        "turn off server.authentication.allow_user_switching in production."
+                        "turn off server.authentication.allow_impersonate in production."
                     )
 
                 try:
