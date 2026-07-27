@@ -1,7 +1,11 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
 
-const { title, dense = false, fill = false } = defineProps<{
+const {
+  title,
+  dense = false,
+  fill = false,
+} = defineProps<{
   title?: string
   dense?: boolean
   fill?: boolean

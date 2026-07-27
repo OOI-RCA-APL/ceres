@@ -19,7 +19,7 @@ import { usePersisted } from '@/persistence'
 import { usePreferences } from '@/preferences'
 import { duration } from '@/time'
 import { displayDuration } from '@/utilities'
-import { useWorkspaces } from '@/workspace'
+import { useWorkspaces, Workspace } from '@/workspace'
 
 const auth = useAuth()
 const engine = useEngine()
@@ -55,9 +55,10 @@ const displayedWorkspaces = $computed(() => {
   return workspaces.all
 })
 
-async function createWorkspace() {
-  const created = await workspaces.create()
-  workspaces.open(created.id)
+function createWorkspace() {
+  dialogs.createWorkspace().onOk((created: Workspace) => {
+    void workspaces.open(created.id)
+  })
 }
 
 async function importWorkspaces() {

@@ -67,6 +67,16 @@ export const useDialogs = defineStore('dialogs', () => {
           },
         })
       ),
+    createWorkspace: (scope?: string) =>
+      quasar.dialog(
+        withDefaults({
+          component: WorkspaceDialog,
+          componentProps: {
+            action: 'create',
+            scope,
+          },
+        })
+      ),
     workspaceSettings: (workspaceId: string) =>
       quasar.dialog(
         withDefaults({

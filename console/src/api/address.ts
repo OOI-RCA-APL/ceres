@@ -1,5 +1,8 @@
 import Zod from 'zod'
 
+/** The address of the engine root, the placement of anything not bound to a component. */
+export const engineRoot = '~'
+
 const namePattern = '^[a-zA-Z_-][a-zA-Z0-9_-]*$'
 const name = namePattern.slice(1, -1)
 const modifier = ':(all|children|descendants)'
@@ -108,12 +111,12 @@ export class Address extends AddressSelector {
   }
 
   public get isAbsolute(): boolean {
-    return this.value === '~' || this.value.startsWith('@')
+    return this.isEngine || this.value.startsWith('@')
   }
 
   /** Whether this addresses the engine root rather than a component. */
   public get isEngine(): boolean {
-    return this.value === '~'
+    return this.value === engineRoot
   }
 
   public asAbsolute(root: Address | null): Address {

@@ -315,7 +315,16 @@ function promptDeleteById(workspace: Workspace) {
         @pointerup="onPointerUp"
       >
         <div :class="[$style.tabInner, 'items-center', 'no-wrap', 'row']">
-          <q-icon :class="$style.tabIcon" :name="icons.workspace" />
+          <!-- The leading icon already answers what kind of tab this is, so marking a private
+          workspace here costs no width and adds no second icon to the tab. -->
+          <q-icon
+            :class="$style.tabIcon"
+            :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
+          >
+            <q-tooltip v-if="workspace.owner_id != null" :delay="1000">
+              This workspace is private to you.
+            </q-tooltip>
+          </q-icon>
           <span :class="$style.label" @dblclick.stop="openRename(workspace)">
             {{ workspace.name }}
           </span>

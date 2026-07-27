@@ -19,7 +19,13 @@ import {
 import Zod from 'zod'
 
 import { useAccess } from '@/api/access'
-import { Address, AddressModel, AddressSelector, AddressSelectorModel } from '@/api/address'
+import {
+  Address,
+  AddressModel,
+  AddressSelector,
+  AddressSelectorModel,
+  engineRoot,
+} from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
@@ -347,9 +353,6 @@ export const WorkspaceDataModel = Zod.object({
   meta: WorkspaceMetaModel.catch(() => ({ order: undefined })),
 })
 
-/** Address of the engine root, the placement every workspace not bound to a component sits on. */
-export const engineRoot = '~'
-
 export type Workspace = Zod.infer<typeof WorkspaceModel>
 export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
@@ -426,10 +429,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   const scope = $computed(() => workspace?.scope ?? null)
 
-  function isEnginePlaced(): boolean {
-    return workspace != null && workspace.scope.toString() === engineRoot
-  }
-
   /** Whether the caller may edit and manage this workspace, which are the same right. */
   function isWritable(): boolean {
     if (workspace == null) {
@@ -437,11 +436,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
     if (workspace.owner_id != null) {
       return workspace.owner_id === auth.user?.id
-    }
-    if (isEnginePlaced()) {
-      // Engine-level manage comes from an all-target grant, which the console models as manage
-      // on every component rather than as a level on the root itself.
-      return auth.user?.admin === true
     }
 
     return access.canManage(workspace.scope.toString())
@@ -819,7 +813,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     resolveFilterAddress,
     owner: computed(() => workspace?.owner_id ?? null),
     isPrivate: computed(() => workspace?.owner_id != null),
-    isEnginePlaced: computed(() => isEnginePlaced()),
+    isEnginePlaced: computed(() => workspace?.scope.isEngine === true),
     originalData: computed(() => workspace?.data ?? null),
     data: computed(() => data),
     edited: computed(() => edited),
@@ -853,7 +847,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
         return workspace.owner_id === auth.user?.id
       }
 
-      return isEnginePlaced() ? auth.user != null : access.canView(workspace.scope.toString())
+      return access.canView(workspace.scope.toString())
     }),
     canEdit: computed(() => isWritable()),
     canManage: computed(() => isWritable()),
@@ -904,7 +898,6 @@ export const useWorkspaces = defineStore('workspaces', () => {
       parse: Zod.array(WorkspaceModel),
     })
   }
-
 
   async function listScoped(scope: Address) {
     return await client.get(`/api/workspaces`, {
@@ -971,13 +964,6 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return result
   }
 
-
-
-
-
-
-
-
   async function getEdit(workspaceId: string) {
     if (auth.user == null) {
       return null
@@ -1030,8 +1016,6 @@ export const useWorkspaces = defineStore('workspaces', () => {
       return null
     }
   }
-
-
 
   async function exportFile(workspaceOrId: string | WorkspaceInput) {
     const workspace = typeof workspaceOrId === 'string' ? await get(workspaceOrId) : workspaceOrId
@@ -1186,4 +1170,3 @@ export function widgetTargetSignature(widget: Widget): string {
 
   return JSON.stringify(values.map((value) => value?.toString() ?? null))
 }
-
