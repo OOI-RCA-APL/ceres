@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { QPopupEdit } from 'quasar'
-import { watch } from 'vue'
+import { nextTick, watch } from 'vue'
 
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
@@ -30,40 +30,186 @@ const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgen
 const undoShortcut = isApple ? '⌘Z' : 'Ctrl+Z'
 const redoShortcut = isApple ? '⇧⌘Z' : 'Ctrl+Y'
 
-// Tabs are dragged to reorder them. Only the index being dragged is tracked, the drop target is
-// read from the tab the pointer is over.
-let draggingIndex = $ref<number | null>(null)
-
-function onDragStart(index: number, event: DragEvent) {
-  draggingIndex = index
-  event.dataTransfer?.setData('text/plain', String(index))
-  if (event.dataTransfer != null) {
-    event.dataTransfer.effectAllowed = 'move'
-  }
+// Tabs reorder by pointer rather than by the HTML5 drag API, so they behave the way browser tabs
+// do. The held tab tracks the pointer, its neighbours slide aside as it passes their midpoints,
+// and it settles into the gap when released. Positions are measured once when the drag begins and
+// every offset is derived from those, so nothing depends on layout that is mid-animation.
+type TabDrag = {
+  index: number
+  pointerId: number
+  startX: number
+  positions: { left: number; width: number }[]
+  moved: boolean
 }
 
-function onDragOver(index: number, event: DragEvent) {
-  if (draggingIndex == null || draggingIndex === index) {
+const dragThreshold = 4
+const settleDuration = 140
+
+let rootElement = $ref<HTMLElement | null>(null)
+let drag = $ref<TabDrag | null>(null)
+let dragOffset = $ref(0)
+let dragTarget = $ref(0)
+let settling = $ref(false)
+let swapping = $ref(false)
+let suppressClick = false
+
+function onPointerDown(index: number, event: PointerEvent) {
+  suppressClick = false
+
+  // The tab's own menu button owns its presses, and a drag should only ever start from a plain
+  // left press.
+  if (event.button !== 0 || (event.target as HTMLElement).closest('button') != null) {
     return
   }
 
-  event.preventDefault()
-  if (event.dataTransfer != null) {
-    event.dataTransfer.dropEffect = 'move'
-  }
-}
+  const elements = rootElement?.querySelectorAll<HTMLElement>('.q-tab') ?? []
+  const positions = [...elements].map((element) => {
+    const box = element.getBoundingClientRect()
+    return { left: box.left, width: box.width }
+  })
 
-function onDrop(index: number) {
-  if (draggingIndex == null || draggingIndex === index) {
-    draggingIndex = null
+  if (positions.length !== workspaces.length) {
     return
   }
 
-  const reordered = [...workspaces]
-  const [moved] = reordered.splice(draggingIndex, 1)
-  reordered.splice(index, 0, moved)
-  draggingIndex = null
-  emit('reorder', reordered)
+  drag = { index, pointerId: event.pointerId, startX: event.clientX, positions, moved: false }
+  dragOffset = 0
+  dragTarget = index
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (drag == null || event.pointerId !== drag.pointerId || settling) {
+    return
+  }
+
+  const delta = event.clientX - drag.startX
+  if (!drag.moved && Math.abs(delta) < dragThreshold) {
+    return
+  }
+
+  drag.moved = true
+  dragOffset = delta
+  dragTarget = resolveTarget(delta)
+}
+
+/** Return the index the held tab would land on, given how far it has travelled. */
+function resolveTarget(delta: number): number {
+  if (drag == null) {
+    return 0
+  }
+
+  const { index, positions } = drag
+  const center = positions[index].left + positions[index].width / 2 + delta
+
+  let target = index
+  while (target > 0 && center < positions[target - 1].left + positions[target - 1].width / 2) {
+    target--
+  }
+  while (
+    target < positions.length - 1 &&
+    center > positions[target + 1].left + positions[target + 1].width / 2
+  ) {
+    target++
+  }
+
+  return target
+}
+
+/** Return how far a tab slides aside to open the gap the held tab is heading for. */
+function tabShift(index: number): number {
+  if (drag == null || index === drag.index) {
+    return 0
+  }
+
+  const width = drag.positions[drag.index].width
+  if (drag.index < dragTarget && index > drag.index && index <= dragTarget) {
+    return -width
+  }
+  if (drag.index > dragTarget && index >= dragTarget && index < drag.index) {
+    return width
+  }
+
+  return 0
+}
+
+/** Return where the held tab comes to rest, which is the near edge of the gap it opened. */
+function settledOffset(): number {
+  if (drag == null) {
+    return 0
+  }
+
+  const { index, positions } = drag
+  if (dragTarget > index) {
+    const target = positions[dragTarget]
+    const held = positions[index]
+    return target.left + target.width - (held.left + held.width)
+  }
+  if (dragTarget < index) {
+    return positions[dragTarget].left - positions[index].left
+  }
+
+  return 0
+}
+
+function tabStyle(index: number) {
+  if (drag == null) {
+    return undefined
+  }
+
+  if (index === drag.index) {
+    return { transform: `translateX(${settling ? settledOffset() : dragOffset}px)` }
+  }
+
+  return { transform: `translateX(${tabShift(index)}px)` }
+}
+
+async function onPointerUp(event: PointerEvent) {
+  if (drag == null || event.pointerId !== drag.pointerId) {
+    return
+  }
+
+  if (!drag.moved) {
+    drag = null
+    return
+  }
+
+  const { index } = drag
+  const target = dragTarget
+
+  // Let the held tab travel into its gap before the list reorders underneath it, otherwise it
+  // jumps the remaining distance the instant the transform is dropped.
+  suppressClick = true
+  settling = true
+  await new Promise((resolve) => setTimeout(resolve, settleDuration))
+
+  // Dropping the offsets and reordering the list happen in the same frame, and the tabs that slid
+  // aside are already standing where the new order puts them. Animating that frame would replay
+  // the slide they just finished, so transitions are off across the swap and restored after the
+  // browser has painted it.
+  settling = false
+  swapping = true
+  drag = null
+  dragOffset = 0
+
+  if (target !== index) {
+    const reordered = [...workspaces]
+    const [moved] = reordered.splice(index, 1)
+    reordered.splice(target, 0, moved)
+    emit('reorder', reordered)
+  }
+
+  await nextTick()
+  requestAnimationFrame(() => requestAnimationFrame(() => (swapping = false)))
+}
+
+function onTabClick(id: string) {
+  if (suppressClick) {
+    suppressClick = false
+    return
+  }
+
+  emit('select', id)
 }
 
 // The active tab's working-copy state comes live from its own loaded workspace context, since
@@ -102,8 +248,14 @@ function hasWorkingCopy(workspace: Workspace): boolean {
 let renamePopup = $ref<QPopupEdit[]>([])
 let renameDraft = $ref('')
 
-function openRename(workspace: Workspace) {
+async function openRename(workspace: Workspace) {
+  if (workspace.id !== active) {
+    return
+  }
+
+  // The popup snapshots its model when it opens, so the draft has to land before it is shown.
   renameDraft = workspace.name
+  await nextTick()
   renamePopup[0]?.show()
 }
 
@@ -134,7 +286,7 @@ function promptDeleteById(workspace: Workspace) {
 </script>
 
 <template>
-  <div class="items-center no-wrap row">
+  <div ref="rootElement" :class="[$style.root, 'no-wrap', 'row']">
     <q-tabs
       :class="$style.tabs"
       dense
@@ -147,26 +299,26 @@ function promptDeleteById(workspace: Workspace) {
       <q-tab
         v-for="(workspace, index) in workspaces"
         :key="workspace.id"
-        :class="[$style.tab, draggingIndex === index && $style.dragging]"
-        draggable="true"
+        :class="[
+          $style.tab,
+          swapping && $style.swapping,
+          drag != null && $style.arranging,
+          drag?.index === index && $style.held,
+          drag?.index === index && !settling && $style.grabbed,
+        ]"
         :name="workspace.id"
-        @click="emit('select', workspace.id)"
-        @dragend="draggingIndex = null"
-        @dragover="onDragOver(index, $event)"
-        @dragstart="onDragStart(index, $event)"
-        @drop="onDrop(index)"
+        :style="tabStyle(index)"
+        @click="onTabClick(workspace.id)"
+        @pointercancel="onPointerUp"
+        @pointerdown="onPointerDown(index, $event)"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
       >
-        <div class="items-center no-wrap row">
+        <div :class="[$style.tabInner, 'items-center', 'no-wrap', 'row']">
           <q-icon :class="$style.tabIcon" :name="icons.workspace" />
-          <span :class="$style.label">{{ workspace.name }}</span>
-          <q-icon
-            v-if="hasWorkingCopy(workspace)"
-            :class="$style.workingCopyIcon"
-            color="warning"
-            :name="icons.workingCopy"
-          >
-            <q-tooltip>This workspace has unsaved changes.</q-tooltip>
-          </q-icon>
+          <span :class="$style.label" @dblclick.stop="openRename(workspace)">
+            {{ workspace.name }}
+          </span>
           <q-popup-edit
             v-if="workspace.id === active"
             ref="renamePopup"
@@ -175,6 +327,8 @@ function promptDeleteById(workspace: Workspace) {
             anchor="bottom left"
             auto-save
             :class="$style.popupEdit"
+            :cover="false"
+            no-parent-event
             self="top left"
             :validate="(value: string) => value.trim() !== ''"
             @save="(value: string) => activeActions?.rename(value)"
@@ -192,15 +346,20 @@ function promptDeleteById(workspace: Workspace) {
           </q-popup-edit>
           <q-btn
             class="faded-hover q-ml-xs"
+            :class="hasWorkingCopy(workspace) && $style.editedRing"
             dense
             flat
             :icon="icons.more"
             round
-            size="6px"
+            size="6.5px"
+            :style="{ marginTop: '1px' }"
             @click.stop
             @mousedown.stop
             @touchstart.stop
           >
+            <q-tooltip v-if="hasWorkingCopy(workspace)">
+              This workspace has unsaved changes.
+            </q-tooltip>
             <q-menu anchor="bottom right" :offset="[0, 4]" self="top right">
               <q-card bordered flat>
                 <q-list dense>
@@ -340,14 +499,6 @@ function promptDeleteById(workspace: Workspace) {
                     </template>
                   </template>
                   <template v-else>
-                    <q-item v-close-popup clickable dense @click="emit('select', workspace.id)">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.open" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Open</q-item-label>
-                      </q-item-section>
-                    </q-item>
                     <q-item v-close-popup clickable dense @click="openSettingsById(workspace)">
                       <q-item-section avatar>
                         <q-icon :name="icons.settings" />
@@ -381,7 +532,6 @@ function promptDeleteById(workspace: Workspace) {
             </q-menu>
           </q-btn>
         </div>
-        <q-tooltip>Workspace "{{ workspace.name }}", drag to reorder.</q-tooltip>
       </q-tab>
     </q-tabs>
     <q-btn
@@ -401,18 +551,47 @@ function promptDeleteById(workspace: Workspace) {
 
 <style lang="scss" module>
 // Each tab carries the workspace icon so the group reads as workspaces rather than as page
-// sections, and the selected one is marked by a filled pill instead of an underline, which sits
+// sections, and the selected one is marked by a filled block instead of an underline, which sits
 // better in a header rail that already uses chips and icon buttons.
+
+// The strip takes the full height of the header row it sits in and its tabs stretch to fill it,
+// so the selected tab's fill runs from the top of the header into the separator beneath it, the
+// way a tab is expected to meet the surface it belongs to.
+.root {
+  align-self: stretch;
+  align-items: stretch;
+  padding-top: 4px;
+  overflow: hidden;
+}
+
 .tabs {
-  height: 30px;
+  height: 100%;
+}
+
+// Quasar's dense tabs force their own horizontal padding, so the tab's own spacing is carried by
+// the row inside it instead of fighting that rule.
+.tabInner {
+  height: 100%;
+  padding: 0 6px 0 8px;
+}
+
+// Quasar's dense tabs impose a 36px minimum on the tab and pad its content box vertically, which
+// together push the tab taller than the header it sits in. Both need matching specificity to
+// override, so the minimum is cleared through the strip and the padding through the inner box.
+.tabs .tab {
+  height: 100%;
+  min-height: 0;
+}
+
+.tab :global(.q-tab__content) {
+  padding: 0;
 }
 
 .tab {
-  min-height: 26px;
-  padding: 0 6px 0 10px;
-  border-radius: 13px;
+  border-radius: 4px 4px 0 0;
   opacity: 0.7;
-  transition: background-color 0.2s, opacity 0.2s;
+  transition: background-color 0.2s, opacity 0.2s, transform 0.16s ease;
+  touch-action: none;
 
   &:hover {
     opacity: 1;
@@ -420,8 +599,8 @@ function promptDeleteById(workspace: Workspace) {
 
   &:global(.q-tab--active) {
     opacity: 1;
-    background-color: rgba($primary, 0.18);
-    color: $primary;
+    background-color: $primary;
+    color: white;
   }
 }
 
@@ -438,11 +617,18 @@ function promptDeleteById(workspace: Workspace) {
   white-space: nowrap;
 }
 
-// Shrunk to a plain icon rather than a full chip, since the tab already carries the workspace's
-// name and only needs to flag that local changes exist, not offer a menu of its own.
-.workingCopyIcon {
-  margin-left: 5px;
-  font-size: 12px;
+// A workspace with local changes rings its menu button rather than carrying an icon of its own.
+// The ring is drawn as an outline so it takes no space, which keeps a tab exactly as wide edited
+// as it is clean, and leaves the tab with one icon instead of two.
+// A workspace with local changes rings its menu dots rather than carrying an icon of its own. The
+// ring is drawn on the dots themselves so it sits tight against them and leaves the button's hit
+// area alone, and being an outline it takes no space, keeping a tab exactly as wide edited as it
+// is clean. Quasar buttons carry `no-outline`, which clears outlines with `!important`, so this
+// has to be forced back on.
+.editedRing :global(.q-icon) {
+  border-radius: 50%;
+  outline: 1px dotted currentColor !important;
+  outline-offset: 0;
 }
 
 .shortcut {
@@ -460,11 +646,32 @@ function promptDeleteById(workspace: Workspace) {
   padding: 0 !important;
 }
 
-.dragging {
-  opacity: 0.4;
+// While a drag is in progress the strip must not clip the lifted tab, and hover highlighting on
+// the tabs sliding aside would read as a second thing happening at once.
+.arranging {
+  &:hover {
+    opacity: inherit;
+  }
+}
+
+.held {
+  z-index: 2;
+  opacity: 1;
+}
+
+// The held tab tracks the pointer directly, so it must not smooth its own movement. It regains
+// the transition once released, which is what animates it into the gap.
+.grabbed {
+  cursor: grabbing;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.swapping {
+  transition: none;
 }
 
 .add {
+  align-self: center;
   opacity: 0.7;
 
   &:hover {

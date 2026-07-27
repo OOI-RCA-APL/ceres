@@ -349,7 +349,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 </script>
 
 <template>
-  <full-page :class="$style.root">
+  <full-page :class="$style.root" :dense="$slots['header-prepend'] != null">
     <div
       v-if="workspace.drag != null"
       key="dragged-widget-icon"
@@ -365,7 +365,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
     <template #header-append>
       <slot :actions="headerActions" name="header-prepend" :state="headerState" />
       <template v-if="!$slots['header-prepend']">
-        <div>
+        <div @dblclick="renamePopup?.show()">
           <common-text
             class="q-ml-md q-mr-sm"
             :class="workspace.canManage && $style.nameEditable"
@@ -381,6 +381,8 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
             anchor="bottom left"
             auto-save
             :class="$style.popupEdit"
+            :cover="false"
+            no-parent-event
             self="top left"
             :validate="(value: string) => value.trim() !== ''"
           >
@@ -790,11 +792,21 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         </div>
       </div>
     </div>
-    <div v-if="!isViewingOriginal" class="faded-hover items-center justify-center q-mt-sm row">
-      <q-btn v-if="data != null" color="primary" :icon="icons.add" round size="8px" unelevated>
-        <q-tooltip class="bg-primary">Add Widget</q-tooltip>
-        <workspace-add-widget-menu :offset="[0, 8]" :row="data.layout.length" />
-      </q-btn>
+    <!-- The whole row is the target rather than just the dot, since the dot is small and the row
+    already lights up on hover, which promises a click the dot alone would not accept. -->
+    <div
+      v-if="!isViewingOriginal && data != null"
+      class="row"
+      :class="[$style.addWidgetRow, 'faded-hover', 'items-center', 'justify-center', 'q-mt-sm']"
+    >
+      <q-btn color="primary" :icon="icons.add" round size="8px" tabindex="-1" unelevated />
+      <q-tooltip class="bg-primary">Add Widget</q-tooltip>
+      <workspace-add-widget-menu
+        anchor="bottom middle"
+        :offset="[0, 8]"
+        :row="data.layout.length"
+        self="top middle"
+      />
     </div>
     <div :class="$style.bottomPadding" />
   </full-page>
@@ -831,6 +843,11 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   right: -0.5px;
   top: 0px;
   z-index: 1;
+}
+
+.addWidgetRow {
+  cursor: pointer;
+  padding: 4px 0;
 }
 
 .bottomPadding {

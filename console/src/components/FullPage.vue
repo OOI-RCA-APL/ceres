@@ -1,14 +1,15 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
 
-defineProps<{
+const { title, dense = false } = defineProps<{
   title?: string
+  dense?: boolean
 }>()
 </script>
 
 <template>
   <div :class="$style.root">
-    <div :class="[$style.header, 'items-center', 'row']">
+    <div :class="[$style.header, dense && $style.denseHeader, 'items-center', 'row']">
       <common-text v-if="title != null" class="q-ml-md" variant="title2">
         {{ title }}
       </common-text>
@@ -26,6 +27,12 @@ defineProps<{
 
 .header {
   height: 42px !important;
+}
+
+// A header whose content is a tab strip rather than a title reads better shorter, since the tabs
+// fill it edge to edge and would otherwise tower over the page beneath them.
+.denseHeader {
+  height: 32px !important;
 }
 
 :global(.dark) .header {
