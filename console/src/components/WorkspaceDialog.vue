@@ -127,7 +127,7 @@ type UserWorkspaceMembership = WorkspaceMembership & {
 const form = useForm({
   editing: action === 'duplicate',
   data: {
-    name: 'New Workspace',
+    name: 'Workspace',
     general_viewership: 'private' as WorkspaceAccessRestriction,
     general_editorship: 'private' as WorkspaceAccessRestriction,
     general_managership: 'private' as WorkspaceAccessRestriction,

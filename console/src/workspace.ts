@@ -992,7 +992,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
   async function create(
     workspace?: Omit<WorkspaceInput, 'name'> & { name?: string }
   ): Promise<Workspace> {
-    workspace = WorkspaceModel.parse({ name: 'New Workspace', ...workspace })
+    workspace = WorkspaceModel.parse({ name: 'Workspace', ...workspace })
     const result = await client.post(`/api/workspaces`, {
       data: workspace,
       parse: WorkspaceModel,

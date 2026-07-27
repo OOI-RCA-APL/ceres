@@ -86,7 +86,7 @@ watch(
 )
 
 async function createScoped() {
-  const created = await workspaces.create({ name: 'New Workspace', scope: address })
+  const created = await workspaces.create({ name: 'Workspace', scope: address })
   await refreshScoped()
   await navigation.replace({ query: { workspace: created.id } })
 }
