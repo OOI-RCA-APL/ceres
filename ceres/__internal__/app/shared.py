@@ -568,6 +568,39 @@ async def get_component_access(
     )
 
 
+async def get_engine_access(engine: Engine, user: User | None) -> ComponentAccessLevel | None:
+    """Resolve the effective access level for a user on the engine root.
+
+    The engine root is the placement that workspaces spanning several components sit on. It has no
+    component to resolve against, so its level is the higher of the configured default access and
+    any all-target grant the user holds. Authenticated users get `VIEW` unless the configuration
+    lowers it, which mirrors how a component with no declared access behaves.
+
+    Args:
+        engine: Engine whose configuration and grants to resolve against.
+        user: The user to check, or `None` for an unauthenticated caller.
+
+    Returns:
+        The effective `ComponentAccessLevel`, or `None` when there is no user.
+    """
+    from ceres.access import fetch_access_grants
+    from ceres.component import ComponentAccessLevel
+
+    if user is None:
+        return None
+    if user.admin:
+        return ComponentAccessLevel.MANAGE
+
+    default = (
+        engine.default_access if engine.default_access is not None else ComponentAccessLevel.VIEW
+    )
+    grants = await fetch_access_grants(engine.database, user)
+    if grants.everything is None:
+        return default
+
+    return max(default, grants.everything.level)
+
+
 async def get_components_access_detail(
     engine: Engine,
     user: User | None,
