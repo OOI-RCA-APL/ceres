@@ -127,7 +127,7 @@ async def get_workspace(
         NotFoundError: If the workspace does not exist or the caller cannot view it.
     """
     workspace = assert_found(await engine.workspaces.where(id=id).first())
-    if workspace.scope is not None:
+    if not workspace.scope.is_engine:
         await require_scope_access(engine, actor, user, workspace.scope, ComponentAccessLevel.VIEW)
         return await redact_workspace(engine, actor, user, workspace)
 
@@ -148,7 +148,7 @@ async def filter_viewable_scoped(
     """
     visible: list[Workspace] = []
     for workspace in workspaces:
-        assert workspace.scope is not None
+        assert not workspace.scope.is_engine
         component = engine.get_component(workspace.scope)
         if component is None:
             continue
@@ -177,9 +177,9 @@ async def get_workspaces(
         return await engine.workspaces.where(scope)
 
     visible_global = await engine.workspaces.where(
-        scope & WorkspaceFilter(scoped=False, viewable_by=user.id)
+        scope & WorkspaceFilter(placed_on_engine=True, viewable_by=user.id)
     )
-    candidates = await engine.workspaces.where(scope & WorkspaceFilter(scoped=True))
+    candidates = await engine.workspaces.where(scope & WorkspaceFilter(placed_on_engine=False))
     visible_scoped = await filter_viewable_scoped(engine, user, candidates)
 
     results = [*visible_global, *visible_scoped]
@@ -201,8 +201,8 @@ async def get_workspaces_for_user(
     """
     results = await engine.workspaces.where(joined_by=user_id, and__=filter)
     if not actor.admin and actor.user is not None:
-        global_results = [workspace for workspace in results if workspace.scope is None]
-        scoped_results = [workspace for workspace in results if workspace.scope is not None]
+        global_results = [workspace for workspace in results if workspace.scope.is_engine]
+        scoped_results = [workspace for workspace in results if not workspace.scope.is_engine]
         visible_scoped = await filter_viewable_scoped(engine, actor.user, scoped_results)
         results = [*global_results, *visible_scoped]
 
@@ -225,13 +225,13 @@ async def create_workspace(
         NotFoundError: If the scope component is missing or invisible to the caller.
         NotPermittedError: If the caller lacks manage access on the scope.
     """
-    if workspace.scope is not None:
+    if not workspace.scope.is_engine:
         await require_scope_access(
             engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
         )
 
     created = await engine.workspaces.create(workspace)
-    if workspace.scope is None and user is not None:
+    if workspace.scope.is_engine and user is not None:
         await engine.workspace_memberships.create(
             WorkspaceMembershipCreate(
                 user_id=user.id,
@@ -267,17 +267,17 @@ async def update_workspace(
 
     new_scope = update["scope"] if "scope" in update else workspace.scope
     rescoping = new_scope != workspace.scope
-    if rescoping and new_scope is not None:
+    if rescoping and not new_scope.is_engine:
         # Setting or changing the scope always requires manage access on the target component,
         # regardless of whether the workspace is currently global or scoped.
         await require_scope_access(engine, actor, user, new_scope, ComponentAccessLevel.MANAGE)
 
-    if workspace.scope is not None:
+    if not workspace.scope.is_engine:
         await require_scope_access(
             engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
         )
         updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
-        if rescoping and new_scope is None and user is not None:
+        if rescoping and new_scope.is_engine and user is not None:
             # Unscoping would otherwise leave the workspace without any accessible membership.
             await engine.workspace_memberships.create(
                 WorkspaceMembershipCreate(
@@ -309,7 +309,7 @@ async def update_workspace(
             raise NotPermittedError()
 
     updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
-    if rescoping and new_scope is not None:
+    if rescoping and not new_scope.is_engine:
         # A scoped workspace derives access from its component and does not support memberships,
         # so a leftover membership must not be allowed to linger and leak visibility.
         await engine.workspace_memberships.where(workspace_id=id).delete()
@@ -331,7 +331,7 @@ async def delete_workspace(
         NotPermittedError: If the caller lacks permission.
     """
     workspace = assert_found(await engine.workspaces.where(id=id).first())
-    if workspace.scope is not None:
+    if not workspace.scope.is_engine:
         await require_scope_access(
             engine, actor, user, workspace.scope, ComponentAccessLevel.MANAGE
         )

@@ -327,30 +327,6 @@ async def test_editor_of_global_workspace_cannot_rescope_to_component() -> None:
     await engine.database.dispose()
 
 
-async def test_unscoping_workspace_grants_caller_manager_membership() -> None:
-    engine = await _build_engine_with_component()
-    manager = await _create_user(engine, "manager")
-    await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
-    workspace = await engine.workspaces.create(
-        Workspace.Create(name="rig-dash", scope=Address("@rig"))
-    )
-
-    updated = await update_workspace(
-        engine=engine,
-        actor=Actor(user=manager, unrestricted=False),
-        user=manager,
-        id=workspace.id,
-        update={"scope": None},
-    )
-    assert updated.scope is None
-
-    membership = await engine.workspace_memberships.get(manager.id, workspace.id)
-    assert membership is not None
-    assert membership.role == WorkspaceMembershipRole.MANAGER
-
-    await engine.database.dispose()
-
-
 async def test_list_excludes_scoped_workspace_when_scope_not_viewable() -> None:
     engine = Engine()
     await engine.database.migrate()

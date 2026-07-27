@@ -14,6 +14,25 @@ jobs:
         python-version: ["3.14"]
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    services:
+      # Production runs on PostgreSQL while most tests exercise SQLite, so migration SQL that is
+      # only valid on one backend can pass everything else. The migration tests connect here and
+      # skip themselves when no server is reachable.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ceres
+          POSTGRES_PASSWORD: ceres
+          POSTGRES_DB: ceres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ceres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CERES_TEST_POSTGRES_URL: postgresql+asyncpg://ceres:ceres@localhost:5432/ceres
     steps:
       - name: Checkout
         uses: actions/checkout@v6

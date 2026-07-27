@@ -530,7 +530,12 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "workspaces"
 
     name: Mapped[str] = mapped_column(Text)
-    scope: Mapped[Address | None] = mapped_column(AddressMapper, nullable=True, default=None)
+    scope: Mapped[Address] = mapped_column(
+        AddressMapper,
+        default=Address("~"),
+        server_default="~",
+    )
+    """Address this workspace is placed on. `~` is the engine root, anything else a component."""
     owner_id: Mapped[UUID | None] = mapped_column(UUIDMapper, nullable=True, default=None)
     """Owning user when this workspace is private, `None` when it is shared."""
     show_when_logged_out: Mapped[bool] = mapped_column(
@@ -646,7 +651,7 @@ class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrde
     name_prefix: MaybeSequence[str] | None
     name_suffix: MaybeSequence[str] | None
     scope: MaybeSequence[Address] | None
-    scoped: bool | None
+    placed_on_engine: bool | None
     owner_id: MaybeSequence[UUID] | None
     owned: bool | None
     show_when_logged_out: bool | None
@@ -671,9 +676,9 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
     name_suffix: MaybeSequence[str] | None = None
     """Filter by `name` ending with one or more given suffixes."""
     scope: MaybeSequence[Address] | None = None
-    """Filter by `scope` being equal to one or more given component addresses."""
-    scoped: bool | None = None
-    """Filter by whether the workspace has a scope at all."""
+    """Filter by `scope` being equal to one or more given placement addresses."""
+    placed_on_engine: bool | None = None
+    """Filter by whether the workspace is placed on the engine root rather than a component."""
     owner_id: MaybeSequence[UUID] | None = None
     """Filter by `owner_id` being equal to one or more given user IDs."""
     owned: bool | None = None
@@ -716,7 +721,7 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
 
         if not self._match_value(obj.scope, self.scope):
             return False
-        if self.scoped is not None and (obj.scope is not None) != self.scoped:
+        if self.placed_on_engine is not None and obj.scope.is_engine != self.placed_on_engine:
             return False
 
         if not self._match_value(obj.owner_id, self.owner_id):
@@ -754,8 +759,9 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
 
         if self.scope is not None:
             yield self._sql_match_value(columns.scope, self.scope)
-        if self.scoped is not None:
-            yield columns.scope.is_not(None) if self.scoped else columns.scope.is_(None)
+        if self.placed_on_engine is not None:
+            on_engine = columns.scope == Address("~")
+            yield on_engine if self.placed_on_engine else ~on_engine
 
         if self.owner_id is not None:
             yield self._sql_match_value(columns.owner_id, self.owner_id)
@@ -810,8 +816,8 @@ class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
 
     name: NonEmptyStr
     """Human-readable name of the workspace."""
-    scope: Address | None = None
-    """Component address this workspace is scoped to, or None for a global workspace."""
+    scope: Address = Address("~")
+    """Address this workspace is placed on. `~` is the engine root, anything else a component."""
     owner_id: UUID | None = None
     """Owning user when this workspace is private, `None` when it is shared."""
     show_when_logged_out: bool = False
@@ -852,7 +858,7 @@ class WorkspaceUpdate(TypedDict, total=False):
     """Partial update for an existing `Workspace` record."""
 
     name: NonEmptyStr
-    scope: Address | None
+    scope: Address
     owner_id: UUID | None
     show_when_logged_out: bool
     general_viewership: WorkspaceAccessLevel
