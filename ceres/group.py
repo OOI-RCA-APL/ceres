@@ -2,10 +2,10 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
-from sqlalchemy import ForeignKeyConstraint, PrimaryKeyConstraint, Text, UniqueConstraint
+from sqlalchemy import ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import UUIDMapper
+from ceres.__internal__.database.types import TextMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
@@ -45,8 +45,8 @@ class GroupRow(BaseUUIDEntityRow, kw_only=True):
 
     __tablename__: ClassVar[str] = "groups"
 
-    name: Mapped[str] = mapped_column(Text)
-    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    name: Mapped[str] = mapped_column(TextMapper())
+    description: Mapped[str] = mapped_column(TextMapper(), default="", server_default="")
 
     @classmethod
     @override

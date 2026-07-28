@@ -59,7 +59,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_
 from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
 
 from ceres.__internal__.database.errors import wrap_database_errors
-from ceres.__internal__.database.types import AddressMapper, DateTimeMapper, UUIDMapper
+from ceres.__internal__.database.types import AddressColumn, DateTimeMapper, UUIDMapper
 from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
 from ceres.__internal__.manager import BaseDatabaseManager
 from ceres.__internal__.utilities.case import kebabcase, snakecase
@@ -1585,7 +1585,7 @@ class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
 
     __abstract__: ClassVar[bool] = True
 
-    address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
+    address: Mapped[Address] = mapped_column(AddressColumn(), sort_order=-2000)
 
     @classmethod
     @override

@@ -8,12 +8,11 @@ from sqlalchemy import (
     Boolean,
     ForeignKeyConstraint,
     PrimaryKeyConstraint,
-    Text,
     false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import AddressMapper, UUIDMapper
+from ceres.__internal__.database.types import AddressColumn, TextMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
@@ -266,9 +265,9 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
 
     __tablename__: ClassVar[str] = "workspaces"
 
-    name: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(TextMapper())
     scope: Mapped[Address] = mapped_column(
-        AddressMapper,
+        AddressColumn(),
         default=Address("~"),
         server_default="~",
     )

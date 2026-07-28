@@ -2,10 +2,10 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
-from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text
+from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import UUIDMapper
+from ceres.__internal__.database.types import TextMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
@@ -48,7 +48,7 @@ class SettingRow(BaseEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "settings"
 
     user_id: Mapped[UUID] = mapped_column(UUIDMapper, default_factory=uuid7)
-    name: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(TextMapper())
     value: Mapped[JSONSerializable] = mapped_column(JSON)
 
     @classmethod

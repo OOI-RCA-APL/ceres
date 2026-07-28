@@ -5,7 +5,7 @@ from pydantic import Field
 from sqlalchemy import JSON, Index, SQLColumnExpression, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -49,7 +49,7 @@ class AlertRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "alerts"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
-    type: Mapped[str] = mapped_column(Text)
+    type: Mapped[str] = mapped_column(TextMapper())
     data: Mapped[JSONSerializableDict] = mapped_column(
         JSON,
         default_factory=dict,

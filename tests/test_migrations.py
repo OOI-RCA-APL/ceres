@@ -304,7 +304,7 @@ async def test_migration_2_transforms_old_schema(database):
 def test_migrations_include_migration_3():
     from ceres.database.migrations import MIGRATIONS
 
-    assert len(MIGRATIONS) == 7
+    assert len(MIGRATIONS) == 8
     migration = next(migration for migration in MIGRATIONS if migration.id == 3)
     assert migration.render("sqlite") is not None
     assert migration.render("postgres") is not None

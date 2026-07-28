@@ -33,6 +33,7 @@ from pydantic import ConfigDict, Field, ImportString, SerializeAsAny, Validation
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ceres.__internal__.database.types import TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -102,7 +103,7 @@ class ParticleRow(BaseRecordRow, kw_only=True):
 
     __tablename__: ClassVar[str] = "particles"
 
-    type: Mapped[str] = mapped_column(Text)
+    type: Mapped[str] = mapped_column(TextMapper())
     """Discriminator string identifying the concrete particle data class."""
     data: Mapped[JSONSerializableDict] = mapped_column(JSON)
     """Parsed payload serialized as a JSON object."""

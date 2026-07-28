@@ -2,10 +2,10 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint, Text
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper, UUIDMapper
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
@@ -54,7 +54,7 @@ class UserPermissionRow(BaseEntityRow, kw_only=True):
 
     user_id: Mapped[UUID] = mapped_column(UUIDMapper)
     target_type: Mapped[PermissionTargetType] = mapped_column(EnumMapper(PermissionTargetType))
-    target: Mapped[str] = mapped_column(Text)
+    target: Mapped[str] = mapped_column(TextMapper())
     level: Mapped[ComponentAccessLevel] = mapped_column(EnumMapper(ComponentAccessLevel))
 
     @classmethod
@@ -300,7 +300,7 @@ class GroupPermissionRow(BaseEntityRow, kw_only=True):
 
     group_id: Mapped[UUID] = mapped_column(UUIDMapper)
     target_type: Mapped[PermissionTargetType] = mapped_column(EnumMapper(PermissionTargetType))
-    target: Mapped[str] = mapped_column(Text)
+    target: Mapped[str] = mapped_column(TextMapper())
     level: Mapped[ComponentAccessLevel] = mapped_column(EnumMapper(ComponentAccessLevel))
 
     @classmethod

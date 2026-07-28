@@ -1,10 +1,11 @@
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 
-from sqlalchemy import Boolean, Text, UniqueConstraint
+from sqlalchemy import Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
+from ceres.__internal__.database.types import TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -47,9 +48,9 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
 
     __tablename__: ClassVar[str] = "users"
 
-    username: Mapped[Username] = mapped_column(Text)
-    email: Mapped[EmailAddress] = mapped_column(Text)
-    password: Mapped[PasswordHash] = mapped_column(Text)
+    username: Mapped[Username] = mapped_column(TextMapper())
+    email: Mapped[EmailAddress] = mapped_column(TextMapper())
+    password: Mapped[PasswordHash] = mapped_column(TextMapper())
     admin: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
