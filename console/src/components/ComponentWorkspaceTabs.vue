@@ -24,12 +24,15 @@ const {
   active,
   canManage,
   canCreate,
+  openable = [],
   showPlacement = false,
   activeActions,
   activeState,
 } = defineProps<{
   workspaces: Workspace[]
   active: string | null
+  /** Workspaces placed here that the strip is not currently showing, offered by the add button. */
+  openable?: Workspace[]
   /** Whether this strip mixes placements, which is what makes naming them on each tab useful. */
   showPlacement?: boolean
   /** Whether the caller may manage the component, which is what a shared workspace here follows. */
@@ -43,6 +46,7 @@ const {
 const emit = defineEmits<{
   select: [id: string]
   close: [id: string]
+  open: [id: string]
   create: []
   import: [files: File[]]
   reorder: [workspaces: Workspace[]]
@@ -74,6 +78,21 @@ const reorder = usePointerReorder({
   elements: () => [...(rootElement?.querySelectorAll<HTMLElement>('.q-tab') ?? [])],
   onReorder: (from, to) => emit('reorder', moved([...workspaces], from, to)),
 })
+
+// The add button offers what is already here before making something new, the way a browser's new
+// tab button opens a page of somewhere to go. Holding shift skips the picker, for anyone who knows
+// they want a new one.
+let picking = $ref(false)
+
+function onAddClick(event: MouseEvent) {
+  if (event.shiftKey || openable.length === 0) {
+    picking = false
+    emit('create')
+    return
+  }
+
+  picking = true
+}
 
 function onTabClick(id: string) {
   if (reorder.consumeClick()) {
@@ -433,9 +452,54 @@ function promptDeleteById(workspace: Workspace) {
       :icon="icons.add"
       round
       size="sm"
-      @click="emit('create')"
+      @click="onAddClick"
     >
-      <q-tooltip>Add a workspace for this component.</q-tooltip>
+      <q-tooltip>
+        {{ openable.length > 0 ? 'Open or create a workspace.' : 'Create a workspace.' }}
+      </q-tooltip>
+      <q-menu
+        v-if="openable.length > 0"
+        v-model="picking"
+        anchor="bottom left"
+        :offset="[0, 4]"
+        self="top left"
+      >
+        <q-card bordered flat>
+          <q-list dense :style="{ maxHeight: '320px', overflowY: 'auto' }">
+            <q-item
+              v-for="workspace in openable"
+              :key="workspace.id"
+              v-close-popup
+              clickable
+              dense
+              @click="emit('open', workspace.id)"
+            >
+              <q-item-section avatar>
+                <q-icon
+                  :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
+                />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>{{ workspace.name }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+          <q-separator />
+          <div class="q-pa-sm">
+            <q-btn
+              v-close-popup
+              class="full-width"
+              color="primary"
+              dense
+              :icon="icons.add"
+              label="Create Workspace"
+              no-caps
+              outline
+              @click="emit('create')"
+            />
+          </div>
+        </q-card>
+      </q-menu>
     </q-btn>
   </div>
 </template>
@@ -464,6 +528,23 @@ function promptDeleteById(workspace: Workspace) {
 
 .tabs {
   height: 100%;
+  min-width: 0;
+}
+
+// A strip that outgrows its container scrolls, the way a browser's tab bar does. Quasar's own
+// answer is a pair of arrow buttons, which cost width in a header that has none to spare and are
+// awkward next to tabs that are also draggable.
+.tabs :global(.q-tabs__content) {
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.tabs :global(.q-tabs__arrow) {
+  display: none;
 }
 
 // Quasar's dense tabs force their own horizontal padding, so the tab's own spacing is carried by

@@ -53,6 +53,18 @@ const homeWorkspaces = $computed(() =>
 // came from. One that does not would only be repeating itself.
 const showPlacement = $computed(() => homeWorkspaces.some((workspace) => !workspace.scope.isEngine))
 
+// Anything the user can see that is not already on the strip, which is what the add button offers.
+// Home is not limited to one placement, so this spans every workspace they have access to.
+const openableWorkspaces = $computed(() => {
+  const shown = new Set(homeWorkspaces.map((workspace) => workspace.id))
+  return (workspaces.all as Workspace[]).filter((workspace) => !shown.has(workspace.id))
+})
+
+async function openHome(id: string) {
+  await tabs.open(placement, id)
+  selectWorkspace(id)
+}
+
 const activeWorkspaceId = $computed(() => {
   const value = navigation.route.query.workspace
   return typeof value === 'string' ? value : null
@@ -142,11 +154,13 @@ watch(
         :can-create="canCreate"
         :can-manage="canManage"
         class="q-ml-sm"
+        :openable="openableWorkspaces"
         :show-placement="showPlacement"
         :workspaces="homeWorkspaces"
         @close="closeHome"
         @create="createHome"
         @import="importHome"
+        @open="openHome"
         @reorder="reorderHome"
         @select="selectWorkspace"
       />
@@ -159,11 +173,13 @@ watch(
         :can-create="canCreate"
         :can-manage="canManage"
         class="q-ml-sm"
+        :openable="openableWorkspaces"
         :show-placement="showPlacement"
         :workspaces="homeWorkspaces"
         @close="closeHome"
         @create="createHome"
         @import="importHome"
+        @open="openHome"
         @reorder="reorderHome"
         @select="selectWorkspace"
       />

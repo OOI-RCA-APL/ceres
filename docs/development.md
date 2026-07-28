@@ -129,8 +129,13 @@ It expects a server on `localhost:5432` with the `ceres` role, and a database of
 that database once, as a superuser, since the `ceres` role cannot create databases:
 
 ```sh
-psql postgres -c "CREATE DATABASE ceres_test OWNER ceres"
+psql postgres -c "CREATE DATABASE ceres_test OWNER ceres TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'"
 ```
+
+The `C` collation matters. Text ordering follows the database's collation, and the suite asserts
+specific orderings that match SQLite's byte ordering. A database created with a locale such as
+`en_US.utf8` orders case-insensitively and fails a handful of filter tests. The harness checks this
+on startup and says so rather than letting those failures look like real bugs.
 
 The database is deliberately separate from the one a local deployment uses, because the suite
 deletes rows and drops schemas wholesale. Set `CERES_TEST_POSTGRES_URL` to point somewhere else.

@@ -103,6 +103,9 @@ def prepare() -> None:
     """
     try:
         _run(_execute(["CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public"]))
+        _assert_byte_collation()
+    except RuntimeError:
+        raise
     except Exception as exception:
         raise RuntimeError(
             f"CERES_TEST_DATABASE=postgres, but {POSTGRES_URL} cannot be prepared. Start a "
@@ -110,6 +113,40 @@ def prepare() -> None:
             '  psql postgres -c "CREATE DATABASE ceres_test OWNER ceres"\n'
             "Point CERES_TEST_POSTGRES_URL elsewhere to use a different server or database."
         ) from exception
+
+
+def _assert_byte_collation() -> None:
+    """Fail early when the test database orders text differently than SQLite does.
+
+    Ordering of text columns follows the database's collation, and the suite asserts specific
+    orderings. `C` sorts by byte, which matches SQLite, while a locale such as `en_US.utf8` orders
+    case-insensitively and quietly fails a handful of filter tests instead.
+
+    Raises:
+        RuntimeError: If the database was created with a collation other than `C`.
+    """
+    collations: list[str] = []
+
+    async def read() -> None:
+        engine = create_async_engine(POSTGRES_URL, poolclass=NullPool)
+        try:
+            async with engine.connect() as connection:
+                result = await connection.execute(
+                    text("SELECT datcollate FROM pg_database WHERE datname = current_database()")
+                )
+                collations.extend(row[0] for row in result)
+        finally:
+            await engine.dispose()
+
+    _run(read())
+
+    if collations and not collations[0].startswith("C"):
+        raise RuntimeError(
+            f"{POSTGRES_URL} was created with the '{collations[0]}' collation, which orders text "
+            "differently than SQLite and fails the ordering assertions. Recreate it as a "
+            'superuser with: psql postgres -c "CREATE DATABASE ceres_test OWNER ceres '
+            "TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'\""
+        )
 
 
 def _refill() -> None:

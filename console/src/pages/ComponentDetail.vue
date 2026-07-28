@@ -56,6 +56,17 @@ const scopedWorkspaces = $computed(() =>
   resolveTabs(placedWorkspaces, tabs.setFor(address.toString()), (workspace) => workspace.id)
 )
 
+// Placed here but not in the strip, which is what the add button offers before creating one.
+const openableWorkspaces = $computed(() => {
+  const shown = new Set(scopedWorkspaces.map((workspace) => workspace.id))
+  return placedWorkspaces.filter((workspace) => !shown.has(workspace.id))
+})
+
+async function openScoped(id: string) {
+  await tabs.open(address.toString(), id)
+  selectWorkspace(id)
+}
+
 // Only the workspace named in the URL is shown. Without one the page falls back to the first tab,
 // so a component with workspaces opens on one rather than on a bare overview.
 const activeWorkspaceId = $computed(() => {
@@ -532,10 +543,12 @@ const persisted = usePersisted({
             :can-create="canCreate"
             :can-manage="canManage"
             class="q-ml-sm"
+            :openable="openableWorkspaces"
             :workspaces="scopedWorkspaces"
             @close="closeScoped"
             @create="createScoped"
             @import="importScoped"
+            @open="openScoped"
             @reorder="reorderScoped"
             @select="selectWorkspace"
           />
@@ -551,10 +564,12 @@ const persisted = usePersisted({
           :can-create="canCreate"
           :can-manage="canManage"
           class="q-px-sm q-py-xs"
+          :openable="openableWorkspaces"
           :workspaces="scopedWorkspaces"
           @close="closeScoped"
           @create="createScoped"
           @import="importScoped"
+          @open="openScoped"
           @reorder="reorderScoped"
           @select="selectWorkspace"
         />

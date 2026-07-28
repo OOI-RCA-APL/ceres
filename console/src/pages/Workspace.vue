@@ -618,6 +618,70 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       />
     </div>
     <div :class="$style.bottomPadding" />
+    <!-- A working copy is normally an ongoing personal state rather than a staging area, so the
+    bar reads as neutral status. It appears only while one exists, and the same actions stay in the
+    tab's menu, since this is a shortcut rather than the only route to them. -->
+    <div v-if="workspace.edited" :class="[$style.actionBar, 'items-center', 'q-gutter-xs', 'row']">
+      <q-btn
+        v-if="!isViewingOriginal"
+        dense
+        :disable="!workspace.canUndo"
+        flat
+        :icon="icons.discard"
+        round
+        size="sm"
+        @click="workspace.undo()"
+      >
+        <q-tooltip>Undo ({{ undoShortcut }})</q-tooltip>
+      </q-btn>
+      <q-btn
+        v-if="!isViewingOriginal"
+        dense
+        :disable="!workspace.canRedo"
+        flat
+        :icon="icons.discard"
+        :icon-class="$style.redoIcon"
+        round
+        size="sm"
+        @click="workspace.redo()"
+      >
+        <q-tooltip>Redo ({{ redoShortcut }})</q-tooltip>
+      </q-btn>
+      <q-separator v-if="!isViewingOriginal" vertical />
+      <template v-if="isViewingOriginal">
+        <q-btn
+          color="warning"
+          dense
+          flat
+          :icon="icons.revertToOriginal"
+          round
+          size="sm"
+          @click="promptRevert()"
+        >
+          <q-tooltip>Revert to Original Version</q-tooltip>
+        </q-btn>
+        <q-btn dense flat :icon="icons.close" round size="sm" @click="stopViewingOriginal()">
+          <q-tooltip>Stop Viewing Original</q-tooltip>
+        </q-btn>
+      </template>
+      <template v-else>
+        <q-btn dense flat :icon="icons.viewOriginal" round size="sm" @click="startViewingOriginal()">
+          <q-tooltip>View Original</q-tooltip>
+        </q-btn>
+        <q-btn
+          color="primary"
+          dense
+          :disable="!workspace.canEdit"
+          :icon="icons.confirm"
+          round
+          size="sm"
+          unelevated
+          @click="promptCommit()"
+        >
+          <q-tooltip>Commit Changes</q-tooltip>
+        </q-btn>
+      </template>
+    </div>
   </full-page>
 </template>
 

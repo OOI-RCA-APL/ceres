@@ -68,6 +68,9 @@ jobs:
           POSTGRES_USER: ceres
           POSTGRES_PASSWORD: ceres
           POSTGRES_DB: ceres
+          # The suite asserts specific orderings, and text ordering follows the database's
+          # collation. `C` sorts by byte, which is what SQLite does, so both backends agree.
+          POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
         ports:
           - 5432:5432
         options: >-
