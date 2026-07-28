@@ -4,7 +4,8 @@ import { QDialogOptions, useQuasar } from 'quasar'
 
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import WorkspaceDialog from '@/components/WorkspaceDialog.vue'
-import { WorkspaceData } from '@/workspace'
+import WorkspaceTransferDialog from '@/components/WorkspaceTransferDialog.vue'
+import { Workspace, WorkspaceData } from '@/workspace'
 
 export type Dialogs = ReturnType<typeof useDialogs>
 
@@ -74,6 +75,20 @@ export const useDialogs = defineStore('dialogs', () => {
           componentProps: {
             action: 'create',
             scope,
+          },
+        })
+      ),
+    /** Ask whether to move or copy a workspace between shared and private. Resolves with the
+    chosen mode.
+    */
+    transferWorkspace: (workspace: Workspace, to: 'shared' | 'private', canMove: boolean) =>
+      quasar.dialog(
+        withDefaults({
+          component: WorkspaceTransferDialog,
+          componentProps: {
+            workspace,
+            to,
+            canMove,
           },
         })
       ),

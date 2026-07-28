@@ -648,7 +648,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         size="sm"
         @click="workspace.undo()"
       >
-        <q-tooltip>Undo ({{ undoShortcut }})</q-tooltip>
+        <q-tooltip class="bg-primary text-white">Undo ({{ undoShortcut }})</q-tooltip>
       </q-btn>
       <q-btn
         v-if="!isViewingOriginal"
@@ -661,7 +661,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         size="sm"
         @click="workspace.redo()"
       >
-        <q-tooltip>Redo ({{ redoShortcut }})</q-tooltip>
+        <q-tooltip class="bg-primary text-white">Redo ({{ redoShortcut }})</q-tooltip>
       </q-btn>
       <q-separator v-if="!isViewingOriginal" vertical />
       <template v-if="isViewingOriginal">
@@ -674,10 +674,10 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
           size="sm"
           @click="promptRevert()"
         >
-          <q-tooltip>Revert to Original Version</q-tooltip>
+          <q-tooltip class="bg-primary text-white">Revert to Original Version</q-tooltip>
         </q-btn>
         <q-btn dense flat :icon="icons.close" round size="sm" @click="stopViewingOriginal()">
-          <q-tooltip>Stop Viewing Original</q-tooltip>
+          <q-tooltip class="bg-primary text-white">Stop Viewing Original</q-tooltip>
         </q-btn>
       </template>
       <template v-else>
@@ -689,7 +689,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
           size="sm"
           @click="startViewingOriginal()"
         >
-          <q-tooltip>View Original</q-tooltip>
+          <q-tooltip class="bg-primary text-white">View Original</q-tooltip>
         </q-btn>
         <q-btn
           color="primary"
@@ -701,7 +701,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
           unelevated
           @click="promptCommit()"
         >
-          <q-tooltip>Commit Changes</q-tooltip>
+          <q-tooltip class="bg-primary text-white">Commit Changes</q-tooltip>
         </q-btn>
       </template>
     </div>
@@ -767,7 +767,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   width: fit-content;
   gap: 4px;
   padding: 4px 10px;
-  border-radius: 999px 999px 0 0;
+  border-radius: 4px 4px 0 0;
   backdrop-filter: blur(6px);
 }
 

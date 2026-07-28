@@ -1,3 +1,5 @@
+import { useEventListener } from '@vueuse/core'
+import { debounce } from 'quasar'
 import { watch, MaybeRefOrGetter, toValue } from 'vue'
 
 import { usePersisted } from '@/persistence'
@@ -7,9 +9,10 @@ import { usePersisted } from '@/persistence'
 const positionLimit = 100
 
 // How long to keep trying to restore. A workspace loads its data and lays out its widgets after
-// the switch, so the page is briefly too short to scroll to where it was. Giving up quietly is
-// better than jumping the page once the user has started reading somewhere else.
-const restoreTimeout = 1000
+// the switch, and widgets that stream their rows keep growing for a while after that, so the page
+// is too short to scroll all the way back for some time. Giving up eventually is what stops the
+// page jumping once the user has started reading somewhere else.
+const restoreTimeout = 3000
 
 /** Remember the window's scroll position for each key, and restore it when a key comes back.
 
@@ -49,9 +52,13 @@ export function useScrollMemory(key: MaybeRefOrGetter<string | null>) {
         return
       }
 
-      const reachable = document.documentElement.scrollHeight - window.innerHeight
+      // Scroll as far as the page currently reaches on every attempt rather than waiting for it
+      // to grow all the way. A page that never gets tall enough then still lands as close as it
+      // can, instead of sitting at the top having silently given up.
+      const reachable = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+      window.scrollTo({ top: Math.min(position, reachable) })
+
       if (reachable >= position) {
-        window.scrollTo({ top: position })
         restoring = null
         return
       }
@@ -66,10 +73,17 @@ export function useScrollMemory(key: MaybeRefOrGetter<string | null>) {
     requestAnimationFrame(attempt)
   }
 
+  // A page that cannot scroll has no position worth keeping. Recording a zero from one would wipe
+  // where the user actually was, which is exactly the state a page is in while its content is
+  // still arriving or has just been torn down.
+  function isMeasurable(): boolean {
+    return document.documentElement.scrollHeight - window.innerHeight > 0
+  }
+
   watch(
     () => toValue(key),
     (next, previous) => {
-      if (previous != null) {
+      if (previous != null && isMeasurable()) {
         remember(previous, window.scrollY)
       }
 
@@ -79,6 +93,21 @@ export function useScrollMemory(key: MaybeRefOrGetter<string | null>) {
       }
 
       restore(next)
-    }
+    },
+    // A reload arrives with the key already set and nothing to switch away from, so the first
+    // key has to restore too rather than only later ones.
+    { immediate: true }
   )
+
+  // Recorded as the page is scrolled rather than only when a tab is left, because a reload or a
+  // closed browser never gets to leave. Writes are debounced, and skipped while a restore is
+  // still working, which would otherwise record the top of a page that has not grown yet.
+  const record = debounce(() => {
+    const current = toValue(key)
+    if (current != null && restoring == null && isMeasurable()) {
+      remember(current, window.scrollY)
+    }
+  }, 200)
+
+  useEventListener(window, 'scroll', record, { passive: true })
 }

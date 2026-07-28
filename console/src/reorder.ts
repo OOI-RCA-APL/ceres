@@ -29,6 +29,17 @@ export function usePointerReorder(options: {
   /** Elements being reordered, in their current visual order. */
   elements: () => HTMLElement[]
   onReorder: (from: number, to: number) => void
+
+  /** Offer the release to somewhere outside this list, before it is treated as a reorder.
+
+  Returning true means the drop belonged elsewhere, so nothing here is reordered and the held item
+  simply lets go. The pointer is captured by the row being dragged, so this is called wherever on
+  the page the release happens, and `event` carries the coordinates to test against.
+
+  It is called before the held item settles, so a handler is free to open a dialog rather than
+  leaving a row hanging under a modal.
+  */
+  onDrop?: (index: number, event: PointerEvent) => boolean
 }) {
   const horizontal = $computed(() => options.axis === 'horizontal')
 
@@ -78,6 +89,8 @@ export function usePointerReorder(options: {
     offset = 0
     target = index
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+
+    document.body.classList.add('reordering')
   }
 
   function onPointerMove(event: PointerEvent) {
@@ -172,8 +185,19 @@ export function usePointerReorder(options: {
       return
     }
 
+    document.body.classList.remove('reordering')
+
     if (!drag.moved) {
       drag = null
+      return
+    }
+
+    // Somewhere else may claim the release, in which case this list lets go without reordering and
+    // without the settle animation, since the row is about to be gone or spoken for.
+    if (options.onDrop?.(drag.index, event) === true) {
+      suppressClick = true
+      drag = null
+      offset = 0
       return
     }
 

@@ -544,7 +544,7 @@ const persisted = usePersisted({
             </div>
 
             <div v-if="component.components.length > 0" class="col-12">
-              <div class="q-mb-xs text-subtitle2">Child Components</div>
+              <div class="q-mb-xs text-subtitle2">Subcomponents</div>
               <q-list bordered class="rounded-borders" dense separator>
                 <q-item
                   v-for="child in component.components"

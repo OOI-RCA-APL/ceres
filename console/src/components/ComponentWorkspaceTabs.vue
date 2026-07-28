@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useKeyModifier } from '@vueuse/core'
-import { QPopupEdit } from 'quasar'
+import { QMenu, QPopupEdit } from 'quasar'
 import { nextTick, watch } from 'vue'
 
 import { useAuth } from '@/api/auth'
@@ -89,17 +89,34 @@ const shiftHeld = useKeyModifier('Shift')
 
 // The button says which of the two it is about to do. Layered pages for the picker, since what it
 // opens is the other workspaces already here, and a plus once shift turns it into making a new
-// one. With nothing left to open there is no picker, so it is a plus either way.
-const opensPicker = $computed(() => openable.length > 0 && shiftHeld.value !== true)
+// one. The picker opens either way, so that creating is always reached the same way rather than
+// the button quietly changing meaning once a strip happens to hold everything.
+const opensPicker = $computed(() => shiftHeld.value !== true)
 
 function onAddClick(event: MouseEvent) {
-  if (event.shiftKey || openable.length === 0) {
+  if (event.shiftKey) {
     picking = false
     emit('create')
     return
   }
 
   picking = true
+}
+
+// One menu per tab, reachable from the dots and from a right-click on the tab. Held by workspace
+// rather than by position, since dragging renumbers the strip.
+const menus = new Map<string, QMenu>()
+
+function setMenu(id: string, element: QMenu | null) {
+  if (element == null) {
+    menus.delete(id)
+  } else {
+    menus.set(id, element)
+  }
+}
+
+function showMenu(id: string, event: Event) {
+  menus.get(id)?.show(event)
 }
 
 function onTabClick(id: string) {
@@ -188,6 +205,7 @@ function promptDeleteById(workspace: Workspace) {
   <div
     ref="rootElement"
     :class="[$style.root, fileDrop.active.value && $style.dropTarget, 'no-wrap', 'row']"
+    data-workspace-drop="tabs"
     v-bind="canCreate ? fileDrop.handlers : {}"
   >
     <q-tabs
@@ -221,7 +239,9 @@ function promptDeleteById(workspace: Workspace) {
           <!-- A grip appears at the tab's leading edge on hover, so the strip says it can be
           arranged without spending width on a handle that is idle the rest of the time. The whole
           tab is still the drag target, and the grip is the hint. -->
-          <q-icon :class="$style.grip" :name="icons.dragVertical" />
+          <span :class="$style.grip">
+            <q-icon :name="icons.dragVertical" size="15px" />
+          </span>
           <workspace-tab-label :show-placement="showPlacement" :workspace="workspace" />
           <q-popup-edit
             v-if="workspace.id === active"
@@ -257,202 +277,176 @@ function promptDeleteById(workspace: Workspace) {
             round
             size="6.5px"
             :style="{ marginTop: '1px' }"
-            @click.stop
+            @click.stop="showMenu(workspace.id, $event)"
             @mousedown.stop
             @touchstart.stop
           >
             <q-tooltip v-if="hasWorkingCopy(workspace)">
               This workspace has unsaved changes.
             </q-tooltip>
-            <q-menu anchor="bottom right" :offset="[0, 4]" self="top right">
-              <q-card bordered flat>
-                <q-list dense>
-                  <template
-                    v-if="workspace.id === active && activeActions != null && activeState != null"
-                  >
-                    <q-item v-close-popup clickable dense @click="emit('close', workspace.id)">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.close" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Close Tab</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <q-separator />
-                    <q-item v-close-popup clickable dense @click="openRename(workspace)">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.rename" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Rename</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <q-item v-close-popup clickable dense @click="activeActions.openSettings()">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.settings" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Settings</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <q-separator />
-                    <q-item
-                      clickable
-                      dense
-                      :disable="!activeState.canUndo"
-                      @click="activeActions.undo()"
-                    >
-                      <q-item-section avatar>
-                        <q-icon :name="icons.discard" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Undo</q-item-label>
-                      </q-item-section>
-                      <q-item-section side>
-                        <span :class="$style.shortcut">{{ undoShortcut }}</span>
-                      </q-item-section>
-                    </q-item>
-                    <q-item
-                      clickable
-                      dense
-                      :disable="!activeState.canRedo"
-                      @click="activeActions.redo()"
-                    >
-                      <q-item-section avatar>
-                        <q-icon :class="$style.redoIcon" :name="icons.discard" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Redo</q-item-label>
-                      </q-item-section>
-                      <q-item-section side>
-                        <span :class="$style.shortcut">{{ redoShortcut }}</span>
-                      </q-item-section>
-                    </q-item>
-                    <q-separator />
-                    <q-item v-close-popup clickable dense @click="activeActions.duplicate()">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.duplicate" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Duplicate</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <q-item v-close-popup clickable dense @click="activeActions.exportFile()">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.export" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Export</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <template v-if="activeState.canManage">
-                      <q-separator />
-                      <q-item v-close-popup clickable dense @click="activeActions.promptDelete()">
-                        <q-item-section avatar>
-                          <q-icon :name="icons.delete" />
-                        </q-item-section>
-                        <q-item-section>
-                          <q-item-label>Delete</q-item-label>
-                        </q-item-section>
-                      </q-item>
-                    </template>
-                    <template v-if="activeState.edited">
-                      <q-separator />
-                      <template v-if="activeState.isViewingOriginal">
-                        <q-item v-close-popup clickable dense @click="activeActions.promptRevert()">
-                          <q-item-section avatar>
-                            <q-icon color="warning" :name="icons.revertToOriginal" />
-                          </q-item-section>
-                          <q-item-section>
-                            <q-item-label>Revert to Original Version</q-item-label>
-                          </q-item-section>
-                        </q-item>
-                        <q-item
-                          v-close-popup
-                          clickable
-                          dense
-                          @click="activeActions.stopViewingOriginal()"
-                        >
-                          <q-item-section avatar>
-                            <q-icon :name="icons.close" />
-                          </q-item-section>
-                          <q-item-section>
-                            <q-item-label>Stop Viewing Original</q-item-label>
-                          </q-item-section>
-                        </q-item>
-                      </template>
-                      <template v-else>
-                        <q-item
-                          clickable
-                          dense
-                          :disable="!activeState.canEdit"
-                          @click="activeActions.promptCommit()"
-                        >
-                          <q-item-section avatar>
-                            <q-icon :name="icons.confirm" />
-                          </q-item-section>
-                          <q-item-section>
-                            <q-item-label>Commit Changes</q-item-label>
-                          </q-item-section>
-                        </q-item>
-                        <q-item
-                          v-close-popup
-                          clickable
-                          dense
-                          @click="activeActions.startViewingOriginal()"
-                        >
-                          <q-item-section avatar>
-                            <q-icon :name="icons.viewOriginal" />
-                          </q-item-section>
-                          <q-item-section>
-                            <q-item-label>View Original</q-item-label>
-                          </q-item-section>
-                        </q-item>
-                      </template>
-                    </template>
-                  </template>
-                  <template v-else>
-                    <q-item v-close-popup clickable dense @click="emit('close', workspace.id)">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.close" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Close Tab</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <q-separator />
-                    <q-item v-close-popup clickable dense @click="openSettingsById(workspace)">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.settings" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Settings</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <q-item v-close-popup clickable dense @click="duplicateById(workspace)">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.duplicate" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Duplicate</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <template v-if="isWritable(workspace)">
-                      <q-separator />
-                      <q-item v-close-popup clickable dense @click="promptDeleteById(workspace)">
-                        <q-item-section avatar>
-                          <q-icon :name="icons.delete" />
-                        </q-item-section>
-                        <q-item-section>
-                          <q-item-label>Delete</q-item-label>
-                        </q-item-section>
-                      </q-item>
-                    </template>
-                  </template>
-                </q-list>
-              </q-card>
-            </q-menu>
           </q-btn>
+          <!-- One menu per tab, opened by the dots or by right-clicking the tab itself, which is
+          where a context menu is looked for first. -->
+          <q-menu :ref="(element: any) => setMenu(workspace.id, element)" context-menu>
+            <q-card bordered flat>
+              <q-list dense>
+                <template
+                  v-if="workspace.id === active && activeActions != null && activeState != null"
+                >
+                  <q-item v-close-popup clickable dense @click="emit('close', workspace.id)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.close" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Close</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-separator />
+                  <q-item v-close-popup clickable dense @click="openRename(workspace)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.rename" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Rename</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable dense @click="activeActions.openSettings()">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.settings" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Settings</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-separator />
+                  <q-item
+                    clickable
+                    dense
+                    :disable="!activeState.canUndo"
+                    @click="activeActions.undo()"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :name="icons.discard" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Undo</q-item-label>
+                    </q-item-section>
+                    <q-item-section side>
+                      <span :class="$style.shortcut">{{ undoShortcut }}</span>
+                    </q-item-section>
+                  </q-item>
+                  <q-item
+                    clickable
+                    dense
+                    :disable="!activeState.canRedo"
+                    @click="activeActions.redo()"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :class="$style.redoIcon" :name="icons.discard" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Redo</q-item-label>
+                    </q-item-section>
+                    <q-item-section side>
+                      <span :class="$style.shortcut">{{ redoShortcut }}</span>
+                    </q-item-section>
+                  </q-item>
+                  <q-separator />
+                  <q-item v-close-popup clickable dense @click="activeActions.duplicate()">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.duplicate" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Duplicate</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable dense @click="activeActions.exportFile()">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.export" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Export</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <template v-if="activeState.canManage">
+                    <q-separator />
+                    <q-item v-close-popup clickable dense @click="activeActions.promptDelete()">
+                      <q-item-section avatar>
+                        <q-icon :name="icons.delete" />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label>Delete</q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </template>
+                  <template v-if="activeState.edited">
+                    <q-separator />
+                    <template v-if="activeState.isViewingOriginal">
+                      <q-item v-close-popup clickable dense @click="activeActions.promptRevert()">
+                        <q-item-section avatar>
+                          <q-icon color="warning" :name="icons.revertToOriginal" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>Revert to Original Version</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                      <q-item
+                        v-close-popup
+                        clickable
+                        dense
+                        @click="activeActions.stopViewingOriginal()"
+                      >
+                        <q-item-section avatar>
+                          <q-icon :name="icons.close" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>Stop Viewing Original</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </template>
+                  </template>
+                </template>
+                <template v-else>
+                  <q-item v-close-popup clickable dense @click="emit('close', workspace.id)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.close" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Close</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-separator />
+                  <q-item v-close-popup clickable dense @click="openSettingsById(workspace)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.settings" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Settings</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable dense @click="duplicateById(workspace)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.duplicate" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Duplicate</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <template v-if="isWritable(workspace)">
+                    <q-separator />
+                    <q-item v-close-popup clickable dense @click="promptDeleteById(workspace)">
+                      <q-item-section avatar>
+                        <q-icon :name="icons.delete" />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label>Delete</q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </template>
+                </template>
+              </q-list>
+            </q-card>
+          </q-menu>
           <q-btn
             class="faded-hover"
             :class="[$style.close, workspace.id === active && $style.closeShown]"
@@ -480,13 +474,13 @@ function promptDeleteById(workspace: Workspace) {
       size="sm"
       @click="onAddClick"
     >
-      <q-tooltip>
+      <!-- Silent while the picker is open, since the menu it describes is already showing. -->
+      <q-tooltip v-if="!picking" class="bg-primary text-white">
         {{ opensPicker ? 'Open a workspace, or hold shift to create one.' : 'Create a workspace.' }}
       </q-tooltip>
       <!-- Opened from the click handler alone, so holding shift can bypass it. Left to its own
       devices a menu inside a button opens on every click, shift or not. -->
       <q-menu
-        v-if="openable.length > 0"
         v-model="picking"
         anchor="bottom left"
         no-parent-event
@@ -496,6 +490,11 @@ function promptDeleteById(workspace: Workspace) {
         <q-card bordered flat>
           <q-list dense :style="{ maxHeight: '320px', overflowY: 'auto' }">
             <q-item-label :class="$style.menuHeader" header>Workspaces</q-item-label>
+            <q-item v-if="openable.length === 0" dense>
+              <q-item-section>
+                <q-item-label class="text-grey-6">All of them are already open.</q-item-label>
+              </q-item-section>
+            </q-item>
             <q-item
               v-for="workspace in openable"
               :key="workspace.id"
@@ -542,10 +541,21 @@ function promptDeleteById(workspace: Workspace) {
 // The strip takes the full height of the header row it sits in and its tabs stretch to fill it,
 // so the selected tab's fill runs from the top of the header into the separator beneath it, the
 // way a tab is expected to meet the surface it belongs to.
+// The strip takes the full height of the header row it sits in and its tabs stretch to fill it,
+// so the selected tab's fill runs from the top of the header into the separator beneath it, the
+// way a tab is expected to meet the surface it belongs to.
+//
+// The trailing space is where the picker sits. Reserving it rather than letting the button ride
+// at the end of the row keeps the button in the same place however long the strip grows, and
+// stops the tabs scrolling out from under it.
 .root {
+  position: relative;
+  flex: 1;
   align-self: stretch;
   align-items: stretch;
+  min-width: 0;
   padding-top: 4px;
+  padding-right: 30px;
   overflow: hidden;
 }
 
@@ -585,15 +595,25 @@ function promptDeleteById(workspace: Workspace) {
 // to go, with the spacing carried by the row inside instead.
 .tabInner {
   height: 100%;
-  padding: 0 20px 0 16px;
+  padding: 0 20px 0 19px;
 }
 
+// The grip's box runs from the tab's leading edge to the far side of the workspace icon, so the
+// whole of that end reads as the place to take hold of, with the glyph itself sitting at the
+// start of it. Zero opacity still answers the pointer, which is what carries the cursor before
+// the grip has faded in.
 .grip {
   position: absolute;
+  z-index: 1;
   top: 50%;
   left: 2px;
+  display: flex;
+  align-items: center;
+  // Reaches past the glyph to the far side of the workspace icon, so that whole end of the tab
+  // carries the grab cursor. Zero opacity still answers the pointer, which is what carries the
+  // cursor before the grip has faded in.
+  width: 32px;
   cursor: grab;
-  font-size: 12px;
   opacity: 0;
   transform: translateY(-50%);
   transition: opacity 0.15s;
@@ -657,12 +677,13 @@ function promptDeleteById(workspace: Workspace) {
 // The close button holds its place whether or not it is showing, so a tab stays exactly as wide
 // hovered as it is at rest and the strip does not shuffle under the pointer. The selected tab
 // keeps it visible, since that is the one most likely to be closed next.
+// The extra pixel matches the nudge on the menu button beside it, so the two sit on one line.
 .close {
   position: absolute;
   top: 50%;
-  right: 2px;
+  right: 4px;
   opacity: 0;
-  transform: translateY(-50%);
+  transform: translateY(calc(-50% + 1px));
   transition: opacity 0.15s;
 }
 
@@ -725,9 +746,15 @@ function promptDeleteById(workspace: Workspace) {
   text-transform: uppercase;
 }
 
+// Pinned to the trailing edge of the strip rather than carried along by it, so it stays where it
+// was however far the tabs scroll.
 .add {
-  align-self: center;
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  z-index: 2;
   opacity: 0.7;
+  transform: translateY(-50%);
 
   &:hover {
     opacity: 1;

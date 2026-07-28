@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { QMenu } from 'quasar'
+
 import { engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useDialogs } from '@/dialogs'
@@ -81,6 +83,7 @@ const sharedReorder = usePointerReorder({
   elements: () => rowsOf('shared'),
   onReorder: (from, to) =>
     void persistOrder(moved(sharedWorkspaces, from, to), privateWorkspaces as Workspace[]),
+  onDrop: (index, event) => onDrop(sharedWorkspaces[index], 'shared', event),
 })
 
 const privateReorder = usePointerReorder({
@@ -88,7 +91,81 @@ const privateReorder = usePointerReorder({
   elements: () => rowsOf('private'),
   onReorder: (from, to) =>
     void persistOrder(sharedWorkspaces as Workspace[], moved(privateWorkspaces, from, to)),
+  onDrop: (index, event) => onDrop(privateWorkspaces[index], 'private', event),
 })
+
+/** Take a row released outside its own group, which is either the other group or the tab strip.
+
+Returns whether the drop was claimed, which is what stops the release from reordering the group it
+came from.
+*/
+function onDrop(workspace: Workspace, from: 'shared' | 'private', event: PointerEvent): boolean {
+  const element = document.elementFromPoint(event.clientX, event.clientY)
+  if (element == null) {
+    return false
+  }
+
+  if (element.closest('[data-workspace-drop="tabs"]') != null) {
+    void openAsTab(workspace)
+    return true
+  }
+
+  const list = element.closest('[data-workspace-group-list]')
+  const to = list?.getAttribute('data-workspace-group-list')
+  if (to == null || to === from || (to !== 'shared' && to !== 'private')) {
+    return false
+  }
+
+  // Publishing a workspace shows it to everyone who can see the placement, so that direction is a
+  // manager's to make either way. Taking a copy private only ever creates the caller's own
+  // workspace, so it needs nothing beyond being able to see the original.
+  if (to === 'shared' && !canManage) {
+    return true
+  }
+
+  dialogs.transferWorkspace(workspace, to, canManage).onOk((mode: 'copy' | 'move') => {
+    void transfer(workspace, to, mode)
+  })
+
+  return true
+}
+
+async function transfer(workspace: Workspace, to: 'shared' | 'private', mode: 'copy' | 'move') {
+  const owner = to === 'private' ? auth.user?.id ?? null : null
+
+  if (mode === 'copy') {
+    await workspaceStore.create({
+      name: workspace.name,
+      scope: workspace.scope,
+      owner_id: owner,
+      data: workspace.data,
+    })
+    return
+  }
+
+  await workspaceStore.update(workspace.id, { owner_id: owner })
+}
+
+async function openAsTab(workspace: Workspace) {
+  await tabs.open(placement, workspace.id)
+  emit('open', workspace.id)
+}
+
+// One menu per row, reachable from the dots and from a right-click on the row. Held by workspace
+// rather than by position, since the two groups renumber independently.
+const menus = new Map<string, QMenu>()
+
+function setMenu(id: string, element: QMenu | null) {
+  if (element == null) {
+    menus.delete(id)
+  } else {
+    menus.set(id, element)
+  }
+}
+
+function showMenu(id: string, event: Event) {
+  menus.get(id)?.show(event)
+}
 
 const groups = $computed(() => [
   {
@@ -160,15 +237,18 @@ function promptDelete(workspace: Workspace) {
 
 <template>
   <div ref="root">
-    <div class="items-center q-mb-xs row text-subtitle2">
-      Workspaces
-      <q-chip class="q-ml-xs" dense :label="ordered.length" outline size="sm" />
-    </div>
+    <div class="q-mb-xs text-subtitle2">Workspaces</div>
     <div v-if="ordered.length === 0" class="text-grey-6" :class="$style.empty">No workspaces.</div>
     <template v-for="group in groups" :key="group.key">
       <div v-if="group.items.length > 0" :class="$style.group">
         <div class="text-grey-6" :class="$style.groupLabel">{{ group.label }}</div>
-        <q-list bordered class="rounded-borders" dense separator>
+        <q-list
+          bordered
+          class="rounded-borders"
+          :data-workspace-group-list="group.key"
+          dense
+          separator
+        >
           <q-item
             v-for="(workspace, index) in group.items"
             :key="workspace.id"
@@ -188,7 +268,9 @@ function promptDelete(workspace: Workspace) {
             <!-- A grip appears at the row's leading edge on hover, so a draggable row says so
             without spending a column on a handle that is idle the rest of the time. The whole row
             is still the drag target, and the grip is the hint. -->
-            <q-icon v-if="group.canReorder" :class="$style.grip" :name="icons.dragVertical" />
+            <span v-if="group.canReorder" :class="$style.grip">
+              <q-icon :name="icons.dragVertical" size="17px" />
+            </span>
             <q-item-section avatar>
               <q-icon
                 :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
@@ -202,59 +284,71 @@ function promptDelete(workspace: Workspace) {
               <q-chip dense :label="'Open'" outline size="sm" />
             </q-item-section>
             <q-item-section side>
-              <q-btn dense flat :icon="icons.more" round size="8px" @click.stop>
-                <q-menu anchor="bottom right" :offset="[0, 4]" self="top right">
-                  <q-card bordered flat>
-                    <q-list dense>
-                      <q-item v-close-popup clickable dense @click="open(workspace, group.reorder)">
-                        <q-item-section avatar>
-                          <q-icon :name="icons.workspace" />
-                        </q-item-section>
-                        <q-item-section>
-                          <q-item-label>Open</q-item-label>
-                        </q-item-section>
-                      </q-item>
-                      <q-item v-close-popup clickable dense @click="openOnHome(workspace)">
-                        <q-item-section avatar>
-                          <q-icon :name="icons.open" />
-                        </q-item-section>
-                        <q-item-section>
-                          <q-item-label>Open on Home</q-item-label>
-                        </q-item-section>
-                      </q-item>
-                      <q-separator />
-                      <q-item v-close-popup clickable dense @click="openSettings(workspace)">
-                        <q-item-section avatar>
-                          <q-icon :name="icons.settings" />
-                        </q-item-section>
-                        <q-item-section>
-                          <q-item-label>Settings</q-item-label>
-                        </q-item-section>
-                      </q-item>
-                      <q-item v-close-popup clickable dense @click="duplicate(workspace)">
-                        <q-item-section avatar>
-                          <q-icon :name="icons.duplicate" />
-                        </q-item-section>
-                        <q-item-section>
-                          <q-item-label>Duplicate</q-item-label>
-                        </q-item-section>
-                      </q-item>
-                      <template v-if="isWritable(workspace)">
-                        <q-separator />
-                        <q-item v-close-popup clickable dense @click="promptDelete(workspace)">
-                          <q-item-section avatar>
-                            <q-icon :name="icons.delete" />
-                          </q-item-section>
-                          <q-item-section>
-                            <q-item-label>Delete</q-item-label>
-                          </q-item-section>
-                        </q-item>
-                      </template>
-                    </q-list>
-                  </q-card>
-                </q-menu>
-              </q-btn>
+              <q-btn
+                dense
+                flat
+                :icon="icons.more"
+                round
+                size="8px"
+                @click.stop="showMenu(workspace.id, $event)"
+              />
             </q-item-section>
+            <!-- One menu per row, opened by the dots or by right-clicking the row itself, which
+            is where a context menu is looked for first. -->
+            <q-menu
+              :ref="(element: any) => setMenu(workspace.id, element)"
+              context-menu
+              @before-show="group.reorder.consumeClick()"
+            >
+              <q-card bordered flat>
+                <q-list dense>
+                  <q-item v-close-popup clickable dense @click="open(workspace, group.reorder)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.workspace" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Open</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable dense @click="openOnHome(workspace)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.open" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Open on Home</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-separator />
+                  <q-item v-close-popup clickable dense @click="openSettings(workspace)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.settings" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Settings</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable dense @click="duplicate(workspace)">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.duplicate" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Duplicate</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <template v-if="isWritable(workspace)">
+                    <q-separator />
+                    <q-item v-close-popup clickable dense @click="promptDelete(workspace)">
+                      <q-item-section avatar>
+                        <q-icon :name="icons.delete" />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label>Delete</q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </template>
+                </q-list>
+              </q-card>
+            </q-menu>
           </q-item>
         </q-list>
       </div>
@@ -273,25 +367,36 @@ function promptDelete(workspace: Workspace) {
 
 .groupLabel {
   margin-bottom: 2px;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 12px;
 }
 
 // The grip sits in the row's leading padding rather than in its content, so it costs the same
 // width whether it is showing or not and nothing moves under the pointer.
-.row {
+// Doubled so this wins over Quasar's own item padding, which is set on a single class too. The
+// extra leading space is where the grip sits, so it never lands on the workspace icon.
+.row.row {
   position: relative;
+  padding-left: 22px;
   transition: background-color 0.2s, transform 0.16s ease;
   touch-action: none;
 }
 
+// The grip's box runs from the row's leading edge to the far side of the workspace icon, so the
+// whole of that end reads as the place to take hold of, with the glyph itself sitting at the
+// start of it. Zero opacity still answers the pointer, which is what carries the cursor before
+// the grip has faded in.
 .grip {
   position: absolute;
   top: 50%;
   left: 2px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  // Reaches past the glyph to the far side of the workspace icon, so that whole end of the row
+  // carries the grab cursor. Zero opacity still answers the pointer, which is what carries the
+  // cursor before the grip has faded in.
+  width: 38px;
   cursor: grab;
-  font-size: 14px;
   opacity: 0;
   transform: translateY(-50%);
   transition: opacity 0.15s;
@@ -307,10 +412,20 @@ function promptDelete(workspace: Workspace) {
   background: inherit;
 }
 
+// The lifted row sits above the ones sliding under it, so it takes the surface it was lifted off
+// rather than letting them show through, and thins slightly to read as held.
 .held {
   z-index: 2;
   position: relative;
-  background: var(--q-dark-page, transparent);
+  opacity: 0.92;
+}
+
+:global(.dark) .held {
+  background: $dark;
+}
+
+:global(.light) .held {
+  background: white;
 }
 
 // The held row tracks the pointer directly, so it must not smooth its own movement. It regains the

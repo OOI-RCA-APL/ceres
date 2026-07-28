@@ -323,9 +323,10 @@ async def update_workspace(
 ) -> Workspace:
     """Partially update a workspace.
 
-    Ownership only ever moves one way, from an owner to nobody, which is what publishing a
-    private workspace means. Taking a shared workspace private would remove a tab other people
-    may have open and hold working copies against, so it is refused.
+    Ownership moves in either direction, and both directions take manage on the placement.
+    Publishing a private workspace shows it to everyone who can see that placement, and taking a
+    shared one private removes it from them along with any working copies they hold against it.
+    A caller may only ever take ownership for themselves.
 
     Writing a workspace is not enough to change what a logged-out visitor sees, so the logged-out
     marker takes manage on the engine root on top of whatever the workspace itself requires.
@@ -344,7 +345,7 @@ async def update_workspace(
     await require_writable(engine, actor, user, workspace)
 
     if "owner_id" in update and update["owner_id"] != workspace.owner_id:
-        if workspace.owner_id is None or update["owner_id"] is not None:
+        if update["owner_id"] is not None and update["owner_id"] != user.id:
             raise NotPermittedError()
 
         await require_placement_access(
@@ -362,6 +363,12 @@ async def update_workspace(
         await require_placement_access(
             engine, actor, user, update["scope"], ComponentAccessLevel.MANAGE
         )
+
+    # Nobody else can see a private workspace, so it can never be one of the workspaces a
+    # logged-out visitor lands on. Taking one private clears the marker rather than refusing,
+    # since the caller already holds the manage that setting it took.
+    if update.get("owner_id") is not None:
+        update["show_when_logged_out"] = False
 
     updated = assert_found(await engine.workspaces.where(id=id).update(update).first())
     return await redact_workspace(engine, actor, user, updated)

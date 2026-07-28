@@ -244,7 +244,7 @@ export const widgetInfos = {
     type: 'alerts',
     name: 'Alerts View',
     model: AlertsWidgetModel,
-    component: () => defineAsyncComponent(() => import('@/components/WorkspaceWidgetAlerts.vue')),
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetAlerts.vue')),
     options: widgetOptions({}),
   },
   logs: {

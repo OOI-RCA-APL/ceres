@@ -81,7 +81,7 @@ const icons = {
   privateWorkspace: 'mdi-account',
   workingCopy: 'mdi-pencil-box-multiple',
   workspace: 'mdi-dots-grid',
-  workspaces: 'mdi-file-multiple',
+  workspaces: 'mdi-chevron-down',
 } as const
 
 export default icons

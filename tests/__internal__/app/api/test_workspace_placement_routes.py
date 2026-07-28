@@ -224,9 +224,49 @@ async def test_publishing_requires_manage_on_the_placement() -> None:
     await engine.database.dispose()
 
 
-async def test_a_shared_workspace_cannot_be_taken_private() -> None:
+async def test_a_manager_takes_a_shared_workspace_private() -> None:
     engine = await _build_engine()
     manager = await _create_user(engine, "manager")
+    await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
+
+    shared = await engine.workspaces.create(Workspace.Create(name="team", scope=Address("@rig")))
+
+    updated = await update_workspace(
+        engine=engine,
+        actor=Actor(user=manager, unrestricted=False),
+        user=manager,
+        id=shared.id,
+        update={"owner_id": manager.id},
+    )
+
+    assert updated.owner_id == manager.id
+
+    await engine.database.dispose()
+
+
+async def test_taking_a_workspace_private_requires_manage_on_the_placement() -> None:
+    engine = await _build_engine()
+    viewer = await _create_user(engine, "viewer")
+    await _grant(engine, viewer, "@rig", ComponentAccessLevel.VIEW)
+
+    shared = await engine.workspaces.create(Workspace.Create(name="team", scope=Address("@rig")))
+
+    with pytest.raises(NotPermittedError):
+        await update_workspace(
+            engine=engine,
+            actor=Actor(user=viewer, unrestricted=False),
+            user=viewer,
+            id=shared.id,
+            update={"owner_id": viewer.id},
+        )
+
+    await engine.database.dispose()
+
+
+async def test_a_workspace_cannot_be_given_to_somebody_else() -> None:
+    engine = await _build_engine()
+    manager = await _create_user(engine, "manager")
+    other = await _create_user(engine, "other")
     await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
 
     shared = await engine.workspaces.create(Workspace.Create(name="team", scope=Address("@rig")))
@@ -237,8 +277,38 @@ async def test_a_shared_workspace_cannot_be_taken_private() -> None:
             actor=Actor(user=manager, unrestricted=False),
             user=manager,
             id=shared.id,
-            update={"owner_id": manager.id},
+            update={"owner_id": other.id},
         )
+
+    await engine.database.dispose()
+
+
+async def test_taking_a_workspace_private_clears_the_logged_out_marker() -> None:
+    engine = await _build_engine()
+    manager = await _create_user(engine, "manager")
+    await engine.database.user_permissions.create(
+        UserPermission.Create(
+            user_id=manager.id,
+            target_type=PermissionTargetType.ALL,
+            target="",
+            level=ComponentAccessLevel.MANAGE,
+        )
+    )
+
+    shared = await engine.workspaces.create(
+        Workspace.Create(name="landing", show_when_logged_out=True)
+    )
+
+    updated = await update_workspace(
+        engine=engine,
+        actor=Actor(user=manager, unrestricted=False),
+        user=manager,
+        id=shared.id,
+        update={"owner_id": manager.id},
+    )
+
+    assert updated.owner_id == manager.id
+    assert updated.show_when_logged_out is False
 
     await engine.database.dispose()
 
