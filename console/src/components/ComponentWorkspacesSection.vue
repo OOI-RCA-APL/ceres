@@ -3,6 +3,7 @@ import { engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
+import { moved, usePointerReorder } from '@/reorder'
 import { useTabs } from '@/tabs'
 import { inStandardOrder, isWorkspaceWritable, useWorkspaces, Workspace } from '@/workspace'
 
@@ -21,7 +22,7 @@ const dialogs = useDialogs()
 const tabs = useTabs()
 const workspaceStore = useWorkspaces()
 
-const ordered = $computed(() => inStandardOrder(workspaces))
+const ordered = $computed(() => pending ?? inStandardOrder(workspaces))
 
 // A workspace is in the strip unless the user has closed it. An untouched strip is its defaults,
 // so absence from `open` is not the same as being closed.
@@ -39,6 +40,11 @@ function isWritable(workspace: Workspace): boolean {
 }
 
 async function open(workspace: Workspace) {
+  // Releasing a drag must not also open what was dragged.
+  if (reorder.consumeClick()) {
+    return
+  }
+
   await tabs.open(placement, workspace.id)
   emit('open', workspace.id)
 }
@@ -51,28 +57,39 @@ async function openOnHome(workspace: Workspace) {
 
 // The standard order is what a user sees before they have arranged this strip themselves, so it is
 // shared and only a manager may change it. Dragging a tab arranges one person's own strip, which
-// is why moving a workspace in the shared order happens here instead.
-async function move(workspace: Workspace, offset: number) {
-  const current = ordered.findIndex((candidate) => candidate.id === workspace.id)
-  const target = current + offset
-  if (current < 0 || target < 0 || target >= ordered.length) {
-    return
-  }
+// is why the shared order is dragged here instead.
+// A ref on a Quasar component yields the component, so the rows are found through its root
+// element rather than through the component itself.
+let rootList = $ref<{ $el?: HTMLElement } | null>(null)
 
-  const moved = [...ordered]
-  moved.splice(target, 0, ...moved.splice(current, 1))
+// Rows drag exactly as tabs do, down the list rather than across it. Held while the write is in
+// flight so the list does not snap back to the old order and then forward again once it lands.
+let pending = $ref<Workspace[] | null>(null)
 
-  // Every position is rewritten rather than just the pair, because a workspace that has never been
-  // positioned has no order at all and would otherwise keep sorting last.
-  await Promise.all(
-    moved.map((candidate, index) =>
-      candidate.data.meta.order === index
-        ? Promise.resolve()
-        : workspaceStore.update(candidate.id, {
-            data: { ...candidate.data, meta: { ...candidate.data.meta, order: index } },
-          })
+const reorder = usePointerReorder({
+  axis: 'vertical',
+  elements: () => [...(rootList?.$el?.querySelectorAll<HTMLElement>('[data-workspace-row]') ?? [])],
+  onReorder: (from, to) => void persistOrder(moved(ordered, from, to)),
+})
+
+async function persistOrder(rows: Workspace[]) {
+  pending = rows
+
+  // Every position is rewritten rather than just the pair that moved, because a workspace that has
+  // never been positioned has no order at all and would otherwise keep sorting last.
+  try {
+    await Promise.all(
+      rows.map((candidate, index) =>
+        candidate.data.meta.order === index
+          ? Promise.resolve()
+          : workspaceStore.update(candidate.id, {
+              data: { ...candidate.data, meta: { ...candidate.data.meta, order: index } },
+            })
+      )
     )
-  )
+  } finally {
+    pending = null
+  }
 }
 
 function openSettings(workspace: Workspace) {
@@ -104,13 +121,28 @@ function promptDelete(workspace: Workspace) {
 
 <template>
   <q-expansion-item dense dense-toggle :label="`Workspaces (${ordered.length})`">
-    <q-list class="q-pb-sm" dense>
+    <q-list ref="rootList" class="q-pb-sm" dense>
       <q-item v-if="ordered.length === 0">
         <q-item-section>
           <q-item-label class="text-grey-6">No workspaces.</q-item-label>
         </q-item-section>
       </q-item>
-      <q-item v-for="workspace in ordered" :key="workspace.id" clickable @click="open(workspace)">
+      <q-item
+        v-for="(workspace, index) in ordered"
+        :key="workspace.id"
+        :class="[
+          $style.row,
+          reorder.isSwapping && $style.swapping,
+          reorder.isDragging && $style.arranging,
+          reorder.isHeld(index) && $style.held,
+          reorder.isGrabbed(index) && $style.grabbed,
+        ]"
+        clickable
+        data-workspace-row
+        :style="reorder.styleFor(index)"
+        v-bind="canManage ? reorder.handlers(index) : {}"
+        @click="open(workspace)"
+      >
         <q-item-section avatar>
           <q-icon
             :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
@@ -148,35 +180,6 @@ function promptDelete(workspace: Workspace) {
                       <q-item-label>Open on Home</q-item-label>
                     </q-item-section>
                   </q-item>
-                  <template v-if="canManage">
-                    <q-separator />
-                    <q-item
-                      clickable
-                      dense
-                      :disable="workspace.id === ordered[0]?.id"
-                      @click="move(workspace, -1)"
-                    >
-                      <q-item-section avatar>
-                        <q-icon :name="icons.menuUp" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Move Up</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                    <q-item
-                      clickable
-                      dense
-                      :disable="workspace.id === ordered[ordered.length - 1]?.id"
-                      @click="move(workspace, 1)"
-                    >
-                      <q-item-section avatar>
-                        <q-icon :name="icons.menuDown" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Move Down</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                  </template>
                   <q-separator />
                   <q-item v-close-popup clickable dense @click="openSettings(workspace)">
                     <q-item-section avatar>
@@ -214,3 +217,33 @@ function promptDelete(workspace: Workspace) {
     </q-list>
   </q-expansion-item>
 </template>
+
+<style lang="scss" module>
+.row {
+  transition: background-color 0.2s, transform 0.16s ease;
+  touch-action: none;
+}
+
+// While a drag is in progress the list must not clip the lifted row, and hover highlighting on the
+// rows sliding aside would read as a second thing happening at once.
+.arranging:hover {
+  background: inherit;
+}
+
+.held {
+  z-index: 2;
+  position: relative;
+  background: var(--q-dark-page, transparent);
+}
+
+// The held row tracks the pointer directly, so it must not smooth its own movement. It regains the
+// transition once released, which is what animates it into the gap.
+.grabbed {
+  cursor: grabbing;
+  transition: background-color 0.2s;
+}
+
+.swapping {
+  transition: none;
+}
+</style>

@@ -3,11 +3,14 @@ import { QPopupEdit } from 'quasar'
 import { nextTick, watch } from 'vue'
 
 import { useAuth } from '@/api/auth'
+import WorkspaceTabLabel from '@/components/WorkspaceTabLabel.vue'
 import { useDialogs } from '@/dialogs'
 import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
+import { moved, usePointerReorder } from '@/reorder'
 import { isStructurallyEqual } from '@/utilities'
 import {
+  isWorkspaceWritable,
   useWorkspaces,
   withoutMeta,
   Workspace,
@@ -16,9 +19,19 @@ import {
   WorkspaceHeaderState,
 } from '@/workspace'
 
-const { workspaces, active, canManage, canCreate, activeActions, activeState } = defineProps<{
+const {
+  workspaces,
+  active,
+  canManage,
+  canCreate,
+  showPlacement = false,
+  activeActions,
+  activeState,
+} = defineProps<{
   workspaces: Workspace[]
   active: string | null
+  /** Whether this strip mixes placements, which is what makes naming them on each tab useful. */
+  showPlacement?: boolean
   /** Whether the caller may manage the component, which is what a shared workspace here follows. */
   canManage: boolean
   /** Whether the caller may add a workspace here, which needs only view since it lands private. */
@@ -43,14 +56,8 @@ const workspaceStore = useWorkspaces()
 // dropping a file onto a browser's tab bar opens it there.
 const fileDrop = useFileDrop((files) => emit('import', files), isWorkspaceFile)
 
-// A private workspace belongs to its owner alone, so they may edit and delete it whatever their
-// access on the component. A shared one follows the component.
 function isWritable(workspace: Workspace): boolean {
-  if (workspace.owner_id != null) {
-    return workspace.owner_id === auth.user?.id
-  }
-
-  return canManage
+  return isWorkspaceWritable(workspace, auth.user?.id, canManage)
 }
 
 const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
@@ -58,181 +65,18 @@ const undoShortcut = isApple ? '⌘Z' : 'Ctrl+Z'
 const redoShortcut = isApple ? '⇧⌘Z' : 'Ctrl+Y'
 
 // Tabs reorder by pointer rather than by the HTML5 drag API, so they behave the way browser tabs
-// do. The held tab tracks the pointer, its neighbours slide aside as it passes their midpoints,
-// and it settles into the gap when released. Positions are measured once when the drag begins and
-// every offset is derived from those, so nothing depends on layout that is mid-animation.
-type TabDrag = {
-  index: number
-  pointerId: number
-  startX: number
-  positions: { left: number; width: number }[]
-  moved: boolean
-}
-
-const dragThreshold = 4
-const settleDuration = 140
-
+// do. The same behavior drives the overview's workspace list, which is why it lives in a shared
+// composable rather than here.
 let rootElement = $ref<HTMLElement | null>(null)
-let drag = $ref<TabDrag | null>(null)
-let dragOffset = $ref(0)
-let dragTarget = $ref(0)
-let settling = $ref(false)
-let swapping = $ref(false)
-let suppressClick = false
 
-function onPointerDown(index: number, event: PointerEvent) {
-  suppressClick = false
-
-  // The tab's own menu button owns its presses, and a drag should only ever start from a plain
-  // left press.
-  if (event.button !== 0 || (event.target as HTMLElement).closest('button') != null) {
-    return
-  }
-
-  const elements = rootElement?.querySelectorAll<HTMLElement>('.q-tab') ?? []
-  const positions = [...elements].map((element) => {
-    const box = element.getBoundingClientRect()
-    return { left: box.left, width: box.width }
-  })
-
-  if (positions.length !== workspaces.length) {
-    return
-  }
-
-  drag = { index, pointerId: event.pointerId, startX: event.clientX, positions, moved: false }
-  dragOffset = 0
-  dragTarget = index
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-}
-
-function onPointerMove(event: PointerEvent) {
-  if (drag == null || event.pointerId !== drag.pointerId || settling) {
-    return
-  }
-
-  const delta = event.clientX - drag.startX
-  if (!drag.moved && Math.abs(delta) < dragThreshold) {
-    return
-  }
-
-  drag.moved = true
-  dragOffset = delta
-  dragTarget = resolveTarget(delta)
-}
-
-/** Return the index the held tab would land on, given how far it has travelled. */
-function resolveTarget(delta: number): number {
-  if (drag == null) {
-    return 0
-  }
-
-  const { index, positions } = drag
-  const center = positions[index].left + positions[index].width / 2 + delta
-
-  let target = index
-  while (target > 0 && center < positions[target - 1].left + positions[target - 1].width / 2) {
-    target--
-  }
-  while (
-    target < positions.length - 1 &&
-    center > positions[target + 1].left + positions[target + 1].width / 2
-  ) {
-    target++
-  }
-
-  return target
-}
-
-/** Return how far a tab slides aside to open the gap the held tab is heading for. */
-function tabShift(index: number): number {
-  if (drag == null || index === drag.index) {
-    return 0
-  }
-
-  const width = drag.positions[drag.index].width
-  if (drag.index < dragTarget && index > drag.index && index <= dragTarget) {
-    return -width
-  }
-  if (drag.index > dragTarget && index >= dragTarget && index < drag.index) {
-    return width
-  }
-
-  return 0
-}
-
-/** Return where the held tab comes to rest, which is the near edge of the gap it opened. */
-function settledOffset(): number {
-  if (drag == null) {
-    return 0
-  }
-
-  const { index, positions } = drag
-  if (dragTarget > index) {
-    const target = positions[dragTarget]
-    const held = positions[index]
-    return target.left + target.width - (held.left + held.width)
-  }
-  if (dragTarget < index) {
-    return positions[dragTarget].left - positions[index].left
-  }
-
-  return 0
-}
-
-function tabStyle(index: number) {
-  if (drag == null) {
-    return undefined
-  }
-
-  if (index === drag.index) {
-    return { transform: `translateX(${settling ? settledOffset() : dragOffset}px)` }
-  }
-
-  return { transform: `translateX(${tabShift(index)}px)` }
-}
-
-async function onPointerUp(event: PointerEvent) {
-  if (drag == null || event.pointerId !== drag.pointerId) {
-    return
-  }
-
-  if (!drag.moved) {
-    drag = null
-    return
-  }
-
-  const { index } = drag
-  const target = dragTarget
-
-  // Let the held tab travel into its gap before the list reorders underneath it, otherwise it
-  // jumps the remaining distance the instant the transform is dropped.
-  suppressClick = true
-  settling = true
-  await new Promise((resolve) => setTimeout(resolve, settleDuration))
-
-  // Dropping the offsets and reordering the list happen in the same frame, and the tabs that slid
-  // aside are already standing where the new order puts them. Animating that frame would replay
-  // the slide they just finished, so transitions are off across the swap and restored after the
-  // browser has painted it.
-  settling = false
-  swapping = true
-  drag = null
-  dragOffset = 0
-
-  if (target !== index) {
-    const reordered = [...workspaces]
-    const [moved] = reordered.splice(index, 1)
-    reordered.splice(target, 0, moved)
-    emit('reorder', reordered)
-  }
-
-  await nextTick()
-  requestAnimationFrame(() => requestAnimationFrame(() => (swapping = false)))
-}
+const reorder = usePointerReorder({
+  axis: 'horizontal',
+  elements: () => [...(rootElement?.querySelectorAll<HTMLElement>('.q-tab') ?? [])],
+  onReorder: (from, to) => emit('reorder', moved([...workspaces], from, to)),
+})
 
 function onTabClick(id: string) {
-  if (suppressClick) {
-    suppressClick = false
+  if (reorder.consumeClick()) {
     return
   }
 
@@ -333,33 +177,21 @@ function promptDeleteById(workspace: Workspace) {
         :key="workspace.id"
         :class="[
           $style.tab,
-          swapping && $style.swapping,
-          drag != null && $style.arranging,
-          drag?.index === index && $style.held,
-          drag?.index === index && !settling && $style.grabbed,
+          reorder.isSwapping && $style.swapping,
+          reorder.isDragging && $style.arranging,
+          reorder.isHeld(index) && $style.held,
+          reorder.isGrabbed(index) && $style.grabbed,
         ]"
         :name="workspace.id"
-        :style="tabStyle(index)"
+        :style="reorder.styleFor(index)"
+        v-bind="reorder.handlers(index)"
         @click="onTabClick(workspace.id)"
-        @pointercancel="onPointerUp"
-        @pointerdown="onPointerDown(index, $event)"
-        @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
       >
-        <div :class="[$style.tabInner, 'items-center', 'no-wrap', 'row']">
-          <!-- The leading icon already answers what kind of tab this is, so marking a private
-          workspace here costs no width and adds no second icon to the tab. -->
-          <q-icon
-            :class="$style.tabIcon"
-            :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
-          >
-            <q-tooltip v-if="workspace.owner_id != null" :delay="1000">
-              This workspace is private to you.
-            </q-tooltip>
-          </q-icon>
-          <span :class="$style.label" @dblclick.stop="openRename(workspace)">
-            {{ workspace.name }}
-          </span>
+        <div
+          :class="[$style.tabInner, 'items-center', 'no-wrap', 'row']"
+          @dblclick.stop="openRename(workspace)"
+        >
+          <workspace-tab-label :show-placement="showPlacement" :workspace="workspace" />
           <q-popup-edit
             v-if="workspace.id === active"
             ref="renamePopup"
