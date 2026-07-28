@@ -9,6 +9,7 @@ import icons from '@/icons'
 import { isStructurallyEqual } from '@/utilities'
 import {
   useWorkspaces,
+  withoutMeta,
   Workspace,
   WorkspaceEdit,
   WorkspaceHeaderActions,
@@ -264,7 +265,7 @@ function hasWorkingCopy(workspace: Workspace): boolean {
   }
 
   const edit = edits[workspace.id]
-  return edit != null && !isStructurallyEqual(edit.data, workspace.data)
+  return edit != null && !isStructurallyEqual(withoutMeta(edit.data), withoutMeta(workspace.data))
 }
 
 // The active tab renames through the live workspace context so the same handler that persists

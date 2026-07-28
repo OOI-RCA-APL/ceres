@@ -353,6 +353,20 @@ export const WorkspaceDataModel = Zod.object({
   meta: WorkspaceMetaModel.catch(() => ({ order: undefined })),
 })
 
+/** Return a workspace's data without `meta`.
+
+`meta` is shared presentation state that any user with manage on the placement rewrites when they
+reorder a strip. Comparing it against a stored edit would report every workspace in that strip as
+having unsaved changes, for every user holding an edit, which is why it is excluded from both the
+comparison and the edit itself.
+*/
+export function withoutMeta(data: WorkspaceData): Omit<WorkspaceData, 'meta'> {
+  // Content is named rather than spread, so adding a field to a workspace's data fails to compile
+  // here until it is decided whether that field is content or presentation.
+  const { layout } = data
+  return { layout }
+}
+
 export type Workspace = Zod.infer<typeof WorkspaceModel>
 export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
@@ -542,7 +556,11 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   })
 
   const edited = $computed(() => {
-    return data != null && workspace != null && !isStructurallyEqual(data, workspace?.data)
+    if (data == null || workspace == null) {
+      return false
+    }
+
+    return !isStructurallyEqual(withoutMeta(data), withoutMeta(workspace.data))
   })
 
   async function rename(newName: string) {
@@ -980,7 +998,9 @@ export const useWorkspaces = defineStore('workspaces', () => {
   async function assignEdit(workspaceId: string, data: WorkspaceData) {
     return await client.put(`/api/users/${getUserId()}/workspace-edits/${workspaceId}`, {
       data: {
-        data,
+        // `meta` is shared, so an edit carries content only. Committing an edit must not restore
+        // the tab order that was in force when the edit began.
+        data: withoutMeta(data),
       },
       parse: WorkspaceEditModel,
     })
