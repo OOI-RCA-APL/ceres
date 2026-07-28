@@ -21,6 +21,7 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import WorkspacePage from '@/pages/Workspace.vue'
 import { usePersisted } from '@/persistence'
+import { resolveTabs, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
 import { useWorkspaces, Workspace } from '@/workspace'
@@ -31,6 +32,7 @@ const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
 const route = useRoute()
+const tabs = useTabs()
 const workspaces = useWorkspaces()
 
 const address = $computed(() => new Address(route.params.address as string))
@@ -44,7 +46,14 @@ const canManage = $computed(() => access.canManage(address.toString()))
 // which nobody else sees.
 const canCreate = $computed(() => access.canView(address.toString()))
 
-let scopedWorkspaces = $ref<Workspace[]>([])
+// The shared default set for this component, in standard order.
+let placedWorkspaces = $ref<Workspace[]>([])
+
+// What this user's strip actually shows. The defaults are what someone who has never touched this
+// strip sees, and their own set takes over from there.
+const scopedWorkspaces = $computed(() =>
+  resolveTabs(placedWorkspaces, tabs.setFor(address.toString()), (workspace) => workspace.id)
+)
 
 // Only the workspace named in the URL is shown. Without one the page falls back to the first tab,
 // so a component with workspaces opens on one rather than on a bare overview.
@@ -67,25 +76,33 @@ async function refreshScoped() {
 
   // Workspaces carry their tab position in their own data, and those without one sort last so a
   // newly created workspace lands at the end.
-  scopedWorkspaces = orderBy(listed, [
+  placedWorkspaces = orderBy(listed, [
     (workspace) => workspace.data.meta.order ?? Number.MAX_SAFE_INTEGER,
     (workspace) => workspace.name,
   ])
 }
 
-// Reordering rewrites each workspace's stored position, so the order holds for everyone rather
-// than only in this browser.
+// Dragging positions this user's own tabs. The shared standard order lives in `data.meta.order`
+// and is edited from the overview, so one user arranging their strip does not rearrange everyone
+// else's.
 async function reorderScoped(ordered: Workspace[]) {
-  scopedWorkspaces = ordered
-  await Promise.all(
-    ordered.map((workspace, index) =>
-      workspace.data.meta.order === index
-        ? Promise.resolve()
-        : workspaces.update(workspace.id, {
-            data: { ...workspace.data, meta: { ...workspace.data.meta, order: index } },
-          })
-    )
+  await tabs.reorder(
+    address.toString(),
+    ordered.map((workspace) => workspace.id)
   )
+}
+
+// Closing moves to whichever tab takes the closed one's place, or to the bare overview when it was
+// the last one. The workspace itself is untouched, which is what separates closing from deleting.
+async function closeScoped(id: string) {
+  const remaining = scopedWorkspaces.filter((workspace) => workspace.id !== id)
+  await tabs.close(address.toString(), id)
+
+  if (activeWorkspaceId === id) {
+    await navigation.replace({
+      query: remaining.length > 0 ? { workspace: remaining[0].id } : {},
+    })
+  }
 }
 
 // Scoped workspaces are fetched separately from the store's own list, so the tabs are refetched
@@ -98,12 +115,13 @@ watch(
   }
 )
 
-// Landing on a component opens its first workspace, which is also where deleting or closing the
-// open one lands. The overview alone is only reached by a component having no workspaces at all.
+// Landing on a component opens its first workspace. Closing the last tab clears the query
+// entirely, which is what tells this apart from arriving with no workspace named, so closing
+// leaves the overview showing rather than immediately reopening what was just closed.
 watch(
   () => [activeWorkspaceId, scopedWorkspaces] as const,
   ([active, listed]) => {
-    if (active == null && listed.length > 0) {
+    if (active == null && listed.length > 0 && navigation.route.query.workspace === undefined) {
       selectWorkspace(listed[0].id)
     }
   },
@@ -130,6 +148,7 @@ async function importScoped(files: File[]) {
   }
 }
 
+await tabs.load()
 await refreshScoped()
 
 const queries = $computed(() => component?.procedures.filter((p) => p.type === 'query') ?? [])
@@ -513,6 +532,7 @@ const persisted = usePersisted({
             :can-manage="canManage"
             class="q-ml-sm"
             :workspaces="scopedWorkspaces"
+            @close="closeScoped"
             @create="createScoped"
             @import="importScoped"
             @reorder="reorderScoped"
@@ -531,6 +551,7 @@ const persisted = usePersisted({
           :can-manage="canManage"
           class="q-px-sm q-py-xs"
           :workspaces="scopedWorkspaces"
+          @close="closeScoped"
           @create="createScoped"
           @import="importScoped"
           @reorder="reorderScoped"

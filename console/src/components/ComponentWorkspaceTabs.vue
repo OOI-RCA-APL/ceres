@@ -29,6 +29,7 @@ const { workspaces, active, canManage, canCreate, activeActions, activeState } =
 
 const emit = defineEmits<{
   select: [id: string]
+  close: [id: string]
   create: []
   import: [files: File[]]
   reorder: [workspaces: Workspace[]]
@@ -302,7 +303,8 @@ function promptDeleteById(workspace: Workspace) {
         `Are you sure you'd like to delete workspace "${workspace.name}"?\n\n` +
         '<i>' +
         'This action cannot be undone. You and any users with access to this workspace will ' +
-        'never see it again.' +
+        'never see it again. To remove it from your own tabs without deleting it, close the ' +
+        'tab instead.' +
         '</i>',
     })
     .onOk(async () => {
@@ -405,6 +407,15 @@ function promptDeleteById(workspace: Workspace) {
                   <template
                     v-if="workspace.id === active && activeActions != null && activeState != null"
                   >
+                    <q-item v-close-popup clickable dense @click="emit('close', workspace.id)">
+                      <q-item-section avatar>
+                        <q-icon :name="icons.close" />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label>Close Tab</q-item-label>
+                      </q-item-section>
+                    </q-item>
+                    <q-separator />
                     <q-item v-close-popup clickable dense @click="openRename(workspace)">
                       <q-item-section avatar>
                         <q-icon :name="icons.rename" />
@@ -538,6 +549,15 @@ function promptDeleteById(workspace: Workspace) {
                     </template>
                   </template>
                   <template v-else>
+                    <q-item v-close-popup clickable dense @click="emit('close', workspace.id)">
+                      <q-item-section avatar>
+                        <q-icon :name="icons.close" />
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label>Close Tab</q-item-label>
+                      </q-item-section>
+                    </q-item>
+                    <q-separator />
                     <q-item v-close-popup clickable dense @click="openSettingsById(workspace)">
                       <q-item-section avatar>
                         <q-icon :name="icons.settings" />
