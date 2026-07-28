@@ -99,13 +99,19 @@ const form = useForm({
     // A new workspace starts shared wherever that is available, which is what creating one used
     // to always do.
     isPrivate: true,
+    // Whether this is one of the workspaces a new user lands on. Only meaningful for a shared
+    // workspace placed on the engine root, which is what the home page draws its defaults from.
+    showWhenLoggedOut: false,
   },
   validators: {
     name: validate.isNotBlank(),
   },
   onSubmit: async (values) => {
     if (action === 'view') {
-      await engine.workspaces.update(workspaceId, { name: values.name })
+      await engine.workspaces.update(workspaceId, {
+        name: values.name,
+        ...(canMarkForHome ? { show_when_logged_out: values.showWhenLoggedOut } : {}),
+      })
       notify.success('Workspace settings updated successfully.')
       onDialogOK()
       return
@@ -152,6 +158,13 @@ const canManage = $computed(() => {
   return canShare
 })
 
+// The home page's default set. It only applies to a shared workspace on the engine root, and it
+// decides what everyone lands on, so it takes manage there. A private workspace can never carry
+// it, because nobody else can see one.
+const canMarkForHome = $computed(
+  () => action === 'view' && !isPrivate && placement?.isEngine === true && canShare
+)
+
 nextTick(async () => {
   await until(() => query.isFetched).toBe(true)
   if (action === 'create') {
@@ -160,6 +173,7 @@ nextTick(async () => {
   }
   if (workspace != null) {
     form.load(workspace)
+    form.data.showWhenLoggedOut = workspace.show_when_logged_out
     if (action === 'duplicate') {
       form.data.name = `${workspace.name} (Copy)`
       form.data.isPrivate = true
@@ -236,6 +250,18 @@ nextTick(async () => {
               Sharing it with everyone who can see
               <span class="monospace-xs">{{ placement }}</span> requires manage access.
             </div>
+            <template v-if="canMarkForHome">
+              <q-separator class="q-mb-sm q-mt-sm" />
+              <q-toggle
+                v-model="form.data.showWhenLoggedOut"
+                dense
+                :disable="form.readonly"
+                label="Show on the home page"
+              />
+              <div class="q-mt-xs text-grey-6">
+                Workspaces shown here are what a new user sees when they first sign in.
+              </div>
+            </template>
           </div>
         </q-form>
         <div v-if="canManage" class="q-col-gutter-x-sm q-pb-md q-px-md row">
