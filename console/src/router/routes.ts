@@ -3,7 +3,7 @@ import { RouteRecordRaw } from 'vue-router'
 import AppLayout from '@/AppLayout.vue'
 import Account from '@/pages/Account.vue'
 import CreateUser from '@/pages/CreateUser.vue'
-import Dashboard from '@/pages/Dashboard.vue'
+import Home from '@/pages/Home.vue'
 import Login from '@/pages/Login.vue'
 import User from '@/pages/User.vue'
 import Users from '@/pages/Users.vue'
@@ -17,7 +17,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
-        component: Dashboard,
+        component: Home,
       },
       {
         path: '/login',
