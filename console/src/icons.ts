@@ -22,7 +22,6 @@ const icons = {
   connection: 'route', // Material Icons
   copy: 'mdi-content-copy',
   darkMode: 'dark_mode',
-  dashboard: 'space_dashboard', // Material Icons
   delete: 'mdi-delete',
   developer: 'construction', // Material Icons
   disable: 'mdi-minus-circle-outline',
@@ -37,6 +36,7 @@ const icons = {
   filter: 'mdi-filter',
   grab: 'mdi-grab',
   help: 'mdi-help',
+  home: 'mdi-home',
   import: 'mdi-upload',
   join: 'mdi-star-outline',
   joined: 'mdi-star',
@@ -56,6 +56,7 @@ const icons = {
   open: 'mdi-open-in-new',
   operate: 'mdi-wrench',
   operations: 'mdi-cog-transfer',
+  overview: 'space_dashboard', // Material Icons
   password: 'password', // Material Icons
   preferences: 'mdi-theme-light-dark',
   reload: 'mdi-cog-sync',

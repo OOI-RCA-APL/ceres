@@ -186,10 +186,10 @@ function promptReload() {
         <q-list dense>
           <q-item :active="route.fullPath === '/'" :class="$style.largeItem" clickable to="/">
             <q-item-section avatar>
-              <q-icon :name="icons.dashboard" />
+              <q-icon :name="icons.home" />
             </q-item-section>
             <q-item-section avatar>
-              <q-item-label>Dashboard</q-item-label>
+              <q-item-label>Home</q-item-label>
             </q-item-section>
           </q-item>
           <template v-if="auth.isViewer">

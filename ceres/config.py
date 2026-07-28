@@ -15,7 +15,6 @@ from pydantic import (
     NonNegativeInt,
     PositiveInt,
     SecretStr,
-    SerializeAsAny,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -820,11 +819,6 @@ class ConsoleConfig(DataObject):
     favicon: Path | None = None
     """Path to a favicon image served by the console."""
 
-    # `SerializeAsAny` works around a Pydantic union-serialization bug for `T | Sequence[T]`,
-    # see https://github.com/pydantic/pydantic/milestone/13.
-    dashboard: SerializeAsAny[MaybeSequence[Address] | None] = None
-    """Address (or addresses) of components rendered as the console dashboard."""
-
 
 class DatabaseRetryConfig(DataObject):
     """Retry policy used when connecting to the database."""
@@ -1124,24 +1118,6 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
 
     access: ComponentAccessLevel | None = None
     """Default access level for components with none declared in their ancestor chain."""
-
-    @model_validator(mode="after")
-    def _validate_after(self) -> Self:
-        from ceres.interface import Interface
-
-        # Dashboard components must exist and must be `Interface` subclasses, this is
-        # validated up front so dashboard misconfiguration fails at config load time.
-        if self.console.dashboard is not None:
-            for address in seq(self.console.dashboard):
-                component = self.get_component(address)
-                if component is None:
-                    raise ValueError(f"dashboard component '{address}' does not exist")
-                if not issubclass(component.cls, Interface):
-                    raise ValueError(
-                        f"dashboard component '{address}' must be a subclass of {Interface}, got {component.cls}"
-                    )
-
-        return self
 
     @field_validator("components")
     def _validate_components(cls, components: list[ComponentConfig]) -> list[ComponentConfig]:

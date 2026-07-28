@@ -3,7 +3,6 @@ import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import Zod from 'zod'
 
-import { AddressModel } from '@/api/address'
 import { useClient } from '@/api/client'
 import { NameStrModel } from '@/api/shared'
 
@@ -59,9 +58,6 @@ export const ConsoleConfigModel = Zod.object({
   title: Zod.string().nullish(),
   icon: Zod.string().nullish(),
   favicon: Zod.string().nullish(),
-  dashboard: Zod.union([AddressModel, Zod.array(AddressModel)])
-    .nullable()
-    .default(null),
 })
 
 export type Config = Zod.infer<typeof ConfigModel>

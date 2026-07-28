@@ -285,7 +285,7 @@ const persisted = usePersisted({
         :color="persisted.overviewCollapsed ? undefined : 'primary'"
         dense
         flat
-        :icon="icons.dashboard"
+        :icon="icons.overview"
         :icon-right="persisted.overviewCollapsed ? icons.menuDown : icons.menuUp"
         size="sm"
         @click="persisted.overviewCollapsed = !persisted.overviewCollapsed"

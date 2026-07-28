@@ -131,10 +131,12 @@ Customize the web console appearance.
 
 ```yaml
 console:
-  title: My Dashboard              # Browser tab title.
-  favicon: ./assets/favicon.png    # Custom favicon image.
-  dashboard: ["@sensor", "@motor"] # Components shown on the dashboard.
+  title: My Deployment          # Browser tab title.
+  favicon: ./assets/favicon.png # Custom favicon image.
 ```
+
+The console's home page shows the workspaces placed on the engine root. Choose which of them a new
+user lands on by enabling "Show on the home page" in a workspace's settings.
 
 ## `logging`
 
