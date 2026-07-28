@@ -75,22 +75,15 @@ const engine = useEngine()
 const workspace = useWorkspace()
 const slots = useSlots()
 
-// The address filter offers every component and its subtree selector, but a scoped workspace
-// must only offer components within its own scope, matching what the record APIs can actually
-// return once the filter resolves through the workspace.
-const addressFilterOptions = $computed(() => {
-  const scope = workspace.scope
-  const base = scope?.toString() ?? null
-
-  return engine.components.all
-    .filter(
-      (component) =>
-        base == null ||
-        component.address.toString() === base ||
-        component.address.toString().startsWith(`${base}.`)
-    )
+// The address filter offers each component and its subtree selector, narrowed to the workspace's
+// placement so it matches what the record APIs can actually return once the filter resolves
+// through the workspace. A workspace at the engine root is narrowed to nothing, since the root
+// contains every component.
+const addressFilterOptions = $computed(() =>
+  engine.components.all
+    .filter((component) => workspace.isWithinScope(component.address))
     .flatMap((component) => [component.address.toString(), component.address.all().toString()])
-})
+)
 
 const get = $computed(() => {
   switch (widget.type) {

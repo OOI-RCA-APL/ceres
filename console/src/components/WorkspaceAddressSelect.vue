@@ -40,7 +40,7 @@ const scope = $computed(() => workspace.scope)
 type Option = { label: string; value: string }
 
 const options = $computed<Option[]>(() => {
-  if (scope == null || showAbsolute) {
+  if (!workspace.isBound || showAbsolute) {
     return engine.components.all.map((component) => {
       const address = component.address.toString()
       return { label: address, value: address }
@@ -87,7 +87,7 @@ function update(value: string | null) {
         @update:model-value="update"
       />
     </div>
-    <div v-if="scope != null" class="col-auto">
+    <div v-if="workspace.isBound" class="col-auto">
       <q-toggle v-model="showAbsolute" dense label="Absolute" size="sm" />
     </div>
   </div>

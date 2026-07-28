@@ -26,10 +26,14 @@ const resolvedFilter = $computed(() => ({
   address: workspace.resolveFilterAddress(widget.filter.address),
 }))
 
+// Only connections the workspace can address. A command sent to a component outside the placement
+// would be refused anyway, so offering it is a dead end dressed up as a choice.
 const connectionEntries = $computed(() =>
-  engine.components.all.flatMap((component) =>
-    component.connections.map((connection) => [component.address, connection.name])
-  )
+  engine.components.all
+    .filter((component) => workspace.isWithinScope(component.address))
+    .flatMap((component) =>
+      component.connections.map((connection) => [component.address, connection.name])
+    )
 )
 const connectionModelValue = $computed(() => {
   if (resolvedCommandAddress == null || widget.commandConnection == null) {

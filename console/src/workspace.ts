@@ -494,6 +494,27 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return AddressSelector.parse(value).asAbsolute(scope)
   }
 
+  // Whether this workspace is bound to a component, rather than sitting at the engine root. The
+  // engine root contains every component, so a workspace placed there restricts nothing, and the
+  // controls that narrow a choice to the placement have nothing to narrow.
+  const isBound = $computed(() => scope != null && !scope.isEngine)
+
+  /** Whether an address falls within this workspace's placement.
+   *
+   * A workspace at the engine root admits every component. One bound to a component admits that
+   * component and its descendants. Callers use this to offer only the addresses whose records the
+   * widget can actually resolve, so it must agree with what `resolveFilterAddress` produces.
+   */
+  function isWithinScope(address: Address | string): boolean {
+    if (scope == null || scope.isEngine) {
+      return true
+    }
+
+    const base = scope.toString()
+    const value = address.toString()
+    return value === base || value.startsWith(`${base}.`)
+  }
+
   // Like resolveAddress, but an unset value falls back to the scope's own subtree instead of
   // staying null. Record widgets (messages, logs, alerts, particles) use this for their
   // `filter.address` field, since a widget added to a scoped workspace with no address chosen
@@ -858,6 +879,8 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     scope: computed(() => scope),
     resolveAddress,
     resolveFilterAddress,
+    isWithinScope,
+    isBound: computed(() => isBound),
     owner: computed(() => workspace?.owner_id ?? null),
     isPrivate: computed(() => workspace?.owner_id != null),
     isEnginePlaced: computed(() => workspace?.scope.isEngine === true),
