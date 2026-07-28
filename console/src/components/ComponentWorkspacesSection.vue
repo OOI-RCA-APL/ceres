@@ -39,9 +39,9 @@ function isWritable(workspace: Workspace): boolean {
   return isWorkspaceWritable(workspace, auth.user?.id, canManage)
 }
 
-async function open(workspace: Workspace) {
+async function open(workspace: Workspace, groupReorder: ReturnType<typeof usePointerReorder>) {
   // Releasing a drag must not also open what was dragged.
-  if (reorder.consumeClick()) {
+  if (groupReorder.consumeClick()) {
     return
   }
 
@@ -55,31 +55,70 @@ async function openOnHome(workspace: Workspace) {
   await tabs.open(engineRoot, workspace.id)
 }
 
+// Shared and private are listed apart rather than mixed, because they answer different questions.
+// The shared ones are what this component offers everyone who can see it, and the private ones are
+// the caller's own work on it, which nobody else has.
+const sharedWorkspaces = $computed(() => ordered.filter((workspace) => workspace.owner_id == null))
+const privateWorkspaces = $computed(() => ordered.filter((workspace) => workspace.owner_id != null))
+
 // The standard order is what a user sees before they have arranged this strip themselves, so it is
 // shared and only a manager may change it. Dragging a tab arranges one person's own strip, which
-// is why the shared order is dragged here instead.
-// A ref on a Quasar component yields the component, so the rows are found through its root
-// element rather than through the component itself.
-let rootList = $ref<{ $el?: HTMLElement } | null>(null)
+// is why the shared order is dragged here instead. A private workspace is nobody else's to see, so
+// its owner arranges it whatever their access to the component.
+let root = $ref<HTMLElement | null>(null)
 
 // Rows drag exactly as tabs do, down the list rather than across it. Held while the write is in
 // flight so the list does not snap back to the old order and then forward again once it lands.
 let pending = $ref<Workspace[] | null>(null)
 
-const reorder = usePointerReorder({
+function rowsOf(group: string): HTMLElement[] {
+  const selector = `[data-workspace-group="${group}"]`
+  return [...(root?.querySelectorAll<HTMLElement>(selector) ?? [])]
+}
+
+const sharedReorder = usePointerReorder({
   axis: 'vertical',
-  elements: () => [...(rootList?.$el?.querySelectorAll<HTMLElement>('[data-workspace-row]') ?? [])],
-  onReorder: (from, to) => void persistOrder(moved(ordered, from, to)),
+  elements: () => rowsOf('shared'),
+  onReorder: (from, to) =>
+    void persistOrder(moved(sharedWorkspaces, from, to), privateWorkspaces as Workspace[]),
 })
 
-async function persistOrder(rows: Workspace[]) {
-  pending = rows
+const privateReorder = usePointerReorder({
+  axis: 'vertical',
+  elements: () => rowsOf('private'),
+  onReorder: (from, to) =>
+    void persistOrder(sharedWorkspaces as Workspace[], moved(privateWorkspaces, from, to)),
+})
+
+const groups = $computed(() => [
+  {
+    key: 'shared',
+    label: 'Shared',
+    items: sharedWorkspaces,
+    reorder: sharedReorder,
+    canReorder: canManage,
+  },
+  {
+    key: 'private',
+    label: 'Private',
+    items: privateWorkspaces,
+    reorder: privateReorder,
+    canReorder: true,
+  },
+])
+
+// Each group is positioned within itself, so a private workspace never has to be ordered against a
+// shared one it is never listed beside.
+async function persistOrder(shared: Workspace[], owned: Workspace[]) {
+  pending = [...shared, ...owned]
 
   // Every position is rewritten rather than just the pair that moved, because a workspace that has
   // never been positioned has no order at all and would otherwise keep sorting last.
+  const positions = [...shared.entries(), ...owned.entries()]
+
   try {
     await Promise.all(
-      rows.map((candidate, index) =>
+      positions.map(([index, candidate]) =>
         candidate.data.meta.order === index
           ? Promise.resolve()
           : workspaceStore.update(candidate.id, {
@@ -120,105 +159,121 @@ function promptDelete(workspace: Workspace) {
 </script>
 
 <template>
-  <q-expansion-item dense dense-toggle :label="`Workspaces (${ordered.length})`">
-    <q-list ref="rootList" class="q-pb-sm" dense>
-      <q-item v-if="ordered.length === 0">
-        <q-item-section>
-          <q-item-label class="text-grey-6">No workspaces.</q-item-label>
-        </q-item-section>
-      </q-item>
-      <q-item
-        v-for="(workspace, index) in ordered"
-        :key="workspace.id"
-        :class="[
-          $style.row,
-          reorder.isSwapping && $style.swapping,
-          reorder.isDragging && $style.arranging,
-          reorder.isHeld(index) && $style.held,
-          reorder.isGrabbed(index) && $style.grabbed,
-        ]"
-        clickable
-        data-workspace-row
-        :style="reorder.styleFor(index)"
-        v-bind="canManage ? reorder.handlers(index) : {}"
-        @click="open(workspace)"
-      >
-        <q-item-section avatar>
-          <q-icon
-            :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
-            size="18px"
+  <div ref="root">
+    <div class="items-center q-mb-xs row text-subtitle2">
+      Workspaces
+      <q-chip class="q-ml-xs" dense :label="ordered.length" outline size="sm" />
+    </div>
+    <div v-if="ordered.length === 0" class="text-grey-6" :class="$style.empty">No workspaces.</div>
+    <template v-for="group in groups" :key="group.key">
+      <div v-if="group.items.length > 0" :class="$style.group">
+        <div class="text-grey-6" :class="$style.groupLabel">{{ group.label }}</div>
+        <q-list bordered class="rounded-borders" dense separator>
+          <q-item
+            v-for="(workspace, index) in group.items"
+            :key="workspace.id"
+            :class="[
+              $style.row,
+              group.reorder.isSwapping && $style.swapping,
+              group.reorder.isDragging && $style.arranging,
+              group.reorder.isHeld(index) && $style.held,
+              group.reorder.isGrabbed(index) && $style.grabbed,
+            ]"
+            clickable
+            :data-workspace-group="group.key"
+            :style="group.reorder.styleFor(index)"
+            v-bind="group.canReorder ? group.reorder.handlers(index) : {}"
+            @click="open(workspace, group.reorder)"
           >
-            <q-tooltip v-if="workspace.owner_id != null" :delay="1000">
-              This workspace is private to you.
-            </q-tooltip>
-          </q-icon>
-        </q-item-section>
-        <q-item-section>
-          <q-item-label>{{ workspace.name }}</q-item-label>
-        </q-item-section>
-        <q-item-section v-if="isOpen(workspace)" side>
-          <q-chip dense :label="'Open'" outline size="sm" />
-        </q-item-section>
-        <q-item-section side>
-          <q-btn dense flat :icon="icons.more" round size="sm" @click.stop>
-            <q-menu anchor="bottom right" :offset="[0, 4]" self="top right">
-              <q-card bordered flat>
-                <q-list dense>
-                  <q-item v-close-popup clickable dense @click="open(workspace)">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.workspace" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Open</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                  <q-item v-close-popup clickable dense @click="openOnHome(workspace)">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.open" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Open on Home</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                  <q-separator />
-                  <q-item v-close-popup clickable dense @click="openSettings(workspace)">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.settings" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Settings</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                  <q-item v-close-popup clickable dense @click="duplicate(workspace)">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.duplicate" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Duplicate</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                  <template v-if="isWritable(workspace)">
-                    <q-separator />
-                    <q-item v-close-popup clickable dense @click="promptDelete(workspace)">
-                      <q-item-section avatar>
-                        <q-icon :name="icons.delete" />
-                      </q-item-section>
-                      <q-item-section>
-                        <q-item-label>Delete</q-item-label>
-                      </q-item-section>
-                    </q-item>
-                  </template>
-                </q-list>
-              </q-card>
-            </q-menu>
-          </q-btn>
-        </q-item-section>
-      </q-item>
-    </q-list>
-  </q-expansion-item>
+            <q-item-section avatar>
+              <q-icon
+                :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
+                size="18px"
+              />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>{{ workspace.name }}</q-item-label>
+            </q-item-section>
+            <q-item-section v-if="isOpen(workspace)" side>
+              <q-chip dense :label="'Open'" outline size="sm" />
+            </q-item-section>
+            <q-item-section side>
+              <q-btn dense flat :icon="icons.more" round size="8px" @click.stop>
+                <q-menu anchor="bottom right" :offset="[0, 4]" self="top right">
+                  <q-card bordered flat>
+                    <q-list dense>
+                      <q-item v-close-popup clickable dense @click="open(workspace, group.reorder)">
+                        <q-item-section avatar>
+                          <q-icon :name="icons.workspace" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>Open</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                      <q-item v-close-popup clickable dense @click="openOnHome(workspace)">
+                        <q-item-section avatar>
+                          <q-icon :name="icons.open" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>Open on Home</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                      <q-separator />
+                      <q-item v-close-popup clickable dense @click="openSettings(workspace)">
+                        <q-item-section avatar>
+                          <q-icon :name="icons.settings" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>Settings</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                      <q-item v-close-popup clickable dense @click="duplicate(workspace)">
+                        <q-item-section avatar>
+                          <q-icon :name="icons.duplicate" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>Duplicate</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                      <template v-if="isWritable(workspace)">
+                        <q-separator />
+                        <q-item v-close-popup clickable dense @click="promptDelete(workspace)">
+                          <q-item-section avatar>
+                            <q-icon :name="icons.delete" />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>Delete</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                      </template>
+                    </q-list>
+                  </q-card>
+                </q-menu>
+              </q-btn>
+            </q-item-section>
+          </q-item>
+        </q-list>
+      </div>
+    </template>
+  </div>
 </template>
 
 <style lang="scss" module>
+.empty {
+  padding: 4px 0;
+}
+
+.group + .group {
+  margin-top: 10px;
+}
+
+.groupLabel {
+  margin-bottom: 2px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .row {
   transition: background-color 0.2s, transform 0.16s ease;
   touch-action: none;

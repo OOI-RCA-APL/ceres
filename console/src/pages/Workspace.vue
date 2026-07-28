@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
+import { useElementBounding, useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
 import { QPopupEdit, colors } from 'quasar'
 import { computed, onMounted, reactive, watchEffect, watch } from 'vue'
 
@@ -26,8 +26,11 @@ import {
   getWidgetInfo,
 } from '@/workspace'
 
-const { id } = defineProps<{
+const { id, stickyTop } = defineProps<{
   id: string
+
+  /** Where the workspace header pins, raised when it sits under another page's header. */
+  stickyTop?: number
 }>()
 
 const dialogs = useDialogs()
@@ -125,6 +128,14 @@ useResizeObserver($$(layout), (resizes) => {
     layoutWidth = resize.contentRect.width
   }
 })
+
+// The action bar floats over the window rather than sitting in the page, so its centre is taken
+// from the widgets it acts on. Half the window is somewhere left of them whenever the drawer is
+// open, which reads as misaligned against everything else on the page.
+const layoutBounds = useElementBounding($$(layout))
+const actionBarStyle = $computed(() => ({
+  left: `${layoutBounds.x.value + layoutBounds.width.value / 2}px`,
+}))
 
 watchEffect(() => {
   if (workspace.drag != null) {
@@ -280,7 +291,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 </script>
 
 <template>
-  <full-page :class="$style.root" :dense="$slots['header-prepend'] != null">
+  <full-page :class="$style.root" :dense="$slots['header-prepend'] != null" :sticky-top="stickyTop">
     <div
       v-if="workspace.drag != null"
       key="dragged-widget-icon"
@@ -490,6 +501,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
     <div
       :key="key"
       class="q-px-sm"
+      :class="$style.layout"
       :style="isViewingOriginal && { border: `1px dashed ${colors.getPaletteColor('warning')}` }"
     >
       <div v-if="workspace.loading" ref="layout" class="q-py-lg" />
@@ -621,7 +633,11 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
     <!-- A working copy is normally an ongoing personal state rather than a staging area, so the
     bar reads as neutral status. It appears only while one exists, and the same actions stay in the
     tab's menu, since this is a shortcut rather than the only route to them. -->
-    <div v-if="workspace.edited" :class="[$style.actionBar, 'items-center', 'q-gutter-xs', 'row']">
+    <div
+      v-if="workspace.edited"
+      :class="[$style.actionBar, 'items-center', 'row']"
+      :style="actionBarStyle"
+    >
       <q-btn
         v-if="!isViewingOriginal"
         dense
@@ -693,7 +709,9 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 </template>
 
 <style lang="scss" module>
-.root {
+// Clipped here rather than on the page, because hiding an axis makes an element its own scrolling
+// box, and a header inside one pins to that box instead of to the window.
+.layout {
   overflow-x: hidden;
 }
 
@@ -734,18 +752,22 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   height: 250px;
 }
 
-// Floats over the bottom of the workspace. Sticky would only pin it while the page scrolls, and
-// a short workspace does not, which would drop the bar below the fold exactly when there is least
-// reason to hunt for it.
+// Rests on the bottom edge of the window, rounded only where it meets the page. Sticky would pin
+// it only while the page scrolls, and a short workspace does not, which would drop the bar below
+// the fold exactly when there is least reason to hunt for it. Its horizontal position is set
+// inline, from the widgets it acts on.
+//
+// Spaced with `gap` rather than a Quasar gutter, whose negative margins offset the box against
+// its own contents and leave the buttons sitting low and right of centre.
 .actionBar {
   position: fixed;
-  z-index: 3;
-  bottom: 16px;
-  left: 50%;
+  z-index: 4;
+  bottom: 0;
   transform: translateX(-50%);
   width: fit-content;
-  padding: 4px 8px;
-  border-radius: 999px;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px 999px 0 0;
   backdrop-filter: blur(6px);
 }
 

@@ -13,6 +13,7 @@ import { useForm } from '@/form'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
+import { usePreferences } from '@/preferences'
 import { useValidate } from '@/validate'
 import { WorkspaceData } from '@/workspace'
 
@@ -52,6 +53,7 @@ const auth = useAuth()
 const engine = useEngine()
 const navigation = useNavigation()
 const notify = useNotify()
+const preferences = usePreferences()
 const validate = useValidate()
 
 const key = Math.random()
@@ -123,6 +125,13 @@ const form = useForm({
       owner_id: values.isPrivate ? auth.user?.id : null,
       data: action === 'duplicate' ? data ?? workspace?.data ?? {} : undefined,
     })
+
+    // Only a deliberate choice is remembered. Duplicating is always private, and a user without
+    // manage has no choice to make, so neither says anything about what they prefer.
+    if (action === 'create' && canShare) {
+      preferences.wasLastWorkspacePrivate = values.isPrivate
+    }
+
     if (action === 'duplicate') {
       // A copy opens on its own page. Its callers duplicate from wherever they happen to be, so
       // the dialog takes them to the copy rather than leaving them on the original.
@@ -143,6 +152,13 @@ const form = useForm({
 const isPrivate = $computed(() =>
   action === 'view' ? workspace?.owner_id != null : form.data.isPrivate
 )
+
+// Named rather than switched, so the choice reads as two kinds of workspace instead of a setting
+// that happens to be off.
+const visibilityOptions = [
+  { label: 'Shared', value: false, icon: icons.workspace },
+  { label: 'Private', value: true, icon: icons.privateWorkspace },
+]
 
 const canManage = $computed(() => {
   if (action !== 'view') {
@@ -168,7 +184,7 @@ const canMarkForHome = $computed(
 nextTick(async () => {
   await until(() => query.isFetched).toBe(true)
   if (action === 'create') {
-    form.data.isPrivate = !canShare
+    form.data.isPrivate = canShare ? preferences.wasLastWorkspacePrivate : true
     return
   }
   if (workspace != null) {
@@ -218,13 +234,36 @@ nextTick(async () => {
               outlined
               :readonly="form.readonly"
             />
-            <q-toggle
+            <q-select
               v-if="action === 'create' && canShare"
               v-model="form.data.isPrivate"
-              class="q-mb-sm"
+              class="q-mb-md"
+              color="primary"
               dense
-              label="Private"
-            />
+              emit-value
+              label="Visibility"
+              map-options
+              :options="visibilityOptions"
+              options-dense
+              outlined
+            >
+              <template #prepend>
+                <q-icon
+                  :name="form.data.isPrivate ? icons.privateWorkspace : icons.workspace"
+                  size="20px"
+                />
+              </template>
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps" dense>
+                  <q-item-section avatar>
+                    <q-icon :name="scope.opt.icon" size="20px" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>{{ scope.opt.label }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
             <div class="q-mb-sm text-grey-6">
               <template v-if="isPrivate && placement?.isEngine">
                 <q-icon class="q-mr-xs" :name="icons.privateWorkspace" />

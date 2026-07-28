@@ -15,7 +15,7 @@ import { Connectivity } from '@/api/shared'
 import CommonText from '@/components/CommonText.vue'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
-import FullPage from '@/components/FullPage.vue'
+import FullPage, { appHeaderHeight, pageHeaderHeight } from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useDialogs } from '@/dialogs'
@@ -47,6 +47,10 @@ const canManage = $computed(() => access.canManage(address.toString()))
 // Adding a workspace here needs only view, because a user without manage gets a private one,
 // which nobody else sees.
 const canCreate = $computed(() => access.canView(address.toString()))
+
+// The tab strip pins under this page's own header, so scrolling the overview away leaves the
+// component named above and its tabs directly beneath.
+const workspaceStickyTop = appHeaderHeight + pageHeaderHeight
 
 // Below this width the overview's two columns stack into one, which makes it roughly twice as
 // tall. A height dragged on a wide screen then clips it mid-item, so there it sizes to its own
@@ -378,6 +382,16 @@ const persisted = usePersisted({
             </div>
 
             <div :class="configHighlighted != null ? $style.detailsColumn : 'col-12'">
+              <!-- Workspaces lead the column rather than sitting under the procedure lists, since
+              they are what the page is usually opened for and the rest is reference. -->
+              <component-workspaces-section
+                :can-manage="canManage"
+                class="q-mb-md"
+                :placement="address.toString()"
+                :workspaces="placedWorkspaces"
+                @open="selectWorkspace"
+              />
+
               <q-list bordered class="rounded-borders" dense>
                 <q-expansion-item
                   v-model="persisted.connections"
@@ -506,13 +520,6 @@ const persisted = usePersisted({
                     </q-item>
                   </q-list>
                 </q-expansion-item>
-                <q-separator />
-                <component-workspaces-section
-                  :can-manage="canManage"
-                  :placement="address.toString()"
-                  :workspaces="placedWorkspaces"
-                  @open="selectWorkspace"
-                />
               </q-list>
 
               <div v-if="component.tags.length > 0" class="q-mt-md">
@@ -562,7 +569,11 @@ const persisted = usePersisted({
       </div>
       <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
       switching tabs updates this page in place and leaves the tab strip in its header mounted. -->
-      <workspace-page v-if="activeWorkspaceId != null" :id="activeWorkspaceId">
+      <workspace-page
+        v-if="activeWorkspaceId != null"
+        :id="activeWorkspaceId"
+        :sticky-top="workspaceStickyTop"
+      >
         <template #header-prepend="{ actions, state }">
           <component-workspace-tabs
             :active="activeWorkspaceId"

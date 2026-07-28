@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { useKeyModifier } from '@vueuse/core'
 import { QPopupEdit } from 'quasar'
 import { nextTick, watch } from 'vue'
 
@@ -83,6 +84,13 @@ const reorder = usePointerReorder({
 // tab button opens a page of somewhere to go. Holding shift skips the picker, for anyone who knows
 // they want a new one.
 let picking = $ref(false)
+
+const shiftHeld = useKeyModifier('Shift')
+
+// The button says which of the two it is about to do. Layered pages for the picker, since what it
+// opens is the other workspaces already here, and a plus once shift turns it into making a new
+// one. With nothing left to open there is no picker, so it is a plus either way.
+const opensPicker = $computed(() => openable.length > 0 && shiftHeld.value !== true)
 
 function onAddClick(event: MouseEvent) {
   if (event.shiftKey || openable.length === 0) {
@@ -441,6 +449,21 @@ function promptDeleteById(workspace: Workspace) {
               </q-card>
             </q-menu>
           </q-btn>
+          <q-btn
+            class="faded-hover q-ml-xs"
+            :class="[$style.close, workspace.id === active && $style.closeShown]"
+            dense
+            flat
+            :icon="icons.close"
+            round
+            size="6.5px"
+            :style="{ marginTop: '1px' }"
+            @click.stop="emit('close', workspace.id)"
+            @mousedown.stop
+            @touchstart.stop
+          >
+            <q-tooltip class="bg-primary text-white">Close Workspace</q-tooltip>
+          </q-btn>
         </div>
       </q-tab>
     </q-tabs>
@@ -449,13 +472,13 @@ function promptDeleteById(workspace: Workspace) {
       :class="[$style.add, 'q-ml-xs']"
       dense
       flat
-      :icon="icons.add"
+      :icon="opensPicker ? icons.workspaces : icons.add"
       round
       size="sm"
       @click="onAddClick"
     >
       <q-tooltip>
-        {{ openable.length > 0 ? 'Open or create a workspace.' : 'Create a workspace.' }}
+        {{ opensPicker ? 'Open a workspace, or hold shift to create one.' : 'Create a workspace.' }}
       </q-tooltip>
       <!-- Opened from the click handler alone, so holding shift can bypass it. Left to its own
       devices a menu inside a button opens on every click, shift or not. -->
@@ -469,6 +492,7 @@ function promptDeleteById(workspace: Workspace) {
       >
         <q-card bordered flat>
           <q-list dense :style="{ maxHeight: '320px', overflowY: 'auto' }">
+            <q-item-label :class="$style.menuHeader" header>Workspaces</q-item-label>
             <q-item
               v-for="workspace in openable"
               :key="workspace.id"
@@ -554,7 +578,7 @@ function promptDeleteById(workspace: Workspace) {
 // the row inside it instead of fighting that rule.
 .tabInner {
   height: 100%;
-  padding: 0 6px 0 8px;
+  padding: 0 8px 0 8px;
 }
 
 // Quasar's dense tabs impose a 36px minimum on the tab and pad its content box vertically, which
@@ -607,6 +631,19 @@ function promptDeleteById(workspace: Workspace) {
 // area alone, and being an outline it takes no space, keeping a tab exactly as wide edited as it
 // is clean. Quasar buttons carry `no-outline`, which clears outlines with `!important`, so this
 // has to be forced back on.
+// The close button holds its place whether or not it is showing, so a tab stays exactly as wide
+// hovered as it is at rest and the strip does not shuffle under the pointer. The selected tab
+// keeps it visible, since that is the one most likely to be closed next.
+.close {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tab:hover .close,
+.closeShown {
+  opacity: 1;
+}
+
 .editedRing :global(.q-icon) {
   border-radius: 50%;
   outline: 1px dotted currentColor !important;
@@ -650,6 +687,15 @@ function promptDeleteById(workspace: Workspace) {
 
 .swapping {
   transition: none;
+}
+
+// Quasar pads a list header for a full-size list, which towers over the dense items beneath it.
+.menuHeader {
+  padding: 6px 16px 2px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+  text-transform: uppercase;
 }
 
 .add {

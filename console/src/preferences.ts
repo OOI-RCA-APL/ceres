@@ -11,6 +11,10 @@ export const usePreferences = defineStore('preferences', () => {
       object({
         isDarkModeEnabled: boolean().default(true),
         isDeveloperModeEnabled: boolean().default(false),
+        // Whether the last workspace this user created was private, which the create dialog opens
+        // on. Someone who works in private workspaces keeps getting private ones without saying so
+        // every time.
+        wasLastWorkspacePrivate: boolean().default(false),
         statisticsDuration: number().default(60 * 30),
       }),
     methods: [{ type: 'local-storage', key: ['store', 'preferences'] }],
@@ -29,6 +33,10 @@ export const usePreferences = defineStore('preferences', () => {
     isDeveloperModeEnabled: computed({
       get: () => state.isDeveloperModeEnabled,
       set: (value) => (state.isDeveloperModeEnabled = value),
+    }),
+    wasLastWorkspacePrivate: computed({
+      get: () => state.wasLastWorkspacePrivate,
+      set: (value) => (state.wasLastWorkspacePrivate = value),
     }),
     statisticsDuration: computed({
       get: () => duration(state.statisticsDuration, 'seconds'),
