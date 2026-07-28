@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useQuery } from '@tanstack/vue-query'
+import { useMediaQuery } from '@vueuse/core'
 import { upperFirst } from 'lodash-es'
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -46,6 +47,12 @@ const canManage = $computed(() => access.canManage(address.toString()))
 // Adding a workspace here needs only view, because a user without manage gets a private one,
 // which nobody else sees.
 const canCreate = $computed(() => access.canView(address.toString()))
+
+// Below this width the overview's two columns stack into one, which makes it roughly twice as
+// tall. A height dragged on a wide screen then clips it mid-item, so there it sizes to its own
+// content instead and the drag handle goes away with the drag.
+const overviewColumnsMin = 720
+const overviewStacks = useMediaQuery(`(max-width: ${overviewColumnsMin - 1}px)`)
 
 // The shared default set for this component, in standard order.
 let placedWorkspaces = $ref<Workspace[]>([])
@@ -328,7 +335,9 @@ const persisted = usePersisted({
         <div
           :class="[$style.overviewContent, 'scroll']"
           :style="
-            activeWorkspaceId != null ? { height: `${persisted.overviewHeight}px` } : undefined
+            activeWorkspaceId != null && !overviewStacks
+              ? { height: `${persisted.overviewHeight}px` }
+              : undefined
           "
         >
           <div :class="[$style.overviewGrid, 'q-col-gutter-md', 'q-pa-md', 'row']">
@@ -524,7 +533,7 @@ const persisted = usePersisted({
           </div>
         </div>
         <resize-handle
-          v-if="activeWorkspaceId != null"
+          v-if="activeWorkspaceId != null && !overviewStacks"
           v-model="persisted.overviewHeight"
           :class="$style.overviewResizeHandle"
           direction="vertical"
