@@ -23,7 +23,7 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import WorkspacePage from '@/pages/Workspace.vue'
 import { usePersisted } from '@/persistence'
-import { resolveTabs, useTabs } from '@/tabs'
+import { resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
 import { inStandardOrder, useWorkspaces, Workspace } from '@/workspace'
@@ -74,8 +74,11 @@ async function openScoped(id: string) {
   selectWorkspace(id)
 }
 
-// Only the workspace named in the URL is shown. Without one the page falls back to the first tab,
-// so a component with workspaces opens on one rather than on a bare overview.
+const lastWorkspace = useLastWorkspace(() => address.toString())
+
+// Only the workspace named in the URL is shown. Without one the page falls back to whichever
+// workspace was last shown here, so a component with workspaces opens on one rather than on a
+// bare overview.
 const activeWorkspaceId = $computed(() => {
   const value = navigation.route.query.workspace
   return typeof value === 'string' ? value : null
@@ -86,8 +89,16 @@ const activeWorkspaceId = $computed(() => {
 // leaves nothing to push it away from, so it goes back to the top.
 const pinTabs = $computed(() => activeWorkspaceId == null && !persisted.overviewCollapsed)
 
-function selectWorkspace(id: string) {
+function showWorkspace(id: string) {
   void navigation.replace({ query: { workspace: id } })
+}
+
+// Choosing a workspace records it as this strip's last, so the component reopens on it. Only a
+// deliberate choice records, because the fallback below shows one too and would otherwise
+// overwrite the memory with whatever it settled for.
+function selectWorkspace(id: string) {
+  lastWorkspace.id = id
+  showWorkspace(id)
 }
 
 async function refreshScoped() {
@@ -110,10 +121,14 @@ async function closeScoped(id: string) {
   const remaining = scopedWorkspaces.filter((workspace) => workspace.id !== id)
   await tabs.close(address.toString(), id)
 
-  if (activeWorkspaceId === id) {
-    await navigation.replace({
-      query: remaining.length > 0 ? { workspace: remaining[0].id } : {},
-    })
+  if (activeWorkspaceId !== id) {
+    return
+  }
+
+  if (remaining.length > 0) {
+    selectWorkspace(remaining[0].id)
+  } else {
+    await navigation.replace({ query: {} })
   }
 }
 
@@ -127,15 +142,19 @@ watch(
   }
 )
 
-// Landing on a component opens its first workspace. Closing the last tab clears the query
-// entirely, which is what tells this apart from arriving with no workspace named, so closing
-// leaves the overview showing rather than immediately reopening what was just closed.
+// Landing on a component reopens whichever workspace was last shown here, falling back to the
+// first tab when that one is gone. Closing the last tab clears the query entirely, which is what
+// tells this apart from arriving with no workspace named, so closing leaves the overview showing
+// rather than immediately reopening what was just closed.
 watch(
   () => [activeWorkspaceId, scopedWorkspaces] as const,
   ([active, listed]) => {
-    if (active == null && listed.length > 0 && navigation.route.query.workspace === undefined) {
-      selectWorkspace(listed[0].id)
+    if (active != null || listed.length === 0 || navigation.route.query.workspace !== undefined) {
+      return
     }
+
+    const remembered = listed.find((workspace) => workspace.id === lastWorkspace.id)
+    showWorkspace((remembered ?? listed[0]).id)
   },
   { immediate: true }
 )

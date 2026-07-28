@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
+import { computed, MaybeRefOrGetter, toValue } from 'vue'
 import Zod from 'zod'
 
 import { useSettings } from '@/api/settings'
+import { usePersisted } from '@/persistence'
 
 export type TabSet = Zod.infer<typeof TabSetModel>
 export const TabSetModel = Zod.object({
@@ -52,6 +54,24 @@ export function resolveTabs<T>(
   )
 
   return [...opened, ...remaining]
+}
+
+/** Remember which workspace a strip last showed, so returning to it lands where it was left.
+
+Held per device rather than in the tab set, because that set is a single record covering every
+placement and would be rewritten in full on each tab click. Which tab you were last on is a
+browsing position rather than a preference, so it belongs with the rest of the local view state.
+
+An identifier is remembered rather than a position, so a workspace that moves in the strip is
+still the one that reopens, and one that is closed or lost falls back to the first tab.
+*/
+export function useLastWorkspace(placement: MaybeRefOrGetter<string>) {
+  return usePersisted({
+    schema: ({ object, string }) => object({ id: string().nullable().default(null) }),
+    methods: computed(() => [
+      { type: 'local-storage' as const, key: ['workspace-tabs-last', toValue(placement)] },
+    ]),
+  })
 }
 
 export const useTabs = defineStore('tabs', () => {

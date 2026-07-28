@@ -10,7 +10,7 @@ import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import WorkspacePage from '@/pages/Workspace.vue'
-import { resolveTabs, useTabs } from '@/tabs'
+import { resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
 import { inStandardOrder, useWorkspaces, Workspace } from '@/workspace'
 
 const access = useAccess()
@@ -65,21 +65,37 @@ async function openHome(id: string) {
   selectWorkspace(id)
 }
 
+const lastWorkspace = useLastWorkspace(placement)
+
 const activeWorkspaceId = $computed(() => {
   const value = navigation.route.query.workspace
   return typeof value === 'string' ? value : null
 })
 
-function selectWorkspace(id: string) {
+function showWorkspace(id: string) {
   void navigation.replace({ query: { workspace: id } })
+}
+
+// Choosing a workspace records it as this strip's last, so home reopens on it. Only a deliberate
+// choice records, because the fallback below shows one too and would otherwise overwrite the
+// memory with whatever it settled for.
+function selectWorkspace(id: string) {
+  lastWorkspace.id = id
+  showWorkspace(id)
 }
 
 async function closeHome(id: string) {
   const remaining = homeWorkspaces.filter((workspace) => workspace.id !== id)
   await tabs.close(placement, id)
 
-  if (activeWorkspaceId === id) {
-    await navigation.replace({ query: remaining.length > 0 ? { workspace: remaining[0].id } : {} })
+  if (activeWorkspaceId !== id) {
+    return
+  }
+
+  if (remaining.length > 0) {
+    selectWorkspace(remaining[0].id)
+  } else {
+    await navigation.replace({ query: {} })
   }
 }
 
@@ -131,14 +147,25 @@ watch(
   }
 )
 
-// Landing on home opens the first tab. Closing the last one clears the query entirely, which is
-// what tells that apart from arriving with nothing named.
+// Landing on home reopens whichever workspace was last shown here, falling back to the first tab
+// when that one is gone. Closing the last one clears the query entirely, which is what tells that
+// apart from arriving with nothing named.
 watch(
   () => [activeWorkspaceId, homeWorkspaces] as const,
   ([active, listed]) => {
-    if (active == null && listed.length > 0 && navigation.route.query.workspace === undefined) {
-      selectWorkspace(listed[0].id)
+    if (active != null || listed.length === 0 || navigation.route.query.workspace !== undefined) {
+      return
     }
+
+    // The remembered workspace may be one placed on a component, which appears on the strip only
+    // once the full list has landed. Waiting for it costs nothing when there is nothing to wait
+    // for, since a user with no workspaces has an empty strip and is already handled above.
+    if (workspaces.all.length === 0) {
+      return
+    }
+
+    const remembered = listed.find((workspace) => workspace.id === lastWorkspace.id)
+    showWorkspace((remembered ?? listed[0]).id)
   },
   { immediate: true }
 )
