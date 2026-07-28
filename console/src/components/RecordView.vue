@@ -369,7 +369,11 @@ async function appendRecords(appended: Record[]) {
 
   records.push(...appended)
   if (resort) {
-    records.sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+    // Compared directly rather than with localeCompare. These are ISO timestamps, so the result is
+    // the same either way, but nothing here depends on a locale and saying otherwise misleads.
+    records.sort((left, right) =>
+      left.timestamp < right.timestamp ? -1 : left.timestamp > right.timestamp ? 1 : 0
+    )
   }
 
   if (follow) {
