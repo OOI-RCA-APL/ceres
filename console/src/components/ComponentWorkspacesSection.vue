@@ -3,8 +3,10 @@ import { QMenu } from 'quasar'
 
 import { engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
+import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
+import { useModifiers } from '@/modifiers'
 import { moved, usePointerReorder } from '@/reorder'
 import { useTabs } from '@/tabs'
 import { inStandardOrder, isWorkspaceWritable, useWorkspaces, Workspace } from '@/workspace'
@@ -39,6 +41,16 @@ function isOpen(workspace: Workspace): boolean {
 
 function isWritable(workspace: Workspace): boolean {
   return isWorkspaceWritable(workspace, auth.user?.id, canManage)
+}
+
+// Putting a workspace on the strip or taking it off again, which is the same closing and opening
+// the tabs themselves do. The workspace is untouched either way.
+async function toggleTab(workspace: Workspace) {
+  if (isOpen(workspace)) {
+    await tabs.close(placement, workspace.id)
+  } else {
+    await tabs.open(placement, workspace.id)
+  }
 }
 
 async function open(workspace: Workspace, groupReorder: ReturnType<typeof usePointerReorder>) {
@@ -167,6 +179,52 @@ function showMenu(id: string, event: Event) {
   menus.get(id)?.show(event)
 }
 
+// Renaming happens on the row itself rather than in a dialog, the same as renaming a tab, so the
+// name is edited where it is read.
+let editingId = $ref<string | null>(null)
+
+// Renaming a workspace changes it for everybody who can see it, so it takes the same write access
+// deleting does rather than being offered to anyone who can merely look at it.
+function openRename(workspace: Workspace) {
+  if (!isWritable(workspace)) {
+    return
+  }
+
+  editingId = workspace.id
+}
+
+const { shift: shiftHeld } = useModifiers()
+
+/** Which row is showing its name as a field, whether offered or being typed into.
+
+Holding shift over a row turns its name into a field there and then, so the rename is offered
+rather than hidden behind a shortcut nobody would guess. Clicking into it makes it a real edit,
+which is what keeps it once shift is let go of.
+*/
+let hoveredId = $ref<string | null>(null)
+
+function isNaming(workspace: Workspace): boolean {
+  if (editingId === workspace.id) {
+    return true
+  }
+
+  return shiftHeld.value && hoveredId === workspace.id && isWritable(workspace)
+}
+
+async function rename(workspace: Workspace, value: string) {
+  await workspaceStore.rename(workspace.id, value)
+}
+
+// Adding from a group's own heading opens the usual dialog, already set to the kind of workspace
+// that group holds, so the one question the dialog would ask is answered by where it was started
+// from. What comes back goes onto the strip and is shown.
+function create(group: 'shared' | 'private') {
+  dialogs.createWorkspace(placement, group === 'private').onOk(async (created: Workspace) => {
+    await tabs.open(placement, created.id)
+    emit('open', created.id)
+  })
+}
+
 const groups = $computed(() => [
   {
     key: 'shared',
@@ -174,6 +232,9 @@ const groups = $computed(() => [
     items: sharedWorkspaces,
     reorder: sharedReorder,
     canReorder: canManage,
+    // A shared workspace shows up for everyone who can see the component, so adding one takes
+    // manage. A private one is nobody else's to see, so it only takes being able to look here.
+    canAdd: canManage,
   },
   {
     key: 'private',
@@ -181,6 +242,7 @@ const groups = $computed(() => [
     items: privateWorkspaces,
     reorder: privateReorder,
     canReorder: true,
+    canAdd: true,
   },
 ])
 
@@ -238,11 +300,43 @@ function promptDelete(workspace: Workspace) {
 <template>
   <div ref="root">
     <div class="q-mb-xs text-subtitle2">Workspaces</div>
-    <div v-if="ordered.length === 0" class="text-grey-6" :class="$style.empty">No workspaces.</div>
     <template v-for="group in groups" :key="group.key">
-      <div v-if="group.items.length > 0" :class="$style.group">
-        <div class="text-grey-6" :class="$style.groupLabel">{{ group.label }}</div>
+      <!-- A group the caller may add to keeps its heading even while it is empty, since that
+      heading is where the first one is made from. -->
+      <div v-if="group.items.length > 0 || group.canAdd" :class="$style.group">
+        <div :class="[$style.groupHeader, 'items-center', 'row']">
+          <div class="text-grey-6" :class="$style.groupLabel">{{ group.label }}</div>
+          <q-space />
+          <q-btn
+            v-if="group.canAdd"
+            :class="$style.add"
+            dense
+            flat
+            :icon="icons.add"
+            round
+            size="8px"
+            @click="create(group.key as 'shared' | 'private')"
+          >
+            <q-tooltip
+              anchor="center left"
+              class="bg-primary text-white"
+              :offset="[4, 0]"
+              self="center right"
+            >
+              Create {{ group.label }} Workspace
+            </q-tooltip>
+          </q-btn>
+        </div>
+        <div
+          v-if="group.items.length === 0"
+          class="text-grey-6"
+          :class="$style.empty"
+          :data-workspace-group-list="group.key"
+        >
+          None yet.
+        </div>
         <q-list
+          v-else
           bordered
           class="rounded-borders"
           :data-workspace-group-list="group.key"
@@ -264,6 +358,8 @@ function promptDelete(workspace: Workspace) {
             :style="group.reorder.styleFor(index)"
             v-bind="group.canReorder ? group.reorder.handlers(index) : {}"
             @click="open(workspace, group.reorder)"
+            @mouseenter="hoveredId = workspace.id"
+            @mouseleave="hoveredId = hoveredId === workspace.id ? null : hoveredId"
           >
             <!-- A grip appears at the row's leading edge on hover, so a draggable row says so
             without spending a column on a handle that is idle the rest of the time. The whole row
@@ -277,11 +373,30 @@ function promptDelete(workspace: Workspace) {
                 size="18px"
               />
             </q-item-section>
-            <q-item-section>
-              <q-item-label>{{ workspace.name }}</q-item-label>
+            <q-item-section @dblclick.stop="openRename(workspace)">
+              <q-item-label>
+                <inline-name-edit
+                  :claim="editingId === workspace.id"
+                  :editing="isNaming(workspace)"
+                  :name="workspace.name"
+                  @rename="(value: string) => rename(workspace, value)"
+                  @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
+                />
+              </q-item-label>
             </q-item-section>
-            <q-item-section v-if="isOpen(workspace)" side>
-              <q-chip dense :label="'Open'" outline size="sm" />
+            <!-- The tab icon both says whether this workspace is on the strip below and puts it
+            there or takes it away, filled while it is showing and hollow while it is not. -->
+            <q-item-section side>
+              <q-btn
+                dense
+                flat
+                :icon="isOpen(workspace) ? icons.tab : icons.tabUnselected"
+                round
+                size="8px"
+                @click.stop="toggleTab(workspace)"
+              >
+                <q-tooltip class="bg-primary text-white" :delay="500">Toggle Tab</q-tooltip>
+              </q-btn>
             </q-item-section>
             <q-item-section side>
               <q-btn
@@ -319,6 +434,20 @@ function promptDelete(workspace: Workspace) {
                     </q-item-section>
                   </q-item>
                   <q-separator />
+                  <q-item
+                    v-if="isWritable(workspace)"
+                    v-close-popup
+                    clickable
+                    dense
+                    @click="openRename(workspace)"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :name="icons.rename" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Rename</q-item-label>
+                    </q-item-section>
+                  </q-item>
                   <q-item v-close-popup clickable dense @click="openSettings(workspace)">
                     <q-item-section avatar>
                       <q-icon :name="icons.settings" />
@@ -365,9 +494,28 @@ function promptDelete(workspace: Workspace) {
   margin-top: 10px;
 }
 
-.groupLabel {
+// The heading carries its own add button, so a workspace is made in the group it belongs to and
+// nothing has to ask afterwards whether it is shared or private.
+.groupHeader {
   margin-bottom: 2px;
+  min-height: 20px;
+}
+
+.groupLabel {
   font-size: 12px;
+}
+
+// Held off the trailing edge by the same padding a row gives its own menu button, so this button
+// sits on the same vertical line as the dots in the list beneath it.
+.add {
+  margin-right: 16px;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.group:hover .add,
+.add:hover {
+  opacity: 1;
 }
 
 // The grip sits in the row's leading padding rather than in its content, so it costs the same

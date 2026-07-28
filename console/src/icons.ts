@@ -1,4 +1,4 @@
-import { mdiPlus } from '@quasar/extras/mdi-v7'
+import { mdiClose, mdiPlus } from '@quasar/extras/mdi-v7'
 
 const icons = {
   // The webfont mdi-plus glyph can rasterize slightly off-center in small round buttons at some
@@ -12,11 +12,15 @@ const icons = {
   cancel: 'mdi-close-circle',
   clear: 'mdi-close-circle',
   changeRole: 'mdi-account-convert',
+  chevronDown: 'mdi-chevron-down',
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
   circle: 'mdi-circle',
   clearLocalStorage: 'mdi-delete-sweep',
-  close: 'mdi-close',
+  // Off-center in a small round button for the same reason `add` is, so it takes the SVG too.
+  close: mdiClose,
+  closeAll: 'mdi-close-box-multiple-outline',
+  closeOthers: 'mdi-close-box-outline',
   configuration: 'mdi-cogs',
   confirm: 'mdi-check',
   connection: 'route', // Material Icons
@@ -72,6 +76,9 @@ const icons = {
   start: 'mdi-play',
   stop: 'mdi-stop',
   submit: 'mdi-check',
+  tab: 'mdi-tab',
+  tabAdd: 'mdi-tab-plus',
+  tabUnselected: 'mdi-tab-unselected',
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',
@@ -81,7 +88,6 @@ const icons = {
   privateWorkspace: 'mdi-account',
   workingCopy: 'mdi-pencil-box-multiple',
   workspace: 'mdi-dots-grid',
-  workspaces: 'mdi-chevron-down',
 } as const
 
 export default icons

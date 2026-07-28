@@ -19,10 +19,28 @@ type Drag = {
   origin: number
   placements: Placement[]
   moved: boolean
+  /** Where the list was scrolled to when the drag began, which every offset is measured against. */
+  originScroll: number
+  /** Where the pointer was last seen, so the edge scroll can carry on without it moving. */
+  pointer: number
 }
 
 const dragThreshold = 4
 const settleDuration = 140
+
+// How near the end of a scrolling list the pointer has to be for the list to start travelling.
+const edgeZone = 56
+
+// How far the list travels each millisecond with the pointer right at the edge, and the least it
+// creeps anywhere inside the zone. In between it eases between the two, so resting just inside
+// nudges the list along and pushing to the very edge sends it.
+const edgeSpeed = 2.2
+const edgeCrawl = 0.05
+
+// The longest stretch of time the list will cover in one go. Anything longer than this is the page
+// having been left alone rather than the list running slowly, and carrying that whole distance
+// over would fling it the moment the page came back.
+const longestStep = 32
 
 export function usePointerReorder(options: {
   axis: ReorderAxis
@@ -40,6 +58,13 @@ export function usePointerReorder(options: {
   leaving a row hanging under a modal.
   */
   onDrop?: (index: number, event: PointerEvent) => boolean
+
+  /** The box the items scroll inside, for a list longer than the room it has.
+
+  Held near either end it travels, so an item can be taken further than the visible stretch of the
+  list. Without one the list is taken to show everything it holds.
+  */
+  scroller?: () => HTMLElement | null
 }) {
   const horizontal = $computed(() => options.axis === 'horizontal')
 
@@ -49,6 +74,17 @@ export function usePointerReorder(options: {
   let settling = $ref(false)
   let swapping = $ref(false)
   let suppressClick = false
+  let travelling: number | null = null
+  let lastTravel = 0
+
+  function scrollOf(): number {
+    const element = options.scroller?.()
+    if (element == null) {
+      return 0
+    }
+
+    return horizontal ? element.scrollLeft : element.scrollTop
+  }
 
   function measure(element: HTMLElement): Placement {
     const box = element.getBoundingClientRect()
@@ -85,12 +121,79 @@ export function usePointerReorder(options: {
       origin: coordinate(event),
       placements,
       moved: false,
+      originScroll: scrollOf(),
+      pointer: coordinate(event),
     }
     offset = 0
     target = index
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
 
     document.body.classList.add('reordering')
+    lastTravel = performance.now()
+    travelling = requestAnimationFrame(travel)
+  }
+
+  /** Carry the list along while the pointer rests near either end of it.
+
+  The pointer can stop moving and still be asking for more, so this runs on its own rather than off
+  pointer events, and stops the moment the list can go no further.
+  */
+  function travel(now: number) {
+    const elapsed = Math.min(now - lastTravel, longestStep)
+    lastTravel = now
+    travelling = requestAnimationFrame(travel)
+
+    const element = options.scroller?.()
+    if (drag == null || !drag.moved || element == null) {
+      return
+    }
+
+    const box = element.getBoundingClientRect()
+    const near = horizontal ? box.left : box.top
+    const far = horizontal ? box.right : box.bottom
+
+    // How far into the zone the pointer has pushed, from nothing at its inner boundary to all of
+    // it at the edge. Squaring that keeps the first part of the zone gentle and saves the speed
+    // for the last few pixels, so the list is easy to nudge and still quick to send.
+    let depth = 0
+    let direction = 0
+    if (drag.pointer < near + edgeZone) {
+      depth = (near + edgeZone - drag.pointer) / edgeZone
+      direction = -1
+    } else if (drag.pointer > far - edgeZone) {
+      depth = (drag.pointer - (far - edgeZone)) / edgeZone
+      direction = 1
+    }
+
+    if (direction === 0) {
+      return
+    }
+
+    const eased = Math.min(depth, 1) ** 2
+    const step = direction * Math.max(edgeCrawl, eased * edgeSpeed) * elapsed
+
+    if (horizontal) {
+      element.scrollLeft += step
+    } else {
+      element.scrollTop += step
+    }
+
+    apply()
+  }
+
+  /** Place the held item and work out where it would land, from wherever the pointer last was.
+
+  Taken from the list's scroll as well as the pointer, since a list travelling under a still
+  pointer moves the item along just as surely as the pointer does.
+  */
+  function apply() {
+    if (drag == null) {
+      return
+    }
+
+    const delta = drag.pointer - drag.origin + (scrollOf() - drag.originScroll)
+    offset = delta
+    target = resolveTarget(delta)
   }
 
   function onPointerMove(event: PointerEvent) {
@@ -98,14 +201,15 @@ export function usePointerReorder(options: {
       return
     }
 
-    const delta = coordinate(event) - drag.origin
+    drag.pointer = coordinate(event)
+
+    const delta = drag.pointer - drag.origin + (scrollOf() - drag.originScroll)
     if (!drag.moved && Math.abs(delta) < dragThreshold) {
       return
     }
 
     drag.moved = true
-    offset = delta
-    target = resolveTarget(delta)
+    apply()
   }
 
   /** Return the index the held item would land on, given how far it has travelled. */
@@ -183,6 +287,11 @@ export function usePointerReorder(options: {
   async function onPointerUp(event: PointerEvent) {
     if (drag == null || event.pointerId !== drag.pointerId) {
       return
+    }
+
+    if (travelling != null) {
+      cancelAnimationFrame(travelling)
+      travelling = null
     }
 
     document.body.classList.remove('reordering')

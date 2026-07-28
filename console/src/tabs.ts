@@ -127,10 +127,31 @@ export const useTabs = defineStore('tabs', () => {
   // Closing records the identifier rather than only dropping it from `open`, because a workspace
   // that is one of the defaults would otherwise reappear the moment anything else changed.
   async function close(placement: string, id: string) {
+    await closeMany(placement, [id])
+  }
+
+  // Opening and closing several at once are single writes rather than one per workspace, because
+  // every write sends the whole record for every strip.
+  async function openMany(placement: string, ids: string[]) {
     const set = setFor(placement)
+    const added = ids.filter((id) => !set.open.includes(id))
+    if (added.length === 0) {
+      return
+    }
+
     await write(placement, {
-      open: set.open.filter((current) => current !== id),
-      closed: set.closed.includes(id) ? set.closed : [...set.closed, id],
+      open: [...set.open, ...added],
+      closed: set.closed.filter((current) => !ids.includes(current)),
+    })
+  }
+
+  async function closeMany(placement: string, ids: string[]) {
+    const set = setFor(placement)
+    const closing = new Set(ids)
+
+    await write(placement, {
+      open: set.open.filter((current) => !closing.has(current)),
+      closed: [...new Set([...set.closed, ...ids])],
     })
   }
 
@@ -153,5 +174,5 @@ export const useTabs = defineStore('tabs', () => {
     await write(placement, { open: ids, closed: [] })
   }
 
-  return { load, setFor, isTouched, open, close, reorder, seed }
+  return { load, setFor, isTouched, open, openMany, close, closeMany, reorder, seed }
 })

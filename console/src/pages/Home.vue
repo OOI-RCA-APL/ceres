@@ -103,6 +103,25 @@ async function closeHome(id: string) {
   }
 }
 
+// Closing the rest leaves the kept one showing, whether or not it was the one being looked at.
+async function closeOtherHome(id: string) {
+  const others = homeWorkspaces.filter((workspace) => workspace.id !== id)
+  await tabs.closeMany(
+    placement,
+    others.map((workspace) => workspace.id)
+  )
+  selectWorkspace(id)
+}
+
+// Closing everything leaves home with nothing named, which is its own empty state.
+async function closeAllHome() {
+  await tabs.closeMany(
+    placement,
+    homeWorkspaces.map((workspace) => workspace.id)
+  )
+  await navigation.replace({ query: {} })
+}
+
 async function reorderHome(ordered: Workspace[]) {
   await tabs.reorder(
     placement,
@@ -189,6 +208,8 @@ watch(
         :show-placement="showPlacement"
         :workspaces="homeWorkspaces"
         @close="closeHome"
+        @close-all="closeAllHome"
+        @close-others="closeOtherHome"
         @create="createHome"
         @import="importHome"
         @open="openHome"
@@ -208,6 +229,8 @@ watch(
         :show-placement="showPlacement"
         :workspaces="homeWorkspaces"
         @close="closeHome"
+        @close-all="closeAllHome"
+        @close-others="closeOtherHome"
         @create="createHome"
         @import="importHome"
         @open="openHome"
@@ -216,7 +239,12 @@ watch(
       />
     </template>
     <div class="q-py-xl text-center">
-      <div class="q-mb-md" :style="{ opacity: 0.6 }">No workspaces yet.</div>
+      <div class="q-mb-md" :style="{ opacity: 0.6 }">
+        <template v-if="openableWorkspaces.length > 0">
+          Nothing open. Open a workspace from the tab bar above.
+        </template>
+        <template v-else>No workspaces yet.</template>
+      </div>
       <q-btn
         v-if="canCreate"
         color="primary"

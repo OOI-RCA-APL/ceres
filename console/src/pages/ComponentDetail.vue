@@ -59,6 +59,25 @@ const workspaceStickyTop = appHeaderHeight + pageHeaderHeight
 const overviewColumnsMin = 720
 const overviewStacks = useMediaQuery(`(max-width: ${overviewColumnsMin - 1}px)`)
 
+// Persist each drawer's open state per component address. The page remounts on navigation between
+// components (the page container is keyed by route path), so this re-reads for the new address.
+// Declared up here because the scroll memory below reads the overview's own state as it starts.
+const persisted = usePersisted({
+  schema: ({ object, boolean, number }) =>
+    object({
+      configuration: boolean().default(true),
+      connections: boolean().default(false),
+      jobs: boolean().default(false),
+      queries: boolean().default(false),
+      actions: boolean().default(false),
+      overviewCollapsed: boolean().default(false),
+      overviewHeight: number().default(320),
+    }),
+  methods: computed(() => [
+    { type: 'local-storage' as const, key: ['component-detail-drawers', address] },
+  ]),
+})
+
 // The shared default set for this component, in standard order.
 let placedWorkspaces = $ref<Workspace[]>([])
 
@@ -89,15 +108,51 @@ const activeWorkspaceId = $computed(() => {
   return typeof value === 'string' ? value : null
 })
 
-// Switching tabs returns to where each workspace was left, the way switching browser tabs does.
-useScrollMemory(() =>
-  activeWorkspaceId == null ? null : `${address.toString()}/${activeWorkspaceId}`
+let overviewElement = $ref<HTMLElement | null>(null)
+
+/** How far the page must be scrolled for the tab strip to have pinned under the header.
+
+Measured from the overview, which is what sits above the strip and is never itself pinned, so its
+box is the honest one. The strip's own box stops moving once it pins and cannot say where it
+would otherwise have been. With no overview showing the strip is at the top from the start, so
+there is nothing to scroll past.
+*/
+function pinnedAt(): number {
+  if (persisted.overviewCollapsed || overviewElement == null) {
+    return 0
+  }
+
+  const bottom = overviewElement.getBoundingClientRect().bottom + window.scrollY
+  return Math.max(0, bottom - workspaceStickyTop)
+}
+
+/** Whether moving the page on a tab switch would be welcome.
+
+With the overview showing and the page still above the pin, the overview is what is being read, so
+jumping to wherever another workspace was left moves all of that out from under. Past the pin the
+overview is out of view and the page is the workspace, which is when returning to where it was
+left is the helpful thing.
+*/
+function isScrollSettled(): boolean {
+  return window.scrollY >= pinnedAt()
+}
+
+// Switching tabs returns to where each workspace was left, the way switching browser tabs does,
+// and never above the pin, so a strip that was stuck to the header stays exactly where it was
+// rather than dropping back down the page.
+useScrollMemory(
+  () => (activeWorkspaceId == null ? null : `${address.toString()}/${activeWorkspaceId}`),
+  isScrollSettled,
+  pinnedAt
 )
 
-// With the overview open and no workspace beneath it, the tab strip sits at the bottom of the page
-// rather than floating below the overview with empty space under it. Collapsing the overview
-// leaves nothing to push it away from, so it goes back to the top.
-const pinTabs = $computed(() => activeWorkspaceId == null && !persisted.overviewCollapsed)
+// With tabs to show but no workspace beneath them, the strip sits at the bottom of the page rather
+// than floating below the overview with empty space under it. An empty strip has nothing to hold
+// down there, and collapsing the overview leaves nothing to push it away from, so in either case
+// it goes back to sitting under the overview.
+const pinTabs = $computed(
+  () => activeWorkspaceId == null && !persisted.overviewCollapsed && scopedWorkspaces.length > 0
+)
 
 function showWorkspace(id: string) {
   void navigation.replace({ query: { workspace: id } })
@@ -139,6 +194,36 @@ async function closeScoped(id: string) {
     selectWorkspace(remaining[0].id)
   } else {
     await navigation.replace({ query: {} })
+  }
+}
+
+// Closing the rest leaves the kept one showing, whether or not it was the one being looked at.
+async function closeOtherScoped(id: string) {
+  const others = scopedWorkspaces.filter((workspace) => workspace.id !== id)
+  await tabs.closeMany(
+    address.toString(),
+    others.map((workspace) => workspace.id)
+  )
+  selectWorkspace(id)
+}
+
+// Closing everything leaves the bare overview, which is where a component with no tabs sits.
+async function closeAllScoped() {
+  await tabs.closeMany(
+    address.toString(),
+    scopedWorkspaces.map((workspace) => workspace.id)
+  )
+  await navigation.replace({ query: {} })
+}
+
+// Opening the rest keeps whatever was already showing, since opening tabs is not a request to
+// look somewhere else. With nothing showing it lands on the first of them.
+async function openAllScoped() {
+  const opening = openableWorkspaces.map((workspace) => workspace.id)
+  await tabs.openMany(address.toString(), opening)
+
+  if (activeWorkspaceId == null && opening.length > 0) {
+    selectWorkspace(opening[0])
   }
 }
 
@@ -299,24 +384,6 @@ const configText = $computed(() => {
 const configHighlighted = $computed(() =>
   configText == null ? null : highlight(configText, 'yaml')
 )
-
-// Persist each drawer's open state per component address. The page remounts on navigation between
-// components (the page container is keyed by route path), so this re-reads for the new address.
-const persisted = usePersisted({
-  schema: ({ object, boolean, number }) =>
-    object({
-      configuration: boolean().default(true),
-      connections: boolean().default(false),
-      jobs: boolean().default(false),
-      queries: boolean().default(false),
-      actions: boolean().default(false),
-      overviewCollapsed: boolean().default(false),
-      overviewHeight: number().default(320),
-    }),
-  methods: computed(() => [
-    { type: 'local-storage' as const, key: ['component-detail-drawers', address] },
-  ]),
-})
 </script>
 
 <template>
@@ -337,9 +404,9 @@ const persisted = usePersisted({
         size="sm"
         @click="persisted.overviewCollapsed = !persisted.overviewCollapsed"
       >
-        <q-tooltip
-          >{{ persisted.overviewCollapsed ? 'Show' : 'Hide' }} the overview panel.</q-tooltip
-        >
+        <q-tooltip class="bg-primary text-white">
+          {{ persisted.overviewCollapsed ? 'Show' : 'Hide' }} Overview
+        </q-tooltip>
       </q-btn>
       <q-space />
       <q-chip
@@ -360,7 +427,7 @@ const persisted = usePersisted({
 
     <div v-if="component == null" class="q-pa-xl text-center text-grey-6">Component not found.</div>
     <template v-else>
-      <div v-if="!persisted.overviewCollapsed" class="relative-position">
+      <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
         <div
           :class="[$style.overviewContent, 'scroll']"
           :style="
@@ -585,15 +652,19 @@ const persisted = usePersisted({
             :active="activeWorkspaceId"
             :active-actions="actions"
             :active-state="state"
+            bound
             :can-create="canCreate"
             :can-manage="canManage"
             class="q-ml-sm"
             :openable="openableWorkspaces"
             :workspaces="scopedWorkspaces"
             @close="closeScoped"
+            @close-all="closeAllScoped"
+            @close-others="closeOtherScoped"
             @create="createScoped"
             @import="importScoped"
             @open="openScoped"
+            @open-all="openAllScoped"
             @reorder="reorderScoped"
             @select="selectWorkspace"
           />
@@ -606,15 +677,19 @@ const persisted = usePersisted({
         <q-separator />
         <component-workspace-tabs
           :active="activeWorkspaceId"
+          bound
           :can-create="canCreate"
           :can-manage="canManage"
           class="q-px-sm q-py-xs"
           :openable="openableWorkspaces"
           :workspaces="scopedWorkspaces"
           @close="closeScoped"
+          @close-all="closeAllScoped"
+          @close-others="closeOtherScoped"
           @create="createScoped"
           @import="importScoped"
           @open="openScoped"
+          @open-all="openAllScoped"
           @reorder="reorderScoped"
           @select="selectWorkspace"
         />

@@ -68,13 +68,17 @@ export const useDialogs = defineStore('dialogs', () => {
           },
         })
       ),
-    createWorkspace: (scope?: string) =>
+    /** Create a workspace on `scope`. `isPrivate` presets the choice for a caller that already
+    knows which kind is wanted, such as one adding to a named group.
+    */
+    createWorkspace: (scope?: string, isPrivate?: boolean) =>
       quasar.dialog(
         withDefaults({
           component: WorkspaceDialog,
           componentProps: {
             action: 'create',
             scope,
+            isPrivate,
           },
         })
       ),

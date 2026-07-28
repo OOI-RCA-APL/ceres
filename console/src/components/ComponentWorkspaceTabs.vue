@@ -1,13 +1,15 @@
 <script lang="ts" setup>
-import { useKeyModifier } from '@vueuse/core'
-import { QMenu, QPopupEdit } from 'quasar'
+import { useResizeObserver } from '@vueuse/core'
+import { QMenu } from 'quasar'
 import { nextTick, watch } from 'vue'
 
 import { useAuth } from '@/api/auth'
+import WorkspaceChooser from '@/components/WorkspaceChooser.vue'
 import WorkspaceTabLabel from '@/components/WorkspaceTabLabel.vue'
 import { useDialogs } from '@/dialogs'
 import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
+import { useModifiers } from '@/modifiers'
 import { moved, usePointerReorder } from '@/reorder'
 import { isStructurallyEqual } from '@/utilities'
 import {
@@ -27,6 +29,7 @@ const {
   canCreate,
   openable = [],
   showPlacement = false,
+  bound = false,
   activeActions,
   activeState,
 } = defineProps<{
@@ -40,6 +43,13 @@ const {
   canManage: boolean
   /** Whether the caller may add a workspace here, which needs only view since it lands private. */
   canCreate: boolean
+
+  /** Whether this strip belongs to one component, which is what bounds how much opening all is.
+
+  Home draws from every workspace the caller can see, where opening all of them is never what
+  anybody meant, so it is only offered on a strip with a placement behind it.
+  */
+  bound?: boolean
   activeActions?: WorkspaceHeaderActions
   activeState?: WorkspaceHeaderState
 }>()
@@ -47,7 +57,10 @@ const {
 const emit = defineEmits<{
   select: [id: string]
   close: [id: string]
+  closeOthers: [id: string]
+  closeAll: []
   open: [id: string]
+  openAll: []
   create: []
   import: [files: File[]]
   reorder: [workspaces: Workspace[]]
@@ -65,10 +78,6 @@ function isWritable(workspace: Workspace): boolean {
   return isWorkspaceWritable(workspace, auth.user?.id, canManage)
 }
 
-const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
-const undoShortcut = isApple ? '⌘Z' : 'Ctrl+Z'
-const redoShortcut = isApple ? '⇧⌘Z' : 'Ctrl+Y'
-
 // Tabs reorder by pointer rather than by the HTML5 drag API, so they behave the way browser tabs
 // do. The same behavior drives the overview's workspace list, which is why it lives in a shared
 // composable rather than here.
@@ -78,20 +87,44 @@ const reorder = usePointerReorder({
   axis: 'horizontal',
   elements: () => [...(rootElement?.querySelectorAll<HTMLElement>('.q-tab') ?? [])],
   onReorder: (from, to) => emit('reorder', moved([...workspaces], from, to)),
+  // The strip scrolls once it outgrows its room, so a tab held near either end carries the strip
+  // along and can be taken past what is showing.
+  scroller: () => rootElement?.querySelector<HTMLElement>('.q-tabs__content') ?? null,
 })
+
+// Whether the tabs have outgrown the strip and started scrolling. It decides where the picker
+// sits, since a strip with room can keep the button beside its last tab while a scrolling one has
+// no such place to put it.
+let overflowing = $ref(false)
+
+function measureOverflow() {
+  const content = rootElement?.querySelector('.q-tabs__content')
+  overflowing = content != null && content.scrollWidth > content.clientWidth + 1
+}
+
+useResizeObserver($$(rootElement), measureOverflow)
+
+watch(
+  () => workspaces.map((workspace) => workspace.id),
+  async () => {
+    await nextTick()
+    measureOverflow()
+  },
+  { immediate: true }
+)
 
 // The add button offers what is already here before making something new, the way a browser's new
 // tab button opens a page of somewhere to go. Holding shift skips the picker, for anyone who knows
 // they want a new one.
 let picking = $ref(false)
 
-const shiftHeld = useKeyModifier('Shift')
+const { shift: shiftHeld } = useModifiers()
 
-// The button says which of the two it is about to do. Layered pages for the picker, since what it
-// opens is the other workspaces already here, and a plus once shift turns it into making a new
-// one. The picker opens either way, so that creating is always reached the same way rather than
-// the button quietly changing meaning once a strip happens to hold everything.
-const opensPicker = $computed(() => shiftHeld.value !== true)
+// The button says which of the two it is about to do. A chevron for the picker, which is what a
+// browser puts at the end of a tab strip to list the rest, and a plus once shift turns it into
+// making a new one. The picker opens either way, so that creating is always reached the same way
+// rather than the button quietly changing meaning once a strip happens to hold everything.
+const opensPicker = $computed(() => !shiftHeld.value)
 
 function onAddClick(event: MouseEvent) {
   if (event.shiftKey) {
@@ -127,6 +160,46 @@ function onTabClick(id: string) {
   emit('select', id)
 }
 
+/** Which tab is showing its name as a field, whether offered or being typed into.
+
+Holding shift over a tab turns its name into a field there and then, so the rename is offered
+rather than hidden behind a shortcut nobody would guess. Clicking into it makes it a real edit,
+which is what keeps it once shift is let go of.
+*/
+let hoveredId = $ref<string | null>(null)
+
+function isNaming(workspace: Workspace): boolean {
+  if (editingId === workspace.id) {
+    return true
+  }
+
+  return shiftHeld.value && hoveredId === workspace.id && isWritable(workspace)
+}
+
+// Shift with an arrow key arranges the strip from the keyboard, the same as dragging a tab does
+// with the pointer. Without shift the arrows belong to the strip itself, which steers between
+// tabs, so only the shifted pair is taken.
+async function onTabKeydown(event: KeyboardEvent, index: number) {
+  if (!event.shiftKey) {
+    return
+  }
+
+  const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
+  const to = index + step
+  if (step === 0 || to < 0 || to >= workspaces.length) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  emit('reorder', moved([...workspaces], index, to))
+
+  // The tab travels with the key, so focus goes with it rather than staying on whatever has
+  // taken its place.
+  await nextTick()
+  rootElement?.querySelectorAll<HTMLElement>('.q-tab')[to]?.focus()
+}
+
 // The active tab's working-copy state comes live from its own loaded workspace context, since
 // that is authoritative. For every other tab, unsaved changes are detected by comparing each
 // workspace's stored edit for the current user against its shared data, fetched once up front
@@ -157,21 +230,29 @@ function hasWorkingCopy(workspace: Workspace): boolean {
   return edit != null && !isStructurallyEqual(withoutMeta(edit.data), withoutMeta(workspace.data))
 }
 
-// The active tab renames through the live workspace context so the same handler that persists
-// the standalone header's rename keeps doing so here. The popup itself lives in this v-for, so
-// its template ref comes back as an array rather than a single instance.
-let renamePopup = $ref<QPopupEdit[]>([])
-let renameDraft = $ref('')
+// Which tab is having its name edited in place, if any.
+let editingId = $ref<string | null>(null)
 
-async function openRename(workspace: Workspace) {
-  if (workspace.id !== active) {
+// Renaming a workspace changes it for everybody who can see it, so it takes the same write access
+// deleting does rather than being offered to anyone who can merely look at it.
+function openRename(workspace: Workspace) {
+  if (!isWritable(workspace)) {
     return
   }
 
-  // The popup snapshots its model when it opens, so the draft has to land before it is shown.
-  renameDraft = workspace.name
-  await nextTick()
-  renamePopup[0]?.show()
+  editingId = workspace.id
+}
+
+// The active tab renames through the live workspace context, so the same handler that persists the
+// standalone header's rename keeps doing so here. Any other tab has no context loaded, so it goes
+// to the store directly.
+async function rename(workspace: Workspace, value: string) {
+  if (workspace.id === active && activeActions != null) {
+    await activeActions.rename(value)
+    return
+  }
+
+  await workspaceStore.rename(workspace.id, value)
 }
 
 function openSettingsById(workspace: Workspace) {
@@ -231,6 +312,9 @@ function promptDeleteById(workspace: Workspace) {
         :style="reorder.styleFor(index)"
         v-bind="reorder.handlers(index)"
         @click="onTabClick(workspace.id)"
+        @keydown="onTabKeydown($event, index)"
+        @mouseenter="hoveredId = workspace.id"
+        @mouseleave="hoveredId = hoveredId === workspace.id ? null : hoveredId"
       >
         <div
           :class="[$style.tabInner, 'items-center', 'no-wrap', 'row']"
@@ -242,32 +326,14 @@ function promptDeleteById(workspace: Workspace) {
           <span :class="$style.grip">
             <q-icon :name="icons.dragVertical" size="15px" />
           </span>
-          <workspace-tab-label :show-placement="showPlacement" :workspace="workspace" />
-          <q-popup-edit
-            v-if="workspace.id === active"
-            ref="renamePopup"
-            v-slot="scope"
-            v-model="renameDraft"
-            anchor="bottom left"
-            auto-save
-            :class="$style.popupEdit"
-            :cover="false"
-            no-parent-event
-            self="top left"
-            :validate="(value: string) => value.trim() !== ''"
-            @save="(value: string) => activeActions?.rename(value)"
-          >
-            <q-card bordered class="q-pa-sm" flat>
-              <q-input
-                v-model.trim="scope.value"
-                autofocus
-                dense
-                filled
-                label="Workspace Name"
-                @keyup.enter="scope.set()"
-              />
-            </q-card>
-          </q-popup-edit>
+          <workspace-tab-label
+            :claim="editingId === workspace.id"
+            :editing="isNaming(workspace)"
+            :show-placement="showPlacement"
+            :workspace="workspace"
+            @rename="(value: string) => rename(workspace, value)"
+            @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
+          />
           <q-btn
             class="faded-hover q-ml-xs"
             :class="hasWorkingCopy(workspace) && $style.editedRing"
@@ -301,8 +367,36 @@ function promptDeleteById(workspace: Workspace) {
                       <q-item-label>Close</q-item-label>
                     </q-item-section>
                   </q-item>
+                  <q-item
+                    v-close-popup
+                    clickable
+                    dense
+                    :disable="workspaces.length < 2"
+                    @click="emit('closeOthers', workspace.id)"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :name="icons.closeOthers" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Close Other Tabs</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable dense @click="emit('closeAll')">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.closeAll" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Close All</q-item-label>
+                    </q-item-section>
+                  </q-item>
                   <q-separator />
-                  <q-item v-close-popup clickable dense @click="openRename(workspace)">
+                  <q-item
+                    v-if="isWritable(workspace)"
+                    v-close-popup
+                    clickable
+                    dense
+                    @click="openRename(workspace)"
+                  >
                     <q-item-section avatar>
                       <q-icon :name="icons.rename" />
                     </q-item-section>
@@ -316,39 +410,6 @@ function promptDeleteById(workspace: Workspace) {
                     </q-item-section>
                     <q-item-section>
                       <q-item-label>Settings</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                  <q-separator />
-                  <q-item
-                    clickable
-                    dense
-                    :disable="!activeState.canUndo"
-                    @click="activeActions.undo()"
-                  >
-                    <q-item-section avatar>
-                      <q-icon :name="icons.discard" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Undo</q-item-label>
-                    </q-item-section>
-                    <q-item-section side>
-                      <span :class="$style.shortcut">{{ undoShortcut }}</span>
-                    </q-item-section>
-                  </q-item>
-                  <q-item
-                    clickable
-                    dense
-                    :disable="!activeState.canRedo"
-                    @click="activeActions.redo()"
-                  >
-                    <q-item-section avatar>
-                      <q-icon :class="$style.redoIcon" :name="icons.discard" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Redo</q-item-label>
-                    </q-item-section>
-                    <q-item-section side>
-                      <span :class="$style.shortcut">{{ redoShortcut }}</span>
                     </q-item-section>
                   </q-item>
                   <q-separator />
@@ -415,7 +476,43 @@ function promptDeleteById(workspace: Workspace) {
                       <q-item-label>Close</q-item-label>
                     </q-item-section>
                   </q-item>
+                  <q-item
+                    v-close-popup
+                    clickable
+                    dense
+                    :disable="workspaces.length < 2"
+                    @click="emit('closeOthers', workspace.id)"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :name="icons.closeOthers" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Close Other Tabs</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable dense @click="emit('closeAll')">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.closeAll" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Close All</q-item-label>
+                    </q-item-section>
+                  </q-item>
                   <q-separator />
+                  <q-item
+                    v-if="isWritable(workspace)"
+                    v-close-popup
+                    clickable
+                    dense
+                    @click="openRename(workspace)"
+                  >
+                    <q-item-section avatar>
+                      <q-icon :name="icons.rename" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Rename</q-item-label>
+                    </q-item-section>
+                  </q-item>
                   <q-item v-close-popup clickable dense @click="openSettingsById(workspace)">
                     <q-item-section avatar>
                       <q-icon :name="icons.settings" />
@@ -459,74 +556,101 @@ function promptDeleteById(workspace: Workspace) {
             @mousedown.stop
             @touchstart.stop
           >
-            <q-tooltip class="bg-primary text-white">Close Workspace</q-tooltip>
+            <q-tooltip class="bg-primary text-white" :delay="500">Close Workspace</q-tooltip>
           </q-btn>
         </div>
       </q-tab>
     </q-tabs>
+    <!-- The picker sits beside the last tab while there is room for it there, takes the middle of
+    an empty strip rather than hugging an edge with nothing next to it, and pins to the trailing
+    edge once the tabs have outgrown the strip and begun to scroll under it. -->
     <q-btn
       v-if="canCreate"
-      :class="[$style.add, 'q-ml-xs']"
+      :class="[
+        $style.add,
+        workspaces.length === 0 && $style.addCentred,
+        workspaces.length > 0 && overflowing && $style.addAnchored,
+        'q-ml-xs',
+      ]"
       dense
       flat
-      :icon="opensPicker ? icons.workspaces : icons.add"
+      :icon="opensPicker ? icons.chevronDown : icons.add"
       round
       size="sm"
       @click="onAddClick"
     >
-      <!-- Silent while the picker is open, since the menu it describes is already showing. -->
-      <q-tooltip v-if="!picking" class="bg-primary text-white">
-        {{ opensPicker ? 'Open a workspace, or hold shift to create one.' : 'Create a workspace.' }}
-      </q-tooltip>
+      <!-- The chevron speaks for itself, so only the plus that shift turns it into is named. -->
+      <q-tooltip v-if="!opensPicker" class="bg-primary text-white">Create Workspace</q-tooltip>
       <!-- Opened from the click handler alone, so holding shift can bypass it. Left to its own
       devices a menu inside a button opens on every click, shift or not. -->
       <q-menu
         v-model="picking"
-        anchor="bottom left"
+        anchor="bottom middle"
         no-parent-event
         :offset="[0, 4]"
-        self="top left"
+        self="top middle"
       >
-        <q-card bordered flat>
-          <q-list dense :style="{ maxHeight: '320px', overflowY: 'auto' }">
-            <q-item-label :class="$style.menuHeader" header>Workspaces</q-item-label>
-            <q-item v-if="openable.length === 0" dense>
-              <q-item-section>
-                <q-item-label class="text-grey-6">All of them are already open.</q-item-label>
-              </q-item-section>
-            </q-item>
+        <q-card bordered flat :class="$style.picker">
+          <workspace-chooser
+            create-label="Create Workspace"
+            empty="All of them are already open."
+            :items="openable"
+            @create="
+              () => {
+                picking = false
+                emit('create')
+              }
+            "
+            @select="
+              (workspace: Workspace) => {
+                picking = false
+                emit('open', workspace.id)
+              }
+            "
+          />
+          <!-- Both stay on the menu whatever the strip holds, so each is where it was last time
+          rather than appearing and vanishing as the strip fills and empties, and each is simply
+          spent once there is nothing left for it to do. Opening all is offered only on a strip
+          with a placement behind it, where what it opens is bounded by what is on this component.
+          Closing has no such bound to worry about. -->
+          <q-separator />
+          <q-list dense>
             <q-item
-              v-for="workspace in openable"
-              :key="workspace.id"
+              v-if="bound"
               v-close-popup
               clickable
               dense
-              @click="emit('open', workspace.id)"
+              :disable="openable.length === 0"
+              @click="emit('openAll')"
             >
               <q-item-section avatar>
-                <q-icon
-                  :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
-                />
+                <q-icon :name="icons.tabAdd" />
               </q-item-section>
               <q-item-section>
-                <q-item-label>{{ workspace.name }}</q-item-label>
+                <q-item-label>
+                  Open All<template v-if="openable.length > 0"> ({{ openable.length }})</template>
+                </q-item-label>
+              </q-item-section>
+            </q-item>
+            <q-item
+              v-close-popup
+              clickable
+              dense
+              :disable="workspaces.length === 0"
+              @click="emit('closeAll')"
+            >
+              <q-item-section avatar>
+                <q-icon :name="icons.closeAll" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>
+                  Close All<template v-if="workspaces.length > 0">
+                    ({{ workspaces.length }})</template
+                  >
+                </q-item-label>
               </q-item-section>
             </q-item>
           </q-list>
-          <q-separator />
-          <div class="q-pa-sm">
-            <q-btn
-              v-close-popup
-              class="full-width"
-              color="primary"
-              dense
-              :icon="icons.add"
-              label="Create Workspace"
-              no-caps
-              outline
-              @click="emit('create')"
-            />
-          </div>
         </q-card>
       </q-menu>
     </q-btn>
@@ -545,9 +669,8 @@ function promptDeleteById(workspace: Workspace) {
 // so the selected tab's fill runs from the top of the header into the separator beneath it, the
 // way a tab is expected to meet the surface it belongs to.
 //
-// The trailing space is where the picker sits. Reserving it rather than letting the button ride
-// at the end of the row keeps the button in the same place however long the strip grows, and
-// stops the tabs scrolling out from under it.
+// The picker floats over the trailing edge rather than reserving space beside the tabs, so it
+// stays in the same place however long the strip grows and the tabs pass beneath it.
 .root {
   position: relative;
   flex: 1;
@@ -555,7 +678,6 @@ function promptDeleteById(workspace: Workspace) {
   align-items: stretch;
   min-width: 0;
   padding-top: 4px;
-  padding-right: 30px;
   overflow: hidden;
 }
 
@@ -568,6 +690,7 @@ function promptDeleteById(workspace: Workspace) {
 
 .tabs {
   height: 100%;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -698,21 +821,6 @@ function promptDeleteById(workspace: Workspace) {
   outline-offset: 0;
 }
 
-.shortcut {
-  font-size: 11px;
-  opacity: 0.6;
-}
-
-// Redo is the undo arrow mirrored, which reads as its opposite without needing a second icon.
-.redoIcon {
-  transform: scaleX(-1);
-}
-
-.popupEdit {
-  box-shadow: unset !important;
-  padding: 0 !important;
-}
-
 // While a drag is in progress the strip must not clip the lifted tab, and hover highlighting on
 // the tabs sliding aside would read as a second thing happening at once.
 .arranging {
@@ -737,27 +845,63 @@ function promptDeleteById(workspace: Workspace) {
   transition: none;
 }
 
-// Quasar pads a list header for a full-size list, which towers over the dense items beneath it.
-.menuHeader {
-  padding: 6px 16px 2px;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  opacity: 0.6;
-  text-transform: uppercase;
+// Wide enough for a workspace name and its placement without the menu sizing itself to whatever
+// happens to be listed.
+.picker {
+  min-width: 280px;
 }
 
 // Pinned to the trailing edge of the strip rather than carried along by it, so it stays where it
-// was however far the tabs scroll.
+// was however far the tabs scroll. It carries the surface it sits on out around itself, which is
+// what makes the tabs read as passing underneath rather than colliding with it.
+// Flush against the trailing edge with that side squared off, so no sliver of a tab shows past it
+// and the strip ends on the button rather than beside it.
+// Sits in the row beside the last tab by default, which is where there is room for it while the
+// strip still fits.
 .add {
+  align-self: center;
+  flex: none;
+  border-radius: 50%;
+}
+
+// An empty strip has nothing for the button to sit against, so it takes the middle instead.
+.addCentred {
   position: absolute;
   top: 50%;
-  right: 2px;
+  right: 50%;
   z-index: 2;
-  opacity: 0.7;
-  transform: translateY(-50%);
+  transform: translate(50%, -50%);
+}
 
-  &:hover {
-    opacity: 1;
-  }
+// Once the tabs scroll there is no end of the row to sit beside, so the button pins to the
+// trailing edge with that side squared off against it, and carries the surface out around itself
+// so the tabs read as passing underneath.
+.addAnchored {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 2;
+  border-radius: 50% 0 0 50%;
+  transform: translateY(-50%);
+}
+
+.add :global(.q-icon) {
+  opacity: 0.7;
+}
+
+.add:hover :global(.q-icon) {
+  opacity: 1;
+}
+
+:global(.dark) .addAnchored,
+:global(.dark) .addCentred {
+  background-color: $dark;
+  box-shadow: 0 0 10px 7px $dark;
+}
+
+:global(.light) .addAnchored,
+:global(.light) .addCentred {
+  background-color: white;
+  box-shadow: 0 0 10px 7px white;
 }
 </style>

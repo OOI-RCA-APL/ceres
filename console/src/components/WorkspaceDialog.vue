@@ -22,18 +22,21 @@ const {
   data = null,
   action,
   scope = null,
+  isPrivate: presetIsPrivate = null,
 } = defineProps<
   | {
       workspaceId: string
       action: 'view'
       data?: null
       scope?: null
+      isPrivate?: null
     }
   | {
       workspaceId: string
       action: 'duplicate'
       data?: WorkspaceData
       scope?: null
+      isPrivate?: null
     }
   | {
       workspaceId?: null
@@ -41,6 +44,11 @@ const {
       data?: null
       /** Placement the new workspace sits on, defaulting to the engine root. */
       scope?: string
+
+      /** Which kind to start on, for a caller that already knows. Without one the form opens on
+      whichever kind was made last.
+      */
+      isPrivate?: boolean | null
     }
 >()
 
@@ -97,9 +105,9 @@ const form = useForm({
   editing: action !== 'view',
   data: {
     name: 'Workspace',
-    // A duplicate starts private, so an arrangement can be tried out before anyone else sees it.
-    // A new workspace starts shared wherever that is available, which is what creating one used
-    // to always do.
+    // A duplicate starts private, so an arrangement can be tried out before anyone else sees it,
+    // and can still be shared from the same form. A new one starts on whichever kind was made
+    // last, or on whichever kind the caller asked for.
     isPrivate: true,
     // Whether this is one of the workspaces a new user lands on. Only meaningful for a shared
     // workspace placed on the engine root, which is what the home page draws its defaults from.
@@ -184,7 +192,14 @@ const canMarkForHome = $computed(
 nextTick(async () => {
   await until(() => query.isFetched).toBe(true)
   if (action === 'create') {
-    form.data.isPrivate = canShare ? preferences.wasLastWorkspacePrivate : true
+    // A caller that already knows which kind it wants says so. Without manage there is no choice
+    // to make, since sharing is not available.
+    if (!canShare) {
+      form.data.isPrivate = true
+    } else {
+      form.data.isPrivate = presetIsPrivate ?? preferences.wasLastWorkspacePrivate
+    }
+
     return
   }
   if (workspace != null) {
@@ -235,7 +250,7 @@ nextTick(async () => {
               :readonly="form.readonly"
             />
             <q-select
-              v-if="action === 'create' && canShare"
+              v-if="action !== 'view' && canShare"
               v-model="form.data.isPrivate"
               class="q-mb-md"
               color="primary"
@@ -265,29 +280,19 @@ nextTick(async () => {
               </template>
             </q-select>
             <div class="q-mb-sm text-grey-6">
-              <template v-if="isPrivate && placement?.isEngine">
+              <template v-if="isPrivate">
                 <q-icon class="q-mr-xs" :name="icons.privateWorkspace" />
-                This workspace is private to you. Nobody else can see it.
-              </template>
-              <template v-else-if="isPrivate">
-                <q-icon class="q-mr-xs" :name="icons.privateWorkspace" />
-                This workspace is private to you. Nobody else can see it, whatever access they have
-                to <span class="monospace-xs">{{ placement }}</span
-                >.
+                This workspace is private to you.
               </template>
               <template v-else-if="placement?.isEngine">
-                This workspace is not bound to a component, so anyone signed in can see it and
-                anyone with engine-wide manage access can edit it.
+                Anyone signed in can see this workspace.
               </template>
               <template v-else>
-                Access to this workspace follows the
-                <span class="monospace-xs">{{ placement }}</span> component, so anyone who can view
-                that component can see it, and anyone who can manage it can edit it.
+                Access follows the <span class="monospace-xs">{{ placement }}</span> component.
               </template>
             </div>
             <div v-if="action === 'create' && !canShare" class="text-grey-6">
-              Sharing it with everyone who can see
-              <span class="monospace-xs">{{ placement }}</span> requires manage access.
+              Sharing requires manage access.
             </div>
             <template v-if="canMarkForHome">
               <q-separator class="q-mb-sm q-mt-sm" />

@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import AppBoundary from '@/AppBoundary.vue'
 import AppLoader from '@/AppLoader.vue'
+import '@/modifiers'
 </script>
 
 <template>

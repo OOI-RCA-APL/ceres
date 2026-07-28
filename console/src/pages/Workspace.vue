@@ -4,7 +4,7 @@ import { QPopupEdit, colors } from 'quasar'
 import { computed, onMounted, reactive, watchEffect, watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
-import FullPage from '@/components/FullPage.vue'
+import FullPage, { appHeaderHeight, densePageHeaderHeight } from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceGap from '@/components/WorkspaceGap.vue'
@@ -39,6 +39,13 @@ const notify = useNotify()
 
 const workspace = provideWorkspace(computed(() => id))
 await workspace.load()
+
+// One viewport below where the tab strip pins. That is the least this page can be and still let
+// the strip reach its pinned position, and it does not depend on how tall any one workspace is,
+// so every workspace on a strip can be scrolled the same distance.
+const bottomRoom = $computed(
+  () => `calc(100vh - ${(stickyTop ?? appHeaderHeight) + densePageHeaderHeight + 1}px)`
+)
 
 const layout = $ref<HTMLDivElement | null>(null)
 let original = $ref<WorkspaceData | null>(null)
@@ -614,13 +621,22 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       </div>
     </div>
     <!-- The whole row is the target rather than just the dot, since the dot is small and the row
-    already lights up on hover, which promises a click the dot alone would not accept. -->
+    already lights up on hover, which promises a click the dot alone would not accept. The dot is
+    still the focus stop, so the row is reachable by keyboard and the focus ring lands on the thing
+    that looks like the control. -->
     <div
       v-if="!isViewingOriginal && data != null"
       class="row"
       :class="[$style.addWidgetRow, 'faded-hover', 'items-center', 'justify-center', 'q-mt-sm']"
     >
-      <q-btn color="primary" :icon="icons.add" round size="8px" tabindex="-1" unelevated />
+      <q-btn
+        aria-label="Add Widget"
+        color="primary"
+        :icon="icons.add"
+        round
+        size="8px"
+        unelevated
+      />
       <q-tooltip class="bg-primary">Add Widget</q-tooltip>
       <workspace-add-widget-menu
         anchor="bottom middle"
@@ -629,7 +645,11 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         self="top middle"
       />
     </div>
-    <div :class="$style.bottomPadding" />
+    <!-- Room below the widgets for the tab strip to be scrolled up to where it pins, whatever this
+    workspace happens to hold. A workspace shorter than this cannot be scrolled far enough to stick
+    the strip at all, and switching to one from a taller workspace would drop the strip back down
+    the page as the document shrank under it. -->
+    <div :class="$style.bottomPadding" :style="{ minHeight: bottomRoom }" />
     <!-- A working copy is normally an ongoing personal state rather than a staging area, so the
     bar reads as neutral status. It appears only while one exists, and the same actions stay in the
     tab's menu, since this is a shortcut rather than the only route to them. -->
@@ -748,6 +768,8 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   padding: 4px 0;
 }
 
+// A floor rather than a fixed height, since the minimum is set inline from where this page's
+// header pins.
 .bottomPadding {
   height: 250px;
 }

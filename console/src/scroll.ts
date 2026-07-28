@@ -20,10 +20,19 @@ const restoreTimeout = 3000
 position is recorded as the key leaves and restored once the new content is tall enough to hold
 it, which is not the same frame the key changes on.
 
+`settled` says whether moving the page right now would be welcome. Switching between keys while
+the page is somewhere the user is still reading moves the ground under them, so a caller that has
+such a place says so and the position is neither taken nor put back until they are past it.
+Arriving fresh is exempt, since a page that has just loaded has no reading position to disturb.
+
 Positions are kept per device, since where you were a moment ago belongs to this browser rather
 than to the account.
 */
-export function useScrollMemory(key: MaybeRefOrGetter<string | null>) {
+export function useScrollMemory(
+  key: MaybeRefOrGetter<string | null>,
+  settled?: MaybeRefOrGetter<boolean>,
+  floor?: MaybeRefOrGetter<number>
+) {
   const state = usePersisted({
     schema: ({ object, record, string, number }) =>
       object({ positions: record(string(), number()).default({}) }),
@@ -42,7 +51,9 @@ export function useScrollMemory(key: MaybeRefOrGetter<string | null>) {
   }
 
   function restore(target: string) {
-    const position = state.positions[target] ?? 0
+    // Never above the floor, so whatever the caller has pinned to the top of the window stays
+    // pinned rather than dropping back down the page as the switch lands.
+    const position = Math.max(state.positions[target] ?? 0, toValue(floor) ?? 0)
     const deadline = performance.now() + restoreTimeout
     restoring = target
 
@@ -80,9 +91,20 @@ export function useScrollMemory(key: MaybeRefOrGetter<string | null>) {
     return document.documentElement.scrollHeight - window.innerHeight > 0
   }
 
+  function isSettled(): boolean {
+    return toValue(settled) ?? true
+  }
+
   watch(
     () => toValue(key),
     (next, previous) => {
+      // Arriving is not a switch, so there is nothing on screen yet to be moved out from under.
+      const arriving = previous === undefined
+
+      if (!arriving && !isSettled()) {
+        return
+      }
+
       if (previous != null && isMeasurable()) {
         remember(previous, window.scrollY)
       }
@@ -104,7 +126,7 @@ export function useScrollMemory(key: MaybeRefOrGetter<string | null>) {
   // still working, which would otherwise record the top of a page that has not grown yet.
   const record = debounce(() => {
     const current = toValue(key)
-    if (current != null && restoring == null && isMeasurable()) {
+    if (current != null && restoring == null && isMeasurable() && isSettled()) {
       remember(current, window.scrollY)
     }
   }, 200)

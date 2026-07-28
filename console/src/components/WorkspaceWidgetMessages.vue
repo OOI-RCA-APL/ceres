@@ -46,6 +46,26 @@ const connectionOptions = $computed(() =>
   connectionEntries.map(([address, name]) => `${address}::connections::${name}`)
 )
 
+// A widget with no target starts on the first connection the workspace can reach, which on a
+// component-bound workspace is almost always the one meant. A target that no longer exists, from a
+// connection that has gone or a workspace that has moved, falls back the same way rather than
+// sitting there naming nothing.
+watch(
+  () => [connectionOptions, connectionModelValue] as const,
+  ([options, current]) => {
+    if (current != null && options.includes(current)) {
+      return
+    }
+
+    if (current == null && options.length === 0) {
+      return
+    }
+
+    onConnectionModelUpdate(options[0] ?? null)
+  },
+  { immediate: true }
+)
+
 function onConnectionModelUpdate(option: string | null) {
   const [address, namespace, name] = option?.split('::') ?? []
   if (address == null || namespace !== 'connections' || name == null) {

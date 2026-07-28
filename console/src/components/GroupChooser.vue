@@ -67,29 +67,29 @@ const groups = $computed(() => query.data.value ?? [])
         <q-icon :name="icons.search" />
       </template>
     </q-input>
-    <q-card bordered flat>
-      <div v-if="groups.length === 0" :class="[$style.emptyMessageText, 'q-pa-sm']">
-        {{ empty ?? 'No groups found.' }}
-      </div>
-      <q-list v-else :class="[$style.list, 'scroll']" dense>
-        <q-item
-          v-for="group in groups"
-          :key="group.id"
-          :active="groups.length === 1"
-          class="q-pb-sm"
-          clickable
-          :disable="disable?.(group) ?? false"
-          @click="$emit('select', group)"
-        >
-          <q-item-section>
-            <q-item-label>{{ group.name }}</q-item-label>
-            <q-item-label v-if="group.description" caption>
-              {{ group.description }}
-            </q-item-label>
-          </q-item-section>
-        </q-item>
-      </q-list>
-    </q-card>
+    <div v-if="groups.length === 0" :class="[$style.emptyMessageText, 'q-pa-sm']">
+      {{ empty ?? 'No groups found.' }}
+    </div>
+    <q-list v-else bordered :class="[$style.list, 'rounded-borders', 'scroll']" dense separator>
+      <q-item
+        v-for="group in groups"
+        :key="group.id"
+        :active="groups.length === 1"
+        clickable
+        :disable="disable?.(group) ?? false"
+        @click="$emit('select', group)"
+      >
+        <q-item-section avatar>
+          <q-icon :name="icons.group" size="18px" />
+        </q-item-section>
+        <q-item-section>
+          <q-item-label>{{ group.name }}</q-item-label>
+          <q-item-label v-if="group.description" caption>
+            {{ group.description }}
+          </q-item-label>
+        </q-item-section>
+      </q-item>
+    </q-list>
   </div>
 </template>
 

@@ -1,11 +1,26 @@
 <script lang="ts" setup>
+import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import icons from '@/icons'
 import { Workspace } from '@/workspace'
 
-const { workspace, showPlacement } = defineProps<{
+const {
+  workspace,
+  showPlacement,
+  editing = false,
+  claim = true,
+} = defineProps<{
   workspace: Workspace
   /** Whether this strip mixes placements, in which case every tab names its own. */
   showPlacement: boolean
+  /** Whether the name is being edited in place. */
+  editing?: boolean
+  /** Whether showing the field should take focus, or leave it to be clicked into. */
+  claim?: boolean
+}>()
+
+defineEmits<{
+  'update:editing': [value: boolean]
+  rename: [name: string]
 }>()
 
 const isPrivate = $computed(() => workspace.owner_id != null)
@@ -18,17 +33,35 @@ const placement = $computed(() =>
 </script>
 
 <template>
-  <q-icon :class="$style.icon" :name="isPrivate ? icons.privateWorkspace : icons.workspace">
-    <q-tooltip v-if="isPrivate" :delay="1000">This workspace is private to you.</q-tooltip>
-  </q-icon>
-  <span v-if="placement != null" :class="$style.placement">{{ placement }}&nbsp;/&nbsp;</span>
-  <span :class="$style.name">{{ workspace.name }}</span>
-  <q-tooltip v-if="placement != null" :delay="1000">
-    {{ placement }} / {{ workspace.name }}
-  </q-tooltip>
+  <!-- One root rather than a row of siblings, so a class or a listener put on this component by
+  whoever is using it lands somewhere. Vue has nowhere to put either on a component that renders
+  several roots, and drops them without a word. -->
+  <span :class="[$style.root, 'items-center', 'no-wrap', 'row']">
+    <q-icon :class="$style.icon" :name="isPrivate ? icons.privateWorkspace : icons.workspace">
+      <q-tooltip v-if="isPrivate" :delay="1000">This workspace is private to you.</q-tooltip>
+    </q-icon>
+    <span v-if="placement != null" :class="$style.placement">{{ placement }}&nbsp;/&nbsp;</span>
+    <span :class="[$style.name, editing && $style.editingName]">
+      <inline-name-edit
+        :claim
+        :editing
+        :name="workspace.name"
+        @rename="(value: string) => $emit('rename', value)"
+        @update:editing="(value: boolean) => $emit('update:editing', value)"
+      />
+    </span>
+    <q-tooltip v-if="placement != null && !editing" :delay="1000">
+      {{ placement }} / {{ workspace.name }}
+    </q-tooltip>
+  </span>
 </template>
 
 <style lang="scss" module>
+// Shrinks with the tab so the name inside it can still truncate.
+.root {
+  min-width: 0;
+}
+
 .icon {
   font-size: 15px;
   margin-right: 5px;
@@ -49,5 +82,12 @@ const placement = $computed(() =>
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+// A name being edited is not truncated, since the ellipsis that keeps a tab narrow would clip the
+// text being typed and the caret with it. The field grows with what is typed and the tab with it.
+.editingName {
+  max-width: none;
+  overflow: visible;
 }
 </style>
