@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useQuery } from '@tanstack/vue-query'
-import { orderBy, upperFirst } from 'lodash-es'
+import { upperFirst } from 'lodash-es'
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { stringify } from 'yaml'
@@ -13,6 +13,7 @@ import { useEngine } from '@/api/engine'
 import { Connectivity } from '@/api/shared'
 import CommonText from '@/components/CommonText.vue'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
+import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
 import FullPage from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -24,7 +25,7 @@ import { usePersisted } from '@/persistence'
 import { resolveTabs, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
-import { useWorkspaces, Workspace } from '@/workspace'
+import { inStandardOrder, useWorkspaces, Workspace } from '@/workspace'
 
 const engine = useEngine()
 const access = useAccess()
@@ -72,14 +73,7 @@ function selectWorkspace(id: string) {
 }
 
 async function refreshScoped() {
-  const listed = await workspaces.listScoped(address)
-
-  // Workspaces carry their tab position in their own data, and those without one sort last so a
-  // newly created workspace lands at the end.
-  placedWorkspaces = orderBy(listed, [
-    (workspace) => workspace.data.meta.order ?? Number.MAX_SAFE_INTEGER,
-    (workspace) => workspace.name,
-  ])
+  placedWorkspaces = inStandardOrder(await workspaces.listScoped(address))
 }
 
 // Dragging positions this user's own tabs. The shared standard order lives in `data.meta.order`
@@ -473,6 +467,13 @@ const persisted = usePersisted({
                     </q-item>
                   </q-list>
                 </q-expansion-item>
+                <q-separator />
+                <component-workspaces-section
+                  :can-manage="canManage"
+                  :placement="address.toString()"
+                  :workspaces="placedWorkspaces"
+                  @open="selectWorkspace"
+                />
               </q-list>
 
               <div v-if="component.tags.length > 0" class="q-mt-md">

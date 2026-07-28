@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
-import { debounce } from 'lodash-es'
+import { debounce, orderBy } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { exportFile as download } from 'quasar'
 import { v7 } from 'uuid'
@@ -352,6 +352,35 @@ export const WorkspaceDataModel = Zod.object({
   layout: WidgetRowModel.array().catch(() => []),
   meta: WorkspaceMetaModel.catch(() => ({ order: undefined })),
 })
+
+/** Whether a caller may rename, delete, or otherwise write this workspace.
+
+A private workspace belongs to its owner alone, so they may write it whatever their access on the
+placement. A shared one follows the placement.
+*/
+export function isWorkspaceWritable(
+  workspace: Workspace,
+  userId: string | null | undefined,
+  canManagePlacement: boolean
+): boolean {
+  if (workspace.owner_id != null) {
+    return workspace.owner_id === userId
+  }
+
+  return canManagePlacement
+}
+
+/** Sort workspaces into the shared standard order.
+
+Position is carried in each workspace's own data, and those without one sort last, which is where a
+newly created workspace belongs. Ties fall back to the name so the order is stable.
+*/
+export function inStandardOrder(workspaces: Workspace[]): Workspace[] {
+  return orderBy(workspaces, [
+    (workspace) => workspace.data.meta.order ?? Number.MAX_SAFE_INTEGER,
+    (workspace) => workspace.name,
+  ])
+}
 
 /** Return a workspace's data without `meta`.
 
