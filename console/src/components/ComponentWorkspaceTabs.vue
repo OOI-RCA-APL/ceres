@@ -457,10 +457,13 @@ function promptDeleteById(workspace: Workspace) {
       <q-tooltip>
         {{ openable.length > 0 ? 'Open or create a workspace.' : 'Create a workspace.' }}
       </q-tooltip>
+      <!-- Opened from the click handler alone, so holding shift can bypass it. Left to its own
+      devices a menu inside a button opens on every click, shift or not. -->
       <q-menu
         v-if="openable.length > 0"
         v-model="picking"
         anchor="bottom left"
+        no-parent-event
         :offset="[0, 4]"
         self="top left"
       >

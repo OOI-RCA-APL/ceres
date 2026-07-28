@@ -636,11 +636,11 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       </q-btn>
       <q-btn
         v-if="!isViewingOriginal"
+        :class="$style.redoButton"
         dense
         :disable="!workspace.canRedo"
         flat
         :icon="icons.discard"
-        :icon-class="$style.redoIcon"
         round
         size="sm"
         @click="workspace.redo()"
@@ -665,7 +665,14 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         </q-btn>
       </template>
       <template v-else>
-        <q-btn dense flat :icon="icons.viewOriginal" round size="sm" @click="startViewingOriginal()">
+        <q-btn
+          dense
+          flat
+          :icon="icons.viewOriginal"
+          round
+          size="sm"
+          @click="startViewingOriginal()"
+        >
           <q-tooltip>View Original</q-tooltip>
         </q-btn>
         <q-btn
@@ -725,6 +732,36 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 
 .bottomPadding {
   height: 250px;
+}
+
+// Floats over the bottom of the workspace. Sticky would only pin it while the page scrolls, and
+// a short workspace does not, which would drop the bar below the fold exactly when there is least
+// reason to hunt for it.
+.actionBar {
+  position: fixed;
+  z-index: 3;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+}
+
+:global(.dark) .actionBar {
+  background-color: rgba(0, 0, 0, 0.65);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+:global(.light) .actionBar {
+  background-color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+// Redo is the undo arrow mirrored, which reads as its opposite without needing a second icon.
+.redoButton :global(.q-icon) {
+  transform: scaleX(-1);
 }
 
 .popupEdit {
