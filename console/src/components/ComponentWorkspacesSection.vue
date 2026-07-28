@@ -185,6 +185,10 @@ function promptDelete(workspace: Workspace) {
             v-bind="group.canReorder ? group.reorder.handlers(index) : {}"
             @click="open(workspace, group.reorder)"
           >
+            <!-- A grip appears at the row's leading edge on hover, so a draggable row says so
+            without spending a column on a handle that is idle the rest of the time. The whole row
+            is still the drag target, and the grip is the hint. -->
+            <q-icon v-if="group.canReorder" :class="$style.grip" :name="icons.dragVertical" />
             <q-item-section avatar>
               <q-icon
                 :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
@@ -274,9 +278,27 @@ function promptDelete(workspace: Workspace) {
   text-transform: uppercase;
 }
 
+// The grip sits in the row's leading padding rather than in its content, so it costs the same
+// width whether it is showing or not and nothing moves under the pointer.
 .row {
+  position: relative;
   transition: background-color 0.2s, transform 0.16s ease;
   touch-action: none;
+}
+
+.grip {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  cursor: grab;
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.15s;
+}
+
+.row:hover .grip {
+  opacity: 0.7;
 }
 
 // While a drag is in progress the list must not clip the lifted row, and hover highlighting on the

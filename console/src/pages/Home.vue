@@ -10,6 +10,7 @@ import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import WorkspacePage from '@/pages/Workspace.vue'
+import { useScrollMemory } from '@/scroll'
 import { resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
 import { inStandardOrder, useWorkspaces, Workspace } from '@/workspace'
 
@@ -71,6 +72,9 @@ const activeWorkspaceId = $computed(() => {
   const value = navigation.route.query.workspace
   return typeof value === 'string' ? value : null
 })
+
+// Switching tabs returns to where each workspace was left, the way switching browser tabs does.
+useScrollMemory(() => (activeWorkspaceId == null ? null : `${placement}/${activeWorkspaceId}`))
 
 function showWorkspace(id: string) {
   void navigation.replace({ query: { workspace: id } })

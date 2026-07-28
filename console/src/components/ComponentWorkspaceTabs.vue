@@ -218,6 +218,10 @@ function promptDeleteById(workspace: Workspace) {
           :class="[$style.tabInner, 'items-center', 'no-wrap', 'row']"
           @dblclick.stop="openRename(workspace)"
         >
+          <!-- A grip appears at the tab's leading edge on hover, so the strip says it can be
+          arranged without spending width on a handle that is idle the rest of the time. The whole
+          tab is still the drag target, and the grip is the hint. -->
+          <q-icon :class="$style.grip" :name="icons.dragVertical" />
           <workspace-tab-label :show-placement="showPlacement" :workspace="workspace" />
           <q-popup-edit
             v-if="workspace.id === active"
@@ -450,14 +454,13 @@ function promptDeleteById(workspace: Workspace) {
             </q-menu>
           </q-btn>
           <q-btn
-            class="faded-hover q-ml-xs"
+            class="faded-hover"
             :class="[$style.close, workspace.id === active && $style.closeShown]"
             dense
             flat
             :icon="icons.close"
             round
             size="6.5px"
-            :style="{ marginTop: '1px' }"
             @click.stop="emit('close', workspace.id)"
             @mousedown.stop
             @touchstart.stop
@@ -576,9 +579,28 @@ function promptDeleteById(workspace: Workspace) {
 
 // Quasar's dense tabs force their own horizontal padding, so the tab's own spacing is carried by
 // the row inside it instead of fighting that rule.
+// The grip and the close button sit against the tab's own edges rather than inside the row, so
+// they cost the same width whether they are showing or not and the label never moves under the
+// pointer. Both are positioned against the tab itself, which means Quasar's own tab padding has
+// to go, with the spacing carried by the row inside instead.
 .tabInner {
   height: 100%;
-  padding: 0 8px 0 8px;
+  padding: 0 20px 0 16px;
+}
+
+.grip {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  cursor: grab;
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.15s;
+}
+
+.tab:hover .grip {
+  opacity: 0.7;
 }
 
 // Quasar's dense tabs impose a 36px minimum on the tab and pad its content box vertically, which
@@ -587,6 +609,7 @@ function promptDeleteById(workspace: Workspace) {
 .tabs .tab {
   height: 100%;
   min-height: 0;
+  padding: 0;
 }
 
 .tab :global(.q-tab__content) {
@@ -635,7 +658,11 @@ function promptDeleteById(workspace: Workspace) {
 // hovered as it is at rest and the strip does not shuffle under the pointer. The selected tab
 // keeps it visible, since that is the one most likely to be closed next.
 .close {
+  position: absolute;
+  top: 50%;
+  right: 2px;
   opacity: 0;
+  transform: translateY(-50%);
   transition: opacity 0.15s;
 }
 

@@ -23,6 +23,7 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import WorkspacePage from '@/pages/Workspace.vue'
 import { usePersisted } from '@/persistence'
+import { useScrollMemory } from '@/scroll'
 import { resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
@@ -87,6 +88,11 @@ const activeWorkspaceId = $computed(() => {
   const value = navigation.route.query.workspace
   return typeof value === 'string' ? value : null
 })
+
+// Switching tabs returns to where each workspace was left, the way switching browser tabs does.
+useScrollMemory(() =>
+  activeWorkspaceId == null ? null : `${address.toString()}/${activeWorkspaceId}`
+)
 
 // With the overview open and no workspace beneath it, the tab strip sits at the bottom of the page
 // rather than floating below the overview with empty space under it. Collapsing the overview

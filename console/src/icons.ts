@@ -26,6 +26,8 @@ const icons = {
   developer: 'construction', // Material Icons
   disable: 'mdi-minus-circle-outline',
   discard: 'mdi-arrow-u-left-top',
+  dragHorizontal: 'mdi-drag-horizontal',
+  dragVertical: 'mdi-drag-vertical',
   drawer: 'mdi-menu',
   group: 'mdi-account-group',
   duplicate: 'mdi-content-duplicate',
