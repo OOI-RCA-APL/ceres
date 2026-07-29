@@ -290,6 +290,9 @@ function resolvePlacement(
   return { row: bounds.length, column: null }
 }
 
+/** A drag in progress, as the layouts it is measured against read it. */
+export type WidgetDrop = ReturnType<typeof useWidgetDrop>
+
 export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTMLElement | null) {
   let bounds: RowBounds[] = []
   let width = 0
