@@ -144,11 +144,64 @@ const rows = $computed<WidgetRow[]>(() => {
   })
 })
 
+function isTyping(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+
+  return (
+    element?.isContentEditable === true || ['INPUT', 'TEXTAREA'].includes(element?.tagName ?? '')
+  )
+}
+
+// Copy, cut and paste carry widgets through the system clipboard, so a block of a workspace can be
+// taken to another workspace or another window. Text the user has actually highlighted is left to
+// the browser, since copying a value out of a widget is the more likely thing to want.
+useEventListener(window, 'copy', (event: ClipboardEvent) => {
+  const text = onCopy(event)
+  if (text != null) {
+    notify.success(`${workspace.selection.length} widget(s) copied.`)
+  }
+})
+
+useEventListener(window, 'cut', (event: ClipboardEvent) => {
+  const count = workspace.selection.length
+  const text = onCopy(event)
+  if (text != null) {
+    workspace.deleteWidgets([...workspace.selection])
+    notify.success(`${count} widget(s) cut.`)
+  }
+})
+
+useEventListener(window, 'paste', (event: ClipboardEvent) => {
+  if (isTyping(event.target)) {
+    return
+  }
+
+  const pasted = workspace.pasteWidgets(event.clipboardData?.getData('text/plain') ?? '')
+  if (pasted > 0) {
+    event.preventDefault()
+  }
+})
+
+function onCopy(event: ClipboardEvent): string | null {
+  if (isTyping(event.target) || (window.getSelection()?.toString() ?? '') !== '') {
+    return null
+  }
+
+  const text = workspace.copySelection()
+  if (text == null) {
+    return null
+  }
+
+  event.preventDefault()
+  event.clipboardData?.setData('text/plain', text)
+
+  return text
+}
+
 // Shortcuts that act on the workspace, skipped while the user is typing so a text field keeps its
 // own behavior.
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
-  const target = event.target as HTMLElement | null
-  if (target?.isContentEditable || ['INPUT', 'TEXTAREA'].includes(target?.tagName ?? '')) {
+  if (isTyping(event.target)) {
     return
   }
 

@@ -317,6 +317,18 @@ export const WidgetRowModel = Zod.object({
   widgets: safeArrayOf(WidgetModel),
 })
 
+/** Widgets on the system clipboard, laid out the way they were taken.
+
+Rows are kept rather than a flat list, so a block copied out of a workspace comes back with the
+shape it had, the same as one dragged across it. The marker is what tells a paste of widgets apart
+from a paste of any other text.
+*/
+export type WidgetClipboard = Zod.infer<typeof WidgetClipboardModel>
+export const WidgetClipboardModel = Zod.object({
+  ceres: Zod.literal('widgets'),
+  rows: safeArrayOf(WidgetRowModel),
+})
+
 export type WorkspaceMeta = Zod.infer<typeof WorkspaceMetaModel>
 
 /** Presentation state the console keeps alongside a workspace's contents.
@@ -820,6 +832,77 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     selectionAnchor = id
   }
 
+  /** What is picked out, as text for the system clipboard, or null when nothing is. */
+  function copySelection(): string | null {
+    if (data == null || selection.length === 0) {
+      return null
+    }
+
+    const rows = data.layout
+      .map((row) => ({ ...row, widgets: row.widgets.filter((widget) => isSelected(widget.id)) }))
+      .filter((row) => row.widgets.length > 0)
+
+    return JSON.stringify({ ceres: 'widgets', rows } satisfies WidgetClipboard, null, 2)
+  }
+
+  /** Put the widgets `text` holds into the layout, and pick them out. Returns how many landed.
+
+  Text that is not a copy of some widgets lands nothing, since a paste of anything else belongs to
+  whatever else is on the page.
+  */
+  function pasteWidgets(text: string): number {
+    if (data == null) {
+      return 0
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return 0
+    }
+
+    const clipboard = WidgetClipboardModel.safeParse(parsed).data ?? null
+    if (clipboard == null) {
+      return 0
+    }
+
+    const pasted: WidgetRow[] = []
+    for (const row of clipboard.rows) {
+      // Fresh IDs, so pasting twice leaves two of everything rather than one the layout holds in
+      // two places.
+      const widgets = row.widgets.map((widget) => ({ ...widget, id: v7() } as Widget))
+      if (widgets.length === 0) {
+        continue
+      }
+
+      resolveWidgetWidths(widgets)
+      pasted.push({ id: v7(), height: row.height, collapsed: row.collapsed, widgets })
+    }
+
+    if (pasted.length === 0) {
+      return 0
+    }
+
+    // Landing under what is picked out puts a paste beside the thing it was taken from, rather
+    // than at the far end of a workspace the user would then have to go looking down.
+    let after = data.layout.length
+    for (const [index, row] of data.layout.entries()) {
+      if (row.widgets.some((widget) => isSelected(widget.id))) {
+        after = index + 1
+      }
+    }
+
+    const layout = [...data.layout]
+    layout.splice(after, 0, ...pasted)
+    data.layout = layout
+
+    selection = pasted.flatMap((row) => row.widgets.map((widget) => widget.id))
+    selectionAnchor = selection[selection.length - 1] ?? null
+
+    return selection.length
+  }
+
   // A widget that is deleted, or that belongs to a layout an undo replaced, cannot stay picked
   // out, so the selection follows whatever the layout actually holds.
   watchEffect(() => {
@@ -946,6 +1029,8 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     isSelected,
     selectWidget,
     clearSelection,
+    copySelection,
+    pasteWidgets,
     // A workspace is placed on a component or on the engine root, and its access is that
     // placement's access. A private workspace belongs to its owner alone, whatever the placement
     // says, since nobody else can see it at all.
