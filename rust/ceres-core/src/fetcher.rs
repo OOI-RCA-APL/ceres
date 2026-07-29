@@ -41,8 +41,22 @@ fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
         return Ok(Parameter::Bytes(value.extract()?));
     }
 
+    // The PostgreSQL driver takes timestamps and UUIDs natively, so its bind processors
+    // pass the objects through rather than rendering text.
+    if let Ok(aware) = value.extract::<chrono::DateTime<chrono::Utc>>() {
+        return Ok(Parameter::Timestamp(aware.naive_utc()));
+    }
+
+    if let Ok(naive) = value.extract::<chrono::NaiveDateTime>() {
+        return Ok(Parameter::Timestamp(naive));
+    }
+
+    if let Ok(id) = value.extract::<uuid::Uuid>() {
+        return Ok(Parameter::Uuid(id));
+    }
+
     Err(PyTypeError::new_err(format!(
-        "{} is not a primitive statement parameter",
+        "{} is not a statement parameter the native engine understands",
         value.get_type().name()?
     )))
 }
@@ -73,19 +87,23 @@ impl RecordFetcher {
     }
 
     /// Open a fetcher over a PostgreSQL database.
+    ///
+    /// `settings` are per-connection server settings like `search_path`, matching the ones
+    /// the query layer passes its own driver.
     #[staticmethod]
-    #[pyo3(signature = (host, database, user, port=None, password=None))]
+    #[pyo3(signature = (host, database, user, port=None, password=None, settings=Vec::new()))]
     fn postgres(
         host: &str,
         database: &str,
         user: &str,
         port: Option<u16>,
         password: Option<&str>,
+        settings: Vec<(String, String)>,
     ) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store =
-            RecordStore::postgres(host, port, database, user, password).map_err(to_value_error)?;
+        let store = RecordStore::postgres(host, port, database, user, password, settings)
+            .map_err(to_value_error)?;
         Ok(Self {
             store: Arc::new(store),
         })

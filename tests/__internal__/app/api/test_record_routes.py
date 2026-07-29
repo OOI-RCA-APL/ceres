@@ -181,16 +181,15 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
         particles.where(validate(Particle.Filter, {"or": [{"type": "sample"}, {"type": "status"}]}))
     )
 
-    # Subsampling compiles a `floor` call the native SQLite build does not ship yet, the
-    # route falls back to the query layer when the native engine reports the error.
-    subsampled = particles.where(
-        after=datetime(2000, 1, 1, tzinfo=UTC),
-        before=datetime(2100, 1, 1, tzinfo=UTC),
-        subsample=4,
+    # Subsampling exercises the CTE and the `floor` math function the bundled SQLite
+    # compiles in specifically for it.
+    await check(
+        particles.where(
+            after=datetime(2000, 1, 1, tzinfo=UTC),
+            before=datetime(2100, 1, 1, tzinfo=UTC),
+            subsample=4,
+        )
     )
-    sql, parameters = await subsampled.compiled()
-    with pytest.raises(ValueError):
-        await fetcher.fetch_sql("particles", sql, parameters)
 
     alerts = engine.database.alerts
     entities = await alerts.where(level=Level.WARNING)
@@ -202,6 +201,42 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
 async def test_in_memory_databases_report_no_native_fetcher() -> None:
     database = Database(SQLiteDatabaseConfig.in_memory())
     assert database._record_fetcher() is None
+
+
+@pytest.mark.databases("postgres")
+async def test_native_fetches_match_on_postgres(database: str) -> None:
+    """The native Postgres pool must see the same rows the query layer does.
+
+    The test harness isolates tests in per-test schemas through `search_path`, so this
+    also proves connection server settings reach the native pool.
+    """
+    db = Database()
+    await db.migrate()
+
+    address = Address("@sensor.temp")
+    await db.messages.create(
+        Message.Create(address=address, direction=MessageDirection.SEND, data=b"A\xffB")
+    )
+    await db.particles.create(Particle.Create(address=address, type="sample", data={"a": 1}))
+
+    fetcher = db._record_fetcher()
+    assert fetcher is not None
+
+    for manager, table in ((db.messages, "messages"), (db.particles, "particles")):
+        query = manager.where()
+        expected = [json.loads(to_json(entity)) for entity in await query]
+        assert expected
+
+        sql, parameters = await query.compiled()
+        batch = await fetcher.fetch_sql(table, sql, parameters)
+        assert json.loads(batch.to_json()) == expected
+
+    # A filtered query binds parameters the Postgres driver takes natively.
+    query = db.particles.where(type="sample", max_age=timedelta(days=1))
+    expected = [json.loads(to_json(entity)) for entity in await query]
+    sql, parameters = await query.compiled()
+    batch = await fetcher.fetch_sql("particles", sql, parameters)
+    assert json.loads(batch.to_json()) == expected
 
 
 async def test_typed_particle_queries_keep_the_materializing_path() -> None:

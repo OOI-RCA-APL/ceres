@@ -802,10 +802,10 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
             sql, parameters = await query.compiled()
             try:
                 batch = await fetcher.fetch_sql(naming.table, sql, parameters)
-            except ValueError as error:
-                # The native engine can lag the Python one in corner cases, subsampling
-                # needs SQLite math functions it does not ship yet. The listing stays
-                # correct through the fallback, just slower.
+            except (TypeError, ValueError) as error:
+                # The native engine can lag the Python one in corner cases, a statement
+                # construct or parameter type it does not understand yet. The listing
+                # stays correct through the fallback, just slower.
                 from ceres.logs import get_logger
 
                 get_logger("ceres.database").warning(

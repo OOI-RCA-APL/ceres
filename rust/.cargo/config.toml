@@ -8,6 +8,11 @@ build-dir = "{cargo-cache-home}/build/{workspace-path-hash}"
 [alias]
 stubs = "build -p ceres-stubs"
 
+# The bundled SQLite compiles with math functions, which the subsampling SQL's `floor`
+# needs. CPython's own SQLite ships them, so the native engine has to match.
+[env]
+LIBSQLITE3_FLAGS = "-DSQLITE_ENABLE_MATH_FUNCTIONS"
+
 # Python extension modules leave interpreter symbols unresolved until import time. Maturin
 # passes these linker arguments itself, this covers plain cargo build/test/clippy on macOS.
 [target.aarch64-apple-darwin]

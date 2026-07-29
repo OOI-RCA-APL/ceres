@@ -8,7 +8,10 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use crate::records::{DecodeRecords, RecordTable};
 
-/// A primitive statement parameter, as the Python layer's bind processors produce them.
+/// A statement parameter, as the Python layer's bind processors produce them.
+///
+/// Most values arrive as primitives, but the PostgreSQL driver takes timestamps and UUIDs
+/// natively, so its processors pass those through as objects.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Parameter {
     Null,
@@ -17,6 +20,25 @@ pub enum Parameter {
     Float(f64),
     Text(String),
     Bytes(Vec<u8>),
+    Timestamp(chrono::NaiveDateTime),
+    Uuid(uuid::Uuid),
+}
+
+impl Parameter {
+    /// The stored text form of a timestamp, matching how the Python layer writes them.
+    ///
+    /// The fraction appears only when the timestamp has sub-second precision, because that
+    /// is how the driver's text binding behaves and comparisons against stored text have
+    /// to collate identically.
+    fn timestamp_text(timestamp: &chrono::NaiveDateTime) -> String {
+        use chrono::Timelike;
+
+        if timestamp.nanosecond() == 0 {
+            timestamp.format("%Y-%m-%d %H:%M:%S").to_string()
+        } else {
+            timestamp.format("%Y-%m-%d %H:%M:%S%.6f").to_string()
+        }
+    }
 }
 
 /// A database access failure.
@@ -57,12 +79,16 @@ impl RecordStore {
     }
 
     /// Open a store over a PostgreSQL database.
+    ///
+    /// `settings` are per-connection server settings like `search_path`, matching the ones
+    /// the Python layer passes its own driver.
     pub fn postgres(
         host: &str,
         port: Option<u16>,
         database: &str,
         user: &str,
         password: Option<&str>,
+        settings: Vec<(String, String)>,
     ) -> Result<Self, Error> {
         let mut options = PgConnectOptions::new()
             .host(host)
@@ -74,6 +100,10 @@ impl RecordStore {
 
         if let Some(password) = password {
             options = options.password(password);
+        }
+
+        if !settings.is_empty() {
+            options = options.options(settings);
         }
 
         let pool = PgPoolOptions::new().connect_lazy_with(options);
@@ -135,6 +165,12 @@ impl RecordStore {
                         Parameter::Float(value) => query.bind(value),
                         Parameter::Text(value) => query.bind(value),
                         Parameter::Bytes(value) => query.bind(value),
+                        // SQLite stores timestamps and UUIDs as text, so parameters have
+                        // to compare against that form.
+                        Parameter::Timestamp(value) => {
+                            query.bind(Parameter::timestamp_text(&value))
+                        }
+                        Parameter::Uuid(value) => query.bind(value.to_string()),
                     };
                 }
 
@@ -151,6 +187,8 @@ impl RecordStore {
                         Parameter::Float(value) => query.bind(value),
                         Parameter::Text(value) => query.bind(value),
                         Parameter::Bytes(value) => query.bind(value),
+                        Parameter::Timestamp(value) => query.bind(value),
+                        Parameter::Uuid(value) => query.bind(value),
                     };
                 }
 

@@ -426,10 +426,18 @@ class RecordFetcher:
         """
     @staticmethod
     def postgres(
-        host: str, database: str, user: str, port: int | None = None, password: str | None = None
+        host: str,
+        database: str,
+        user: str,
+        port: int | None = None,
+        password: str | None = None,
+        settings: Sequence[tuple[str, str]] = [],
     ) -> RecordFetcher:
         r"""
         Open a fetcher over a PostgreSQL database.
+
+        `settings` are per-connection server settings like `search_path`, matching the ones
+        the query layer passes its own driver.
         """
     def fetch_sql(self, table: str, sql: str, parameters: list[Any]) -> Any:
         r"""

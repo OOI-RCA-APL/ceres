@@ -1001,6 +1001,37 @@ class PostgresDatabase(Database):
         assert isinstance(config, PostgresDatabaseConfig)
         return config
 
+    @override
+    def _record_fetcher(self) -> RecordFetcher | None:
+        fetcher = getattr(self, "_native_record_fetcher", None)
+        if fetcher is not None:
+            return fetcher
+
+        config = self.config
+        if config.query:
+            # Connection string query parameters are driver-specific and do not reach the
+            # native pool, so a database configured with them keeps the query layer.
+            return None
+
+        # Per-connection server settings like `search_path` shape what queries see, so the
+        # native pool has to carry the same ones. Any other connection argument is unknown
+        # to it, and guessing would silently change query behavior.
+        connect_args: dict[str, Any] = config.engine.get("connect_args", {})
+        if set(connect_args) - {"server_settings"}:
+            return None
+
+        settings: dict[str, str] = connect_args.get("server_settings", {})
+        fetcher = RecordFetcher.postgres(
+            config.host,
+            config.database,
+            config.user,
+            port=config.port,
+            password=config.password.get_secret_value() if config.password is not None else None,
+            settings=list(settings.items()),
+        )
+        self._native_record_fetcher = fetcher
+        return fetcher
+
     @property
     @override
     def url(self) -> str:
