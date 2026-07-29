@@ -16,6 +16,7 @@ htmlcov/
 
 # Rust
 rust/target/
+!Cargo.lock
 
 # Node
 node_modules
