@@ -453,7 +453,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
           <div
             v-for="(row, i) in rows"
             :key="row.id"
-            class="full-width no-wrap q-my-sm relative-position row"
+            class="full-width q-my-sm relative-position"
             data-row
             :style="{
               height: row.collapsed ? undefined : `${row.height}px`,
@@ -475,45 +475,60 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
               :step="5"
               visibility="hover"
             />
-            <div
-              v-for="(widget, j) in row.widgets"
-              :key="widget.id"
-              :class="[
-                j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow',
-                'relative-position',
-                row.widgets.length === 1
-                  ? ''
-                  : j === 0
-                  ? 'q-pr-xs'
-                  : j === row.widgets.length - 1
-                  ? 'q-pl-xs'
-                  : 'q-px-xs',
-              ]"
-              data-widget
-              :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
+            <!-- The box the widgets are laid out across, rather than a boxless wrapper inside it.
+            Working out whether a widget can be moved measures a copy of one laid out in here, and a
+            wrapper that generates no box of its own has that copy landing among the widgets it is
+            measuring, which leaves them holding the offsets it worked out. -->
+            <transition-group
+              class="full-height full-width no-wrap row"
+              :enter-active-class="$style.widgetOpening"
+              :enter-from-class="$style.widgetClosed"
+              :leave-active-class="$style.widgetOpening"
+              :leave-to-class="$style.widgetClosed"
+              :move-class="$style.widgetMove"
+              tag="div"
             >
-              <resize-handle
-                v-if="layoutWidth && !drop.active && j < row.widgets.length - 1"
-                :class="$style.horizontalResizeHandle"
-                direction="horizontal"
-                :min="100"
-                :model-value="(widget.width / widgetWidthSubdivisions) * layoutWidth"
-                :step="1 / widgetWidthSubdivisions"
-                visibility="hover"
-                @update:model-value="
-                  (pixels) => {
-                    if (layoutWidth == null) {
-                      return
-                    }
+              <div
+                v-for="(widget, j) in row.widgets"
+                :key="widget.id"
+                :class="[
+                  j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow',
+                  'relative-position',
+                  drop.active && $style.widgetResizing,
+                  row.widgets.length === 1
+                    ? ''
+                    : j === 0
+                    ? 'q-pr-xs'
+                    : j === row.widgets.length - 1
+                    ? 'q-pl-xs'
+                    : 'q-px-xs',
+                ]"
+                data-widget
+                :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
+              >
+                <resize-handle
+                  v-if="layoutWidth && !drop.active && j < row.widgets.length - 1"
+                  :class="$style.horizontalResizeHandle"
+                  direction="horizontal"
+                  :min="100"
+                  :model-value="(widget.width / widgetWidthSubdivisions) * layoutWidth"
+                  :step="1 / widgetWidthSubdivisions"
+                  visibility="hover"
+                  @update:model-value="
+                    (pixels) => {
+                      if (layoutWidth == null) {
+                        return
+                      }
 
-                    widget.width = Math.round((pixels / layoutWidth) * widgetWidthSubdivisions)
-                    resolveWidgetWidths(row.widgets, j, 'after')
-                  }
-                "
-              />
-              <workspace-widget-placeholder v-if="isHeld(widget)" :widget="widget" />
-              <workspace-widget v-else :column="j" :container="row" :row="i" :widget="widget" />
-            </div>
+                      widget.width = Math.round((pixels / layoutWidth) * widgetWidthSubdivisions)
+                      resolveWidgetWidths(row.widgets, j, 'after')
+                    }
+                  "
+                />
+                <workspace-widget-placeholder v-if="isHeld(widget)" :widget="widget" />
+                <workspace-widget v-else :column="j" :container="row" :row="i" :widget="widget" />
+              </div>
+            </transition-group>
           </div>
         </transition-group>
       </div>
@@ -591,6 +606,10 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 </template>
 
 <style lang="scss" module>
+// Movement starts at once and comes to rest, which reads as the layout settling rather than as
+// something being played back at it.
+$easeOut: cubic-bezier(0.2, 0, 0, 1);
+
 // Clipped here rather than on the page, because hiding an axis makes an element its own scrolling
 // box, and a header inside one pins to that box instead of to the window.
 .layout {
@@ -680,7 +699,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 // Only the position is animated. A row's height arrives at once, so the gap a drop opens is there
 // to see straight away and only the rows giving way to it are in motion.
 .rowMove {
-  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+  transition: transform 160ms $easeOut;
 }
 
 // A row arriving fades up while the rows around it slide apart, which separates the thing that is
@@ -691,5 +710,29 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 
 .rowEnterFrom {
   opacity: 0;
+}
+
+// A widget joining or leaving a row opens and closes rather than appearing at its full width, so
+// the room it takes is seen being made for it.
+.widgetOpening {
+  overflow: hidden;
+  transition: min-width 160ms $easeOut, max-width 160ms $easeOut, opacity 160ms ease-out;
+}
+
+// Beats the widths set inline from the layout, which is where a widget's own width comes from.
+.widgetClosed {
+  min-width: 0 !important;
+  max-width: 0 !important;
+  opacity: 0;
+}
+
+.widgetMove {
+  transition: transform 160ms $easeOut;
+}
+
+// Only while a widget is in hand. A width that eases would fight the resize handle, which sets it
+// again on every pixel the pointer travels.
+.widgetResizing {
+  transition: min-width 160ms $easeOut, max-width 160ms $easeOut;
 }
 </style>

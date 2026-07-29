@@ -56,7 +56,7 @@ function measure(element: HTMLElement): RowBounds[] {
     return {
       top: bounds.top - origin.top,
       bottom: bounds.bottom - origin.top,
-      widgets: [...row.querySelectorAll(':scope > [data-widget]')].map((widget) => {
+      widgets: [...row.querySelectorAll('[data-widget]')].map((widget) => {
         const cell = widget.getBoundingClientRect()
 
         return { left: cell.left - origin.left, right: cell.right - origin.left }
