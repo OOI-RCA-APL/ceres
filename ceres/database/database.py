@@ -1,7 +1,9 @@
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
@@ -22,9 +24,14 @@ from ceres.__internal__.database.bytes import tokenize_bytes
 from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
-from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
+from ceres.config import (
+    DatabaseConfig,
+    PostgresDatabaseConfig,
+    SQLiteDatabaseConfig,
+    TursoDatabaseConfig,
+)
 from ceres.data import PasswordHash, to_json, uuid4
-from ceres.error import DatabaseMigrationError, DatabaseVersionError
+from ceres.error import DatabaseLoadError, DatabaseMigrationError, DatabaseVersionError
 from ceres.logs import get_logger
 
 DESTRUCTIVE_MIGRATIONS: dict[str, str] = {}
@@ -70,6 +77,7 @@ with __lazy_imports__(__name__):
 __all__ = [
     "Database",
     "SQLiteDatabase",
+    "TursoDatabase",
     "PostgresDatabase",
     "default_database_config",
 ]
@@ -119,6 +127,10 @@ class Database:
     def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
             match config if config is not None else default_database_config():
+                # Turso is matched first because its config subclasses the SQLite one, so the
+                # SQLite pattern below would otherwise capture it.
+                case TursoDatabaseConfig() as resolved:
+                    return TursoDatabase(resolved)
                 case SQLiteDatabaseConfig() as resolved:
                     return SQLiteDatabase(resolved)
                 case PostgresDatabaseConfig() as resolved:
@@ -138,6 +150,7 @@ class Database:
 
         self._id = uuid4()
         self._config = config
+        self._concurrent = ContextVar(f"ceres-concurrent-{self._id}", default=False)
         self._engine = self._create_engine()
         self._migrate_lock = AsyncLock()
         self._bootstrapped = False
@@ -161,7 +174,8 @@ class Database:
 
     @property
     def type(self) -> DatabaseType:
-        """Backend kind, either `DatabaseType.SQLITE` or `DatabaseType.POSTGRES`."""
+        """Backend kind, one of `DatabaseType.SQLITE`, `DatabaseType.TURSO`, or
+        `DatabaseType.POSTGRES`."""
         return self._config.type
 
     @property
@@ -446,36 +460,71 @@ class Database:
             DatabaseMigrationError: If a migration fails.
         """
         async with self._migrate_lock:
-            applied: list[int] = []
-            for migration in await self.get_pending_migrations():
-                warning = DESTRUCTIVE_MIGRATIONS.get(migration.name)
-                if warning is not None:
-                    get_logger("ceres.database").warning(
-                        "Migration %s (%s) is destructive. %s",
-                        migration.id,
-                        migration.name,
-                        warning,
-                    )
+            return await self._apply_pending_migrations()
 
-                with wrap_database_errors():
-                    try:
-                        async with self._engine.begin() as connection:
-                            sql = migration.render(self.type.value)
-                            if sql is not None:
-                                await self._execute_script(connection, sql)
+    @contextmanager
+    def concurrent_transactions(self) -> Iterator[None]:
+        """Let transactions opened in this scope overlap with other writers.
 
-                            await connection.execute(
-                                text("INSERT INTO migrations (id) VALUES (:id)"),
-                                {"id": migration.id},
-                            )
-                    except Exception as error:
-                        raise DatabaseMigrationError(
-                            message=(f"Migration {migration.id} ({migration.name}) failed. {error}")
-                        ) from error
+        Only meaningful on a backend that offers it, and only `TursoDatabase` does. Everywhere
+        else this does nothing, because SQLite and PostgreSQL already give their own answer to
+        concurrent writers.
 
-                applied.append(migration.id)
+        Concurrency is opt-in rather than the default because the backends that support it refuse
+        to run schema changes inside such a transaction, and because the transactions are
+        optimistic: two that touch the same rows will see the second fail at commit. Callers ask
+        for it where writes are frequent, independent, and safe to retry, which in practice means
+        the record writer.
 
-            return applied
+        Yields:
+            `None`, for the duration of the scope.
+        """
+        token = self._concurrent.set(True)
+        try:
+            yield
+        finally:
+            self._concurrent.reset(token)
+
+    async def _apply_pending_migrations(self) -> list[int]:
+        """Apply each pending migration in its own transaction.
+
+        Returns:
+            The IDs of the migrations that were applied.
+
+        Raises:
+            DatabaseMigrationError: If a migration fails.
+        """
+        applied: list[int] = []
+
+        for migration in await self.get_pending_migrations():
+            warning = DESTRUCTIVE_MIGRATIONS.get(migration.name)
+            if warning is not None:
+                get_logger("ceres.database").warning(
+                    "Migration %s (%s) is destructive. %s",
+                    migration.id,
+                    migration.name,
+                    warning,
+                )
+
+            with wrap_database_errors():
+                try:
+                    async with self._engine.begin() as connection:
+                        sql = migration.render(self.type.value)
+                        if sql is not None:
+                            await self._execute_script(connection, sql)
+
+                        await connection.execute(
+                            text("INSERT INTO migrations (id) VALUES (:id)"),
+                            {"id": migration.id},
+                        )
+                except Exception as error:
+                    raise DatabaseMigrationError(
+                        message=(f"Migration {migration.id} ({migration.name}) failed. {error}")
+                    ) from error
+
+            applied.append(migration.id)
+
+        return applied
 
     @abstractmethod
     async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
@@ -583,7 +632,6 @@ class Database:
                 return await connection.run_sync(callback)
 
 
-@final
 class SQLiteDatabase(Database):
     """`Database` backed by a local SQLite file, a per-process temporary file, or memory.
 
@@ -728,8 +776,6 @@ class SQLiteDatabase(Database):
         # Enable foreign key handling by default.
         # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
         yield "PRAGMA foreign_keys = ON"
-        # Set like statements to be case sensitive to match Postgres.
-        yield "PRAGMA case_sensitive_like = ON"
         # Enable a 30 second busy timeout.
         yield "PRAGMA busy_timeout = 30000"
 
@@ -748,6 +794,160 @@ class SQLiteDatabase(Database):
         if self.config.path is None and self._get_temporary_path().exists():
             for path in Path(gettempdir()).glob(f"*{self.id}*"):
                 path.unlink(missing_ok=True)
+
+
+@final
+class TursoDatabase(SQLiteDatabase):
+    """`Database` backed by a Turso file, which is SQLite's format with concurrent writers.
+
+    Turso reads and writes the same file a `SQLiteDatabase` does and accepts the same schema, so
+    almost everything is inherited. Two things differ. Write transactions open with
+    `BEGIN CONCURRENT` under `journal_mode = 'mvcc'`, which is the point of the backend, and
+    conflicts are reported when a transaction commits rather than when it writes, so a caller that
+    loses a race sees an error at commit and has to retry.
+
+    This backend is experimental. See `TursoDatabaseConfig` for what does not work, and note that
+    `pyturso` is an optional dependency rather than an installed one.
+    """
+
+    @override
+    def __new__(cls, /, config: TursoDatabaseConfig | None = None) -> Self:
+        instance = object.__new__(cls)
+        cls.__init__(instance, config)
+        return instance
+
+    @override
+    def __init__(self, /, config: TursoDatabaseConfig | None = None) -> None:
+        _assert_turso_installed()
+        super().__init__(config or TursoDatabaseConfig())
+
+    @property
+    @override
+    def config(self) -> TursoDatabaseConfig:
+        """Return the `TursoDatabaseConfig` this database was constructed from."""
+        config = super().config
+        assert isinstance(config, TursoDatabaseConfig)
+        return config
+
+    @property
+    @override
+    def url(self) -> str:
+        """Build and return the `sqlite+aioturso` connection URL for this database."""
+        return URL.create(
+            "sqlite+aioturso",
+            database=str(self.path),
+            query=self.config.query or {},
+        ).render_as_string(hide_password=False)
+
+    @override
+    def _setup_engine(self, engine: AsyncEngine) -> None:
+        # "SQLiteDatabase" registers Python functions on each connection and opens transactions
+        # with "BEGIN IMMEDIATE". Turso offers no way to register a function, and "BEGIN IMMEDIATE"
+        # takes the write lock and so gives up the concurrency this backend exists for, which is
+        # why none of that setup is reused and "Database._setup_engine" is called directly.
+        @event.listens_for(engine.sync_engine, "do_connect")
+        def do_connect(*args: object) -> None:
+            if self.config.path is not None and not self.config.is_memory:
+                try:
+                    self.config.path.parent.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    traceback.print_exc()
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def connect(adapted: Any, *args: object) -> None:
+            # Unlike aiosqlite's, Turso's adapter does not proxy attributes through to the
+            # connection underneath it, so reach the driver's own object to configure it.
+            connection = getattr(adapted, "driver_connection", adapted)
+
+            # Stop the driver emitting its own "BEGIN", the same as the SQLite backend.
+            connection.isolation_level = None
+
+            if self.config.mvcc:
+                # A statement that returns rows does not run until something reads from it, and
+                # "journal_mode" reports the mode it selected. Without the fetch this is a silent
+                # no-op and "BEGIN CONCURRENT" later fails claiming MVCC is disabled.
+                # Statements go through the adapted connection, whose cursor drives the driver's
+                # coroutines for us. This event is synchronous, so the driver's own cursor would
+                # hand back coroutines nobody can await.
+                cursor = adapted.cursor()
+                try:
+                    cursor.execute("PRAGMA journal_mode = 'mvcc'")
+                    mode = cursor.fetchone()
+                finally:
+                    cursor.close()
+
+                if mode is None or str(mode[0]).lower() != "mvcc":
+                    raise DatabaseLoadError(
+                        message=(
+                            "Turso would not enable MVCC, which concurrent writes require. "
+                            f"'PRAGMA journal_mode' reported {mode[0] if mode else 'nothing'}. "
+                            "Set 'mvcc' to false to run this database with a single "
+                            "writer instead."
+                        )
+                    )
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
+        def before_cursor_execute(
+            connection: Connection,
+            cursor: Any,
+            statement: str,
+            parameters: Any,
+            context: Any,
+            executemany: bool,
+        ) -> tuple[str, Any]:
+            # SQLAlchemy hands binary columns over as "memoryview". Python's own driver takes it
+            # through the buffer protocol, Turso's takes only exact bytes and rejects everything
+            # else, so a message's data would never insert.
+            return statement, _to_turso_parameters(parameters, executemany)
+
+        @event.listens_for(engine.sync_engine, "begin")
+        def begin(connection: Connection) -> None:
+            # "BEGIN CONCURRENT" is what lets two connections write at once. It is optimistic, so
+            # a transaction that touched the same rows as another fails at commit rather than
+            # waiting here. Turso rejects DDL inside one, so schema changes take the plain form and
+            # everything else takes the concurrent one.
+            #
+            # The plain form is "BEGIN" rather than the "BEGIN IMMEDIATE" the SQLite backend uses.
+            # Taking the write lock up front costs Turso far more than it costs SQLite, enough to
+            # serialize reads behind unrelated writes and turn a second of work into minutes.
+            if self.config.mvcc and self._concurrent.get():
+                connection.exec_driver_sql("BEGIN CONCURRENT")
+            else:
+                connection.exec_driver_sql("BEGIN")
+
+        Database._setup_engine(self, engine)
+
+    @override
+    def _get_base_init_commands(self) -> Iterable[str]:
+        # Deliberately not "SQLiteDatabase"'s, which sets "auto_vacuum". Turso rejects that PRAGMA
+        # unless the server was started with an experimental flag.
+        yield from Database._get_base_init_commands(self)
+
+    @override
+    def _get_base_connect_commands(self) -> Iterable[str]:
+        yield from Database._get_base_connect_commands(self)
+        yield "PRAGMA foreign_keys = ON"
+        yield "PRAGMA busy_timeout = 30000"
+        # "case_sensitive_like" is deliberately absent. Turso accepts it and does not honor it, so
+        # setting it would suggest "LIKE" matches case where it does not.
+
+    @override
+    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
+        # Turso's "executescript" runs the script in a transaction of its own, so calling it here,
+        # inside the one a migration already opened, leaves every statement after the first
+        # unapplied and the next migration fails on a table that looks missing. Running the
+        # statements one at a time keeps them in the migration's transaction, where a failure part
+        # way through rolls the whole migration back.
+        #
+        # Splitting on ";" is only safe because these scripts are plain DDL. A statement carrying
+        # its own ";", such as a trigger body, would need a real parser.
+        for statement in sql.split(";"):
+            if statement.strip():
+                await connection.exec_driver_sql(statement)
+
+    @override
+    def _get_temporary_path(self) -> Path:
+        return Path(gettempdir()) / f"ceres-{self.id}.turso"
 
 
 @final
@@ -873,6 +1073,65 @@ def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
     connection.create_function("ceres_tokenize_bytes", 1, _ceres_tokenize_bytes)
     connection.create_function("date_bin", 3, _ceres_date_bin)
+
+
+def _to_turso_parameters(parameters: Any, executemany: bool) -> Any:
+    """Convert bound parameters into the handful of types Turso's driver accepts.
+
+    Only `memoryview` needs converting today, which is how SQLAlchemy presents a binary column.
+
+    Args:
+        parameters: The bound parameters, either one set or a sequence of them.
+        executemany: Whether `parameters` is a sequence of parameter sets.
+
+    Returns:
+        The parameters, with any value the driver would reject replaced by one it accepts.
+    """
+
+    def convert(value: Any) -> Any:
+        return bytes(value) if isinstance(value, memoryview) else value
+
+    def convert_set(values: Any) -> Any:
+        if isinstance(values, dict):
+            return {key: convert(value) for key, value in values.items()}
+
+        if isinstance(values, list | tuple):
+            return type(values)(convert(value) for value in values)
+
+        return values
+
+    if executemany and isinstance(parameters, list | tuple):
+        return type(parameters)(convert_set(values) for values in parameters)
+
+    return convert_set(parameters)
+
+
+def _assert_turso_installed() -> None:
+    """Check that Turso is importable and its SQLAlchemy dialect can be built.
+
+    `pyturso` is optional, so a deployment that never asks for this backend does not carry it.
+
+    The dialect it registers subclasses SQLAlchemy's aiosqlite dialect, whose constructor reads
+    `dbapi.has_stop`. Turso's DBAPI shim does not define it, so `create_async_engine` raises an
+    `AttributeError` before it ever reaches the database. Defaulting it here keeps that upstream
+    gap from surfacing as an unrelated error, and the attribute can be dropped once a release
+    defines it.
+
+    Raises:
+        DatabaseLoadError: If `pyturso` is not installed.
+    """
+    try:
+        from turso.sqlalchemy.dialect import AsyncAdapt_turso_dbapi
+    except ImportError as error:
+        raise DatabaseLoadError(
+            message=(
+                "The Turso backend needs the 'pyturso' package, which is an optional dependency. "
+                "Install it with 'uv pip install pyturso', or use the 'sqlite' backend."
+            )
+        ) from error
+
+    if not hasattr(AsyncAdapt_turso_dbapi, "has_stop"):
+        setattr(AsyncAdapt_turso_dbapi, "has_stop", False)  # noqa: B010
 
 
 def _get_entity_row_classes() -> list[type[BaseEntityRow]]:

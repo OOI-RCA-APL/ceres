@@ -13,10 +13,14 @@ Both schemas are built here, side by side on whichever backend the run uses, and
 import re
 from typing import Any
 
+import pytest
 from sqlalchemy import Inspector, inspect
 from sqlalchemy import text as sql
 
 from ceres.database import Database
+
+pytestmark = pytest.mark.databases()
+"""Every backend, since drift between the migrations and the ORM is backend specific."""
 
 _BOOKKEEPING_TABLES = {"migrations"}
 """Tables owned by the migration runner rather than by an entity, so absent from the ORM."""

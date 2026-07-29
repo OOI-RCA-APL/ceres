@@ -3,6 +3,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Self, TypedDict
 
 from pydantic import ConfigDict
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.expression import ColumnElement
 
 from ceres.__internal__.utilities.collections import seq
 from ceres.data import MaybeSequence, defaulting, replacing
@@ -219,34 +221,89 @@ class BaseFilter(DataModel):
         if not values:
             return sqlalchemy.false()
 
-        values = [_escape_like_expression(value, "^") for value in values]
+        if mode == MatchMode.EQUALS and not insensitive:
+            return expression.in_(values)
 
-        def like(current: str | bytes) -> SQLColumnExpression[bool]:
+        def match(current: Any) -> SQLColumnExpression[bool]:
             if insensitive:
-                return expression.ilike(current, escape="^")
-            else:
-                return expression.like(current, escape="^")
+                escaped = _escape_like_expression(current, "^")
+                pattern = _with_wildcards(escaped, mode, "%")
+                return expression.ilike(pattern, escape="^")
 
-        wildcard: Any = b"%" if isinstance(values[0], bytes) else "%"
+            # A case-sensitive match cannot be written here, because how it is written depends on
+            # the backend it lands on. `_CaseSensitiveMatch` carries the raw value and decides at
+            # compile time, when the dialect is known.
+            return _CaseSensitiveMatch(expression, current, mode)
 
         if mode == MatchMode.EQUALS:
-            if insensitive:
-                return sqlorf(like(current) for current in values)
-            else:
-                return expression.in_(values)
+            return sqlorf(match(current) for current in values)
 
         if all(value == "" or value == b"" for value in values):
             return sqlalchemy.true()
 
-        match mode:
-            case MatchMode.CONTAINS:
-                return sqlorf(like(wildcard + current + wildcard) for current in values)
-            case MatchMode.PREFIX:
-                return sqlorf(like(current + wildcard) for current in values)
-            case MatchMode.SUFFIX:
-                return sqlorf(like(wildcard + current) for current in values)
+        return sqlorf(match(current) for current in values)
 
-        raise ValueError(f"invalid mode: {mode!r}")
+    @classmethod
+    def _sql_match_bytes(
+        cls,
+        expression: SQLColumnExpression[Any],
+        value: MaybeSequence[bytes],
+        mode: MatchMode,
+    ) -> SQLColumnExpression[bool]:
+        """Build a SQL expression matching a binary column against byte patterns.
+
+        Matching is on whole bytes, so a pattern is only found where a byte begins.
+
+        Args:
+            expression: A column expression holding the bytes to search.
+            value: One or more byte patterns to match against.
+            mode: The matching strategy (equals, contains, prefix, or suffix).
+
+        Returns:
+            A boolean SQL expression suitable for use in a ``WHERE`` clause.
+        """
+        import sqlalchemy
+
+        values = seq(value)
+        if not values:
+            return sqlalchemy.false()
+
+        def match(current: bytes) -> SQLColumnExpression[bool]:
+            # Every value contains, starts with, and ends with nothing, so an empty pattern matches
+            # everything. Searching for empty bytes would instead find nothing.
+            if current == b"" and mode != MatchMode.EQUALS:
+                return sqlalchemy.true()
+
+            return _BytesMatch(expression, current, mode)
+
+        return sqlorf(match(current) for current in values)
+
+    @classmethod
+    def _sql_match_bytes_contains(
+        cls,
+        expression: SQLColumnExpression[Any],
+        value: MaybeSequence[bytes],
+    ) -> SQLColumnExpression[bool]:
+        """Match a binary column against byte patterns appearing anywhere in it."""
+        return cls._sql_match_bytes(expression, value, MatchMode.CONTAINS)
+
+    @classmethod
+    def _sql_match_bytes_prefix(
+        cls,
+        expression: SQLColumnExpression[Any],
+        value: MaybeSequence[bytes],
+    ) -> SQLColumnExpression[bool]:
+        """Match a binary column against byte patterns it starts with."""
+        return cls._sql_match_bytes(expression, value, MatchMode.PREFIX)
+
+    @classmethod
+    def _sql_match_bytes_suffix(
+        cls,
+        expression: SQLColumnExpression[Any],
+        value: MaybeSequence[bytes],
+    ) -> SQLColumnExpression[bool]:
+        """Match a binary column against byte patterns it ends with."""
+        return cls._sql_match_bytes(expression, value, MatchMode.SUFFIX)
 
     @classmethod
     def _sql_match_string_equals[T: (str, bytes)](
@@ -313,6 +370,164 @@ def sqlorf(
     from ceres.__internal__.utilities.collections import flatten
 
     return or_(False, *flatten(expressions))
+
+
+class _BytesMatch(ColumnElement[bool]):
+    """A substring match against a binary column, written differently depending on the backend.
+
+    PostgreSQL searches the hex rendering of the bytes, because that is what its trigram index is
+    built over and a `bytea` comparison could not use it. The SQLite family has no trigram index,
+    so its search is a scan whichever way it is written, and comparing the bytes directly is both
+    exact and free of the function PostgreSQL needs, which Turso cannot register at all.
+    """
+
+    inherit_cache = True
+
+    def __init__(
+        self,
+        column: SQLColumnExpression[Any],
+        value: bytes,
+        mode: MatchMode,
+    ) -> None:
+        self.column = column
+        self.value = value
+        self.mode = mode
+
+
+@compiles(_BytesMatch)
+def _compile_bytes_match(element: _BytesMatch, compiler: Any, **kw: Any) -> str:
+    from sqlalchemy import func, literal
+
+    from ceres.__internal__.database.bytes import tokenize_bytes
+
+    tokens = func.ceres_tokenize_bytes(element.column)
+    escaped = _escape_like_expression(tokenize_bytes(element.value), "^")
+    pattern = _with_wildcards(escaped, element.mode, "%")
+    return compiler.process(tokens.like(literal(pattern), escape="^"), **kw)
+
+
+@compiles(_BytesMatch, "sqlite")
+def _compile_bytes_match_sqlite(element: _BytesMatch, compiler: Any, **kw: Any) -> str:
+    from sqlalchemy import func, literal
+
+    # "instr" over two blobs compares whole bytes, so a needle can only be found where a byte
+    # actually starts. Searching hex text instead would report a match straddling two bytes.
+    needle = literal(element.value)
+    size = len(element.value)
+
+    match element.mode:
+        case MatchMode.EQUALS:
+            expression = element.column == needle
+        case MatchMode.CONTAINS:
+            expression = func.instr(element.column, needle) > 0
+        case MatchMode.PREFIX:
+            expression = func.substr(element.column, 1, size) == needle
+        case MatchMode.SUFFIX:
+            expression = func.substr(element.column, -size) == needle
+        case _:
+            raise ValueError(f"invalid mode: {element.mode!r}")
+
+    return compiler.process(expression, **kw)
+
+
+def _with_wildcards[T: (str, bytes)](text: T, mode: MatchMode, wildcard: str) -> T:
+    """Wrap `text` in the wildcards `mode` calls for.
+
+    Args:
+        text: The already-escaped pattern body.
+        mode: The matching strategy the wildcards express.
+        wildcard: The backend's "any sequence" character, `%` for `LIKE` and `*` for `GLOB`.
+
+    Returns:
+        The pattern to match against.
+
+    Raises:
+        ValueError: If `mode` is not a recognized `MatchMode`.
+    """
+    any: Any = wildcard.encode() if isinstance(text, bytes) else wildcard
+
+    match mode:
+        case MatchMode.EQUALS:
+            return text
+        case MatchMode.CONTAINS:
+            return any + text + any
+        case MatchMode.PREFIX:
+            return text + any
+        case MatchMode.SUFFIX:
+            return any + text
+
+    raise ValueError(f"invalid mode: {mode!r}")
+
+
+class _CaseSensitiveMatch(ColumnElement[bool]):
+    """A case-sensitive string match, written differently depending on the backend.
+
+    PostgreSQL's `LIKE` already compares case, so it gets one. SQLite's does not: it folds ASCII
+    case unless `PRAGMA case_sensitive_like` is on, and that PRAGMA is deprecated in SQLite and
+    unimplemented in Turso, which accepts it and ignores it. `GLOB` compares case by definition on
+    both, so the SQLite family gets that instead.
+
+    The pattern cannot be built before the backend is known, because the two escape different
+    characters and spell their wildcards differently, so this carries the raw value and builds the
+    pattern while compiling.
+    """
+
+    inherit_cache = True
+
+    def __init__(
+        self,
+        column: SQLColumnExpression[Any],
+        value: Any,
+        mode: MatchMode,
+    ) -> None:
+        self.column = column
+        self.value: Any = value
+        self.mode = mode
+
+
+@compiles(_CaseSensitiveMatch)
+def _compile_case_sensitive_match(element: _CaseSensitiveMatch, compiler: Any, **kw: Any) -> str:
+    from sqlalchemy import literal
+
+    escaped = _escape_like_expression(element.value, "^")
+    pattern = _with_wildcards(escaped, element.mode, "%")
+    return compiler.process(element.column.like(literal(pattern), escape="^"), **kw)
+
+
+@compiles(_CaseSensitiveMatch, "sqlite")
+def _compile_case_sensitive_match_sqlite(
+    element: _CaseSensitiveMatch, compiler: Any, **kw: Any
+) -> str:
+    from sqlalchemy import literal
+
+    escaped = _escape_glob_expression(element.value)
+    pattern = _with_wildcards(escaped, element.mode, "*")
+    return compiler.process(element.column.op("GLOB")(literal(pattern)), **kw)
+
+
+def _escape_glob_expression[T: (str, bytes)](text: T) -> T:
+    """Escape the characters `GLOB` treats as wildcards, so `text` matches literally.
+
+    `GLOB` has no `ESCAPE` clause. A metacharacter is made literal by wrapping it in a character
+    class instead, so `*` becomes `[*]`. Only `*`, `?`, and `[` need it, because `]` outside a
+    class is already literal.
+
+    Args:
+        text: The string or bytes value to escape.
+
+    Returns:
+        A copy of `text` that `GLOB` matches literally.
+    """
+    if isinstance(text, bytes):
+        for character in (b"[", b"*", b"?"):
+            text = text.replace(character, b"[" + character + b"]")
+
+        return text
+
+    for character in ("[", "*", "?"):
+        text = text.replace(character, "[" + character + "]")
+
+    return text
 
 
 def _escape_like_expression[T: (str, bytes)](text: T, escape: str) -> T:

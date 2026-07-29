@@ -1,6 +1,7 @@
 from abc import abstractmethod
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, ClassVar, Self, override
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, ClassVar, Self, override
 
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 from sqlalchemy import Integer, cast, func, literal, select
@@ -56,6 +57,57 @@ class BaseRecordRow(
 
 type BaseRecordField = BaseUUIDEntityField | BaseAddressEntityField | BaseTimestampEntityField
 type BaseRecordOrder = BaseUUIDEntityOrder | BaseAddressEntityOrder | BaseTimestampEntityOrder
+
+
+def _microseconds_of(value: Any) -> SQLColumnExpression[Any]:
+    """Pull the microsecond part out of a stored timestamp.
+
+    SQLite and Turso read a timestamp's fraction only as far as milliseconds, so the value has to
+    be taken from the text itself to keep the last three digits. The date and time occupy a fixed
+    nineteen characters, leaving the fraction from the twentieth on, and padding covers a value
+    written without one, which is what SQLite's own `CURRENT_TIMESTAMP` default produces.
+    """
+    fraction = func.substr(value, 20).concat(".000000")
+    return cast(func.substr(fraction, 2, 6), Integer)
+
+
+def _date_bin(
+    dialect: DatabaseType,
+    interval: timedelta,
+    timestamp: Any,
+    origin: Any,
+) -> SQLColumnExpression[Any]:
+    """Group timestamps into buckets `interval` wide, measured from `origin`.
+
+    PostgreSQL has `date_bin` built in. The SQLite family does not, and Turso cannot be taught it,
+    because it has no way to register a function. The bucket is only ever grouped by and never
+    selected, so any value that stays constant across a bucket does the job, and an integer index
+    is the cheapest one to compute.
+
+    Whole seconds and microseconds are kept apart and combined as integers so the arithmetic is
+    exact. Doing it in floating point loses enough precision to drop a timestamp sitting exactly on
+    a bucket boundary into the bucket below, and records aligned to the origin are the ordinary
+    case.
+
+    Args:
+        dialect: The backend the expression is being built for.
+        interval: Bucket width.
+        timestamp: The column holding the timestamp to bin.
+        origin: The instant buckets are measured from.
+
+    Returns:
+        A SQL expression identifying which bucket a row falls in.
+    """
+    if dialect is DatabaseType.POSTGRES:
+        return func.date_bin(interval, timestamp, origin)
+
+    # A bucket narrower than the resolution timestamps are stored at would put every row in its
+    # own, so one microsecond is the floor.
+    width = max(interval // timedelta(microseconds=1), 1)
+    seconds = func.unixepoch(timestamp) - func.unixepoch(origin)
+    microseconds = seconds * 1_000_000 + (_microseconds_of(timestamp) - _microseconds_of(origin))
+
+    return cast(func.floor(microseconds / width), Integer)
 
 
 class SubsampleSelect(StrEnum):
@@ -249,8 +301,6 @@ class BaseRecordFilter[
 
             if self.subsample_every is not None:
                 interval = self.subsample_every
-                if dialect == DatabaseType.SQLITE:
-                    interval = interval.total_seconds()
 
                 seed = (
                     start
@@ -266,7 +316,8 @@ class BaseRecordFilter[
 
                 matches = (
                     select(
-                        bin := func.date_bin(
+                        bin := _date_bin(
+                            dialect,
                             interval,
                             columns.timestamp,
                             seed,
@@ -288,12 +339,11 @@ class BaseRecordFilter[
                 assert end is not None
 
                 interval = (end - start) / max(self.subsample, 1)
-                if dialect == DatabaseType.SQLITE:
-                    interval = interval.total_seconds()
 
                 matches = (
                     select(
-                        bin := func.date_bin(
+                        bin := _date_bin(
+                            dialect,
                             interval,
                             columns.timestamp,
                             start,
@@ -316,7 +366,7 @@ class BaseRecordFilter[
                         literal("hour", literal_execute=True),
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
-                case DatabaseType.SQLITE:
+                case DatabaseType.SQLITE | DatabaseType.TURSO:
                     hour = cast(func.strftime("%H", columns.timestamp), Integer)
 
             within_min = hour >= min_hour
@@ -335,7 +385,7 @@ class BaseRecordFilter[
                         literal("minute", literal_execute=True),
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
-                case DatabaseType.SQLITE:
+                case DatabaseType.SQLITE | DatabaseType.TURSO:
                     minute = cast(func.strftime("%M", columns.timestamp), Integer)
 
             within_min = minute >= min_minute

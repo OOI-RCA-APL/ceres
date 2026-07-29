@@ -11,7 +11,9 @@ update:
 test:
 	uv run pytest -vv -s
 test-postgres:
-	CERES_TEST_DATABASE=postgres uv run pytest -vv -s
+	uv run pytest -vv -s --database postgres
+test-turso:
+	uv run pytest -vv -s --database turso
 coverage:
 	uv run ./scripts/update-coverage.py
 coverage-check:

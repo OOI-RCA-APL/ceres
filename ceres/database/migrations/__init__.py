@@ -21,8 +21,13 @@ _FILENAME_PATTERN = re.compile(
     r"^(?P<id>\d+)-(?P<name>[a-z0-9-]+?)(?:\.(?P<dialect>sqlite|postgres))?\.sql$"
 )
 
-_DIALECT_KEYS = {"sqlite": "sqlite", "postgres": "postgresql"}
-"""Map a filename dialect token to the dialect key used in `Migration.scripts`."""
+_DIALECT_KEYS = {"sqlite": "sqlite", "postgres": "postgresql", "turso": "sqlite"}
+"""Map a filename dialect token to the dialect key used in `Migration.scripts`.
+
+Turso maps to `sqlite` because it reads and writes the same file format and takes the same schema,
+so it has no scripts of its own. A migration that ever needs to differ between the two would want
+its own `.turso.sql` file and an entry here pointing at it.
+"""
 
 
 @dataclass(frozen=True, kw_only=True)

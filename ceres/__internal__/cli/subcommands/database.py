@@ -68,7 +68,7 @@ class ShellCommand(CLICommand):
                     if database.config.password is not None:
                         env["PGPASSWORD"] = database.config.password.get_secret_value()
 
-                case DatabaseType.SQLITE:
+                case DatabaseType.SQLITE | DatabaseType.TURSO:
                     assert isinstance(database, SQLiteDatabase)
                     if database.config.is_memory:
                         raise CLICommandFailed(

@@ -942,6 +942,44 @@ class SQLiteDatabaseConfig(_DatabaseConfig):
         return self.path == _SQLITE_MEMORY_PATH
 
 
+class TursoDatabaseConfig(SQLiteDatabaseConfig):
+    """Configuration for a Turso-backed database, a SQLite-compatible file that allows
+    concurrent writers.
+
+    Turso reads and writes the same file format as SQLite and takes the same path settings, so this
+    inherits them. What it adds is `BEGIN CONCURRENT`, which lets several connections write at once
+    instead of serializing behind one writer.
+
+    This backend is experimental and is not a drop-in replacement for `SQLiteDatabaseConfig`. Turso
+    exposes no way to register the Python functions the SQLite backend relies on, so message data
+    search and time-binned record statistics do not work against it, and it silently ignores
+    `case_sensitive_like`, which makes `LIKE` filters case-insensitive where every other backend
+    treats them as case-sensitive.
+    """
+
+    type: Literal[DatabaseType.TURSO] = DatabaseType.TURSO  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    mvcc: bool = False
+    """Put the database in Turso's MVCC journal mode, which is what lets writers overlap.
+
+    **This converts the database file and the conversion cannot be undone.** MVCC rewrites the file
+    into a format SQLite does not recognize, after which `sqlite3` reports "file is not a database"
+    and every other SQLite tool fails the same way. Back the file up first and treat turning this on
+    as a migration rather than as a setting.
+
+    Left off, this backend writes an ordinary SQLite file that either engine can open, so it stays
+    interchangeable with `SQLiteDatabaseConfig`.
+
+    It is also off by default because overlapping writers are optimistic rather than blocking. Two
+    transactions touching the same rows both proceed and the second fails when it commits, so a
+    caller has to be prepared to retry. That suits writes that are frequent and mostly independent,
+    and little else.
+
+    Turning it on is necessary but not sufficient. A transaction also has to be opened inside
+    `Database.concurrent_transactions()`, which is how a caller says its writes are safe to retry.
+    """
+
+
 class PostgresDatabaseConfig(_DatabaseConfig):
     """Configuration for a PostgreSQL-backed database."""
 
@@ -953,7 +991,7 @@ class PostgresDatabaseConfig(_DatabaseConfig):
     password: SecretStr | None = None
 
 
-DatabaseConfig: TypeAlias = SQLiteDatabaseConfig | PostgresDatabaseConfig
+DatabaseConfig: TypeAlias = SQLiteDatabaseConfig | TursoDatabaseConfig | PostgresDatabaseConfig
 """Discriminated union of database configurations, dispatched by the `type` field."""
 
 

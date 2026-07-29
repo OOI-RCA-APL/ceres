@@ -1,5 +1,10 @@
+import pytest
+
 from ceres import Message
 from tests import testing
+
+pytestmark = pytest.mark.databases()
+"""Every backend, since matching against message bytes is written differently on each."""
 
 
 async def test_message_id_filtering():

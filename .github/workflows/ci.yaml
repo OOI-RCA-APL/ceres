@@ -15,18 +15,25 @@ jobs:
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     services:
-      # Production runs on PostgreSQL while most tests exercise SQLite, so migration SQL that is
-      # only valid on one backend can pass everything else. The migration tests connect here and
-      # skip themselves when no server is reachable.
+      # Production runs on PostgreSQL while most tests exercise SQLite, so SQL that is only valid
+      # on one backend could otherwise pass everything else. Tests carrying the `databases` marker
+      # run against every backend, including this one, and skip it when no server is reachable.
       postgres:
         image: postgres:17
         env:
           POSTGRES_USER: ceres
           POSTGRES_PASSWORD: ceres
           POSTGRES_DB: ceres
+          # The suite asserts specific orderings, and text ordering follows the database's
+          # collation. `C` sorts by byte, which is what SQLite does, so every backend agrees.
+          POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
         ports:
           - 5432:5432
+        # The data directory is a tmpfs because nothing here outlives the job. The suite commits
+        # constantly and runs the schema through a full migration chain per test, so every commit
+        # would otherwise wait on the runner's disk to store data that is thrown away at the end.
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
           --health-cmd "pg_isready -U ceres"
           --health-interval 10s
           --health-timeout 5s
@@ -55,42 +62,3 @@ jobs:
         run: make build
       - name: Ensure Generated Files Match
         run: git diff --exit-code -- ':!**/package-lock.json'
-
-  postgres:
-    # The same tests again, against the backend deployments actually run on. The `main` job covers
-    # SQLite, so a query only one of the two accepts fails here rather than in production. This
-    # job runs the Python suite only, everything else is already covered above.
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: ceres
-          POSTGRES_PASSWORD: ceres
-          POSTGRES_DB: ceres
-          # The suite asserts specific orderings, and text ordering follows the database's
-          # collation. `C` sorts by byte, which is what SQLite does, so both backends agree.
-          POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
-        ports:
-          - 5432:5432
-        # The data directory is a tmpfs because nothing here outlives the job. The suite commits
-        # constantly and runs the schema through a full migration chain per test, so every commit
-        # would otherwise wait on the runner's disk to store data that is thrown away at the end.
-        options: >-
-          --tmpfs /var/lib/postgresql/data:rw,size=2g
-          --health-cmd "pg_isready -U ceres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      CERES_TEST_POSTGRES_URL: postgresql+asyncpg://ceres:ceres@localhost:5432/ceres
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - name: Install UV
-        uses: astral-sh/setup-uv@v8.0.0
-        with:
-          python-version: "3.14"
-          enable-cache: false
-      - name: Test
-        run: make test-postgres

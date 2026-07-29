@@ -5,7 +5,6 @@ from sqlalchemy import Index, LargeBinary, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
-from ceres.__internal__.database.bytes import tokenize_bytes
 from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
@@ -27,7 +26,6 @@ from ceres.__internal__.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres.__internal__.utilities.collections import seq
 from ceres.data import BytesFromString, BytesToString, MaybeSequence, StrEnum
 from ceres.timing import utc
 
@@ -222,18 +220,15 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if self.data is not None:
             yield self._sql_match_value(columns.data, self.data)
 
-        # Substring matching against bytes goes through the tokenized hex column on Postgres,
-        # which supports trigram-indexed `LIKE` queries.
-        hex = func.ceres_tokenize_bytes(columns.data)
+        # How these are written depends on the backend, so they are left to compile time. Postgres
+        # searches the tokenized hex its trigram index is built over, while the SQLite family
+        # compares the bytes directly.
         if self.contains is not None:
-            matches = [tokenize_bytes(current) for current in seq(self.contains)]
-            yield self._sql_match_string_contains(hex, matches)
+            yield self._sql_match_bytes_contains(columns.data, self.contains)
         if self.prefix is not None:
-            matches = [tokenize_bytes(current) for current in seq(self.prefix)]
-            yield self._sql_match_string_prefix(hex, matches)
+            yield self._sql_match_bytes_prefix(columns.data, self.prefix)
         if self.suffix is not None:
-            matches = [tokenize_bytes(current) for current in seq(self.suffix)]
-            yield self._sql_match_string_suffix(hex, matches)
+            yield self._sql_match_bytes_suffix(columns.data, self.suffix)
 
 
 class MessageCreate(BaseRecordCreate, slots=True):

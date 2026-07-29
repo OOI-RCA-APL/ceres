@@ -8,8 +8,13 @@ language and matching SQLite. They pass on either backend, which is the point.
 See `2026-07-27-string-ordering-design.md`.
 """
 
+import pytest
+
 from ceres import Address, Variable
 from ceres.database import Database
+
+pytestmark = pytest.mark.databases()
+"""Every backend, since the whole point is that they agree on an order they each decide."""
 
 # Chosen so a locale collation and a code point collation disagree. A locale orders these
 # case-insensitively, giving `abc, ABC, cba, CBA`, and folds punctuation away.
