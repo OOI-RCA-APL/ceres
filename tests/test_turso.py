@@ -6,7 +6,7 @@ from ceres.config import TursoDatabaseConfig
 from ceres.database import Database, TursoDatabase
 from ceres.error import DatabaseLoadError
 
-pytest.importorskip("turso", reason="the Turso backend needs the optional 'pyturso' package")
+pytest.importorskip("turso", reason="'pyturso' has no wheel for this platform")
 
 
 async def test_a_turso_config_builds_a_turso_database(tmp_path):
@@ -92,7 +92,7 @@ async def test_migrations_apply_the_sqlite_scripts(tmp_path):
 
 
 def test_a_missing_package_explains_itself(monkeypatch):
-    """Asking for the backend without the optional package names the fix."""
+    """Asking for the backend on a platform without the package names the way out."""
     import builtins
 
     original = builtins.__import__
