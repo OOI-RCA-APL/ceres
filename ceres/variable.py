@@ -422,7 +422,7 @@ class Variable(
     Field = VariableField
     Order = VariableOrder
 
-    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("user")
+    __entity_naming__: ClassVar[EntityNaming] = EntityNaming("variable")
 
 
 class InternalVariableName(StrEnum):

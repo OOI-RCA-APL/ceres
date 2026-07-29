@@ -613,8 +613,6 @@ class Particle(
     __abstract__: ClassVar[bool] = False
 
     __entity_naming__: ClassVar[EntityNaming] = EntityNaming("particle")
-    # `span` is a transient parsing artifact, it is not persisted to the database row.
-    __entity_row_exclude__: ClassVar[set[str]] = {"span"}
 
     data: DataT
     """Parsed payload, either a typed `ParticleData` subclass or a raw JSON object."""

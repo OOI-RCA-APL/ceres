@@ -19,7 +19,7 @@ from ceres.__internal__.entity import (
 )
 from ceres.__internal__.manager import BaseNodeManager
 from ceres.__internal__.utilities.collections import seq
-from ceres.data import FromYAML, JSONSerializable, MaybeSequence, uuid7
+from ceres.data import FromYAML, JSONSerializable, MaybeSequence
 from ceres.user import UserRow
 
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ class SettingRow(BaseEntityRow, kw_only=True):
 
     __tablename__: ClassVar[str] = "settings"
 
-    user_id: Mapped[UUID] = mapped_column(UUIDMapper, default_factory=uuid7)
+    user_id: Mapped[UUID] = mapped_column(UUIDMapper)
     name: Mapped[str] = mapped_column(TextMapper())
     value: Mapped[JSONSerializable] = mapped_column(JSON)
 
