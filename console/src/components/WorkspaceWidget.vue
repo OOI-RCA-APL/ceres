@@ -68,6 +68,26 @@ const targetAddress = $computed(() => {
   return text != null && text.startsWith('@') && !text.includes(':') ? text : null
 })
 
+// A press on the header either picks the widget out or takes hold of it. Held with a modifier it
+// only changes what is picked out, since a selection is built up one press at a time. Otherwise it
+// takes hold of everything picked out, which is just this widget unless it was already among them.
+function onPress(event: MouseEvent | TouchEvent) {
+  if ('metaKey' in event && (event.metaKey || event.ctrlKey)) {
+    workspace.selectWidget(widget.id, 'toggle')
+    return
+  }
+  if ('shiftKey' in event && event.shiftKey) {
+    workspace.selectWidget(widget.id, 'extend')
+    return
+  }
+
+  if (!workspace.isSelected(widget.id)) {
+    workspace.selectWidget(widget.id)
+  }
+
+  workspace.drag = { widget, widgets: [...workspace.selectedWidgets] }
+}
+
 // A restricted stub loads with its address fields redacted, so the user could not have set
 // them knowingly. Once the user repoints the widget to a new target, the stub is stale and its
 // lock placeholder should give way to a fresh, editable widget.
@@ -83,14 +103,20 @@ watch(
 </script>
 
 <template>
-  <q-card v-if="workspace != null" bordered class="col column full-height" flat>
+  <q-card
+    v-if="workspace != null"
+    bordered
+    class="col column full-height"
+    :class="workspace.isSelected(widget.id) && $style.selected"
+    flat
+  >
     <div
       :class="[$style.header, 'q-px-sm', 'q-py-xs']"
       :style="{ cursor: workspace.drag != null ? 'grabbing' : 'grab' }"
-      @mousedown.prevent="workspace.drag = { widget }"
+      @mousedown.prevent="onPress"
       @mousemove.prevent
       @touchmove.prevent
-      @touchstart.prevent="workspace.drag = { widget }"
+      @touchstart.prevent="onPress"
     >
       <div class="items-center no-wrap row">
         <div>
@@ -276,6 +302,13 @@ watch(
 // the page being scrolled.
 .header {
   touch-action: none;
+}
+
+// Drawn outside the card's own border rather than in place of it, so picking a widget out does not
+// nudge everything inside it by a pixel.
+.selected {
+  outline: 2px solid $primary;
+  outline-offset: -1px;
 }
 
 :global(.light) .header {

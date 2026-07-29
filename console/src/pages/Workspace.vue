@@ -295,6 +295,10 @@ function resolveAllWidgetWidths() {
   }
 }
 
+function isHeld(widget: Widget) {
+  return drop.active && workspace.drag?.widgets.some((held) => held.id === widget.id) === true
+}
+
 function getWidgetWidthStyle(widget: Widget) {
   if (layoutWidth == null) {
     return undefined
@@ -349,10 +353,16 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       :class="$style.draggedWidgetIcon"
       :style="draggedWidgetIconStyle"
     >
-      <q-card bordered class="q-px-xs" flat>
+      <q-card bordered class="items-center q-px-xs row" flat>
         <common-text variant="th">
           {{ workspace.drag.widget.name }}
         </common-text>
+        <q-badge
+          v-if="workspace.drag.widgets.length > 1"
+          class="q-ml-xs"
+          color="primary"
+          :label="`+${workspace.drag.widgets.length - 1}`"
+        />
       </q-card>
     </div>
     <template #header-append>
@@ -619,10 +629,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
                 }
               "
             />
-            <workspace-widget-placeholder
-              v-if="drop.active && workspace.drag?.widget.id === widget.id"
-              :widget="widget"
-            />
+            <workspace-widget-placeholder v-if="isHeld(widget)" :widget="widget" />
             <workspace-widget v-else :column="j" :container="row" :row="i" :widget="widget" />
           </div>
         </div>

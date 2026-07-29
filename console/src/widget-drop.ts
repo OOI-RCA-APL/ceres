@@ -2,7 +2,7 @@ import { useEventListener } from '@vueuse/core'
 import { computed, reactive } from 'vue'
 
 import {
-  planWidgetMove,
+  planWidgetsMove,
   resolveWidths,
   widgetWidthSubdivisions,
   WidgetPlacement,
@@ -57,51 +57,51 @@ function measure(element: HTMLElement): RowBounds[] {
   })
 }
 
-/** Adjust measurements to the layout that taking one widget out of it leaves behind. */
-function withoutHeld(
-  bounds: RowBounds[],
-  layout: WidgetRow[],
-  row: number,
-  column: number
-): RowBounds[] {
-  const measured = bounds[row] ?? null
-  if (measured == null) {
-    return bounds
+/** Adjust measurements to the layout that taking the held widgets out of it leaves behind. */
+function withoutHeld(bounds: RowBounds[], layout: WidgetRow[], held: Set<string>): RowBounds[] {
+  const remainder: RowBounds[] = []
+  let risen = 0
+
+  for (const [index, measured] of bounds.entries()) {
+    const widgets = layout[index]?.widgets ?? []
+    const remaining = widgets.filter((widget) => !held.has(widget.id))
+
+    if (remaining.length === 0) {
+      // The row goes with the widgets, and everything under it rises by the room that row took up.
+      const below = bounds[index + 1] ?? null
+      risen += below != null ? below.top - measured.top : 0
+      continue
+    }
+
+    const top = measured.top - risen
+    const bottom = measured.bottom - risen
+
+    if (remaining.length === widgets.length) {
+      remainder.push({ top, bottom, widgets: measured.widgets })
+      continue
+    }
+
+    // The widgets left in the row spread across the width the held ones give up.
+    const resolved = resolveWidths(remaining.map((widget) => widget.width))
+    const left = measured.widgets[0].left
+    const right = measured.widgets[measured.widgets.length - 1].right
+
+    let x = left
+    const cells = resolved.map((units) => {
+      const cell = { left: x, right: x + ((right - left) * units) / widgetWidthSubdivisions }
+      x = cell.right
+
+      return cell
+    })
+
+    if (cells.length > 0) {
+      cells[cells.length - 1].right = right
+    }
+
+    remainder.push({ top, bottom, widgets: cells })
   }
 
-  if (measured.widgets.length <= 1) {
-    // The row goes with the widget, and everything under it rises by the room that row took up.
-    const below = bounds[row + 1] ?? null
-    const risen = below != null ? below.top - measured.top : 0
-
-    return bounds
-      .filter((_, index) => index !== row)
-      .map((current, index) =>
-        index >= row
-          ? { ...current, top: current.top - risen, bottom: current.bottom - risen }
-          : current
-      )
-  }
-
-  // The widgets left in the row spread across the width the held one gives up.
-  const remaining = (layout[row]?.widgets ?? []).filter((_, index) => index !== column)
-  const widths = resolveWidths(remaining.map((widget) => widget.width))
-  const left = measured.widgets[0].left
-  const right = measured.widgets[measured.widgets.length - 1].right
-
-  let x = left
-  const widgets = widths.map((units) => {
-    const cell = { left: x, right: x + ((right - left) * units) / widgetWidthSubdivisions }
-    x = cell.right
-
-    return cell
-  })
-
-  if (widgets.length > 0) {
-    widgets[widgets.length - 1].right = right
-  }
-
-  return bounds.map((current, index) => (index === row ? { ...current, widgets } : current))
+  return remainder
 }
 
 /** How much of a row's height belongs to the seams above and below it. */
@@ -212,23 +212,20 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
 
     const element = container()
     const data = workspace.data
-    const held = workspace.drag?.widget ?? null
-    if (element == null || data == null || held == null) {
+    const drag = workspace.drag
+    if (element == null || data == null || drag == null) {
       return false
     }
 
-    // A workspace holding one widget has nowhere to put it, and taking it out would leave nothing
-    // on the page to aim at.
-    if (data.layout.reduce((total, row) => total + row.widgets.length, 0) < 2) {
+    // Holding everything the workspace has leaves nothing on the page to aim at, and nowhere for
+    // any of it to go.
+    const total = data.layout.reduce((count, row) => count + row.widgets.length, 0)
+    if (total - drag.widgets.length < 1) {
       return false
     }
 
-    const position = workspace.getWidgetPosition(held.id)
-    if (position == null) {
-      return false
-    }
-
-    bounds = withoutHeld(measure(element), data.layout, position[0], position[1])
+    const held = new Set(drag.widgets.map((widget) => widget.id))
+    bounds = withoutHeld(measure(element), data.layout, held)
     width = element.clientWidth
     active = true
 
@@ -236,9 +233,17 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   }
 
   function release() {
-    if (workspace.drag != null) {
+    const drag = workspace.drag
+    if (drag != null) {
       if (active && placement != null) {
-        workspace.moveWidget(workspace.drag.widget.id, placement)
+        workspace.moveWidgets(
+          drag.widgets.map((widget) => widget.id),
+          placement
+        )
+      } else if (!active) {
+        // A press that never travelled is a plain click, which narrows what is picked out to the
+        // widget under it rather than leaving the rest of a selection standing.
+        workspace.selectWidget(drag.widget.id)
       }
 
       workspace.drag = null
@@ -256,6 +261,17 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   // drag, so the distance travelled is measured from the press rather than from the first move.
   useEventListener(window, 'pointerdown', (event: PointerEvent) => {
     origin = { x: event.clientX, y: event.clientY }
+
+    // Pressing anywhere but on a widget lets go of what is picked out, the way clicking off a
+    // selection does elsewhere. Overlays are exempt, since a menu or dialog is usually acting on
+    // the selection rather than leaving it.
+    const target = event.target as HTMLElement | null
+    if (
+      workspace.selection.length > 0 &&
+      target?.closest('[data-widget], .q-menu, .q-dialog, .q-popup-edit') == null
+    ) {
+      workspace.clearSelection()
+    }
   })
 
   useEventListener(window, 'pointermove', (event: PointerEvent) => {
@@ -295,19 +311,30 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   // it, which would otherwise leave a widget stuck to the cursor.
   useEventListener(window, 'mouseup', release)
 
+  // Escape backs out of whichever is in progress, a drag first and then the selection behind it.
   useEventListener(window, 'keydown', (event: KeyboardEvent) => {
-    if (event.key === 'Escape' && workspace.drag != null) {
+    if (event.key !== 'Escape') {
+      return
+    }
+
+    if (workspace.drag != null) {
       cancel()
+    } else {
+      workspace.clearSelection()
     }
   })
 
   const plan = $computed(() => {
-    const held = workspace.drag?.widget ?? null
-    if (!active || held == null || workspace.data == null) {
+    const drag = workspace.drag
+    if (!active || drag == null || workspace.data == null) {
       return null
     }
 
-    return planWidgetMove(workspace.data.layout, held.id, placement)
+    return planWidgetsMove(
+      workspace.data.layout,
+      drag.widgets.map((widget) => widget.id),
+      placement
+    )
   })
 
   return reactive({

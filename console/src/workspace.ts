@@ -428,8 +428,15 @@ export type WorkspaceHeaderState = {
 }
 
 export type Drag = {
+  /** The widget the press landed on, which is the one the cursor carries a name for. */
   widget: Widget
+
+  /** Everything in hand, in layout order, `widget` among it. */
+  widgets: Widget[]
 }
+
+/** How a widget joins what is already picked out when it is chosen. */
+export type SelectMode = 'replace' | 'toggle' | 'extend'
 
 function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   const auth = useAuth()
@@ -723,25 +730,25 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return data?.layout[row]?.widgets[column] ?? null
   }
 
-  function moveWidget(id: string, placement: WidgetPlacement) {
+  function moveWidgets(ids: string[], placement: WidgetPlacement) {
     if (data == null) {
-      return null
+      return
     }
 
-    const plan = planWidgetMove(data.layout, id, placement)
+    const plan = planWidgetsMove(data.layout, ids, placement)
     if (plan == null) {
-      return null
+      return
+    }
+
+    // A drop that lands widgets back where they came from arrives at the layout already on screen,
+    // which is not worth rewriting every row for, nor sending to the server as an edit.
+    if (planIsCurrent(plan, data.layout)) {
+      return
     }
 
     const widgets = new Map(
       data.layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget])
     )
-
-    // A drop that lands a widget back where it came from arrives at the layout already on screen,
-    // which is not worth rewriting every row for, nor sending to the server as an edit.
-    if (planIsCurrent(plan, data.layout)) {
-      return widgets.get(id) ?? null
-    }
 
     for (const [widgetId, width] of Object.entries(plan.widths)) {
       const widget = widgets.get(widgetId)
@@ -758,9 +765,64 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
         .map((widgetId) => widgets.get(widgetId))
         .filter((widget) => widget != null),
     }))
-
-    return widgets.get(id) ?? null
   }
+
+  // Widgets picked out to be acted on together, held as IDs so a layout rebuilt underneath them
+  // keeps the same ones picked out.
+  let selection = $ref<string[]>([])
+
+  // The widget a range extends from, which is whichever one was last chosen on its own.
+  let selectionAnchor = $ref<string | null>(null)
+
+  function widgetOrder(): string[] {
+    return data?.layout.flatMap((row) => row.widgets.map((widget) => widget.id)) ?? []
+  }
+
+  function isSelected(id: string) {
+    return selection.includes(id)
+  }
+
+  function clearSelection() {
+    selection = []
+    selectionAnchor = null
+  }
+
+  function selectWidget(id: string, mode: SelectMode = 'replace') {
+    const order = widgetOrder()
+
+    if (mode === 'extend' && selectionAnchor != null) {
+      const from = order.indexOf(selectionAnchor)
+      const to = order.indexOf(id)
+      if (from !== -1 && to !== -1) {
+        selection = order.slice(Math.min(from, to), Math.max(from, to) + 1)
+        return
+      }
+    }
+
+    if (mode === 'toggle') {
+      selection = isSelected(id)
+        ? selection.filter((current) => current !== id)
+        : [...selection, id]
+      selectionAnchor = id
+      return
+    }
+
+    selection = [id]
+    selectionAnchor = id
+  }
+
+  // A widget that is deleted, or that belongs to a layout an undo replaced, cannot stay picked
+  // out, so the selection follows whatever the layout actually holds.
+  watchEffect(() => {
+    const present = new Set(widgetOrder())
+    const kept = selection.filter((id) => present.has(id))
+    if (kept.length !== selection.length) {
+      selection = kept
+      if (selectionAnchor != null && !present.has(selectionAnchor)) {
+        selectionAnchor = null
+      }
+    }
+  })
 
   function duplicateWidget(id: string, toRow: number, toColumn: number) {
     const widget = getWidget(id)
@@ -862,9 +924,18 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     insertWidget,
     addWidget,
     deleteWidget,
-    moveWidget,
+    moveWidgets,
     duplicateWidget,
     drag: null as Drag | null,
+    selection: computed(() => selection),
+    selectedWidgets: computed(() => {
+      const widgets = data?.layout.flatMap((row) => row.widgets) ?? []
+
+      return widgets.filter((widget) => isSelected(widget.id))
+    }),
+    isSelected,
+    selectWidget,
+    clearSelection,
     // A workspace is placed on a component or on the engine root, and its access is that
     // placement's access. A private workspace belongs to its owner alone, whatever the placement
     // says, since nobody else can see it at all.
@@ -1165,20 +1236,21 @@ export const minWidgetWidthPixels = 100
 
 /** Spread a row's widths back over `widgetWidthSubdivisions`, without touching any widget.
 
-`keepIndex` names a width to leave alone, either absorbing the difference into every other width
-or, with `adjustMode` set to `after`, only into the ones that follow it.
+`keepIndices` names widths to leave alone, either absorbing the difference into every other width
+or, with `adjustMode` set to `after`, only into the ones that follow the last of them.
 */
 export function resolveWidths(
   widths: number[],
-  keepIndex?: number,
+  keepIndices?: number | number[],
   adjustMode: 'after' | 'other' = 'other'
 ): number[] {
   if (widths.length === 0) {
     return []
   }
-  if (keepIndex != null && keepIndex < 0) {
-    keepIndex = undefined
-  }
+
+  const kept = (
+    keepIndices == null ? [] : Array.isArray(keepIndices) ? keepIndices : [keepIndices]
+  ).filter((index) => index >= 0)
 
   const totalWidthUnits = widths.reduce((sum, current) => sum + current, 0)
   const excessWidthUnits = totalWidthUnits - widgetWidthSubdivisions
@@ -1189,13 +1261,13 @@ export function resolveWidths(
   const indices = widths.map((_, index) => index)
 
   let adjusted: number[]
-  if (keepIndex == null) {
+  if (kept.length === 0) {
     adjusted = indices
   } else {
     if (adjustMode === 'after') {
-      adjusted = indices.slice(keepIndex + 1)
+      adjusted = indices.slice(Math.max(...kept) + 1)
     } else {
-      adjusted = indices.filter((index) => index !== keepIndex)
+      adjusted = indices.filter((index) => !kept.includes(index))
     }
   }
 
@@ -1211,12 +1283,12 @@ export function resolveWidths(
 
 export function resolveWidgetWidths(
   widgets: Widget[],
-  keepIndex?: number,
+  keepIndices?: number | number[],
   adjustMode: 'after' | 'other' = 'other'
 ) {
   const resolved = resolveWidths(
     widgets.map((widget) => widget.width),
-    keepIndex,
+    keepIndices,
     adjustMode
   )
 
@@ -1284,101 +1356,113 @@ function planIsCurrent(plan: WidgetMovePlan, layout: WidgetRow[]): boolean {
   return Object.entries(plan.widths).every(([widgetId, width]) => widths.get(widgetId) === width)
 }
 
-/** Work out the layout that moving one widget to `placement` produces, changing nothing.
+/** Work out the layout that moving `ids` to `placement` produces, changing nothing.
 
-A null `placement` plans the removal alone, which is the layout to show while a widget is in hand
-with nowhere yet chosen for it. Returns null when the layout holds no such widget, or when the
+Widgets in hand keep the rows they came from when the drop opens rows of its own, so a block of a
+workspace taken from several rows arrives with the shape it had. A drop into an existing row has
+only the one row to arrive in, so the whole selection goes there side by side.
+
+A null `placement` plans the removal alone, which is the layout to show while widgets are in hand
+with nowhere yet chosen for them. Returns null when the layout holds none of `ids`, or when the
 placement names a row that is not there to drop into.
 */
-export function planWidgetMove(
+export function planWidgetsMove(
   layout: WidgetRow[],
-  id: string,
+  ids: string[],
   placement: WidgetPlacement | null
 ): WidgetMovePlan | null {
-  let fromRow = -1
-  let fromColumn = -1
-  for (const [index, row] of layout.entries()) {
-    const column = row.widgets.findIndex((widget) => widget.id === id)
-    if (column !== -1) {
-      fromRow = index
-      fromColumn = column
-      break
-    }
-  }
+  const held = new Set(ids)
+  const widths: Record<string, number> = {}
 
-  if (fromRow === -1) {
+  // What is in hand, grouped by the row each part of it came from, both in layout order. A group
+  // is what becomes a row again when the drop opens rows rather than joining one.
+  const groups: { row: WidgetRow; widgets: Widget[]; consumed: boolean }[] = []
+
+  // Taking the widgets out comes first, so a placement means the same thing here as it did to the
+  // hand that chose it.
+  const rows = layout.map((row) => {
+    const taken = row.widgets.filter((widget) => held.has(widget.id))
+    const remaining = row.widgets.filter((widget) => !held.has(widget.id))
+
+    if (taken.length > 0) {
+      groups.push({ row, widgets: taken, consumed: remaining.length === 0 })
+
+      const resolved = resolveWidths(remaining.map((widget) => widget.width))
+      for (const [index, widget] of remaining.entries()) {
+        widths[widget.id] = resolved[index]
+      }
+    }
+
+    return {
+      id: row.id,
+      height: row.height,
+      collapsed: row.collapsed,
+      widgets: remaining.map((widget) => widget.id),
+    }
+  })
+
+  if (groups.length === 0) {
     return null
   }
 
-  const sourceRow = layout[fromRow]
-  const widget = sourceRow.widgets[fromColumn]
-  const widths: Record<string, number> = {}
-
-  // Taking the widget out comes first, so a placement means the same thing here as it did to the
-  // hand that chose it.
-  let rows = layout.map((row) => ({
-    id: row.id,
-    height: row.height,
-    collapsed: row.collapsed,
-    widgets: row.widgets.map((current) => current.id),
-  }))
-  rows[fromRow].widgets.splice(fromColumn, 1)
-
-  const remaining = sourceRow.widgets.filter((_, index) => index !== fromColumn)
-  const remainingWidths = resolveWidths(remaining.map((current) => current.width))
-  for (const [index, current] of remaining.entries()) {
-    widths[current.id] = remainingWidths[index]
-  }
-
-  const wasAlone = remaining.length === 0
-  rows = rows.filter((row) => row.widgets.length > 0)
-
+  const kept = rows.filter((row) => row.widgets.length > 0)
   if (placement == null) {
-    return { rows, widths }
+    return { rows: kept, widths }
   }
 
   if (placement.column == null) {
-    // A widget that had a row to itself and is dropped back at that row's seam belongs to the row
-    // it came from, which keeps the move from reading as an edit.
-    const isSourceRow = wasAlone && placement.row === fromRow
+    const opened = groups.map((group) => {
+      const resolved = resolveWidths(group.widgets.map((widget) => widget.width))
+      for (const [index, widget] of group.widgets.entries()) {
+        widths[widget.id] = resolved[index]
+      }
 
-    rows.splice(placement.row, 0, {
-      id: isSourceRow ? sourceRow.id : v7(),
-      height: sourceRow.height,
-      collapsed: sourceRow.collapsed,
-      widgets: [id],
+      return {
+        // A row the move empties is gone, which frees its ID for the row taking its place. Reusing
+        // it is what lets a selection dropped back where it started read as no change at all.
+        id: group.consumed ? group.row.id : v7(),
+        height: group.row.height,
+        collapsed: group.row.collapsed,
+        widgets: group.widgets.map((widget) => widget.id),
+      }
     })
-    widths[id] = widgetWidthSubdivisions
 
-    return { rows, widths }
+    kept.splice(placement.row, 0, ...opened)
+    return { rows: kept, widths }
   }
 
-  const destinationRow = rows[placement.row] ?? null
+  const destinationRow = kept[placement.row] ?? null
   if (destinationRow == null) {
     return null
   }
 
-  destinationRow.widgets.splice(placement.column, 0, id)
-  destinationRow.height = Math.max(destinationRow.height, sourceRow.height)
-
-  // The widget claims no more than an even share of the row it joins, and the widgets already
-  // there give up the difference. Rejoining the row it came from works out to the widths that row
-  // already had, since its share is the one it just gave up.
-  const currentWidths = new Map(
-    layout.flatMap((row) => row.widgets).map((current) => [current.id, current.width])
+  const carried = groups.flatMap((group) => group.widgets)
+  destinationRow.widgets.splice(placement.column, 0, ...carried.map((widget) => widget.id))
+  destinationRow.height = Math.max(
+    destinationRow.height,
+    ...groups.map((group) => group.row.height)
   )
-  const claimed = Math.min(widgetWidthSubdivisions / destinationRow.widgets.length, widget.width)
+
+  // Each arriving widget claims no more than an even share of the row it joins, and the widgets
+  // already there give up the difference. Rejoining the row it came from works out to the widths
+  // that row already had, since its share is the one it just gave up.
+  const currentWidths = new Map(
+    layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget.width])
+  )
+  const share = widgetWidthSubdivisions / destinationRow.widgets.length
   const resolved = resolveWidths(
-    destinationRow.widgets.map((widgetId) =>
-      widgetId === id ? claimed : currentWidths.get(widgetId) ?? 0
-    ),
-    placement.column
+    destinationRow.widgets.map((widgetId) => {
+      const width = currentWidths.get(widgetId) ?? 0
+
+      return held.has(widgetId) ? Math.min(share, width) : width
+    }),
+    carried.map((_, offset) => (placement.column ?? 0) + offset)
   )
   for (const [index, widgetId] of destinationRow.widgets.entries()) {
     widths[widgetId] = resolved[index]
   }
 
-  return { rows, widths }
+  return { rows: kept, widths }
 }
 
 // Build a value that changes whenever any of a widget's address-bearing fields change. Used to
