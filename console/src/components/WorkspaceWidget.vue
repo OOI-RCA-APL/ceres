@@ -1,8 +1,8 @@
 <script lang="ts" setup>
-import { QPopupEdit } from 'quasar'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
+import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vue'
 import icons from '@/icons'
@@ -18,7 +18,10 @@ const { widget } = defineProps<{
 
 const workspace = useWorkspace()
 const preferences = usePreferences()
-const popupEdit = $ref<QPopupEdit | null>(null)
+
+// Renaming is reached deliberately, by double-clicking the name or from the widget's menu, since a
+// single press on the header is what picks the widget out and takes hold of it.
+let isEditingName = $ref(false)
 
 const info = $computed(() => getWidgetInfo(widget.type))
 const settingsComponent = $computed(() => {
@@ -120,29 +123,16 @@ watch(
     >
       <div class="items-center no-wrap row">
         <div>
-          <common-text :class="$style.name" variant="th" @mousedown.stop @touchstart.stop>
-            {{ widget.name }}
-            <q-popup-edit
-              ref="popupEdit"
-              v-slot="scope"
-              v-model="widget.name"
-              auto-save
-              :class="$style.popupEdit"
-              self="top left"
-            >
-              <q-card bordered class="q-pa-sm" flat style="max-width: 200px">
-                <q-input
-                  v-model.trim="scope.value"
-                  autofocus
-                  clearable
-                  dense
-                  filled
-                  label="Widget Name"
-                  @clear="scope.value = ''"
-                  @keyup.enter="scope.set()"
-                />
-              </q-card>
-            </q-popup-edit>
+          <common-text
+            :class="[$style.name, isEditingName && $style.editingName]"
+            variant="th"
+            @dblclick.stop="isEditingName = true"
+          >
+            <inline-name-edit
+              v-model:editing="isEditingName"
+              :name="widget.name"
+              @rename="(value: string) => (widget.name = value)"
+            />
           </common-text>
         </div>
         <div v-if="settingsComponent != null">
@@ -184,7 +174,7 @@ watch(
           >
             <q-menu anchor="top right" :offset="[8, 0]" self="top left">
               <q-list bordered>
-                <q-item v-close-popup clickable dense @click="popupEdit?.show()">
+                <q-item v-close-popup clickable dense @click="isEditingName = true">
                   <q-item-section avatar>
                     <q-icon :name="icons.rename" />
                   </q-item-section>
@@ -316,7 +306,17 @@ watch(
 }
 
 .name {
-  cursor: text;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// A name being edited is not truncated, since the ellipsis that keeps a header tidy would clip the
+// text being typed and the caret with it. The field grows with what is typed.
+.editingName {
+  max-width: none;
+  overflow: visible;
 }
 
 .name:hover {
@@ -329,11 +329,6 @@ watch(
 
 :global(.dark) .content {
   background-color: $darker;
-}
-
-.popupEdit {
-  box-shadow: unset !important;
-  padding: 0 !important;
 }
 
 .editDialog {
