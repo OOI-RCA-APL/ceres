@@ -356,6 +356,15 @@ function resolveAllWidgetWidths() {
   }
 }
 
+// The widget whose edge is being dragged, while it is being dragged. Every widget in that row is
+// resized by it, so the whole row says its share for as long as it lasts.
+let resizing = $ref<Widget | null>(null)
+
+/** A widget's share of the row it is in, which is what a horizontal resize actually sets. */
+function getWidgetShare(widget: Widget) {
+  return `${Math.round((widget.width / widgetWidthSubdivisions) * 100)}%`
+}
+
 function isHeld(widget: Widget) {
   return drop.active && workspace.drag?.widgets.some((held) => held.id === widget.id) === true
 }
@@ -524,8 +533,10 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
                   direction="horizontal"
                   :min="100"
                   :model-value="(widget.width / widgetWidthSubdivisions) * layoutWidth"
+                  :readout="false"
                   :step="1 / widgetWidthSubdivisions"
                   visibility="hover"
+                  @update:dragging="(dragging: boolean) => (resizing = dragging ? widget : null)"
                   @update:model-value="
                     (pixels) => {
                       if (layoutWidth == null) {
@@ -537,6 +548,21 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
                     }
                   "
                 />
+                <!-- Every widget in the row says its share while one of them is being sized, since
+                giving one width takes it from the others. The one under the hand is the one being
+                answered for, so the rest are said quietly. -->
+                <div
+                  v-if="resizing != null && row.widgets.includes(resizing)"
+                  :class="[
+                    $style.share,
+                    'items-center',
+                    'justify-center',
+                    'row',
+                    widget !== resizing && $style.shareQuiet,
+                  ]"
+                >
+                  <span :class="$style.shareValue">{{ getWidgetShare(widget) }}</span>
+                </div>
                 <workspace-widget-placeholder v-if="isHeld(widget)" :widget="widget" />
                 <workspace-widget v-else :column="j" :container="row" :row="i" :widget="widget" />
               </div>
@@ -647,6 +673,42 @@ $fade: 210ms;
   border-radius: 2px;
   background-color: $primary;
   pointer-events: none;
+}
+
+// Laid over the widget rather than beside it, so the number sits on the thing it is the width of
+// and the widget behind is dimmed to leave the row reading as a set of shares.
+.share {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.shareValue {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.shareQuiet {
+  opacity: 0.55;
+}
+
+:global(.dark) .share {
+  background-color: #000000a6;
+}
+
+:global(.dark) .shareValue {
+  color: #ffffffd9;
+}
+
+:global(.light) .share {
+  background-color: #ffffffbf;
+}
+
+:global(.light) .shareValue {
+  color: #000000a6;
 }
 
 .shortcut {

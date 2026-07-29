@@ -10,6 +10,7 @@ const {
   max,
   step,
   visibility = 'always',
+  readout = true,
 } = defineProps<{
   direction: 'vertical' | 'horizontal'
   modelValue: number
@@ -17,10 +18,19 @@ const {
   max?: number
   visibility?: 'hidden' | 'hover' | 'always'
   step?: number
+
+  /** Whether to trail the size in pixels beside the cursor.
+
+  Turned off where what is being sized is better said some other way than in pixels, and the caller
+  says it itself while `dragging` is true.
+  */
+  readout?: boolean
 }>()
 
 const emit = defineEmits<{
   (emit: 'update:modelValue', modelValue: number): void
+  /** Whether a size is being dragged out right now, for a caller that draws its own readout. */
+  (emit: 'update:dragging', dragging: boolean): void
 }>()
 
 type Vector = { x: number; y: number }
@@ -74,6 +84,7 @@ function onPointerDown(event: PointerEvent) {
     end: { x: event.pageX, y: event.pageY },
   }
   pointer = { x: event.clientX, y: event.clientY }
+  emit('update:dragging', true)
 
   window.addEventListener('pointerup', onPointerUp)
   window.addEventListener('pointermove', onPointerMove)
@@ -106,6 +117,7 @@ function onPointerUp(event: PointerEvent) {
 
   drag = null
   pointer = null
+  emit('update:dragging', false)
   window.removeEventListener('pointerup', onPointerUp)
   window.removeEventListener('pointerup', onPointerMove)
 }
@@ -147,7 +159,7 @@ onUnmounted(() => {
     cut the readout off at the edge of the widget being sized. -->
     <teleport to="body">
       <div
-        v-if="pointer != null"
+        v-if="readout && pointer != null"
         :class="[$style.readout, $q.dark.isActive && $style.readoutDark]"
         :style="{ left: `${pointer.x}px`, top: `${pointer.y}px` }"
       >
