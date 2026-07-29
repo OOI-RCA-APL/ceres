@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::error::{Problem, Problems};
+use crate::logging::{LoggingConfig, RawLoggingConfig};
 use crate::server::{RawServerConfig, ServerConfig};
 use crate::types::{ConsoleConfig, RawConsoleConfig, RawServiceConfig, ServiceConfig};
 
@@ -17,6 +18,7 @@ pub struct ConfigMeta {
     pub service: ServiceConfig,
     pub console: ConsoleConfig,
     pub server: ServerConfig,
+    pub logging: LoggingConfig,
 }
 
 /// The raw deserialized form of [`ConfigMeta`].
@@ -26,6 +28,7 @@ struct RawConfigMeta {
     service: Option<serde_yaml_ng::Value>,
     console: Option<serde_yaml_ng::Value>,
     server: Option<serde_yaml_ng::Value>,
+    logging: Option<serde_yaml_ng::Value>,
 }
 
 impl ConfigMeta {
@@ -66,11 +69,17 @@ impl ConfigMeta {
         );
         let server =
             validate_section::<RawServerConfig, ServerConfig>(raw.server, "server", &mut problems);
+        let logging = validate_section::<RawLoggingConfig, LoggingConfig>(
+            raw.logging,
+            "logging",
+            &mut problems,
+        );
 
         problems.into_result(Self {
             service,
             console,
             server,
+            logging,
         })
     }
 }

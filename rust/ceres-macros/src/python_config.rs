@@ -330,6 +330,9 @@ fn expand_class(definition: &ClassDefinition) -> TokenStream {
             #(#getters)*
 
             /// Return the configuration as a plain dictionary of JSON-compatible values.
+            ///
+            /// Called through `ceres.data.to_dict` rather than directly.
+            #[pyo3(name = "__to_dict__")]
             #[gen_stub(override_return_type(type_repr = "dict[str, typing.Any]"))]
             fn to_dict(
                 &self,
@@ -339,7 +342,10 @@ fn expand_class(definition: &ClassDefinition) -> TokenStream {
             }
 
             /// Return the JSON Schema describing this configuration section.
+            ///
+            /// Called through `ceres.data.to_json_schema` rather than directly.
             #[staticmethod]
+            #[pyo3(name = "__json_schema__")]
             #[gen_stub(override_return_type(type_repr = "dict[str, typing.Any]"))]
             fn json_schema(
                 py: ::pyo3::Python<'_>,

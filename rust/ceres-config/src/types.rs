@@ -64,6 +64,7 @@ fn validate_name(value: Option<String>, field: &str, problems: &mut Problems) ->
 /// Process-level options applied when running the engine as a system service.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
+#[schemars(title = "ServiceConfig")]
 pub struct RawServiceConfig {
     /// Service name registered with the operating system.
     pub name: Option<String>,
@@ -107,6 +108,7 @@ impl TryFrom<RawServiceConfig> for ServiceConfig {
 /// Branding and layout options for the engine's web console.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
+#[schemars(title = "ConsoleConfig")]
 pub struct RawConsoleConfig {
     /// Title shown in the console's browser tab and header.
     pub title: Option<String>,

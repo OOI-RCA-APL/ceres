@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from enum import Enum
 
     from asgiref.typing import WebSocketReceiveEvent
+    from ceres_core import ServerAuthenticationConfig
     from pydantic.main import IncEx
 
     from ceres.__internal__.app.main import App
@@ -46,8 +47,6 @@ if TYPE_CHECKING:
     from ceres.access import ResolvedAccess
     from ceres.address import Address
     from ceres.component import Component, ComponentAccessLevel, ComponentSystem
-    from ceres_core import ServerAuthenticationConfig
-
     from ceres.engine import Engine
     from ceres.message import BoundMessageManager, MessageFilter
     from ceres.record import Record

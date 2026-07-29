@@ -3,6 +3,11 @@
 [build]
 build-dir = "{cargo-cache-home}/build/{workspace-path-hash}"
 
+# Compile the extension module and regenerate its Python type stubs in one step. `make fix`
+# and `make build` run this too, and CI fails when committed stubs drift.
+[alias]
+stubs = "build -p ceres-stubs"
+
 # Python extension modules leave interpreter symbols unresolved until import time. Maturin
 # passes these linker arguments itself, this covers plain cargo build/test/clippy on macOS.
 [target.aarch64-apple-darwin]

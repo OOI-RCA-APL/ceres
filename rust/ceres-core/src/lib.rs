@@ -9,6 +9,7 @@
 //! by the `stub_gen` binary. Regenerate them after changing the module's surface.
 
 pub mod interop;
+pub mod logging;
 
 use std::path::PathBuf;
 
@@ -142,6 +143,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ServerCORSConfig>()?;
     module.add_class::<ServerCompressionConfig>()?;
     module.add_class::<ServerConfig>()?;
+    module.add_class::<logging::LoggingConfig>()?;
     Ok(())
 }
 

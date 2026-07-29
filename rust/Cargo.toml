@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["ceres-cli", "ceres-config", "ceres-core", "ceres-macros"]
+members = ["ceres-cli", "ceres-config", "ceres-core", "ceres-macros", "ceres-stubs"]
+
+# The extension module builds through maturin and as `ceres-stubs`'s build dependency. Leaving
+# it out of the default set keeps those the only builds, because a third one in the same
+# invocation collides with the build-dependency copy on identical output filenames.
+default-members = ["ceres-cli", "ceres-config", "ceres-macros", "ceres-stubs"]
 
 [workspace.package]
 edition = "2024"

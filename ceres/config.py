@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
 from ceres_core import ConsoleConfig as _CoreConsoleConfig
+from ceres_core import LoggingConfig as _CoreLoggingConfig
 from ceres_core import ServerAuthenticationConfig as _CoreServerAuthenticationConfig
 from ceres_core import ServerCompressionConfig as _CoreServerCompressionConfig
 from ceres_core import ServerConfig as _CoreServerConfig
@@ -88,32 +89,65 @@ __all__ = [
 ]
 
 
-class LoggingConfig(DataObject):
+def _level_or_bool(value: bool | str) -> bool | Level:
+    """Convert a native toggle value into its Python form."""
+    if isinstance(value, bool):
+        return value
+
+    return Level(value)
+
+
+class LoggingConfig(RustConfigModel, _CoreLoggingConfig):
     """Per-component or per-engine logging configuration.
 
-    Each field controls a different sink, `output` and `store` set minimum levels for
-    the streamed and persisted log streams, the boolean-or-level fields enable optional
-    logging of specific record types and accept either a level (enable at that level) or
-    a boolean (enable at the default level when `True`, disable when `False`).
+    The fields and their validation live in the native `ceres_core.LoggingConfig`, this
+    subclass wires the class into Pydantic and converts level values into `Level`. Each field
+    controls a different sink, `output` and `store` set minimum levels for the streamed and
+    persisted log streams, the boolean-or-level fields enable optional logging of specific
+    record types and accept either a level (enable at that level) or a boolean (enable at the
+    default level when `True`, disable when `False`).
     """
 
-    output: Level = Level.INFO
-    """Minimum severity that reaches the engine's streamed log output."""
+    if TYPE_CHECKING:
 
-    store: Level = Level.DEBUG
-    """Minimum severity persisted to the engine's log store."""
+        @property
+        @override
+        def output(self) -> Level: ...
 
-    events: bool | Level = True
-    """Whether to log events, or the minimum severity to log them at."""
+        @property
+        @override
+        def store(self) -> Level: ...
 
-    messages: bool | Level = False
-    """Whether to log raw connection messages, or the minimum severity to log them at."""
+        @property
+        @override
+        def events(self) -> bool | Level: ...
 
-    particles: bool | Level = False
-    """Whether to log parsed particles, or the minimum severity to log them at."""
+        @property
+        @override
+        def messages(self) -> bool | Level: ...
 
-    alerts: bool | Level = False
-    """Whether to log alerts, or the minimum severity to log them at."""
+        @property
+        @override
+        def particles(self) -> bool | Level: ...
+
+        @property
+        @override
+        def alerts(self) -> bool | Level: ...
+
+    __field_wrappers__ = {
+        "output": Level,
+        "store": Level,
+        "events": _level_or_bool,
+        "messages": _level_or_bool,
+        "particles": _level_or_bool,
+        "alerts": _level_or_bool,
+    }
+
+    @override
+    def merged(self, other: _CoreLoggingConfig) -> Self:
+        """Overlay another configuration's explicitly-set fields onto this one."""
+        combined = _CoreLoggingConfig.merged(self, other)
+        return type(self)(**combined.provided())
 
 
 class JobConfig(DataObject):

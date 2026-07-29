@@ -199,6 +199,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceres-stubs"
+version = "0.0.0"
+dependencies = [
+ "ceres-core",
+ "pyo3-stub-gen",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

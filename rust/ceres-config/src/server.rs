@@ -15,6 +15,7 @@ pub const TLS_SERVER_PROTOCOL: i64 = 17;
 /// TLS configuration for the engine's HTTP server.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
+#[schemars(title = "ServerSslConfig")]
 pub struct RawServerSslConfig {
     /// Path to the server private key file.
     pub key: Option<PathBuf>,
@@ -71,6 +72,7 @@ impl TryFrom<RawServerSslConfig> for ServerSslConfig {
 /// Authentication settings for the engine's HTTP server.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
+#[schemars(title = "ServerAuthenticationConfig")]
 pub struct RawServerAuthenticationConfig {
     /// Secret used to sign and verify authentication tokens.
     pub secret: Option<String>,
@@ -118,6 +120,7 @@ impl TryFrom<RawServerAuthenticationConfig> for ServerAuthenticationConfig {
 /// Cross-origin resource sharing settings for the engine's HTTP server.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
+#[schemars(title = "ServerCorsConfig")]
 pub struct RawServerCorsConfig {
     pub enabled: Option<bool>,
     pub allow_origins: Option<MaybeSequence<String>>,
@@ -198,6 +201,7 @@ impl TryFrom<RawServerCorsConfig> for ServerCorsConfig {
 /// Response compression settings for the engine's HTTP server.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
+#[schemars(title = "ServerCompressionConfig")]
 pub struct RawServerCompressionConfig {
     pub enabled: Option<bool>,
 
@@ -292,6 +296,7 @@ impl TryFrom<RawServerCompressionConfig> for ServerCompressionConfig {
 /// Configuration for the engine's HTTP server.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
+#[schemars(title = "ServerConfig")]
 pub struct RawServerConfig {
     /// Address the server binds to.
     pub host: Option<String>,

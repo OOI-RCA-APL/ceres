@@ -590,6 +590,26 @@ def validate_yaml[T](
     return validate(ty, parsed, _namespace=_namespace, **kwargs)
 
 
+def to_json_schema(ty: TypeInput, /, _namespace: int = -3) -> dict[str, Any]:
+    """Return the JSON Schema describing a type.
+
+    Natively-backed types carry their own schema and expose it through `__json_schema__`.
+    Every other type derives its schema through Pydantic.
+
+    Args:
+        ty: The type to describe.
+        _namespace: Parent frame depth for forward reference resolution.
+
+    Returns:
+        The JSON Schema as a plain dictionary.
+    """
+    native = getattr(ty, "__json_schema__", None)
+    if native is not None:
+        return native()
+
+    return adapt(ty, _namespace=_namespace).json_schema()
+
+
 @overload
 def validated_type[T: TypeInput[Any]](
     ty: T, mode: Literal["before"] = "before"

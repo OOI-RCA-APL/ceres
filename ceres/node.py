@@ -10,7 +10,6 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.__internal__.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import concurrently, sleep
-from ceres.data import replacing
 from ceres.error import trace
 from ceres.event import (
     ConnectedEvent,
@@ -198,7 +197,7 @@ class Node(Tasklet, NodeSource):
         if container is not None:
             inherited = container.get_resolved_logging_config()
             if inherited is not None:
-                return replacing(inherited, local)
+                return inherited.merged(local) if local is not None else inherited
 
         return local
 

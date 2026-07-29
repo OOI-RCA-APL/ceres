@@ -10,12 +10,14 @@
 //! because its schema is defined by user code.
 
 mod error;
+mod logging;
 mod meta;
 mod server;
 mod types;
 mod values;
 
 pub use error::{Problem, Problems};
+pub use logging::{Level, LogToggle, LoggingConfig, RawLoggingConfig};
 pub use meta::ConfigMeta;
 pub use server::{
     RawServerAuthenticationConfig, RawServerCompressionConfig, RawServerConfig,

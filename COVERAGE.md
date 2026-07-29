@@ -13,7 +13,7 @@
 | `ceres/__internal__/database/writer.py` | 86% |
 | `ceres/__internal__/entity.py` | 91% |
 | `ceres/__internal__/filter.py` | 93% |
-| `ceres/__internal__/interop.py` | 75% |
+| `ceres/__internal__/interop.py` | 74% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |
 | `ceres/__internal__/project.py` | 52% |
@@ -44,7 +44,7 @@
 | `ceres/channel.py` | 92% |
 | `ceres/component.py` | 85% |
 | `ceres/concurrency.py` | 91% |
-| `ceres/config.py` | 79% |
+| `ceres/config.py` | 78% |
 | `ceres/connection/__init__.py` | 61% |
 | `ceres/connection/buffer.py` | 80% |
 | `ceres/connection/source.py` | 90% |
@@ -53,8 +53,8 @@
 | `ceres/constants.py` | 100% |
 | `ceres/data/__init__.py` | 100% |
 | `ceres/data/binary.py` | 90% |
-| `ceres/data/converters.py` | 100% |
-| `ceres/data/object.py` | 78% |
+| `ceres/data/converters.py` | 94% |
+| `ceres/data/object.py` | 75% |
 | `ceres/data/types.py` | 99% |
 | `ceres/data/uuid.py` | 77% |
 | `ceres/database/__init__.py` | 100% |
