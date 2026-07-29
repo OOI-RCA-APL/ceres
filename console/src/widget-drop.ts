@@ -32,11 +32,12 @@ const edgeMargin = 40
 
 /** How far past the first and last rows a drop still lands at the seam over or under them.
 
-Every other seam is a gap with a row on each side to reach it from. Those two have a row on one
-side only, so they are given the room the missing side would have offered and more, which makes
-them no harder to drop into than the seams between rows.
+Every other seam is a gap with a row on each side to reach it from, and overshooting one lands in
+the row beyond it. These two have nothing beyond them to overshoot into, so all the empty page over
+the first row and under the last belongs to them, and a row can be opened at either end without
+having to find a gap at all.
 */
-const outerReach = 96
+const outerReach = 240
 
 /** How long a target is held before the layout opens for it.
 
