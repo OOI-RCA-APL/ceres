@@ -11,7 +11,7 @@ from tempfile import gettempdir
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Self, final, override
 
-from ceres_core import RecordFetcher
+from ceres_core import RecordFetcher, RecordWriter
 from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -185,6 +185,14 @@ class Database:
         The fetcher serves record listings without materializing Python entities. Backends
         opt in by overriding, and return `None` whenever a second connection pool cannot
         safely join this database.
+        """
+        return None
+
+    def _record_writer(self) -> RecordWriter | None:
+        """Return a natively-connected record writer, or `None` when unsupported.
+
+        The writer upserts flushed record batches without serializing Python entities
+        through Pydantic. The same joinability rules as `_record_fetcher` apply.
         """
         return None
 
@@ -692,6 +700,18 @@ class SQLiteDatabase(Database):
 
         return fetcher
 
+    @override
+    def _record_writer(self) -> RecordWriter | None:
+        if self.config.is_memory:
+            return None
+
+        writer = getattr(self, "_native_record_writer", None)
+        if writer is None:
+            writer = RecordWriter.sqlite(str(self.path))
+            self._native_record_writer = writer
+
+        return writer
+
     @property
     def path(self) -> Path:
         """Filesystem path of the SQLite database file.
@@ -860,6 +880,11 @@ class TursoDatabase(SQLiteDatabase):
         # fetcher arrives with the Turso crate.
         return None
 
+    @override
+    def _record_writer(self) -> RecordWriter | None:
+        # Withheld for the same reasons as the fetcher, and doubly so for writes.
+        return None
+
     @property
     @override
     def url(self) -> str:
@@ -1001,36 +1026,57 @@ class PostgresDatabase(Database):
         assert isinstance(config, PostgresDatabaseConfig)
         return config
 
-    @override
-    def _record_fetcher(self) -> RecordFetcher | None:
-        fetcher = getattr(self, "_native_record_fetcher", None)
-        if fetcher is not None:
-            return fetcher
+    def _native_connection_arguments(self) -> dict[str, Any] | None:
+        """Resolve the arguments a native pool connects with, or `None` when it cannot.
 
+        Connection string query parameters are driver-specific and do not reach the native
+        pool. Per-connection server settings like `search_path` shape what queries see, so
+        they are forwarded, while any other connection argument is unknown to the native
+        pool and guessing would silently change query behavior.
+        """
         config = self.config
         if config.query:
-            # Connection string query parameters are driver-specific and do not reach the
-            # native pool, so a database configured with them keeps the query layer.
             return None
 
-        # Per-connection server settings like `search_path` shape what queries see, so the
-        # native pool has to carry the same ones. Any other connection argument is unknown
-        # to it, and guessing would silently change query behavior.
         connect_args: dict[str, Any] = config.engine.get("connect_args", {})
         if set(connect_args) - {"server_settings"}:
             return None
 
         settings: dict[str, str] = connect_args.get("server_settings", {})
-        fetcher = RecordFetcher.postgres(
-            config.host,
-            config.database,
-            config.user,
-            port=config.port,
-            password=config.password.get_secret_value() if config.password is not None else None,
-            settings=list(settings.items()),
-        )
-        self._native_record_fetcher = fetcher
+        return {
+            "host": config.host,
+            "database": config.database,
+            "user": config.user,
+            "port": config.port,
+            "password": config.password.get_secret_value() if config.password is not None else None,
+            "settings": list(settings.items()),
+        }
+
+    @override
+    def _record_fetcher(self) -> RecordFetcher | None:
+        fetcher = getattr(self, "_native_record_fetcher", None)
+        if fetcher is None:
+            arguments = self._native_connection_arguments()
+            if arguments is None:
+                return None
+
+            fetcher = RecordFetcher.postgres(**arguments)
+            self._native_record_fetcher = fetcher
+
         return fetcher
+
+    @override
+    def _record_writer(self) -> RecordWriter | None:
+        writer = getattr(self, "_native_record_writer", None)
+        if writer is None:
+            arguments = self._native_connection_arguments()
+            if arguments is None:
+                return None
+
+            writer = RecordWriter.postgres(**arguments)
+            self._native_record_writer = writer
+
+        return writer
 
     @property
     @override

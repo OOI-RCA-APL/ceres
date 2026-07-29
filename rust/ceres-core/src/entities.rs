@@ -13,7 +13,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
@@ -32,20 +32,15 @@ pub struct RecordBatch {
 impl RecordBatch {
     /// Parse database row mappings into a native batch.
     ///
-    /// `table` selects the record type by its table name. Row values arrive through the
-    /// database layer's column mappers, so they are trusted rather than revalidated here.
+    /// Row values arrive through the database layer's column mappers, so they are trusted
+    /// rather than revalidated here.
     #[staticmethod]
-    fn parse(table: &str, rows: Vec<Bound<'_, PyAny>>) -> PyResult<Self> {
+    fn parse(table: RecordTable, rows: Vec<Bound<'_, PyAny>>) -> PyResult<Self> {
         let records = match table {
-            "messages" => Records::Messages(parse_rows(&rows, parse_message)?),
-            "particles" => Records::Particles(parse_rows(&rows, parse_particle)?),
-            "alerts" => Records::Alerts(parse_rows(&rows, parse_alert)?),
-            "logs" => Records::LogEntries(parse_rows(&rows, parse_log_entry)?),
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "{other:?} is not a record table"
-                )));
-            }
+            RecordTable::Messages => Records::Messages(parse_rows(&rows, parse_message)?),
+            RecordTable::Particles => Records::Particles(parse_rows(&rows, parse_particle)?),
+            RecordTable::Alerts => Records::Alerts(parse_rows(&rows, parse_alert)?),
+            RecordTable::Logs => Records::LogEntries(parse_rows(&rows, parse_log_entry)?),
         };
 
         Ok(Self { records })
@@ -63,20 +58,15 @@ impl RecordBatch {
     #[staticmethod]
     fn record_to_json<'py>(
         py: Python<'py>,
-        table: &str,
+        table: RecordTable,
         record: &Bound<'_, PyAny>,
     ) -> PyResult<Bound<'py, PyBytes>> {
         let source = Source::Entity(record);
         let serialized = match table {
-            "messages" => serde_json::to_vec(&parse_message(&source)?),
-            "particles" => serde_json::to_vec(&parse_particle(&source)?),
-            "alerts" => serde_json::to_vec(&parse_alert(&source)?),
-            "logs" => serde_json::to_vec(&parse_log_entry(&source)?),
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "{other:?} is not a record table"
-                )));
-            }
+            RecordTable::Messages => serde_json::to_vec(&parse_message(&source)?),
+            RecordTable::Particles => serde_json::to_vec(&parse_particle(&source)?),
+            RecordTable::Alerts => serde_json::to_vec(&parse_alert(&source)?),
+            RecordTable::Logs => serde_json::to_vec(&parse_log_entry(&source)?),
         };
         let serialized = serialized.map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(PyBytes::new(py, &serialized))
@@ -89,6 +79,51 @@ impl RecordBatch {
             .to_json_array()
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(PyBytes::new(py, &serialized))
+    }
+}
+
+/// One of the record tables, the selector native record operations dispatch on.
+#[gen_stub_pyclass_enum]
+#[pyclass(module = "ceres_core", eq, frozen, hash, rename_all = "UPPERCASE")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RecordTable {
+    Messages,
+    Particles,
+    Alerts,
+    Logs,
+}
+
+impl From<RecordTable> for ceres_database::RecordTable {
+    fn from(table: RecordTable) -> Self {
+        match table {
+            RecordTable::Messages => Self::Messages,
+            RecordTable::Particles => Self::Particles,
+            RecordTable::Alerts => Self::Alerts,
+            RecordTable::Logs => Self::Logs,
+        }
+    }
+}
+
+/// Parse live entity objects into natively-held records, for the write path.
+pub(crate) fn records_from_entities(
+    table: RecordTable,
+    entities: &[Bound<'_, PyAny>],
+) -> PyResult<Records> {
+    fn parse_all<T>(
+        entities: &[Bound<'_, PyAny>],
+        parse: fn(&Source<'_, '_>) -> PyResult<T>,
+    ) -> PyResult<Vec<T>> {
+        entities
+            .iter()
+            .map(|entity| parse(&Source::Entity(entity)))
+            .collect()
+    }
+
+    match table {
+        RecordTable::Messages => Ok(Records::Messages(parse_all(entities, parse_message)?)),
+        RecordTable::Particles => Ok(Records::Particles(parse_all(entities, parse_particle)?)),
+        RecordTable::Alerts => Ok(Records::Alerts(parse_all(entities, parse_alert)?)),
+        RecordTable::Logs => Ok(Records::LogEntries(parse_all(entities, parse_log_entry)?)),
     }
 }
 

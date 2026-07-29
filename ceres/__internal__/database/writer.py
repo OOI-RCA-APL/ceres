@@ -117,13 +117,14 @@ class Writer:
                 await previous.event.wait()
 
             database = self._database()
-            # Records arrive from many components at once and each flush writes rows nothing else
-            # is touching, which is exactly the shape a concurrent transaction suits. Backends
-            # without one ignore this.
-            with database.concurrent_transactions():
-                async with await database.use() as connection:
-                    await self._write_entities(database, connection, flush.entities)
-                    await connection.commit()
+            if not await self._write_natively(database, flush.entities):
+                # Records arrive from many components at once and each flush writes rows
+                # nothing else is touching, which is exactly the shape a concurrent
+                # transaction suits. Backends without one ignore this.
+                with database.concurrent_transactions():
+                    async with await database.use() as connection:
+                        await self._write_entities(database, connection, flush.entities)
+                        await connection.commit()
         except DatabaseError:
             if len(self._flushes) > 1:
                 next = self._flushes[1].entities
@@ -151,6 +152,52 @@ class Writer:
             return
 
         await self._settled.wait()
+
+    async def _write_natively(self, database: Database, entities: list[Entity]) -> bool:
+        """Write a whole flush through the native engine, or report that it cannot.
+
+        A flush is atomic, so it only goes native when every entity in it is an exact
+        record type the native engine holds. Anything else, including a native execution
+        failure, sends the entire flush down the query layer path instead, which keeps the
+        write correct and the failure handling in one place.
+        """
+        writer = database._record_writer()
+        if writer is None:
+            return False
+
+        from ceres_core import RecordTable
+
+        from ceres.alert import Alert
+        from ceres.logs import LogEntry
+        from ceres.message import Message
+        from ceres.particle import Particle
+
+        tables: dict[type, RecordTable] = {
+            Message: RecordTable.MESSAGES,
+            Particle: RecordTable.PARTICLES,
+            Alert: RecordTable.ALERTS,
+            LogEntry: RecordTable.LOGS,
+        }
+
+        groups: defaultdict[RecordTable, list[Entity]] = defaultdict(list)
+        for entity in entities:
+            table = tables.get(type(entity))
+            if table is None:
+                return False
+
+            groups[table].append(entity)
+
+        try:
+            await writer.write(list(groups.items()))
+        except (TypeError, ValueError) as error:
+            from ceres.logs import get_logger
+
+            get_logger("ceres.database").warning(
+                f"Native record write fell back to the query layer. {error}"
+            )
+            return False
+
+        return True
 
     async def _write_entities(
         self,

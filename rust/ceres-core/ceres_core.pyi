@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import timedelta
+from enum import Enum
 from os import PathLike
 from pathlib import Path
 from typing import Any, Self, final
@@ -18,6 +19,8 @@ __all__ = [
     "PostgresDatabaseConfig",
     "RecordBatch",
     "RecordFetcher",
+    "RecordTable",
+    "RecordWriter",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
     "ServerCORSConfig",
@@ -388,16 +391,16 @@ class RecordBatch:
     `to_json` as the API's wire format for a record listing.
     """
     @staticmethod
-    def parse(table: str, rows: Sequence[Any]) -> RecordBatch:
+    def parse(table: RecordTable, rows: Sequence[Any]) -> RecordBatch:
         r"""
         Parse database row mappings into a native batch.
 
-        `table` selects the record type by its table name. Row values arrive through the
-        database layer's column mappers, so they are trusted rather than revalidated here.
+        Row values arrive through the database layer's column mappers, so they are trusted
+        rather than revalidated here.
         """
     def __len__(self) -> int: ...
     @staticmethod
-    def record_to_json(table: str, record: Any) -> bytes:
+    def record_to_json(table: RecordTable, record: Any) -> bytes:
         r"""
         Serialize one live record entity as JSON in the API's wire format.
 
@@ -439,16 +442,50 @@ class RecordFetcher:
         `settings` are per-connection server settings like `search_path`, matching the ones
         the query layer passes its own driver.
         """
-    def fetch_sql(self, table: str, sql: str, parameters: list[Any]) -> Any:
+    def fetch_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> Any:
         r"""
         Execute a compiled record query, as an awaitable `RecordBatch`.
 
         The statement text and parameters come from the query layer's own compiler, so any
         filter it can express runs natively with identical semantics.
         """
-    def fetch(self, table: str, limit: int | None = None, offset: int | None = None) -> Any:
+    def fetch(self, table: RecordTable, limit: int | None = None, offset: int | None = None) -> Any:
         r"""
         Fetch a record listing ordered by timestamp, as an awaitable `RecordBatch`.
+        """
+
+@final
+class RecordWriter:
+    r"""
+    A natively-connected writer for record entities.
+
+    Entities extract into native records synchronously, then a whole flush upserts in one
+    transaction on the writer's own pool. Built from resolved connection parameters like
+    the fetcher, and matching the query layer's connection semantics.
+    """
+    @staticmethod
+    def sqlite(path: str) -> RecordWriter:
+        r"""
+        Open a writer over a SQLite database file.
+        """
+    @staticmethod
+    def postgres(
+        host: str,
+        database: str,
+        user: str,
+        port: int | None = None,
+        password: str | None = None,
+        settings: Sequence[tuple[str, str]] = [],
+    ) -> RecordWriter:
+        r"""
+        Open a writer over a PostgreSQL database, with per-connection server settings.
+        """
+    def write(self, groups: list[tuple[RecordTable, list[Any]]]) -> Any:
+        r"""
+        Upsert groups of record entities atomically, as an awaitable.
+
+        Each group pairs a record table name with the entities to write there. Raises
+        `ValueError` when an entity cannot extract natively, before anything writes.
         """
 
 class SQLiteDatabaseConfig:
@@ -944,3 +981,14 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
+
+@final
+class RecordTable(Enum):
+    r"""
+    One of the record tables, the selector native record operations dispatch on.
+    """
+
+    MESSAGES = ...
+    PARTICLES = ...
+    ALERTS = ...
+    LOGS = ...

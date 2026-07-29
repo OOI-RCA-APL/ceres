@@ -7,13 +7,13 @@
 
 use std::sync::Arc;
 
-use ceres_database::{Parameter, RecordStore, RecordTable};
+use ceres_database::{Parameter, RecordStore};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes as PyBytesType, PyFloat, PyInt, PyString};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::entities::RecordBatch;
+use crate::entities::{RecordBatch, RecordTable};
 
 /// Extract a compiled statement parameter, one of the primitives bind processors produce.
 fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
@@ -116,13 +116,13 @@ impl RecordFetcher {
     fn fetch_sql<'py>(
         &self,
         py: Python<'py>,
-        table: &str,
+        table: RecordTable,
         sql: String,
         #[gen_stub(override_type(type_repr = "list[typing.Any]"))] parameters: Vec<
             Bound<'_, PyAny>,
         >,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let table = RecordTable::parse(table).map_err(to_value_error)?;
+        let table = table.into();
         let parameters = parameters
             .iter()
             .map(extract_parameter)
@@ -142,11 +142,11 @@ impl RecordFetcher {
     fn fetch<'py>(
         &self,
         py: Python<'py>,
-        table: &str,
+        table: RecordTable,
         limit: Option<u64>,
         offset: Option<u64>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let table = RecordTable::parse(table).map_err(to_value_error)?;
+        let table = table.into();
         let store = self.store.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let records = store
@@ -160,4 +160,71 @@ impl RecordFetcher {
 
 fn to_value_error(error: ceres_database::Error) -> PyErr {
     PyValueError::new_err(error.to_string())
+}
+
+/// A natively-connected writer for record entities.
+///
+/// Entities extract into native records synchronously, then a whole flush upserts in one
+/// transaction on the writer's own pool. Built from resolved connection parameters like
+/// the fetcher, and matching the query layer's connection semantics.
+#[gen_stub_pyclass]
+#[pyclass(module = "ceres_core", frozen)]
+pub struct RecordWriter {
+    writer: Arc<ceres_database::RecordWriter>,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl RecordWriter {
+    /// Open a writer over a SQLite database file.
+    #[staticmethod]
+    fn sqlite(path: &str) -> PyResult<Self> {
+        // Pool construction spawns maintenance tasks, which needs the runtime's context.
+        let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
+        let writer = ceres_database::RecordWriter::sqlite(path).map_err(to_value_error)?;
+        Ok(Self {
+            writer: Arc::new(writer),
+        })
+    }
+
+    /// Open a writer over a PostgreSQL database, with per-connection server settings.
+    #[staticmethod]
+    #[pyo3(signature = (host, database, user, port=None, password=None, settings=Vec::new()))]
+    fn postgres(
+        host: &str,
+        database: &str,
+        user: &str,
+        port: Option<u16>,
+        password: Option<&str>,
+        settings: Vec<(String, String)>,
+    ) -> PyResult<Self> {
+        // Pool construction spawns maintenance tasks, which needs the runtime's context.
+        let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
+        let writer =
+            ceres_database::RecordWriter::postgres(host, port, database, user, password, settings)
+                .map_err(to_value_error)?;
+        Ok(Self {
+            writer: Arc::new(writer),
+        })
+    }
+
+    /// Upsert groups of record entities atomically, as an awaitable.
+    ///
+    /// Each group pairs a record table name with the entities to write there. Raises
+    /// `ValueError` when an entity cannot extract natively, before anything writes.
+    fn write<'py>(
+        &self,
+        py: Python<'py>,
+        #[gen_stub(override_type(type_repr = "list[tuple[RecordTable, list[typing.Any]]]"))]
+        groups: Vec<(RecordTable, Vec<Bound<'_, PyAny>>)>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let batches = groups
+            .iter()
+            .map(|(table, entities)| crate::entities::records_from_entities(*table, entities))
+            .collect::<PyResult<Vec<_>>>()?;
+        let writer = self.writer.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            writer.upsert(batches).await.map_err(to_value_error)
+        })
+    }
 }

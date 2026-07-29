@@ -9,6 +9,8 @@
 
 mod records;
 mod store;
+mod writer;
 
 pub use records::RecordTable;
 pub use store::{Error, Parameter, RecordStore};
+pub use writer::RecordWriter;

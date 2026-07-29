@@ -2017,6 +2017,7 @@ dependencies = [
  "chrono",
  "inherent",
  "sea-query-derive",
+ "serde_json",
  "uuid",
 ]
 
@@ -2028,6 +2029,7 @@ checksum = "b0019f47430f7995af63deda77e238c17323359af241233ec768aba1faea7608"
 dependencies = [
  "chrono",
  "sea-query",
+ "serde_json",
  "sqlx",
  "uuid",
 ]

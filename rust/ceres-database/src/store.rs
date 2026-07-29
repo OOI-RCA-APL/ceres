@@ -30,7 +30,7 @@ impl Parameter {
     /// The fraction appears only when the timestamp has sub-second precision, because that
     /// is how the driver's text binding behaves and comparisons against stored text have
     /// to collate identically.
-    fn timestamp_text(timestamp: &chrono::NaiveDateTime) -> String {
+    pub(crate) fn timestamp_text(timestamp: &chrono::NaiveDateTime) -> String {
         use chrono::Timelike;
 
         if timestamp.nanosecond() == 0 {

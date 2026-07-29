@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from ceres_core import RecordBatch
+from ceres_core import RecordBatch, RecordTable
 
 from ceres import Engine
 from ceres.address import Address
@@ -18,6 +18,13 @@ from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
 from ceres.particle import Particle, ParticleData
+
+RECORD_TABLES = {
+    Message: RecordTable.MESSAGES,
+    Particle: RecordTable.PARTICLES,
+    Alert: RecordTable.ALERTS,
+    LogEntry: RecordTable.LOGS,
+}
 
 
 async def _build_engine() -> Engine:
@@ -80,7 +87,7 @@ async def test_native_record_batches_serialize_identically_to_the_python_path() 
         assert entities, f"expected a written {Record.__name__}"
         expected = [json.loads(to_json(entity)) for entity in entities]
 
-        batch = RecordBatch.parse(Record.__entity_naming__.table, await query.mappings())
+        batch = RecordBatch.parse(RECORD_TABLES[Record], await query.mappings())
         native = json.loads(batch.to_json())
 
         assert native == expected
@@ -94,11 +101,11 @@ async def test_live_records_serialize_natively_like_pydantic() -> None:
 
     for Record in (Message, Particle, Alert, LogEntry):
         for entity in await engine.__manager__(Record).where():
-            native = RecordBatch.record_to_json(Record.__entity_naming__.table, entity)
+            native = RecordBatch.record_to_json(RECORD_TABLES[Record], entity)
             assert json.loads(native) == json.loads(to_json(entity))
 
     particle = Particle(address=Address("@sensor.temp"), type="sample", data={"a": 1}, span=(3, 17))
-    native = json.loads(RecordBatch.record_to_json("particles", particle))
+    native = json.loads(RecordBatch.record_to_json(RecordTable.PARTICLES, particle))
     assert native["span"] == [3, 17]
     assert native == json.loads(to_json(particle))
 
@@ -118,7 +125,7 @@ async def test_typed_payloads_refuse_native_serialization() -> None:
         Particle, address=Address("@sensor.temp"), type="sample", data=TypedData(a=1)
     )
     with pytest.raises(ValueError):
-        RecordBatch.record_to_json("particles", particle)
+        RecordBatch.record_to_json(RecordTable.PARTICLES, particle)
 
 
 async def test_native_fetches_serialize_identically_to_the_python_path(
@@ -140,10 +147,10 @@ async def test_native_fetches_serialize_identically_to_the_python_path(
         assert entities, f"expected a written {Record.__name__}"
         expected = [json.loads(to_json(entity)) for entity in entities]
 
-        batch = await fetcher.fetch(Record.__entity_naming__.table)
+        batch = await fetcher.fetch(RECORD_TABLES[Record])
         assert json.loads(batch.to_json()) == expected
 
-    limited = await fetcher.fetch("particles", 1, 0)
+    limited = await fetcher.fetch(RecordTable.PARTICLES, 1, 0)
     assert len(limited) == 1
 
 
@@ -166,7 +173,7 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
         entities = await query
         expected = [json.loads(to_json(entity)) for entity in entities]
         sql, parameters = await query.compiled()
-        batch = await fetcher.fetch_sql("particles", sql, parameters)
+        batch = await fetcher.fetch_sql(RecordTable.PARTICLES, sql, parameters)
         assert json.loads(batch.to_json()) == expected
 
     particles = engine.database.particles
@@ -194,13 +201,72 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
     alerts = engine.database.alerts
     entities = await alerts.where(level=Level.WARNING)
     sql, parameters = await alerts.where(level=Level.WARNING).compiled()
-    batch = await fetcher.fetch_sql("alerts", sql, parameters)
+    batch = await fetcher.fetch_sql(RecordTable.ALERTS, sql, parameters)
     assert json.loads(batch.to_json()) == [json.loads(to_json(entity)) for entity in entities]
 
 
 async def test_in_memory_databases_report_no_native_fetcher() -> None:
     database = Database(SQLiteDatabaseConfig.in_memory())
     assert database._record_fetcher() is None
+
+
+async def test_native_writes_read_back_identically(tmp_path: Path) -> None:
+    """Records written natively must read back exactly like query layer writes.
+
+    The same flush then rewrites a record under its ID, proving the upsert updates rather
+    than duplicates.
+    """
+    from ceres.__internal__.database.writer import Writer
+
+    engine = await _build_engine_on_disk(tmp_path)
+    db = engine.database
+    writer = Writer(lambda: db)
+
+    address = Address("@sensor.temp")
+    records = [
+        Message(address=address, direction=MessageDirection.RECEIVE, data=b"\x00A\xff"),
+        Particle(address=address, type="sample", data={"a": 1, "b": [1.5]}),
+        Alert(address=address, level=Level.ERROR, type="overheat", data={"t": 99}),
+        LogEntry(address=address, level=Level.INFO, content="hello"),
+    ]
+    assert await writer._write_natively(db, records)
+
+    for record, manager in zip(
+        records, (db.messages, db.particles, db.alerts, db.logs), strict=True
+    ):
+        stored = await manager.where()
+        assert [json.loads(to_json(entity)) for entity in stored] == [json.loads(to_json(record))]
+
+    rewritten = LogEntry(
+        id=records[3].id,
+        address=address,
+        timestamp=records[3].timestamp,
+        level=Level.WARNING,
+        content="revised",
+    )
+    assert await writer._write_natively(db, [rewritten])
+    stored = await db.logs.where()
+    assert len(stored) == 1
+    assert stored[0].content == "revised"
+    assert stored[0].level == Level.WARNING
+
+
+async def test_unsupported_flushes_decline_the_native_writer(tmp_path: Path) -> None:
+    """Typed payloads and non-record entities send the whole flush down the query layer."""
+    from ceres.__internal__.database.writer import Writer
+
+    engine = await _build_engine_on_disk(tmp_path)
+    db = engine.database
+    writer = Writer(lambda: db)
+
+    class TypedData(ParticleData):
+        a: int
+
+    typed = construct(Particle, address=Address("@sensor.temp"), type="sample", data=TypedData(a=1))
+    assert not await writer._write_natively(db, [typed])
+
+    memory = Database(SQLiteDatabaseConfig.in_memory())
+    assert not await Writer(lambda: memory)._write_natively(memory, [])
 
 
 @pytest.mark.databases("postgres")
@@ -222,7 +288,10 @@ async def test_native_fetches_match_on_postgres(database: str) -> None:
     fetcher = db._record_fetcher()
     assert fetcher is not None
 
-    for manager, table in ((db.messages, "messages"), (db.particles, "particles")):
+    for manager, table in (
+        (db.messages, RecordTable.MESSAGES),
+        (db.particles, RecordTable.PARTICLES),
+    ):
         query = manager.where()
         expected = [json.loads(to_json(entity)) for entity in await query]
         assert expected
@@ -235,8 +304,16 @@ async def test_native_fetches_match_on_postgres(database: str) -> None:
     query = db.particles.where(type="sample", max_age=timedelta(days=1))
     expected = [json.loads(to_json(entity)) for entity in await query]
     sql, parameters = await query.compiled()
-    batch = await fetcher.fetch_sql("particles", sql, parameters)
+    batch = await fetcher.fetch_sql(RecordTable.PARTICLES, sql, parameters)
     assert json.loads(batch.to_json()) == expected
+
+    # Native writes land through the same pool rules, JSON payload column included.
+    writer = db._record_writer()
+    assert writer is not None
+    written = Particle(address=address, type="native", data={"x": [1, 2]})
+    await writer.write([(RecordTable.PARTICLES, [written])])
+    stored = await db.particles.where(type="native")
+    assert [json.loads(to_json(entity)) for entity in stored] == [json.loads(to_json(written))]
 
 
 async def test_typed_particle_queries_keep_the_materializing_path() -> None:

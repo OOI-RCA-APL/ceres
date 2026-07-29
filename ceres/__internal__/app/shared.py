@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast, override
 from uuid import UUID
 
 import jwt.warnings
-from ceres_core import RecordBatch
+from ceres_core import RecordBatch, RecordTable
 from fastapi import (
     APIRouter,
     Cookie,
@@ -72,6 +72,14 @@ def exclude_recursively(fields: Iterable[str]) -> IncEx:
 
 
 EXCLUDE_PASSWORDS: IncEx = exclude_recursively(["password"])
+
+RECORD_TABLES: Mapping[str, RecordTable] = {
+    "messages": RecordTable.MESSAGES,
+    "particles": RecordTable.PARTICLES,
+    "alerts": RecordTable.ALERTS,
+    "logs": RecordTable.LOGS,
+}
+"""The native table selector for each record table name."""
 
 CREDENTIAL_FIELDS = ("secret", "password", "key_password")
 """Credential field names dropped from any serialized configuration.
@@ -779,6 +787,7 @@ def create_record_get_route(router: Router, Record: type[Record]):
 def create_record_get_all_route(router: Router, Record: type[Record], limit: int):
     """Register a GET-all route on `router` for the given record type with a result limit."""
     naming = Record.__entity_naming__
+    table = RECORD_TABLES[naming.table]
 
     async def get_all(
         engine: CurrentEngine,
@@ -801,7 +810,7 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
             # all, and any filter the query layer can express is covered.
             sql, parameters = await query.compiled()
             try:
-                batch = await fetcher.fetch_sql(naming.table, sql, parameters)
+                batch = await fetcher.fetch_sql(table, sql, parameters)
             except (TypeError, ValueError) as error:
                 # The native engine can lag the Python one in corner cases, a statement
                 # construct or parameter type it does not understand yet. The listing
@@ -815,7 +824,7 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
         if batch is None:
             # Rows parse into native records and serialize in one call, no Python entity
             # objects are built for the listing.
-            batch = RecordBatch.parse(naming.table, await query.mappings())
+            batch = RecordBatch.parse(table, await query.mappings())
 
         return Response(batch.to_json(), media_type="application/json")
 
@@ -849,6 +858,7 @@ def create_record_count_route(router: Router, Record: type[Record]):
 def create_record_stream_route(router: Router, Record: type[Record]):
     """Register a WebSocket streaming route on `router` for the given record type."""
     naming = Record.__entity_naming__
+    table = RECORD_TABLES[naming.table]
 
     async def stream(
         socket: CurrentSocket,
@@ -858,7 +868,6 @@ def create_record_stream_route(router: Router, Record: type[Record]):
         manager = cast("BoundMessageManager", engine.__manager__(Record))
 
         async def write() -> None:
-            table = naming.table
             async for record in manager.stream.where(cast("Any", filter)):
                 if type(record) is Record:
                     try:

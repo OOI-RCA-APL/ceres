@@ -156,7 +156,9 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<database::PostgresDatabaseConfig>()?;
     module.add_class::<binary::PackingProgram>()?;
     module.add_class::<entities::RecordBatch>()?;
+    module.add_class::<entities::RecordTable>()?;
     module.add_class::<fetcher::RecordFetcher>()?;
+    module.add_class::<fetcher::RecordWriter>()?;
     Ok(())
 }
 

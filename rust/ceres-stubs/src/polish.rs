@@ -9,8 +9,9 @@
 /// Raw-identifier method names leak into the generated stubs verbatim, so the `r#` prefix
 /// keyword methods carry in Rust is stripped here. `typing.` prefixes are handled
 /// generically rather than listed, every `typing.Name` becomes a direct import.
-const REWRITES: [(&str, &str); 6] = [
+const REWRITES: [(&str, &str); 7] = [
     ("builtins.", ""),
+    ("enum.Enum", "Enum"),
     ("os.PathLike", "PathLike[str]"),
     ("pathlib.Path", "Path"),
     ("datetime.timedelta", "timedelta"),
@@ -23,8 +24,9 @@ const REWRITES: [(&str, &str); 6] = [
 /// These names can appear bare in the polished body, `Self` through the `__new__` rewrite
 /// and the rest through `REWRITES`, so they are detected by use rather than collected while
 /// stripping `typing.` prefixes.
-const IMPORTS: [(&str, &str); 6] = [
+const IMPORTS: [(&str, &str); 7] = [
     ("timedelta", "from datetime import timedelta"),
+    ("Enum", "from enum import Enum"),
     ("PathLike", "from os import PathLike"),
     ("Path", "from pathlib import Path"),
     ("SecretStr", "from pydantic import SecretStr"),

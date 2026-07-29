@@ -9,11 +9,16 @@ repository.workspace = true
 [dependencies]
 ceres-entities = { path = "../ceres-entities" }
 chrono = "0.4"
-sea-query = "0.32"
+sea-query = { version = "0.32", features = [
+    "with-chrono",
+    "with-json",
+    "with-uuid",
+] }
 sea-query-binder = { version = "0.7", features = [
     "sqlx-postgres",
     "sqlx-sqlite",
     "with-chrono",
+    "with-json",
     "with-uuid",
 ] }
 serde_json = "1"
