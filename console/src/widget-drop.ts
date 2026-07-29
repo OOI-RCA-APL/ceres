@@ -157,6 +157,14 @@ function resolveColumn(row: RowBounds, index: number, x: number): WidgetPlacemen
   return null
 }
 
+function samePlacement(one: WidgetPlacement | null, other: WidgetPlacement | null): boolean {
+  if (one == null || other == null) {
+    return one === other
+  }
+
+  return one.row === other.row && one.column === other.column
+}
+
 function resolvePlacement(
   bounds: RowBounds[],
   width: number,
@@ -309,7 +317,19 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     // The box is read again each time, so a page that scrolls under the pointer still places it
     // against the same measurements.
     const box = element.getBoundingClientRect()
-    placement = resolvePlacement(bounds, width, event.clientX - box.left, event.clientY - box.top)
+    const resolved = resolvePlacement(
+      bounds,
+      width,
+      event.clientX - box.left,
+      event.clientY - box.top
+    )
+
+    // Held only when it names somewhere else. Every move resolves a target of its own, so handing
+    // one over that says what the last one said would rebuild the preview and set the rows moving
+    // again on every frame the pointer travels, rather than once as it crosses into somewhere new.
+    if (!samePlacement(resolved, placement)) {
+      placement = resolved
+    }
   })
 
   useEventListener(window, 'pointerup', release)
