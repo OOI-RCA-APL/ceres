@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
 import { debounce, orderBy } from 'lodash-es'
 import { defineStore } from 'pinia'
-import { exportFile as download } from 'quasar'
+import { copyToClipboard, exportFile as download } from 'quasar'
 import { v7 } from 'uuid'
 import {
   computed,
@@ -37,6 +37,7 @@ import { DateTimeModel } from '@/api/shared'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
+import { workspaceQueryKey } from '@/tabs'
 import { deepClone, isStructurallyEqual, safeArrayOf, selectFile } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
@@ -94,13 +95,6 @@ export const ProceduresWidgetModel = BaseWidgetModel.extend({
   procedureAddress: AddressModel.nullish(),
   procedureType: ProcedureTypeModel.catch('action'),
   procedureName: Zod.string().nullish(),
-})
-
-export type UIWidget = Zod.infer<typeof UIWidgetModel>
-export const UIWidgetModel = BaseWidgetModel.extend({
-  type: Zod.literal('ui'),
-  name: Zod.string().catch('UI'),
-  interfaceAddress: AddressModel.nullish(),
 })
 
 export type ChartWidgetDisplay = Zod.infer<typeof ChartWidgetDisplayModel>
@@ -184,7 +178,6 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   AlertsWidgetModel,
   LogsWidgetModel,
   ProceduresWidgetModel,
-  UIWidgetModel,
   ChartWidgetModel,
   ValueWidgetModel,
   VideoWidgetModel,
@@ -259,15 +252,6 @@ export const widgetInfos = {
     name: 'Procedures View',
     model: ProceduresWidgetModel,
     component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetProcedures.vue')),
-    options: widgetOptions({
-      fullHeight: false,
-    }),
-  },
-  ui: {
-    type: 'ui',
-    name: 'UI View',
-    model: UIWidgetModel,
-    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetUi.vue')),
     options: widgetOptions({
       fullHeight: false,
     }),
@@ -1021,8 +1005,31 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return await update(id, { name })
   }
 
+  /** Show a workspace on home.
+
+  Home is where a workspace is looked at, so opening one goes there rather than to a page of its
+  own. The workspace keeps its placement, so one bound to a component still resolves its widgets
+  against that component from here.
+
+  Naming it in the query is the whole of it. Home reads that query and puts the workspace on its
+  strip if it was not already there, so a link, a sidebar click, and an action all arrive the same
+  way.
+  */
   async function open(id: string) {
-    await navigation.go(`/workspaces/${id}`)
+    await navigation.push({ path: '/', query: { [workspaceQueryKey]: id } })
+  }
+
+  /** Copy a link that opens workspaces on the page a placement belongs to.
+
+  Sharing is deliberate rather than a side effect of looking at something, because the address is
+  read on arrival and taken back out of the bar. This is what puts one together on request.
+  */
+  async function copyLink(placement: string, ids: string[]) {
+    const path = placement === engineRoot ? '/' : `/components/${placement}`
+    const { href } = navigation.resolve({ path, query: { [workspaceQueryKey]: ids } })
+
+    await copyToClipboard(window.location.origin + href)
+    notify.success(ids.length > 1 ? 'Links copied to clipboard.' : 'Link copied to clipboard.')
   }
 
   async function del(id: string) {
@@ -1166,6 +1173,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     rename,
     update,
     open,
+    copyLink,
     delete: del,
     getEdit,
     getEdits,
@@ -1236,9 +1244,6 @@ export function widgetTargetSignature(widget: Widget): string {
   }
   if ('procedureAddress' in widget) {
     values.push(widget.procedureAddress)
-  }
-  if ('interfaceAddress' in widget) {
-    values.push(widget.interfaceAddress)
   }
   if ('particleAddress' in widget) {
     values.push(widget.particleAddress)

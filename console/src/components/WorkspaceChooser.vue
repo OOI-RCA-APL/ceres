@@ -42,8 +42,14 @@ const workspaces = $computed(() => {
     found = found.filter((workspace) => workspace.scope.toString() === scope)
   }
 
+  // Matched against the placement as well as the name, since a strip mixing placements is often
+  // searched for what a workspace is bound to rather than for what it is called.
   if (text !== '') {
-    found = found.filter((workspace) => workspace.name.toLowerCase().includes(text))
+    found = found.filter(
+      (workspace) =>
+        workspace.name.toLowerCase().includes(text) ||
+        workspace.scope.toString().toLowerCase().includes(text)
+    )
   }
 
   if (omit != null) {

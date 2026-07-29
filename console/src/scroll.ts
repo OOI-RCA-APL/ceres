@@ -23,7 +23,10 @@ it, which is not the same frame the key changes on.
 `settled` says whether moving the page right now would be welcome. Switching between keys while
 the page is somewhere the user is still reading moves the ground under them, so a caller that has
 such a place says so and the position is neither taken nor put back until they are past it.
-Arriving fresh is exempt, since a page that has just loaded has no reading position to disturb.
+
+Positions are only put back on a switch. Arriving is a different act from switching, and a page
+that has just been navigated to starts at the top with whatever it leads with in view rather than
+several hundred pixels below it with no sign that anything was skipped.
 
 Positions are kept per device, since where you were a moment ago belongs to this browser rather
 than to the account.
@@ -98,14 +101,18 @@ export function useScrollMemory(
   watch(
     () => toValue(key),
     (next, previous) => {
-      // Arriving is not a switch, so there is nothing on screen yet to be moved out from under.
-      const arriving = previous === undefined
-
-      if (!arriving && !isSettled()) {
+      // Arriving is not a switch, whether the key was unset or merely absent. A page decides what
+      // to show after it mounts, so the first real key arrives as a change from nothing, and
+      // treating that as a switch would put back a position the user never left.
+      if (previous == null) {
         return
       }
 
-      if (previous != null && isMeasurable()) {
+      if (!isSettled()) {
+        return
+      }
+
+      if (isMeasurable()) {
         remember(previous, window.scrollY)
       }
 
@@ -116,8 +123,8 @@ export function useScrollMemory(
 
       restore(next)
     },
-    // A reload arrives with the key already set and nothing to switch away from, so the first
-    // key has to restore too rather than only later ones.
+    // Run for the first key as well, so that arriving is seen and taken as the starting point the
+    // switches after it are measured against.
     { immediate: true }
   )
 

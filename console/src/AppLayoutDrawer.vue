@@ -1,12 +1,9 @@
 <script lang="ts" setup>
-import { upperFirst } from 'lodash-es'
 import { LocalStorage } from 'quasar'
 import { useRoute } from 'vue-router'
-import Zod from 'zod'
 
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import AppLayoutDrawerHeader from '@/AppLayoutDrawerHeader.vue'
-import AppLayoutDrawerWorkspace from '@/AppLayoutDrawerWorkspace.vue'
 import { useAccess } from '@/api/access'
 import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
@@ -15,15 +12,13 @@ import UserChooser from '@/components/UserChooser.vue'
 import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
 import { guard } from '@/errors'
-import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
-import { usePersisted } from '@/persistence'
 import { usePreferences } from '@/preferences'
 import { duration } from '@/time'
 import { displayDuration } from '@/utilities'
-import { useWorkspaces, Workspace } from '@/workspace'
+import { useWorkspaces } from '@/workspace'
 
 const access = useAccess()
 const auth = useAuth()
@@ -37,42 +32,36 @@ const route = useRoute()
 const preferences = usePreferences()
 const isDevelopment = process.env.DEV
 
-const persisted = usePersisted({
-  schema: ({ object, boolean, number }) =>
-    object({
-      isShowingWorkspaces: boolean().default(false),
-      isShowingComponents: boolean().default(true),
-      workspaceDropdownHeight: number().default(200),
-      workspaceFilter: Zod.enum(['all', 'shared', 'private']).default('all'),
-    }),
-  methods: [{ type: 'local-storage', key: 'component/app-layout-drawer' }],
-})
+// Narrows the tree to what answers it, keeping the path down to each match. Held here rather than
+// persisted, since a filter is a question being asked now and not a preference.
+let componentFilter = $ref('')
 
-// A private workspace is only ever returned to its own owner, so filtering on the owner being
-// set is the same as filtering on it being yours.
-const displayedWorkspaces = $computed(() => {
-  if (persisted.workspaceFilter === 'shared') {
-    return workspaces.all.filter((workspace) => workspace.owner_id == null)
-  }
-  if (persisted.workspaceFilter === 'private') {
-    return workspaces.all.filter((workspace) => workspace.owner_id != null)
+// What the header reports. Components that answer the filter rather than rows left showing, since
+// a parent kept only to carry a matching child is a path to an answer and not one itself.
+// Which top level component the open one is in, or below. The tree's own rows work this out for
+// their children, and this is the same answer for the header, which the tree hangs from.
+const activeTopLevelIndex = $computed(() => {
+  const active = typeof route.params.address === 'string' ? route.params.address : null
+  if (active == null) {
+    return -1
   }
 
-  return workspaces.all
-})
-
-function createWorkspace() {
-  dialogs.createWorkspace().onOk((created: Workspace) => {
-    void workspaces.open(created.id)
+  return engine.components.topLevel.findIndex((component) => {
+    const own = component.address.toString()
+    return active === own || active.startsWith(`${own}.`)
   })
-}
+})
 
-async function importWorkspaces() {
-  const imported = await workspaces.importFiles()
-  if (imported != null && imported.length > 0) {
-    await workspaces.open(imported[0].id)
+const matchingComponents = $computed(() => {
+  const text = componentFilter.trim().toLowerCase()
+  if (text === '') {
+    return engine.components.all.length
   }
-}
+
+  return engine.components.all.filter((component) =>
+    component.address.toString().toLowerCase().includes(text)
+  ).length
+})
 
 const isDeveloperMode = $computed(() => isDevelopment && preferences.isDeveloperModeEnabled)
 
@@ -97,15 +86,6 @@ async function impersonate(userId: string) {
 async function stopImpersonating() {
   await adoptIdentity(engine.auth.stopImpersonating())
 }
-
-// Dropping an exported workspace file on the list imports it, landing on the engine root like
-// anything else created from here.
-const fileDrop = useFileDrop(async (files) => {
-  const imported = await workspaces.importWorkspaces(files)
-  if (imported.length > 0) {
-    await workspaces.open(imported[0].id)
-  }
-}, isWorkspaceFile)
 
 function clearLocalStorage() {
   dialogs
@@ -184,7 +164,7 @@ function promptReload() {
       />
       <div class="col-grow overflow-scroll scroll" style="height: 0">
         <q-list dense>
-          <q-item :active="route.fullPath === '/'" :class="$style.largeItem" clickable to="/">
+          <q-item :active="route.path === '/'" :class="$style.largeItem" clickable to="/">
             <q-item-section avatar>
               <q-icon :name="icons.home" />
             </q-item-section>
@@ -192,129 +172,24 @@ function promptReload() {
               <q-item-label>Home</q-item-label>
             </q-item-section>
           </q-item>
-          <template v-if="auth.isViewer">
-            <q-item :active="route.fullPath.startsWith('/workspaces')" class="items-center row">
-              <div :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']">
-                <q-btn
-                  :class="$style.toggleButton"
-                  flat
-                  round
-                  size="xs"
-                  tabindex="0"
-                  @click.stop.prevent="
-                    persisted.isShowingWorkspaces = !persisted.isShowingWorkspaces
-                  "
-                >
-                  <q-icon
-                    :name="persisted.isShowingWorkspaces ? icons.menuDown : icons.menuRight"
-                  />
-                </q-btn>
-              </div>
-              <q-item-section no-wrap>
-                <q-item-label class="q-ml-md">
-                  Workspaces
-                  <q-chip class="no-shadow q-ml-sm" clickable :icon="icons.filter" size="10px">
-                    {{ upperFirst(persisted.workspaceFilter) }}
-                    <q-menu anchor="top right" :offset="[8, 0]" self="top left">
-                      <q-card bordered flat>
-                        <q-list dense>
-                          <q-item
-                            v-close-popup
-                            clickable
-                            @click="persisted.workspaceFilter = 'all'"
-                          >
-                            <q-item-section>
-                              <q-item-label>All</q-item-label>
-                            </q-item-section>
-                          </q-item>
-                          <q-item
-                            v-close-popup
-                            clickable
-                            @click="persisted.workspaceFilter = 'shared'"
-                          >
-                            <q-item-section>
-                              <q-item-label>Shared</q-item-label>
-                            </q-item-section>
-                          </q-item>
-                          <q-item
-                            v-close-popup
-                            clickable
-                            @click="persisted.workspaceFilter = 'private'"
-                          >
-                            <q-item-section>
-                              <q-item-label>Private</q-item-label>
-                            </q-item-section>
-                          </q-item>
-                        </q-list>
-                      </q-card>
-                    </q-menu>
-                  </q-chip>
-                </q-item-label>
-              </q-item-section>
-              <q-item-section side>
-                <div class="items-center row">
-                  <q-btn flat :icon="icons.more" round size="xs">
-                    <q-menu anchor="top right" :offset="[8, 5]" self="top left">
-                      <q-card bordered>
-                        <q-list dense>
-                          <q-item clickable @click="createWorkspace">
-                            <q-item-section avatar>
-                              <q-icon :name="icons.add" />
-                            </q-item-section>
-                            <q-item-section>
-                              <q-item-label>New</q-item-label>
-                            </q-item-section>
-                          </q-item>
-                          <q-item clickable @click="importWorkspaces">
-                            <q-item-section avatar>
-                              <q-icon :name="icons.import" />
-                            </q-item-section>
-                            <q-item-section>
-                              <q-item-label>Import</q-item-label>
-                            </q-item-section>
-                          </q-item>
-                        </q-list>
-                      </q-card>
-                    </q-menu>
-                  </q-btn>
-                </div>
-              </q-item-section>
-            </q-item>
-            <div v-if="persisted.isShowingWorkspaces" class="relative-position">
-              <q-list
-                :class="['scroll', fileDrop.active.value && $style.dropTarget]"
-                :style="{ height: `${persisted.workspaceDropdownHeight}px` }"
-                v-bind="fileDrop.handlers"
-              >
-                <app-layout-drawer-workspace
-                  v-for="workspace in displayedWorkspaces"
-                  :key="workspace.id"
-                  :workspace="workspace"
-                />
-              </q-list>
-              <resize-handle
-                v-model="persisted.workspaceDropdownHeight"
-                :class="$style.workspaceDropdownResizeHandle"
-                direction="vertical"
-                :max="500"
-                :min="36"
-              />
-            </div>
-            <div class="scroll">
+          <div v-if="auth.isViewer" class="scroll">
+            <template v-if="engine.components.topLevel.length > 0">
               <app-layout-drawer-header
-                v-if="engine.components.topLevel.length > 0"
-                v-model:expanded="persisted.isShowingComponents"
+                v-model:filter="componentFilter"
+                :count="matchingComponents"
+                :on-path="activeTopLevelIndex >= 0"
               />
-              <template v-if="persisted.isShowingComponents">
-                <app-layout-drawer-component
-                  v-for="component in engine.components.topLevel"
-                  :key="component.address.toString()"
-                  :address="component.address"
-                  :component="component"
-                />
-              </template>
-            </div>
-          </template>
+            </template>
+            <app-layout-drawer-component
+              v-for="(component, index) in engine.components.topLevel"
+              :key="component.address.toString()"
+              :active-after-me="activeTopLevelIndex > index"
+              :address="component.address"
+              :component="component"
+              :filter="componentFilter"
+              :has-following-sibling="index < engine.components.topLevel.length - 1"
+            />
+          </div>
         </q-list>
       </div>
       <q-separator />
@@ -348,6 +223,33 @@ function promptReload() {
                     <q-item-label>Groups</q-item-label>
                   </q-item-section>
                 </q-item>
+                <!-- Taking on another identity is something an administrator does, so it sits with
+                the rest of what only they can reach rather than behind a switch about whether
+                development tools are wanted. The engine decides whether it exists at all. -->
+                <template v-if="canImpersonate">
+                  <q-separator />
+                  <q-item clickable>
+                    <q-item-section avatar>
+                      <q-icon :name="icons.viewer" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Impersonate</q-item-label>
+                      <q-item-label caption>Intended for development.</q-item-label>
+                    </q-item-section>
+                    <q-item-section side>
+                      <q-icon :name="icons.menuRight" />
+                    </q-item-section>
+                    <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+                      <q-card bordered flat :style="{ width: '300px' }">
+                        <user-chooser
+                          empty="No other users to impersonate."
+                          :omit="(user) => user.id === engine.auth.user?.id"
+                          @select="(user) => impersonate(user.id)"
+                        />
+                      </q-card>
+                    </q-menu>
+                  </q-item>
+                </template>
               </q-list>
             </q-card>
           </q-menu>
@@ -432,10 +334,10 @@ function promptReload() {
             </q-card>
           </q-menu>
         </q-item>
-        <!-- The developer tools belong to a development build, but impersonation is allowed by the
-        engine rather than by the build, so the menu also appears on a deployment that turned it
-        on. -->
-        <template v-if="isDeveloperMode || canImpersonate">
+        <!-- Everything here is a development tool, impersonation included, which the engine warns
+        should only be turned on while developing. So the whole section follows the one switch that
+        says whether these are wanted, rather than a menu that stays put while emptying out. -->
+        <template v-if="isDeveloperMode">
           <q-separator />
           <q-item clickable>
             <q-item-section avatar>
@@ -464,27 +366,6 @@ function promptReload() {
                   <q-item-section>
                     <q-item-label>Schema Form Playground</q-item-label>
                   </q-item-section>
-                </q-item>
-                <q-item v-if="canImpersonate" clickable>
-                  <q-item-section avatar>
-                    <q-icon :name="icons.viewer" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Impersonate</q-item-label>
-                    <q-item-label caption>Intended for development.</q-item-label>
-                  </q-item-section>
-                  <q-item-section side>
-                    <q-icon :name="icons.menuRight" />
-                  </q-item-section>
-                  <q-menu anchor="top right" :offset="[8, 0]" self="top left">
-                    <q-card bordered flat :style="{ width: '300px' }">
-                      <user-chooser
-                        empty="No other users to impersonate."
-                        :omit="(user) => user.id === engine.auth.user?.id"
-                        @select="(user) => impersonate(user.id)"
-                      />
-                    </q-card>
-                  </q-menu>
                 </q-item>
               </q-list>
             </q-menu>
@@ -542,30 +423,48 @@ function promptReload() {
   position: relative;
 }
 
+// Quasar reserves 56px for an icon, which is generous for a sidebar whose rows are one glyph and
+// one word, and which spends that width again on every level of the component tree. Narrowed once
+// here rather than per row, so every label in the drawer still starts on the same rail. Menus are
+// teleported out of the drawer, so their own rows keep the default.
+.root :global(.q-item__section--avatar) {
+  min-width: 36px;
+  padding-right: 0;
+}
+
 .resizeHandle {
   position: absolute;
   top: 0;
 }
 
-.toggleButton {
-  margin-left: -22px;
+// Quiet until it is being used, so an empty filter reads as part of the tree rather than as a
+// control demanding to be filled in.
+.filter {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+
+  &:hover,
+  &:focus-within {
+    opacity: 1;
+  }
 }
 
-.iconContainer {
-  min-width: 40px;
-}
+// Inherits the row it sits in, so the text a filter is typed into looks like the names it is
+// matching against rather than like a form field dropped among them.
+.filterInput {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
 
-.workspaceDropdownResizeHandle {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-}
-
-// An inset outline rather than a border, so the list does not shift by a pixel when a file is
-// dragged over it.
-.dropTarget {
-  box-shadow: inset 0 0 0 2px $primary;
-  border-radius: 4px;
+  &::placeholder {
+    color: inherit;
+    opacity: 0.7;
+  }
 }
 
 .largeItem {

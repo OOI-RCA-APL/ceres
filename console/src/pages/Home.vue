@@ -5,13 +5,16 @@ import { useAccess } from '@/api/access'
 import { Address, engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
-import FullPage from '@/components/FullPage.vue'
+import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
+import FullPage, { appHeaderHeight, pageHeaderHeight } from '@/components/FullPage.vue'
+import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import WorkspacePage from '@/pages/Workspace.vue'
+import { usePersisted } from '@/persistence'
 import { useScrollMemory } from '@/scroll'
-import { resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
+import { requestedWorkspaces, resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
 import { inStandardOrder, useWorkspaces, Workspace } from '@/workspace'
 
 const access = useAccess()
@@ -30,13 +33,32 @@ const canManage = $computed(() => access.canManage(placement))
 // nobody else sees.
 const canCreate = $computed(() => access.canView(placement))
 
-// The deployment's landing page. Deliberately narrower than every workspace at the engine root,
-// because this is what a new user inherits rather than everything that happens to live here.
-let defaults = $ref<Workspace[]>([])
+// The tab strip pins under this page's own header, so scrolling the overview away leaves the tabs
+// directly beneath it.
+const workspaceStickyTop = appHeaderHeight + pageHeaderHeight
 
-async function refreshDefaults() {
-  const listed = await workspaces.listScoped(placementAddress)
-  defaults = inStandardOrder(listed.filter((workspace) => workspace.show_when_logged_out))
+// Declared up here because the scroll memory below reads the overview's own state as it starts.
+const persisted = usePersisted({
+  schema: ({ object, boolean, number }) =>
+    object({
+      overviewCollapsed: boolean().default(false),
+      overviewHeight: number().default(320),
+    }),
+  methods: [{ type: 'local-storage', key: 'home-overview' }],
+})
+
+// Every workspace placed on the engine root that the caller can see, which is what the overview
+// lists. These are the deployment's own workspaces rather than any one component's.
+let placedWorkspaces = $ref<Workspace[]>([])
+
+// What the deployment lands on. Deliberately narrower than every workspace at the engine root,
+// because this is what a new user inherits rather than everything that happens to live here.
+const defaults = $computed(() =>
+  placedWorkspaces.filter((workspace) => workspace.show_when_logged_out)
+)
+
+async function refreshPlaced() {
+  placedWorkspaces = inStandardOrder(await workspaces.listScoped(placementAddress))
 }
 
 // Home may hold a workspace placed on any component, so its tabs resolve against everything the
@@ -63,29 +85,110 @@ const openableWorkspaces = $computed(() => {
 
 async function openHome(id: string) {
   await tabs.open(placement, id)
-  selectWorkspace(id)
+  showWorkspace(id)
+}
+
+// A copy belongs next to what it was copied from, so the strip reads as the original followed by
+// its copy rather than as one more thing at the end that happens to share its name.
+async function openBesideHome(afterId: string, id: string) {
+  await tabs.openBeside(
+    placement,
+    id,
+    afterId,
+    homeWorkspaces.map((workspace) => workspace.id)
+  )
+  showWorkspace(id)
 }
 
 const lastWorkspace = useLastWorkspace(placement)
 
-const activeWorkspaceId = $computed(() => {
-  const value = navigation.route.query.workspace
-  return typeof value === 'string' ? value : null
-})
+// Held here rather than read from the address. The address asks for a workspace and is cleared
+// once it has been given one, so what is showing is this page's own state from then on.
+let activeWorkspaceId = $ref<string | null>(null)
 
-// Switching tabs returns to where each workspace was left, the way switching browser tabs does.
-useScrollMemory(() => (activeWorkspaceId == null ? null : `${placement}/${activeWorkspaceId}`))
+// What the address is currently asking for, which the fallback below waits for rather than
+// choosing a workspace that is about to be replaced.
+const requestedIds = $computed(() => requestedWorkspaces(navigation.route.query))
 
-function showWorkspace(id: string) {
-  void navigation.replace({ query: { workspace: id } })
+let overviewElement = $ref<HTMLElement | null>(null)
+
+/** How far the page must be scrolled for the tab strip to have pinned under the header.
+
+Measured from the overview, which is what sits above the strip and is never itself pinned, so its
+box is the honest one. The strip's own box stops moving once it pins and cannot say where it would
+otherwise have been. With no overview showing the strip is at the top from the start, so there is
+nothing to scroll past.
+*/
+function pinnedAt(): number {
+  if (persisted.overviewCollapsed || overviewElement == null) {
+    return 0
+  }
+
+  const bottom = overviewElement.getBoundingClientRect().bottom + window.scrollY
+  return Math.max(0, bottom - workspaceStickyTop)
 }
 
-// Choosing a workspace records it as this strip's last, so home reopens on it. Only a deliberate
-// choice records, because the fallback below shows one too and would otherwise overwrite the
-// memory with whatever it settled for.
-function selectWorkspace(id: string) {
+/** Whether moving the page on a tab switch would be welcome.
+
+With the overview showing and the page still above the pin, the overview is what is being read, so
+jumping to wherever another workspace was left moves all of that out from under. Past the pin the
+overview is out of view and the page is the workspace, which is when returning to where it was left
+is the helpful thing.
+*/
+function isScrollSettled(): boolean {
+  return window.scrollY >= pinnedAt()
+}
+
+// Switching tabs returns to where each workspace was left, the way switching browser tabs does,
+// and never above the pin, so a strip that was stuck to the header stays exactly where it was
+// rather than dropping back down the page.
+useScrollMemory(
+  () => (activeWorkspaceId == null ? null : `${placement}/${activeWorkspaceId}`),
+  isScrollSettled,
+  pinnedAt
+)
+
+// With tabs to show but no workspace beneath them, the strip sits at the bottom of the screen
+// rather than floating below the overview with empty space under it. An empty strip has nothing to
+// hold down there, and collapsing the overview leaves nothing to push it away from, so in either
+// case it goes back to sitting under the overview.
+const pinTabs = $computed(
+  () => activeWorkspaceId == null && !persisted.overviewCollapsed && homeWorkspaces.length > 0
+)
+
+// Whatever is showing is what home reopens on, so it is recorded here rather than at each of the
+// places that can choose one.
+function showWorkspace(id: string) {
+  activeWorkspaceId = id
   lastWorkspace.id = id
-  showWorkspace(id)
+}
+
+/** Give the address what it asked for, then take the request back out of it.
+
+Workspaces named there join the strip if they were not already on it, so a link behaves the same as
+opening them from the strip itself, and the first of them is what ends up showing.
+
+Nothing is done until the full list has landed, because a link can arrive before it does and an
+identifier that matches nothing must not write a tab that resolves to nothing.
+*/
+async function adoptRequested() {
+  if (requestedIds.length === 0) {
+    return
+  }
+
+  const known = new Set((workspaces.all as Workspace[]).map((workspace) => workspace.id))
+  const opening = requestedIds.filter((id) => known.has(id))
+  if (opening.length === 0 && workspaces.all.length === 0) {
+    return
+  }
+
+  await navigation.replace({ query: {} })
+  if (opening.length === 0) {
+    return
+  }
+
+  await tabs.openMany(placement, opening)
+  showWorkspace(opening[0])
 }
 
 async function closeHome(id: string) {
@@ -96,11 +199,14 @@ async function closeHome(id: string) {
     return
   }
 
-  if (remaining.length > 0) {
-    selectWorkspace(remaining[0].id)
-  } else {
-    await navigation.replace({ query: {} })
+  activeWorkspaceId = remaining.length > 0 ? remaining[0].id : null
+  if (activeWorkspaceId != null) {
+    lastWorkspace.id = activeWorkspaceId
   }
+}
+
+function shareHome(ids: string[]) {
+  void workspaces.copyLink(placement, ids)
 }
 
 // Closing the rest leaves the kept one showing, whether or not it was the one being looked at.
@@ -110,16 +216,16 @@ async function closeOtherHome(id: string) {
     placement,
     others.map((workspace) => workspace.id)
   )
-  selectWorkspace(id)
+  showWorkspace(id)
 }
 
-// Closing everything leaves home with nothing named, which is its own empty state.
+// Closing everything leaves home showing nothing, which is its own empty state.
 async function closeAllHome() {
   await tabs.closeMany(
     placement,
     homeWorkspaces.map((workspace) => workspace.id)
   )
-  await navigation.replace({ query: {} })
+  activeWorkspaceId = null
 }
 
 async function reorderHome(ordered: Workspace[]) {
@@ -132,8 +238,8 @@ async function reorderHome(ordered: Workspace[]) {
 function createHome() {
   dialogs.createWorkspace(placement).onOk(async (created: Workspace) => {
     await tabs.open(placement, created.id)
-    await refreshDefaults()
-    selectWorkspace(created.id)
+    await refreshPlaced()
+    showWorkspace(created.id)
   })
 }
 
@@ -144,14 +250,14 @@ async function importHome(files: File[]) {
   })
 
   await Promise.all(imported.map((workspace) => tabs.open(placement, workspace.id)))
-  await refreshDefaults()
+  await refreshPlaced()
   if (imported.length > 0) {
-    selectWorkspace(imported[0].id)
+    showWorkspace(imported[0].id)
   }
 }
 
 await tabs.load()
-await refreshDefaults()
+await refreshPlaced()
 
 // A first login starts from what the deployment shows when logged out, so a new person lands on
 // the same view an anonymous visitor sees and then makes it their own. Seeding is skipped once the
@@ -166,17 +272,27 @@ if (!tabs.isTouched(placement)) {
 watch(
   () => workspaces.all,
   () => {
-    void refreshDefaults()
+    void refreshPlaced()
   }
 )
 
-// Landing on home reopens whichever workspace was last shown here, falling back to the first tab
-// when that one is gone. Closing the last one clears the query entirely, which is what tells that
-// apart from arriving with nothing named.
+// Watched rather than read once, because home stays mounted while an action elsewhere sends a
+// workspace here, which arrives as a change of address rather than as a fresh visit.
 watch(
-  () => [activeWorkspaceId, homeWorkspaces] as const,
-  ([active, listed]) => {
-    if (active != null || listed.length === 0 || navigation.route.query.workspace !== undefined) {
+  () => [requestedIds, workspaces.all] as const,
+  () => {
+    void adoptRequested()
+  },
+  { immediate: true }
+)
+
+// With nothing showing, home opens on whichever workspace it last showed, falling back to the
+// first tab when that one is gone. An empty strip has nothing to open on, which is home's own
+// empty state, and a request still pending is about to name one itself.
+watch(
+  () => [activeWorkspaceId, homeWorkspaces, requestedIds] as const,
+  ([active, listed, requested]) => {
+    if (active != null || listed.length === 0 || requested.length > 0) {
       return
     }
 
@@ -195,36 +311,93 @@ watch(
 </script>
 
 <template>
-  <workspace-page v-if="activeWorkspaceId != null" :id="activeWorkspaceId">
-    <template #header-prepend="{ actions, state }">
-      <component-workspace-tabs
-        :active="activeWorkspaceId"
-        :active-actions="actions"
-        :active-state="state"
-        :can-create="canCreate"
-        :can-manage="canManage"
-        class="q-ml-sm"
-        :openable="openableWorkspaces"
-        :show-placement="showPlacement"
-        :workspaces="homeWorkspaces"
-        @close="closeHome"
-        @close-all="closeAllHome"
-        @close-others="closeOtherHome"
-        @create="createHome"
-        @import="importHome"
-        @open="openHome"
-        @reorder="reorderHome"
-        @select="selectWorkspace"
-      />
-    </template>
-  </workspace-page>
-  <full-page v-else-if="homeWorkspaces.length > 0 || canCreate" dense>
+  <full-page :fill="pinTabs" title="Home">
     <template #header-append>
+      <q-btn
+        class="q-ml-sm"
+        :color="persisted.overviewCollapsed ? undefined : 'primary'"
+        dense
+        flat
+        :icon="icons.overview"
+        :icon-right="persisted.overviewCollapsed ? icons.menuDown : icons.menuUp"
+        size="sm"
+        @click="persisted.overviewCollapsed = !persisted.overviewCollapsed"
+      >
+        <q-tooltip class="bg-primary text-white">
+          {{ persisted.overviewCollapsed ? 'Show' : 'Hide' }} Overview
+        </q-tooltip>
+      </q-btn>
+    </template>
+
+    <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
+      <div
+        :class="[$style.overviewContent, 'scroll']"
+        :style="activeWorkspaceId != null ? { height: `${persisted.overviewHeight}px` } : undefined"
+      >
+        <!-- The engine root's own workspaces, which are the deployment's rather than any one
+        component's. A workspace placed on a component is reached from that component, and appears
+        here only once it has been opened as a tab below. -->
+        <component-workspaces-section
+          :can-manage="canManage"
+          class="q-pa-md"
+          :open-ids="homeWorkspaces.map((workspace) => workspace.id)"
+          :placement="placement"
+          :workspaces="placedWorkspaces"
+          @close="closeHome"
+          @open="showWorkspace"
+          @open-beside="openBesideHome"
+          @share="shareHome"
+        />
+      </div>
+      <resize-handle
+        v-if="activeWorkspaceId != null"
+        v-model="persisted.overviewHeight"
+        :class="$style.overviewResizeHandle"
+        direction="vertical"
+        :max="800"
+        :min="120"
+      />
+    </div>
+
+    <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
+    switching tabs updates this page in place and leaves the tab strip in its header mounted. -->
+    <workspace-page
+      v-if="activeWorkspaceId != null"
+      :id="activeWorkspaceId"
+      :sticky-top="workspaceStickyTop"
+      @duplicated="openBesideHome"
+    >
+      <template #header-prepend="{ actions, state }">
+        <component-workspace-tabs
+          :active="activeWorkspaceId"
+          :active-actions="actions"
+          :active-state="state"
+          :can-create="canCreate"
+          :can-manage="canManage"
+          class="q-ml-sm"
+          :openable="openableWorkspaces"
+          :show-placement="showPlacement"
+          :workspaces="homeWorkspaces"
+          @close="closeHome"
+          @close-all="closeAllHome"
+          @close-others="closeOtherHome"
+          @create="createHome"
+          @import="importHome"
+          @open="openHome"
+          @open-beside="openBesideHome"
+          @reorder="reorderHome"
+          @select="showWorkspace"
+          @share="shareHome"
+        />
+      </template>
+    </workspace-page>
+    <div v-else-if="homeWorkspaces.length > 0 || canCreate" :class="pinTabs && $style.pinnedTabs">
+      <q-separator />
       <component-workspace-tabs
         :active="activeWorkspaceId"
         :can-create="canCreate"
         :can-manage="canManage"
-        class="q-ml-sm"
+        class="q-px-sm q-py-xs"
         :openable="openableWorkspaces"
         :show-placement="showPlacement"
         :workspaces="homeWorkspaces"
@@ -234,29 +407,30 @@ watch(
         @create="createHome"
         @import="importHome"
         @open="openHome"
+        @open-beside="openBesideHome"
         @reorder="reorderHome"
-        @select="selectWorkspace"
-      />
-    </template>
-    <div class="q-py-xl text-center">
-      <div class="q-mb-md" :style="{ opacity: 0.6 }">
-        <template v-if="openableWorkspaces.length > 0">
-          Nothing open. Open a workspace from the tab bar above.
-        </template>
-        <template v-else>No workspaces yet.</template>
-      </div>
-      <q-btn
-        v-if="canCreate"
-        color="primary"
-        :icon="icons.add"
-        label="Create Workspace"
-        no-caps
-        outline
-        @click="createHome"
+        @select="showWorkspace"
+        @share="shareHome"
       />
     </div>
   </full-page>
-  <full-page v-else title="Home">
-    <div class="q-py-xl text-center" :style="{ opacity: 0.6 }">No workspaces yet.</div>
-  </full-page>
 </template>
+
+<style lang="scss" module>
+// With a workspace below, the panel takes the height dragged onto it, set inline. On its own it
+// grows with its content up to what is left of the viewport, then scrolls.
+.overviewContent {
+  overflow-x: hidden;
+  max-height: calc(100vh - 92px);
+}
+
+.pinnedTabs {
+  margin-top: auto;
+}
+
+.overviewResizeHandle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+}
+</style>

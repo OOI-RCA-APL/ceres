@@ -16,6 +16,7 @@ const icons = {
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
   circle: 'mdi-circle',
+  components: 'mdi-hexagon-multiple',
   clearLocalStorage: 'mdi-delete-sweep',
   // Off-center in a small round button for the same reason `add` is, so it takes the SVG too.
   close: mdiClose,
@@ -73,6 +74,7 @@ const icons = {
   search: 'mdi-magnify',
   send: 'mdi-send',
   settings: 'mdi-cog',
+  share: 'mdi-link-variant',
   start: 'mdi-play',
   stop: 'mdi-stop',
   submit: 'mdi-check',

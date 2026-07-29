@@ -24,7 +24,7 @@ import { useNavigation } from '@/navigation'
 import WorkspacePage from '@/pages/Workspace.vue'
 import { usePersisted } from '@/persistence'
 import { useScrollMemory } from '@/scroll'
-import { resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
+import { requestedWorkspaces, resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
 import { inStandardOrder, useWorkspaces, Workspace } from '@/workspace'
@@ -58,6 +58,13 @@ const workspaceStickyTop = appHeaderHeight + pageHeaderHeight
 // content instead and the drag handle goes away with the drag.
 const overviewColumnsMin = 720
 const overviewStacks = useMediaQuery(`(max-width: ${overviewColumnsMin - 1}px)`)
+
+// A collapsed configuration leaves its column as one closed bar with the rest of the panel empty
+// beside it, so the workspaces move under it and the reference lists get the width to themselves.
+// Stacked there is only one column, and expanded the configuration fills its own.
+const workspacesUnderConfig = $computed(
+  () => configHighlighted != null && !overviewStacks && !persisted.configuration
+)
 
 // Persist each drawer's open state per component address. The page remounts on navigation between
 // components (the page container is keyed by route path), so this re-reads for the new address.
@@ -95,18 +102,33 @@ const openableWorkspaces = $computed(() => {
 
 async function openScoped(id: string) {
   await tabs.open(address.toString(), id)
-  selectWorkspace(id)
+  showWorkspace(id)
+}
+
+// A copy belongs next to what it was copied from, so the strip reads as the original followed by
+// its copy rather than as one more thing at the end that happens to share its name.
+async function openBesideScoped(afterId: string, id: string) {
+  await refreshScoped()
+  await tabs.openBeside(
+    address.toString(),
+    id,
+    afterId,
+    scopedWorkspaces.map((workspace) => workspace.id)
+  )
+  showWorkspace(id)
 }
 
 const lastWorkspace = useLastWorkspace(() => address.toString())
 
-// Only the workspace named in the URL is shown. Without one the page falls back to whichever
-// workspace was last shown here, so a component with workspaces opens on one rather than on a
-// bare overview.
-const activeWorkspaceId = $computed(() => {
-  const value = navigation.route.query.workspace
-  return typeof value === 'string' ? value : null
-})
+// Held here rather than read from the address. The address asks for a workspace and is cleared
+// once it has been given one, so what is showing is this page's own state from then on. Without a
+// request the page falls back to whichever workspace was last shown here, so a component with
+// workspaces opens on one rather than on a bare overview.
+let activeWorkspaceId = $ref<string | null>(null)
+
+// What the address is currently asking for, which the fallback below waits for rather than
+// choosing a workspace that is about to be replaced.
+const requestedIds = $computed(() => requestedWorkspaces(navigation.route.query))
 
 let overviewElement = $ref<HTMLElement | null>(null)
 
@@ -154,16 +176,45 @@ const pinTabs = $computed(
   () => activeWorkspaceId == null && !persisted.overviewCollapsed && scopedWorkspaces.length > 0
 )
 
+// Whatever is showing is what this component reopens on, so it is recorded here rather than at
+// each of the places that can choose one.
 function showWorkspace(id: string) {
-  void navigation.replace({ query: { workspace: id } })
+  activeWorkspaceId = id
+  lastWorkspace.id = id
 }
 
-// Choosing a workspace records it as this strip's last, so the component reopens on it. Only a
-// deliberate choice records, because the fallback below shows one too and would otherwise
-// overwrite the memory with whatever it settled for.
-function selectWorkspace(id: string) {
-  lastWorkspace.id = id
-  showWorkspace(id)
+/** Give the address what it asked for, then take the request back out of it.
+
+Workspaces named there join this component's strip if they were not already on it, so a link
+behaves the same as opening them from the strip itself, and the first of them is what ends up
+showing.
+
+Only a workspace placed here can join, because the strip resolves against this component's own
+list and would drop anything else. Nothing is done until that list has landed, since a link can
+arrive before it does.
+*/
+async function adoptRequested() {
+  if (requestedIds.length === 0) {
+    return
+  }
+
+  const placed = new Set(placedWorkspaces.map((workspace) => workspace.id))
+  const opening = requestedIds.filter((id) => placed.has(id))
+  if (opening.length === 0 && placedWorkspaces.length === 0) {
+    return
+  }
+
+  await navigation.replace({ query: {} })
+  if (opening.length === 0) {
+    return
+  }
+
+  await tabs.openMany(address.toString(), opening)
+  showWorkspace(opening[0])
+}
+
+function shareScoped(ids: string[]) {
+  void workspaces.copyLink(address.toString(), ids)
 }
 
 async function refreshScoped() {
@@ -190,10 +241,9 @@ async function closeScoped(id: string) {
     return
   }
 
-  if (remaining.length > 0) {
-    selectWorkspace(remaining[0].id)
-  } else {
-    await navigation.replace({ query: {} })
+  activeWorkspaceId = remaining.length > 0 ? remaining[0].id : null
+  if (activeWorkspaceId != null) {
+    lastWorkspace.id = activeWorkspaceId
   }
 }
 
@@ -204,7 +254,7 @@ async function closeOtherScoped(id: string) {
     address.toString(),
     others.map((workspace) => workspace.id)
   )
-  selectWorkspace(id)
+  showWorkspace(id)
 }
 
 // Closing everything leaves the bare overview, which is where a component with no tabs sits.
@@ -213,7 +263,7 @@ async function closeAllScoped() {
     address.toString(),
     scopedWorkspaces.map((workspace) => workspace.id)
   )
-  await navigation.replace({ query: {} })
+  activeWorkspaceId = null
 }
 
 // Opening the rest keeps whatever was already showing, since opening tabs is not a request to
@@ -223,7 +273,7 @@ async function openAllScoped() {
   await tabs.openMany(address.toString(), opening)
 
   if (activeWorkspaceId == null && opening.length > 0) {
-    selectWorkspace(opening[0])
+    showWorkspace(opening[0])
   }
 }
 
@@ -237,14 +287,23 @@ watch(
   }
 )
 
-// Landing on a component reopens whichever workspace was last shown here, falling back to the
-// first tab when that one is gone. Closing the last tab clears the query entirely, which is what
-// tells this apart from arriving with no workspace named, so closing leaves the overview showing
-// rather than immediately reopening what was just closed.
+// Watched rather than read once, because this page stays mounted while a request arrives as a
+// change of address rather than as a fresh visit.
 watch(
-  () => [activeWorkspaceId, scopedWorkspaces] as const,
-  ([active, listed]) => {
-    if (active != null || listed.length === 0 || navigation.route.query.workspace !== undefined) {
+  () => [requestedIds, placedWorkspaces] as const,
+  () => {
+    void adoptRequested()
+  },
+  { immediate: true }
+)
+
+// With nothing showing, the page opens on whichever workspace it last showed, falling back to the
+// first tab when that one is gone. An empty strip leaves the bare overview, which is where a
+// component with no tabs sits, and a request still pending is about to name one itself.
+watch(
+  () => [activeWorkspaceId, scopedWorkspaces, requestedIds] as const,
+  ([active, listed, requested]) => {
+    if (active != null || listed.length === 0 || requested.length > 0) {
       return
     }
 
@@ -257,7 +316,7 @@ watch(
 function createScoped() {
   dialogs.createWorkspace(address.toString()).onOk(async (created: Workspace) => {
     await refreshScoped()
-    selectWorkspace(created.id)
+    showWorkspace(created.id)
   })
 }
 
@@ -270,7 +329,7 @@ async function importScoped(files: File[]) {
   })
   await refreshScoped()
   if (imported.length > 0) {
-    selectWorkspace(imported[0].id)
+    showWorkspace(imported[0].id)
   }
 }
 
@@ -452,17 +511,34 @@ const configHighlighted = $computed(() =>
                   <pre :class="$style.config"><code v-html="configHighlighted" /></pre>
                 </q-expansion-item>
               </q-list>
+              <component-workspaces-section
+                v-if="workspacesUnderConfig"
+                :can-manage="canManage"
+                class="q-mt-md"
+                :open-ids="scopedWorkspaces.map((workspace) => workspace.id)"
+                :placement="address.toString()"
+                :workspaces="placedWorkspaces"
+                @close="closeScoped"
+                @open="showWorkspace"
+                @open-beside="openBesideScoped"
+                @share="shareScoped"
+              />
             </div>
 
             <div :class="configHighlighted != null ? $style.detailsColumn : 'col-12'">
               <!-- Workspaces lead the column rather than sitting under the procedure lists, since
               they are what the page is usually opened for and the rest is reference. -->
               <component-workspaces-section
+                v-if="!workspacesUnderConfig"
                 :can-manage="canManage"
                 class="q-mb-md"
+                :open-ids="scopedWorkspaces.map((workspace) => workspace.id)"
                 :placement="address.toString()"
                 :workspaces="placedWorkspaces"
-                @open="selectWorkspace"
+                @close="closeScoped"
+                @open="showWorkspace"
+                @open-beside="openBesideScoped"
+                @share="shareScoped"
               />
 
               <q-list bordered class="rounded-borders" dense>
@@ -646,6 +722,7 @@ const configHighlighted = $computed(() =>
         v-if="activeWorkspaceId != null"
         :id="activeWorkspaceId"
         :sticky-top="workspaceStickyTop"
+        @duplicated="openBesideScoped"
       >
         <template #header-prepend="{ actions, state }">
           <component-workspace-tabs
@@ -665,8 +742,10 @@ const configHighlighted = $computed(() =>
             @import="importScoped"
             @open="openScoped"
             @open-all="openAllScoped"
+            @open-beside="openBesideScoped"
             @reorder="reorderScoped"
-            @select="selectWorkspace"
+            @select="showWorkspace"
+            @share="shareScoped"
           />
         </template>
       </workspace-page>
@@ -690,8 +769,10 @@ const configHighlighted = $computed(() =>
           @import="importScoped"
           @open="openScoped"
           @open-all="openAllScoped"
+          @open-beside="openBesideScoped"
           @reorder="reorderScoped"
-          @select="selectWorkspace"
+          @select="showWorkspace"
+          @share="shareScoped"
         />
       </div>
     </template>

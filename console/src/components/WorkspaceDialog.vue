@@ -11,7 +11,6 @@ import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import { useForm } from '@/form'
 import icons from '@/icons'
-import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
 import { useValidate } from '@/validate'
@@ -59,7 +58,6 @@ const { dialogRef, onDialogHide, onDialogOK, onDialogCancel } = useDialogPluginC
 const access = useAccess()
 const auth = useAuth()
 const engine = useEngine()
-const navigation = useNavigation()
 const notify = useNotify()
 const preferences = usePreferences()
 const validate = useValidate()
@@ -140,17 +138,14 @@ const form = useForm({
       preferences.wasLastWorkspacePrivate = values.isPrivate
     }
 
-    if (action === 'duplicate') {
-      // A copy opens on its own page. Its callers duplicate from wherever they happen to be, so
-      // the dialog takes them to the copy rather than leaving them on the original.
-      notify.success('Workspace duplicated successfully.')
-      await navigation.go(`/workspaces/${created.id}`)
-    } else {
-      // A new workspace is handed back so the caller can place it, since where it belongs depends
-      // on whether it was created from the sidebar or from a component's tab strip.
-      notify.success('Workspace created successfully.')
-    }
+    notify.success(
+      action === 'duplicate'
+        ? 'Workspace duplicated successfully.'
+        : 'Workspace created successfully.'
+    )
 
+    // Handed back so the caller can place it. Where it belongs depends on where it was made, and a
+    // copy goes beside its original, neither of which the dialog is in a position to know.
     onDialogOK(created)
   },
 })

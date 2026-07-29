@@ -28,7 +28,7 @@ from ceres.component import (
 )
 from ceres.config import ComponentConfig
 from ceres.connectivity import Connectivity
-from ceres.data import DataModel, DataObject, DateTime, Name, StrEnum, to_json
+from ceres.data import DataModel, DataObject, DateTime, Name, to_json
 from ceres.error import (
     NotConnectedError,
     NotFoundError,
@@ -48,12 +48,6 @@ if TYPE_CHECKING:
     from ceres.engine import Engine
 
 
-class ComponentRole(StrEnum):
-    """Role a component can fulfill in the system."""
-
-    INTERFACE = "interface"
-
-
 class ConnectionInfo(DataObject):
     """Summary of a named connection on a component."""
 
@@ -62,11 +56,10 @@ class ConnectionInfo(DataObject):
 
 
 class ComponentInfo(DataObject):
-    """Recursive description of a component, its roles, procedures, connections, and children."""
+    """Recursive description of a component, its procedures, connections, and children."""
 
     name: Name
     address: Address
-    roles: list[ComponentRole]
     procedures: list[ProcedureBinding]
     connections: list[ConnectionInfo]
     components: list[ComponentInfo]
@@ -77,27 +70,6 @@ ComponentInfo.__name__ = "Component"
 ComponentInfo.__qualname__ = "Component"
 
 router = Router(prefix="/components", tags=["components"])
-
-
-def _get_component_roles(component: Component | type[Component]) -> list[ComponentRole]:
-    """Determine the roles that a component fulfills (e.g. interface).
-
-    Args:
-        component: A component instance or class to inspect.
-
-    Returns:
-        A list of `ComponentRole` values applicable to the component.
-    """
-    if not isinstance(component, type):
-        component = type(component)
-
-    from ceres.interface import Interface
-
-    roles: list[ComponentRole] = []
-    if issubclass(component, Interface):
-        roles.append(ComponentRole.INTERFACE)
-
-    return roles
 
 
 def _describe_component(component: Component, *, visible: bool) -> ComponentInfo:
@@ -123,7 +95,6 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
     return ComponentInfo(
         name=system.name,
         address=system.address,
-        roles=_get_component_roles(component),
         procedures=procedures,
         connections=connections,
         components=[],

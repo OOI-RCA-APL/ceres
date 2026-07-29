@@ -21,6 +21,8 @@ const {
 defineEmits<{
   'update:editing': [value: boolean]
   rename: [name: string]
+  /** Whether the pointer is over the name itself, which is what offers a rename. */
+  hoverName: [value: boolean]
 }>()
 
 const isPrivate = $computed(() => workspace.owner_id != null)
@@ -41,7 +43,13 @@ const placement = $computed(() =>
       <q-tooltip v-if="isPrivate" :delay="1000">This workspace is private to you.</q-tooltip>
     </q-icon>
     <span v-if="placement != null" :class="$style.placement">{{ placement }}&nbsp;/&nbsp;</span>
-    <span :class="[$style.name, editing && $style.editingName]">
+    <!-- The name alone reports being hovered. Holding shift over a tab offers to rename it, and
+    the offer belongs to the text being renamed rather than to the whole tab. -->
+    <span
+      :class="[$style.name, editing && $style.editingName]"
+      @mouseenter="$emit('hoverName', true)"
+      @mouseleave="$emit('hoverName', false)"
+    >
       <inline-name-edit
         :claim
         :editing

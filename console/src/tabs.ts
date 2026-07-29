@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, MaybeRefOrGetter, toValue } from 'vue'
+import { LocationQuery } from 'vue-router'
 import Zod from 'zod'
 
 import { useSettings } from '@/api/settings'
@@ -23,6 +24,28 @@ semantic and reads every strip in one request.
 export const tabsSettingName = 'workspaces'
 
 const emptySet: TabSet = { open: [], closed: [] }
+
+/** Name a strip's address carries when it is asking for workspaces to be shown. */
+export const workspaceQueryKey = 'workspace'
+
+/** Workspaces the address is asking a page to show, which may name more than one.
+
+The address asks rather than records. A page reads this on arrival, opens what it names, and takes
+it back out of the bar, so nothing that happens to the strip afterwards is argued with by an
+address still naming what used to be there. Links are made deliberately, by the share actions.
+*/
+export function requestedWorkspaces(query: LocationQuery): string[] {
+  const value = query[workspaceQueryKey]
+  if (typeof value === 'string') {
+    return [value]
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter((current): current is string => typeof current === 'string')
+  }
+
+  return []
+}
 
 /** Resolve a strip's effective tabs from its defaults and the user's set.
 
@@ -155,6 +178,34 @@ export const useTabs = defineStore('tabs', () => {
     })
   }
 
+  /** Put a workspace on the strip at a given position.
+
+  The resolved order is passed in because it depends on the strip's defaults, which the set itself
+  does not hold. Positioning between two tabs means naming every position, exactly as dragging one
+  does, so this writes the whole order rather than appending.
+  */
+  async function openAt(placement: string, id: string, resolved: string[], index: number) {
+    const ids = resolved.filter((current) => current !== id)
+    ids.splice(Math.max(0, Math.min(index, ids.length)), 0, id)
+    await reorder(placement, ids)
+  }
+
+  /** Put a workspace on the strip directly after another one.
+
+  Falling back to opening at the end covers the workspace it was to sit beside not being on the
+  strip at all, in which case there is no beside to speak of.
+  */
+  async function openBeside(placement: string, id: string, afterId: string, resolved: string[]) {
+    const others = resolved.filter((current) => current !== id)
+    const index = others.indexOf(afterId)
+    if (index < 0) {
+      await open(placement, id)
+      return
+    }
+
+    await openAt(placement, id, others, index + 1)
+  }
+
   // Dragging a tab positions every tab in the strip, so the whole resolved order becomes explicit.
   async function reorder(placement: string, ids: string[]) {
     const set = setFor(placement)
@@ -174,5 +225,17 @@ export const useTabs = defineStore('tabs', () => {
     await write(placement, { open: ids, closed: [] })
   }
 
-  return { load, setFor, isTouched, open, openMany, close, closeMany, reorder, seed }
+  return {
+    load,
+    setFor,
+    isTouched,
+    open,
+    openAt,
+    openBeside,
+    openMany,
+    close,
+    closeMany,
+    reorder,
+    seed,
+  }
 })

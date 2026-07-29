@@ -345,7 +345,8 @@ async def update_workspace(
     await require_writable(engine, actor, user, workspace)
 
     if "owner_id" in update and update["owner_id"] != workspace.owner_id:
-        if update["owner_id"] is not None and update["owner_id"] != user.id:
+        # A caller may only ever claim ownership for themselves, which nobody unauthenticated can.
+        if update["owner_id"] is not None and (user is None or update["owner_id"] != user.id):
             raise NotPermittedError()
 
         await require_placement_access(

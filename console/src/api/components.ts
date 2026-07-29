@@ -1,14 +1,13 @@
 import { useQuery } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
-import Zod, { ZodTypeAny } from 'zod'
+import Zod from 'zod'
 
 import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
-import { ElementModel } from '@/api/elements'
 import { MessageModel } from '@/api/messages'
-import { AnyResultModel, ConnectivityModel, ResultModel } from '@/api/shared'
+import { AnyResultModel, ConnectivityModel } from '@/api/shared'
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
 export const ProcedureTypeModel = Zod.enum(['query', 'action'])
@@ -84,9 +83,6 @@ export const JobInfoModel = Zod.object({
   next_run: Zod.string().nullable(),
 })
 
-export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
-export const ComponentRoleModel = Zod.enum(['interface'])
-
 export type ConnectionInfo = Zod.infer<typeof ConnectionInfoModel>
 export const ConnectionInfoModel = Zod.object({
   name: Zod.string(),
@@ -97,7 +93,6 @@ export type ComponentInfo = {
   name: string
   address: Address
   tags: string[]
-  roles: ComponentRole[]
   procedures: ProcedureInfo[]
   connections: ConnectionInfo[]
   components: ComponentInfo[]
@@ -107,14 +102,10 @@ export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   name: Zod.string(),
   address: AddressModel,
   tags: Zod.array(Zod.string()),
-  roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),
   connections: Zod.array(ConnectionInfoModel),
   components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
 }) as any
-
-export type RenderResult = Zod.infer<typeof RenderResultModel>
-const RenderResultModel = ResultModel(ElementModel)
 
 export const useComponents = defineStore('components', () => {
   const client = useClient()
@@ -166,28 +157,6 @@ export const useComponents = defineStore('components', () => {
     return await client.post(`/api/components/${address}/connections/${connection}/send`, {
       data: args,
       parse: MessageModel,
-    })
-  }
-
-  function useElementStream<TModel extends ZodTypeAny>(
-    address: MaybeRef<Address>,
-    query: MaybeRef<string>,
-    args: MaybeRef<Record<string, unknown>>,
-    onMessage: (message: Zod.infer<TModel>) => unknown
-  ) {
-    return client.useStream({
-      stream: computed(() => ({
-        path: `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe`,
-        query: { arguments: unref(args) },
-      })) as any,
-      parse: ElementModel,
-      onReceive: onMessage,
-    })
-  }
-
-  async function render(address: Address): Promise<RenderResult> {
-    return await client.get(`/api/components/${address}/procedures/render/call`, {
-      parse: RenderResultModel,
     })
   }
 
@@ -300,7 +269,5 @@ export const useComponents = defineStore('components', () => {
     getConnections,
     call,
     send,
-    useElementStream,
-    render,
   }
 })

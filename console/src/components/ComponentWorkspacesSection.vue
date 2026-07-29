@@ -11,15 +11,25 @@ import { moved, usePointerReorder } from '@/reorder'
 import { useTabs } from '@/tabs'
 import { inStandardOrder, isWorkspaceWritable, useWorkspaces, Workspace } from '@/workspace'
 
-const { workspaces, placement, canManage } = defineProps<{
+const { workspaces, openIds, placement, canManage } = defineProps<{
   /** Every workspace placed here that the caller can view, whether or not it is open. */
   workspaces: Workspace[]
+  /** What the strip below is showing, which is what the tab icon on each row reports. */
+  openIds: string[]
   placement: string
   /** Whether the caller may manage the placement, which is what the shared order follows. */
   canManage: boolean
 }>()
 
-const emit = defineEmits<{ open: [id: string] }>()
+const emit = defineEmits<{
+  open: [id: string]
+  /** A copy to put on the strip directly after the workspace it was copied from. */
+  openBeside: [afterId: string, id: string]
+  /** Taken off the strip, left to the page since closing what is showing has to move off it. */
+  close: [id: string]
+  /** Workspaces to copy a link to, which the page builds from its own placement. */
+  share: [ids: string[]]
+}>()
 
 const auth = useAuth()
 const dialogs = useDialogs()
@@ -28,29 +38,67 @@ const workspaceStore = useWorkspaces()
 
 const ordered = $computed(() => pending ?? inStandardOrder(workspaces))
 
-// A workspace is in the strip unless the user has closed it. An untouched strip is its defaults,
-// so absence from `open` is not the same as being closed.
+// Read from the strip itself rather than worked out from the tab set, since what the set means
+// depends on the strip's defaults, which only the page holds. A home strip draws its defaults far
+// more narrowly than the list here, so the two disagree unless the strip is asked.
 function isOpen(workspace: Workspace): boolean {
-  const set = tabs.setFor(placement)
-  if (set.open.includes(workspace.id)) {
-    return true
-  }
-
-  return !set.closed.includes(workspace.id)
+  return openIds.includes(workspace.id)
 }
 
 function isWritable(workspace: Workspace): boolean {
   return isWorkspaceWritable(workspace, auth.user?.id, canManage)
 }
 
+/** Where a workspace turned on from this list belongs in the strip.
+
+Placed against its neighbours here rather than appended, so the strip reads in the same order the
+list does instead of recording whatever was turned on last. The nearest workspace above it that is
+already showing takes it directly after, failing that the nearest one below takes it directly
+before, and with neither showing it goes on the end.
+
+The whole list is walked, shared before private, which is the order these rows appear in.
+*/
+function tabIndexFor(id: string): number {
+  const listed = [...sharedWorkspaces, ...privateWorkspaces].map((workspace) => workspace.id)
+  const at = listed.indexOf(id)
+
+  for (let index = at - 1; index >= 0; index--) {
+    const position = openIds.indexOf(listed[index])
+    if (position >= 0) {
+      return position + 1
+    }
+  }
+
+  for (let index = at + 1; index < listed.length; index++) {
+    const position = openIds.indexOf(listed[index])
+    if (position >= 0) {
+      return position
+    }
+  }
+
+  return openIds.length
+}
+
+// Placing only ever puts a workspace on the strip. One already there keeps the position it has,
+// since clicking a row is a request to look at it rather than to rearrange the tabs around it.
+async function openAsTab(workspace: Workspace) {
+  if (isOpen(workspace)) {
+    return
+  }
+
+  await tabs.openAt(placement, workspace.id, openIds, tabIndexFor(workspace.id))
+}
+
 // Putting a workspace on the strip or taking it off again, which is the same closing and opening
-// the tabs themselves do. The workspace is untouched either way.
+// the tabs themselves do. The workspace is untouched either way. Closing goes through the page,
+// because taking away the one being shown has to move off it as well.
 async function toggleTab(workspace: Workspace) {
   if (isOpen(workspace)) {
-    await tabs.close(placement, workspace.id)
-  } else {
-    await tabs.open(placement, workspace.id)
+    emit('close', workspace.id)
+    return
   }
+
+  await openAsTab(workspace)
 }
 
 async function open(workspace: Workspace, groupReorder: ReturnType<typeof usePointerReorder>) {
@@ -59,14 +107,17 @@ async function open(workspace: Workspace, groupReorder: ReturnType<typeof usePoi
     return
   }
 
-  await tabs.open(placement, workspace.id)
+  await openAsTab(workspace)
   emit('open', workspace.id)
 }
 
 // A workspace opened on home keeps its placement, so its widgets still resolve relative addresses
-// against this component wherever it is being viewed from.
+// against this component wherever it is being viewed from. Home lists its own workspaces the same
+// way, where opening one on home is what the row above already does.
+const isHome = $computed(() => placement === engineRoot)
+
 async function openOnHome(workspace: Workspace) {
-  await tabs.open(engineRoot, workspace.id)
+  await workspaceStore.open(workspace.id)
 }
 
 // Shared and private are listed apart rather than mixed, because they answer different questions.
@@ -118,7 +169,7 @@ function onDrop(workspace: Workspace, from: 'shared' | 'private', event: Pointer
   }
 
   if (element.closest('[data-workspace-drop="tabs"]') != null) {
-    void openAsTab(workspace)
+    void openAsTab(workspace).then(() => emit('open', workspace.id))
     return true
   }
 
@@ -156,11 +207,6 @@ async function transfer(workspace: Workspace, to: 'shared' | 'private', mode: 'c
   }
 
   await workspaceStore.update(workspace.id, { owner_id: owner })
-}
-
-async function openAsTab(workspace: Workspace) {
-  await tabs.open(placement, workspace.id)
-  emit('open', workspace.id)
 }
 
 // One menu per row, reachable from the dots and from a right-click on the row. Held by workspace
@@ -202,6 +248,17 @@ rather than hidden behind a shortcut nobody would guess. Clicking into it makes 
 which is what keeps it once shift is let go of.
 */
 let hoveredId = $ref<string | null>(null)
+
+// Reported by the name rather than by the row, so the offer belongs to the text being renamed.
+// Leaving only clears what it was set to, since the pointer can reach the next name before the one
+// it left says it has been left.
+function setNameHovered(workspace: Workspace, hovered: boolean) {
+  if (hovered) {
+    hoveredId = workspace.id
+  } else if (hoveredId === workspace.id) {
+    hoveredId = null
+  }
+}
 
 function isNaming(workspace: Workspace): boolean {
   if (editingId === workspace.id) {
@@ -275,7 +332,9 @@ function openSettings(workspace: Workspace) {
 }
 
 function duplicate(workspace: Workspace) {
-  dialogs.duplicateWorkspace(workspace.id, workspace.data)
+  dialogs.duplicateWorkspace(workspace.id, workspace.data).onOk((created: Workspace) => {
+    emit('openBeside', workspace.id, created.id)
+  })
 }
 
 function promptDelete(workspace: Workspace) {
@@ -358,8 +417,6 @@ function promptDelete(workspace: Workspace) {
             :style="group.reorder.styleFor(index)"
             v-bind="group.canReorder ? group.reorder.handlers(index) : {}"
             @click="open(workspace, group.reorder)"
-            @mouseenter="hoveredId = workspace.id"
-            @mouseleave="hoveredId = hoveredId === workspace.id ? null : hoveredId"
           >
             <!-- A grip appears at the row's leading edge on hover, so a draggable row says so
             without spending a column on a handle that is idle the rest of the time. The whole row
@@ -375,13 +432,22 @@ function promptDelete(workspace: Workspace) {
             </q-item-section>
             <q-item-section @dblclick.stop="openRename(workspace)">
               <q-item-label>
-                <inline-name-edit
-                  :claim="editingId === workspace.id"
-                  :editing="isNaming(workspace)"
-                  :name="workspace.name"
-                  @rename="(value: string) => rename(workspace, value)"
-                  @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
-                />
+                <!-- The name alone reports being hovered. Holding shift over a row offers to
+                rename it, and the offer belongs to the text being renamed rather than to the whole
+                row. -->
+                <span
+                  :class="$style.name"
+                  @mouseenter="setNameHovered(workspace, true)"
+                  @mouseleave="setNameHovered(workspace, false)"
+                >
+                  <inline-name-edit
+                    :claim="editingId === workspace.id"
+                    :editing="isNaming(workspace)"
+                    :name="workspace.name"
+                    @rename="(value: string) => rename(workspace, value)"
+                    @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
+                  />
+                </span>
               </q-item-label>
             </q-item-section>
             <!-- The tab icon both says whether this workspace is on the strip below and puts it
@@ -425,7 +491,13 @@ function promptDelete(workspace: Workspace) {
                       <q-item-label>Open</q-item-label>
                     </q-item-section>
                   </q-item>
-                  <q-item v-close-popup clickable dense @click="openOnHome(workspace)">
+                  <q-item
+                    v-if="!isHome"
+                    v-close-popup
+                    clickable
+                    dense
+                    @click="openOnHome(workspace)"
+                  >
                     <q-item-section avatar>
                       <q-icon :name="icons.open" />
                     </q-item-section>
@@ -454,6 +526,14 @@ function promptDelete(workspace: Workspace) {
                     </q-item-section>
                     <q-item-section>
                       <q-item-label>Settings</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                  <q-item v-close-popup clickable dense @click="emit('share', [workspace.id])">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.share" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Copy Link</q-item-label>
                     </q-item-section>
                   </q-item>
                   <q-item v-close-popup clickable dense @click="duplicate(workspace)">
@@ -527,6 +607,11 @@ function promptDelete(workspace: Workspace) {
   padding-left: 22px;
   transition: background-color 0.2s, transform 0.16s ease;
   touch-action: none;
+}
+
+// Hugs the name, so hovering the stretch of empty row beside it is not hovering the name.
+.name {
+  align-self: flex-start;
 }
 
 // The grip's box runs from the row's leading edge to the far side of the workspace icon, so the

@@ -58,7 +58,6 @@ const targetAddress = $computed(() => {
   const raw =
     ('address' in widget ? widget.address : null) ??
     ('procedureAddress' in widget ? widget.procedureAddress : null) ??
-    ('interfaceAddress' in widget ? widget.interfaceAddress : null) ??
     ('particleAddress' in widget ? widget.particleAddress : null)
   if (raw == null) {
     return null

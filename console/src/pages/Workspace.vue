@@ -20,6 +20,7 @@ import {
   resolveWidgetWidths,
   widgetWidthSubdivisions,
   Widget,
+  Workspace,
   WorkspaceData,
   WorkspaceHeaderActions,
   WorkspaceHeaderState,
@@ -31,6 +32,11 @@ const { id, stickyTop } = defineProps<{
 
   /** Where the workspace header pins, raised when it sits under another page's header. */
   stickyTop?: number
+}>()
+
+const emit = defineEmits<{
+  /** A copy, for the page hosting this one to place beside the workspace it was copied from. */
+  duplicated: [afterId: string, id: string]
 }>()
 
 const dialogs = useDialogs()
@@ -136,7 +142,7 @@ useResizeObserver($$(layout), (resizes) => {
   }
 })
 
-// The action bar floats over the window rather than sitting in the page, so its centre is taken
+// The action bar floats over the window rather than sitting in the page, so its center is taken
 // from the widgets it acts on. Half the window is somewhere left of them whenever the drawer is
 // open, which reads as misaligned against everything else on the page.
 const layoutBounds = useElementBounding($$(layout))
@@ -160,7 +166,9 @@ const draggedWidgetIconStyle = $computed(() => ({
 }))
 
 function duplicate() {
-  dialogs.duplicateWorkspace(id, data as WorkspaceData)
+  dialogs.duplicateWorkspace(id, data as WorkspaceData).onOk((created: Workspace) => {
+    emit('duplicated', id, created.id)
+  })
 }
 
 function exportFile() {
@@ -620,30 +628,20 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         </div>
       </div>
     </div>
-    <!-- The whole row is the target rather than just the dot, since the dot is small and the row
-    already lights up on hover, which promises a click the dot alone would not accept. The dot is
-    still the focus stop, so the row is reachable by keyboard and the focus ring lands on the thing
-    that looks like the control. -->
     <div
       v-if="!isViewingOriginal && data != null"
       class="row"
-      :class="[$style.addWidgetRow, 'faded-hover', 'items-center', 'justify-center', 'q-mt-sm']"
+      :class="[$style.addWidgetRow, 'items-center', 'justify-center', 'q-mt-sm']"
     >
-      <q-btn
-        aria-label="Add Widget"
-        color="primary"
-        :icon="icons.add"
-        round
-        size="8px"
-        unelevated
-      />
-      <q-tooltip class="bg-primary">Add Widget</q-tooltip>
-      <workspace-add-widget-menu
-        anchor="bottom middle"
-        :offset="[0, 8]"
-        :row="data.layout.length"
-        self="top middle"
-      />
+      <q-btn aria-label="Add Widget" color="primary" :icon="icons.add" round size="8px" unelevated>
+        <q-tooltip class="bg-primary">Add Widget</q-tooltip>
+        <workspace-add-widget-menu
+          anchor="bottom middle"
+          :offset="[0, 8]"
+          :row="data.layout.length"
+          self="top middle"
+        />
+      </q-btn>
     </div>
     <!-- Room below the widgets for the tab strip to be scrolled up to where it pins, whatever this
     workspace happens to hold. A workspace shorter than this cannot be scrolled far enough to stick
@@ -658,32 +656,6 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       :class="[$style.actionBar, 'items-center', 'row']"
       :style="actionBarStyle"
     >
-      <q-btn
-        v-if="!isViewingOriginal"
-        dense
-        :disable="!workspace.canUndo"
-        flat
-        :icon="icons.discard"
-        round
-        size="sm"
-        @click="workspace.undo()"
-      >
-        <q-tooltip class="bg-primary text-white">Undo ({{ undoShortcut }})</q-tooltip>
-      </q-btn>
-      <q-btn
-        v-if="!isViewingOriginal"
-        :class="$style.redoButton"
-        dense
-        :disable="!workspace.canRedo"
-        flat
-        :icon="icons.discard"
-        round
-        size="sm"
-        @click="workspace.redo()"
-      >
-        <q-tooltip class="bg-primary text-white">Redo ({{ redoShortcut }})</q-tooltip>
-      </q-btn>
-      <q-separator v-if="!isViewingOriginal" vertical />
       <template v-if="isViewingOriginal">
         <q-btn
           color="warning"
@@ -764,7 +736,6 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 }
 
 .addWidgetRow {
-  cursor: pointer;
   padding: 4px 0;
 }
 
@@ -780,7 +751,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 // inline, from the widgets it acts on.
 //
 // Spaced with `gap` rather than a Quasar gutter, whose negative margins offset the box against
-// its own contents and leave the buttons sitting low and right of centre.
+// its own contents and leave the buttons sitting low and right of center.
 .actionBar {
   position: fixed;
   z-index: 4;
@@ -789,7 +760,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   width: fit-content;
   gap: 4px;
   padding: 4px 10px;
-  border-radius: 4px 4px 0 0;
+  border-radius: 8px 8px 0 0;
   backdrop-filter: blur(6px);
 }
 
@@ -801,11 +772,6 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 :global(.light) .actionBar {
   background-color: rgba(255, 255, 255, 0.85);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-}
-
-// Redo is the undo arrow mirrored, which reads as its opposite without needing a second icon.
-.redoButton :global(.q-icon) {
-  transform: scaleX(-1);
 }
 
 .popupEdit {

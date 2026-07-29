@@ -26,7 +26,6 @@ __all__ = [
 _ADDRESS_KEYS = (
     "address",
     "commandAddress",
-    "interfaceAddress",
     "particleAddress",
     "procedureAddress",
 )

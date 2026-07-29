@@ -61,6 +61,10 @@ const emit = defineEmits<{
   closeAll: []
   open: [id: string]
   openAll: []
+  /** A copy to put on the strip directly after the workspace it was copied from. */
+  openBeside: [afterId: string, id: string]
+  /** Workspaces to copy a link to, which the page builds from its own placement. */
+  share: [ids: string[]]
   create: []
   import: [files: File[]]
   reorder: [workspaces: Workspace[]]
@@ -168,6 +172,17 @@ which is what keeps it once shift is let go of.
 */
 let hoveredId = $ref<string | null>(null)
 
+// Reported by the label rather than by the tab, so the offer belongs to the text being renamed.
+// Leaving only clears what it was set to, since the pointer can reach the next name before the one
+// it left says it has been left.
+function setNameHovered(workspace: Workspace, hovered: boolean) {
+  if (hovered) {
+    hoveredId = workspace.id
+  } else if (hoveredId === workspace.id) {
+    hoveredId = null
+  }
+}
+
 function isNaming(workspace: Workspace): boolean {
   if (editingId === workspace.id) {
     return true
@@ -260,7 +275,9 @@ function openSettingsById(workspace: Workspace) {
 }
 
 function duplicateById(workspace: Workspace) {
-  dialogs.duplicateWorkspace(workspace.id, workspace.data)
+  dialogs.duplicateWorkspace(workspace.id, workspace.data).onOk((created: Workspace) => {
+    emit('openBeside', workspace.id, created.id)
+  })
 }
 
 function promptDeleteById(workspace: Workspace) {
@@ -313,24 +330,21 @@ function promptDeleteById(workspace: Workspace) {
         v-bind="reorder.handlers(index)"
         @click="onTabClick(workspace.id)"
         @keydown="onTabKeydown($event, index)"
-        @mouseenter="hoveredId = workspace.id"
-        @mouseleave="hoveredId = hoveredId === workspace.id ? null : hoveredId"
       >
         <div
           :class="[$style.tabInner, 'items-center', 'no-wrap', 'row']"
           @dblclick.stop="openRename(workspace)"
         >
-          <!-- A grip appears at the tab's leading edge on hover, so the strip says it can be
-          arranged without spending width on a handle that is idle the rest of the time. The whole
-          tab is still the drag target, and the grip is the hint. -->
-          <span :class="$style.grip">
-            <q-icon :name="icons.dragVertical" size="15px" />
-          </span>
+          <!-- The tab's leading edge carries the grab cursor, which is all a tab needs to say it
+          can be dragged, since a strip of tabs already reads as one. The whole tab is the drag
+          target, so this is a hint rather than a handle. -->
+          <span :class="$style.grip" />
           <workspace-tab-label
             :claim="editingId === workspace.id"
             :editing="isNaming(workspace)"
             :show-placement="showPlacement"
             :workspace="workspace"
+            @hover-name="(value: boolean) => setNameHovered(workspace, value)"
             @rename="(value: string) => rename(workspace, value)"
             @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
           />
@@ -413,6 +427,14 @@ function promptDeleteById(workspace: Workspace) {
                     </q-item-section>
                   </q-item>
                   <q-separator />
+                  <q-item v-close-popup clickable dense @click="emit('share', [active!])">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.share" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Copy Link</q-item-label>
+                    </q-item-section>
+                  </q-item>
                   <q-item v-close-popup clickable dense @click="activeActions.duplicate()">
                     <q-item-section avatar>
                       <q-icon :name="icons.duplicate" />
@@ -521,6 +543,14 @@ function promptDeleteById(workspace: Workspace) {
                       <q-item-label>Settings</q-item-label>
                     </q-item-section>
                   </q-item>
+                  <q-item v-close-popup clickable dense @click="emit('share', [workspace.id])">
+                    <q-item-section avatar>
+                      <q-icon :name="icons.share" />
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>Copy Link</q-item-label>
+                    </q-item-section>
+                  </q-item>
                   <q-item v-close-popup clickable dense @click="duplicateById(workspace)">
                     <q-item-section avatar>
                       <q-icon :name="icons.duplicate" />
@@ -568,7 +598,7 @@ function promptDeleteById(workspace: Workspace) {
       v-if="canCreate"
       :class="[
         $style.add,
-        workspaces.length === 0 && $style.addCentred,
+        workspaces.length === 0 && $style.addCentered,
         workspaces.length > 0 && overflowing && $style.addAnchored,
         'q-ml-xs',
       ]"
@@ -590,7 +620,7 @@ function promptDeleteById(workspace: Workspace) {
         :offset="[0, 4]"
         self="top middle"
       >
-        <q-card bordered flat :class="$style.picker">
+        <q-card bordered :class="$style.picker" flat>
           <workspace-chooser
             create-label="Create Workspace"
             empty="All of them are already open."
@@ -647,6 +677,30 @@ function promptDeleteById(workspace: Workspace) {
                   Close All<template v-if="workspaces.length > 0">
                     ({{ workspaces.length }})</template
                   >
+                </q-item-label>
+              </q-item-section>
+            </q-item>
+            <!-- The whole strip rather than one tab, so a link hands over the set of workspaces
+            being looked at together and opens all of them where it lands. -->
+            <q-item
+              v-close-popup
+              clickable
+              dense
+              :disable="workspaces.length === 0"
+              @click="
+                emit(
+                  'share',
+                  workspaces.map((workspace) => workspace.id)
+                )
+              "
+            >
+              <q-item-section avatar>
+                <q-icon :name="icons.share" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>
+                  Copy Link{{ workspaces.length === 1 ? '' : 's' }}
+                  <template v-if="workspaces.length > 0">({{ workspaces.length }})</template>
                 </q-item-label>
               </q-item-section>
             </q-item>
@@ -721,29 +775,16 @@ function promptDeleteById(workspace: Workspace) {
   padding: 0 20px 0 19px;
 }
 
-// The grip's box runs from the tab's leading edge to the far side of the workspace icon, so the
-// whole of that end reads as the place to take hold of, with the glyph itself sitting at the
-// start of it. Zero opacity still answers the pointer, which is what carries the cursor before
-// the grip has faded in.
+// An invisible strip along the tab's leading edge, reaching past the workspace icon, that carries
+// the grab cursor. Nothing is drawn in it, so it costs no width and the label never moves.
 .grip {
   position: absolute;
   z-index: 1;
-  top: 50%;
-  left: 2px;
-  display: flex;
-  align-items: center;
-  // Reaches past the glyph to the far side of the workspace icon, so that whole end of the tab
-  // carries the grab cursor. Zero opacity still answers the pointer, which is what carries the
-  // cursor before the grip has faded in.
+  top: 0;
+  bottom: 0;
+  left: 0;
   width: 32px;
   cursor: grab;
-  opacity: 0;
-  transform: translateY(-50%);
-  transition: opacity 0.15s;
-}
-
-.tab:hover .grip {
-  opacity: 0.7;
 }
 
 // Quasar's dense tabs impose a 36px minimum on the tab and pad its content box vertically, which
@@ -864,18 +905,16 @@ function promptDeleteById(workspace: Workspace) {
   border-radius: 50%;
 }
 
-// An empty strip has nothing for the button to sit against, so it takes the middle instead.
-.addCentred {
-  position: absolute;
-  top: 50%;
-  right: 50%;
-  z-index: 2;
-  transform: translate(50%, -50%);
+// An empty strip has nothing for the button to sit against, so it takes the middle instead. Left
+// in the row rather than positioned over it, because it is then the only thing giving an empty
+// strip its height and taking it out of flow collapses the strip onto itself.
+.addCentered {
+  margin: 0 auto;
 }
 
 // Once the tabs scroll there is no end of the row to sit beside, so the button pins to the
-// trailing edge with that side squared off against it, and carries the surface out around itself
-// so the tabs read as passing underneath.
+// trailing edge with that side squared off against it, over the page's own surface so the tabs
+// read as passing underneath.
 .addAnchored {
   position: absolute;
   top: 50%;
@@ -894,14 +933,12 @@ function promptDeleteById(workspace: Workspace) {
 }
 
 :global(.dark) .addAnchored,
-:global(.dark) .addCentred {
+:global(.dark) .addCentered {
   background-color: $dark;
-  box-shadow: 0 0 10px 7px $dark;
 }
 
 :global(.light) .addAnchored,
-:global(.light) .addCentred {
+:global(.light) .addCentered {
   background-color: white;
-  box-shadow: 0 0 10px 7px white;
 }
 </style>
