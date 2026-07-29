@@ -888,6 +888,20 @@ class TursoDatabase(SQLiteDatabase):
                         )
                     )
 
+        @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
+        def before_cursor_execute(
+            connection: Connection,
+            cursor: Any,
+            statement: str,
+            parameters: Any,
+            context: Any,
+            executemany: bool,
+        ) -> tuple[str, Any]:
+            # SQLAlchemy hands binary columns over as "memoryview". Python's own driver takes it
+            # through the buffer protocol, Turso's takes only exact bytes and rejects everything
+            # else, so a message's data would never insert.
+            return statement, _to_turso_parameters(parameters, executemany)
+
         @event.listens_for(engine.sync_engine, "begin")
         def begin(connection: Connection) -> None:
             # "BEGIN CONCURRENT" is what lets two connections write at once. It is optimistic, so
@@ -1057,6 +1071,37 @@ def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
     connection.create_function("ceres_tokenize_bytes", 1, _ceres_tokenize_bytes)
     connection.create_function("date_bin", 3, _ceres_date_bin)
+
+
+def _to_turso_parameters(parameters: Any, executemany: bool) -> Any:
+    """Convert bound parameters into the handful of types Turso's driver accepts.
+
+    Only `memoryview` needs converting today, which is how SQLAlchemy presents a binary column.
+
+    Args:
+        parameters: The bound parameters, either one set or a sequence of them.
+        executemany: Whether `parameters` is a sequence of parameter sets.
+
+    Returns:
+        The parameters, with any value the driver would reject replaced by one it accepts.
+    """
+
+    def convert(value: Any) -> Any:
+        return bytes(value) if isinstance(value, memoryview) else value
+
+    def convert_set(values: Any) -> Any:
+        if isinstance(values, dict):
+            return {key: convert(value) for key, value in values.items()}
+
+        if isinstance(values, list | tuple):
+            return type(values)(convert(value) for value in values)
+
+        return values
+
+    if executemany and isinstance(parameters, list | tuple):
+        return type(parameters)(convert_set(values) for values in parameters)
+
+    return convert_set(parameters)
 
 
 def _assert_turso_installed() -> None:
