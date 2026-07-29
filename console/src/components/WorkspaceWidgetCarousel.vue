@@ -3,13 +3,15 @@ import { useIntervalFn } from '@vueuse/core'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
-import WorkspaceWidgetSlideContents from '@/components/WorkspaceWidgetSlideContents.vue'
+import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
-import { CarouselWidget } from '@/workspace'
+import { CarouselWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: CarouselWidget
 }>()
+
+const workspace = useWorkspace()
 
 let index = $ref(0)
 
@@ -19,8 +21,12 @@ let paused = $ref(false)
 let hovered = $ref(false)
 
 const slide = $computed(() => widget.slides[index] ?? null)
+
+// Also held still for as long as anything is in hand anywhere in the workspace. A drag measures
+// the layouts on screen once and aims at those measurements for the rest of it, so a slide moving
+// on would take the layout being aimed at off the page.
 const isRunning = $computed(
-  () => widget.autoplay && !paused && !hovered && widget.slides.length > 1
+  () => widget.autoplay && !paused && !hovered && workspace.drag == null && widget.slides.length > 1
 )
 
 // Slides can be taken away from under it, so the position is kept inside what is actually there.
@@ -77,11 +83,11 @@ function step(by: number) {
       </common-text>
     </div>
     <template v-else>
-      <workspace-widget-slide-contents
-        :key="slide.id"
-        :class="$style.slide"
-        :layout="slide.layout"
-      />
+      <!-- A slide is a workspace in miniature, arranged through the same editor the workspace
+      itself is drawn by, so everything that can be done to a layout can be done to one. -->
+      <div :class="[$style.slide, 'overflow-auto', 'q-px-sm']">
+        <workspace-layout :key="slide.id" :layout="slide.layout" :layout-id="slide.id" />
+      </div>
       <!-- Only worth steering when there is somewhere to steer to. -->
       <div
         v-if="widget.slides.length > 1"

@@ -13,9 +13,10 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { deepClone } from '@/utilities'
-import { useWidgetDrop } from '@/widget-drop'
+import { provideWidgetDrop } from '@/widget-drop'
 import {
   provideWorkspace,
+  rootLayoutId,
   Workspace,
   WorkspaceData,
   WorkspaceHeaderActions,
@@ -102,7 +103,9 @@ watch(
     }
   }
 )
-const drop = useWidgetDrop(workspace, () => layoutElement)
+// Started here and reached by every layout drawn under this page, since a carousel slide is
+// arranged the same way the workspace is and a drag crosses freely between them.
+const drop = provideWidgetDrop(workspace)
 
 function isTyping(target: EventTarget | null) {
   const element = target as HTMLElement | null
@@ -361,7 +364,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       <div v-else-if="data == null" class="q-py-lg text-center">
         <div>No workspace named "{{ name }}" exists.</div>
       </div>
-      <workspace-layout v-else ref="layoutView" :drop="drop" :layout="data.layout" />
+      <workspace-layout v-else ref="layoutView" :layout="data.layout" :layout-id="rootLayoutId" />
     </div>
     <div
       v-if="!isViewingOriginal && data != null"

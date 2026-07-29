@@ -5,7 +5,7 @@ import { onMounted } from 'vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
 import WorkspaceWidgetPlaceholder from '@/components/WorkspaceWidgetPlaceholder.vue'
-import { WidgetDrop } from '@/widget-drop'
+import { useWidgetDrop } from '@/widget-drop'
 import {
   getWidgetInfo,
   resolveWidgetWidths,
@@ -15,36 +15,58 @@ import {
   WidgetRow,
 } from '@/workspace'
 
-const { drop, layout } = defineProps<{
+const { layout, layoutId } = defineProps<{
   /** The rows this editor arranges. Written in place, so it is the layout itself. */
   layout: WidgetRow[]
 
-  /** The drag in progress, which says where a widget would land in here. */
-  drop: WidgetDrop
+  /** What a drag calls this layout, which is what tells it apart from the others on screen. */
+  layoutId: string
 }>()
 
 const workspace = useWorkspace()
+const drop = useWidgetDrop()
 
 const element = $ref<HTMLDivElement | null>(null)
 let layoutWidth = $ref<number | null>(null)
 
+// A layout that is mounted is a layout a drag may aim at. One that is not on screen, such as a
+// carousel slide that is not the slide being shown, never registers and so is never a target.
+drop.register({
+  id: layoutId,
+  rows: () => layout,
+  element: () => element,
+})
+
 useResizeObserver($$(element), (resizes) => {
   for (const resize of resizes) {
-    layoutWidth = resize.contentRect.width
+    // A layout laid out with no room yet reports nothing rather than a width of zero, which would
+    // otherwise pin every widget in it to nothing until the next measurement came in.
+    const width = resize.contentRect.width
+    layoutWidth = width > 0 ? width : null
   }
 })
+
+/** The rows a drop in progress would leave this layout with, or null when it leaves it alone. */
+const planned = $computed(() => drop.plan?.layouts[layoutId] ?? null)
 
 // While a widget is in hand the layout on screen is the one letting go would produce, which puts
 // the drop target where the widget itself will be rather than beside a mark standing in for it.
 const rows = $computed<WidgetRow[]>(() => {
-  if (drop.plan == null) {
+  const plan = planned
+  if (plan == null) {
     return layout
   }
 
-  const widgets = new Map(layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget]))
+  // Read from every layout, since a widget arriving from another one is not in this one yet.
+  const widgets = new Map(
+    workspace.layouts
+      .flatMap((current) => current.rows)
+      .flatMap((row) => row.widgets)
+      .map((widget) => [widget.id, widget])
+  )
   const current = new Map(layout.map((row) => [row.id, row]))
 
-  return drop.plan.rows.map((row) => {
+  return plan.map((row) => {
     const contents = row.widgets.map((id) => widgets.get(id)).filter((widget) => widget != null)
 
     // Rows the move leaves alone keep the identity they already had, so the widgets inside them
@@ -113,12 +135,12 @@ defineExpose({ element: $$(element) })
 </script>
 
 <template>
-  <div ref="element" :class="$style.root">
+  <div ref="element" :class="$style.root" data-layout>
     <!-- Where the widget lands, said without the layout having to open for it. Drawn until the
     target has been held long enough to be meant, so a pointer travelling across the workspace
     does not rearrange everything it passes over on the way. -->
     <div
-      v-if="drop.marker != null"
+      v-if="drop.marker != null && drop.marker.layout === layoutId"
       :class="$style.dropMarker"
       :style="{
         left: `${drop.marker.left}px`,
@@ -240,7 +262,14 @@ defineExpose({ element: $$(element) })
               <span :class="$style.shareValue">{{ getWidgetShare(widget) }}</span>
             </div>
             <workspace-widget-placeholder v-if="isHeld(widget)" :widget="widget" />
-            <workspace-widget v-else :column="j" :container="row" :row="i" :widget="widget" />
+            <workspace-widget
+              v-else
+              :column="j"
+              :container="row"
+              :layout-id="layoutId"
+              :row="i"
+              :widget="widget"
+            />
           </div>
         </transition-group>
       </div>
@@ -259,8 +288,15 @@ $settle: 240ms;
 $fade: 210ms;
 
 // What the drop marker is placed against.
+//
+// Takes all the room it is given wherever that room is a definite size, which is what leaves an
+// empty carousel slide something to aim at. A layout with no rows in it is no height at all, and
+// nothing can be dropped onto a box that is not there. The workspace's own layout is laid out in a
+// box that grows to fit it, where a share of nothing in particular comes to nothing and this has
+// no effect.
 .root {
   position: relative;
+  min-height: 100%;
 }
 
 // Drawn where the next target is and nowhere in between. Travelling there would have a line lying

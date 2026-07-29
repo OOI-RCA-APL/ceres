@@ -525,6 +525,9 @@ export type Drag = {
 
   /** Everything in hand, in layout order, `widget` among it. */
   widgets: Widget[]
+
+  /** The layout it all came out of, which is one layout since a selection is made in one. */
+  layout: string
 }
 
 /** How a widget joins what is already picked out when it is chosen. */
@@ -744,23 +747,48 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     })
   }
 
-  function insertWidget(widget: Widget, row: number, column: number = 0) {
+  /** Every layout this workspace holds, its own and each carousel slide's, in that order. */
+  function layoutRefs(): WorkspaceLayoutRef[] {
     if (data == null) {
+      return []
+    }
+
+    const current = data
+    return collectLayouts(current.layout, (rows) => (current.layout = rows))
+  }
+
+  function layoutMap(): Map<string, WidgetRow[]> {
+    return new Map(layoutRefs().map((layout) => [layout.id, layout.rows]))
+  }
+
+  function findLayout(id: string): WorkspaceLayoutRef | null {
+    return layoutRefs().find((layout) => layout.id === id) ?? null
+  }
+
+  function insertWidget(
+    widget: Widget,
+    row: number,
+    column: number = 0,
+    layoutId: string = rootLayoutId
+  ) {
+    const layout = findLayout(layoutId)
+    if (layout == null) {
       return
     }
 
-    row = Math.min(data.layout.length, row)
-    const widgets = [...(data.layout[row]?.widgets ?? [])]
+    const rows = layout.rows
+    row = Math.min(rows.length, row)
+    const widgets = [...(rows[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
     widget.width = Math.min(widgetWidthSubdivisions / widgets.length, widget.width)
     resolveWidgetWidths(widgets, widgets.indexOf(widget))
 
     if (row < 0) {
-      data.layout = [WidgetRowModel.parse({ widgets }), ...data.layout]
-    } else if (data.layout[row] == null) {
-      data.layout = [...data.layout, WidgetRowModel.parse({ widgets })]
+      layout.set([WidgetRowModel.parse({ widgets }), ...rows])
+    } else if (rows[row] == null) {
+      layout.set([...rows, WidgetRowModel.parse({ widgets })])
     } else {
-      const rowObject = data.layout[row]
+      const rowObject = rows[row]
       const minHeight = widgetInfos[widget.type].options.minHeight
       if (rowObject.height < minHeight) {
         rowObject.height = minHeight
@@ -770,13 +798,18 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   }
 
-  function addWidget(type: WidgetType, row: number, column: number = 0) {
+  function addWidget(
+    type: WidgetType,
+    row: number,
+    column: number = 0,
+    layoutId: string = rootLayoutId
+  ) {
     if (data == null) {
       return null
     }
 
     const widget = createWidget(type)
-    insertWidget(widget, row, column)
+    insertWidget(widget, row, column, layoutId)
 
     return widget
   }
@@ -787,23 +820,33 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
 
     const removed = new Set(ids)
-    const layout: WidgetRow[] = []
 
-    for (const row of data.layout) {
-      const remaining = row.widgets.filter((widget) => !removed.has(widget.id))
-      if (remaining.length === row.widgets.length) {
-        layout.push(row)
-        continue
-      }
-      if (remaining.length === 0) {
-        continue
+    // Every layout is asked, since a widget is deleted by name rather than by where it sits and a
+    // carousel slide holds widgets the same way the workspace does.
+    for (const layout of layoutRefs()) {
+      const rows: WidgetRow[] = []
+      let changed = false
+
+      for (const row of layout.rows) {
+        const remaining = row.widgets.filter((widget) => !removed.has(widget.id))
+        if (remaining.length === row.widgets.length) {
+          rows.push(row)
+          continue
+        }
+
+        changed = true
+        if (remaining.length === 0) {
+          continue
+        }
+
+        resolveWidgetWidths(remaining)
+        rows.push({ ...row, widgets: remaining })
       }
 
-      resolveWidgetWidths(remaining)
-      layout.push({ ...row, widgets: remaining })
+      if (changed) {
+        layout.set(rows)
+      }
     }
-
-    data.layout = layout
   }
 
   function deleteWidget(id: string) {
@@ -811,22 +854,14 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   }
 
   function getWidget(id: string) {
-    return data?.layout.flatMap((row) => row.widgets).find((widget) => widget.id === id) ?? null
-  }
-
-  function getWidgetPosition(id: string): [row: number, column: number] | null {
-    for (const [rowIndex, row] of data?.layout.entries() ?? []) {
-      const columnIndex = row.widgets.findIndex((widget) => widget.id === id)
-      if (columnIndex !== -1) {
-        return [rowIndex, columnIndex]
+    for (const layout of layoutRefs()) {
+      const found = layout.rows.flatMap((row) => row.widgets).find((widget) => widget.id === id)
+      if (found != null) {
+        return found
       }
     }
 
     return null
-  }
-
-  function getWidgetAt(row: number, column: number) {
-    return data?.layout[row]?.widgets[column] ?? null
   }
 
   function moveWidgets(ids: string[], placement: WidgetPlacement) {
@@ -834,20 +869,20 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       return
     }
 
-    const plan = planWidgetsMove(data.layout, ids, placement)
+    const refs = layoutRefs()
+    const layouts = new Map(refs.map((layout) => [layout.id, layout.rows]))
+    const plan = planWidgetsMove(layouts, ids, placement)
     if (plan == null) {
       return
     }
 
     // A drop that lands widgets back where they came from arrives at the layout already on screen,
     // which is not worth rewriting every row for, nor sending to the server as an edit.
-    if (planIsCurrent(plan, data.layout)) {
+    if (planIsCurrent(plan, layouts)) {
       return
     }
 
-    const widgets = new Map(
-      data.layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget])
-    )
+    const widgets = widgetsIn(layouts)
 
     for (const [widgetId, width] of Object.entries(plan.widths)) {
       const widget = widgets.get(widgetId)
@@ -856,25 +891,43 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       }
     }
 
-    data.layout = plan.rows.map((row) => ({
-      id: row.id,
-      height: row.height,
-      collapsed: row.collapsed,
-      widgets: row.widgets
-        .map((widgetId) => widgets.get(widgetId))
-        .filter((widget) => widget != null),
-    }))
+    // What is picked out goes with it, so a widget dragged into a carousel slide is still the
+    // widget being worked on once it arrives and Delete still has something to act on.
+    if (selection.length > 0 && selection.every((id) => ids.includes(id))) {
+      selectionLayout = placement.layout
+    }
+
+    for (const [layoutId, rows] of Object.entries(plan.layouts)) {
+      const layout = refs.find((candidate) => candidate.id === layoutId) ?? null
+      layout?.set(
+        rows.map((row) => ({
+          id: row.id,
+          height: row.height,
+          collapsed: row.collapsed,
+          widgets: row.widgets
+            .map((widgetId) => widgets.get(widgetId))
+            .filter((widget) => widget != null),
+        }))
+      )
+    }
   }
 
   // Widgets picked out to be acted on together, held as IDs so a layout rebuilt underneath them
   // keeps the same ones picked out.
   let selection = $ref<string[]>([])
 
+  // Which layout they were picked out of. What is picked out belongs to one layout at a time,
+  // since a selection spanning a carousel slide and the workspace around it has no one order to
+  // read it in and nowhere a copy of it could land.
+  let selectionLayout = $ref<string>(rootLayoutId)
+
   // The widget a range extends from, which is whichever one was last chosen on its own.
   let selectionAnchor = $ref<string | null>(null)
 
-  function widgetOrder(): string[] {
-    return data?.layout.flatMap((row) => row.widgets.map((widget) => widget.id)) ?? []
+  function widgetOrder(layoutId: string = selectionLayout): string[] {
+    const rows = layoutMap().get(layoutId) ?? []
+
+    return rows.flatMap((row) => row.widgets.map((widget) => widget.id))
   }
 
   function isSelected(id: string) {
@@ -886,8 +939,17 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     selectionAnchor = null
   }
 
-  function selectWidget(id: string, mode: SelectMode = 'replace') {
-    const order = widgetOrder()
+  function selectWidget(id: string, mode: SelectMode = 'replace', layoutId: string = rootLayoutId) {
+    // Reaching into another layout lets go of what was picked out in the one before it, so there
+    // is nothing left to extend from or toggle against.
+    if (layoutId !== selectionLayout) {
+      selectionLayout = layoutId
+      selection = [id]
+      selectionAnchor = id
+      return
+    }
+
+    const order = widgetOrder(layoutId)
 
     if (mode === 'extend' && selectionAnchor != null) {
       const from = order.indexOf(selectionAnchor)
@@ -912,11 +974,12 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   /** What is picked out, as text for the system clipboard, or null when nothing is. */
   function copySelection(): string | null {
-    if (data == null || selection.length === 0) {
+    const layout = findLayout(selectionLayout)
+    if (layout == null || selection.length === 0) {
       return null
     }
 
-    const rows = data.layout
+    const rows = layout.rows
       .map((row) => ({ ...row, widgets: row.widgets.filter((widget) => isSelected(widget.id)) }))
       .filter((row) => row.widgets.length > 0)
 
@@ -929,7 +992,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   whatever else is on the page.
   */
   function pasteWidgets(text: string): number {
-    if (data == null) {
+    // Widgets land beside whatever they were taken from, which is the layout that is being worked
+    // in even when the paste came from another workspace entirely.
+    const layout = findLayout(selectionLayout) ?? findLayout(rootLayoutId)
+    if (layout == null) {
       return 0
     }
 
@@ -949,7 +1015,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     for (const row of clipboard.rows) {
       // Fresh IDs, so pasting twice leaves two of everything rather than one the layout holds in
       // two places.
-      const widgets = row.widgets.map((widget) => ({ ...widget, id: v7() } as Widget))
+      const widgets = row.widgets.map(withFreshIds)
       if (widgets.length === 0) {
         continue
       }
@@ -964,17 +1030,18 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
     // Landing under what is picked out puts a paste beside the thing it was taken from, rather
     // than at the far end of a workspace the user would then have to go looking down.
-    let after = data.layout.length
-    for (const [index, row] of data.layout.entries()) {
+    let after = layout.rows.length
+    for (const [index, row] of layout.rows.entries()) {
       if (row.widgets.some((widget) => isSelected(widget.id))) {
         after = index + 1
       }
     }
 
-    const layout = [...data.layout]
-    layout.splice(after, 0, ...pasted)
-    data.layout = layout
+    const rows = [...layout.rows]
+    rows.splice(after, 0, ...pasted)
+    layout.set(rows)
 
+    selectionLayout = layout.id
     selection = pasted.flatMap((row) => row.widgets.map((widget) => widget.id))
     selectionAnchor = selection[selection.length - 1] ?? null
 
@@ -982,9 +1049,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   }
 
   // A widget that is deleted, or that belongs to a layout an undo replaced, cannot stay picked
-  // out, so the selection follows whatever the layout actually holds.
+  // out, so the selection follows whatever the layout actually holds. A carousel taken away takes
+  // its slides with it, so the layout the selection was made in may be gone as well.
   watchEffect(() => {
-    const present = new Set(widgetOrder())
+    const present = new Set(widgetOrder(selectionLayout))
     const kept = selection.filter((id) => present.has(id))
     if (kept.length !== selection.length) {
       selection = kept
@@ -994,26 +1062,27 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   })
 
-  function duplicateWidget(id: string, toRow: number, toColumn: number) {
+  function duplicateWidget(
+    id: string,
+    toRow: number,
+    toColumn: number,
+    layoutId: string = rootLayoutId
+  ) {
     const widget = getWidget(id)
     if (widget == null) {
       return null
     }
 
-    const copy: Widget = deepClone(widget)
-    copy.id = v7()
-
-    insertWidget(copy, toRow, toColumn)
+    const copy = withFreshIds(deepClone(widget))
+    insertWidget(copy, toRow, toColumn, layoutId)
     return copy
   }
 
   watchEffect(() => {
-    if (data == null) {
-      return
-    }
-
-    if (data.layout.some((row) => row.widgets.length === 0)) {
-      data.layout = data.layout.filter((row) => row.widgets.length > 0)
+    for (const layout of layoutRefs()) {
+      if (layout.rows.some((row) => row.widgets.length === 0)) {
+        layout.set(layout.rows.filter((row) => row.widgets.length > 0))
+      }
     }
   })
 
@@ -1089,8 +1158,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     revert,
     exportFile,
     getWidget,
-    getWidgetAt,
-    getWidgetPosition,
+    layouts: computed(() => layoutRefs()),
     insertWidget,
     addWidget,
     deleteWidget,
@@ -1099,10 +1167,11 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     duplicateWidget,
     drag: null as Drag | null,
     selection: computed(() => selection),
+    selectionLayout: computed(() => selectionLayout),
     selectedWidgets: computed(() => {
-      const widgets = data?.layout.flatMap((row) => row.widgets) ?? []
+      const rows = layoutMap().get(selectionLayout) ?? []
 
-      return widgets.filter((widget) => isSelected(widget.id))
+      return rows.flatMap((row) => row.widgets).filter((widget) => isSelected(widget.id))
     }),
     isSelected,
     selectWidget,
@@ -1472,12 +1541,108 @@ export function resolveWidgetWidths(
   }
 }
 
+/** The name the workspace's own layout goes by, as against one belonging to a carousel slide. */
+export const rootLayoutId = 'root'
+
+/** A layout a workspace holds, under the name a placement calls it by.
+
+The workspace has one of its own, and every carousel slide anywhere inside it has another. They are
+all arranged the same way, so naming them is the whole of what tells them apart.
+*/
+export type WorkspaceLayoutRef = {
+  id: string
+  rows: WidgetRow[]
+
+  /** Put a rearranged layout back where this one came from. */
+  set: (rows: WidgetRow[]) => void
+}
+
+/** Collect every layout reachable from `root`, the workspace's own first. */
+export function collectLayouts(
+  root: WidgetRow[],
+  setRoot: (rows: WidgetRow[]) => void
+): WorkspaceLayoutRef[] {
+  const found: WorkspaceLayoutRef[] = [{ id: rootLayoutId, rows: root, set: setRoot }]
+
+  function visit(rows: WidgetRow[]) {
+    for (const row of rows) {
+      for (const widget of row.widgets) {
+        if (widget.type !== 'carousel') {
+          continue
+        }
+
+        for (const slide of widget.slides) {
+          found.push({
+            id: slide.id,
+            rows: slide.layout,
+            set: (replacement) => (slide.layout = replacement),
+          })
+          visit(slide.layout)
+        }
+      }
+    }
+  }
+
+  visit(root)
+
+  return found
+}
+
+/** A copy of `widget` under fresh IDs, all the way down.
+
+A carousel carries slides that name layouts of their own, holding rows that hold further widgets,
+so a copy keeping any of those names would leave two things answering to one. Everything that goes
+looking by name takes whichever it finds first, which is the other one about half the time.
+*/
+export function withFreshIds(widget: Widget): Widget {
+  const copy: Widget = { ...widget, id: v7() }
+
+  if (copy.type === 'carousel') {
+    copy.slides = copy.slides.map((slide) => ({
+      ...slide,
+      id: v7(),
+      layout: slide.layout.map((row) => ({
+        ...row,
+        id: v7(),
+        widgets: row.widgets.map(withFreshIds),
+      })),
+    }))
+  }
+
+  return copy
+}
+
+/** The layouts held inside `widgets`, which are the slides of whatever carousels are among them. */
+export function layoutsWithin(widgets: Widget[]): Set<string> {
+  const found = new Set<string>()
+
+  function visit(list: Widget[]) {
+    for (const widget of list) {
+      if (widget.type !== 'carousel') {
+        continue
+      }
+
+      for (const slide of widget.slides) {
+        found.add(slide.id)
+        visit(slide.layout.flatMap((row) => row.widgets))
+      }
+    }
+  }
+
+  visit(widgets)
+
+  return found
+}
+
 /** Where a widget in hand would land.
 
 Both indices read against the layout with that widget already taken out of it, which is the layout
 its owner is looking at while the drag is in progress.
 */
 export type WidgetPlacement = {
+  /** Which layout it lands in, the workspace's own or a carousel slide's. */
+  layout: string
+
   /** Row to drop into, or the index the new row takes when `column` is null. */
   row: number
 
@@ -1485,66 +1650,104 @@ export type WidgetPlacement = {
   column: number | null
 }
 
-/** The layout a move settles on, in widget IDs, so it can be drawn before it is applied. */
+/** A row of a planned layout, in widget IDs, so it can be drawn before it is applied. */
+export type PlannedRow = {
+  id: string
+  height: number
+  collapsed: boolean
+  widgets: string[]
+}
+
+/** The layouts a move settles on, so they can be drawn before the move is applied.
+
+A move touches the layout the widgets left and the one they arrive in, which are the same layout
+whenever a drag stays where it started. Layouts the move leaves alone are absent.
+*/
 export type WidgetMovePlan = {
-  rows: {
-    id: string
-    height: number
-    collapsed: boolean
-    widgets: string[]
-  }[]
+  layouts: Record<string, PlannedRow[]>
 
   /** The widths the move settles on, by widget ID. Widgets left at their own width are absent. */
   widths: Record<string, number>
 }
 
-/** Whether a plan describes the layout that is already there, down to the widths. */
-function planIsCurrent(plan: WidgetMovePlan, layout: WidgetRow[]): boolean {
-  if (plan.rows.length !== layout.length) {
-    return false
-  }
+/** Every widget in `layouts`, by ID. */
+function widgetsIn(layouts: Map<string, WidgetRow[]>): Map<string, Widget> {
+  return new Map(
+    [...layouts.values()]
+      .flatMap((rows) => rows.flatMap((row) => row.widgets))
+      .map((widget) => [widget.id, widget])
+  )
+}
 
-  for (const [index, row] of plan.rows.entries()) {
-    const current = layout[index]
-    if (
-      row.id !== current.id ||
-      row.height !== current.height ||
-      row.collapsed !== current.collapsed ||
-      row.widgets.length !== current.widgets.length
-    ) {
+/** Whether a plan describes the layouts that are already there, down to the widths. */
+function planIsCurrent(plan: WidgetMovePlan, layouts: Map<string, WidgetRow[]>): boolean {
+  for (const [layoutId, rows] of Object.entries(plan.layouts)) {
+    const current = layouts.get(layoutId) ?? null
+    if (current == null || rows.length !== current.length) {
       return false
     }
 
-    for (const [position, widgetId] of row.widgets.entries()) {
-      if (widgetId !== current.widgets[position].id) {
+    for (const [index, row] of rows.entries()) {
+      const currentRow = current[index]
+      if (
+        row.id !== currentRow.id ||
+        row.height !== currentRow.height ||
+        row.collapsed !== currentRow.collapsed ||
+        row.widgets.length !== currentRow.widgets.length
+      ) {
         return false
+      }
+
+      for (const [position, widgetId] of row.widgets.entries()) {
+        if (widgetId !== currentRow.widgets[position].id) {
+          return false
+        }
       }
     }
   }
 
-  const widths = new Map(
-    layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget.width])
-  )
+  const widgets = widgetsIn(layouts)
 
-  return Object.entries(plan.widths).every(([widgetId, width]) => widths.get(widgetId) === width)
+  return Object.entries(plan.widths).every(
+    ([widgetId, width]) => widgets.get(widgetId)?.width === width
+  )
 }
 
-/** Work out the layout that moving `ids` to `placement` produces, changing nothing.
+/** Work out the layouts that moving `ids` to `placement` produces, changing nothing.
 
 Widgets in hand keep the rows they came from when the drop opens rows of its own, so a block of a
 workspace taken from several rows arrives with the shape it had. A drop into an existing row has
-only the one row to arrive in, so the whole selection goes there side by side.
+only the one row to arrive in, so the whole selection goes there side by side. Where they arrive
+need not be where they came from, since a carousel slide is arranged the same way a workspace is
+and a widget travels between the two.
 
 A null `placement` plans the removal alone, which is the layout to show while widgets are in hand
-with nowhere yet chosen for them. Returns null when the layout holds none of `ids`, or when the
-placement names a row that is not there to drop into.
+with nowhere yet chosen for them. Returns null when no layout holds any of `ids`, when the
+placement names a row that is not there to drop into, or when it names a layout that a widget in
+hand is itself carrying.
 */
 export function planWidgetsMove(
-  layout: WidgetRow[],
+  layouts: Map<string, WidgetRow[]>,
   ids: string[],
   placement: WidgetPlacement | null
 ): WidgetMovePlan | null {
   const held = new Set(ids)
+
+  // The layout the widgets came out of. A drag holds widgets from one layout at a time, since
+  // reaching into another lets go of whatever was picked out before.
+  let sourceId: string | null = null
+  let source: WidgetRow[] | null = null
+  for (const [layoutId, rows] of layouts) {
+    if (rows.some((row) => row.widgets.some((widget) => held.has(widget.id)))) {
+      sourceId = layoutId
+      source = rows
+      break
+    }
+  }
+  if (sourceId == null || source == null) {
+    return null
+  }
+
   const widths: Record<string, number> = {}
 
   // What is in hand, grouped by the row each part of it came from, both in layout order. A group
@@ -1553,7 +1756,7 @@ export function planWidgetsMove(
 
   // Taking the widgets out comes first, so a placement means the same thing here as it did to the
   // hand that chose it.
-  const rows = layout.map((row) => {
+  const rows = source.map((row) => {
     const taken = row.widgets.filter((widget) => held.has(widget.id))
     const remaining = row.widgets.filter((widget) => !held.has(widget.id))
 
@@ -1580,8 +1783,34 @@ export function planWidgetsMove(
 
   const kept = rows.filter((row) => row.widgets.length > 0)
   if (placement == null) {
-    return { rows: kept, widths }
+    return { layouts: { [sourceId]: kept }, widths }
   }
+
+  const carried = groups.flatMap((group) => group.widgets)
+
+  // A carousel cannot be dropped onto a slide of its own. The layout would then hold the widget
+  // holding it, and nothing walking it would ever reach the end.
+  if (layoutsWithin(carried).has(placement.layout)) {
+    return null
+  }
+
+  // Arriving back where they left is the same layout twice, so the rows they are taken out of are
+  // the rows they go into. Arriving somewhere else leaves the layout they left as it is.
+  const intoSource = placement.layout === sourceId
+  const target = intoSource
+    ? kept
+    : layouts.get(placement.layout)?.map((row) => ({
+        id: row.id,
+        height: row.height,
+        collapsed: row.collapsed,
+        widgets: row.widgets.map((widget) => widget.id),
+      })) ?? null
+  if (target == null) {
+    return null
+  }
+
+  const planned = () =>
+    intoSource ? { [sourceId]: kept } : { [sourceId]: kept, [placement.layout]: target }
 
   if (placement.column == null) {
     const opened = groups.map((group) => {
@@ -1600,16 +1829,15 @@ export function planWidgetsMove(
       }
     })
 
-    kept.splice(placement.row, 0, ...opened)
-    return { rows: kept, widths }
+    target.splice(placement.row, 0, ...opened)
+    return { layouts: planned(), widths }
   }
 
-  const destinationRow = kept[placement.row] ?? null
+  const destinationRow = target[placement.row] ?? null
   if (destinationRow == null) {
     return null
   }
 
-  const carried = groups.flatMap((group) => group.widgets)
   destinationRow.widgets.splice(placement.column, 0, ...carried.map((widget) => widget.id))
   destinationRow.height = Math.max(
     destinationRow.height,
@@ -1618,14 +1846,13 @@ export function planWidgetsMove(
 
   // Each arriving widget claims no more than an even share of the row it joins, and the widgets
   // already there give up the difference. Rejoining the row it came from works out to the widths
-  // that row already had, since its share is the one it just gave up.
-  const currentWidths = new Map(
-    layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget.width])
-  )
+  // that row already had, since its share is the one it just gave up. Read across every layout,
+  // since an arriving widget's own width comes from the one it left.
+  const currentWidths = widgetsIn(layouts)
   const share = widgetWidthSubdivisions / destinationRow.widgets.length
   const resolved = resolveWidths(
     destinationRow.widgets.map((widgetId) => {
-      const width = currentWidths.get(widgetId) ?? 0
+      const width = currentWidths.get(widgetId)?.width ?? 0
 
       return held.has(widgetId) ? Math.min(share, width) : width
     }),
@@ -1635,7 +1862,7 @@ export function planWidgetsMove(
     widths[widgetId] = resolved[index]
   }
 
-  return { rows: kept, widths }
+  return { layouts: planned(), widths }
 }
 
 // Build a value that changes whenever any of a widget's address-bearing fields change. Used to

@@ -1,7 +1,9 @@
 import { useEventListener } from '@vueuse/core'
-import { computed, reactive } from 'vue'
+import { computed, inject, onScopeDispose, provide, reactive } from 'vue'
 
+import { widgetDropInjectionKey } from '@/symbols'
 import {
+  layoutsWithin,
   planWidgetsMove,
   resolveWidths,
   widgetWidthSubdivisions,
@@ -19,9 +21,13 @@ where a widget is let go of to leave the layout as it was.
 A target is drawn as a line first and only opens the layout once it has been held, so a pointer
 travelling across the workspace says where it is without rearranging everything it passes.
 
-The layout a drop is measured against is the one with the held widget already taken out of it,
-worked out once when the drag begins. Nothing is measured again after that, so the preview opening
-under the pointer cannot shift the target the pointer is aiming at.
+A workspace has more than one layout to aim at, since every carousel slide on screen is arranged
+the same way the workspace is. Each one on screen registers itself, and the pointer is answered for
+by the innermost it is over, so a widget is dragged into a slide and back out again in one motion.
+
+The layouts a drop is measured against are the ones with the held widget already taken out, worked
+out once when the drag begins. Nothing is measured again after that, so the preview opening under
+the pointer cannot shift the target the pointer is aiming at.
 */
 
 /** How far the pointer travels before a press on a widget's header counts as a drag. */
@@ -64,21 +70,30 @@ type WidgetBounds = { left: number; right: number }
 
 type RowBounds = { top: number; bottom: number; widgets: WidgetBounds[] }
 
-/** Measure the rows and their widgets, relative to the box they are laid out in. */
+/** Measure the rows and their widgets, relative to the box they are laid out in.
+
+Only what this layout lays out itself. A carousel on one of its rows holds layouts of its own, and
+their rows and widgets sit inside these ones while belonging to them rather than here.
+*/
 function measure(element: HTMLElement): RowBounds[] {
   const origin = element.getBoundingClientRect()
+  const rows = [...element.querySelectorAll('[data-row]')].filter(
+    (row) => row.closest('[data-layout]') === element
+  )
 
-  return [...element.querySelectorAll('[data-row]')].map((row) => {
+  return rows.map((row) => {
     const bounds = row.getBoundingClientRect()
 
     return {
       top: bounds.top - origin.top,
       bottom: bounds.bottom - origin.top,
-      widgets: [...row.querySelectorAll('[data-widget]')].map((widget) => {
-        const cell = widget.getBoundingClientRect()
+      widgets: [...row.querySelectorAll('[data-widget]')]
+        .filter((widget) => widget.closest('[data-row]') === row)
+        .map((widget) => {
+          const cell = widget.getBoundingClientRect()
 
-        return { left: cell.left - origin.left, right: cell.right - origin.left }
-      }),
+          return { left: cell.left - origin.left, right: cell.right - origin.left }
+        }),
     }
   })
 }
@@ -130,7 +145,10 @@ function withoutHeld(bounds: RowBounds[], layout: WidgetRow[], held: Set<string>
   return remainder
 }
 
-function resolveColumn(row: RowBounds, index: number, x: number): WidgetPlacement | null {
+/** Where a placement sits, before it is told which layout it belongs to. */
+type Target = Omit<WidgetPlacement, 'layout'>
+
+function resolveColumn(row: RowBounds, index: number, x: number): Target | null {
   const widgets = row.widgets
   const first = widgets[0] ?? null
   const last = widgets[widgets.length - 1] ?? null
@@ -197,8 +215,18 @@ function seamOf(bounds: RowBounds[], row: number): number | null {
   return null
 }
 
-/** The line drawn where a widget lands, before the layout opens to take it. */
-export type DropMarker = { left: number; top: number; width: number; height: number }
+/** The line drawn where a widget lands, before the layout opens to take it.
+
+Placed against the layout it names, since the layouts on screen are nested and a line drawn in one
+means nothing measured against another.
+*/
+export type DropMarker = {
+  layout: string
+  left: number
+  top: number
+  width: number
+  height: number
+}
 
 /** Work out where that line goes, across a seam or down between two widgets in a row. */
 function markerOf(
@@ -206,12 +234,14 @@ function markerOf(
   width: number,
   placement: WidgetPlacement
 ): DropMarker | null {
+  const layout = placement.layout
+
   if (placement.column == null) {
     const y = seamOf(bounds, placement.row)
 
     return y == null
       ? null
-      : { left: 0, top: y - markerThickness / 2, width, height: markerThickness }
+      : { layout, left: 0, top: y - markerThickness / 2, width, height: markerThickness }
   }
 
   const row = bounds[placement.row] ?? null
@@ -231,6 +261,7 @@ function markerOf(
   }
 
   return {
+    layout,
     left: x - markerThickness / 2,
     top: row.top,
     width: markerThickness,
@@ -243,19 +274,17 @@ function samePlacement(one: WidgetPlacement | null, other: WidgetPlacement | nul
     return one === other
   }
 
-  return one.row === other.row && one.column === other.column
+  return one.layout === other.layout && one.row === other.row && one.column === other.column
 }
 
-function resolvePlacement(
-  bounds: RowBounds[],
-  width: number,
-  x: number,
-  y: number
-): WidgetPlacement | null {
+function resolveTarget(bounds: RowBounds[], width: number, x: number, y: number): Target | null {
   const first = bounds[0] ?? null
   const last = bounds[bounds.length - 1] ?? null
+
+  // A layout with nothing left in it is all one target, since there are no rows to aim between and
+  // an empty carousel slide has to be reachable before anything can be put on it.
   if (first == null || last == null) {
-    return null
+    return { row: 0, column: null }
   }
   if (x < -edgeMargin || x > width + edgeMargin) {
     return null
@@ -290,12 +319,40 @@ function resolvePlacement(
   return { row: bounds.length, column: null }
 }
 
-/** A drag in progress, as the layouts it is measured against read it. */
-export type WidgetDrop = ReturnType<typeof useWidgetDrop>
+/** A layout on screen, which a drag may aim at for as long as it stays there. */
+export type LayoutRegistration = {
+  id: string
+  rows: () => WidgetRow[]
+  element: () => HTMLElement | null
+}
 
-export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTMLElement | null) {
-  let bounds: RowBounds[] = []
-  let width = 0
+/** A layout as a drag holds it, measured once and left alone for the rest of the drag. */
+type MeasuredLayout = {
+  id: string
+  element: HTMLElement
+  bounds: RowBounds[]
+  width: number
+
+  /** How deep in the page it sits, so the innermost layout under the pointer answers for it. */
+  depth: number
+}
+
+function depthOf(element: HTMLElement): number {
+  let depth = 0
+  for (let parent = element.parentElement; parent != null; parent = parent.parentElement) {
+    depth++
+  }
+
+  return depth
+}
+
+/** A drag in progress, as the layouts it is measured against read it. */
+export type WidgetDrop = ReturnType<typeof createWidgetDrop>
+
+function createWidgetDrop(workspace: WorkspaceContext) {
+  const registered = new Map<string, LayoutRegistration>()
+
+  let measured: MeasuredLayout[] = []
   let origin: { x: number; y: number } | null = null
   let begun = false
 
@@ -308,6 +365,16 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   let marker = $ref<DropMarker | null>(null)
   let dwell: ReturnType<typeof setTimeout> | null = null
 
+  /** Put a layout on screen up as a target, until whatever drew it goes away. */
+  function register(registration: LayoutRegistration) {
+    registered.set(registration.id, registration)
+    onScopeDispose(() => {
+      if (registered.get(registration.id) === registration) {
+        registered.delete(registration.id)
+      }
+    })
+  }
+
   function hold(chosen: WidgetPlacement | null) {
     placement = chosen
 
@@ -317,7 +384,8 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     }
 
     opened = chosen == null
-    marker = chosen == null ? null : markerOf(bounds, width, chosen)
+    const layout = chosen == null ? null : measured.find((entry) => entry.id === chosen.layout)
+    marker = layout == null || chosen == null ? null : markerOf(layout.bounds, layout.width, chosen)
 
     if (!opened) {
       dwell = setTimeout(() => {
@@ -328,14 +396,37 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     }
   }
 
+  /** The layout drawn under a point, or the outermost one when the point is off all of them.
+
+  Read from the page rather than from the measured boxes, so a layout that its surroundings clip
+  claims only the part of itself that is actually on screen. Everywhere else belongs to the
+  outermost layout, which is what carries the margins letting a drop land just off the edge of a
+  workspace.
+  */
+  function claimant(x: number, y: number): MeasuredLayout | null {
+    const outermost = measured[measured.length - 1] ?? null
+
+    for (
+      let element = document.elementFromPoint(x, y);
+      element != null;
+      element = element.parentElement
+    ) {
+      const layout = measured.find((candidate) => candidate.element === element) ?? null
+      if (layout != null) {
+        return layout
+      }
+    }
+
+    return outermost
+  }
+
   function reset() {
     if (dwell != null) {
       clearTimeout(dwell)
       dwell = null
     }
 
-    bounds = []
-    width = 0
+    measured = []
     origin = null
     begun = false
     active = false
@@ -347,23 +438,46 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   function begin(): boolean {
     begun = true
 
-    const element = container()
-    const data = workspace.data
     const drag = workspace.drag
-    if (element == null || data == null || drag == null) {
-      return false
-    }
-
-    // Holding everything the workspace has leaves nothing on the page to aim at, and nowhere for
-    // any of it to go.
-    const total = data.layout.reduce((count, row) => count + row.widgets.length, 0)
-    if (total - drag.widgets.length < 1) {
+    if (drag == null) {
       return false
     }
 
     const held = new Set(drag.widgets.map((widget) => widget.id))
-    bounds = withoutHeld(measure(element), data.layout, held)
-    width = element.clientWidth
+
+    // A carousel in hand carries its own slides with it, and those are no place to put it down.
+    // Left out here rather than refused on release, so nothing ever offers to take it.
+    const carried = layoutsWithin(drag.widgets)
+
+    // Only the layout the widgets are leaving closes up behind them. Every other one on screen
+    // stays exactly where it is, so its measurements stand as they were taken.
+    measured = [...registered.values()].flatMap((registration) => {
+      const element = registration.element()
+      if (element == null || carried.has(registration.id)) {
+        return []
+      }
+
+      const rows = registration.rows()
+      const holds = rows.some((row) => row.widgets.some((widget) => held.has(widget.id)))
+
+      return [
+        {
+          id: registration.id,
+          element,
+          bounds: holds ? withoutHeld(measure(element), rows, held) : measure(element),
+          width: element.clientWidth,
+          depth: depthOf(element),
+        },
+      ]
+    })
+
+    if (measured.length === 0) {
+      return false
+    }
+
+    // Innermost first, since a carousel slide sits inside the layout holding the carousel and is
+    // the one being aimed at whenever the pointer is over it.
+    measured.sort((one, other) => other.depth - one.depth)
     active = true
 
     return true
@@ -379,8 +493,10 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
         )
       } else if (!active) {
         // A press that never travelled is a plain click, which narrows what is picked out to the
-        // widget under it rather than leaving the rest of a selection standing.
-        workspace.selectWidget(drag.widget.id)
+        // widget under it rather than leaving the rest of a selection standing. Named with the
+        // layout it was pressed in, or picking one out inside a carousel slide would be read as
+        // reaching back out into the workspace and let go of again on the way up.
+        workspace.selectWidget(drag.widget.id, 'replace', drag.layout)
       }
 
       workspace.drag = null
@@ -437,20 +553,25 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
       }
     }
 
-    const element = container()
-    if (element == null) {
+    // Whichever layout is actually drawn under the pointer answers for it, asked of the page
+    // rather than worked out from boxes. A carousel scrolls its slide, so a slide taller than the
+    // carousel showing it has a box reaching down over rows of the workspace that are nothing to
+    // do with it, and only the page knows where it was really clipped.
+    const inside = claimant(event.clientX, event.clientY)
+    if (inside == null) {
       return
     }
 
     // The box is read again each time, so a page that scrolls under the pointer still places it
     // against the same measurements.
-    const box = element.getBoundingClientRect()
-    const resolved = resolvePlacement(
-      bounds,
-      width,
+    const box = inside.element.getBoundingClientRect()
+    const target = resolveTarget(
+      inside.bounds,
+      inside.width,
       event.clientX - box.left,
       event.clientY - box.top
     )
+    const resolved = target == null ? null : { layout: inside.id, ...target }
 
     // Held only when it names somewhere else. Every move resolves a target of its own, so handing
     // one over that says what the last one said would rebuild the preview and set the rows moving
@@ -482,28 +603,47 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
 
   const plan = $computed(() => {
     const drag = workspace.drag
-    if (!active || drag == null || workspace.data == null) {
+    if (!active || drag == null) {
       return null
     }
 
     return planWidgetsMove(
-      workspace.data.layout,
+      new Map(workspace.layouts.map((layout) => [layout.id, layout.rows])),
       drag.widgets.map((widget) => widget.id),
       opened ? placement : null
     )
   })
 
   return reactive({
+    register,
+
     /** Whether a press has travelled far enough to be a drag. */
     active: computed(() => active),
 
     /** Where the held widget would land, or null while it is over nowhere in particular. */
     placement: computed(() => placement),
 
-    /** The layout letting go right now would produce, to draw in place of the current one. */
+    /** The rows each layout the drop touches would settle on, to draw in place of its own. */
     plan: computed(() => plan),
 
     /** The line saying where the widget lands, until the layout opens for it. Layout-relative. */
     marker: computed(() => marker),
   })
+}
+
+/** Start a workspace's drag handling, and hand it to every layout drawn under this one. */
+export function provideWidgetDrop(workspace: WorkspaceContext): WidgetDrop {
+  const drop = createWidgetDrop(workspace)
+  provide(widgetDropInjectionKey, drop)
+
+  return drop
+}
+
+export function useWidgetDrop(): WidgetDrop {
+  const drop = inject(widgetDropInjectionKey)
+  if (drop == null) {
+    throw new Error('Widget drop context not found.')
+  }
+
+  return drop
 }

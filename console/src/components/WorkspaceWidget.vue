@@ -10,11 +10,14 @@ import icons from '@/icons'
 import { usePreferences } from '@/preferences'
 import { getWidgetInfo, useWorkspace, widgetTargetSignature, Widget, WidgetRow } from '@/workspace'
 
-const { widget } = defineProps<{
+const { widget, layoutId } = defineProps<{
   widget: Widget
   container: WidgetRow
   row: number
   column: number
+
+  /** The layout this widget sits in, which is what its row and column are counted against. */
+  layoutId: string
 }>()
 
 const workspace = useWorkspace()
@@ -86,19 +89,19 @@ function onPress(event: MouseEvent | TouchEvent) {
   }
 
   if ('metaKey' in event && (event.metaKey || event.ctrlKey)) {
-    workspace.selectWidget(widget.id, 'toggle')
+    workspace.selectWidget(widget.id, 'toggle', layoutId)
     return
   }
   if ('shiftKey' in event && event.shiftKey) {
-    workspace.selectWidget(widget.id, 'extend')
+    workspace.selectWidget(widget.id, 'extend', layoutId)
     return
   }
 
-  if (!workspace.isSelected(widget.id)) {
-    workspace.selectWidget(widget.id)
+  if (!workspace.isSelected(widget.id) || workspace.selectionLayout !== layoutId) {
+    workspace.selectWidget(widget.id, 'replace', layoutId)
   }
 
-  workspace.drag = { widget, widgets: [...workspace.selectedWidgets] }
+  workspace.drag = { widget, widgets: [...workspace.selectedWidgets], layout: layoutId }
 }
 
 // A restricted stub loads with its address fields redacted, so the user could not have set
@@ -256,7 +259,7 @@ watch(
           v-close-popup
           clickable
           dense
-          @click="workspace.duplicateWidget(widget.id, row, column + 1)"
+          @click="workspace.duplicateWidget(widget.id, row, column + 1, layoutId)"
         >
           <q-item-section avatar>
             <q-icon :name="icons.duplicate" />
@@ -273,7 +276,7 @@ watch(
           <q-item-section>
             <q-item-label>Add Widget Before</q-item-label>
           </q-item-section>
-          <workspace-add-widget-menu :column="column" :row="row" />
+          <workspace-add-widget-menu :column="column" :layout-id="layoutId" :row="row" />
         </q-item>
         <q-item clickable dense>
           <q-item-section avatar>
@@ -282,7 +285,7 @@ watch(
           <q-item-section>
             <q-item-label>Add Widget After</q-item-label>
           </q-item-section>
-          <workspace-add-widget-menu :column="column + 1" :row="row" />
+          <workspace-add-widget-menu :column="column + 1" :layout-id="layoutId" :row="row" />
         </q-item>
         <q-separator />
         <q-item v-close-popup clickable dense @click="workspace.deleteWidget(widget.id)">
