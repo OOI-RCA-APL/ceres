@@ -429,8 +429,6 @@ export type WorkspaceHeaderState = {
 
 export type Drag = {
   widget: Widget
-  row: number
-  column: number
 }
 
 function createWorkspaceContext(workspaceId: MaybeRef<string>) {
@@ -725,66 +723,43 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return data?.layout[row]?.widgets[column] ?? null
   }
 
-  function moveWidget(id: string, toRow: number, toColumn?: number | null) {
+  function moveWidget(id: string, placement: WidgetPlacement) {
     if (data == null) {
       return null
     }
 
-    const position = getWidgetPosition(id)
-    if (position == null) {
-      return null
-    }
-    const [fromRow, fromColumn] = position
-
-    const sourceRow = data.layout[fromRow] ?? null
-    if (sourceRow == null) {
+    const plan = planWidgetMove(data.layout, id, placement)
+    if (plan == null) {
       return null
     }
 
-    const widget = sourceRow.widgets[fromColumn] ?? null
-    if (widget == null) {
-      return null
+    const widgets = new Map(
+      data.layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget])
+    )
+
+    // A drop that lands a widget back where it came from arrives at the layout already on screen,
+    // which is not worth rewriting every row for, nor sending to the server as an edit.
+    if (planIsCurrent(plan, data.layout)) {
+      return widgets.get(id) ?? null
     }
 
-    sourceRow.widgets = sourceRow.widgets.filter((_, index) => index !== fromColumn)
-
-    // If there is no column specified, create a new row.
-    if (toColumn == null) {
-      let layout = [...data.layout]
-      const destinationRow: WidgetRow = {
-        id: v7(),
-        height: sourceRow.height,
-        widgets: [widget],
-        collapsed: sourceRow.collapsed,
+    for (const [widgetId, width] of Object.entries(plan.widths)) {
+      const widget = widgets.get(widgetId)
+      if (widget != null) {
+        widget.width = width
       }
-
-      layout.splice(toRow, 0, destinationRow)
-      layout = layout.filter((row) => row != null && row.widgets.length > 0)
-      data.layout = layout
-
-      resolveWidgetWidths(sourceRow.widgets)
-      resolveWidgetWidths(destinationRow.widgets)
-      return widget
     }
 
-    const destinationRow = data.layout[toRow] ?? null
-    if (destinationRow == null) {
-      resolveWidgetWidths(sourceRow.widgets)
-      return null
-    }
+    data.layout = plan.rows.map((row) => ({
+      id: row.id,
+      height: row.height,
+      collapsed: row.collapsed,
+      widgets: row.widgets
+        .map((widgetId) => widgets.get(widgetId))
+        .filter((widget) => widget != null),
+    }))
 
-    destinationRow.widgets = [...destinationRow.widgets]
-    destinationRow.widgets.splice(toColumn, 0, widget)
-    destinationRow.widgets = destinationRow.widgets.filter((current) => current != null)
-    destinationRow.height = Math.max(destinationRow.height, sourceRow.height)
-
-    resolveWidgetWidths(sourceRow.widgets)
-    widget.width = Math.min(widgetWidthSubdivisions / destinationRow.widgets.length, widget.width)
-    resolveWidgetWidths(destinationRow.widgets, destinationRow.widgets.indexOf(widget))
-
-    data.layout = data.layout.filter((row) => row != null && row.widgets.length > 0)
-
-    return widget
+    return widgets.get(id) ?? null
   }
 
   function duplicateWidget(id: string, toRow: number, toColumn: number) {
@@ -1188,46 +1163,222 @@ export const useWorkspaces = defineStore('workspaces', () => {
 export const widgetWidthSubdivisions = 120
 export const minWidgetWidthPixels = 100
 
-export function resolveWidgetWidths(
-  widgets: Widget[],
+/** Spread a row's widths back over `widgetWidthSubdivisions`, without touching any widget.
+
+`keepIndex` names a width to leave alone, either absorbing the difference into every other width
+or, with `adjustMode` set to `after`, only into the ones that follow it.
+*/
+export function resolveWidths(
+  widths: number[],
   keepIndex?: number,
   adjustMode: 'after' | 'other' = 'other'
-) {
-  if (widgets.length === 0) {
-    return
+): number[] {
+  if (widths.length === 0) {
+    return []
   }
   if (keepIndex != null && keepIndex < 0) {
     keepIndex = undefined
   }
 
-  const totalWidthUnits = widgets.reduce((sum, current) => sum + current.width, 0)
+  const totalWidthUnits = widths.reduce((sum, current) => sum + current, 0)
   const excessWidthUnits = totalWidthUnits - widgetWidthSubdivisions
   if (excessWidthUnits === 0) {
-    return
+    return [...widths]
   }
 
-  let adjusted: Widget[]
+  const indices = widths.map((_, index) => index)
+
+  let adjusted: number[]
   if (keepIndex == null) {
-    adjusted = widgets
+    adjusted = indices
   } else {
     if (adjustMode === 'after') {
-      adjusted = widgets.slice(keepIndex + 1)
+      adjusted = indices.slice(keepIndex + 1)
     } else {
-      adjusted = widgets.filter((_, index) => index !== keepIndex)
+      adjusted = indices.filter((index) => index !== keepIndex)
     }
   }
 
   const excessWidthUnitsPerWidget = excessWidthUnits / adjusted.length
 
-  for (const widget of adjusted) {
-    widget.width -= excessWidthUnitsPerWidget
+  const resolved = [...widths]
+  for (const index of adjusted) {
+    resolved[index] -= excessWidthUnitsPerWidget
   }
 
-  for (const widget of widgets) {
-    if (Math.round(widget.width) !== widget.width) {
-      widget.width = Math.round(widget.width)
+  return resolved.map((width) => Math.round(width))
+}
+
+export function resolveWidgetWidths(
+  widgets: Widget[],
+  keepIndex?: number,
+  adjustMode: 'after' | 'other' = 'other'
+) {
+  const resolved = resolveWidths(
+    widgets.map((widget) => widget.width),
+    keepIndex,
+    adjustMode
+  )
+
+  for (const [index, widget] of widgets.entries()) {
+    if (widget.width !== resolved[index]) {
+      widget.width = resolved[index]
     }
   }
+}
+
+/** Where a widget in hand would land.
+
+Both indices read against the layout with that widget already taken out of it, which is the layout
+its owner is looking at while the drag is in progress.
+*/
+export type WidgetPlacement = {
+  /** Row to drop into, or the index the new row takes when `column` is null. */
+  row: number
+
+  /** Insertion index within that row, or null to open a row of its own. */
+  column: number | null
+}
+
+/** The layout a move settles on, in widget IDs, so it can be drawn before it is applied. */
+export type WidgetMovePlan = {
+  rows: {
+    id: string
+    height: number
+    collapsed: boolean
+    widgets: string[]
+  }[]
+
+  /** The widths the move settles on, by widget ID. Widgets left at their own width are absent. */
+  widths: Record<string, number>
+}
+
+/** Whether a plan describes the layout that is already there, down to the widths. */
+function planIsCurrent(plan: WidgetMovePlan, layout: WidgetRow[]): boolean {
+  if (plan.rows.length !== layout.length) {
+    return false
+  }
+
+  for (const [index, row] of plan.rows.entries()) {
+    const current = layout[index]
+    if (
+      row.id !== current.id ||
+      row.height !== current.height ||
+      row.collapsed !== current.collapsed ||
+      row.widgets.length !== current.widgets.length
+    ) {
+      return false
+    }
+
+    for (const [position, widgetId] of row.widgets.entries()) {
+      if (widgetId !== current.widgets[position].id) {
+        return false
+      }
+    }
+  }
+
+  const widths = new Map(
+    layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget.width])
+  )
+
+  return Object.entries(plan.widths).every(([widgetId, width]) => widths.get(widgetId) === width)
+}
+
+/** Work out the layout that moving one widget to `placement` produces, changing nothing.
+
+A null `placement` plans the removal alone, which is the layout to show while a widget is in hand
+with nowhere yet chosen for it. Returns null when the layout holds no such widget, or when the
+placement names a row that is not there to drop into.
+*/
+export function planWidgetMove(
+  layout: WidgetRow[],
+  id: string,
+  placement: WidgetPlacement | null
+): WidgetMovePlan | null {
+  let fromRow = -1
+  let fromColumn = -1
+  for (const [index, row] of layout.entries()) {
+    const column = row.widgets.findIndex((widget) => widget.id === id)
+    if (column !== -1) {
+      fromRow = index
+      fromColumn = column
+      break
+    }
+  }
+
+  if (fromRow === -1) {
+    return null
+  }
+
+  const sourceRow = layout[fromRow]
+  const widget = sourceRow.widgets[fromColumn]
+  const widths: Record<string, number> = {}
+
+  // Taking the widget out comes first, so a placement means the same thing here as it did to the
+  // hand that chose it.
+  let rows = layout.map((row) => ({
+    id: row.id,
+    height: row.height,
+    collapsed: row.collapsed,
+    widgets: row.widgets.map((current) => current.id),
+  }))
+  rows[fromRow].widgets.splice(fromColumn, 1)
+
+  const remaining = sourceRow.widgets.filter((_, index) => index !== fromColumn)
+  const remainingWidths = resolveWidths(remaining.map((current) => current.width))
+  for (const [index, current] of remaining.entries()) {
+    widths[current.id] = remainingWidths[index]
+  }
+
+  const wasAlone = remaining.length === 0
+  rows = rows.filter((row) => row.widgets.length > 0)
+
+  if (placement == null) {
+    return { rows, widths }
+  }
+
+  if (placement.column == null) {
+    // A widget that had a row to itself and is dropped back at that row's seam belongs to the row
+    // it came from, which keeps the move from reading as an edit.
+    const isSourceRow = wasAlone && placement.row === fromRow
+
+    rows.splice(placement.row, 0, {
+      id: isSourceRow ? sourceRow.id : v7(),
+      height: sourceRow.height,
+      collapsed: sourceRow.collapsed,
+      widgets: [id],
+    })
+    widths[id] = widgetWidthSubdivisions
+
+    return { rows, widths }
+  }
+
+  const destinationRow = rows[placement.row] ?? null
+  if (destinationRow == null) {
+    return null
+  }
+
+  destinationRow.widgets.splice(placement.column, 0, id)
+  destinationRow.height = Math.max(destinationRow.height, sourceRow.height)
+
+  // The widget claims no more than an even share of the row it joins, and the widgets already
+  // there give up the difference. Rejoining the row it came from works out to the widths that row
+  // already had, since its share is the one it just gave up.
+  const currentWidths = new Map(
+    layout.flatMap((row) => row.widgets).map((current) => [current.id, current.width])
+  )
+  const claimed = Math.min(widgetWidthSubdivisions / destinationRow.widgets.length, widget.width)
+  const resolved = resolveWidths(
+    destinationRow.widgets.map((widgetId) =>
+      widgetId === id ? claimed : currentWidths.get(widgetId) ?? 0
+    ),
+    placement.column
+  )
+  for (const [index, widgetId] of destinationRow.widgets.entries()) {
+    widths[widgetId] = resolved[index]
+  }
+
+  return { rows, widths }
 }
 
 // Build a value that changes whenever any of a widget's address-bearing fields change. Used to

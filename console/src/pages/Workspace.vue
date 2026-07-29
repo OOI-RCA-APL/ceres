@@ -7,19 +7,21 @@ import CommonText from '@/components/CommonText.vue'
 import FullPage, { appHeaderHeight, densePageHeaderHeight } from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
-import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
+import WorkspaceWidgetPlaceholder from '@/components/WorkspaceWidgetPlaceholder.vue'
 import { useDialogs } from '@/dialogs'
 import { NotFoundError } from '@/errors'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { deepClone } from '@/utilities'
+import { useWidgetDrop } from '@/widget-drop'
 import {
   provideWorkspace,
   resolveWidgetWidths,
   widgetWidthSubdivisions,
   Widget,
+  WidgetRow,
   Workspace,
   WorkspaceData,
   WorkspaceHeaderActions,
@@ -106,8 +108,41 @@ watch(
 let renamePopup = $ref<QPopupEdit | null>(null)
 let layoutWidth = $ref<number | null>(null)
 
-useEventListener(window, 'mouseup', () => {
-  workspace.drag = null
+const drop = useWidgetDrop(workspace, () => layout)
+
+// While a widget is in hand the layout on screen is the one letting go would produce, which puts
+// the drop target where the widget itself will be rather than beside a mark standing in for it.
+const rows = $computed<WidgetRow[]>(() => {
+  if (data == null) {
+    return []
+  }
+  if (drop.plan == null) {
+    return data.layout
+  }
+
+  const widgets = new Map(
+    data.layout.flatMap((row) => row.widgets).map((widget) => [widget.id, widget])
+  )
+  const current = new Map(data.layout.map((row) => [row.id, row]))
+
+  return drop.plan.rows.map((row) => {
+    const contents = row.widgets.map((id) => widgets.get(id)).filter((widget) => widget != null)
+
+    // Rows the move leaves alone keep the identity they already had, so the widgets inside them
+    // are not handed a fresh container on every pointer move.
+    const unchanged = current.get(row.id) ?? null
+    if (
+      unchanged != null &&
+      unchanged.height === row.height &&
+      unchanged.collapsed === row.collapsed &&
+      unchanged.widgets.length === contents.length &&
+      unchanged.widgets.every((widget, index) => widget === contents[index])
+    ) {
+      return unchanged
+    }
+
+    return { id: row.id, height: row.height, collapsed: row.collapsed, widgets: contents }
+  })
 })
 
 const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
@@ -151,7 +186,7 @@ const actionBarStyle = $computed(() => ({
 }))
 
 watchEffect(() => {
-  if (workspace.drag != null) {
+  if (drop.active) {
     document.body.style.cursor = 'grabbing'
   } else {
     document.body.style.cursor = 'unset'
@@ -265,7 +300,8 @@ function getWidgetWidthStyle(widget: Widget) {
     return undefined
   }
 
-  const width = `${Math.round((widget.width / widgetWidthSubdivisions) * layoutWidth).toFixed(1)}px`
+  const units = drop.plan?.widths[widget.id] ?? widget.width
+  const width = `${Math.round((units / widgetWidthSubdivisions) * layoutWidth).toFixed(1)}px`
 
   return {
     maxWidth: width,
@@ -308,7 +344,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 <template>
   <full-page :class="$style.root" :dense="$slots['header-prepend'] != null" :sticky-top="stickyTop">
     <div
-      v-if="workspace.drag != null"
+      v-if="drop.active && workspace.drag != null"
       key="dragged-widget-icon"
       :class="$style.draggedWidgetIcon"
       :style="draggedWidgetIconStyle"
@@ -525,28 +561,16 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       </div>
       <div v-else ref="layout">
         <div
-          v-for="(row, i) in data.layout"
+          v-for="(row, i) in rows"
           :key="row.id"
           class="full-width no-wrap q-my-sm relative-position row"
+          data-row
           :style="{
             height: row.collapsed ? undefined : `${row.height}px`,
           }"
         >
-          <workspace-gap
-            v-if="workspace.drag != null"
-            :class="$style.gapVerticalTop"
-            direction="vertical"
-            :row="i"
-          />
-          <workspace-gap
-            v-if="workspace.drag != null && i === data.layout.length - 1"
-            v-show="workspace.drag != null"
-            :class="$style.gapVerticalBottom"
-            direction="vertical"
-            :row="i + 1"
-          />
           <resize-handle
-            v-if="workspace.drag == null && !row.collapsed"
+            v-if="!drop.active && !row.collapsed"
             v-model="row.height"
             :class="$style.verticalResizeHandle"
             direction="vertical"
@@ -573,33 +597,11 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
                 ? 'q-pl-xs'
                 : 'q-px-xs',
             ]"
+            data-widget
             :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
           >
-            <template v-if="workspace.drag != null">
-              <workspace-gap
-                v-if="j === 0"
-                :class="$style.gapHorizontalLeft"
-                :column="j"
-                direction="horizontal"
-                :row="i"
-              />
-              <workspace-gap
-                v-else
-                :class="$style.gapHorizontalMiddle"
-                :column="j - 1"
-                direction="horizontal"
-                :row="i"
-              />
-              <workspace-gap
-                v-if="workspace.drag != null && j === row.widgets.length - 1"
-                :class="$style.gapHorizontalRight"
-                :column="j + 1"
-                direction="horizontal"
-                :row="i"
-              />
-            </template>
             <resize-handle
-              v-if="layoutWidth && workspace.drag == null && j < row.widgets.length - 1"
+              v-if="layoutWidth && !drop.active && j < row.widgets.length - 1"
               :class="$style.horizontalResizeHandle"
               direction="horizontal"
               :min="100"
@@ -617,13 +619,11 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
                 }
               "
             />
-            <workspace-widget
-              :class="workspace.drag?.widget === widget && $style.draggedWidget"
-              :column="j"
-              :container="row"
-              :row="i"
+            <workspace-widget-placeholder
+              v-if="drop.active && workspace.drag?.widget.id === widget.id"
               :widget="widget"
             />
+            <workspace-widget v-else :column="j" :container="row" :row="i" :widget="widget" />
           </div>
         </div>
       </div>
@@ -779,44 +779,9 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   padding: 0 !important;
 }
 
-@mixin gap {
-  position: absolute;
-}
-
-.gapVerticalTop {
-  @include gap;
-  top: -10px;
-  left: 0;
-}
-
-.gapVerticalBottom {
-  @include gap;
-  bottom: -10px;
-  left: 0;
-}
-
-.gapHorizontalLeft {
-  @include gap;
-  left: -5px;
-}
-
-.gapHorizontalMiddle {
-  @include gap;
-  left: -6px;
-}
-
-.gapHorizontalRight {
-  @include gap;
-  right: -5px;
-}
-
 .draggedWidgetIcon {
   position: fixed;
   z-index: 5000;
   pointer-events: none;
-}
-
-.draggedWidget {
-  opacity: 0.5;
 }
 </style>

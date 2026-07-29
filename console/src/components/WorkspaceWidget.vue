@@ -87,10 +87,10 @@ watch(
     <div
       :class="[$style.header, 'q-px-sm', 'q-py-xs']"
       :style="{ cursor: workspace.drag != null ? 'grabbing' : 'grab' }"
-      @mousedown.prevent="workspace.drag = { widget, row, column }"
+      @mousedown.prevent="workspace.drag = { widget }"
       @mousemove.prevent
       @touchmove.prevent
-      @touchstart.prevent="workspace.drag = { widget, row, column }"
+      @touchstart.prevent="workspace.drag = { widget }"
     >
       <div class="items-center no-wrap row">
         <div>
@@ -271,6 +271,13 @@ watch(
 
 <style lang="scss" module>
 @use 'sass:color';
+
+// The header is what a widget is dragged by, so a touch that starts on it is a drag rather than
+// the page being scrolled.
+.header {
+  touch-action: none;
+}
+
 :global(.light) .header {
   background-color: color.adjust(white, $lightness: -1%);
 }
