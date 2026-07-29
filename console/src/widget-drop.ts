@@ -39,24 +39,26 @@ having to find a gap at all.
 */
 const outerReach = 240
 
-/** How long a seam is held before a row opens for it.
+/** How long a target is held before the layout opens for it.
 
-Opening one moves every row under it, so a pointer travelling across several seams would have the
-page rearranging under it the entire way. Until this elapses the target is drawn as a line, which
-says where the widget lands without anything having to move for it, and the layout only opens once
-the hand has settled on somewhere.
+Opening moves whatever the widget is arriving among, so a pointer travelling across several targets
+would have the page rearranging under it the entire way. Until this elapses the target is drawn as
+a line, which says where the widget lands without anything having to move for it, and the layout
+only opens once the hand has settled on somewhere.
 */
-const seamDwell = 300
-
-/** How long a place in a row is held before the row opens for it.
-
-Widening a row disturbs only the widgets in it, and the row keeps its place either way, so this
-waits for little more than the pointer passing straight through on its way somewhere else.
-*/
-const columnDwell = 75
+const targetDwell = 300
 
 /** How thick that line is drawn. */
 const markerThickness = 3
+
+/** The most of its own height a row gives up to the seams either side of it.
+
+The gap between two rows is a few pixels of nothing, which is a hard thing to land a pointer on, so
+each row lends the seams beside it some of its own edge. Waiting a target out before the layout
+opens for it is what makes this affordable, since reaching over a seam on the way somewhere else
+costs a line being drawn and nothing more.
+*/
+const largestBand = 48
 
 type WidgetBounds = { left: number; right: number }
 
@@ -166,6 +168,17 @@ function resolveColumn(row: RowBounds, index: number, x: number): WidgetPlacemen
   return null
 }
 
+/** How much of a row's height belongs to the seams above and below it.
+
+Never more than a third, so however short a row is there is always a middle left over to drop
+beside the widgets in it.
+*/
+function bandOf(row: RowBounds): number {
+  const height = row.bottom - row.top
+
+  return Math.min(largestBand, height / 3)
+}
+
 /** Where a seam sits, halfway across the gap the rows leave between them. */
 function seamOf(bounds: RowBounds[], row: number): number | null {
   const above = bounds[row - 1] ?? null
@@ -251,18 +264,27 @@ function resolvePlacement(
     return null
   }
 
-  // A seam is the gap between two rows and nothing more. A widget is taken hold of by its header,
-  // which sits at the very top of it, so a seam claiming any of a row's own height would be chosen
-  // before the pointer had travelled at all. Opening a row means reaching the gap it goes in,
-  // which is a thing the hand has to mean to do, and the rest of a row is for dropping beside the
-  // widgets in it.
+  // A seam reaches into the rows either side of it as well as across the gap between them, so it
+  // is a band to aim at rather than a line. What is left in the middle of a row is for dropping
+  // beside the widgets in it.
   for (const [index, row] of bounds.entries()) {
-    if (y < row.top) {
+    const band = bandOf(row)
+    if (y < row.top + band) {
       return { row: index, column: null }
     }
-    if (y <= row.bottom) {
-      return resolveColumn(row, index, x)
+
+    // Already past this row and into the next one's own middle, so the seam between them is behind
+    // the pointer and the next row answers for where it is.
+    const below = bounds[index + 1] ?? null
+    if (below != null && y >= below.top + bandOf(below)) {
+      continue
     }
+
+    if (y > row.bottom - band) {
+      return { row: index + 1, column: null }
+    }
+
+    return resolveColumn(row, index, x)
   }
 
   return { row: bounds.length, column: null }
@@ -295,14 +317,11 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     marker = chosen == null ? null : markerOf(bounds, width, chosen)
 
     if (!opened) {
-      dwell = setTimeout(
-        () => {
-          opened = true
-          marker = null
-          dwell = null
-        },
-        chosen.column == null ? seamDwell : columnDwell
-      )
+      dwell = setTimeout(() => {
+        opened = true
+        marker = null
+        dwell = null
+      }, targetDwell)
     }
   }
 
@@ -377,13 +396,19 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   useEventListener(window, 'pointerdown', (event: PointerEvent) => {
     origin = { x: event.clientX, y: event.clientY }
 
-    // Pressing anywhere but on a widget lets go of what is picked out, the way clicking off a
-    // selection does elsewhere. Overlays are exempt, since a menu or dialog is usually acting on
-    // the selection rather than leaving it.
+    // Pressing anywhere but a widget's header lets go of what is picked out, the way clicking off
+    // a selection does elsewhere. A press inside a widget is reaching for what the widget shows
+    // rather than for the widget itself, so it counts as pressing away from the selection.
+    //
+    // A held modifier is exempt, since that press is being aimed at the selection rather than away
+    // from it, as are overlays, where a menu or dialog is usually acting on what is picked out.
     const target = event.target as HTMLElement | null
     if (
       workspace.selection.length > 0 &&
-      target?.closest('[data-widget], .q-menu, .q-dialog, .q-popup-edit') == null
+      !event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      target?.closest('[data-widget-header], .q-menu, .q-dialog, .q-popup-edit') == null
     ) {
       workspace.clearSelection()
     }

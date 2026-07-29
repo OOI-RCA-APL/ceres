@@ -115,6 +115,7 @@ watch(
   >
     <div
       :class="[$style.header, 'q-px-sm', 'q-py-xs']"
+      data-widget-header
       :style="{ cursor: workspace.drag != null ? 'grabbing' : 'grab' }"
       @mousedown.prevent="onPress"
       @mousemove.prevent
