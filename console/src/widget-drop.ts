@@ -30,17 +30,22 @@ const activationDistance = 5
 /** How far outside the layout a drop still lands inside it. */
 const edgeMargin = 40
 
-/** The least a row gives up to the seams either side of it, for rows too short to spare a
-quarter. */
-const leastBand = 10
+/** How far past the first and last rows a drop still lands at the seam over or under them.
 
-/** The most a row gives up to them, however tall it is.
-
-A quarter alone reads as a seam being greedy on a tall row, where it would swallow half the row and
-leave a drop beside the widget hard to reach. Past this the seam is a band of its own rather than a
-share of anything, which also makes every seam the same size to aim at.
+Every other seam is a gap with a row on each side to reach it from. Those two have a row on one
+side only, so they are given the room the missing side would have offered and more, which makes
+them no harder to drop into than the seams between rows.
 */
-const largestBand = 28
+const outerReach = 96
+
+/** How long a seam is held before the layout opens a row for it.
+
+Opening one moves everything under it, so a pointer travelling across several seams would have the
+whole page heaving under it the entire way. Until this elapses the seam is drawn as a line, which
+says where the widget lands without anything having to move for it, and the layout only opens once
+the hand has settled on somewhere.
+*/
+const seamDwell = 300
 
 type WidgetBounds = { left: number; right: number }
 
@@ -112,13 +117,6 @@ function withoutHeld(bounds: RowBounds[], layout: WidgetRow[], held: Set<string>
   return remainder
 }
 
-/** How much of a row's height belongs to the seams above and below it. */
-function bandOf(row: RowBounds): number {
-  const height = row.bottom - row.top
-
-  return Math.min(Math.max(height / 4, leastBand), largestBand, height / 2)
-}
-
 function resolveColumn(row: RowBounds, index: number, x: number): WidgetPlacement | null {
   const widgets = row.widgets
   const first = widgets[0] ?? null
@@ -157,6 +155,24 @@ function resolveColumn(row: RowBounds, index: number, x: number): WidgetPlacemen
   return null
 }
 
+/** Where a seam sits, halfway across the gap the rows leave between them. */
+function seamOf(bounds: RowBounds[], row: number): number | null {
+  const above = bounds[row - 1] ?? null
+  const below = bounds[row] ?? null
+
+  if (above != null && below != null) {
+    return (above.bottom + below.top) / 2
+  }
+  if (below != null) {
+    return below.top - 4
+  }
+  if (above != null) {
+    return above.bottom + 4
+  }
+
+  return null
+}
+
 function samePlacement(one: WidgetPlacement | null, other: WidgetPlacement | null): boolean {
   if (one == null || other == null) {
     return one === other
@@ -179,30 +195,25 @@ function resolvePlacement(
   if (x < -edgeMargin || x > width + edgeMargin) {
     return null
   }
-  if (y < first.top - edgeMargin || y > last.bottom + edgeMargin) {
+  if (y < first.top - outerReach || y > last.bottom + outerReach) {
     return null
   }
 
+  // A seam is the gap between two rows and nothing more. A widget is taken hold of by its header,
+  // which sits at the very top of it, so a seam claiming any of a row's own height would be chosen
+  // before the pointer had travelled at all. Opening a row means reaching the gap it goes in,
+  // which is a thing the hand has to mean to do, and the rest of a row is for dropping beside the
+  // widgets in it.
   for (const [index, row] of bounds.entries()) {
-    const band = bandOf(row)
-    if (y < row.top + band) {
+    if (y < row.top) {
       return { row: index, column: null }
     }
-
-    if (y > row.bottom - band) {
-      const below = bounds[index + 1] ?? null
-      const seam = below != null ? below.top + bandOf(below) : Infinity
-      if (y < seam) {
-        return { row: index + 1, column: null }
-      }
-
-      continue
+    if (y <= row.bottom) {
+      return resolveColumn(row, index, x)
     }
-
-    return resolveColumn(row, index, x)
   }
 
-  return null
+  return { row: bounds.length, column: null }
 }
 
 export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTMLElement | null) {
@@ -214,13 +225,47 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   let active = $ref(false)
   let placement = $ref<WidgetPlacement | null>(null)
 
+  // Whether the layout has opened for the placement, which a seam earns by being held and a drop
+  // beside a widget has from the moment it is chosen. Widening a row moves nothing above or below
+  // it, so there is nothing there to wait out.
+  let opened = $ref(false)
+  let seam = $ref<number | null>(null)
+  let dwell: ReturnType<typeof setTimeout> | null = null
+
+  function hold(chosen: WidgetPlacement | null) {
+    placement = chosen
+
+    if (dwell != null) {
+      clearTimeout(dwell)
+      dwell = null
+    }
+
+    opened = chosen == null || chosen.column != null
+    seam = opened ? null : seamOf(bounds, chosen.row)
+
+    if (!opened) {
+      dwell = setTimeout(() => {
+        opened = true
+        seam = null
+        dwell = null
+      }, seamDwell)
+    }
+  }
+
   function reset() {
+    if (dwell != null) {
+      clearTimeout(dwell)
+      dwell = null
+    }
+
     bounds = []
     width = 0
     origin = null
     begun = false
     active = false
     placement = null
+    opened = false
+    seam = null
   }
 
   function begin(): boolean {
@@ -269,7 +314,7 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   }
 
   function cancel() {
-    placement = null
+    hold(null)
     release()
   }
 
@@ -328,7 +373,7 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     // one over that says what the last one said would rebuild the preview and set the rows moving
     // again on every frame the pointer travels, rather than once as it crosses into somewhere new.
     if (!samePlacement(resolved, placement)) {
-      placement = resolved
+      hold(resolved)
     }
   })
 
@@ -361,7 +406,7 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     return planWidgetsMove(
       workspace.data.layout,
       drag.widgets.map((widget) => widget.id),
-      placement
+      opened ? placement : null
     )
   })
 
@@ -374,5 +419,8 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
 
     /** The layout letting go right now would produce, to draw in place of the current one. */
     plan: computed(() => plan),
+
+    /** Where to draw the line for a seam not opened for yet, measured from the layout's top. */
+    seam: computed(() => seam),
   })
 }

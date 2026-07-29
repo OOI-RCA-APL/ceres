@@ -48,6 +48,10 @@ const isVertical = $computed(() => direction == 'vertical')
 const axis = isVertical ? 'y' : 'x'
 
 let drag = $ref<Drag | null>(null)
+
+// Where the readout sits while a size is being dragged out. Kept in viewport terms, since it is
+// drawn against the window rather than in the layout the handle belongs to.
+let pointer = $ref<Vector | null>(null)
 const innerPositionOffset = $computed(() => (isVertical ? { x: 0, y: -3 } : { x: -3, y: 0 }))
 const innerPosition = $computed(() => {
   const result = {
@@ -69,6 +73,7 @@ function onPointerDown(event: PointerEvent) {
     startModelValue: modelValue,
     end: { x: event.pageX, y: event.pageY },
   }
+  pointer = { x: event.clientX, y: event.clientY }
 
   window.addEventListener('pointerup', onPointerUp)
   window.addEventListener('pointermove', onPointerMove)
@@ -82,6 +87,7 @@ function onPointerMove(event: PointerEvent) {
   event.preventDefault()
   drag.end.x = Math.max(event.pageX, 0)
   drag.end.y = Math.max(event.pageY, 0)
+  pointer = { x: event.clientX, y: event.clientY }
   const size = clamp(drag.startModelValue + drag.end[axis] - drag.start[axis])
   emit('update:modelValue', size)
 }
@@ -99,6 +105,7 @@ function onPointerUp(event: PointerEvent) {
   emit('update:modelValue', size)
 
   drag = null
+  pointer = null
   window.removeEventListener('pointerup', onPointerUp)
   window.removeEventListener('pointerup', onPointerMove)
 }
@@ -136,6 +143,17 @@ onUnmounted(() => {
         @pointerdown="onPointerDown"
       />
     </div>
+    <!-- Drawn against the window rather than in the layout, which clips its own overflow and would
+    cut the readout off at the edge of the widget being sized. -->
+    <teleport to="body">
+      <div
+        v-if="pointer != null"
+        :class="[$style.readout, $q.dark.isActive && $style.readoutDark]"
+        :style="{ left: `${pointer.x}px`, top: `${pointer.y}px` }"
+      >
+        {{ Math.round(modelValue) }}px
+      </div>
+    </teleport>
   </div>
 </template>
 
@@ -185,6 +203,28 @@ onUnmounted(() => {
 
 .handleDragging {
   opacity: 0.35 !important;
+}
+
+/* The size being dragged out, kept quiet enough to be read without being watched. Offset off the
+cursor rather than under it, so the edge being placed stays in view. */
+.readout {
+  position: fixed;
+  z-index: 6000;
+  transform: translate(14px, 14px);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background-color: #ffffffe6;
+  color: #00000099;
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.readoutDark {
+  background-color: #000000b3;
+  color: #ffffffa6;
 }
 
 .handleVertical {

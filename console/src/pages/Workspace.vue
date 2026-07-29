@@ -360,7 +360,7 @@ function isHeld(widget: Widget) {
   return drop.active && workspace.drag?.widgets.some((held) => held.id === widget.id) === true
 }
 
-function getWidgetWidthStyle(widget: Widget) {
+function getWidgetWidthStyle(widget: Widget, isLast: boolean) {
   if (layoutWidth == null) {
     return undefined
   }
@@ -368,10 +368,10 @@ function getWidgetWidthStyle(widget: Widget) {
   const units = drop.plan?.widths[widget.id] ?? widget.width
   const width = `${Math.round((units / widgetWidthSubdivisions) * layoutWidth).toFixed(1)}px`
 
-  return {
-    maxWidth: width,
-    minWidth: width,
-  }
+  // The last widget in a row is left without a ceiling, so it takes up whatever the rounding leaves
+  // over. A ceiling of none is not a width anything can be animated from, so a widget arriving in
+  // the last place is given a floor to open out to instead of jumping straight to its full size.
+  return isLast ? { minWidth: width } : { maxWidth: width, minWidth: width }
 }
 
 onMounted(() => {
@@ -439,7 +439,11 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       <div v-else-if="data == null" ref="layout" class="q-py-lg text-center">
         <div>No workspace named "{{ name }}" exists.</div>
       </div>
-      <div v-else ref="layout">
+      <div v-else ref="layout" :class="$style.rows">
+        <!-- Where the widget lands, said without the layout having to open for it. Drawn until the
+        seam has been held long enough to be meant, so a pointer travelling across several of them
+        does not heave the whole page about on the way past. -->
+        <div v-if="drop.seam != null" :class="$style.seam" :style="{ top: `${drop.seam}px` }" />
         <!-- Rows slide to wherever a change puts them instead of arriving there outright, which is
         what makes a gap opening somewhere legible as these rows moving down rather than as the page
         having been redrawn. Rendered under a tag of its own, since working out whether a row can be
@@ -504,7 +508,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
                     : 'q-px-xs',
                 ]"
                 data-widget
-                :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
+                :style="getWidgetWidthStyle(widget, j === row.widgets.length - 1)"
               >
                 <resize-handle
                   v-if="layoutWidth && !drop.active && j < row.widgets.length - 1"
@@ -610,10 +614,35 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 // something being played back at it.
 $easeOut: cubic-bezier(0.2, 0, 0, 1);
 
+// How long the layout takes to settle after a change, and the one knob for all of it. Long enough
+// to be followed rather than only noticed, and short enough to keep up with a pointer still moving.
+$settle: 240ms;
+$fade: 210ms;
+
 // Clipped here rather than on the page, because hiding an axis makes an element its own scrolling
 // box, and a header inside one pins to that box instead of to the window.
 .layout {
   overflow-x: hidden;
+}
+
+// What the seam line is placed against.
+.rows {
+  position: relative;
+}
+
+// Travels between seams rather than being redrawn at each one, which is what makes a pointer moving
+// up the page read as carrying the widget with it.
+.seam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 2;
+  border-radius: 2px;
+  background-color: $primary;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: top $settle $easeOut;
 }
 
 .shortcut {
@@ -699,13 +728,13 @@ $easeOut: cubic-bezier(0.2, 0, 0, 1);
 // Only the position is animated. A row's height arrives at once, so the gap a drop opens is there
 // to see straight away and only the rows giving way to it are in motion.
 .rowMove {
-  transition: transform 160ms $easeOut;
+  transition: transform $settle $easeOut;
 }
 
 // A row arriving fades up while the rows around it slide apart, which separates the thing that is
 // new from the things that moved to make room for it.
 .rowEnterActive {
-  transition: opacity 140ms ease-out;
+  transition: opacity $fade ease-out;
 }
 
 .rowEnterFrom {
@@ -716,23 +745,26 @@ $easeOut: cubic-bezier(0.2, 0, 0, 1);
 // the room it takes is seen being made for it.
 .widgetOpening {
   overflow: hidden;
-  transition: min-width 160ms $easeOut, max-width 160ms $easeOut, opacity 160ms ease-out;
+  transition: min-width $settle $easeOut, max-width $settle $easeOut, opacity $settle ease-out;
 }
 
-// Beats the widths set inline from the layout, which is where a widget's own width comes from.
+// Beats the widths set inline from the layout, which is where a widget's own width comes from. The
+// basis goes with them, since a widget left free to size itself from its contents opens at whatever
+// it happens to hold rather than from nothing.
 .widgetClosed {
+  flex-basis: 0 !important;
   min-width: 0 !important;
   max-width: 0 !important;
   opacity: 0;
 }
 
 .widgetMove {
-  transition: transform 160ms $easeOut;
+  transition: transform $settle $easeOut;
 }
 
 // Only while a widget is in hand. A width that eases would fight the resize handle, which sets it
 // again on every pixel the pointer travels.
 .widgetResizing {
-  transition: min-width 160ms $easeOut, max-width 160ms $easeOut;
+  transition: min-width $settle $easeOut, max-width $settle $easeOut;
 }
 </style>
