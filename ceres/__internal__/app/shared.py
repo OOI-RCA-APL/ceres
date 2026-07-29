@@ -215,6 +215,10 @@ class Socket:
         """Serialize `data` to JSON and send it as a text frame."""
         await self.socket.send_text(to_json(data))
 
+    async def send_serialized(self, payload: str) -> None:
+        """Send an already-serialized JSON payload as a text frame."""
+        await self.socket.send_text(payload)
+
     async def receive(self) -> Any:
         """Wait for the next WebSocket message and deserialize it from JSON.
 
@@ -834,7 +838,18 @@ def create_record_stream_route(router: Router, Record: type[Record]):
         manager = cast("BoundMessageManager", engine.__manager__(Record))
 
         async def write() -> None:
+            table = naming.table
             async for record in manager.stream.where(cast("Any", filter)):
+                if type(record) is Record:
+                    try:
+                        payload = RecordBatch.record_to_json(table, record)
+                    except ValueError:
+                        # Payload values richer than JSON keep Pydantic's serialization.
+                        pass
+                    else:
+                        await socket.send_serialized(payload.decode())
+                        continue
+
                 await socket.send(record)
 
         await socket.execute(write)

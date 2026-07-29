@@ -395,6 +395,15 @@ class RecordBatch:
         database layer's column mappers, so they are trusted rather than revalidated here.
         """
     def __len__(self) -> int: ...
+    @staticmethod
+    def record_to_json(table: str, record: Any) -> bytes:
+        r"""
+        Serialize one live record entity as JSON in the API's wire format.
+
+        Reads the entity object's attributes rather than row values, so streamed records
+        serialize natively too. Raises `ValueError` for payload values richer than JSON,
+        which the caller serializes through Pydantic instead.
+        """
     def to_json(self) -> bytes:
         r"""
         Serialize the batch as a JSON array in the API's wire format.
