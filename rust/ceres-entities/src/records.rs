@@ -101,6 +101,42 @@ pub fn to_json_array<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>>
     serde_json::to_vec(records)
 }
 
+/// The records of one query result, all of a single entity type.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Records {
+    Messages(Vec<Message>),
+    Particles(Vec<Particle>),
+    Alerts(Vec<Alert>),
+    LogEntries(Vec<LogEntry>),
+}
+
+impl Records {
+    /// The number of records held.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Messages(records) => records.len(),
+            Self::Particles(records) => records.len(),
+            Self::Alerts(records) => records.len(),
+            Self::LogEntries(records) => records.len(),
+        }
+    }
+
+    /// Whether no records are held.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Serialize the records as one JSON array in the API's wire format.
+    pub fn to_json_array(&self) -> serde_json::Result<Vec<u8>> {
+        match self {
+            Self::Messages(records) => to_json_array(records),
+            Self::Particles(records) => to_json_array(records),
+            Self::Alerts(records) => to_json_array(records),
+            Self::LogEntries(records) => to_json_array(records),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone;

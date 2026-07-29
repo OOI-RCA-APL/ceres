@@ -28,7 +28,16 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 from ceres.__internal__.entity import BaseEntityFilter
 from ceres.__internal__.utilities.case import kebabcase, snakecase
 from ceres.concurrency import race, sleep
-from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
+from ceres.data import (
+    DataObject,
+    DateTime,
+    StrEnum,
+    adapt,
+    fields_set_on,
+    from_json,
+    to_json,
+    validate,
+)
 from ceres.error import NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User
@@ -794,9 +803,15 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
             # takes the materializing path.
             return await query
 
-        # Rows parse into native records and serialize in one call, no Python entity
-        # objects are built for a plain listing.
-        batch = RecordBatch.parse(naming.table, await query.mappings())
+        fetcher = query._get_database()._record_fetcher()
+        if fetcher is not None and fields_set_on(filter) <= {"limit", "offset"}:
+            # A plain listing fetches natively, rows never enter Python at all.
+            batch = await fetcher.fetch(naming.table, filter.limit, filter.offset)
+        else:
+            # Rows parse into native records and serialize in one call, no Python entity
+            # objects are built for the listing.
+            batch = RecordBatch.parse(naming.table, await query.mappings())
+
         return Response(batch.to_json(), media_type="application/json")
 
     get_all.__name__ = f"get_all_{snakecase(naming.plural)}"

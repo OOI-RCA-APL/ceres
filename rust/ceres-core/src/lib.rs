@@ -11,6 +11,7 @@
 pub mod binary;
 pub mod database;
 pub mod entities;
+pub mod fetcher;
 pub mod interop;
 pub mod logging;
 
@@ -155,6 +156,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<database::PostgresDatabaseConfig>()?;
     module.add_class::<binary::PackingProgram>()?;
     module.add_class::<entities::RecordBatch>()?;
+    module.add_class::<fetcher::RecordFetcher>()?;
     Ok(())
 }
 

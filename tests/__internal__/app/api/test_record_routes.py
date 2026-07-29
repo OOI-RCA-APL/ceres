@@ -1,4 +1,5 @@
 import json
+from typing import TYPE_CHECKING
 
 import pytest
 from ceres_core import RecordBatch
@@ -6,8 +7,12 @@ from ceres_core import RecordBatch
 from ceres import Engine
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.config import Config
+from ceres.config import Config, SQLiteDatabaseConfig
 from ceres.data import construct, to_json, validate
+from ceres.database import Database
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
@@ -96,6 +101,48 @@ async def test_typed_payloads_refuse_native_serialization() -> None:
     )
     with pytest.raises(ValueError):
         RecordBatch.record_to_json("particles", particle)
+
+
+async def test_native_fetches_serialize_identically_to_the_python_path(
+    tmp_path: Path,
+) -> None:
+    """The fully-native fetch path must match Pydantic's serialization byte for byte.
+
+    A file-backed database is required, the native fetcher cannot join a private in-memory
+    database and reports itself unavailable there.
+    """
+    engine = Engine()
+    await engine.load(
+        validate(
+            Config,
+            {
+                "components": [],
+                "database": {"type": "sqlite", "path": str(tmp_path / "records.sqlite")},
+            },
+        ),
+        checks=(),
+    )
+    await engine.database.migrate()
+    await _write_records(engine)
+
+    fetcher = engine.database._record_fetcher()
+    assert fetcher is not None
+
+    for Record in (Message, Particle, Alert, LogEntry):
+        entities = await engine.__manager__(Record).where()
+        assert entities, f"expected a written {Record.__name__}"
+        expected = [json.loads(to_json(entity)) for entity in entities]
+
+        batch = await fetcher.fetch(Record.__entity_naming__.table)
+        assert json.loads(batch.to_json()) == expected
+
+    limited = await fetcher.fetch("particles", 1, 0)
+    assert len(limited) == 1
+
+
+async def test_in_memory_databases_report_no_native_fetcher() -> None:
+    database = Database(SQLiteDatabaseConfig.in_memory())
+    assert database._record_fetcher() is None
 
 
 async def test_typed_particle_queries_keep_the_materializing_path() -> None:

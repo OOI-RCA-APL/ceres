@@ -1,0 +1,32 @@
+[package]
+name = "ceres-database"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ceres-entities = { path = "../ceres-entities" }
+chrono = "0.4"
+sea-query = "0.32"
+sea-query-binder = { version = "0.7", features = [
+    "sqlx-postgres",
+    "sqlx-sqlite",
+    "with-chrono",
+    "with-uuid",
+] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = [
+    "chrono",
+    "json",
+    "postgres",
+    "runtime-tokio",
+    "sqlite",
+    "uuid",
+] }
+thiserror = "2"
+uuid = "1"
+
+[lints]
+workspace = true

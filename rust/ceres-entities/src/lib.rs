@@ -10,5 +10,8 @@ mod records;
 mod timestamp;
 
 pub use address::Address;
-pub use records::{Alert, LogEntry, Message, MessageDirection, Particle, latin1, to_json_array};
+pub use ceres_config::Level;
+pub use records::{
+    Alert, LogEntry, Message, MessageDirection, Particle, Records, latin1, to_json_array,
+};
 pub use timestamp::Timestamp;

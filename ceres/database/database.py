@@ -11,6 +11,7 @@ from tempfile import gettempdir
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Self, final, override
 
+from ceres_core import RecordFetcher
 from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -177,6 +178,15 @@ class Database:
         """Backend kind, one of `DatabaseType.SQLITE`, `DatabaseType.TURSO`, or
         `DatabaseType.POSTGRES`."""
         return self._config.type
+
+    def _record_fetcher(self) -> RecordFetcher | None:
+        """Return a natively-connected record fetcher, or `None` when unsupported.
+
+        The fetcher serves record listings without materializing Python entities. Backends
+        opt in by overriding, and return `None` whenever a second connection pool cannot
+        safely join this database.
+        """
+        return None
 
     @property
     def engine(self) -> AsyncEngine:
@@ -668,6 +678,20 @@ class SQLiteDatabase(Database):
             query=self.config.query or {},
         ).render_as_string(hide_password=False)
 
+    @override
+    def _record_fetcher(self) -> RecordFetcher | None:
+        if self.config.is_memory:
+            # A private in-memory database lives inside its one connection, a second pool
+            # would see a different, empty database.
+            return None
+
+        fetcher = getattr(self, "_native_record_fetcher", None)
+        if fetcher is None:
+            fetcher = RecordFetcher.sqlite(str(self.path))
+            self._native_record_fetcher = fetcher
+
+        return fetcher
+
     @property
     def path(self) -> Path:
         """Filesystem path of the SQLite database file.
@@ -828,6 +852,13 @@ class TursoDatabase(SQLiteDatabase):
         config = super().config
         assert isinstance(config, TursoDatabaseConfig)
         return config
+
+    @override
+    def _record_fetcher(self) -> RecordFetcher | None:
+        # Under MVCC the file is not readable by SQLite libraries, and even without it a
+        # second pool on a different driver is untested against Turso's locking. The native
+        # fetcher arrives with the Turso crate.
+        return None
 
     @property
     @override

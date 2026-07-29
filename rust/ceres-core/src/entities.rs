@@ -6,7 +6,9 @@
 //! that only travel from the database to a response body.
 
 use ceres_config::Level;
-use ceres_entities::{Address, Alert, LogEntry, Message, MessageDirection, Particle, Timestamp};
+use ceres_entities::{
+    Address, Alert, LogEntry, Message, MessageDirection, Particle, Records, Timestamp,
+};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -15,14 +17,6 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-/// The records of one batch, all of a single entity type.
-enum Records {
-    Messages(Vec<Message>),
-    Particles(Vec<Particle>),
-    Alerts(Vec<Alert>),
-    LogEntries(Vec<LogEntry>),
-}
-
 /// A batch of records held natively, parsed from database rows.
 ///
 /// Built through `parse` from the raw row mappings a query produces, and serialized with
@@ -30,7 +24,7 @@ enum Records {
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres_core", frozen)]
 pub struct RecordBatch {
-    records: Records,
+    pub(crate) records: Records,
 }
 
 #[gen_stub_pymethods]
@@ -58,12 +52,7 @@ impl RecordBatch {
     }
 
     fn __len__(&self) -> usize {
-        match &self.records {
-            Records::Messages(records) => records.len(),
-            Records::Particles(records) => records.len(),
-            Records::Alerts(records) => records.len(),
-            Records::LogEntries(records) => records.len(),
-        }
+        self.records.len()
     }
 
     /// Serialize one live record entity as JSON in the API's wire format.
@@ -95,13 +84,10 @@ impl RecordBatch {
 
     /// Serialize the batch as a JSON array in the API's wire format.
     fn to_json<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        let serialized = match &self.records {
-            Records::Messages(records) => ceres_entities::to_json_array(records),
-            Records::Particles(records) => ceres_entities::to_json_array(records),
-            Records::Alerts(records) => ceres_entities::to_json_array(records),
-            Records::LogEntries(records) => ceres_entities::to_json_array(records),
-        };
-        let serialized = serialized.map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let serialized = self
+            .records
+            .to_json_array()
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(PyBytes::new(py, &serialized))
     }
 }

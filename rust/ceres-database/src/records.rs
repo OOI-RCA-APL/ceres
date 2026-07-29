@@ -1,0 +1,251 @@
+//! Record queries and row decoding.
+
+use ceres_entities::{
+    Address, Alert, Level, LogEntry, Message, MessageDirection, Particle, Records, Timestamp,
+};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use sea_query::{Alias, Asterisk, Order, Query, SelectStatement};
+use serde_json::{Map, Value};
+use sqlx::Row;
+use sqlx::postgres::PgRow;
+use sqlx::sqlite::SqliteRow;
+use uuid::Uuid;
+
+use crate::store::Error;
+
+/// One of the record tables.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordTable {
+    Messages,
+    Particles,
+    Alerts,
+    Logs,
+}
+
+impl RecordTable {
+    /// Select a record table by name.
+    pub fn parse(table: &str) -> Result<Self, Error> {
+        match table {
+            "messages" => Ok(Self::Messages),
+            "particles" => Ok(Self::Particles),
+            "alerts" => Ok(Self::Alerts),
+            "logs" => Ok(Self::Logs),
+            other => Err(Error::UnknownTable(other.to_string())),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Messages => "messages",
+            Self::Particles => "particles",
+            Self::Alerts => "alerts",
+            Self::Logs => "logs",
+        }
+    }
+
+    /// Build the listing statement, ordered like the Python layer's record default.
+    pub(crate) fn listing(&self, limit: Option<u64>, offset: Option<u64>) -> SelectStatement {
+        let mut statement = Query::select();
+        statement
+            .column(Asterisk)
+            .from(Alias::new(self.name()))
+            .order_by(Alias::new("timestamp"), Order::Asc);
+        if let Some(limit) = limit {
+            statement.limit(limit);
+        }
+
+        if let Some(offset) = offset {
+            statement.offset(offset);
+        }
+
+        statement
+    }
+
+    pub(crate) fn empty(&self) -> Records {
+        match self {
+            Self::Messages => Records::Messages(Vec::new()),
+            Self::Particles => Records::Particles(Vec::new()),
+            Self::Alerts => Records::Alerts(Vec::new()),
+            Self::Logs => Records::LogEntries(Vec::new()),
+        }
+    }
+}
+
+/// Decode rows for a record table into natively-held records.
+pub(crate) trait DecodeRecords: Row + Sized {
+    fn decode(table: RecordTable, rows: Vec<Self>) -> Result<Records, Error>;
+}
+
+impl DecodeRecords for SqliteRow {
+    fn decode(table: RecordTable, rows: Vec<Self>) -> Result<Records, Error> {
+        match table {
+            RecordTable::Messages => rows
+                .iter()
+                .map(|row| {
+                    Ok(Message {
+                        id: sqlite_id(row)?,
+                        address: Address::trusted(row.try_get("address")?),
+                        timestamp: sqlite_timestamp(row)?,
+                        connection: row.try_get("connection")?,
+                        direction: direction(row.try_get("direction")?)?,
+                        data: row.try_get("data")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Records::Messages),
+            RecordTable::Particles => rows
+                .iter()
+                .map(|row| {
+                    Ok(Particle {
+                        id: sqlite_id(row)?,
+                        address: Address::trusted(row.try_get("address")?),
+                        timestamp: sqlite_timestamp(row)?,
+                        kind: row.try_get("type")?,
+                        data: json_text(row.try_get("data")?)?,
+                        span: None,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Records::Particles),
+            RecordTable::Alerts => rows
+                .iter()
+                .map(|row| {
+                    Ok(Alert {
+                        id: sqlite_id(row)?,
+                        address: Address::trusted(row.try_get("address")?),
+                        timestamp: sqlite_timestamp(row)?,
+                        level: level(row.try_get("level")?)?,
+                        kind: row.try_get("type")?,
+                        data: json_text(row.try_get("data")?)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Records::Alerts),
+            RecordTable::Logs => rows
+                .iter()
+                .map(|row| {
+                    Ok(LogEntry {
+                        id: sqlite_id(row)?,
+                        address: Address::trusted(row.try_get("address")?),
+                        timestamp: sqlite_timestamp(row)?,
+                        level: level(row.try_get("level")?)?,
+                        content: row.try_get("content")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Records::LogEntries),
+        }
+    }
+}
+
+impl DecodeRecords for PgRow {
+    fn decode(table: RecordTable, rows: Vec<Self>) -> Result<Records, Error> {
+        match table {
+            RecordTable::Messages => rows
+                .iter()
+                .map(|row| {
+                    Ok(Message {
+                        id: row.try_get("id")?,
+                        address: Address::trusted(row.try_get("address")?),
+                        timestamp: postgres_timestamp(row)?,
+                        connection: row.try_get("connection")?,
+                        direction: direction(row.try_get("direction")?)?,
+                        data: row.try_get("data")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Records::Messages),
+            RecordTable::Particles => rows
+                .iter()
+                .map(|row| {
+                    Ok(Particle {
+                        id: row.try_get("id")?,
+                        address: Address::trusted(row.try_get("address")?),
+                        timestamp: postgres_timestamp(row)?,
+                        kind: row.try_get("type")?,
+                        data: json_value(row.try_get("data")?)?,
+                        span: None,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Records::Particles),
+            RecordTable::Alerts => rows
+                .iter()
+                .map(|row| {
+                    Ok(Alert {
+                        id: row.try_get("id")?,
+                        address: Address::trusted(row.try_get("address")?),
+                        timestamp: postgres_timestamp(row)?,
+                        level: level(row.try_get("level")?)?,
+                        kind: row.try_get("type")?,
+                        data: json_value(row.try_get("data")?)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Records::Alerts),
+            RecordTable::Logs => rows
+                .iter()
+                .map(|row| {
+                    Ok(LogEntry {
+                        id: row.try_get("id")?,
+                        address: Address::trusted(row.try_get("address")?),
+                        timestamp: postgres_timestamp(row)?,
+                        level: level(row.try_get("level")?)?,
+                        content: row.try_get("content")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Records::LogEntries),
+        }
+    }
+}
+
+/// Decode a SQLite ID column, stored as hyphenated UUID text.
+fn sqlite_id(row: &SqliteRow) -> Result<Uuid, Error> {
+    let text: String = row.try_get("id")?;
+    text.parse()
+        .map_err(|_| Error::Decode(format!("{text:?} is not a UUID")))
+}
+
+/// Decode a SQLite timestamp column, stored as naive UTC text.
+fn sqlite_timestamp(row: &SqliteRow) -> Result<Timestamp, Error> {
+    let naive: NaiveDateTime = row.try_get("timestamp")?;
+    Ok(Timestamp(naive.and_utc()))
+}
+
+/// Decode a Postgres timestamp column, stored as a naive UTC timestamp.
+fn postgres_timestamp(row: &PgRow) -> Result<Timestamp, Error> {
+    if let Ok(aware) = row.try_get::<DateTime<Utc>, _>("timestamp") {
+        return Ok(Timestamp(aware));
+    }
+
+    let naive: NaiveDateTime = row.try_get("timestamp")?;
+    Ok(Timestamp(naive.and_utc()))
+}
+
+fn direction(text: String) -> Result<MessageDirection, Error> {
+    match text.as_str() {
+        "send" => Ok(MessageDirection::Send),
+        "receive" => Ok(MessageDirection::Receive),
+        other => Err(Error::Decode(format!(
+            "{other:?} is not a message direction"
+        ))),
+    }
+}
+
+fn level(text: String) -> Result<Level, Error> {
+    Level::parse(&text).map_err(Error::Decode)
+}
+
+/// Decode a JSON column stored as text.
+fn json_text(text: String) -> Result<Map<String, Value>, Error> {
+    serde_json::from_str(&text).map_err(|error| Error::Decode(error.to_string()))
+}
+
+/// Decode a JSON column delivered as a value.
+fn json_value(value: Value) -> Result<Map<String, Value>, Error> {
+    match value {
+        Value::Object(map) => Ok(map),
+        other => Err(Error::Decode(format!("{other} is not a JSON object"))),
+    }
+}

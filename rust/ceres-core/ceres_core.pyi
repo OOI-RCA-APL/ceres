@@ -17,6 +17,7 @@ __all__ = [
     "PackingProgram",
     "PostgresDatabaseConfig",
     "RecordBatch",
+    "RecordFetcher",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
     "ServerCORSConfig",
@@ -407,6 +408,32 @@ class RecordBatch:
     def to_json(self) -> bytes:
         r"""
         Serialize the batch as a JSON array in the API's wire format.
+        """
+
+@final
+class RecordFetcher:
+    r"""
+    A natively-connected view of a Ceres database, serving record reads.
+
+    Built from resolved connection parameters rather than a configuration, because the
+    Python layer resolves per-instance details like temporary SQLite paths. Connections
+    open lazily on first use.
+    """
+    @staticmethod
+    def sqlite(path: str) -> RecordFetcher:
+        r"""
+        Open a fetcher over a SQLite database file.
+        """
+    @staticmethod
+    def postgres(
+        host: str, database: str, user: str, port: int | None = None, password: str | None = None
+    ) -> RecordFetcher:
+        r"""
+        Open a fetcher over a PostgreSQL database.
+        """
+    def fetch(self, table: str, limit: int | None = None, offset: int | None = None) -> Any:
+        r"""
+        Fetch a record listing ordered by timestamp, as an awaitable `RecordBatch`.
         """
 
 class SQLiteDatabaseConfig:
