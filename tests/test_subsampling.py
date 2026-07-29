@@ -6,10 +6,15 @@ way, so these run against whichever backend the suite was pointed at.
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from ceres import Address, Alert, Level
 from ceres.__internal__.record import SubsampleSelect
 from ceres.alert import AlertCreate
 from ceres.database import Database
+
+pytestmark = pytest.mark.databases()
+"""Every backend, since each bins timestamps with its own SQL."""
 
 ORIGIN = datetime.fromisoformat("2026-01-01T00:00:00+00:00")
 

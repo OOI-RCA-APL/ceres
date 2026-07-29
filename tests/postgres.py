@@ -1,8 +1,8 @@
 """Run the suite against a real PostgreSQL server instead of the default SQLite database.
 
 Production runs on PostgreSQL while the suite defaults to SQLite, so a query that only one backend
-accepts can pass every test. Setting `CERES_TEST_DATABASE=postgres` redirects every unconfigured
-`Database`, and therefore every unconfigured `Engine`, at PostgreSQL without a single test changing.
+accepts can pass every test. A test carrying the `databases` marker runs against this backend
+alongside the others, and `pytest --database postgres` confines a whole run to it.
 
 Isolation matches what SQLite gives for free. Each `Database` gets a private schema, and its
 connections put that schema first on the search path, so the tables one test creates are invisible
@@ -28,19 +28,23 @@ from sqlalchemy.pool import NullPool
 from ceres.config import PostgresDatabaseConfig
 from ceres.data import uuid4
 
-POSTGRES_URL = os.environ.get(
-    "CERES_TEST_POSTGRES_URL", "postgresql+asyncpg://ceres:ceres@localhost:5432/ceres_test"
-)
-"""Server the PostgreSQL tests connect to. Override to point at a different instance.
+DEFAULT_URL = "postgresql+asyncpg://ceres:ceres@localhost:5432/ceres_test"
+"""Server the PostgreSQL tests connect to unless told otherwise.
 
-The default names a database of its own rather than the one a local deployment uses, because the
-suite drops schemas and deletes rows wholesale and must never be pointed at real data by accident.
+This names a database of its own rather than the one a local deployment uses, because the suite
+drops schemas and deletes rows wholesale and must never be pointed at real data by accident.
 """
 
+POSTGRES_URL = os.environ.get("CERES_TEST_POSTGRES_URL", DEFAULT_URL)
+"""Server in use for this run. `--postgres-url` replaces it, and `CERES_TEST_POSTGRES_URL` is the
+fallback for a runner that sets its environment rather than its command line."""
 
-def is_enabled() -> bool:
-    """Report whether the suite was asked to run against PostgreSQL."""
-    return os.environ.get("CERES_TEST_DATABASE", "sqlite").lower() == "postgres"
+
+def use_url(url: str) -> None:
+    """Point the PostgreSQL tests at `url` for the rest of the run."""
+    global POSTGRES_URL
+
+    POSTGRES_URL = url
 
 
 _BATCH = 64
@@ -108,10 +112,10 @@ def prepare() -> None:
         raise
     except Exception as exception:
         raise RuntimeError(
-            f"CERES_TEST_DATABASE=postgres, but {POSTGRES_URL} cannot be prepared. Start a "
-            "PostgreSQL server and create the test database as a superuser:\n"
+            f"{POSTGRES_URL} cannot be prepared. Start a PostgreSQL server and create the test "
+            "database as a superuser:\n"
             '  psql postgres -c "CREATE DATABASE ceres_test OWNER ceres"\n'
-            "Point CERES_TEST_POSTGRES_URL elsewhere to use a different server or database."
+            "Pass --postgres-url, or set CERES_TEST_POSTGRES_URL, to use a different server."
         ) from exception
 
 
