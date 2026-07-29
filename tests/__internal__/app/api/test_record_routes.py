@@ -1,5 +1,6 @@
 import json
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from ceres_core import RecordBatch
@@ -23,6 +24,23 @@ async def _build_engine() -> Engine:
     engine = Engine()
     await engine.database.migrate()
     await engine.load(validate(Config, {"components": []}), checks=())
+    return engine
+
+
+async def _build_engine_on_disk(tmp_path: Path) -> Engine:
+    """Build an engine on a file-backed database, which the native fetcher can join."""
+    engine = Engine()
+    await engine.load(
+        validate(
+            Config,
+            {
+                "components": [],
+                "database": {"type": "sqlite", "path": str(tmp_path / "records.sqlite")},
+            },
+        ),
+        checks=(),
+    )
+    await engine.database.migrate()
     return engine
 
 
@@ -111,18 +129,7 @@ async def test_native_fetches_serialize_identically_to_the_python_path(
     A file-backed database is required, the native fetcher cannot join a private in-memory
     database and reports itself unavailable there.
     """
-    engine = Engine()
-    await engine.load(
-        validate(
-            Config,
-            {
-                "components": [],
-                "database": {"type": "sqlite", "path": str(tmp_path / "records.sqlite")},
-            },
-        ),
-        checks=(),
-    )
-    await engine.database.migrate()
+    engine = await _build_engine_on_disk(tmp_path)
     await _write_records(engine)
 
     fetcher = engine.database._record_fetcher()
@@ -138,6 +145,58 @@ async def test_native_fetches_serialize_identically_to_the_python_path(
 
     limited = await fetcher.fetch("particles", 1, 0)
     assert len(limited) == 1
+
+
+async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) -> None:
+    """The native path executes the query layer's own compiled SQL, so filters need no port.
+
+    The filters here cover the awkward constructs on purpose, address selectors, relative
+    time ranges, boolean combinators, level matching, and subsampling with its CTE.
+    """
+    engine = await _build_engine_on_disk(tmp_path)
+    await _write_records(engine)
+    await engine.database.particles.create(
+        Particle.Create(address=Address("@other.unit"), type="status", data={"ok": True})
+    )
+
+    fetcher = engine.database._record_fetcher()
+    assert fetcher is not None
+
+    async def check(query: Any) -> None:
+        entities = await query
+        expected = [json.loads(to_json(entity)) for entity in entities]
+        sql, parameters = await query.compiled()
+        batch = await fetcher.fetch_sql("particles", sql, parameters)
+        assert json.loads(batch.to_json()) == expected
+
+    particles = engine.database.particles
+    await check(particles.where(address="@sensor.temp:all"))
+    await check(particles.where(type="sample"))
+    await check(particles.where(type="nothing-matches"))
+    await check(
+        particles.where(after=datetime(2000, 1, 1, tzinfo=UTC), timespan=timedelta(days=36500))
+    )
+    await check(particles.where(max_age=timedelta(days=1), order="timestamp:desc", limit=1))
+    await check(
+        particles.where(validate(Particle.Filter, {"or": [{"type": "sample"}, {"type": "status"}]}))
+    )
+
+    # Subsampling compiles a `floor` call the native SQLite build does not ship yet, the
+    # route falls back to the query layer when the native engine reports the error.
+    subsampled = particles.where(
+        after=datetime(2000, 1, 1, tzinfo=UTC),
+        before=datetime(2100, 1, 1, tzinfo=UTC),
+        subsample=4,
+    )
+    sql, parameters = await subsampled.compiled()
+    with pytest.raises(ValueError):
+        await fetcher.fetch_sql("particles", sql, parameters)
+
+    alerts = engine.database.alerts
+    entities = await alerts.where(level=Level.WARNING)
+    sql, parameters = await alerts.where(level=Level.WARNING).compiled()
+    batch = await fetcher.fetch_sql("alerts", sql, parameters)
+    assert json.loads(batch.to_json()) == [json.loads(to_json(entity)) for entity in entities]
 
 
 async def test_in_memory_databases_report_no_native_fetcher() -> None:

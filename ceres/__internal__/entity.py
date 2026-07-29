@@ -786,6 +786,38 @@ class _BaseStatementExecutor[
 
             return rows
 
+    async def compiled(self) -> tuple[str, list[Any]]:
+        """Compile the query into SQL text and positionally-ordered parameters.
+
+        The native fetch path executes exactly the statement this layer would have run,
+        so every filter construct is covered without a second implementation of its SQL.
+        Bind processors are applied here, so parameters arrive as the primitive values the
+        driver would have been handed.
+        """
+        statement = await self._get_statement(True)
+        dialect = self._query._get_database().engine.dialect
+        # Post-compile rendering expands `IN` placeholders into per-value parameters, which
+        # the driver would otherwise do at execution time.
+        compiled = statement.compile(dialect=dialect, compile_kwargs={"render_postcompile": True})
+        parameters = compiled.construct_params()
+
+        # The bind processors are the dialect's value converters, datetimes to stored text,
+        # UUIDs to strings, and so on. Internal but stable across SQLAlchemy 2.
+        processors = cast(
+            "Mapping[str, Callable[[Any], Any]]",
+            compiled._bind_processors,  # pyright: ignore[reportPrivateUsage]
+        )
+        ordered: list[Any] = []
+        for name in compiled.positiontup or ():
+            value = parameters[name]
+            processor = processors.get(name)
+            if processor is not None and value is not None:
+                value = processor(value)
+
+            ordered.append(value)
+
+        return str(compiled), ordered
+
     @abstractmethod
     def _should_commit(self) -> bool: ...
 
@@ -1232,6 +1264,10 @@ class EntityQuery[
     async def mappings(self) -> list[Mapping[str, Any]]:
         """Execute the query and return raw row mappings without materializing entities."""
         return await self.select().mappings()
+
+    async def compiled(self) -> tuple[str, list[Any]]:
+        """Compile the query into SQL text and positionally-ordered parameters."""
+        return await self.select().compiled()
 
     def limit(self, limit: int) -> Self:
         return self.where(limit=limit)  # type: ignore

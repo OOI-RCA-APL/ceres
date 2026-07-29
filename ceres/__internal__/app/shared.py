@@ -28,16 +28,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 from ceres.__internal__.entity import BaseEntityFilter
 from ceres.__internal__.utilities.case import kebabcase, snakecase
 from ceres.concurrency import race, sleep
-from ceres.data import (
-    DataObject,
-    DateTime,
-    StrEnum,
-    adapt,
-    fields_set_on,
-    from_json,
-    to_json,
-    validate,
-)
+from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
 from ceres.error import NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User
@@ -803,11 +794,25 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
             # takes the materializing path.
             return await query
 
+        batch = None
         fetcher = query._get_database()._record_fetcher()
-        if fetcher is not None and fields_set_on(filter) <= {"limit", "offset"}:
-            # A plain listing fetches natively, rows never enter Python at all.
-            batch = await fetcher.fetch(naming.table, filter.limit, filter.offset)
-        else:
+        if fetcher is not None:
+            # The query compiles here and executes natively, rows never enter Python at
+            # all, and any filter the query layer can express is covered.
+            sql, parameters = await query.compiled()
+            try:
+                batch = await fetcher.fetch_sql(naming.table, sql, parameters)
+            except ValueError as error:
+                # The native engine can lag the Python one in corner cases, subsampling
+                # needs SQLite math functions it does not ship yet. The listing stays
+                # correct through the fallback, just slower.
+                from ceres.logs import get_logger
+
+                get_logger("ceres.database").warning(
+                    f"Native record fetch fell back to the query layer. {error}"
+                )
+
+        if batch is None:
             # Rows parse into native records and serialize in one call, no Python entity
             # objects are built for the listing.
             batch = RecordBatch.parse(naming.table, await query.mappings())

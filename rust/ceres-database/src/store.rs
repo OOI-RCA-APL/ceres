@@ -8,6 +8,17 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use crate::records::{DecodeRecords, RecordTable};
 
+/// A primitive statement parameter, as the Python layer's bind processors produce them.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Parameter {
+    Null,
+    Bool(bool),
+    Integer(i64),
+    Float(f64),
+    Text(String),
+    Bytes(Vec<u8>),
+}
+
 /// A database access failure.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -96,6 +107,63 @@ impl RecordStore {
             }
         }
     }
+
+    /// Execute a compiled record query, decoding its rows for the given table.
+    ///
+    /// The statement text and parameters come from the Python query layer's own compiler,
+    /// so any filter it can express runs natively with identical semantics. Only `SELECT`
+    /// statements are accepted.
+    pub async fn fetch_sql(
+        &self,
+        table: RecordTable,
+        sql: &str,
+        parameters: Vec<Parameter>,
+    ) -> Result<Records, Error> {
+        let head = sql.trim_start();
+        if !starts_with_keyword(head, "select") && !starts_with_keyword(head, "with") {
+            return Err(Error::Decode("only SELECT statements execute here".into()));
+        }
+
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let mut query = sqlx::query(sql);
+                for parameter in parameters {
+                    query = match parameter {
+                        Parameter::Null => query.bind(None::<String>),
+                        Parameter::Bool(value) => query.bind(value),
+                        Parameter::Integer(value) => query.bind(value),
+                        Parameter::Float(value) => query.bind(value),
+                        Parameter::Text(value) => query.bind(value),
+                        Parameter::Bytes(value) => query.bind(value),
+                    };
+                }
+
+                let rows = query.fetch_all(pool).await?;
+                DecodeRecords::decode(table, rows)
+            }
+            Backend::Postgres(pool) => {
+                let mut query = sqlx::query(sql);
+                for parameter in parameters {
+                    query = match parameter {
+                        Parameter::Null => query.bind(None::<String>),
+                        Parameter::Bool(value) => query.bind(value),
+                        Parameter::Integer(value) => query.bind(value),
+                        Parameter::Float(value) => query.bind(value),
+                        Parameter::Text(value) => query.bind(value),
+                        Parameter::Bytes(value) => query.bind(value),
+                    };
+                }
+
+                let rows = query.fetch_all(pool).await?;
+                DecodeRecords::decode(table, rows)
+            }
+        }
+    }
+}
+
+/// Check a case-insensitive keyword prefix.
+fn starts_with_keyword(text: &str, keyword: &str) -> bool {
+    text.len() >= keyword.len() && text[..keyword.len()].eq_ignore_ascii_case(keyword)
 }
 
 #[cfg(test)]

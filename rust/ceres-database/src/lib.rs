@@ -11,4 +11,4 @@ mod records;
 mod store;
 
 pub use records::RecordTable;
-pub use store::{Error, RecordStore};
+pub use store::{Error, Parameter, RecordStore};

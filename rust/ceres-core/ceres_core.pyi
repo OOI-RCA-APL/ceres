@@ -431,6 +431,13 @@ class RecordFetcher:
         r"""
         Open a fetcher over a PostgreSQL database.
         """
+    def fetch_sql(self, table: str, sql: str, parameters: list[Any]) -> Any:
+        r"""
+        Execute a compiled record query, as an awaitable `RecordBatch`.
+
+        The statement text and parameters come from the query layer's own compiler, so any
+        filter it can express runs natively with identical semantics.
+        """
     def fetch(self, table: str, limit: int | None = None, offset: int | None = None) -> Any:
         r"""
         Fetch a record listing ordered by timestamp, as an awaitable `RecordBatch`.

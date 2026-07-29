@@ -7,12 +7,45 @@
 
 use std::sync::Arc;
 
-use ceres_database::{RecordStore, RecordTable};
-use pyo3::exceptions::PyValueError;
+use ceres_database::{Parameter, RecordStore, RecordTable};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::{PyBool, PyBytes as PyBytesType, PyFloat, PyInt, PyString};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use crate::entities::RecordBatch;
+
+/// Extract a compiled statement parameter, one of the primitives bind processors produce.
+fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
+    if value.is_none() {
+        return Ok(Parameter::Null);
+    }
+
+    if value.is_instance_of::<PyBool>() {
+        return Ok(Parameter::Bool(value.extract()?));
+    }
+
+    if value.is_instance_of::<PyInt>() {
+        return Ok(Parameter::Integer(value.extract()?));
+    }
+
+    if value.is_instance_of::<PyFloat>() {
+        return Ok(Parameter::Float(value.extract()?));
+    }
+
+    if value.is_instance_of::<PyString>() {
+        return Ok(Parameter::Text(value.extract()?));
+    }
+
+    if value.is_instance_of::<PyBytesType>() {
+        return Ok(Parameter::Bytes(value.extract()?));
+    }
+
+    Err(PyTypeError::new_err(format!(
+        "{} is not a primitive statement parameter",
+        value.get_type().name()?
+    )))
+}
 
 /// A natively-connected view of a Ceres database, serving record reads.
 ///
@@ -55,6 +88,34 @@ impl RecordFetcher {
             RecordStore::postgres(host, port, database, user, password).map_err(to_value_error)?;
         Ok(Self {
             store: Arc::new(store),
+        })
+    }
+
+    /// Execute a compiled record query, as an awaitable `RecordBatch`.
+    ///
+    /// The statement text and parameters come from the query layer's own compiler, so any
+    /// filter it can express runs natively with identical semantics.
+    fn fetch_sql<'py>(
+        &self,
+        py: Python<'py>,
+        table: &str,
+        sql: String,
+        #[gen_stub(override_type(type_repr = "list[typing.Any]"))] parameters: Vec<
+            Bound<'_, PyAny>,
+        >,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let table = RecordTable::parse(table).map_err(to_value_error)?;
+        let parameters = parameters
+            .iter()
+            .map(extract_parameter)
+            .collect::<PyResult<Vec<_>>>()?;
+        let store = self.store.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let records = store
+                .fetch_sql(table, &sql, parameters)
+                .await
+                .map_err(to_value_error)?;
+            Ok(RecordBatch { records })
         })
     }
 
