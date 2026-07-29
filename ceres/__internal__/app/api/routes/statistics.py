@@ -2,10 +2,10 @@ from typing import Annotated
 
 from fastapi import Query
 
-from ceres.__internal__.app.shared import CurrentEngine, Router
+from ceres.__internal__.app.shared import AUTHENTICATED, CurrentEngine, Router
 from ceres.statistics import Statistics, StatisticsFilter
 
-router = Router(prefix="/statistics", tags=["statistics"])
+router = Router(prefix="/statistics", tags=["statistics"], dependencies=[AUTHENTICATED])
 
 
 @router.get("")

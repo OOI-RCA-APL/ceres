@@ -631,6 +631,13 @@ class Engine(Node):
                         "turn off server.authentication.allow_impersonate in production."
                     )
 
+                if authentication is not None and len(authentication.secret) < 32:
+                    self.log.warning(
+                        "The authentication secret is shorter than 32 characters. It signs "
+                        "every session token, and a short secret can be brute-forced offline "
+                        "from any captured token. Use a long random value in production."
+                    )
+
                 try:
                     await self._stop_server()
                     await self._start_server()

@@ -95,7 +95,7 @@ class Server(Tasklet):
             )
         )
 
-        from granian.constants import Interfaces
+        from granian.constants import Interfaces, SSLProtocols
         from granian.server.embed import Server as Granian
 
         from ceres.__internal__.app import App
@@ -105,9 +105,11 @@ class Server(Tasklet):
             "interface": Interfaces.ASGI,
         }
 
+        # The CLI server is loopback-only. Its token grants full privileges, and everything
+        # that talks to it (the CLI, the server info file scheme) is local by design.
         self._granian_cli = Granian(
             App(self._engine, None, self._cli_token),
-            address=self._config.host,
+            address="127.0.0.1",
             port=self._cli_port,
             **shared,
         )
@@ -121,6 +123,11 @@ class Server(Tasklet):
                 ssl_key=ssl.key if ssl else None,
                 ssl_cert=ssl.cert if ssl else None,
                 ssl_key_password=ssl.key_password if ssl else None,
+                ssl_ca=ssl.ca_certs if ssl else None,
+                # Every `ssl` protocol constant the config's `version` accepts floors the
+                # negotiation at TLS 1.2, matching Python's own default minimum, so that
+                # is what the server offers rather than Granian's 1.3-only default.
+                ssl_protocol_min=SSLProtocols.tls12,
                 **shared,
             )
 

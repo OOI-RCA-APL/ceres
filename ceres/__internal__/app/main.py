@@ -348,8 +348,11 @@ class CLIAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
+        from secrets import compare_digest
+
         request = HTTPConnection(cast("Any", scope))
-        if request.headers.get("Authorization") != self.cli_token:
+        authorization = request.headers.get("Authorization")
+        if authorization is None or not compare_digest(authorization, self.cli_token):
             raise NotAuthenticatedError()
 
         return await self.app(scope, receive, send)

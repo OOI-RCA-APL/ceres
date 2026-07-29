@@ -2,17 +2,17 @@ from typing import Annotated
 
 from fastapi import Query
 
-from ceres.__internal__.app.shared import CurrentEngine, CurrentSocket, Router
+from ceres.__internal__.app.shared import AUTHENTICATED, CurrentEngine, CurrentSocket, Router
 from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.error import NotFoundError
 from ceres.status import Status
 
-router = Router(prefix="/statuses", tags=["statuses"])
+router = Router(prefix="/statuses", tags=["statuses"], dependencies=[AUTHENTICATED])
 
 
-@router.get("/{address}?")
-async def get_status(engine: CurrentEngine, address: Address | None = None) -> Status:
+@router.get("/{address}")
+async def get_status(engine: CurrentEngine, address: Address) -> Status:
     """Return the status of a single component identified by its address.
 
     Raises:

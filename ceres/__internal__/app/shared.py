@@ -474,7 +474,7 @@ async def _get_current_identity(
         if user is None:
             return None
 
-        impersonated_by = info.get("swf")
+        impersonated_by = info.get("imp")
         try:
             impersonated_by = UUID(str(impersonated_by)) if impersonated_by is not None else None
         except ValueError:

@@ -315,7 +315,7 @@ async def get_component_jobs(
     ]
 
 
-@router.get("/{address}/procedures", tags=["procedures"])
+@router.get("/{address}/procedures", dependencies=[AUTHENTICATED], tags=["procedures"])
 async def get_procedures(engine: CurrentEngine, address: Address) -> list[ProcedureBinding]:
     """Return all procedure bindings for the component at the given address.
 
@@ -329,7 +329,7 @@ async def get_procedures(engine: CurrentEngine, address: Address) -> list[Proced
     return list(component.system.get_procedure_bindings().values())
 
 
-@router.get("/{address}/procedures/{procedure}", tags=["procedures"])
+@router.get("/{address}/procedures/{procedure}", dependencies=[AUTHENTICATED], tags=["procedures"])
 async def get_procedure(
     engine: CurrentEngine,
     address: Address,
@@ -350,7 +350,7 @@ async def get_procedure(
     return binding
 
 
-@router.get("/{address}/queries", tags=["queries"])
+@router.get("/{address}/queries", dependencies=[AUTHENTICATED], tags=["queries"])
 async def get_queries(
     engine: CurrentEngine,
     address: Address,
@@ -367,7 +367,7 @@ async def get_queries(
     return list(component.system.get_query_bindings().values())
 
 
-@router.get("/{address}/queries/{query}", tags=["queries"])
+@router.get("/{address}/queries/{query}", dependencies=[AUTHENTICATED], tags=["queries"])
 async def get_query_info(
     engine: CurrentEngine,
     address: Address,
@@ -388,7 +388,7 @@ async def get_query_info(
     return binding
 
 
-@router.get("/{address}/actions", tags=["actions"])
+@router.get("/{address}/actions", dependencies=[AUTHENTICATED], tags=["actions"])
 async def get_actions(
     engine: CurrentEngine,
     address: Address,
@@ -405,7 +405,7 @@ async def get_actions(
     return list(component.system.get_action_bindings().values())
 
 
-@router.get("/{address}/actions/{action}", tags=["actions"])
+@router.get("/{address}/actions/{action}", dependencies=[AUTHENTICATED], tags=["actions"])
 async def get_action(
     engine: CurrentEngine,
     address: Address,
@@ -588,12 +588,12 @@ async def call_procedure_by_get(
 
 
 for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
-    name = f"call_{kind}"
+    name = f"call_{kind}_by_get"
     router.get(
         "/{address}/" + namespace + "/{name}/call",
         name=name,
         operation_id=name,
-    )(call_procedure)
+    )(call_procedure_by_get)
 
 
 async def subscribe_procedure(
