@@ -144,25 +144,38 @@ const rows = $computed<WidgetRow[]>(() => {
   })
 })
 
-// Undo and redo on the usual shortcuts, skipped while the user is typing so a text field keeps
-// its own history. Redo accepts both spellings, since editors are split between them.
+// Shortcuts that act on the workspace, skipped while the user is typing so a text field keeps its
+// own behavior.
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) {
-    return
-  }
-
   const target = event.target as HTMLElement | null
   if (target?.isContentEditable || ['INPUT', 'TEXTAREA'].includes(target?.tagName ?? '')) {
     return
   }
 
-  const key = event.key.toLowerCase()
-  if (key === 'z' && !event.shiftKey) {
+  // Undo and redo on the usual shortcuts. Redo accepts both spellings, since editors are split
+  // between them.
+  if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+    const key = event.key.toLowerCase()
+    if (key === 'z' && !event.shiftKey) {
+      event.preventDefault()
+      workspace.undo()
+    } else if ((key === 'z' && event.shiftKey) || key === 'y') {
+      event.preventDefault()
+      workspace.redo()
+    }
+
+    return
+  }
+
+  // Delete takes out whatever is picked out, in one step that a single undo puts back. Both
+  // spellings, since the key a Mac keyboard labels delete reports itself as backspace.
+  if (
+    (event.key === 'Delete' || event.key === 'Backspace') &&
+    workspace.drag == null &&
+    workspace.selection.length > 0
+  ) {
     event.preventDefault()
-    workspace.undo()
-  } else if ((key === 'z' && event.shiftKey) || key === 'y') {
-    event.preventDefault()
-    workspace.redo()
+    workspace.deleteWidgets([...workspace.selection])
   }
 })
 

@@ -691,26 +691,33 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return widget
   }
 
-  function deleteWidget(id: string) {
-    if (data == null) {
-      return null
+  function deleteWidgets(ids: string[]) {
+    if (data == null || ids.length === 0) {
+      return
     }
 
-    for (const [i, row] of data.layout.entries()) {
-      const widget = row.widgets.find((widget) => widget.id === id) ?? null
-      if (widget != null) {
-        row.widgets = row.widgets.filter((widget) => widget.id !== id)
-        resolveWidgetWidths(row.widgets)
+    const removed = new Set(ids)
+    const layout: WidgetRow[] = []
 
-        if (row.widgets.length === 0) {
-          data.layout = data.layout.filter((_, index) => index !== i)
-        }
-
-        return widget
+    for (const row of data.layout) {
+      const remaining = row.widgets.filter((widget) => !removed.has(widget.id))
+      if (remaining.length === row.widgets.length) {
+        layout.push(row)
+        continue
       }
+      if (remaining.length === 0) {
+        continue
+      }
+
+      resolveWidgetWidths(remaining)
+      layout.push({ ...row, widgets: remaining })
     }
 
-    return null
+    data.layout = layout
+  }
+
+  function deleteWidget(id: string) {
+    deleteWidgets([id])
   }
 
   function getWidget(id: string) {
@@ -926,6 +933,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     insertWidget,
     addWidget,
     deleteWidget,
+    deleteWidgets,
     moveWidgets,
     duplicateWidget,
     drag: null as Drag | null,
