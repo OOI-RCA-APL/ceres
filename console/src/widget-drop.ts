@@ -39,14 +39,21 @@ having to find a gap at all.
 */
 const outerReach = 240
 
-/** How long a target is held before the layout opens for it.
+/** How long a seam is held before a row opens for it.
 
-Opening moves whatever the widget is arriving among, so a pointer travelling across several targets
-would have the page rearranging under it the entire way. Until this elapses the target is drawn as
-a line, which says where the widget lands without anything having to move for it, and the layout
-only opens once the hand has settled on somewhere.
+Opening one moves every row under it, so a pointer travelling across several seams would have the
+page rearranging under it the entire way. Until this elapses the target is drawn as a line, which
+says where the widget lands without anything having to move for it, and the layout only opens once
+the hand has settled on somewhere.
 */
-const targetDwell = 300
+const seamDwell = 300
+
+/** How long a place in a row is held before the row opens for it.
+
+Widening a row disturbs only the widgets in it, and the row keeps its place either way, so this
+waits for little more than the pointer passing straight through on its way somewhere else.
+*/
+const columnDwell = 75
 
 /** How thick that line is drawn. */
 const markerThickness = 3
@@ -288,11 +295,14 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     marker = chosen == null ? null : markerOf(bounds, width, chosen)
 
     if (!opened) {
-      dwell = setTimeout(() => {
-        opened = true
-        marker = null
-        dwell = null
-      }, targetDwell)
+      dwell = setTimeout(
+        () => {
+          opened = true
+          marker = null
+          dwell = null
+        },
+        chosen.column == null ? seamDwell : columnDwell
+      )
     }
   }
 

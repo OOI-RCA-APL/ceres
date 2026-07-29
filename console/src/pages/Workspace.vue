@@ -697,6 +697,8 @@ $fade: 210ms;
   pointer-events: none;
 }
 
+// Carried on a chip of its own, so the number stays legible over whatever the widget happens to be
+// showing rather than relying on the wash over it to hide it.
 .shareValue {
   padding: 2px 8px;
   border-radius: 4px;
@@ -709,19 +711,21 @@ $fade: 210ms;
 }
 
 :global(.dark) .share {
-  background-color: #000000a6;
+  background-color: #00000059;
 }
 
 :global(.dark) .shareValue {
-  color: #ffffffd9;
+  background-color: #000000d9;
+  color: #ffffffe6;
 }
 
 :global(.light) .share {
-  background-color: #ffffffbf;
+  background-color: #ffffff73;
 }
 
 :global(.light) .shareValue {
-  color: #000000a6;
+  background-color: #ffffffe6;
+  color: #000000b3;
 }
 
 .shortcut {
