@@ -496,9 +496,8 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
               class="full-height full-width no-wrap row"
               :enter-active-class="$style.widgetOpening"
               :enter-from-class="$style.widgetClosed"
-              :leave-active-class="$style.widgetOpening"
-              :leave-to-class="$style.widgetClosed"
-              :move-class="$style.widgetMove"
+              :leave-active-class="drop.active ? undefined : $style.widgetOpening"
+              :leave-to-class="drop.active ? undefined : $style.widgetClosed"
               tag="div"
             >
               <div
@@ -639,17 +638,15 @@ $fade: 210ms;
   position: relative;
 }
 
-// Travels from one target to the next rather than being redrawn at each, which is what makes a
-// pointer crossing the workspace read as carrying the widget with it. It runs along a seam and
-// down between two widgets, so the box it is given rather than a fixed side decides which.
+// Drawn where the next target is and nowhere in between. Travelling there would have a line lying
+// along a seam turning into one standing between two widgets, which is not a thing happening to
+// the layout. It runs either way, so the box it is given rather than a fixed side decides which.
 .dropMarker {
   position: absolute;
   z-index: 2;
   border-radius: 2px;
   background-color: $primary;
   pointer-events: none;
-  transition: left $settle $easeOut, top $settle $easeOut, width $settle $easeOut,
-    height $settle $easeOut;
 }
 
 .shortcut {
@@ -763,10 +760,6 @@ $fade: 210ms;
   min-width: 0 !important;
   max-width: 0 !important;
   opacity: 0;
-}
-
-.widgetMove {
-  transition: transform $settle $easeOut;
 }
 
 // Only while a widget is in hand. A width that eases would fight the resize handle, which sets it
