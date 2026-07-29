@@ -959,12 +959,24 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
 
     type: Literal[DatabaseType.TURSO] = DatabaseType.TURSO  # pyright: ignore[reportIncompatibleVariableOverride]
 
-    concurrent_writes: bool = True
-    """Open write transactions with `BEGIN CONCURRENT` so writers do not block one another.
+    mvcc: bool = False
+    """Put the database in Turso's MVCC journal mode, which is what lets writers overlap.
 
-    Turning this off falls back to `BEGIN IMMEDIATE`, which serializes writers the way SQLite does
-    and gives up the only reason to choose this backend. It exists so a deployment hitting
-    write-write conflicts can retreat without changing backends.
+    **This converts the database file and the conversion cannot be undone.** MVCC rewrites the file
+    into a format SQLite does not recognize, after which `sqlite3` reports "file is not a database"
+    and every other SQLite tool fails the same way. Back the file up first and treat turning this on
+    as a migration rather than as a setting.
+
+    Left off, this backend writes an ordinary SQLite file that either engine can open, so it stays
+    interchangeable with `SQLiteDatabaseConfig`.
+
+    It is also off by default because overlapping writers are optimistic rather than blocking. Two
+    transactions touching the same rows both proceed and the second fails when it commits, so a
+    caller has to be prepared to retry. That suits writes that are frequent and mostly independent,
+    and little else.
+
+    Turning it on is necessary but not sufficient. A transaction also has to be opened inside
+    `Database.concurrent_transactions()`, which is how a caller says its writes are safe to retry.
     """
 
 

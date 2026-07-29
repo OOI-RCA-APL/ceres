@@ -862,7 +862,7 @@ class TursoDatabase(SQLiteDatabase):
             # Stop the driver emitting its own "BEGIN", the same as the SQLite backend.
             connection.isolation_level = None
 
-            if self.config.concurrent_writes:
+            if self.config.mvcc:
                 # A statement that returns rows does not run until something reads from it, and
                 # "journal_mode" reports the mode it selected. Without the fetch this is a silent
                 # no-op and "BEGIN CONCURRENT" later fails claiming MVCC is disabled.
@@ -881,7 +881,7 @@ class TursoDatabase(SQLiteDatabase):
                         message=(
                             "Turso would not enable MVCC, which concurrent writes require. "
                             f"'PRAGMA journal_mode' reported {mode[0] if mode else 'nothing'}. "
-                            "Set 'concurrent_writes' to false to run this database with a single "
+                            "Set 'mvcc' to false to run this database with a single "
                             "writer instead."
                         )
                     )
@@ -904,12 +904,16 @@ class TursoDatabase(SQLiteDatabase):
         def begin(connection: Connection) -> None:
             # "BEGIN CONCURRENT" is what lets two connections write at once. It is optimistic, so
             # a transaction that touched the same rows as another fails at commit rather than
-            # waiting here. Turso rejects DDL inside one, so schema changes take the exclusive
-            # form and everything else takes the concurrent one.
-            if self.config.concurrent_writes and self._concurrent.get():
+            # waiting here. Turso rejects DDL inside one, so schema changes take the plain form and
+            # everything else takes the concurrent one.
+            #
+            # The plain form is "BEGIN" rather than the "BEGIN IMMEDIATE" the SQLite backend uses.
+            # Taking the write lock up front costs Turso far more than it costs SQLite, enough to
+            # serialize reads behind unrelated writes and turn a second of work into minutes.
+            if self.config.mvcc and self._concurrent.get():
                 connection.exec_driver_sql("BEGIN CONCURRENT")
             else:
-                connection.exec_driver_sql("BEGIN IMMEDIATE")
+                connection.exec_driver_sql("BEGIN")
 
         Database._setup_engine(self, engine)
 

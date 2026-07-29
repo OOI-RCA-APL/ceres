@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, ClassVar, Self, override
+from typing import TYPE_CHECKING, Any, ClassVar, Self, override
 
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 from sqlalchemy import Integer, cast, func, literal, select
@@ -56,6 +56,47 @@ class BaseRecordRow(
 
 type BaseRecordField = BaseUUIDEntityField | BaseAddressEntityField | BaseTimestampEntityField
 type BaseRecordOrder = BaseUUIDEntityOrder | BaseAddressEntityOrder | BaseTimestampEntityOrder
+
+
+def _date_bin(
+    dialect: DatabaseType,
+    interval: Any,
+    timestamp: Any,
+    origin: Any,
+) -> SQLColumnExpression[Any]:
+    """Group timestamps into buckets `interval` wide, measured from `origin`.
+
+    PostgreSQL has `date_bin` built in. The SQLite family does not, and Turso cannot be taught it,
+    because it has no way to register a function. The bucket is only ever grouped by and never
+    selected, so any value that stays constant across a bucket does the job, and an integer index
+    is the cheapest one to compute from the date functions both engines already have.
+
+    Buckets go down to a millisecond on the SQLite family and no further, because that is as much
+    of a timestamp's fraction as its date functions read, even though the column keeps microseconds.
+    PostgreSQL bins to the full microsecond.
+
+    Args:
+        dialect: The backend the expression is being built for.
+        interval: Bucket width, a `timedelta` on PostgreSQL and seconds elsewhere.
+        timestamp: The column holding the timestamp to bin.
+        origin: The instant buckets are measured from.
+
+    Returns:
+        A SQL expression identifying which bucket a row falls in.
+    """
+    if dialect is DatabaseType.POSTGRES:
+        return func.date_bin(interval, timestamp, origin)
+
+    # Whole seconds and the fraction below them are kept apart so that the two large magnitudes
+    # cancel as exact integers. Subtracting them already joined, as a Julian day number or a
+    # fractional epoch, loses enough precision to drop a timestamp sitting exactly on a bucket
+    # boundary into the bucket below, and records aligned to the origin are the ordinary case.
+    seconds = func.unixepoch(timestamp) - func.unixepoch(origin)
+    fraction = (func.unixepoch(timestamp, "subsec") - func.unixepoch(timestamp)) - (
+        func.unixepoch(origin, "subsec") - func.unixepoch(origin)
+    )
+
+    return cast(func.floor((seconds + fraction) / interval), Integer)
 
 
 class SubsampleSelect(StrEnum):
@@ -249,7 +290,7 @@ class BaseRecordFilter[
 
             if self.subsample_every is not None:
                 interval = self.subsample_every
-                if dialect == DatabaseType.SQLITE:
+                if dialect in (DatabaseType.SQLITE, DatabaseType.TURSO):
                     interval = interval.total_seconds()
 
                 seed = (
@@ -266,7 +307,8 @@ class BaseRecordFilter[
 
                 matches = (
                     select(
-                        bin := func.date_bin(
+                        bin := _date_bin(
+                            dialect,
                             interval,
                             columns.timestamp,
                             seed,
@@ -288,12 +330,13 @@ class BaseRecordFilter[
                 assert end is not None
 
                 interval = (end - start) / max(self.subsample, 1)
-                if dialect == DatabaseType.SQLITE:
+                if dialect in (DatabaseType.SQLITE, DatabaseType.TURSO):
                     interval = interval.total_seconds()
 
                 matches = (
                     select(
-                        bin := func.date_bin(
+                        bin := _date_bin(
+                            dialect,
                             interval,
                             columns.timestamp,
                             start,
