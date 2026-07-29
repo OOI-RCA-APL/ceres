@@ -9,6 +9,7 @@
 //! and validate where they are consumed. The component tree always passes through untouched,
 //! because its schema is defined by user code.
 
+mod database;
 mod error;
 mod logging;
 mod meta;
@@ -16,6 +17,12 @@ mod server;
 mod types;
 mod values;
 
+pub use database::{
+    Argon2HashingConfig, BcryptHashingConfig, DatabaseConfig, DatabaseConfigHooks,
+    DatabaseRetryConfig, HashingConfig, MEMORY_PATH, PostgresDatabaseConfig, RawDatabaseConfig,
+    RawPostgresDatabaseConfig, RawSqliteDatabaseConfig, RawTursoDatabaseConfig,
+    SharedDatabaseConfig, SqliteDatabaseConfig, TursoDatabaseConfig,
+};
 pub use error::{Problem, Problems};
 pub use logging::{Level, LogToggle, LoggingConfig, RawLoggingConfig};
 pub use meta::ConfigMeta;
@@ -27,4 +34,4 @@ pub use server::{
 pub use types::{
     ConsoleConfig, NAME_PATTERN, Name, RawConsoleConfig, RawServiceConfig, ServiceConfig,
 };
-pub use values::{ByteSize, MaybeSequence, TimeDelta};
+pub use values::{ByteSize, MaybeSequence, Secret, TimeDelta};

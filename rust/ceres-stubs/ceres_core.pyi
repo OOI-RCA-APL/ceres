@@ -6,7 +6,6 @@ import datetime
 import os
 import pathlib
 import typing
-
 __all__ = [
     "ConsoleConfig",
     "LoggingConfig",
@@ -23,32 +22,27 @@ class ConsoleConfig:
     Branding and layout options for the engine's web console.
     """
     @property
-    def title(self) -> builtins.str | None:
+    def title(self) -> typing.Optional[builtins.str]:
         r"""
         Title shown in the console's browser tab and header.
         """
     @property
-    def favicon(self) -> pathlib.Path | None:
+    def favicon(self) -> typing.Optional[pathlib.Path]:
         r"""
         Path to a favicon image served by the console.
         """
-    def __new__(
-        cls,
-        *,
-        title: builtins.str | None = None,
-        favicon: builtins.str | os.PathLike | pathlib.Path | None = None,
-    ) -> ConsoleConfig: ...
+    def __new__(cls, *, title: typing.Optional[builtins.str] = None, favicon: typing.Optional[builtins.str | os.PathLike | pathlib.Path] = None) -> ConsoleConfig: ...
     def __to_dict__(self) -> dict[str, typing.Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, typing.Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: typing.Any) -> builtins.bool: ...
@@ -57,7 +51,7 @@ class ConsoleConfig:
 class LoggingConfig:
     r"""
     Per-component or per-engine logging configuration.
-
+    
     `output` and `store` set minimum levels for the streamed and persisted log streams, and
     the toggle fields enable optional logging of specific record types, accepting either a
     boolean or a minimum level.
@@ -92,16 +86,7 @@ class LoggingConfig:
         r"""
         Whether to log alerts, or the minimum severity to log them at.
         """
-    def __new__(
-        cls,
-        *,
-        output: builtins.str | None = None,
-        store: builtins.str | None = None,
-        events: builtins.bool | str | None = None,
-        messages: builtins.bool | str | None = None,
-        particles: builtins.bool | str | None = None,
-        alerts: builtins.bool | str | None = None,
-    ) -> LoggingConfig: ...
+    def __new__(cls, *, output: typing.Optional[builtins.str] = None, store: typing.Optional[builtins.str] = None, events: typing.Optional[builtins.bool | str] = None, messages: typing.Optional[builtins.bool | str] = None, particles: typing.Optional[builtins.bool | str] = None, alerts: typing.Optional[builtins.bool | str] = None) -> LoggingConfig: ...
     def merged(self, other: LoggingConfig) -> LoggingConfig:
         r"""
         Overlay another configuration's explicitly-set fields onto this one.
@@ -109,21 +94,21 @@ class LoggingConfig:
     def provided(self) -> dict[str, typing.Any]:
         r"""
         Return the explicitly-set fields as a plain dictionary.
-
+        
         Supports rebuilding an equivalent configuration without turning resolved defaults
         into explicit settings.
         """
     def __to_dict__(self) -> dict[str, typing.Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, typing.Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: typing.Any) -> builtins.bool: ...
@@ -148,24 +133,18 @@ class ServerAuthenticationConfig:
         r"""
         Whether an administrator may take on another user's identity without their password.
         """
-    def __new__(
-        cls,
-        *,
-        secret: builtins.str | None = None,
-        duration: datetime.timedelta | int | float | str | None = None,
-        allow_impersonate: builtins.bool | None = None,
-    ) -> ServerAuthenticationConfig: ...
+    def __new__(cls, *, secret: typing.Optional[builtins.str] = None, duration: typing.Optional[datetime.timedelta  |  int  |  float  |  str] = None, allow_impersonate: typing.Optional[builtins.bool] = None) -> ServerAuthenticationConfig: ...
     def __to_dict__(self) -> dict[str, typing.Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, typing.Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: typing.Any) -> builtins.bool: ...
@@ -186,7 +165,7 @@ class ServerCORSConfig:
         Origins allowed to make cross-origin requests.
         """
     @property
-    def allow_origin_regex(self) -> builtins.str | None:
+    def allow_origin_regex(self) -> typing.Optional[builtins.str]:
         r"""
         Pattern matching additional allowed origins.
         """
@@ -215,29 +194,18 @@ class ServerCORSConfig:
         r"""
         How long preflight responses may be cached, in seconds.
         """
-    def __new__(
-        cls,
-        *,
-        enabled: builtins.bool | None = None,
-        allow_origins: typing.Any | None = None,
-        allow_origin_regex: builtins.str | None = None,
-        allow_methods: typing.Any | None = None,
-        allow_headers: typing.Any | None = None,
-        allow_credentials: builtins.bool | None = None,
-        expose_headers: typing.Any | None = None,
-        max_age: builtins.int | None = None,
-    ) -> ServerCORSConfig: ...
+    def __new__(cls, *, enabled: typing.Optional[builtins.bool] = None, allow_origins: typing.Optional[typing.Any] = None, allow_origin_regex: typing.Optional[builtins.str] = None, allow_methods: typing.Optional[typing.Any] = None, allow_headers: typing.Optional[typing.Any] = None, allow_credentials: typing.Optional[builtins.bool] = None, expose_headers: typing.Optional[typing.Any] = None, max_age: typing.Optional[builtins.int] = None) -> ServerCORSConfig: ...
     def __to_dict__(self) -> dict[str, typing.Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, typing.Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: typing.Any) -> builtins.bool: ...
@@ -287,29 +255,18 @@ class ServerCompressionConfig:
         r"""
         Gzip compression level.
         """
-    def __new__(
-        cls,
-        *,
-        enabled: builtins.bool | None = None,
-        min_size: builtins.int | str | None = None,
-        zstd: builtins.bool | None = None,
-        zstd_level: builtins.int | None = None,
-        brotli: builtins.bool | None = None,
-        brotli_quality: builtins.int | None = None,
-        gzip: builtins.bool | None = None,
-        gzip_level: builtins.int | None = None,
-    ) -> ServerCompressionConfig: ...
+    def __new__(cls, *, enabled: typing.Optional[builtins.bool] = None, min_size: typing.Optional[builtins.int | str] = None, zstd: typing.Optional[builtins.bool] = None, zstd_level: typing.Optional[builtins.int] = None, brotli: typing.Optional[builtins.bool] = None, brotli_quality: typing.Optional[builtins.int] = None, gzip: typing.Optional[builtins.bool] = None, gzip_level: typing.Optional[builtins.int] = None) -> ServerCompressionConfig: ...
     def __to_dict__(self) -> dict[str, typing.Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, typing.Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: typing.Any) -> builtins.bool: ...
@@ -325,51 +282,42 @@ class ServerConfig:
         Address the server binds to.
         """
     @property
-    def port(self) -> builtins.int | None:
+    def port(self) -> typing.Optional[builtins.int]:
         r"""
         Port the server listens on, omit to disable the server.
         """
     @property
-    def ssl(self) -> ServerSSLConfig | None:
+    def ssl(self) -> typing.Optional[ServerSSLConfig]:
         r"""
         TLS settings, omit to serve plain HTTP.
         """
     @property
-    def authentication(self) -> ServerAuthenticationConfig | None:
+    def authentication(self) -> typing.Optional[ServerAuthenticationConfig]:
         r"""
         Authentication settings, omit to disable authentication.
         """
     @property
-    def cors(self) -> ServerCORSConfig | None:
+    def cors(self) -> typing.Optional[ServerCORSConfig]:
         r"""
         Cross-origin resource sharing settings.
         """
     @property
-    def compression(self) -> ServerCompressionConfig | None:
+    def compression(self) -> typing.Optional[ServerCompressionConfig]:
         r"""
         Response compression settings.
         """
-    def __new__(
-        cls,
-        *,
-        host: builtins.str | None = None,
-        port: builtins.int | None = None,
-        ssl: builtins.ServerSSLConfig | dict[str, typing.Any] | None = None,
-        authentication: builtins.ServerAuthenticationConfig | dict[str, typing.Any] | None = None,
-        cors: builtins.ServerCORSConfig | dict[str, typing.Any] | None = None,
-        compression: builtins.ServerCompressionConfig | dict[str, typing.Any] | None = None,
-    ) -> ServerConfig: ...
+    def __new__(cls, *, host: typing.Optional[builtins.str] = None, port: typing.Optional[builtins.int] = None, ssl: typing.Optional[builtins.ServerSSLConfig | dict[str, typing.Any]] = None, authentication: typing.Optional[builtins.ServerAuthenticationConfig | dict[str, typing.Any]] = None, cors: typing.Optional[builtins.ServerCORSConfig | dict[str, typing.Any]] = None, compression: typing.Optional[builtins.ServerCompressionConfig | dict[str, typing.Any]] = None) -> ServerConfig: ...
     def __to_dict__(self) -> dict[str, typing.Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, typing.Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: typing.Any) -> builtins.bool: ...
@@ -380,50 +328,42 @@ class ServerSSLConfig:
     TLS configuration for the engine's HTTP server.
     """
     @property
-    def key(self) -> pathlib.Path | None:
+    def key(self) -> typing.Optional[pathlib.Path]:
         r"""
         Path to the server private key file.
         """
     @property
-    def key_password(self) -> builtins.str | None:
+    def key_password(self) -> typing.Optional[builtins.str]:
         r"""
         Password for an encrypted private key.
         """
     @property
-    def cert(self) -> pathlib.Path | None:
+    def cert(self) -> typing.Optional[pathlib.Path]:
         r"""
         Path to the server certificate file.
         """
     @property
-    def version(self) -> builtins.int | None:
+    def version(self) -> typing.Optional[builtins.int]:
         r"""
         `ssl` protocol constant selecting the TLS version.
         """
     @property
-    def ca_certs(self) -> pathlib.Path | None:
+    def ca_certs(self) -> typing.Optional[pathlib.Path]:
         r"""
         Path to a CA bundle used when validating client certificates.
         """
-    def __new__(
-        cls,
-        *,
-        key: builtins.str | os.PathLike | pathlib.Path | None = None,
-        key_password: builtins.str | None = None,
-        cert: builtins.str | os.PathLike | pathlib.Path | None = None,
-        version: builtins.int | None = None,
-        ca_certs: builtins.str | os.PathLike | pathlib.Path | None = None,
-    ) -> ServerSSLConfig: ...
+    def __new__(cls, *, key: typing.Optional[builtins.str | os.PathLike | pathlib.Path] = None, key_password: typing.Optional[builtins.str] = None, cert: typing.Optional[builtins.str | os.PathLike | pathlib.Path] = None, version: typing.Optional[builtins.int] = None, ca_certs: typing.Optional[builtins.str | os.PathLike | pathlib.Path] = None) -> ServerSSLConfig: ...
     def __to_dict__(self) -> dict[str, typing.Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, typing.Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: typing.Any) -> builtins.bool: ...
@@ -434,45 +374,39 @@ class ServiceConfig:
     Process-level options applied when running the engine as a system service.
     """
     @property
-    def name(self) -> builtins.str | None:
+    def name(self) -> typing.Optional[builtins.str]:
         r"""
         Service name registered with the operating system.
         """
     @property
-    def user(self) -> builtins.str | None:
+    def user(self) -> typing.Optional[builtins.str]:
         r"""
         User the service runs as.
         """
     @property
-    def stdout(self) -> pathlib.Path | None:
+    def stdout(self) -> typing.Optional[pathlib.Path]:
         r"""
         Optional path to redirect standard output to.
         """
     @property
-    def stderr(self) -> pathlib.Path | None:
+    def stderr(self) -> typing.Optional[pathlib.Path]:
         r"""
         Optional path to redirect standard error to.
         """
-    def __new__(
-        cls,
-        *,
-        name: builtins.str | None = None,
-        user: builtins.str | None = None,
-        stdout: builtins.str | os.PathLike | pathlib.Path | None = None,
-        stderr: builtins.str | os.PathLike | pathlib.Path | None = None,
-    ) -> ServiceConfig: ...
+    def __new__(cls, *, name: typing.Optional[builtins.str] = None, user: typing.Optional[builtins.str] = None, stdout: typing.Optional[builtins.str | os.PathLike | pathlib.Path] = None, stderr: typing.Optional[builtins.str | os.PathLike | pathlib.Path] = None) -> ServiceConfig: ...
     def __to_dict__(self) -> dict[str, typing.Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, typing.Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: typing.Any) -> builtins.bool: ...
     def __repr__(self) -> builtins.str: ...
+

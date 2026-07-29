@@ -268,6 +268,46 @@ impl JsonSchema for ByteSize {
     }
 }
 
+/// A secret string that never leaves through serialization or debug output.
+///
+/// Serializes as a fixed mask, so a secret can only be read through `expose`.
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Return the real secret value.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "Secret(\"**********\")")
+    }
+}
+
+impl Serialize for Secret {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str("**********")
+    }
+}
+
+impl JsonSchema for Secret {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Secret".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({ "type": "string", "format": "password", "writeOnly": true })
+    }
+}
+
 /// A value written as either a single item or a list of items, keeping its written shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
