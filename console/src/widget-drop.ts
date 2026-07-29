@@ -12,12 +12,12 @@ import {
 
 /** Region-based drop targeting for the widgets of a workspace.
 
-Every point over the layout belongs to a target, and each one is large enough to hit without
-aiming. A quarter of a row's height at its top and at its bottom opens a new row at that seam, so
-the seam between two rows is as broad as a quarter of each of them. Across the half of a row's
-height left in the middle, the outer third of a widget's width drops in beside that widget. The
-middle third is the one place with no target, which is where a widget is let go of to leave the
-layout as it was.
+The gap between two rows opens a row of its own there. Inside a row, the outer third of a widget's
+width drops in beside that widget, and the middle third is the one place with no target, which is
+where a widget is let go of to leave the layout as it was.
+
+A target is drawn as a line first and only opens the layout once it has been held, so a pointer
+travelling across the workspace says where it is without rearranging everything it passes.
 
 The layout a drop is measured against is the one with the held widget already taken out of it,
 worked out once when the drag begins. Nothing is measured again after that, so the preview opening
@@ -38,14 +38,17 @@ them no harder to drop into than the seams between rows.
 */
 const outerReach = 96
 
-/** How long a seam is held before the layout opens a row for it.
+/** How long a target is held before the layout opens for it.
 
-Opening one moves everything under it, so a pointer travelling across several seams would have the
-whole page heaving under it the entire way. Until this elapses the seam is drawn as a line, which
-says where the widget lands without anything having to move for it, and the layout only opens once
-the hand has settled on somewhere.
+Opening moves whatever the widget is arriving among, so a pointer travelling across several targets
+would have the page rearranging under it the entire way. Until this elapses the target is drawn as
+a line, which says where the widget lands without anything having to move for it, and the layout
+only opens once the hand has settled on somewhere.
 */
-const seamDwell = 300
+const targetDwell = 600
+
+/** How thick that line is drawn. */
+const markerThickness = 3
 
 type WidgetBounds = { left: number; right: number }
 
@@ -173,6 +176,47 @@ function seamOf(bounds: RowBounds[], row: number): number | null {
   return null
 }
 
+/** The line drawn where a widget lands, before the layout opens to take it. */
+export type DropMarker = { left: number; top: number; width: number; height: number }
+
+/** Work out where that line goes, across a seam or down between two widgets in a row. */
+function markerOf(
+  bounds: RowBounds[],
+  width: number,
+  placement: WidgetPlacement
+): DropMarker | null {
+  if (placement.column == null) {
+    const y = seamOf(bounds, placement.row)
+
+    return y == null
+      ? null
+      : { left: 0, top: y - markerThickness / 2, width, height: markerThickness }
+  }
+
+  const row = bounds[placement.row] ?? null
+  if (row == null) {
+    return null
+  }
+
+  // Between the widgets it is going between, and against the outer edge at either end of the row.
+  const before = row.widgets[placement.column - 1] ?? null
+  const after = row.widgets[placement.column] ?? null
+  const x =
+    before != null && after != null
+      ? (before.right + after.left) / 2
+      : after?.left ?? before?.right ?? null
+  if (x == null) {
+    return null
+  }
+
+  return {
+    left: x - markerThickness / 2,
+    top: row.top,
+    width: markerThickness,
+    height: row.bottom - row.top,
+  }
+}
+
 function samePlacement(one: WidgetPlacement | null, other: WidgetPlacement | null): boolean {
   if (one == null || other == null) {
     return one === other
@@ -225,11 +269,10 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
   let active = $ref(false)
   let placement = $ref<WidgetPlacement | null>(null)
 
-  // Whether the layout has opened for the placement, which a seam earns by being held and a drop
-  // beside a widget has from the moment it is chosen. Widening a row moves nothing above or below
-  // it, so there is nothing there to wait out.
+  // Whether the layout has opened for the placement, which every target earns the same way, by
+  // being held rather than only passed over.
   let opened = $ref(false)
-  let seam = $ref<number | null>(null)
+  let marker = $ref<DropMarker | null>(null)
   let dwell: ReturnType<typeof setTimeout> | null = null
 
   function hold(chosen: WidgetPlacement | null) {
@@ -240,15 +283,15 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
       dwell = null
     }
 
-    opened = chosen == null || chosen.column != null
-    seam = opened ? null : seamOf(bounds, chosen.row)
+    opened = chosen == null
+    marker = chosen == null ? null : markerOf(bounds, width, chosen)
 
     if (!opened) {
       dwell = setTimeout(() => {
         opened = true
-        seam = null
+        marker = null
         dwell = null
-      }, seamDwell)
+      }, targetDwell)
     }
   }
 
@@ -265,7 +308,7 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     active = false
     placement = null
     opened = false
-    seam = null
+    marker = null
   }
 
   function begin(): boolean {
@@ -420,7 +463,7 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     /** The layout letting go right now would produce, to draw in place of the current one. */
     plan: computed(() => plan),
 
-    /** Where to draw the line for a seam not opened for yet, measured from the layout's top. */
-    seam: computed(() => seam),
+    /** The line saying where the widget lands, until the layout opens for it. Layout-relative. */
+    marker: computed(() => marker),
   })
 }

@@ -441,9 +441,18 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       </div>
       <div v-else ref="layout" :class="$style.rows">
         <!-- Where the widget lands, said without the layout having to open for it. Drawn until the
-        seam has been held long enough to be meant, so a pointer travelling across several of them
-        does not heave the whole page about on the way past. -->
-        <div v-if="drop.seam != null" :class="$style.seam" :style="{ top: `${drop.seam}px` }" />
+        target has been held long enough to be meant, so a pointer travelling across the workspace
+        does not rearrange everything it passes over on the way. -->
+        <div
+          v-if="drop.marker != null"
+          :class="$style.dropMarker"
+          :style="{
+            left: `${drop.marker.left}px`,
+            top: `${drop.marker.top}px`,
+            width: `${drop.marker.width}px`,
+            height: `${drop.marker.height}px`,
+          }"
+        />
         <!-- Rows slide to wherever a change puts them instead of arriving there outright, which is
         what makes a gap opening somewhere legible as these rows moving down rather than as the page
         having been redrawn. Rendered under a tag of its own, since working out whether a row can be
@@ -625,24 +634,22 @@ $fade: 210ms;
   overflow-x: hidden;
 }
 
-// What the seam line is placed against.
+// What the drop marker is placed against.
 .rows {
   position: relative;
 }
 
-// Travels between seams rather than being redrawn at each one, which is what makes a pointer moving
-// up the page read as carrying the widget with it.
-.seam {
+// Travels from one target to the next rather than being redrawn at each, which is what makes a
+// pointer crossing the workspace read as carrying the widget with it. It runs along a seam and
+// down between two widgets, so the box it is given rather than a fixed side decides which.
+.dropMarker {
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 3px;
   z-index: 2;
   border-radius: 2px;
   background-color: $primary;
   pointer-events: none;
-  transform: translateY(-50%);
-  transition: top $settle $easeOut;
+  transition: left $settle $easeOut, top $settle $easeOut, width $settle $easeOut,
+    height $settle $easeOut;
 }
 
 .shortcut {
