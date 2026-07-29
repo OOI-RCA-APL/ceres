@@ -1,6 +1,7 @@
 .PHONY: *
 build: install
 	cd console && make build
+	cd rust && cargo build --release
 	uv build
 install:
 	uv sync
@@ -10,6 +11,7 @@ update:
 	cd console && make update
 test:
 	uv run pytest -vv -s
+	cd rust && cargo test
 test-postgres:
 	uv run pytest -vv -s --database postgres
 test-turso:
@@ -23,9 +25,11 @@ test-all:
 lint:
 	uv run sh -c "ruff check . && ruff format --check . && pyright ."
 	cd console && make lint
+	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 fix:
 	uv run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
+	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets
 build-docs: install-docs
 	uv run mkdocs build
 deploy-docs: install-docs

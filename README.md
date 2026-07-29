@@ -9,11 +9,27 @@ acquisition, processing, and management.
 
 ## Development
 
-Requires Python 3.14+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.14+, [uv](https://docs.astral.sh/uv/), and a
+[Rust](https://rustup.rs/) toolchain.
 
 ```
 make install
 ```
+
+### CLI
+
+The `ceres` command line interface is a native Rust binary living in
+[rust/ceres-cli](rust/ceres-cli). Commands that talk to a running engine are handled
+natively, while commands that load the engine or operate on the database run in the Python
+runtime the binary hands off to. Build it with:
+
+```
+cd rust && cargo build --release
+```
+
+The binary lands at `rust/target/release/ceres`. It finds the project's Python environment
+through the interpreter next to it, `VIRTUAL_ENV`, or the `CERES_PYTHON` environment
+variable.
 
 ### Testing
 

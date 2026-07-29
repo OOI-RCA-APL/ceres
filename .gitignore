@@ -14,6 +14,9 @@ __pycache__/
 coverage.json
 htmlcov/
 
+# Rust
+rust/target/
+
 # Node
 node_modules
 npm-debug.log*

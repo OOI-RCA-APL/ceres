@@ -1,0 +1,32 @@
+# The crate version is a placeholder. The binary reports the Ceres package version, which
+# build.rs reads from pyproject.toml at the repository root.
+[package]
+name = "ceres-cli"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native command line interface for Ceres"
+
+[[bin]]
+name = "ceres"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "wrap_help"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+sha1 = "0.10"
+ureq = { version = "3", features = ["json"] }
+plist = "1"
+regex-lite = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
