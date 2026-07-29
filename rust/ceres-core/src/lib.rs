@@ -8,6 +8,7 @@
 //! binding surface. The type stubs in `ceres_core.pyi` are generated from these definitions
 //! by the `stub_gen` binary. Regenerate them after changing the module's surface.
 
+pub mod binary;
 pub mod database;
 pub mod interop;
 pub mod logging;
@@ -151,6 +152,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<database::SQLiteDatabaseConfig>()?;
     module.add_class::<database::TursoDatabaseConfig>()?;
     module.add_class::<database::PostgresDatabaseConfig>()?;
+    module.add_class::<binary::PackingProgram>()?;
     Ok(())
 }
 

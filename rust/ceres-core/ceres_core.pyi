@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import timedelta
 from os import PathLike
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, final
 
 from pydantic import SecretStr
 
@@ -14,6 +14,7 @@ __all__ = [
     "ConsoleConfig",
     "DatabaseConfigHooks",
     "LoggingConfig",
+    "PackingProgram",
     "PostgresDatabaseConfig",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
@@ -267,6 +268,31 @@ class LoggingConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
+
+@final
+class PackingProgram:
+    r"""
+    A compiled binary packing program.
+
+    Built by `ceres.data.binary` from a packing schema tree and executed natively, packing a
+    whole value into one buffer and unpacking a whole buffer into one value tree per call.
+    Models unpack to plain dictionaries, validation and model construction stay with the
+    caller.
+    """
+    @property
+    def size(self) -> int:
+        r"""
+        The packed size in bytes.
+        """
+    def __new__(cls, spec: dict[str, Any]) -> Self: ...
+    def pack(self, value: Any, order: str | None = None) -> bytes:
+        r"""
+        Pack a value into its binary representation.
+        """
+    def unpack(self, data: bytes, offset: int = 0, order: str | None = None) -> Any:
+        r"""
+        Unpack a value tree from binary data.
+        """
 
 class PostgresDatabaseConfig:
     r"""
