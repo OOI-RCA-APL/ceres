@@ -134,9 +134,7 @@ class App(FastAPI):
                 allow_methods=seq(cors.allow_methods),
                 allow_headers=seq(cors.allow_headers),
                 allow_credentials=cors.allow_credentials,
-                allow_origin_regex=cors.allow_origin_regex.pattern
-                if cors.allow_origin_regex
-                else None,
+                allow_origin_regex=cors.allow_origin_regex,
                 expose_headers=seq(cors.expose_headers),
                 max_age=cors.max_age,
             )

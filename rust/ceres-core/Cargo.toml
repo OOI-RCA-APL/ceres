@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ceres-config = { path = "../ceres-config" }
+ceres-macros = { version = "0.0.0", path = "../ceres-macros" }
 pyo3 = { version = "0.27", features = ["multiple-pymethods"] }
 pyo3-stub-gen = "0.23.0"
 pythonize = "0.27"

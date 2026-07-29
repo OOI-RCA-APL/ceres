@@ -46,7 +46,8 @@ if TYPE_CHECKING:
     from ceres.access import ResolvedAccess
     from ceres.address import Address
     from ceres.component import Component, ComponentAccessLevel, ComponentSystem
-    from ceres.config import ServerAuthenticationConfig
+    from ceres_core import ServerAuthenticationConfig
+
     from ceres.engine import Engine
     from ceres.message import BoundMessageManager, MessageFilter
     from ceres.record import Record
@@ -72,13 +73,39 @@ def exclude_recursively(fields: Iterable[str]) -> IncEx:
 
 EXCLUDE_PASSWORDS: IncEx = exclude_recursively(["password"])
 
-EXCLUDE_CREDENTIALS: IncEx = exclude_recursively(["secret", "password", "key_password"])
-"""Credential fields dropped from any serialized configuration.
+CREDENTIAL_FIELDS = ("secret", "password", "key_password")
+"""Credential field names dropped from any serialized configuration.
 
 The signing secret mints a token for any user, so serving it to an administrator hands over every
-account. Excluded by name at every nesting level, which also covers a credential named this way
+account. Dropped by name at every nesting level, which also covers a credential named this way
 inside a component's own configuration.
 """
+
+
+def scrub_credentials(value: Any) -> Any:
+    """Remove credential fields from a serialized payload at every nesting level.
+
+    Operates on the final JSON-compatible payload rather than through Pydantic's
+    include/exclude machinery, so it reaches inside natively-serialized configuration
+    sections that Pydantic cannot descend into.
+
+    Args:
+        value: A JSON-compatible payload.
+
+    Returns:
+        The payload with every credential field removed.
+    """
+    if isinstance(value, dict):
+        return {
+            key: scrub_credentials(current)
+            for key, current in value.items()
+            if key not in CREDENTIAL_FIELDS
+        }
+
+    if isinstance(value, list):
+        return [scrub_credentials(current) for current in value]
+
+    return value
 
 
 class Router(APIRouter):

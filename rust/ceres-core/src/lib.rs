@@ -4,149 +4,132 @@
 //! `ceres-config` crate, this module only carries them across the boundary. The classes
 //! integrate with Pydantic on the Python side through thin subclasses in `ceres.config`.
 //!
-//! The type stubs in `ceres_core.pyi` are generated from these definitions by the `stub_gen`
-//! binary. Regenerate them after changing the module's surface.
+//! Each class is declared once through the `python_config!` macro, which generates the whole
+//! binding surface. The type stubs in `ceres_core.pyi` are generated from these definitions
+//! by the `stub_gen` binary. Regenerate them after changing the module's surface.
+
+pub mod interop;
 
 use std::path::PathBuf;
 
-use pyo3::exceptions::PyValueError;
+use ceres_config::{ByteSize, TimeDelta};
+use ceres_macros::python_config;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
-use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
-use pythonize::pythonize;
 
-/// Convert validation problems into a Python `ValueError`.
-fn problems_to_error(problems: ceres_config::Problems) -> PyErr {
-    PyValueError::new_err(problems.to_string())
-}
-
-/// Define the shared surface of a Python class wrapping a validated configuration type.
-///
-/// Generates `to_dict`, `json_schema`, equality, and `repr`. Constructors and getters are
-/// written by hand per class, so their signatures stay fully typed in the generated stubs.
-macro_rules! config_class {
-    (
-        $(#[doc = $doc:literal])*
-        $name:ident wraps $inner:ty, raw $raw:ty
-    ) => {
-        $(#[doc = $doc])*
-        #[gen_stub_pyclass]
-        #[pyclass(subclass, module = "ceres_core")]
-        #[derive(Debug, Clone)]
-        pub struct $name {
-            inner: $inner,
-        }
-
-        #[gen_stub_pymethods]
-        #[pymethods]
-        impl $name {
-            /// Return the configuration as a plain dictionary of JSON-compatible values.
-            #[gen_stub(override_return_type(type_repr = "dict[str, typing.Any]"))]
-            fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-                let value = serde_json::to_value(&self.inner)
-                    .map_err(|error| PyValueError::new_err(error.to_string()))?;
-                Ok(pythonize(py, &value)?.unbind())
-            }
-
-            /// Return the JSON Schema describing this configuration section.
-            #[staticmethod]
-            #[gen_stub(override_return_type(type_repr = "dict[str, typing.Any]"))]
-            fn json_schema(py: Python<'_>) -> PyResult<Py<PyAny>> {
-                let schema = schemars::schema_for!($raw);
-                Ok(pythonize(py, &schema)?.unbind())
-            }
-
-            fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-                match other.cast::<$name>() {
-                    Ok(other) => self.inner == other.borrow().inner,
-                    Err(_) => false,
-                }
-            }
-
-            fn __repr__(&self) -> String {
-                format!("{:?}", self.inner)
-            }
-        }
-    };
-}
-
-config_class! {
+python_config! {
     /// Process-level options applied when running the engine as a system service.
-    ServiceConfig wraps ceres_config::ServiceConfig, raw ceres_config::RawServiceConfig
-}
-
-#[gen_stub_pymethods]
-#[pymethods]
-impl ServiceConfig {
-    #[new]
-    #[pyo3(signature = (*, name=None, user=None, stdout=None, stderr=None))]
-    fn new(
-        name: Option<String>,
-        user: Option<String>,
+    ServiceConfig(ceres_config::ServiceConfig, ceres_config::RawServiceConfig) {
+        /// Service name registered with the operating system.
+        name: Option<ceres_config::Name>,
+        /// User the service runs as.
+        user: Option<ceres_config::Name>,
+        /// Optional path to redirect standard output to.
         stdout: Option<PathBuf>,
+        /// Optional path to redirect standard error to.
         stderr: Option<PathBuf>,
-    ) -> PyResult<Self> {
-        let raw = ceres_config::RawServiceConfig {
-            name,
-            user,
-            stdout,
-            stderr,
-        };
-        let inner = ceres_config::ServiceConfig::try_from(raw).map_err(problems_to_error)?;
-        Ok(Self { inner })
     }
 
-    /// Service name registered with the operating system.
-    #[getter]
-    fn name(&self) -> Option<String> {
-        self.inner.name.as_ref().map(ToString::to_string)
-    }
-
-    /// User the service runs as.
-    #[getter]
-    fn user(&self) -> Option<String> {
-        self.inner.user.as_ref().map(ToString::to_string)
-    }
-
-    /// Optional path to redirect standard output to.
-    #[getter]
-    fn stdout(&self) -> Option<PathBuf> {
-        self.inner.stdout.clone()
-    }
-
-    /// Optional path to redirect standard error to.
-    #[getter]
-    fn stderr(&self) -> Option<PathBuf> {
-        self.inner.stderr.clone()
-    }
-}
-
-config_class! {
     /// Branding and layout options for the engine's web console.
-    ConsoleConfig wraps ceres_config::ConsoleConfig, raw ceres_config::RawConsoleConfig
-}
-
-#[gen_stub_pymethods]
-#[pymethods]
-impl ConsoleConfig {
-    #[new]
-    #[pyo3(signature = (*, title=None, favicon=None))]
-    fn new(title: Option<String>, favicon: Option<PathBuf>) -> PyResult<Self> {
-        let raw = ceres_config::RawConsoleConfig { title, favicon };
-        let inner = ceres_config::ConsoleConfig::try_from(raw).map_err(problems_to_error)?;
-        Ok(Self { inner })
+    ConsoleConfig(ceres_config::ConsoleConfig, ceres_config::RawConsoleConfig) {
+        /// Title shown in the console's browser tab and header.
+        title: Option<String>,
+        /// Path to a favicon image served by the console.
+        favicon: Option<PathBuf>,
     }
 
-    /// Title shown in the console's browser tab and header.
-    #[getter]
-    fn title(&self) -> Option<String> {
-        self.inner.title.clone()
+    /// TLS configuration for the engine's HTTP server.
+    ServerSSLConfig(ceres_config::ServerSslConfig, ceres_config::RawServerSslConfig) {
+        /// Path to the server private key file.
+        key: Option<PathBuf>,
+        /// Password for an encrypted private key.
+        key_password: Option<String>,
+        /// Path to the server certificate file.
+        cert: Option<PathBuf>,
+        /// `ssl` protocol constant selecting the TLS version.
+        version: Option<i64>,
+        /// Path to a CA bundle used when validating client certificates.
+        ca_certs: Option<PathBuf>,
     }
 
-    /// Path to a favicon image served by the console.
-    #[getter]
-    fn favicon(&self) -> Option<PathBuf> {
-        self.inner.favicon.clone()
+    /// Authentication settings for the engine's HTTP server.
+    ServerAuthenticationConfig(
+        ceres_config::ServerAuthenticationConfig,
+        ceres_config::RawServerAuthenticationConfig
+    ) {
+        /// Secret used to sign and verify authentication tokens.
+        secret: String,
+        /// Lifetime of an issued authentication token.
+        duration: TimeDelta,
+        /// Whether an administrator may take on another user's identity without their password.
+        allow_impersonate: bool,
+    }
+
+    /// Cross-origin resource sharing settings for the engine's HTTP server.
+    ServerCORSConfig(ceres_config::ServerCorsConfig, ceres_config::RawServerCorsConfig) {
+        /// Whether cross-origin resource sharing is enabled.
+        enabled: bool,
+        /// Origins allowed to make cross-origin requests.
+        #[python(any = "str | list[str]")]
+        allow_origins: ceres_config::MaybeSequence<String>,
+        /// Pattern matching additional allowed origins.
+        allow_origin_regex: Option<String>,
+        /// Methods allowed for cross-origin requests.
+        #[python(any = "str | list[str]")]
+        allow_methods: ceres_config::MaybeSequence<String>,
+        /// Headers allowed in cross-origin requests.
+        #[python(any = "str | list[str]")]
+        allow_headers: ceres_config::MaybeSequence<String>,
+        /// Whether credentialed cross-origin requests are allowed.
+        allow_credentials: bool,
+        /// Headers exposed to cross-origin callers.
+        #[python(any = "str | list[str]")]
+        expose_headers: ceres_config::MaybeSequence<String>,
+        /// How long preflight responses may be cached, in seconds.
+        max_age: u64,
+    }
+
+    /// Response compression settings for the engine's HTTP server.
+    ServerCompressionConfig(
+        ceres_config::ServerCompressionConfig,
+        ceres_config::RawServerCompressionConfig
+    ) {
+        /// Whether response compression is enabled.
+        enabled: bool,
+        /// Minimum response size in bytes before compression is applied.
+        min_size: ByteSize,
+        /// Whether zstd compression is offered.
+        zstd: bool,
+        /// Zstd compression level.
+        zstd_level: i64,
+        /// Whether brotli compression is offered.
+        brotli: bool,
+        /// Brotli compression quality.
+        brotli_quality: i64,
+        /// Whether gzip compression is offered.
+        gzip: bool,
+        /// Gzip compression level.
+        gzip_level: i64,
+    }
+
+    /// Configuration for the engine's HTTP server.
+    ServerConfig(ceres_config::ServerConfig, ceres_config::RawServerConfig) {
+        /// Address the server binds to.
+        host: String,
+        /// Port the server listens on, omit to disable the server.
+        port: Option<u16>,
+        /// TLS settings, omit to serve plain HTTP.
+        #[python(nested = ServerSSLConfig)]
+        ssl: Option<ceres_config::ServerSslConfig>,
+        /// Authentication settings, omit to disable authentication.
+        #[python(nested = ServerAuthenticationConfig)]
+        authentication: Option<ceres_config::ServerAuthenticationConfig>,
+        /// Cross-origin resource sharing settings.
+        #[python(nested = ServerCORSConfig)]
+        cors: Option<ceres_config::ServerCorsConfig>,
+        /// Response compression settings.
+        #[python(nested = ServerCompressionConfig)]
+        compression: Option<ceres_config::ServerCompressionConfig>,
     }
 }
 
@@ -154,6 +137,11 @@ impl ConsoleConfig {
 fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ServiceConfig>()?;
     module.add_class::<ConsoleConfig>()?;
+    module.add_class::<ServerSSLConfig>()?;
+    module.add_class::<ServerAuthenticationConfig>()?;
+    module.add_class::<ServerCORSConfig>()?;
+    module.add_class::<ServerCompressionConfig>()?;
+    module.add_class::<ServerConfig>()?;
     Ok(())
 }
 

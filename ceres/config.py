@@ -1,19 +1,21 @@
-import ssl
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
-from re import Pattern
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
 from ceres_core import ConsoleConfig as _CoreConsoleConfig
+from ceres_core import ServerAuthenticationConfig as _CoreServerAuthenticationConfig
+from ceres_core import ServerCompressionConfig as _CoreServerCompressionConfig
+from ceres_core import ServerConfig as _CoreServerConfig
+from ceres_core import ServerCORSConfig as _CoreServerCORSConfig
+from ceres_core import ServerSSLConfig as _CoreServerSSLConfig
 from ceres_core import ServiceConfig as _CoreServiceConfig
 from pydantic import (
     ByteSize,
     ConfigDict,
     Field,
     ImportString,
-    IPvAnyAddress,
     NonNegativeInt,
     PositiveInt,
     SecretStr,
@@ -34,7 +36,6 @@ from ceres.data import (
     MaybeSequence,
     Name,
     NonBlankStr,
-    NonEmptyStr,
     OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
@@ -712,97 +713,46 @@ class ServiceConfig(RustConfigModel, _CoreServiceConfig):
     """
 
 
-class ServerSSLConfig(DataObject):
-    """TLS configuration for the engine's HTTP server."""
+class ServerSSLConfig(RustConfigModel, _CoreServerSSLConfig):
+    """TLS configuration for the engine's HTTP server.
 
-    key: Path | None = None
-    """Path to the server private key file."""
-
-    key_password: str | None = None
-    """Password for an encrypted private key.
-
-    Never served over the API, dropped from config responses by `EXCLUDE_CREDENTIALS`.
-    """
-
-    cert: Path | None = None
-    """Path to the server certificate file."""
-
-    version: int | None = ssl.PROTOCOL_TLS_SERVER
-    """`ssl` protocol constant selecting the TLS version."""
-
-    ca_certs: Path | None = None
-    """Path to a CA bundle used when validating client certificates."""
-
-
-class ServerAuthenticationConfig(DataObject):
-    """Authentication settings for the engine's HTTP server."""
-
-    secret: NonEmptyStr
-    """Secret used to sign and verify authentication tokens.
-
-    Never served over the API. The config routes drop it, along with every other credential in the
-    configuration, through `EXCLUDE_CREDENTIALS`.
-    """
-
-    duration: PositiveTimeDelta = timedelta(minutes=30)
-    """Lifetime of an issued authentication token."""
-
-    allow_impersonate: bool = False
-    """Whether an administrator may take on another user's identity without their password.
-
-    Turn this on to check what a given user can see, which is otherwise hard to answer with
-    confidence. It also means anyone who reaches an administrator's session reaches every account
-    without a password, so it belongs in development and should stay off in production. It is off
-    unless asked for, and the engine logs a warning on every load while it is on.
+    The fields and their validation live in the native `ceres_core.ServerSSLConfig`, this
+    subclass only wires the class into Pydantic.
     """
 
 
-class ServerCORSConfig(DataObject):
-    """Cross-origin resource sharing settings for the engine's HTTP server."""
+class ServerAuthenticationConfig(RustConfigModel, _CoreServerAuthenticationConfig):
+    """Authentication settings for the engine's HTTP server.
 
-    enabled: bool = True
-    allow_origins: MaybeSequence[str] = Field(default_factory=list)
-    allow_origin_regex: Pattern[str] | None = None
-    allow_methods: MaybeSequence[str] = "*"
-    allow_headers: MaybeSequence[str] = "*"
-    allow_credentials: bool = True
-    expose_headers: MaybeSequence[str] = Field(default_factory=list)
-    max_age: PositiveInt = 600
+    The fields and their validation live in the native `ceres_core.ServerAuthenticationConfig`,
+    this subclass only wires the class into Pydantic. The `secret` is never served over the
+    API, the config routes drop it, along with every other credential in the configuration,
+    through `scrub_credentials`.
+    """
 
 
-class ServerCompressionConfig(DataObject):
-    """Response compression settings for the engine's HTTP server."""
+class ServerCORSConfig(RustConfigModel, _CoreServerCORSConfig):
+    """Cross-origin resource sharing settings for the engine's HTTP server.
 
-    enabled: bool = True
-    min_size: ByteSize = ByteSize(500)
-    """Minimum response size in bytes before compression is applied."""
-
-    zstd: bool = True
-    zstd_level: int = Field(default=1, ge=1, le=22)
-    brotli: bool = True
-    brotli_quality: int = Field(default=4, ge=0, le=11)
-    gzip: bool = True
-    gzip_level: int = Field(default=1, ge=0, le=9)
+    The fields and their validation live in the native `ceres_core.ServerCORSConfig`, this
+    subclass only wires the class into Pydantic.
+    """
 
 
-class ServerConfig(DataObject):
-    """Configuration for the engine's HTTP server."""
+class ServerCompressionConfig(RustConfigModel, _CoreServerCompressionConfig):
+    """Response compression settings for the engine's HTTP server.
 
-    host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default.
-    """Address the server binds to."""
+    The fields and their validation live in the native `ceres_core.ServerCompressionConfig`,
+    this subclass only wires the class into Pydantic.
+    """
 
-    port: int | None = None
-    """Port the server listens on, omit to disable the server."""
 
-    ssl: ServerSSLConfig | None = None
-    authentication: ServerAuthenticationConfig | None = None
-    cors: ServerCORSConfig | None = None
-    compression: ServerCompressionConfig | None = None
+class ServerConfig(RustConfigModel, _CoreServerConfig):
+    """Configuration for the engine's HTTP server.
 
-    @field_validator("host")
-    def _validate_host(cls, host: str) -> str:
-        validate(IPvAnyAddress, host)
-        return host
+    The fields and their validation live in the native `ceres_core.ServerConfig`, this
+    subclass only wires the class into Pydantic.
+    """
 
 
 class ConsoleConfig(RustConfigModel, _CoreConsoleConfig):

@@ -5,29 +5,8 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::error::{Problem, Problems};
+use crate::server::{RawServerConfig, ServerConfig};
 use crate::types::{ConsoleConfig, RawConsoleConfig, RawServiceConfig, ServiceConfig};
-
-/// Configuration for the engine's HTTP server.
-///
-/// Parsed leniently until the section's validation is ported. Consumers validate the fields
-/// they read.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: Option<u16>,
-    pub ssl: Option<serde_yaml_ng::Value>,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            host: "0.0.0.0".to_string(),
-            port: None,
-            ssl: None,
-        }
-    }
-}
 
 /// The engine-level sections of a project configuration.
 ///
@@ -46,7 +25,7 @@ pub struct ConfigMeta {
 struct RawConfigMeta {
     service: Option<serde_yaml_ng::Value>,
     console: Option<serde_yaml_ng::Value>,
-    server: ServerConfig,
+    server: Option<serde_yaml_ng::Value>,
 }
 
 impl ConfigMeta {
@@ -85,11 +64,13 @@ impl ConfigMeta {
             "console",
             &mut problems,
         );
+        let server =
+            validate_section::<RawServerConfig, ServerConfig>(raw.server, "server", &mut problems);
 
         problems.into_result(Self {
             service,
             console,
-            server: raw.server,
+            server,
         })
     }
 }

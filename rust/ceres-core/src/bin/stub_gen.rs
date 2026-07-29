@@ -42,16 +42,18 @@ fn ruff(arguments: &[&str], path: &Path) -> std::io::Result<()> {
 }
 
 /// The typing constructs the polish pass rewrites, as (qualified form, replacement) pairs.
-const REWRITES: [(&str, &str); 5] = [
+const REWRITES: [(&str, &str); 6] = [
     ("builtins.", ""),
     ("typing.Any", "Any"),
     ("typing.Self", "Self"),
     ("os.PathLike", "PathLike[str]"),
     ("pathlib.Path", "Path"),
+    ("datetime.timedelta", "timedelta"),
 ];
 
 /// The imports the polished stub may need, as (name, import line) pairs.
-const IMPORTS: [(&str, &str); 4] = [
+const IMPORTS: [(&str, &str); 5] = [
+    ("timedelta", "from datetime import timedelta"),
     ("PathLike", "from os import PathLike"),
     ("Path", "from pathlib import Path"),
     ("Any", "from typing import Any"),

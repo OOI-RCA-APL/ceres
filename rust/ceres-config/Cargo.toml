@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Ceres project configuration types and validation"
 
 [dependencies]
+fancy-regex = "0.19.0"
 regex-lite = "0.1"
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
