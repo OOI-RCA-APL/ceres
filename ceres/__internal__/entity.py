@@ -1366,7 +1366,7 @@ class BaseEntityManager[
         row = Row(**values)
 
         match self.__database__.type:
-            case DatabaseType.SQLITE:
+            case DatabaseType.SQLITE | DatabaseType.TURSO:
                 from sqlalchemy.dialects.sqlite import insert
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
@@ -1868,7 +1868,7 @@ class BaseTimestampEntityFilter[
                         literal("hour", literal_execute=True),
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
-                case DatabaseType.SQLITE:
+                case DatabaseType.SQLITE | DatabaseType.TURSO:
                     from sqlalchemy import cast
 
                     hour = cast(func.strftime("%H", columns.timestamp), Integer)
@@ -1889,7 +1889,7 @@ class BaseTimestampEntityFilter[
                         literal("minute", literal_execute=True),
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
-                case DatabaseType.SQLITE:
+                case DatabaseType.SQLITE | DatabaseType.TURSO:
                     from sqlalchemy import cast
 
                     minute = cast(func.strftime("%M", columns.timestamp), Integer)

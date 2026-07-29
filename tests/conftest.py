@@ -1,6 +1,18 @@
+import os
+
 import pytest
 
 pytest.register_assert_rewrite("tests.testing")
+
+
+def turso_is_enabled() -> bool:
+    """Report whether the suite was asked to run against Turso.
+
+    Turso keeps a local file per database the way SQLite does, so unlike PostgreSQL there is no
+    server to prepare and no schema to hand out. Pointing the default config at it is the whole
+    setup.
+    """
+    return os.environ.get("CERES_TEST_DATABASE", "sqlite").lower() == "turso"
 
 
 # Use `uvloop` and eager tasks for all tests, if possible.
@@ -20,6 +32,16 @@ def database_backend():
     database is kept from seeing another's tables.
     """
     from tests import postgres
+
+    if turso_is_enabled():
+        from ceres.config import TursoDatabaseConfig
+        from ceres.database import database as module
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(module, "default_database_config", TursoDatabaseConfig)
+            yield
+
+        return
 
     if not postgres.is_enabled():
         yield

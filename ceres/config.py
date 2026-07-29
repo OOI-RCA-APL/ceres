@@ -942,6 +942,32 @@ class SQLiteDatabaseConfig(_DatabaseConfig):
         return self.path == _SQLITE_MEMORY_PATH
 
 
+class TursoDatabaseConfig(SQLiteDatabaseConfig):
+    """Configuration for a Turso-backed database, a SQLite-compatible file that allows
+    concurrent writers.
+
+    Turso reads and writes the same file format as SQLite and takes the same path settings, so this
+    inherits them. What it adds is `BEGIN CONCURRENT`, which lets several connections write at once
+    instead of serializing behind one writer.
+
+    This backend is experimental and is not a drop-in replacement for `SQLiteDatabaseConfig`. Turso
+    exposes no way to register the Python functions the SQLite backend relies on, so message data
+    search and time-binned record statistics do not work against it, and it silently ignores
+    `case_sensitive_like`, which makes `LIKE` filters case-insensitive where every other backend
+    treats them as case-sensitive.
+    """
+
+    type: Literal[DatabaseType.TURSO] = DatabaseType.TURSO  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    concurrent_writes: bool = True
+    """Open write transactions with `BEGIN CONCURRENT` so writers do not block one another.
+
+    Turning this off falls back to `BEGIN IMMEDIATE`, which serializes writers the way SQLite does
+    and gives up the only reason to choose this backend. It exists so a deployment hitting
+    write-write conflicts can retreat without changing backends.
+    """
+
+
 class PostgresDatabaseConfig(_DatabaseConfig):
     """Configuration for a PostgreSQL-backed database."""
 
@@ -953,7 +979,7 @@ class PostgresDatabaseConfig(_DatabaseConfig):
     password: SecretStr | None = None
 
 
-DatabaseConfig: TypeAlias = SQLiteDatabaseConfig | PostgresDatabaseConfig
+DatabaseConfig: TypeAlias = SQLiteDatabaseConfig | TursoDatabaseConfig | PostgresDatabaseConfig
 """Discriminated union of database configurations, dispatched by the `type` field."""
 
 

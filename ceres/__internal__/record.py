@@ -316,7 +316,7 @@ class BaseRecordFilter[
                         literal("hour", literal_execute=True),
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
-                case DatabaseType.SQLITE:
+                case DatabaseType.SQLITE | DatabaseType.TURSO:
                     hour = cast(func.strftime("%H", columns.timestamp), Integer)
 
             within_min = hour >= min_hour
@@ -335,7 +335,7 @@ class BaseRecordFilter[
                         literal("minute", literal_execute=True),
                         columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
                     )
-                case DatabaseType.SQLITE:
+                case DatabaseType.SQLITE | DatabaseType.TURSO:
                     minute = cast(func.strftime("%M", columns.timestamp), Integer)
 
             within_min = minute >= min_minute

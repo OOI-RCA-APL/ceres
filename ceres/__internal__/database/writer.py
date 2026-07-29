@@ -117,9 +117,13 @@ class Writer:
                 await previous.event.wait()
 
             database = self._database()
-            async with await database.use() as connection:
-                await self._write_entities(database, connection, flush.entities)
-                await connection.commit()
+            # Records arrive from many components at once and each flush writes rows nothing else
+            # is touching, which is exactly the shape a concurrent transaction suits. Backends
+            # without one ignore this.
+            with database.concurrent_transactions():
+                async with await database.use() as connection:
+                    await self._write_entities(database, connection, flush.entities)
+                    await connection.commit()
         except DatabaseError:
             if len(self._flushes) > 1:
                 next = self._flushes[1].entities
@@ -192,7 +196,7 @@ class Writer:
         from ceres.database import DatabaseType
 
         match database.type:
-            case DatabaseType.SQLITE:
+            case DatabaseType.SQLITE | DatabaseType.TURSO:
                 from sqlalchemy.dialects.sqlite import insert
 
             case DatabaseType.POSTGRES:

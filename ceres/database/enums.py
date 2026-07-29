@@ -12,3 +12,5 @@ class DatabaseType(StrEnum):
     """Local SQLite database, the default for single-node deployments."""
     POSTGRES = "postgres"
     """PostgreSQL server, used for shared and production deployments."""
+    TURSO = "turso"
+    """Local Turso database, a SQLite-compatible backend that allows concurrent writers."""

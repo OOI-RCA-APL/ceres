@@ -1225,7 +1225,7 @@ def create_entity_load_command(Entity: type[Entity]):
                 match database.type:
                     case DatabaseType.POSTGRES:
                         from sqlalchemy.dialects.postgresql import insert
-                    case DatabaseType.SQLITE:
+                    case DatabaseType.SQLITE | DatabaseType.TURSO:
                         from sqlalchemy.dialects.sqlite import insert
 
                 statement = insert(cls.Row).values([dict(entity) for entity in batch])
