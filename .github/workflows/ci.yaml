@@ -73,7 +73,11 @@ jobs:
           POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
         ports:
           - 5432:5432
+        # The data directory is a tmpfs because nothing here outlives the job. The suite commits
+        # constantly and runs the schema through a full migration chain per test, so every commit
+        # would otherwise wait on the runner's disk to store data that is thrown away at the end.
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
           --health-cmd "pg_isready -U ceres"
           --health-interval 10s
           --health-timeout 5s

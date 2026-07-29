@@ -22,7 +22,7 @@ from typing import Any
 
 from pydantic import SecretStr
 from sqlalchemy import make_url, text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from ceres.config import PostgresDatabaseConfig
@@ -174,6 +174,31 @@ def _refill() -> None:
     _available.extend(created)
 
 
+_engines: list[AsyncEngine] = []
+"""Engines opened during the current test, closed when it ends."""
+
+
+def track_engine(engine: AsyncEngine) -> AsyncEngine:
+    """Record an engine so the current test closes it on the way out."""
+    _engines.append(engine)
+    return engine
+
+
+async def close_engines() -> None:
+    """Close every connection the finished test opened.
+
+    Pooled connections stay open until something closes them, and letting the garbage collector
+    do it leaves the transport to be torn down outside the event loop that created it, which
+    asyncio reports as an unclosed transport. Closing here happens inside the test's own loop,
+    while that loop is still running.
+    """
+    engines = list(_engines)
+    _engines.clear()
+
+    for engine in engines:
+        await engine.dispose()
+
+
 def take_schema() -> str:
     """Claim a private, empty schema for one `Database`."""
     if not _available:
@@ -204,9 +229,15 @@ def drop_schemas() -> None:
 def database_config() -> PostgresDatabaseConfig:
     """Build a config for a private schema on the test server.
 
-    `NullPool` keeps the connection count down. Nothing disposes the databases a test creates, so a
-    pooled engine would hold its connections open until the process exited and a full run would
-    exhaust the server long before it finished.
+    These databases pool their connections, the same as a deployment's. Opening one costs about
+    twenty times what a statement on an open one does, so a suite that reconnects per transaction
+    spends nearly all of its time on handshakes: the filter tests alone open thousands of sessions
+    apiece. A pool is what closes the gap between this backend and SQLite.
+
+    What a pool needs in exchange is somebody to close it. Every engine is tracked as it is built
+    and closed when the test that built it ends, so the server sees a handful of connections at a
+    time rather than one per test. That also keeps a connection from outliving the event loop it
+    was opened on, which asyncpg rejects outright.
     """
     url = make_url(POSTGRES_URL)
     schema = take_schema()
@@ -218,7 +249,11 @@ def database_config() -> PostgresDatabaseConfig:
         user=url.username or "ceres",
         password=SecretStr(url.password) if url.password is not None else None,
         engine={
-            "poolclass": NullPool,
+            # Overflow is uncapped so that a test running more concurrent work than the pool holds
+            # opens connections instead of blocking on a checkout. Overflow connections close on
+            # return rather than being kept, so the idle count still settles back at `pool_size`.
+            "pool_size": 5,
+            "max_overflow": -1,
             "connect_args": {"server_settings": {"search_path": f"{schema},public"}},
         },
     )

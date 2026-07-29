@@ -27,14 +27,13 @@ from ceres.data import PasswordHash, to_json, uuid4
 from ceres.error import DatabaseMigrationError, DatabaseVersionError
 from ceres.logs import get_logger
 
-DESTRUCTIVE_MIGRATIONS = {
-    "remove-workspace-memberships": (
-        "Workspace memberships are dropped and cannot be recovered. Any workspace that was "
-        "shared with specific users becomes visible to everyone who can access the component or "
-        "engine root it is placed on."
-    ),
-}
-"""Migrations that discard data, keyed by name, with the warning logged before they run."""
+DESTRUCTIVE_MIGRATIONS: dict[str, str] = {}
+"""Migrations that discard data, keyed by name, with the warning logged before they run.
+
+A migration belongs here only while operators still have it ahead of them. Once every deployment
+has run it the warning is noise on each load, and a warning nobody can act on teaches people to
+ignore the ones that matter.
+"""
 
 if TYPE_CHECKING:
     import sqlite3

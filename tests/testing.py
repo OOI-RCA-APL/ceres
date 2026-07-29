@@ -7,7 +7,7 @@ from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
-from sqlalchemy import insert
+from sqlalchemy import delete, insert
 
 from ceres import (
     Address,
@@ -113,14 +113,27 @@ async def execute_filter_test(
     await database.migrate()
     manager = cls.Manager(database)
 
+    # Grouped once, in the order the fixtures name their types, so a row that references another is
+    # inserted after the row it points at and deleted before it.
+    fixtures = [(entity_cls.Row, rows) for entity_cls, rows in group_by(entity_inserts, type)]
+
     async def reset() -> None:
-        await database.clear()
-        async with database.session() as session:
-            for group_cls, group in group_by(entity_inserts, type):
-                shuffle(group)
-                values = [entity.__entity_to_column_values__() for entity in group]
-                await session.execute(insert(group_cls.Row).values(values))
-                await session.commit()
+        """Put the fixture rows back, replacing whatever the last assertion left behind.
+
+        Every assertion below deletes or updates rows and then calls this, so it runs hundreds of
+        times per test and its cost is most of what the filter tests cost. It clears only the
+        tables the fixtures populate, because no other table is ever written here and clearing the
+        rest is a round trip that deletes nothing, and it does the whole restore in one transaction
+        so a case pays for one commit rather than one per type.
+        """
+        async with database.engine.begin() as connection:
+            for row_cls, _ in reversed(fixtures):
+                await connection.execute(delete(row_cls.__table__))
+
+            for row_cls, rows in fixtures:
+                shuffle(rows)
+                values = [entity.__entity_to_column_values__() for entity in rows]
+                await connection.execute(insert(row_cls.__table__).values(values))
 
     await reset()
 
