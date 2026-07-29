@@ -204,7 +204,9 @@ export const CarouselWidgetModel = BaseWidgetModel.extend({
   name: Zod.string().catch('Carousel'),
   slides: safeArrayOf(CarouselSlideModel),
   interval: Zod.number().min(1).max(3600).catch(15),
-  autoplay: Zod.boolean().catch(true),
+  // Off to begin with. A panel that starts moving on its own the moment it is added takes the
+  // page over before anyone has said what is meant to be on it.
+  autoplay: Zod.boolean().catch(false),
 })
 
 export type Widget =

@@ -77,8 +77,11 @@ function getWidgetStyle(widget: Widget, isLast: boolean) {
 <style lang="scss" module>
 @use 'sass:color';
 
+// The same room a workspace leaves around its own rows, so a slide reads as a small workspace
+// rather than as contents pressed against the edge of the widget holding them.
 .root {
   gap: 8px;
+  padding: 8px;
 }
 
 :global(.light) .header {
