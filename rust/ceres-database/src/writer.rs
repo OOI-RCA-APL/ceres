@@ -15,11 +15,13 @@ use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use crate::store::{Error, Parameter};
+use crate::turso::{TursoBackend, sea_value};
 
-/// The write pool for one backend.
+/// The write pool or engine for one backend.
 enum Backend {
     Sqlite(SqlitePool),
     Postgres(PgPool),
+    Turso(TursoBackend),
 }
 
 /// How a backend expects record values bound.
@@ -91,6 +93,17 @@ impl RecordWriter {
         })
     }
 
+    /// Open a writer over a Turso database file.
+    ///
+    /// When `mvcc` is set, each connection enables MVCC journaling to match the query
+    /// layer's connections on the same file. Transactions open with a plain `BEGIN`, the
+    /// concurrent form is for the query layer's explicitly concurrent sections.
+    pub fn turso(path: &str, mvcc: bool) -> Self {
+        Self {
+            backend: Backend::Turso(TursoBackend::new(path, mvcc)),
+        }
+    }
+
     /// Upsert every batch in one transaction.
     ///
     /// A flush is atomic, either every record in every batch lands or none do.
@@ -123,6 +136,24 @@ impl RecordWriter {
                 }
 
                 transaction.commit().await?;
+            }
+            Backend::Turso(backend) => {
+                // Turso shares the SQLite dialect, so statements build identically and
+                // only the execution layer differs.
+                let mut statements = Vec::new();
+                for batch in batches {
+                    let Some(statement) = upsert_statement(&batch, Dialect::Sqlite) else {
+                        continue;
+                    };
+                    let (sql, values) = statement.build(SqliteQueryBuilder);
+                    let parameters = values
+                        .into_iter()
+                        .map(sea_value)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    statements.push((sql, parameters));
+                }
+
+                backend.execute_transaction(statements).await?;
             }
         }
 

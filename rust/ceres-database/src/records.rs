@@ -223,7 +223,7 @@ fn postgres_timestamp(row: &PgRow) -> Result<Timestamp, Error> {
     Ok(Timestamp(naive.and_utc()))
 }
 
-fn direction(text: String) -> Result<MessageDirection, Error> {
+pub(crate) fn direction(text: String) -> Result<MessageDirection, Error> {
     match text.as_str() {
         "send" => Ok(MessageDirection::Send),
         "receive" => Ok(MessageDirection::Receive),
@@ -233,12 +233,12 @@ fn direction(text: String) -> Result<MessageDirection, Error> {
     }
 }
 
-fn level(text: String) -> Result<Level, Error> {
+pub(crate) fn level(text: String) -> Result<Level, Error> {
     Level::parse(&text).map_err(Error::Decode)
 }
 
 /// Decode a JSON column stored as text.
-fn json_text(text: String) -> Result<Map<String, Value>, Error> {
+pub(crate) fn json_text(text: String) -> Result<Map<String, Value>, Error> {
     serde_json::from_str(&text).map_err(|error| Error::Decode(error.to_string()))
 }
 

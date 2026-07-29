@@ -9,6 +9,7 @@
 
 mod records;
 mod store;
+mod turso;
 mod writer;
 
 pub use records::RecordTable;

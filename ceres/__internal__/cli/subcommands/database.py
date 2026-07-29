@@ -37,10 +37,11 @@ class ShellCommand(CLICommand):
     @override
     async def __run__(self) -> None:
         """Launch the appropriate database shell as a subprocess, forwarding stdio."""
+        import gc
         import os
         from shutil import which
 
-        from ceres.database import DatabaseType, PostgresDatabase, SQLiteDatabase
+        from ceres.database import DatabaseType, PostgresDatabase, SQLiteDatabase, TursoDatabase
 
         # The shell is for inspecting and repairing the database, so it must open regardless of
         # whether the schema is initialized or current.
@@ -75,6 +76,13 @@ class ShellCommand(CLICommand):
                             "Database is in-memory and has no file to open a shell against."
                         )
 
+                    if isinstance(database, TursoDatabase) and database.config.mvcc:
+                        raise CLICommandFailed(
+                            "MVCC journaling makes the database file unreadable to "
+                            "'sqlite3'. Use Turso's own shell against it instead, for "
+                            f"example: tursodb {database.path}"
+                        )
+
                     command = ["sqlite3", str(database.path)]
                     command.extend(["-cmd", f".output {os.devnull}"])
                     for statement in database._get_connect_commands():
@@ -90,6 +98,13 @@ class ShellCommand(CLICommand):
                     f"Executable {executable!r} was not found in system path. It must be installed "
                     "to use this command."
                 )
+
+            # The shell opens the database itself, so release this process's own hold on
+            # it first. Turso's driver keeps an exclusive lock on the file until its
+            # connection objects deallocate, not merely close, and the shell cannot open
+            # the file under it, so the pool is disposed and collection is forced.
+            await database.dispose()
+            gc.collect()
 
             from signal import SIGTERM
 

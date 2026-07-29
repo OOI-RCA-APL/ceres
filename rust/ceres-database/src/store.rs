@@ -7,6 +7,7 @@ use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use crate::records::{DecodeRecords, RecordTable};
+use crate::turso::{TursoBackend, parameter_value, sea_value};
 
 /// A statement parameter, as the Python layer's bind processors produce them.
 ///
@@ -48,14 +49,19 @@ pub enum Error {
     UnknownTable(String),
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+    #[error(transparent)]
+    Turso(#[from] turso::Error),
+    #[error("{0}")]
+    Connect(String),
     #[error("{0}")]
     Decode(String),
 }
 
-/// The connection pool for one backend.
+/// The connection pool or engine for one backend.
 enum Backend {
     Sqlite(SqlitePool),
     Postgres(PgPool),
+    Turso(TursoBackend),
 }
 
 /// A natively-connected view of a Ceres database, serving entity reads.
@@ -112,6 +118,16 @@ impl RecordStore {
         })
     }
 
+    /// Open a store over a Turso database file.
+    ///
+    /// When `mvcc` is set, each connection enables MVCC journaling to match the query
+    /// layer's connections on the same file.
+    pub fn turso(path: &str, mvcc: bool) -> Self {
+        Self {
+            backend: Backend::Turso(TursoBackend::new(path, mvcc)),
+        }
+    }
+
     /// Fetch a record listing, ordered by timestamp like the Python layer's default.
     pub async fn fetch(
         &self,
@@ -134,6 +150,14 @@ impl RecordStore {
                 let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
                 let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
                 DecodeRecords::decode(table, rows)
+            }
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.query(table, &sql, parameters).await
             }
         }
     }
@@ -194,6 +218,12 @@ impl RecordStore {
 
                 let rows = query.fetch_all(pool).await?;
                 DecodeRecords::decode(table, rows)
+            }
+            Backend::Turso(backend) => {
+                // Turso shares the SQLite dialect, parameters bind in their stored text
+                // forms.
+                let parameters = parameters.into_iter().map(parameter_value).collect();
+                backend.query(table, sql, parameters).await
             }
         }
     }

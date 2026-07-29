@@ -316,6 +316,16 @@ async def test_native_fetches_match_on_postgres(database: str) -> None:
     assert [json.loads(to_json(entity)) for entity in stored] == [json.loads(to_json(written))]
 
 
+@pytest.mark.databases("turso")
+async def test_turso_databases_report_no_native_paths(database: str) -> None:
+    """Turso databases keep the query layer's paths, a second engine copy in the same
+    process would bypass Turso's file lock and corrupt the WAL.
+    """
+    db = Database()
+    assert db._record_fetcher() is None
+    assert db._record_writer() is None
+
+
 async def test_typed_particle_queries_keep_the_materializing_path() -> None:
     """A particle query carrying a class transform reports one, so routes fall back."""
     engine = await _build_engine()

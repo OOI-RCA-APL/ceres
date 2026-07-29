@@ -875,9 +875,13 @@ class TursoDatabase(SQLiteDatabase):
 
     @override
     def _record_fetcher(self) -> RecordFetcher | None:
-        # Under MVCC the file is not readable by SQLite libraries, and even without it a
-        # second pool on a different driver is untested against Turso's locking. The native
-        # fetcher arrives with the Turso crate.
+        # Turso coordinates the engines sharing a database file through in-process state
+        # and an fcntl file lock. A second copy of the engine in the same process, which
+        # is exactly what a native fetcher would be next to the driver's, bypasses both,
+        # because fcntl locks never conflict within one process. The two copies then
+        # overwrite each other's WAL frames, verified empirically as lost committed
+        # writes. Native record paths for this backend wait until the Rust core owns the
+        # only engine in the process.
         return None
 
     @override
