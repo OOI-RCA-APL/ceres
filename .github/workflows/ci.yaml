@@ -43,6 +43,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Free Disk Space
+        # The workspace compiles in both debug and release, and the artifacts are large
+        # enough to overflow the runner's disk unless the preinstalled toolchains nothing
+        # here uses are removed first.
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/hostedtoolcache/CodeQL
       - name: Install Node
         uses: actions/setup-node@v6
         with:
