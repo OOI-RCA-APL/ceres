@@ -6,6 +6,8 @@ from pathlib import Path
 from re import Pattern
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
+from ceres_core import ConsoleConfig as _CoreConsoleConfig
+from ceres_core import ServiceConfig as _CoreServiceConfig
 from pydantic import (
     ByteSize,
     ConfigDict,
@@ -21,6 +23,7 @@ from pydantic import (
     model_validator,
 )
 
+from ceres.__internal__.interop import RustConfigModel
 from ceres.__internal__.utilities.collections import group_by, seq, uniq
 from ceres.__internal__.utilities.typing import as_component_system, as_engine
 from ceres.address import Address, AddressSelector, DynamicAddress
@@ -701,20 +704,12 @@ class ComponentConfig(DataObject):
         return config.cls
 
 
-class ServiceConfig(DataObject):
-    """Process-level options applied when running the engine as a system service."""
+class ServiceConfig(RustConfigModel, _CoreServiceConfig):
+    """Process-level options applied when running the engine as a system service.
 
-    name: Name | None = None
-    """Service name registered with the operating system."""
-
-    user: Name | None = None
-    """User the service runs as."""
-
-    stdout: Path | None = None
-    """Optional path to redirect standard output to."""
-
-    stderr: Path | None = None
-    """Optional path to redirect standard error to."""
+    The fields and their validation live in the native `ceres_core.ServiceConfig`, this
+    subclass only wires the class into Pydantic.
+    """
 
 
 class ServerSSLConfig(DataObject):
@@ -810,14 +805,12 @@ class ServerConfig(DataObject):
         return host
 
 
-class ConsoleConfig(DataObject):
-    """Branding and layout options for the engine's web console."""
+class ConsoleConfig(RustConfigModel, _CoreConsoleConfig):
+    """Branding and layout options for the engine's web console.
 
-    title: str | None = None
-    """Title shown in the console's browser tab and header."""
-
-    favicon: Path | None = None
-    """Path to a favicon image served by the console."""
+    The fields and their validation live in the native `ceres_core.ConsoleConfig`, this
+    subclass only wires the class into Pydantic.
+    """
 
 
 class DatabaseRetryConfig(DataObject):

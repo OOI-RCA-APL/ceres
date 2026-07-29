@@ -7,12 +7,13 @@
 
 use std::sync::LazyLock;
 
+use ceres_config::NAME_PATTERN;
 use regex_lite::Regex;
 
 use crate::error::{Result, fail};
 
 static SEGMENT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    let name = r"[a-zA-Z_\-][a-zA-Z0-9_\-]*";
+    let name = NAME_PATTERN;
     let modifier = r":(all|children|descendants)";
     let path = format!(r"@?{name}(\.{name})*");
     let segment = format!(r"\~(:(all|descendants))?|{path}({modifier})?|@{modifier}|{modifier}");

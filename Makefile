@@ -1,6 +1,7 @@
 .PHONY: *
 build: install
 	cd console && make build
+	cd rust && cargo run -p ceres-core --bin stub_gen
 	cd rust && cargo build --release
 	uv build
 install:
@@ -23,13 +24,14 @@ coverage-check:
 test-all:
 	uv run ./scripts/test-all-python-versions.py
 lint:
-	uv run sh -c "ruff check . && ruff format --check . && pyright ."
+	uv run sh -c "ruff check . && ruff format --check . && pyright"
 	cd console && make lint
 	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 fix:
 	uv run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
 	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets
+	cd rust && cargo run -p ceres-core --bin stub_gen
 build-docs: install-docs
 	uv run mkdocs build
 deploy-docs: install-docs

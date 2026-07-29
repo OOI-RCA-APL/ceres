@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
 
-use crate::config::ConfigMeta;
+use ceres_config::ConfigMeta;
+
 use crate::error::{Result, failure};
 
 /// Configuration file names searched in the working directory, in priority order.
@@ -98,9 +99,10 @@ impl Project {
         serde_json::from_str(&content).ok()
     }
 
-    /// Load the parts of the project configuration the native CLI needs.
+    /// Load and validate the engine-level project configuration.
     pub fn load_meta(&self) -> Result<ConfigMeta> {
         ConfigMeta::load(&self.config_path)
+            .map_err(|problems| failure!("Failed to load configuration.\n{problems}"))
     }
 }
 

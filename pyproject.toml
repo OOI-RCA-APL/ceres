@@ -10,6 +10,7 @@ authors = [{ name = "Jake Ploskey", email = "jploskey@uw.edu" }]
 requires-python = ">=3.14"
 dependencies = [
     "aiohttp>=3.13.3,<4",
+    "ceres-core==0.40.0",
     "aiosmtplib>=5.1,<6",
     "aiosqlite>=0.22.1",
     "anyio>=4.13,<5",
@@ -71,6 +72,9 @@ include = ["./ceres/**/*.py", "./ceres/py.typed", "./ceres/static/", "./ceres/da
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv.sources]
+ceres-core = { path = "rust/ceres-core" }
 
 [tool.ruff]
 line-length = 100
@@ -134,6 +138,7 @@ runtime-evaluated-decorators = [
 
 [tool.pyright]
 include = ["ceres", "tests"]
+exclude = ["rust"]
 typeCheckingMode = "standard"
 reportImplicitOverride = true
 reportIncompatibleVariableOverride = false

@@ -1,0 +1,12 @@
+# Intermediate build artifacts live under cargo's cache home rather than target/, where cargo
+# garbage-collects them, so rebuild state does not accumulate in the repository forever.
+[build]
+build-dir = "{cargo-cache-home}/build/{workspace-path-hash}"
+
+# Python extension modules leave interpreter symbols unresolved until import time. Maturin
+# passes these linker arguments itself, this covers plain cargo build/test/clippy on macOS.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

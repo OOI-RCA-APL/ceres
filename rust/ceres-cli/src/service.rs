@@ -7,7 +7,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::ServiceConfig;
+use ceres_config::ServiceConfig;
+
 use crate::error::{Result, failure};
 use crate::output::Output;
 use crate::project::Project;
@@ -78,13 +79,18 @@ impl ServiceContext {
     fn name(&self) -> String {
         self.config
             .name
-            .clone()
+            .as_ref()
+            .map(ToString::to_string)
             .unwrap_or_else(|| format!("ceres-{}", self.project.directory_hash()))
     }
 
     /// The user the service runs as, defaulting to the current user.
     fn user(&self) -> String {
-        self.config.user.clone().unwrap_or_else(current_user)
+        self.config
+            .user
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(current_user)
     }
 
     /// The absolute path standard output is appended to, when configured.
@@ -461,7 +467,13 @@ fn user_id() -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use ceres_config::Name;
+
     use super::*;
+
+    fn name(text: &str) -> Option<Name> {
+        Some(Name::parse(text).unwrap())
+    }
 
     fn context(config: ServiceConfig) -> ServiceContext {
         ServiceContext::new(
@@ -474,7 +486,7 @@ mod tests {
     #[test]
     fn systemd_units_keep_output_settings_in_the_service_section() {
         let config = ServiceConfig {
-            name: Some("probe".to_string()),
+            name: name("probe"),
             stdout: Some(PathBuf::from("logs/out.log")),
             stderr: Some(PathBuf::from("/var/log/err.log")),
             ..ServiceConfig::default()
@@ -500,8 +512,8 @@ mod tests {
     #[test]
     fn launchd_plists_describe_the_run_command() {
         let config = ServiceConfig {
-            name: Some("probe".to_string()),
-            user: Some("worker".to_string()),
+            name: name("probe"),
+            user: name("worker"),
             ..ServiceConfig::default()
         };
         let service = LaunchDService {

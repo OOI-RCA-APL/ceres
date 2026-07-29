@@ -2,7 +2,8 @@
 
 use std::process::Command;
 
-use crate::config::ConfigMeta;
+use ceres_config::ConfigMeta;
+
 use crate::error::{Result, fail, failure};
 use crate::output::Output;
 use crate::project::Project;
@@ -63,13 +64,12 @@ mod tests {
 
     #[test]
     fn urls_resolve_host_and_scheme() {
-        let meta: ConfigMeta = serde_yaml_ng::from_str("server:\n  port: 8080\n").unwrap();
+        let meta = ConfigMeta::parse("server:\n  port: 8080\n").unwrap();
         assert_eq!(console_url(&meta).unwrap(), "http://localhost:8080");
 
-        let meta: ConfigMeta = serde_yaml_ng::from_str(
-            "server:\n  host: 10.0.0.5\n  port: 443\n  ssl:\n    cert: c\n",
-        )
-        .unwrap();
+        let meta =
+            ConfigMeta::parse("server:\n  host: 10.0.0.5\n  port: 443\n  ssl:\n    cert: c\n")
+                .unwrap();
         assert_eq!(console_url(&meta).unwrap(), "https://10.0.0.5:443");
     }
 
