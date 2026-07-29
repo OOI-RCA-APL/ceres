@@ -7,7 +7,6 @@ import Home from '@/pages/Home.vue'
 import Login from '@/pages/Login.vue'
 import User from '@/pages/User.vue'
 import Users from '@/pages/Users.vue'
-import Workspace from '@/pages/Workspace.vue'
 import SchemaFormPlayground from '@/pages/developer/SchemaFormPlayground.vue'
 
 const routes: RouteRecordRaw[] = [
@@ -53,16 +52,6 @@ const routes: RouteRecordRaw[] = [
           auth: 'admin',
         },
         component: Users,
-      },
-      {
-        path: '/workspaces/:id',
-        meta: {
-          auth: true,
-        },
-        props: (route) => ({
-          id: parseStringOrNull(route.params.id),
-        }),
-        component: Workspace,
       },
       {
         path: '/components/:address(.*)',

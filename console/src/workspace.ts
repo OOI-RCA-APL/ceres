@@ -400,8 +400,10 @@ export const WorkspaceEditModel = Zod.object({
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
-/** Handlers a `Workspace.vue` instance exposes to whatever renders its `header-prepend` slot,
-so a scoped workspace's tab strip can drive the same actions the standalone header would.
+/** Handlers a `Workspace.vue` instance exposes to whatever renders its `header-prepend` slot.
+
+A workspace is always shown on a tab strip, on the home page or on the component it is placed on,
+so the strip is what a workspace is acted on through and this is what it drives.
 */
 export type WorkspaceHeaderActions = {
   rename: (name: string) => void

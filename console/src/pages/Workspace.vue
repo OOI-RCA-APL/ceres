@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useElementBounding, useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
-import { QPopupEdit, colors } from 'quasar'
+import { colors } from 'quasar'
 import { computed, onMounted, reactive, watchEffect, watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
@@ -105,7 +105,6 @@ watch(
     }
   }
 )
-let renamePopup = $ref<QPopupEdit | null>(null)
 let layoutWidth = $ref<number | null>(null)
 
 const drop = useWidgetDrop(workspace, () => layout)
@@ -144,10 +143,6 @@ const rows = $computed<WidgetRow[]>(() => {
     return { id: row.id, height: row.height, collapsed: row.collapsed, widgets: contents }
   })
 })
-
-const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
-const undoShortcut = isApple ? '⌘Z' : 'Ctrl+Z'
-const redoShortcut = isApple ? '⇧⌘Z' : 'Ctrl+Y'
 
 // Undo and redo on the usual shortcuts, skipped while the user is typing so a text field keeps
 // its own history. Redo accepts both spellings, since editors are split between them.
@@ -317,8 +312,8 @@ onMounted(() => {
   resolveAllWidgetWidths()
 })
 
-// Exposed through the `header-prepend` slot so a scoped workspace's tab strip can drive these
-// same handlers instead of the built-in header, which that slot replaces.
+// Exposed through the `header-prepend` slot, which is the tab strip a workspace is shown on and
+// the only place these are reached from. This page draws the widgets and nothing around them.
 const headerActions: WorkspaceHeaderActions = {
   rename: (value) => {
     name = value
@@ -346,7 +341,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 </script>
 
 <template>
-  <full-page :class="$style.root" :dense="$slots['header-prepend'] != null" :sticky-top="stickyTop">
+  <full-page :class="$style.root" dense :sticky-top="stickyTop">
     <div
       v-if="drop.active && workspace.drag != null"
       key="dragged-widget-icon"
@@ -367,197 +362,6 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
     </div>
     <template #header-append>
       <slot :actions="headerActions" name="header-prepend" :state="headerState" />
-      <template v-if="!$slots['header-prepend']">
-        <div @dblclick="renamePopup?.show()">
-          <common-text
-            class="q-ml-md q-mr-sm"
-            :class="workspace.canManage && $style.nameEditable"
-            variant="title2"
-          >
-            {{ name }}
-          </common-text>
-          <q-popup-edit
-            v-if="workspace.canManage && workspace.data != null"
-            ref="renamePopup"
-            v-slot="scope"
-            v-model="name"
-            anchor="bottom left"
-            auto-save
-            :class="$style.popupEdit"
-            :cover="false"
-            no-parent-event
-            self="top left"
-            :validate="(value: string) => value.trim() !== ''"
-          >
-            <q-card bordered class="q-pa-sm" flat>
-              <q-input
-                v-model.trim="scope.value"
-                autofocus
-                dense
-                filled
-                label="Workspace Name"
-                @keyup.enter="scope.set()"
-              />
-            </q-card>
-          </q-popup-edit>
-        </div>
-        <q-btn
-          v-if="workspace.data != null"
-          class="faded-hover q-ml-xs"
-          flat
-          :icon="icons.more"
-          round
-          size="8px"
-        >
-          <q-menu anchor="top right" :offset="[8, 5]" self="top left">
-            <q-card bordered>
-              <q-list dense>
-                <q-item v-close-popup clickable dense @click="openSettings">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.settings" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Settings</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item clickable dense :disable="!workspace.canUndo" @click="workspace.undo()">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.discard" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Undo</q-item-label>
-                  </q-item-section>
-                  <q-item-section side>
-                    <span :class="$style.shortcut">{{ undoShortcut }}</span>
-                  </q-item-section>
-                </q-item>
-                <q-item clickable dense :disable="!workspace.canRedo" @click="workspace.redo()">
-                  <q-item-section avatar>
-                    <q-icon :class="$style.redoIcon" :name="icons.discard" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Redo</q-item-label>
-                  </q-item-section>
-                  <q-item-section side>
-                    <span :class="$style.shortcut">{{ redoShortcut }}</span>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item clickable dense>
-                  <q-item-section avatar>
-                    <q-icon :name="icons.add" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Add Widget</q-item-label>
-                  </q-item-section>
-                  <workspace-add-widget-menu
-                    anchor="top right"
-                    :offset="[8, 0]"
-                    :row="-1"
-                    self="top left"
-                  />
-                  <q-item-section side>
-                    <q-icon :name="icons.menuRight" size="16px" />
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item v-close-popup clickable dense @click="duplicate">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.duplicate" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Duplicate</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-item v-close-popup clickable dense @click="exportFile">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.export" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Export</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item
-                  v-if="workspace.canManage"
-                  v-close-popup
-                  clickable
-                  dense
-                  @click="promptDelete"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="icons.delete" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Delete</q-item-label>
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-card>
-          </q-menu>
-        </q-btn>
-        <q-space />
-        <div class="q-mr-md">
-          <q-btn
-            v-if="workspace.edited && isViewingOriginal"
-            class="q-mr-sm"
-            clickable
-            color="warning"
-            dense
-            flat
-            :icon="icons.revertToOriginal"
-            label="Revert to Original Version"
-            style="padding-top: 2px; padding-bottom: 2px"
-            @click="promptRevert"
-          />
-          <q-btn
-            v-if="workspace.edited && isViewingOriginal"
-            clickable
-            dense
-            :icon="icons.close"
-            round
-            size="12px"
-            unelevated
-            @click="stopViewingOriginal"
-          />
-          <q-chip
-            v-else-if="workspace.edited"
-            class="q-px-sm"
-            clickable
-            color="warning"
-            dense
-            :icon="icons.workingCopy"
-            label="Working Copy"
-            size="12px"
-            text-color="white"
-          >
-            <q-icon class="q-ml-xs" :name="icons.menuDown" />
-            <q-menu :offset="[0, 10]">
-              <q-card bordered>
-                <q-list dense>
-                  <q-item clickable :disable="!workspace.canEdit" @click="promptCommit">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.confirm" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Commit Changes</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                  <q-item clickable @click="startViewingOriginal">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.viewOriginal" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>View Original</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                </q-list>
-              </q-card>
-            </q-menu>
-          </q-chip>
-        </div>
-      </template>
     </template>
     <div
       :key="key"
