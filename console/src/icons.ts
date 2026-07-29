@@ -71,6 +71,7 @@ const icons = {
   removeMember: 'mdi-account-remove',
   rename: 'mdi-rename',
   revertToOriginal: 'mdi-restore',
+  pause: 'mdi-pause',
   search: 'mdi-magnify',
   send: 'mdi-send',
   settings: 'mdi-cog',

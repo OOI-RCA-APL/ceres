@@ -171,7 +171,54 @@ export const ButtonWidgetModel = BaseWidgetModel.extend({
   tooltip: Zod.string().nullish().catch(undefined),
 })
 
-export type Widget = Zod.infer<typeof WidgetModel>
+/** One face of a carousel, holding a layout of its own laid out exactly as a workspace is.
+
+Written out rather than inferred, since a slide holds rows, a row holds widgets, and a widget may
+be another carousel. Naming the types breaks a circle the compiler cannot see the end of.
+*/
+export type CarouselSlide = {
+  id: string
+  name: string
+  layout: WidgetRow[]
+}
+
+export const CarouselSlideModel = Zod.object({
+  id: Zod.string().catch(() => v7()),
+  name: Zod.string().catch(''),
+  layout: safeArrayOf(Zod.lazy(() => WidgetRowModel)),
+}) as unknown as Zod.ZodType<CarouselSlide>
+
+export type CarouselWidget = BaseWidget & {
+  type: 'carousel'
+  slides: CarouselSlide[]
+
+  /** How long each slide is shown, in seconds. */
+  interval: number
+
+  /** Whether it moves on by itself, as against being stepped through by hand. */
+  autoplay: boolean
+}
+
+export const CarouselWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('carousel'),
+  name: Zod.string().catch('Carousel'),
+  slides: safeArrayOf(CarouselSlideModel),
+  interval: Zod.number().min(1).max(3600).catch(15),
+  autoplay: Zod.boolean().catch(true),
+})
+
+export type Widget =
+  | MessagesWidget
+  | ParticlesWidget
+  | AlertsWidget
+  | LogsWidget
+  | ProceduresWidget
+  | ChartWidget
+  | ValueWidget
+  | VideoWidget
+  | ButtonWidget
+  | CarouselWidget
+
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
   ParticlesWidgetModel,
@@ -182,6 +229,7 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   ValueWidgetModel,
   VideoWidgetModel,
   ButtonWidgetModel,
+  CarouselWidgetModel,
 ])
 
 export type WidgetType = Widget['type']
@@ -193,6 +241,15 @@ const defaultPaddingClass = 'q-pa-sm'
 
 export function getWidgetInfo(type: WidgetType): WidgetInfo {
   return widgetInfos[type]
+}
+
+/** Build a widget of `type`, whose defaults are whatever its own model says they are.
+
+Said as a cast, because a carousel holds slides that hold rows that hold widgets, and the compiler
+gives up on a shape that reaches back into itself. The models still describe it exactly.
+*/
+export function createWidget(type: WidgetType): Widget {
+  return widgetInfos[type].model.parse({ type }) as Widget
 }
 
 type WidgetOptionsInput = {
@@ -294,6 +351,18 @@ export const widgetInfos = {
       paddingClass: [],
     }),
   },
+  carousel: {
+    type: 'carousel',
+    name: 'Carousel',
+    model: CarouselWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetCarousel.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/WorkspaceWidgetCarouselSettings.vue')
+    ),
+    options: widgetOptions({
+      paddingClass: [],
+    }),
+  },
   button: {
     type: 'button',
     name: 'Button',
@@ -309,13 +378,20 @@ export const widgetInfos = {
   },
 } as const
 
-export type WidgetRow = Zod.infer<typeof WidgetRowModel>
+/** Written out for the same reason `CarouselSlide` is, being the other half of the same circle. */
+export type WidgetRow = {
+  id: string
+  height: number
+  collapsed: boolean
+  widgets: Widget[]
+}
+
 export const WidgetRowModel = Zod.object({
   id: Zod.string().catch(() => v7()),
   height: Zod.number().catch(250),
   collapsed: Zod.boolean().catch(false),
   widgets: safeArrayOf(WidgetModel),
-})
+}) as unknown as Zod.ZodType<WidgetRow>
 
 /** Widgets on the system clipboard, laid out the way they were taken.
 
@@ -697,7 +773,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       return null
     }
 
-    const widget = widgetInfos[type].model.parse({ type })
+    const widget = createWidget(type)
     insertWidget(widget, row, column)
 
     return widget
