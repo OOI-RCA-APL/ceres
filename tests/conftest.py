@@ -148,15 +148,14 @@ def _unavailable(name: str) -> str | None:
     """Explain why `name` cannot be run here, or return `None` when it can.
 
     A backend nobody has installed or started skips its tests rather than failing them, so the
-    suite stays usable without a PostgreSQL server, or on a platform Turso has no wheel for.
-    Cached because
+    suite stays usable without a PostgreSQL server or the optional Turso package. Cached because
     the answer cannot change during a run and reaching a server to find out is not free.
     """
     if name == TURSO:
         from importlib.util import find_spec
 
         if find_spec("turso") is None:
-            return "the Turso backend needs 'pyturso', which has no wheel for this platform"
+            return "the Turso backend needs the optional 'pyturso' package"
 
     if name == POSTGRES:
         from tests import postgres

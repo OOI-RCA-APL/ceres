@@ -806,7 +806,8 @@ class TursoDatabase(SQLiteDatabase):
     conflicts are reported when a transaction commits rather than when it writes, so a caller that
     loses a race sees an error at commit and has to retry.
 
-    This backend is experimental. See `TursoDatabaseConfig` for what does not work.
+    See `TursoDatabaseConfig` for what enabling `mvcc` costs, and note that `pyturso` is an extra
+    rather than an installed dependency.
     """
 
     @override
@@ -1108,8 +1109,7 @@ def _to_turso_parameters(parameters: Any, executemany: bool) -> Any:
 def _assert_turso_installed() -> None:
     """Check that Turso is importable and its SQLAlchemy dialect can be built.
 
-    `pyturso` is installed with Ceres on every platform it publishes a wheel for, which is Linux and
-    macOS. Elsewhere it is absent and this backend is unavailable.
+    `pyturso` is an extra, so a deployment that never asks for this backend does not carry it.
 
     The dialect it registers subclasses SQLAlchemy's aiosqlite dialect, whose constructor reads
     `dbapi.has_stop`. Turso's DBAPI shim does not define it, so `create_async_engine` raises an
@@ -1125,9 +1125,9 @@ def _assert_turso_installed() -> None:
     except ImportError as error:
         raise DatabaseLoadError(
             message=(
-                "The Turso backend needs the 'pyturso' package, which ships no wheel for this "
-                "platform and so is not installed with Ceres here. Use the 'sqlite' backend, "
-                "which reads and writes the same file."
+                "The Turso backend needs the 'pyturso' package, which Ceres does not install by "
+                "default. Add it with 'pip install \"ceres[turso]\"', or use the 'sqlite' "
+                "backend, which reads and writes the same file."
             )
         ) from error
 

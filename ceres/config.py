@@ -950,11 +950,12 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     inherits them. What it adds is `BEGIN CONCURRENT`, which lets several connections write at once
     instead of serializing behind one writer.
 
-    This backend is experimental and is not a drop-in replacement for `SQLiteDatabaseConfig`. Turso
-    exposes no way to register the Python functions the SQLite backend relies on, so message data
-    search and time-binned record statistics do not work against it, and it silently ignores
-    `case_sensitive_like`, which makes `LIKE` filters case-insensitive where every other backend
-    treats them as case-sensitive.
+    Left at its defaults this is a drop-in replacement for `SQLiteDatabaseConfig`. It writes an
+    ordinary SQLite file either engine can open, and the suite passes against it exactly as it does
+    against SQLite. `mvcc` is the one setting that changes that, in what it allows and in what it
+    irreversibly does to the file.
+
+    `pyturso` is not installed with Ceres. `pip install "ceres[turso]"` adds it.
     """
 
     type: Literal[DatabaseType.TURSO] = DatabaseType.TURSO  # pyright: ignore[reportIncompatibleVariableOverride]
