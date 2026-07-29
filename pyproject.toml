@@ -28,6 +28,7 @@ dependencies = [
     "pydantic-settings>=2.13.1,<3",
     "pydantic>=2.12.5,<3",
     "pyjwt>=2.11,<3",
+    "pyturso>=0.7.1; platform_system == 'Linux' or platform_system == 'Darwin'",
     "pyyaml>=6,<7",
     "rich>=14.3.2,<15",
     "setproctitle>=1.3.7,<2",
@@ -40,18 +41,12 @@ dependencies = [
     "watchfiles>=1.1.1,<2",
 ]
 
-[project.optional-dependencies]
-# The Turso backend is experimental and most deployments will never ask for it, so it stays out of
-# the default install. See `TursoDatabaseConfig` for what it does not support.
-turso = ["pyturso>=0.7.1"]
-
 [dependency-groups]
 dev = [
     "pyright==1.1.408",
     "pytest>=9.0.2,<10",
     "pytest-asyncio>=1.3.0,<2",
     "pytest-cov>=7.1.0",
-    "pyturso>=0.7.1",
     "ruff==0.15",
     "types-pyyaml>=6,<7",
 ]
