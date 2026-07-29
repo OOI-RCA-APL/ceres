@@ -46,7 +46,7 @@ would have the page rearranging under it the entire way. Until this elapses the 
 a line, which says where the widget lands without anything having to move for it, and the layout
 only opens once the hand has settled on somewhere.
 */
-const targetDwell = 600
+const targetDwell = 300
 
 /** How thick that line is drawn. */
 const markerThickness = 3

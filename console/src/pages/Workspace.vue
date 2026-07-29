@@ -360,6 +360,9 @@ function resolveAllWidgetWidths() {
 // resized by it, so the whole row says its share for as long as it lasts.
 let resizing = $ref<Widget | null>(null)
 
+/** The row whose bottom edge is being dragged, which says its height for as long as it lasts. */
+let resizingRow = $ref<WidgetRow | null>(null)
+
 /** A widget's share of the row it is in, which is what a horizontal resize actually sets. */
 function getWidgetShare(widget: Widget) {
   return `${Math.round((widget.width / widgetWidthSubdivisions) * 100)}%`
@@ -494,9 +497,19 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
                   50
                 )
               "
+              :readout="false"
               :step="5"
               visibility="hover"
+              @update:dragging="(dragging: boolean) => (resizingRow = dragging ? row : null)"
             />
+            <!-- A row is sized in pixels rather than in shares of anything, so its height is what
+            it says, laid over the row the same way each widget says its share of one. -->
+            <div
+              v-if="resizingRow === row"
+              :class="[$style.share, 'items-center', 'justify-center', 'row']"
+            >
+              <span :class="$style.shareValue">{{ Math.round(row.height) }}px</span>
+            </div>
             <!-- The box the widgets are laid out across, rather than a boxless wrapper inside it.
             Working out whether a widget can be moved measures a copy of one laid out in here, and a
             wrapper that generates no box of its own has that copy landing among the widgets it is
