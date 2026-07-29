@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from collections.abc import Iterable
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Self, override
 
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
@@ -58,9 +59,21 @@ type BaseRecordField = BaseUUIDEntityField | BaseAddressEntityField | BaseTimest
 type BaseRecordOrder = BaseUUIDEntityOrder | BaseAddressEntityOrder | BaseTimestampEntityOrder
 
 
+def _microseconds_of(value: Any) -> SQLColumnExpression[Any]:
+    """Pull the microsecond part out of a stored timestamp.
+
+    SQLite and Turso read a timestamp's fraction only as far as milliseconds, so the value has to
+    be taken from the text itself to keep the last three digits. The date and time occupy a fixed
+    nineteen characters, leaving the fraction from the twentieth on, and padding covers a value
+    written without one, which is what SQLite's own `CURRENT_TIMESTAMP` default produces.
+    """
+    fraction = func.substr(value, 20).concat(".000000")
+    return cast(func.substr(fraction, 2, 6), Integer)
+
+
 def _date_bin(
     dialect: DatabaseType,
-    interval: Any,
+    interval: timedelta,
     timestamp: Any,
     origin: Any,
 ) -> SQLColumnExpression[Any]:
@@ -69,15 +82,16 @@ def _date_bin(
     PostgreSQL has `date_bin` built in. The SQLite family does not, and Turso cannot be taught it,
     because it has no way to register a function. The bucket is only ever grouped by and never
     selected, so any value that stays constant across a bucket does the job, and an integer index
-    is the cheapest one to compute from the date functions both engines already have.
+    is the cheapest one to compute.
 
-    Buckets go down to a millisecond on the SQLite family and no further, because that is as much
-    of a timestamp's fraction as its date functions read, even though the column keeps microseconds.
-    PostgreSQL bins to the full microsecond.
+    Whole seconds and microseconds are kept apart and combined as integers so the arithmetic is
+    exact. Doing it in floating point loses enough precision to drop a timestamp sitting exactly on
+    a bucket boundary into the bucket below, and records aligned to the origin are the ordinary
+    case.
 
     Args:
         dialect: The backend the expression is being built for.
-        interval: Bucket width, a `timedelta` on PostgreSQL and seconds elsewhere.
+        interval: Bucket width.
         timestamp: The column holding the timestamp to bin.
         origin: The instant buckets are measured from.
 
@@ -87,16 +101,13 @@ def _date_bin(
     if dialect is DatabaseType.POSTGRES:
         return func.date_bin(interval, timestamp, origin)
 
-    # Whole seconds and the fraction below them are kept apart so that the two large magnitudes
-    # cancel as exact integers. Subtracting them already joined, as a Julian day number or a
-    # fractional epoch, loses enough precision to drop a timestamp sitting exactly on a bucket
-    # boundary into the bucket below, and records aligned to the origin are the ordinary case.
+    # A bucket narrower than the resolution timestamps are stored at would put every row in its
+    # own, so one microsecond is the floor.
+    width = max(interval // timedelta(microseconds=1), 1)
     seconds = func.unixepoch(timestamp) - func.unixepoch(origin)
-    fraction = (func.unixepoch(timestamp, "subsec") - func.unixepoch(timestamp)) - (
-        func.unixepoch(origin, "subsec") - func.unixepoch(origin)
-    )
+    microseconds = seconds * 1_000_000 + (_microseconds_of(timestamp) - _microseconds_of(origin))
 
-    return cast(func.floor((seconds + fraction) / interval), Integer)
+    return cast(func.floor(microseconds / width), Integer)
 
 
 class SubsampleSelect(StrEnum):
@@ -290,8 +301,6 @@ class BaseRecordFilter[
 
             if self.subsample_every is not None:
                 interval = self.subsample_every
-                if dialect in (DatabaseType.SQLITE, DatabaseType.TURSO):
-                    interval = interval.total_seconds()
 
                 seed = (
                     start
@@ -330,8 +339,6 @@ class BaseRecordFilter[
                 assert end is not None
 
                 interval = (end - start) / max(self.subsample, 1)
-                if dialect in (DatabaseType.SQLITE, DatabaseType.TURSO):
-                    interval = interval.total_seconds()
 
                 matches = (
                     select(

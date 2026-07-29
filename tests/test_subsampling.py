@@ -102,20 +102,30 @@ async def test_subsample_every_buckets_below_a_second():
         await database.dispose()
 
 
-async def test_subsample_every_buckets_down_to_a_millisecond():
-    """A millisecond is as fine as bucketing goes.
+async def test_subsample_every_buckets_down_to_a_microsecond():
+    """Buckets go as fine as the column stores, which is microseconds.
 
-    SQLite and Turso read a timestamp's fraction to milliseconds and no further, so a bucket
-    narrower than that cannot separate two records inside the same millisecond. PostgreSQL keeps
-    microseconds, and this pins the coarser of the two so a change in either is noticed.
+    Every backend reaches this, though the SQLite family only does so by reading the fraction out
+    of the stored text: its date functions stop at milliseconds.
     """
-    database = await _seed(timedelta(milliseconds=1), 10)
+    database = await _seed(timedelta(microseconds=1), 10)
     try:
         got = await database.alerts.where(
-            subsample_every=timedelta(milliseconds=5), subsample_select=SubsampleSelect.FIRST
+            subsample_every=timedelta(microseconds=5), subsample_select=SubsampleSelect.FIRST
         ).all()
 
         assert [alert.type for alert in got] == ["t0", "t5"]
+    finally:
+        await database.dispose()
+
+
+async def test_subsample_every_separates_adjacent_microseconds():
+    """Records one microsecond apart land in buckets of their own."""
+    database = await _seed(timedelta(microseconds=1), 4)
+    try:
+        got = await database.alerts.where(subsample_every=timedelta(microseconds=1)).all()
+
+        assert [alert.type for alert in got] == ["t0", "t1", "t2", "t3"]
     finally:
         await database.dispose()
 
