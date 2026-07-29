@@ -405,6 +405,7 @@ export function useWidgetDrop(workspace: WorkspaceContext, container: () => HTML
     const target = event.target as HTMLElement | null
     if (
       workspace.selection.length > 0 &&
+      event.button === 0 &&
       !event.shiftKey &&
       !event.metaKey &&
       !event.ctrlKey &&

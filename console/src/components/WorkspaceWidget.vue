@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { QMenu } from 'quasar'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
@@ -34,6 +35,9 @@ const settingsComponent = $computed(() => {
 
 let isShowingSettingsDialog = $ref(false)
 let reloads = $ref(0)
+
+// Held so the dots can open the same menu a right click does, at wherever the pointer is.
+const menu = $ref<QMenu | null>(null)
 
 function onReloadRequested() {
   reloads++
@@ -75,6 +79,12 @@ const targetAddress = $computed(() => {
 // only changes what is picked out, since a selection is built up one press at a time. Otherwise it
 // takes hold of everything picked out, which is just this widget unless it was already among them.
 function onPress(event: MouseEvent | TouchEvent) {
+  // Only the primary button arranges anything. A right press is asking the widget a question, and
+  // the menu it opens is the answer.
+  if ('button' in event && event.button !== 0) {
+    return
+  }
+
   if ('metaKey' in event && (event.metaKey || event.ctrlKey)) {
     workspace.selectWidget(widget.id, 'toggle')
     return
@@ -170,63 +180,10 @@ watch(
             :icon="icons.more"
             round
             size="7px"
+            @click="menu?.show($event)"
             @mousedown.stop
             @touchstart.stop
-          >
-            <q-menu anchor="top right" :offset="[8, 0]" self="top left">
-              <q-list bordered>
-                <q-item v-close-popup clickable dense @click="isEditingName = true">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.rename" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Rename</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-item
-                  v-close-popup
-                  clickable
-                  dense
-                  @click="workspace.duplicateWidget(widget.id, row, column + 1)"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="icons.duplicate" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Duplicate</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item clickable dense>
-                  <q-item-section avatar>
-                    <q-icon :name="icons.add" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Add Widget Before</q-item-label>
-                  </q-item-section>
-                  <workspace-add-widget-menu :column="column" :row="row" />
-                </q-item>
-                <q-item clickable dense>
-                  <q-item-section avatar>
-                    <q-icon :name="icons.add" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Add Widget After</q-item-label>
-                  </q-item-section>
-                  <workspace-add-widget-menu :column="column + 1" :row="row" />
-                </q-item>
-                <q-separator />
-                <q-item v-close-popup clickable dense @click="workspace.deleteWidget(widget.id)">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.delete" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Delete</q-item-label>
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-menu>
-          </q-btn>
+          />
         </div>
         <q-btn
           v-if="targetAddress != null"
@@ -283,6 +240,61 @@ watch(
         />
       </div>
     </template>
+    <!-- One menu, opened by the dots or by right-clicking the widget itself, which is where a
+    context menu is looked for first. Hung off the card so the whole widget answers to it. -->
+    <q-menu ref="menu" context-menu>
+      <q-list bordered>
+        <q-item v-close-popup clickable dense @click="isEditingName = true">
+          <q-item-section avatar>
+            <q-icon :name="icons.rename" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Rename</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item
+          v-close-popup
+          clickable
+          dense
+          @click="workspace.duplicateWidget(widget.id, row, column + 1)"
+        >
+          <q-item-section avatar>
+            <q-icon :name="icons.duplicate" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Duplicate</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-separator />
+        <q-item clickable dense>
+          <q-item-section avatar>
+            <q-icon :name="icons.add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Add Widget Before</q-item-label>
+          </q-item-section>
+          <workspace-add-widget-menu :column="column" :row="row" />
+        </q-item>
+        <q-item clickable dense>
+          <q-item-section avatar>
+            <q-icon :name="icons.add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Add Widget After</q-item-label>
+          </q-item-section>
+          <workspace-add-widget-menu :column="column + 1" :row="row" />
+        </q-item>
+        <q-separator />
+        <q-item v-close-popup clickable dense @click="workspace.deleteWidget(widget.id)">
+          <q-item-section avatar>
+            <q-icon :name="icons.delete" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Delete</q-item-label>
+          </q-item-section>
+        </q-item>
+      </q-list>
+    </q-menu>
   </q-card>
 </template>
 
