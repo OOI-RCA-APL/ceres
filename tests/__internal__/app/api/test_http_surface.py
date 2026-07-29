@@ -1,0 +1,366 @@
+"""HTTP-level pins of the API's wire behavior.
+
+Every test here goes through the full ASGI stack, middleware, routing, and dependency
+resolution included, because the rest of the app suite calls handler functions directly
+and leaves the wire behavior unpinned. A server port must pass this file unchanged.
+"""
+
+import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
+import httpx
+
+from ceres import Component, Engine, query
+from ceres.address import Address
+from ceres.config import Config
+from ceres.data import to_json, validate
+from ceres.particle import Particle
+from ceres.user import User
+
+ADMIN_PASSWORD = "correct horse battery staple"
+VIEWER_PASSWORD = "viewer password"
+
+
+class _Probe(Component):
+    """A component with a public query, for the anonymous procedure-call routes."""
+
+    @query(permit="public")
+    async def ping(self, text: str = "pong") -> str:
+        return text
+
+
+@asynccontextmanager
+async def _serve(
+    *,
+    authentication: bool = True,
+    allow_impersonate: bool = False,
+    probe: bool = False,
+    cli_token: str | None = None,
+) -> AsyncIterator[tuple[Engine, httpx.AsyncClient]]:
+    """Run an app over an in-memory engine and yield an HTTP client against it."""
+    from ceres.__internal__.app import App
+
+    engine = Engine()
+    await engine.database.migrate()
+
+    server: dict[str, Any] = {}
+    if authentication:
+        server["authentication"] = {
+            "secret": "an-adequately-long-test-signing-secret",
+            "allow_impersonate": allow_impersonate,
+        }
+
+    await engine.load(validate(Config, {"components": [], "server": server}), checks=())
+    if probe:
+        engine.attach(_Probe(__with_name__="probe"))
+
+    transport = httpx.ASGITransport(app=App(engine, None, cli_token))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        try:
+            yield engine, client
+        finally:
+            await engine.database.dispose()
+
+
+async def _create_user(engine: Engine, username: str, password: str, admin: bool = False) -> User:
+    return await engine.database.users.create(
+        User.Create(username=username, email=f"{username}@test.com", password=password, admin=admin)
+    )
+
+
+async def _login(client: httpx.AsyncClient, username: str, password: str) -> dict[str, Any]:
+    response = await client.post(
+        "/api/auth/login", json={"username": username, "password": password}
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _bearer(identity: dict[str, Any]) -> dict[str, str]:
+    return {"Authorization": f"Bearer {identity['token']}"}
+
+
+async def test_alive_responds_empty() -> None:
+    async with _serve() as (_, client):
+        response = await client.get("/api/alive")
+        assert response.status_code == 200
+        assert response.content == b""
+
+
+async def test_the_api_root_redirects_to_the_openapi_document() -> None:
+    async with _serve() as (_, client):
+        response = await client.get("/api")
+        assert response.status_code == 307
+        assert response.headers["location"] == "/api/openapi.json"
+
+
+async def test_unknown_api_paths_return_the_error_envelope() -> None:
+    """`GET` hits the API catch-all, other methods fall through to the static mount."""
+    async with _serve() as (_, client):
+        response = await client.get("/api/does-not-exist")
+        assert response.status_code == 404
+        body = response.json()
+        assert body["__error__"] is True
+        assert body["type"] == "not-found-error"
+
+        response = await client.post("/api/does-not-exist")
+        assert response.status_code == 405
+        body = response.json()
+        assert body["__error__"] is True
+        assert body["type"] == "http-error"
+
+
+async def test_login_issues_an_identity_the_header_authenticates() -> None:
+    async with _serve() as (engine, client):
+        user = await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+        assert identity["user"]["id"] == str(user.id)
+        assert identity["token"]
+        assert "password" not in identity["user"]
+
+        response = await client.get("/api/auth/me", headers=_bearer(identity))
+        assert response.status_code == 200
+        assert response.json()["user"]["id"] == str(user.id)
+
+
+async def test_bad_credentials_are_refused() -> None:
+    async with _serve() as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        response = await client.post(
+            "/api/auth/login", json={"username": "admin", "password": "wrong"}
+        )
+        assert response.status_code == 401
+        assert response.json()["type"] == "bad-credentials-error"
+
+
+async def test_the_authorization_cookie_authenticates_and_logs_out() -> None:
+    async with _serve() as (engine, client):
+        user = await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        response = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": ADMIN_PASSWORD, "cookie": "insecure"},
+        )
+        assert response.status_code == 200
+        assert "Authorization" in response.cookies
+
+        response = await client.get("/api/auth/me")
+        assert response.status_code == 200
+        assert response.json()["user"]["id"] == str(user.id)
+
+        response = await client.post("/api/auth/logout", json={})
+        assert response.status_code == 200
+
+        response = await client.get("/api/auth/me")
+        assert response.status_code == 401
+
+
+async def test_the_header_outranks_the_cookie() -> None:
+    async with _serve() as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        viewer = await _create_user(engine, "viewer", VIEWER_PASSWORD)
+
+        response = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": ADMIN_PASSWORD, "cookie": "insecure"},
+        )
+        assert response.status_code == 200
+
+        viewer_identity = await _login(client, "viewer", VIEWER_PASSWORD)
+        response = await client.get("/api/auth/me", headers=_bearer(viewer_identity))
+        assert response.status_code == 200
+        assert response.json()["user"]["id"] == str(viewer.id)
+
+
+async def test_impersonation_survives_token_reparsing() -> None:
+    """The impersonation marker must come back from the token itself, not only from the
+    impersonate response, so the console still knows after a reload.
+    """
+    async with _serve(allow_impersonate=True) as (engine, client):
+        admin = await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        viewer = await _create_user(engine, "viewer", VIEWER_PASSWORD)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        response = await client.post(
+            "/api/auth/impersonate",
+            json={"user_id": str(viewer.id)},
+            headers=_bearer(identity),
+        )
+        assert response.status_code == 200
+        impersonated = response.json()
+        assert impersonated["user"]["id"] == str(viewer.id)
+        assert impersonated["impersonated_by"] == str(admin.id)
+
+        response = await client.get("/api/auth/me", headers=_bearer(impersonated))
+        assert response.status_code == 200
+        assert response.json()["impersonated_by"] == str(admin.id)
+
+
+async def test_single_component_statuses_are_reachable() -> None:
+    async with _serve(probe=True) as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        response = await client.get("/api/statuses/@probe", headers=_bearer(identity))
+        assert response.status_code == 200
+        assert response.json()["address"] == "@probe"
+
+        response = await client.get("/api/statuses/@missing", headers=_bearer(identity))
+        assert response.status_code == 404
+
+
+async def test_statuses_and_statistics_require_authentication() -> None:
+    async with _serve(probe=True) as (engine, client):
+        assert (await client.get("/api/statuses")).status_code == 401
+        assert (await client.get("/api/statistics")).status_code == 401
+
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+        response = await client.get("/api/statuses", headers=_bearer(identity))
+        assert response.status_code == 200
+        assert [status["address"] for status in response.json()] == ["@probe"]
+
+        assert (await client.get("/api/statistics", headers=_bearer(identity))).status_code == 200
+
+
+async def test_procedure_listings_require_authentication() -> None:
+    async with _serve(probe=True) as (engine, client):
+        for namespace in ("procedures", "queries", "actions"):
+            response = await client.get(f"/api/components/@probe/{namespace}")
+            assert response.status_code == 401
+
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+        response = await client.get("/api/components/@probe/queries", headers=_bearer(identity))
+        assert response.status_code == 200
+        assert "ping" in {binding["name"] for binding in response.json()}
+
+
+async def test_public_procedures_call_anonymously() -> None:
+    """A public procedure is callable without credentials, by POST body and by GET query
+    parameters alike.
+    """
+    async with _serve(probe=True) as (_, client):
+        response = await client.post(
+            "/api/components/@probe/queries/ping/call", json={"text": "hello"}
+        )
+        assert response.status_code == 200
+        assert response.json() == "hello"
+
+        response = await client.get("/api/components/@probe/queries/ping/call?text=hi")
+        assert response.status_code == 200
+        assert response.json() == "hi"
+
+
+async def test_config_routes_gate_by_admin_and_scrub_credentials() -> None:
+    async with _serve() as (engine, client):
+        assert (await client.get("/api/config")).status_code == 401
+        assert (await client.get("/api/config/console")).status_code == 200
+
+        await _create_user(engine, "viewer", VIEWER_PASSWORD)
+        viewer_identity = await _login(client, "viewer", VIEWER_PASSWORD)
+        response = await client.get("/api/config", headers=_bearer(viewer_identity))
+        assert response.status_code == 403
+        assert response.json()["type"] == "not-permitted-error"
+
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+        response = await client.get("/api/config", headers=_bearer(identity))
+        assert response.status_code == 200
+        assert "secret" not in response.text
+
+
+async def test_record_listings_match_the_pydantic_wire_format() -> None:
+    async with _serve() as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        particle = await engine.database.particles.create(
+            Particle.Create(address=Address("@sensor.temp"), type="sample", data={"a": 1})
+        )
+
+        response = await client.get("/api/particles", headers=_bearer(identity))
+        assert response.status_code == 200
+        assert response.json() == [json.loads(to_json(particle))]
+
+        response = await client.get("/api/particles?limit=999999", headers=_bearer(identity))
+        assert response.status_code == 422
+        assert response.json()["type"] == "validation-failed-error"
+
+
+async def test_validation_failures_use_the_problem_envelope() -> None:
+    async with _serve() as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        response = await client.get("/api/particles?limit=abc", headers=_bearer(identity))
+        assert response.status_code == 422
+        body = response.json()
+        assert body["__error__"] is True
+        assert body["type"] == "validation-failed-error"
+        assert body["problems"]
+
+
+async def test_the_cli_app_requires_its_token_and_bypasses_permissions() -> None:
+    """The CLI control app takes its raw token, grants unrestricted access, and carries no
+    console.
+    """
+    async with _serve(cli_token="cli-test-token") as (_, client):
+        assert (await client.get("/api/config")).status_code == 401
+        assert (
+            await client.get("/api/config", headers={"Authorization": "wrong"})
+        ).status_code == 401
+
+        response = await client.get("/api/config", headers={"Authorization": "cli-test-token"})
+        assert response.status_code == 200
+
+        response = await client.get("/favicon.ico", headers={"Authorization": "cli-test-token"})
+        assert response.status_code == 404
+
+
+async def test_missing_users_under_unrestricted_yield_the_http_error_envelope() -> None:
+    """Routes that require a concrete user answer with the bare HTTP envelope when the
+    actor is unrestricted but anonymous, a second error shape ports must reproduce.
+    """
+    async with _serve(authentication=False) as (_, client):
+        response = await client.post(
+            "/api/auth/change-password",
+            json={"old_password": "a", "new_password": "long enough password"},
+        )
+        assert response.status_code == 401
+        body = response.json()
+        assert body["__error__"] is True
+        assert body["type"] == "http-error"
+
+
+async def test_large_responses_compress() -> None:
+    async with _serve() as (_, client):
+        response = await client.get("/api/openapi.json")
+        assert response.status_code == 200
+        assert response.headers.get("content-encoding") in {"gzip", "br", "zstd"}
+
+
+async def test_favicons_serve_on_the_web_app() -> None:
+    async with _serve() as (_, client):
+        for suffix, media_type in (
+            ("ico", "image/x-icon"),
+            ("png", "image/png"),
+            ("svg", "image/svg+xml"),
+        ):
+            response = await client.get(f"/favicon.{suffix}")
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith(media_type)
+
+
+async def test_unknown_console_paths_fall_back_to_the_index() -> None:
+    """The console mount serves `index.html` for any unmatched path, which is what lets
+    the single-page app own its routes.
+    """
+    async with _serve() as (_, client):
+        index = await client.get("/")
+        assert index.status_code == 200
+
+        fallback = await client.get("/some/console/route")
+        assert fallback.status_code == 200
+        assert fallback.content == index.content
