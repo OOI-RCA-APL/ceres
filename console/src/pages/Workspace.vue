@@ -363,6 +363,14 @@ let resizing = $ref<Widget | null>(null)
 /** The row whose bottom edge is being dragged, which says its height for as long as it lasts. */
 let resizingRow = $ref<WidgetRow | null>(null)
 
+// A collapsed row is as tall as it needs to be rather than a number of pixels, and there is no
+// closing a height of auto. Taking the height it has as it leaves gives the collapse somewhere to
+// start from, whichever kind of row it is.
+function pinRowHeight(element: Element) {
+  const row = element as HTMLElement
+  row.style.height = `${row.offsetHeight}px`
+}
+
 /** A widget's share of the row it is in, which is what a horizontal resize actually sets. */
 function getWidgetShare(widget: Widget) {
   return `${Math.round((widget.width / widgetWidthSubdivisions) * 100)}%`
@@ -472,8 +480,11 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         <transition-group
           :enter-active-class="$style.rowEnterActive"
           :enter-from-class="$style.rowEnterFrom"
+          :leave-active-class="drop.active ? undefined : $style.rowClosing"
+          :leave-to-class="drop.active ? undefined : $style.rowClosed"
           :move-class="$style.rowMove"
           tag="div"
+          @before-leave="pinRowHeight"
         >
           <div
             v-for="(row, i) in rows"
@@ -821,6 +832,22 @@ $fade: 210ms;
 }
 
 .rowEnterFrom {
+  opacity: 0;
+}
+
+// A row that goes closes rather than vanishing, and everything under it rises as the room it took
+// up gives way. Its margins go with its height, or the gap it sat in would be left behind. Held
+// off while a widget is in hand, where a row closing is the preview being rearranged rather than
+// anything actually leaving.
+.rowClosing {
+  overflow: hidden;
+  transition: height $settle $easeOut, margin $settle $easeOut, opacity $fade ease-out;
+}
+
+.rowClosed {
+  height: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
   opacity: 0;
 }
 
