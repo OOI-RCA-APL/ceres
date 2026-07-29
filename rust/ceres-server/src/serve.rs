@@ -127,6 +127,8 @@ mod tests {
         let app = build_router(AppConfig {
             console: None,
             cli_token: None,
+            auth: None,
+            host: std::sync::Arc::new(crate::host::NoHost),
         });
         let serving = tokio::spawn(server.serve(app));
 

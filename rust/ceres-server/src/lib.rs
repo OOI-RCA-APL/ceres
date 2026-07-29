@@ -7,13 +7,17 @@
 //! fallback bridge until each is ported.
 
 mod app;
+mod auth;
 mod error;
+mod host;
 mod layers;
 mod serve;
 mod tls;
 
 pub use app::{AppConfig, ConsolePaths, build_router};
+pub use auth::{Actor, AuthSettings, Identity, MintedToken, mint, parse};
 pub use error::ApiError;
+pub use host::{Host, HostError, NoHost, UserRecord};
 pub use layers::{apply_compression, apply_cors};
 pub use serve::{BoundServer, Error as ServeError, Stopper};
 
@@ -64,6 +68,8 @@ mod tests {
                 favicon_svg: directory.join("favicon.svg"),
             }),
             cli_token: None,
+            auth: None,
+            host: std::sync::Arc::new(NoHost),
         })
     }
 
@@ -142,11 +148,97 @@ mod tests {
         );
     }
 
+    /// A host holding exactly one user.
+    struct OneUserHost {
+        id: uuid::Uuid,
+        admin: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl Host for OneUserHost {
+        async fn user(&self, id: uuid::Uuid) -> Result<Option<UserRecord>, HostError> {
+            Ok((id == self.id).then(|| UserRecord {
+                id: self.id,
+                admin: self.admin,
+                disabled: false,
+                payload: serde_json::json!({"id": self.id.to_string(), "username": "u"}),
+            }))
+        }
+    }
+
+    fn authenticated_app(user: uuid::Uuid, allow_impersonate: bool) -> axum::Router {
+        build_router(AppConfig {
+            console: None,
+            cli_token: None,
+            auth: Some(AuthSettings {
+                secret: "an-adequately-long-test-signing-secret".to_string(),
+                duration: chrono::TimeDelta::minutes(30),
+                allow_impersonate,
+            }),
+            host: std::sync::Arc::new(OneUserHost {
+                id: user,
+                admin: false,
+            }),
+        })
+    }
+
+    #[tokio::test]
+    async fn me_round_trips_a_minted_token() {
+        let user = uuid::Uuid::new_v4();
+        let app = authenticated_app(user, false);
+
+        assert_response!(
+            request!(app, get "/api/auth/me"),
+            UNAUTHORIZED,
+            br#"{"__error__":true,"type":"not-authenticated-error"}"#
+        );
+
+        let settings = AuthSettings {
+            secret: "an-adequately-long-test-signing-secret".to_string(),
+            duration: chrono::TimeDelta::minutes(30),
+            allow_impersonate: false,
+        };
+        let minted = mint(user, None, &settings).unwrap();
+        let response = assert_response!(
+            request!(app, get "/api/auth/me", header::AUTHORIZATION => format!("Bearer {}", minted.token)),
+            OK
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["token"], minted.token.as_str());
+        assert_eq!(body["user"]["username"], "u");
+        assert_eq!(body["impersonated_by"], serde_json::Value::Null);
+
+        // A token naming an unknown user resolves to anonymous.
+        let minted = mint(uuid::Uuid::new_v4(), None, &settings).unwrap();
+        assert_response!(
+            request!(app, get "/api/auth/me", header::AUTHORIZATION => format!("Bearer {}", minted.token)),
+            UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn features_report_impersonation() {
+        let user = uuid::Uuid::new_v4();
+        assert_response!(
+            request!(authenticated_app(user, true), get "/api/auth/features"),
+            OK,
+            br#"{"impersonate":true}"#
+        );
+        assert_response!(
+            request!(authenticated_app(user, false), get "/api/auth/features"),
+            OK,
+            br#"{"impersonate":false}"#
+        );
+    }
+
     #[tokio::test]
     async fn the_cli_app_requires_its_token_and_carries_no_console() {
         let app = build_router(AppConfig {
             console: None,
             cli_token: Some("cli-test-token".to_string()),
+            auth: None,
+            host: std::sync::Arc::new(NoHost),
         });
 
         assert_response!(

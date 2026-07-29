@@ -11,6 +11,7 @@ use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value};
 
 /// A typed API error, serialized as the error envelope.
+#[derive(Debug)]
 pub struct ApiError {
     pub status: StatusCode,
     pub kind: &'static str,
