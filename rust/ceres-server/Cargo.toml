@@ -8,17 +8,42 @@ repository.workspace = true
 
 [dependencies]
 axum = "0.8"
-# preserve_order keeps envelope and payload keys in insertion order, matching the
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
+ceres-config = { path = "../ceres-config" }
+fancy-regex = "0.16"
+pkcs8 = { version = "0.10", features = ["encryption", "pem", "std"] }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+] }
+rustls-pemfile = "2"
+# `preserve_order` keeps envelope and payload keys in insertion order, matching the
 # Python layer's serialization byte for byte.
 serde_json = { version = "1", features = ["preserve_order"] }
 subtle = "2"
+thiserror = "2"
+tokio = { version = "1", default-features = false, features = ["net"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = ["fs"] }
+tower-http = { version = "0.7", features = [
+    "compression-br",
+    "compression-gzip",
+    "compression-zstd",
+    "cors",
+    "fs",
+] }
 
 [dev-dependencies]
 http-body-util = "0.1"
+rand_chacha = "0.3"
+rand_core = "0.6"
+rcgen = "0.14"
 tempfile = "3"
-tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+tokio = { version = "1", default-features = false, features = [
+    "io-util",
+    "macros",
+    "rt",
+] }
 
 [lints]
 workspace = true

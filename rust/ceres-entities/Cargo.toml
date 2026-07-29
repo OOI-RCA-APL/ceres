@@ -10,8 +10,9 @@ repository.workspace = true
 ceres-config = { path = "../ceres-config" }
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
-# preserve_order keeps JSON object keys in insertion order like Python dicts, so native
-# serializations stay byte-equal to the query layer's rather than merely equivalent.
+# `preserve_order` keeps JSON object keys in insertion order like Python dicts, so
+# native serializations stay byte-equal to the query layer's rather than merely
+# equivalent.
 serde_json = { version = "1", features = ["preserve_order"] }
 uuid = { version = "1", features = ["serde"] }
 

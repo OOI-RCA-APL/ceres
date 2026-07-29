@@ -60,7 +60,7 @@ impl TursoBackend {
             .await?;
 
         // The same commands the query layer runs on its own connections, minus
-        // auto_vacuum, which Turso rejects. A pragma only takes effect once its result
+        // `auto_vacuum`, which Turso rejects. A pragma only takes effect once its result
         // rows are read, so they run through the draining helper.
         let connection = database.connect()?;
         pragma(&connection, "PRAGMA busy_timeout = 30000").await?;

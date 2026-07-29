@@ -8,9 +8,14 @@
 
 mod app;
 mod error;
+mod layers;
+mod serve;
+mod tls;
 
 pub use app::{AppConfig, ConsolePaths, build_router};
 pub use error::ApiError;
+pub use layers::{apply_compression, apply_cors};
+pub use serve::{BoundServer, Error as ServeError, Stopper};
 
 #[cfg(test)]
 mod tests {
