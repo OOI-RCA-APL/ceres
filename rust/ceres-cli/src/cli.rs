@@ -13,7 +13,11 @@ use clap::{Args, Parser, Subcommand};
 pub const VERSION: &str = env!("CERES_VERSION");
 
 #[derive(Debug, Parser)]
-#[command(name = "ceres", disable_version_flag = true)]
+#[command(
+    name = "ceres",
+    about = concat!("Ceres CLI Version ", env!("CERES_VERSION")),
+    disable_version_flag = true
+)]
 pub struct Cli {
     /// Show the current Ceres version number and exit.
     #[arg(long)]
