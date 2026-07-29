@@ -776,8 +776,6 @@ class SQLiteDatabase(Database):
         # Enable foreign key handling by default.
         # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
         yield "PRAGMA foreign_keys = ON"
-        # Set like statements to be case sensitive to match Postgres.
-        yield "PRAGMA case_sensitive_like = ON"
         # Enable a 30 second busy timeout.
         yield "PRAGMA busy_timeout = 30000"
 
