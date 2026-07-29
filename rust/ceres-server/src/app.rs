@@ -49,7 +49,6 @@ struct AppState {
     console: Option<ConsolePaths>,
     auth: Option<AuthSettings>,
     host: Arc<dyn Host>,
-    cli: bool,
 }
 
 impl AppState {
@@ -93,7 +92,6 @@ pub fn build_router(config: AppConfig) -> Router {
         console: config.console,
         auth: config.auth,
         host: config.host,
-        cli: config.cli_token.is_some(),
     });
 
     // The API catch-all handles GET only, like the Python layer's. A matched path with

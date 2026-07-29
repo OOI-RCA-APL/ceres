@@ -15,7 +15,10 @@ mod serve;
 mod tls;
 
 pub use app::{AppConfig, ConsolePaths, build_router};
-pub use auth::{Actor, AuthSettings, Identity, MintedToken, mint, parse};
+pub use auth::{
+    Actor, AuthSettings, Identity, MintedToken, current_actor, current_identity, mint, parse,
+    require_admin, require_authenticated, require_self_or_admin,
+};
 pub use error::ApiError;
 pub use host::{Host, HostError, NoHost, UserRecord};
 pub use layers::{apply_compression, apply_cors};
