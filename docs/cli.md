@@ -91,7 +91,6 @@ $ ceres status
 ╭───────────┬─────────┬─────────╮
 │ Address   │ Running │ Enabled │
 ├───────────┼─────────┼─────────┤
-│ @         │ Yes     │ No      │
 │ @sensor   │ Yes     │ Yes     │
 │ @pressure │ No      │ No      │
 ╰───────────┴─────────┴─────────╯
@@ -99,11 +98,24 @@ $ ceres status
 
 ### Address Selectors
 
-Most component commands accept address selectors.
+Most component commands accept address selectors. A selector is an address base optionally
+followed by a `:all`, `:children`, or `:descendants` modifier:
 
-- `all`: All components in the tree.
-- `sensor`: The component at `@sensor` (the `@` prefix is optional).
+- `sensor` or `@sensor`: Exactly the component at `@sensor` (the `@` prefix is optional).
+- `sensor:all` or `@sensor:all`: `@sensor` and everything under it.
+- `sensor:children` or `@sensor:children`: The direct children of `@sensor`.
+- `sensor:descendants` or `@sensor:descendants`: Everything strictly under `@sensor`.
 - `@sensors.temperature`: A nested component by full address.
+- `all` or `:all`: Every component.
+- `:children`: The top-level components.
+
+On the CLI, an address argument without a leading `@` resolves against the whole tree, so
+`ceres stop sensor:all` means `@sensor:all` and `ceres start :all` means `@:all`. `all` is a
+shorthand for `:all`.
+
+The engine itself is addressed as `~`. Because a bare `~` expands to your home directory in most
+shells, quote it when you use it as a CLI argument (for example `ceres status '~'`). There is no
+`~:children` selector.
 
 ## Service Management
 
@@ -127,13 +139,17 @@ Write the service definition file to `PATH` or stdout. Useful for reviewing or c
 
 ## Database Management
 
-### `ceres database init`
+### `ceres database migrate`
 
-Create database tables and indexes. Shows the pending DDL statements and prompts for confirmation before executing.
+Apply pending schema migrations, including the initial creation of tables and indexes on an empty database. Shows the pending migrations and prompts for confirmation before applying them.
+
+### `ceres database migrations`
+
+Show every known migration alongside its applied or pending status.
 
 ### `ceres database ddl`
 
-Print the DDL statements that `init` would execute, without running them.
+Print the DDL statements for the current schema, without running them.
 
 ### `ceres database shell`
 
@@ -153,7 +169,7 @@ ceres <entity> <operation> [FILTERS] [OPTIONS]
 
 ### Entities
 
-`logs`, `alerts`, `messages`, `particles`, `users`, `settings`, `variables`, `workspaces`, `workspace-memberships`
+`logs`, `alerts`, `messages`, `particles`, `users`, `settings`, `variables`, `workspaces`
 
 ### Operations
 

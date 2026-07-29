@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, watch } from 'vue'
 import Zod from 'zod'
 
 import { useClient } from '@/api/client'
@@ -10,6 +10,12 @@ export type Identity = Zod.infer<typeof IdentityModel>
 export const IdentityModel = Zod.object({
   user: UserModel,
   expires: DateTimeModel,
+  token: Zod.string(),
+  impersonated_by: Zod.string().nullish(),
+})
+
+export const AuthFeaturesModel = Zod.object({
+  impersonate: Zod.boolean(),
 })
 
 function getAuthorizationCookieType() {
@@ -24,27 +30,28 @@ export type AuthStore = ReturnType<typeof useAuth>
 
 export const useAuth = defineStore('auth', () => {
   const client = useClient()
-  const identity = ref<Identity | null>(null)
+  let identity = $ref<Identity | null>(null)
+  let features = $ref<Zod.infer<typeof AuthFeaturesModel> | null>(null)
   const users = useUsers()
 
   async function login(username: string, password: string): Promise<Identity> {
-    identity.value = await client.post('/api/auth/login', {
+    identity = await client.post('/api/auth/login', {
       data: { username, password, cookie: getAuthorizationCookieType() },
       parse: IdentityModel,
     })
 
-    return identity.value
+    return identity
   }
 
   async function refresh(): Promise<Identity | null> {
     try {
-      identity.value = await client.post('/api/auth/refresh', {
+      identity = await client.post('/api/auth/refresh', {
         data: { cookie: getAuthorizationCookieType() },
         parse: IdentityModel,
       })
-      return identity.value
+      return identity
     } catch (error) {
-      identity.value = null
+      identity = null
       return null
     }
   }
@@ -54,8 +61,71 @@ export const useAuth = defineStore('auth', () => {
       parse: IdentityModel,
     })
 
-    identity.value = null
+    identity = null
     return result
+  }
+
+  // The token the admin held before impersonating. Stopping replays it so they land back on their
+  // own account without a password, and without any route accepting a call from a user who is not
+  // an admin.
+  //
+  // Held in session storage rather than in memory, because the impersonated identity is not an
+  // admin and so cannot start over. Losing this on a page reload would strand the admin as
+  // somebody else with nothing but a fresh login to get out. Session storage is per tab and goes
+  // away with it, and the equivalent token is already sitting in a cookie either way.
+  const impersonationKey = 'ceres.impersonation.previous-token'
+  let tokenBeforeImpersonating = $ref<string | null>(sessionStorage.getItem(impersonationKey))
+
+  watch(
+    () => tokenBeforeImpersonating,
+    (token) => {
+      if (token == null) {
+        sessionStorage.removeItem(impersonationKey)
+      } else {
+        sessionStorage.setItem(impersonationKey, token)
+      }
+    }
+  )
+
+  async function loadFeatures() {
+    features = await client.get('/api/auth/features', { parse: AuthFeaturesModel })
+  }
+
+  async function impersonate(userId: string): Promise<Identity> {
+    const previous = tokenBeforeImpersonating ?? identity?.token ?? null
+    identity = await client.post('/api/auth/impersonate', {
+      data: { user_id: userId, cookie: getAuthorizationCookieType() },
+      parse: IdentityModel,
+    })
+
+    tokenBeforeImpersonating = previous
+    return identity
+  }
+
+  /** Return to the account that started impersonating, or sign out if that is no longer possible.
+   *
+   * The impersonated identity is not an administrator and cannot start over, so losing the stashed
+   * token would otherwise be a dead end. Signing out is the honest fallback, since the way back to
+   * an administrator is then a password.
+   */
+  async function stopImpersonating(): Promise<Identity | null> {
+    const token = tokenBeforeImpersonating
+    tokenBeforeImpersonating = null
+
+    if (token == null) {
+      await logout()
+      return null
+    }
+
+    identity = await client.post('/api/auth/refresh', {
+      data: { cookie: getAuthorizationCookieType() },
+      init: {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      },
+      parse: IdentityModel,
+    })
+
+    return identity
   }
 
   async function changePassword(oldPassword: string, newPassword: string): Promise<User | null> {
@@ -83,12 +153,19 @@ export const useAuth = defineStore('auth', () => {
     login,
     refresh,
     logout,
+    loadFeatures,
+    impersonate,
+    stopImpersonating,
     changePassword,
     assignPassword,
-    identity: computed(() => identity.value),
-    user: computed(() => identity.value?.user ?? null),
-    isAdmin: computed(() => identity.value?.user?.role === 'admin'),
-    isOperator: computed(() => ['operator', 'admin'].includes(identity.value?.user?.role ?? '')),
-    isViewer: computed(() => identity.value?.user),
+    identity: computed(() => identity),
+    user: computed(() => identity?.user ?? null),
+    isAdmin: computed(() => identity?.user?.admin ?? false),
+    isViewer: computed(() => identity?.user),
+    canImpersonate: computed(() => features?.impersonate === true),
+    // Taken from the identity rather than from the stashed token, because the server is what knows
+    // this and the stash is only what makes returning cheap. Reading the stash instead would hide
+    // the way out precisely when the stash is the thing that went missing.
+    isImpersonating: computed(() => identity?.impersonated_by != null),
   }
 })

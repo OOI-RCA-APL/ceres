@@ -1,11 +1,13 @@
 <script lang="ts" setup>
 import { QPopupEdit } from 'quasar'
+import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
+import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
-import { getWidgetInfo, useWorkspace, Widget, WidgetRow } from '@/workspace'
+import { getWidgetInfo, useWorkspace, widgetTargetSignature, Widget, WidgetRow } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: Widget
@@ -45,6 +47,39 @@ const key = $computed(() => {
 
   return String(reloads)
 })
+
+// The first address-like field on the widget resolved through the scope, or null when the
+// widget has no single target.
+const targetAddress = $computed(() => {
+  if (widget.restricted) {
+    return null
+  }
+
+  const raw =
+    ('address' in widget ? widget.address : null) ??
+    ('procedureAddress' in widget ? widget.procedureAddress : null) ??
+    ('particleAddress' in widget ? widget.particleAddress : null)
+  if (raw == null) {
+    return null
+  }
+
+  const resolved = workspace.resolveAddress(raw)
+  const text = resolved?.toString() ?? null
+  return text != null && text.startsWith('@') && !text.includes(':') ? text : null
+})
+
+// A restricted stub loads with its address fields redacted, so the user could not have set
+// them knowingly. Once the user repoints the widget to a new target, the stub is stale and its
+// lock placeholder should give way to a fresh, editable widget.
+const targetSignature = $computed(() => widgetTargetSignature(widget))
+watch(
+  () => targetSignature,
+  () => {
+    if (widget.restricted) {
+      widget.restricted = false
+    }
+  }
+)
 </script>
 
 <template>
@@ -176,6 +211,19 @@ const key = $computed(() => {
             </q-menu>
           </q-btn>
         </div>
+        <q-btn
+          v-if="targetAddress != null"
+          dense
+          flat
+          :icon="icons.chevronRight"
+          round
+          size="xs"
+          :to="`/components/${targetAddress}`"
+          @mousedown.stop
+          @touchstart.stop
+        >
+          <q-tooltip>Open {{ targetAddress }}</q-tooltip>
+        </q-btn>
         <q-space />
         <q-btn
           v-if="$q.screen.gt.xs"
@@ -207,8 +255,10 @@ const key = $computed(() => {
         :key="key"
         :class="[$style.content, 'col-grow overflow-auto', info.options.paddingClass]"
       >
+        <workspace-widget-restricted v-if="widget.restricted" :widget />
         <component
           :is="info.component as any"
+          v-else
           :class="info.options.fullHeight && 'full-height'"
           :widget="widget"
           @reload-requested="onReloadRequested"

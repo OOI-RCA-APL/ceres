@@ -1,11 +1,18 @@
 <script lang="ts" setup>
 import RecordView from '@/components/RecordView.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
-import { ParticlesWidget } from '@/workspace'
+import { ParticlesWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ParticlesWidget
 }>()
+
+const workspace = useWorkspace()
+
+const resolvedFilter = $computed(() => ({
+  ...widget.filter,
+  address: workspace.resolveFilterAddress(widget.filter.address),
+}))
 
 const columns = $computed(() => [
   {
@@ -29,7 +36,7 @@ const columns = $computed(() => [
 </script>
 
 <template>
-  <record-view :columns="columns" :filter="widget.filter" :widget>
+  <record-view :columns="columns" :filter="resolvedFilter" :widget>
     <template #column-filter-type>
       <div class="column q-gutter-xs" style="min-width: 200px">
         <schema-form-value

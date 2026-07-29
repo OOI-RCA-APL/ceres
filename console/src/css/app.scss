@@ -12,6 +12,14 @@
   text-decoration: unset;
 }
 
+// While a tab or row is being dragged, the cursor is the drag's to decide rather than whatever it
+// happens to be passing over. Everything under the pointer sets its own cursor, tabs and rows most
+// of all, so this has to be forced across the document for the length of the drag.
+.reordering,
+.reordering * {
+  cursor: grabbing !important;
+}
+
 .faded-hover {
   opacity: 0.6;
   transition: opacity 0.15s;

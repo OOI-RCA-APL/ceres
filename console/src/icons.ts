@@ -1,5 +1,9 @@
+import { mdiClose, mdiPlus } from '@quasar/extras/mdi-v7'
+
 const icons = {
-  add: 'mdi-plus',
+  // The webfont mdi-plus glyph can rasterize slightly off-center in small round buttons at some
+  // zoom levels, the SVG version centers geometrically.
+  add: mdiPlus,
   admin: 'admin_panel_settings', // Material Icons
   all: 'mdi-asterisk',
   arrowDown: 'mdi-arrow-down',
@@ -8,22 +12,29 @@ const icons = {
   cancel: 'mdi-close-circle',
   clear: 'mdi-close-circle',
   changeRole: 'mdi-account-convert',
+  chevronDown: 'mdi-chevron-down',
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
   circle: 'mdi-circle',
+  components: 'mdi-hexagon-multiple',
   clearLocalStorage: 'mdi-delete-sweep',
-  close: 'mdi-close',
+  // Off-center in a small round button for the same reason `add` is, so it takes the SVG too.
+  close: mdiClose,
+  closeAll: 'mdi-close-box-multiple-outline',
+  closeOthers: 'mdi-close-box-outline',
   configuration: 'mdi-cogs',
   confirm: 'mdi-check',
   connection: 'route', // Material Icons
   copy: 'mdi-content-copy',
   darkMode: 'dark_mode',
-  dashboard: 'space_dashboard', // Material Icons
   delete: 'mdi-delete',
   developer: 'construction', // Material Icons
   disable: 'mdi-minus-circle-outline',
   discard: 'mdi-arrow-u-left-top',
+  dragHorizontal: 'mdi-drag-horizontal',
+  dragVertical: 'mdi-drag-vertical',
   drawer: 'mdi-menu',
+  group: 'mdi-account-group',
   duplicate: 'mdi-content-duplicate',
   edit: 'mdi-pencil',
   editor: 'mdi-account-edit',
@@ -32,13 +43,16 @@ const icons = {
   filter: 'mdi-filter',
   grab: 'mdi-grab',
   help: 'mdi-help',
+  home: 'mdi-home',
   import: 'mdi-upload',
   join: 'mdi-star-outline',
   joined: 'mdi-star',
   json: 'mdi-code-json',
   leave: 'mdi-exit-run',
   lightMode: 'light_mode', // Material Icons
+  locked: 'mdi-lock-outline',
   logout: 'mdi-logout', // Material Icons
+  manage: 'mdi-cog',
   manager: 'mdi-account-star',
   menuDown: 'mdi-menu-down',
   menuLeft: 'mdi-menu-left',
@@ -46,8 +60,10 @@ const icons = {
   menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
   moreVertical: 'mdi-dots-vertical',
+  open: 'mdi-open-in-new',
+  operate: 'mdi-wrench',
   operations: 'mdi-cog-transfer',
-  operator: 'mdi-account-cog',
+  overview: 'space_dashboard', // Material Icons
   password: 'password', // Material Icons
   preferences: 'mdi-theme-light-dark',
   reload: 'mdi-cog-sync',
@@ -58,14 +74,21 @@ const icons = {
   search: 'mdi-magnify',
   send: 'mdi-send',
   settings: 'mdi-cog',
+  share: 'mdi-link-variant',
   start: 'mdi-play',
   stop: 'mdi-stop',
   submit: 'mdi-check',
+  tab: 'mdi-tab',
+  tabAdd: 'mdi-tab-plus',
+  tabUnselected: 'mdi-tab-unselected',
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',
+  view: 'mdi-eye',
   viewOriginal: 'mdi-eye-arrow-left',
   viewer: 'mdi-account-eye',
+  privateWorkspace: 'mdi-account',
+  workingCopy: 'mdi-pencil-box-multiple',
   workspace: 'mdi-dots-grid',
 } as const
 

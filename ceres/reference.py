@@ -5,7 +5,7 @@ from pydantic_core.core_schema import no_info_after_validator_function
 
 from ceres.__internal__.utilities.text import strify
 from ceres.__internal__.utilities.typing import lenient_isinstance, lenient_issubclass
-from ceres.address import Address, DynamicAddress
+from ceres.address import DynamicAddress
 from ceres.component import Component
 
 if TYPE_CHECKING:
@@ -406,7 +406,7 @@ class Reference:
             ValueError: If `target` is not a supported type, or if it is a component whose
                 type does not satisfy `__reference_constraint__`.
         """
-        if not isinstance(target, Component | Reference | Address | str):
+        if not isinstance(target, Component | Reference | DynamicAddress | str):
             raise ValueError(
                 f"first argument must be a component, another reference, an address or string, got "
                 f"{type(target)}"
@@ -523,6 +523,8 @@ class Reference:
 
         if root is not None:
             root = cast("Component", root)
+            # `ComponentSystem.get_component` already routes absolute addresses through the
+            # engine when one is attached, so a cross-tree target resolves here too.
             return root.system.get_component(target)
 
         return None

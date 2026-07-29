@@ -119,11 +119,6 @@ class Node(Tasklet, NodeSource):
     def config(self) -> Config | ComponentConfig | None:
         """The resolved configuration for this node, or `None` if no configuration applies."""
 
-    @property
-    @abstractmethod
-    def root(self) -> ComponentSystem | None:
-        """The root component's system for the tree this node belongs to."""
-
     @cached_property
     def messages(self) -> BoundMessageManager:
         """Node-bound manager for messages addressed to or from this node."""

@@ -12,26 +12,40 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.__internal__.project import LoadedProject
 from ceres.__internal__.server import Server
 from ceres.__internal__.utilities.collections import uniq
-from ceres.__internal__.utilities.typing import as_component, as_component_system
+from ceres.__internal__.utilities.typing import as_component_system
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import sleep
-from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
+from ceres.config import Config, ConfigCheckType, ConfigSource, collect_unresolved_reference_errors
 from ceres.data import DataObject, Name, PasswordHash, dump, to_json
 from ceres.directory import Directory
-from ceres.error import ComponentCombinedError, ConfigError, Error, ReloadConfigInvalidError
+from ceres.error import (
+    ComponentCombinedError,
+    ComponentError,
+    ComponentUnexpectedError,
+    ConfigError,
+    Error,
+    ReloadConfigInvalidError,
+    trace,
+)
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
 from ceres.node import Node
 
 if TYPE_CHECKING:
     from ceres.__internal__.entity import BaseEntityManager
-    from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
+    from ceres.component import (
+        Component,
+        ComponentAccessLevel,
+        ComponentFilter,
+        ComponentFilterArgs,
+        ComponentSystem,
+    )
     from ceres.entity import Entity
 
 with __lazy_imports__(__name__):
     from ceres.database import Database
     from ceres.setting import SettingManager
     from ceres.user import UserManager
-    from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
+    from ceres.workspace import WorkspaceEditManager, WorkspaceManager
 
 __all__ = [
     "Engine",
@@ -112,11 +126,11 @@ class EngineActions(DataObject):
 
 @final
 class Engine(Node):
-    """Top-level container that owns the root `Component` and the supporting infrastructure.
+    """Top-level container that owns the engine's components and the supporting infrastructure.
 
     The engine is the entry point for a Ceres process. It owns the `Database`, the optional HTTP
-    `Server`, and the root component tree. It loads configuration, reconciles the running
-    component tree with the desired configuration, and drives the lifecycle (start/stop) of
+    `Server`, and the top-level components. It loads configuration, reconciles the running
+    components with the desired configuration, and drives the lifecycle (start/stop) of
     everything beneath it.
 
     There is exactly one engine per Ceres process. Components reach it through
@@ -129,7 +143,7 @@ class Engine(Node):
         "_config_path",
         "_apply_lock",
         "_database",
-        "_root",
+        "_components",
         "_server",
     )
 
@@ -142,23 +156,13 @@ class Engine(Node):
         # Serializes concurrent `_apply` invocations so configuration reloads can't interleave.
         self._apply_lock = asyncio.Lock()
         self._database = Database()
-        self._root: ComponentSystem | None = None
+        self._components: dict[Name, ComponentSystem] = {}
         self._server: Server | None = None
 
     @property
     @override
     def __container__(self) -> None:
         return None
-
-    @property
-    @override
-    def root(self) -> ComponentSystem | None:
-        """The root component's system, or `None` if no root has been attached."""
-        return self._root
-
-    @root.setter
-    def root(self, root: Component | ComponentSystem | None) -> None:
-        self._set_root(root)
 
     @property
     @override
@@ -205,11 +209,6 @@ class Engine(Node):
         return WorkspaceManager(self)
 
     @cached_property
-    def workspace_memberships(self) -> WorkspaceMembershipManager:
-        """Manager for workspace memberships, mapping users into workspaces."""
-        return WorkspaceMembershipManager(self)
-
-    @cached_property
     def workspace_edits(self) -> WorkspaceEditManager:
         """Manager for in-progress workspace edits."""
         return WorkspaceEditManager(self)
@@ -224,6 +223,16 @@ class Engine(Node):
     def config_path(self) -> Path | None:
         """Filesystem path the current configuration was loaded from, if any."""
         return self._config_path
+
+    @property
+    def default_tags(self) -> list[str]:
+        """Tags from the top-level configuration, inherited by every component."""
+        return self._config.tags
+
+    @property
+    def default_access(self) -> ComponentAccessLevel | None:
+        """Config-level default access for components with none declared, or `None`."""
+        return self._config.access
 
     @property
     def project_directory(self) -> Directory | None:
@@ -248,17 +257,18 @@ class Engine(Node):
 
         await self._apply(self.config_path, self.config)
 
-        await self._load_database()
         await self.__node_sync__()
 
-        # Hydrate every component's persisted state in a single connection, then start the tree
-        # if the root component is enabled.
+        # Hydrate every component's persisted state in a single connection, then start each
+        # top-level component that is enabled.
         async with await self.database.use() as connection:
             components = self.get_components()
             for component in components:
                 await component.system.__node_sync__(connection)
-            if self.root is not None and self.root.enabled:
-                self.root.start(all_enabled=True)
+
+            for system in list(self._components.values()):
+                if system.enabled:
+                    system.start(all_enabled=True)
 
         try:
             await super().__run__()
@@ -273,8 +283,8 @@ class Engine(Node):
     @override
     async def __stop__(self) -> None:
         await self._stop_server()
-        if self._root is not None:
-            await self._root.stop()
+        for system in list(self._components.values()):
+            await system.stop()
 
     @override
     async def __post_stop__(self) -> None:
@@ -287,21 +297,30 @@ class Engine(Node):
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None) -> Component | None:
-        """Look up a component by address relative to the root, or return the root for an empty
-        address.
+        """Look up a component by address anywhere in the component tree.
 
         Args:
-            address: An address string or `DynamicAddress`. Pass `None` or an empty value to get
-                the root component.
+            address: An address string or `DynamicAddress`. `None` or an empty value
+                returns `None`, there is no default component.
 
         Returns:
-            The matching component, or `None` if no component is found at the address (or there
-            is no root attached).
+            The matching component, or `None` if nothing matches.
         """
-        if self._root is None:
+        if address is None or not str(address):
             return None
 
-        return self._root.get_component(address)
+        names = DynamicAddress(address).names
+        if not names:
+            return None
+
+        top = self._components.get(names[0])
+        if top is None:
+            return None
+
+        if len(names) == 1:
+            return top.component
+
+        return top.get_component(".".join(names[1:]))
 
     @override
     def get_components(
@@ -312,39 +331,78 @@ class Engine(Node):
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Component]:
-        """Walk the entire component tree and return components matching the given filter.
+        """Walk every top-level component tree and return components matching the given filter.
 
         Args:
             filter: A `ComponentFilter` or `AddressSelector` to apply, or `None` to skip
                 positional filtering.
             inclusive: Accepted for interface compatibility with `ComponentSystem.get_components`,
-                the engine always includes the root regardless.
+                the engine always includes every top-level component regardless.
             **kwargs: Additional filter overrides forwarded as `ComponentFilterArgs`.
 
         Returns:
-            A list of matching components, or an empty list when no root is attached.
+            A list of matching components, or an empty list when the engine has no components.
         """
-        if self._root is None:
-            return []
+        components: list[Component] = []
+        for system in self._components.values():
+            components.extend(system.get_components(filter, inclusive=True, **kwargs))
 
-        return self._root.get_components(filter, inclusive=True, **kwargs)
+        return components
 
     def attach(
         self,
-        root: Component | ComponentSystem,
+        component: Component | ComponentSystem,
         /,
         name: Name | None = None,
     ) -> Component | None:
-        """Attach a component as the root component of the engine.
+        """Attach a component as a top-level component of the engine.
 
         Args:
-            root: The component or component system to install as the root.
-            name: Optional name to assign to the new root before attaching it.
+            component: The component or component system to attach.
+            name: Optional name to assign to the component before attaching it.
 
         Returns:
-            The previously attached root component if one was replaced, otherwise `None`.
+            The previously attached top-level component with the same name if one was
+            replaced, otherwise `None`.
         """
-        return self._set_root(root, name)
+        system = as_component_system(component)
+        assert system is not None
+
+        if name is not None:
+            system.name = name
+
+        previous = self._components.get(system.name)
+        if previous is system:
+            return None
+
+        if previous is not None:
+            previous.detach()
+
+        system.detach()
+        self._components[system.name] = system
+        if system.container is not self:
+            system.container = self
+            system.events.emit(AttachedEvent)
+
+        return previous.component if previous is not None else None
+
+    def detach(self, component: Component | ComponentSystem, /) -> None:
+        """Remove a top-level component from the engine."""
+        system = as_component_system(component)
+        assert system is not None
+
+        # A system that still points at this engine hasn't gone through `ComponentSystem.detach`
+        # yet, route through it so the system's container is cleared too. That re-enters here
+        # with the container already cleared, which falls through to the removal below.
+        if system.container is self:
+            system.detach()
+            return
+
+        # Match by identity rather than name so a component renamed while attached still has
+        # its old registration removed.
+        for name, current in list(self._components.items()):
+            if current is system:
+                del self._components[name]
 
     async def load(
         self,
@@ -421,42 +479,24 @@ class Engine(Node):
         """Verify a plaintext password against a previously stored hash."""
         return await self._database.verify_password(password, hash)
 
-    def _set_root(
-        self,
-        root: Component | ComponentSystem | None,
-        name: Name | None = None,
-    ) -> Component | None:
-        root = as_component_system(root)
-        previous = self._root
-        if previous is root:
-            return None
+    async def _prepare_database(self) -> None:
+        """Bring the database schema current before components are created or servers start.
 
-        if previous is not None and previous.container is self:
-            previous.detach()
+        An empty database has all migrations applied, an existing one must already be current.
 
-        if root is not None:
-            root.detach()
-            if name is not None:
-                root.name = name
-
-        self._root = root
-        if root is not None and root.container is not self:
-            root.container = self
-            root.events.emit(AttachedEvent)
-
-        return previous.component if previous is not None else None
-
-    async def _load_database(self) -> None:
-        # `database.use()` is a no-op when the schema already exists, so calling it on a fresh
-        # database performs the initial setup as a side effect.
+        Raises:
+            DatabaseVersionError: If the database has pending or unknown migrations.
+        """
         if not await self.database.initialized():
-            self.log.info("Database appears empty, initializing database.")
+            self.log.info("Database appears empty, running migrations.")
             try:
-                await self.database.use()
-                self.log.info("Database initialized successfully.")
+                await self.database.migrate()
+                self.log.info("Database migrated successfully.")
             except Error:
-                self.log.error("Database initialization failed.")
+                self.log.error("Database migration failed.")
                 raise
+        else:
+            await self.database.assert_schema_current()
 
     def _create_server(self) -> Server | None:
         if self.config_path is None:
@@ -518,6 +558,11 @@ class Engine(Node):
 
             actions = self._get_apply_actions(config)
             if actions.server is None and actions.database is None and not actions.components:
+                if not reloading:
+                    # A first load whose configuration matches the current state still needs
+                    # the database brought current before anything runs against it.
+                    await self._prepare_database()
+
                 if not silent:
                     self.log.info("Configuration appears up-to-date.")
 
@@ -527,26 +572,12 @@ class Engine(Node):
             if not silent:
                 self.log.debug("Actions pending: " + to_json(actions))
 
-            if actions.server is not None:
-                if not silent:
-                    self.log.info(f"Server configuration will be {verb}ed.")
-
-                try:
-                    await self._stop_server()
-                    await self._start_server()
-                    if not silent:
-                        self.log.info(f"Server configuration {verb}ed successfully.")
-                except Exception:
-                    self.log.error(
-                        f"An issue occurred while {verb}ing the server: {traceback.format_exc()}"
-                    )
-
             if actions.database is not None:
                 if not silent:
                     self.log.info(f"Database configuration will be {verb}ed.")
                 try:
-                    if self._root is not None:
-                        await self._root.stop()
+                    for system in list(self._components.values()):
+                        await system.stop()
 
                     await self._database.dispose()
                     self._database = Database(config.database)
@@ -557,28 +588,57 @@ class Engine(Node):
                         f"An issue occurred while reloading the database: {traceback.format_exc()}"
                     )
 
+            # Bring the database current before creating components or starting the server, so
+            # a version mismatch aborts the load before anything binds or constructs.
+            if not reloading or actions.database is not None:
+                await self._prepare_database()
+
             if actions.components:
                 if not silent:
                     self.log.info(f"Component configurations will be {verb}ed.")
 
                 try:
-                    root = await self._execute_component_actions(
-                        as_component(self._root),
-                        config.root,
+                    await self._execute_component_actions(
+                        config,
                         actions.components,
                         silent=silent,
+                        strict=not reloading,
                     )
-
-                    if root is not None:
-                        self.root = root.system
-                    else:
-                        self.root = None
 
                     if not silent:
                         self.log.info(f"Component configurations {verb}ed successfully.")
                 except Exception:
+                    # A component that cannot be created fails the initial load outright, while
+                    # a reload logs the failure and keeps the running engine alive.
+                    if not reloading:
+                        raise
+
                     self.log.error(
                         f"An issue occurred while {verb}ing components: {traceback.format_exc()}"
+                    )
+
+            # The server starts after the component tree exists so nothing binds a port until
+            # the components have been created and validated.
+            if actions.server is not None:
+                if not silent:
+                    self.log.info(f"Server configuration will be {verb}ed.")
+
+                authentication = config.server.authentication
+                if authentication is not None and authentication.allow_impersonate:
+                    self.log.warning(
+                        "Impersonation is enabled. Any administrator can take on any other "
+                        "user's identity without their password. This belongs in development, "
+                        "turn off server.authentication.allow_impersonate in production."
+                    )
+
+                try:
+                    await self._stop_server()
+                    await self._start_server()
+                    if not silent:
+                        self.log.info(f"Server configuration {verb}ed successfully.")
+                except Exception:
+                    self.log.error(
+                        f"An issue occurred while {verb}ing the server: {traceback.format_exc()}"
                     )
 
             # Synchronize each component's configuration in place. Components whose configuration
@@ -595,7 +655,7 @@ class Engine(Node):
                 component.system.sync_child_order()
 
             # Restart everything that was previously running. Newly created components that are
-            # marked enabled will be started by their parent or by the root start cascade.
+            # marked enabled will be started by their parent or by the top-level start cascade.
             for address in running:
                 component = self.get_component(address)
                 if component is not None:
@@ -619,7 +679,10 @@ class Engine(Node):
         else:
             server = None
 
-        components = self._get_pending_component_actions(as_component(self._root), config.root)
+        components: list[EngineComponentAction] = []
+        names = uniq([*self._components.keys(), *(entry.name for entry in config.components)])
+        for name in names:
+            components.extend(self._get_pending_component_actions(config, Address(f"@{name}")))
 
         return EngineActions(
             database=database,
@@ -629,26 +692,20 @@ class Engine(Node):
 
     def _get_pending_component_actions(
         self,
-        root_component: Component | None,
-        root_config: ComponentConfig,
-        address: Address = Address.ROOT,
+        config: Config,
+        address: Address,
     ) -> list[EngineComponentAction]:
-        if address.is_engine:
-            address = Address.ROOT
+        component = self.get_component(address)
+        config_entry = config.get_component(address)
 
-        component = (
-            root_component.system.get_component(address) if root_component is not None else None
-        )
-        config = root_config.get_component(address)
-
-        match (component, config):
+        match (component, config_entry):
             case (None, None):
                 return []
-            case (None, config):
+            case (None, config_entry):
                 return [CreateComponentEngineAction(address=address)]
             case (component, None):
                 return [RemoveComponentEngineAction(address=address)]
-            case (component, config):
+            case (component, config_entry):
                 pass
 
         # Compare configurations excluding the children, structural differences in the subtree
@@ -659,7 +716,7 @@ class Engine(Node):
             if component.system.config is None
             else dump(component.system.config, exclude=exclude)
         )
-        new = dump(config, exclude=exclude)
+        new = dump(config_entry, exclude=exclude)
 
         if old != new:
             # When a component's own configuration changes, anything that holds a reference to it
@@ -677,44 +734,43 @@ class Engine(Node):
         actions: list[EngineComponentAction] = []
         children = uniq(
             [child.address for child in component.system.children]
-            + [component.system.address / child.name for child in config.components]
+            + [component.system.address / child.name for child in config_entry.components]
         )
 
         for child in children:
-            actions.extend(
-                self._get_pending_component_actions(
-                    root_component,
-                    root_config,
-                    child,
-                )
-            )
+            actions.extend(self._get_pending_component_actions(config, child))
 
         return actions
 
     async def _execute_component_actions(
         self,
-        root_component: Component | None,
-        root_config: ComponentConfig,
+        config: Config,
         actions: Sequence[EngineComponentAction],
         *,
         silent: bool = False,
-    ) -> Component | None:
+        strict: bool = False,
+    ) -> None:
+        creation_errors: list[ComponentError] = []
+        created_components: list[Component] = []
         for action in actions:
-            if root_component is not None:
-                container = root_component.system.get_node(action.address.container)
-                component = root_component.system.get_component(action.address)
+            parent_address = action.address.parent
+            if parent_address is None:
+                container: ComponentSystem | Engine = self
             else:
-                container = self
-                component = None
+                # A top-level action's parent address resolves to no component, so it falls
+                # back to the engine, which is where top-level components attach.
+                parent = self.get_component(parent_address)
+                container = parent.system if parent is not None else self
 
-            config = root_config.get_component(action.address)
+            component = self.get_component(action.address)
+            config_entry = config.get_component(action.address)
 
             match action:
                 case CreateComponentEngineAction():
                     if not silent:
                         self.log.info(f"Creating '{action.address}'.")
 
-                    if config is None:
+                    if config_entry is None:
                         if not silent:
                             self.log.warning(
                                 f"Component at '{action.address}' not found in configuration. Skipping."
@@ -731,25 +787,23 @@ class Engine(Node):
                         continue
 
                     try:
-                        component = config.create(container)
+                        component = config_entry.create(container)
+                        created_components.append(component)
                         for current in component.system.get_components(inclusive=True):
                             if not silent:
                                 self.log.info(
                                     f"Created '{current.system.address}' as instance of {type(current)}."
                                 )
                     except Error as error:
+                        errors = self._unwrap_component_errors(error)
+                        creation_errors.extend(errors)
                         if not silent:
-                            if isinstance(error, ComponentCombinedError):
-                                errors = error.errors
-                            else:
-                                errors = [error]
-
                             self.log.error(
                                 f"Failed to create '{action.address}'. Errors: {to_json(errors, indent=2)}"
                             )
                 case RecreateComponentEngineAction():
                     self.log.info(f"Recreating '{action.address}'.")
-                    if config is None:
+                    if config_entry is None:
                         if not silent:
                             self.log.warning(
                                 f"Component at '{action.address}' not found in configuration. Skipping."
@@ -770,18 +824,17 @@ class Engine(Node):
                             )
 
                     try:
-                        component = config.create(container)
+                        component = config_entry.create(container)
+                        created_components.append(component)
                         for current in component.system.get_components(inclusive=True):
                             if not silent:
                                 self.log.info(
                                     f"Recreated '{current.system.address}' as instance of {type(current)}."
                                 )
                     except Error as error:
+                        errors = self._unwrap_component_errors(error)
+                        creation_errors.extend(errors)
                         if not silent:
-                            if isinstance(error, ComponentCombinedError):
-                                errors = error.errors
-                            else:
-                                errors = [error]
                             self.log.error(
                                 f"Failed to recreate '{action.address}'. Errors: {to_json(errors, indent=2)}"
                             )
@@ -801,7 +854,30 @@ class Engine(Node):
                                 f"Component at {action.address} does not exist to remove. Skipping."
                             )
 
-            if action.address.is_root:
-                root_component = component
+        if created_components:
+            # Cross-tree references were deferred while their target tree might not exist yet,
+            # validate them now that every action in this apply has run.
+            reference_targets = [
+                descendant
+                for component in created_components
+                for descendant in component.system.get_components(inclusive=True)
+            ]
+            reference_errors = collect_unresolved_reference_errors(reference_targets)
+            if reference_errors and not silent:
+                self.log.error(
+                    f"Unresolved cross-tree references found. Errors: "
+                    f"{to_json(reference_errors, indent=2)}"
+                )
 
-        return root_component
+            creation_errors.extend(reference_errors)
+
+        if strict and creation_errors:
+            raise ComponentCombinedError(errors=creation_errors)
+
+    @staticmethod
+    def _unwrap_component_errors(error: Error) -> list[ComponentError]:
+        """Flatten `error` into a list of component errors, wrapping unexpected kinds."""
+        if isinstance(error, ComponentCombinedError):
+            return list(error.errors)
+
+        return [ComponentUnexpectedError(exception=trace(error))]

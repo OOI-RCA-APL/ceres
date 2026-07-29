@@ -1,44 +1,53 @@
 <script lang="ts" setup>
 import { until } from '@vueuse/core'
-import { compact, orderBy, upperFirst } from 'lodash-es'
 import { useDialogPluginComponent } from 'quasar'
-import { reactive, computed, watch, nextTick } from 'vue'
+import { reactive, computed, nextTick } from 'vue'
 
+import { useAccess } from '@/api/access'
+import { Address, engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { User } from '@/api/users'
 import CommonText from '@/components/CommonText.vue'
-import UserChooser from '@/components/UserChooser.vue'
-import { useDialogs } from '@/dialogs'
 import { useForm } from '@/form'
 import icons from '@/icons'
-import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
-import { useTheme } from '@/theme'
+import { usePreferences } from '@/preferences'
 import { useValidate } from '@/validate'
-import {
-  userCanManageWorkspace,
-  WorkspaceAccessRestriction,
-  WorkspaceAccessRestrictionModel,
-  WorkspaceAccessRestrictionOf,
-  WorkspaceData,
-  WorkspaceMembership,
-  WorkspaceMembershipRole,
-  WorkspaceMembershipRoleModel,
-  WorkspaceMembershipRoleOf,
-} from '@/workspace'
+import { WorkspaceData } from '@/workspace'
 
-const { workspaceId, data, action } = defineProps<
+const {
+  workspaceId = null,
+  data = null,
+  action,
+  scope = null,
+  isPrivate: presetIsPrivate = null,
+} = defineProps<
   | {
       workspaceId: string
       action: 'view'
       data?: null
+      scope?: null
+      isPrivate?: null
     }
   | {
       workspaceId: string
       action: 'duplicate'
       data?: WorkspaceData
+      scope?: null
+      isPrivate?: null
+    }
+  | {
+      workspaceId?: null
+      action: 'create'
+      data?: null
+      /** Placement the new workspace sits on, defaulting to the engine root. */
+      scope?: string
+
+      /** Which kind to start on, for a caller that already knows. Without one the form opens on
+      whichever kind was made last.
+      */
+      isPrivate?: boolean | null
     }
 >()
 
@@ -46,18 +55,12 @@ defineEmits([...useDialogPluginComponent.emits])
 
 const { dialogRef, onDialogHide, onDialogOK, onDialogCancel } = useDialogPluginComponent()
 
+const access = useAccess()
 const auth = useAuth()
-const dialogs = useDialogs()
 const engine = useEngine()
-const navigation = useNavigation()
 const notify = useNotify()
-const theme = useTheme()
+const preferences = usePreferences()
 const validate = useValidate()
-
-let tab = $ref<'general' | 'members'>('general')
-
-let addingMember = $ref<User | null>(null)
-let addingMemberRole = $ref<WorkspaceMembershipRole | null>(null)
 
 const key = Math.random()
 const query = reactive(
@@ -65,221 +68,144 @@ const query = reactive(
     queryKey: computed(() => ['workspace-dialog', workspaceId, auth.user?.id, key]),
     queryFn: async () => {
       await auth.refresh()
-      let [workspace, membership, memberships, users] = await Promise.all([
-        engine.workspaces.get(workspaceId),
-        engine.workspaces.getMembership(workspaceId),
-        engine.workspaces.getMembershipsInWorkspace(workspaceId),
-        engine.users.getAll({
-          has_workspace_membership: workspaceId,
-        }),
-      ])
-
-      users = orderBy(users, (current) => (current.id === auth.user?.id ? 0 : 1))
-
-      return { workspace, membership, memberships, users }
+      return { workspace: workspaceId != null ? await engine.workspaces.get(workspaceId) : null }
     },
   })
 )
 
 const workspace = $computed(() => query.data?.workspace ?? null)
-const membership = $computed(() => query.data?.membership ?? null)
-const memberships = $computed(() => query.data?.memberships ?? [])
-const users = $computed(() => query.data?.users ?? [])
-const canManage = $computed(() => {
-  if (action === 'duplicate') {
-    return true
-  }
-  if (workspace == null) {
-    return false
-  }
 
-  return userCanManageWorkspace(auth.user, membership)
-})
-
-const userMemberships = $computed(() =>
-  compact(
-    users.map((user) => {
-      const membership = memberships.find((current) => current.user_id === user.id)
-      if (membership == null) {
-        return null
-      }
-
-      return { ...membership, user }
-    })
-  )
+// Everything the dialog explains follows from where the workspace sits and whether it is owned.
+// A workspace being created has no row to read those from yet, so they come from the placement
+// passed in and from the choice the form is currently showing.
+const placement = $computed(() =>
+  action === 'create' ? new Address(scope ?? engineRoot) : workspace?.scope ?? null
 )
 
-const memberIds = $computed(() => new Set(userMemberships.map((membership) => membership.user.id)))
+// A shared workspace appears for everyone who can see its placement, so creating one takes manage
+// there. A private one is visible to nobody else and takes only the view access needed to be
+// looking at the placement at all.
+const canShare = $computed(() => placement != null && access.canManage(placement.toString()))
 
-type UserWorkspaceMembership = WorkspaceMembership & {
-  user: User
-}
+const titles = {
+  view: 'Workspace Settings',
+  duplicate: 'Duplicate Workspace',
+  create: 'Create Workspace',
+} as const
+
+const submitLabels = {
+  view: 'Save',
+  duplicate: 'Duplicate',
+  create: 'Create',
+} as const
 
 const form = useForm({
-  editing: action === 'duplicate',
+  editing: action !== 'view',
   data: {
-    name: 'New Workspace',
-    general_viewership: 'private' as WorkspaceAccessRestriction,
-    general_editorship: 'private' as WorkspaceAccessRestriction,
-    general_managership: 'private' as WorkspaceAccessRestriction,
+    name: 'Workspace',
+    // A duplicate starts private, so an arrangement can be tried out before anyone else sees it,
+    // and can still be shared from the same form. A new one starts on whichever kind was made
+    // last, or on whichever kind the caller asked for.
+    isPrivate: true,
+    // Whether this is one of the workspaces a new user lands on. Only meaningful for a shared
+    // workspace placed on the engine root, which is what the home page draws its defaults from.
+    showWhenLoggedOut: false,
   },
   validators: {
     name: validate.isNotBlank(),
   },
   onSubmit: async (values) => {
     if (action === 'view') {
-      await engine.workspaces.update(workspaceId, values)
-      notify.success('Workspace settings updated successfully.')
-    } else if (action === 'duplicate' && workspaceId) {
-      const copy = await engine.workspaces.create({
-        ...values,
-        data: data ?? workspace?.data ?? {},
+      await engine.workspaces.update(workspaceId, {
+        name: values.name,
+        ...(canMarkForHome ? { show_when_logged_out: values.showWhenLoggedOut } : {}),
       })
-      notify.success('Workspace duplicated successfully.')
-      navigation.go(`/workspaces/${copy.id}`)
+      notify.success('Workspace settings updated successfully.')
+      onDialogOK()
+      return
     }
 
-    onDialogOK()
+    const created = await engine.workspaces.create({
+      name: values.name,
+      scope: placement ?? undefined,
+      owner_id: values.isPrivate ? auth.user?.id : null,
+      data: action === 'duplicate' ? data ?? workspace?.data ?? {} : undefined,
+    })
+
+    // Only a deliberate choice is remembered. Duplicating is always private, and a user without
+    // manage has no choice to make, so neither says anything about what they prefer.
+    if (action === 'create' && canShare) {
+      preferences.wasLastWorkspacePrivate = values.isPrivate
+    }
+
+    notify.success(
+      action === 'duplicate'
+        ? 'Workspace duplicated successfully.'
+        : 'Workspace created successfully.'
+    )
+
+    // Handed back so the caller can place it. Where it belongs depends on where it was made, and a
+    // copy goes beside its original, neither of which the dialog is in a position to know.
+    onDialogOK(created)
   },
 })
 
-watch(
-  () => form.data.general_managership,
-  () => {
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_editorship] >
-      WorkspaceAccessRestrictionOf[form.data.general_managership]
-    ) {
-      form.data.general_editorship = form.data.general_managership
-    }
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_viewership] >
-      WorkspaceAccessRestrictionOf[form.data.general_editorship]
-    ) {
-      form.data.general_viewership = form.data.general_editorship
-    }
-  }
+// Creating and duplicating both explain the workspace the form is about to make, which the form's
+// own choice decides. Only the settings view describes a workspace that already exists.
+const isPrivate = $computed(() =>
+  action === 'view' ? workspace?.owner_id != null : form.data.isPrivate
 )
 
-watch(
-  () => form.data.general_editorship,
-  () => {
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_editorship] >
-      WorkspaceAccessRestrictionOf[form.data.general_managership]
-    ) {
-      form.data.general_managership = form.data.general_editorship
-    }
+// Named rather than switched, so the choice reads as two kinds of workspace instead of a setting
+// that happens to be off.
+const visibilityOptions = [
+  { label: 'Shared', value: false, icon: icons.workspace },
+  { label: 'Private', value: true, icon: icons.privateWorkspace },
+]
 
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_viewership] >
-      WorkspaceAccessRestrictionOf[form.data.general_editorship]
-    ) {
-      form.data.general_viewership = form.data.general_editorship
-    }
+const canManage = $computed(() => {
+  if (action !== 'view') {
+    return true
   }
-)
-
-watch(
-  () => form.data.general_viewership,
-  () => {
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_viewership] >
-      WorkspaceAccessRestrictionOf[form.data.general_managership]
-    ) {
-      form.data.general_managership = form.data.general_viewership
-    }
-
-    if (
-      WorkspaceAccessRestrictionOf[form.data.general_viewership] >
-      WorkspaceAccessRestrictionOf[form.data.general_editorship]
-    ) {
-      form.data.general_editorship = form.data.general_viewership
-    }
+  if (workspace == null) {
+    return false
   }
+  if (isPrivate) {
+    return workspace.owner_id === auth.user?.id
+  }
+
+  return canShare
+})
+
+// The home page's default set. It only applies to a shared workspace on the engine root, and it
+// decides what everyone lands on, so it takes manage there. A private workspace can never carry
+// it, because nobody else can see one.
+const canMarkForHome = $computed(
+  () => action === 'view' && !isPrivate && placement?.isEngine === true && canShare
 )
 
 nextTick(async () => {
   await until(() => query.isFetched).toBe(true)
+  if (action === 'create') {
+    // A caller that already knows which kind it wants says so. Without manage there is no choice
+    // to make, since sharing is not available.
+    if (!canShare) {
+      form.data.isPrivate = true
+    } else {
+      form.data.isPrivate = presetIsPrivate ?? preferences.wasLastWorkspacePrivate
+    }
+
+    return
+  }
   if (workspace != null) {
     form.load(workspace)
+    form.data.showWhenLoggedOut = workspace.show_when_logged_out
     if (action === 'duplicate') {
       form.data.name = `${workspace.name} (Copy)`
+      form.data.isPrivate = true
     }
   }
 })
-
-function getRestrictionLabel(restriction: WorkspaceAccessRestriction) {
-  if (restriction === 'private') {
-    return 'Private (Members Only)'
-  }
-
-  return upperFirst(restriction)
-}
-
-async function addMember(user: User, role: WorkspaceMembershipRole) {
-  try {
-    await engine.workspaces.createMembership(user.id, workspaceId, role)
-    notify.success(`User "${user.username}" added to workspace successfully.`)
-  } finally {
-    query.refetch()
-    addingMember = null
-    addingMemberRole = null
-  }
-}
-
-function promptRemoveMember(membership: UserWorkspaceMembership) {
-  if (workspace == null) {
-    return
-  }
-
-  dialogs
-    .confirm({
-      title: 'Remove Member',
-      message: `Remove user "${membership.user.username}" from this workspace?`,
-      ok: {
-        label: 'Yes',
-        color: 'negative',
-      },
-    })
-    .onOk(async () => {
-      await engine.workspaces.deleteMembership(membership.user_id, workspaceId)
-
-      notify.success(`User "${membership.user.username}" removed from workspace successfully.`)
-      query.refetch()
-    })
-}
-
-function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMembershipRole) {
-  if (membership == null || workspace == null) {
-    return
-  }
-
-  const isDemotion = WorkspaceMembershipRoleOf[role] < WorkspaceMembershipRoleOf[membership.role]
-  const verb = isDemotion ? 'Demote' : 'Promote'
-
-  dialogs
-    .confirm({
-      title: 'Change Workspace Role',
-      message: `${verb} "${membership.user.username}" from ${membership.role} to ${role}?`,
-      ok: {
-        label: 'Yes',
-        color: 'negative',
-      },
-    })
-    .onOk(async () => {
-      if (membership == null || workspace == null) {
-        return
-      }
-
-      await engine.workspaces.updateMembership(membership.user_id, workspace.id, {
-        role,
-      })
-
-      notify.success(`Workspace role of "${membership.user.username}" changed successfully.`)
-      query.refetch()
-    })
-}
 </script>
 
 <template>
@@ -287,7 +213,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
     <q-card v-if="auth.user != null" bordered class="q-dialog-plugin" :class="$style.card" flat>
       <div class="q-px-md row">
         <common-text class="q-mb-sm q-mt-sm" element="h2" variant="title1">
-          {{ action === 'view' ? 'Workspace Settings' : 'Duplicate Workspace' }}
+          {{ titles[action] }}
         </common-text>
         <q-space />
         <div class="items-center row">
@@ -298,327 +224,120 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
         <q-spinner-orbit color="primary" size="25px" />
       </div>
       <template v-else>
-        <template v-if="action === 'view'">
-          <q-separator />
-          <q-tabs
-            v-model="tab"
-            active-color="primary"
-            dense
-            inactive-color="grey"
-            indicator-color="transparent"
-            no-caps
-          >
-            <q-tab :class="$style.tab" label="General" name="general" />
-            <q-separator vertical />
-
-            <q-tab
-              :class="$style.tab"
-              :content-class="$style.membershipsTabContent"
-              label="Members"
-              name="members"
-            >
-              <q-badge
-                :class="[$style.membershipsCountBadge, 'q-ml-sm']"
-                :color="tab === 'members' ? 'primary' : theme.darklight('grey-1', () => 'black')"
-                rounded
-                :text-color="tab === 'members' ? 'white' : theme.darklight('black', 'white')"
-              >
-                {{ userMemberships.length }}
-              </q-badge>
-            </q-tab>
-          </q-tabs>
-          <div class="row">
-            <q-separator :class="[tab === 'general' && $style.invisible, 'col']" />
-            <q-separator :class="[tab === 'members' && $style.invisible, 'col']" />
+        <q-separator />
+        <q-form :ref="form.bind" class="q-py-md" @submit="form.submit">
+          <div v-if="query.error" class="q-pt-none q-px-md">
+            <common-text element="p" variant="body1">
+              An error occurred while loading the workspace. {{ query.error }}
+            </common-text>
           </div>
-        </template>
-        <q-tab-panels v-model="tab">
-          <q-tab-panel class="q-px-none" name="general">
-            <q-form :ref="form.bind" @submit="form.submit">
-              <div v-if="query.error" class="q-pt-none q-px-md">
-                <common-text element="p" variant="body1">
-                  An error occurred while loading the workspace. {{ query.error }}
-                </common-text>
-              </div>
-              <div v-else class="q-pt-none q-px-md">
-                <q-input
-                  v-model="form.data.name"
-                  autofocus
-                  class="q-mb-md"
-                  color="primary"
-                  dense
-                  label="Workspace Name"
-                  lazy-rules
-                  no-error-icon
-                  outlined
-                  :readonly="form.readonly"
+          <div v-else class="q-pt-none q-px-md">
+            <q-input
+              v-model="form.data.name"
+              autofocus
+              class="q-mb-md"
+              color="primary"
+              dense
+              label="Workspace Name"
+              lazy-rules
+              no-error-icon
+              outlined
+              :readonly="form.readonly"
+            />
+            <q-select
+              v-if="action !== 'view' && canShare"
+              v-model="form.data.isPrivate"
+              class="q-mb-md"
+              color="primary"
+              dense
+              emit-value
+              label="Visibility"
+              map-options
+              :options="visibilityOptions"
+              options-dense
+              outlined
+            >
+              <template #prepend>
+                <q-icon
+                  :name="form.data.isPrivate ? icons.privateWorkspace : icons.workspace"
+                  size="20px"
                 />
-                <div class="q-pb-sm">
-                  <common-text element="t3" variant="title3">General Permissions</common-text>
-                </div>
-                <div class="column q-col-gutter-y-sm q-mb-lg q-pt-none">
-                  <q-select
-                    v-model="form.data.general_viewership"
-                    color="primary"
-                    dense
-                    :hint="
-                      'Global subset of users who can discover and join this workspace as a ' +
-                      'viewer.'
-                    "
-                    label="View Access"
-                    lazy-rules
-                    no-error-icon
-                    :option-label="getRestrictionLabel"
-                    :options="WorkspaceAccessRestrictionModel.options"
-                    options-dense
-                    outlined
-                    :readonly="form.readonly"
-                  />
-                  <q-select
-                    v-model="form.data.general_editorship"
-                    color="primary"
-                    dense
-                    :hint="
-                      'Global subset of users who can join this workspace as an editor, able to ' +
-                      'modify its shared contents.'
-                    "
-                    label="Edit Access"
-                    lazy-rules
-                    no-error-icon
-                    :option-label="getRestrictionLabel"
-                    :options="WorkspaceAccessRestrictionModel.options"
-                    options-dense
-                    outlined
-                    :readonly="form.readonly"
-                  />
-                  <q-select
-                    v-model="form.data.general_managership"
-                    color="primary"
-                    dense
-                    :hint="
-                      'Global subset of users who can join this workspace as a manager, able to ' +
-                      'modify its name, settings, members, and contents, in addition to being ' +
-                      'able to delete it entirely.'
-                    "
-                    label="Management Access"
-                    lazy-rules
-                    no-error-icon
-                    :option-label="getRestrictionLabel"
-                    :options="WorkspaceAccessRestrictionModel.options"
-                    options-dense
-                    outlined
-                    :readonly="form.readonly"
-                  />
-                </div>
-              </div>
-            </q-form>
-            <div v-if="canManage" class="q-col-gutter-x-sm q-pt-sm q-px-md row">
-              <div v-if="action === 'view' && form.readonly" class="col">
-                <q-btn
-                  class="full-width"
-                  color="primary"
-                  :icon="icons.edit"
-                  label="Edit"
-                  unelevated
-                  @click="form.edit()"
-                />
-              </div>
-              <div v-if="action === 'view' && form.editable" class="col">
-                <q-btn
-                  class="full-width"
-                  color="grey-8"
-                  :icon="icons.cancel"
-                  label="Cancel"
-                  unelevated
-                  @click="form.discard()"
-                />
-              </div>
-              <div v-if="form.editable" class="col">
-                <q-btn
-                  class="full-width"
-                  color="primary"
-                  :disable="form.validation !== 'valid'"
-                  :icon="icons.confirm"
-                  :label="action !== 'view' ? upperFirst(action) : 'Save'"
-                  :loading="form.state === 'submitting'"
-                  type="submit"
-                  unelevated
-                  @click="form.submit()"
-                />
-              </div>
+              </template>
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps" dense>
+                  <q-item-section avatar>
+                    <q-icon :name="scope.opt.icon" size="20px" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>{{ scope.opt.label }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <div class="q-mb-sm text-grey-6">
+              <template v-if="isPrivate">
+                <q-icon class="q-mr-xs" :name="icons.privateWorkspace" />
+                This workspace is private to you.
+              </template>
+              <template v-else-if="placement?.isEngine">
+                Anyone signed in can see this workspace.
+              </template>
+              <template v-else>
+                Access follows the <span class="monospace-xs">{{ placement }}</span> component.
+              </template>
             </div>
-          </q-tab-panel>
-          <q-tab-panel name="members">
-            <div class="column q-col-gutter-y-sm q-pt-xs">
-              <div v-if="userMemberships.length === 0" class="q-pa-sm text-center">
-                This workspace has no members.
-              </div>
-              <q-card
-                v-else
-                bordered
-                :class="['q-pa-none q-mb-xs scroll', $style.memberListContainer]"
-                flat
-              >
-                <q-list dense>
-                  <q-item v-for="membership in userMemberships" :key="membership.user.id">
-                    <q-item-section>
-                      <q-item-label>
-                        {{ membership.user.username }}
-                        <q-chip
-                          v-if="membership.user.id === auth.user.id"
-                          class="q-ml-sm"
-                          color="primary"
-                          dense
-                          flat
-                          outline
-                          size="10px"
-                        >
-                          You
-                        </q-chip>
-                      </q-item-label>
-                    </q-item-section>
-                    <q-item-section side>
-                      <div class="items-center q-gutter-x-sm row">
-                        <q-chip
-                          class="q-px-sm"
-                          color="primary"
-                          dense
-                          :icon="icons[membership.role]"
-                          size="10px"
-                          text-color="white"
-                        >
-                          {{ upperFirst(membership.role) }}
-                        </q-chip>
-                        <q-btn
-                          dense
-                          :disable="!canManage || membership.user.id === auth.user.id"
-                          flat
-                          :icon="icons.more"
-                          round
-                          size="8px"
-                        >
-                          <q-menu anchor="top right" :offset="[8, 7]" self="top left">
-                            <q-card bordered flat>
-                              <q-list dense>
-                                <q-item clickable>
-                                  <q-item-section avatar>
-                                    <q-icon :name="icons.changeRole" />
-                                  </q-item-section>
-                                  <q-item-section>
-                                    <q-item-label>Change Role</q-item-label>
-                                  </q-item-section>
-                                  <q-item-section side>
-                                    <q-icon :name="icons.menuRight" size="16px" />
-                                  </q-item-section>
-                                  <q-menu
-                                    v-if="membership.user.id !== auth.user.id"
-                                    anchor="top right"
-                                    :offset="[8, 1]"
-                                    self="top left"
-                                  >
-                                    <q-card bordered flat>
-                                      <q-list dense>
-                                        <q-item
-                                          v-for="role in WorkspaceMembershipRoleModel.options"
-                                          :key="role"
-                                          v-close-popup
-                                          clickable
-                                          :disable="membership.role === role"
-                                          @click="promptChangeRole(membership, role)"
-                                        >
-                                          <q-item-section avatar>
-                                            <q-icon :name="icons[role]" />
-                                          </q-item-section>
-                                          <q-item-section>
-                                            <q-item-label>To {{ upperFirst(role) }}</q-item-label>
-                                          </q-item-section>
-                                        </q-item>
-                                      </q-list>
-                                    </q-card>
-                                  </q-menu>
-                                </q-item>
-                                <q-item
-                                  v-close-popup
-                                  clickable
-                                  @click="promptRemoveMember(membership)"
-                                >
-                                  <q-item-section avatar>
-                                    <q-icon :name="icons.removeMember" />
-                                  </q-item-section>
-                                  <q-item-section>
-                                    <q-item-label>Remove</q-item-label>
-                                  </q-item-section>
-                                </q-item>
-                              </q-list>
-                            </q-card>
-                          </q-menu>
-                        </q-btn>
-                      </div>
-                    </q-item-section>
-                  </q-item>
-                </q-list>
-              </q-card>
-              <div v-if="canManage" class="justify-center row">
-                <q-btn color="primary" dense :icon="icons.add" round size="10px" unelevated>
-                  <q-tooltip class="bg-primary text-white">Add Member</q-tooltip>
-                  <q-menu
-                    anchor="top middle"
-                    :offset="[0, 12]"
-                    self="bottom middle"
-                    @hide="addingMember = null"
-                  >
-                    <q-card bordered :class="$style.addMemberMenu" flat>
-                      <user-chooser
-                        v-if="addingMember == null"
-                        :omit="(user) => user.id === auth.user?.id || memberIds.has(user.id)"
-                        @select="(user) => (addingMember = user)"
-                      />
-                      <div v-else class="column q-col-gutter-sm q-pa-sm">
-                        <div>
-                          <q-card bordered class="q-py-xs" flat>
-                            <q-item dense>
-                              <q-item-section>
-                                <q-item-label>{{ addingMember.username }}</q-item-label>
-                                <q-item-label caption>{{ addingMember.email }}</q-item-label>
-                              </q-item-section>
-                            </q-item>
-                          </q-card>
-                        </div>
-                        <q-select
-                          v-model="addingMemberRole"
-                          autofocus
-                          dense
-                          label="Workspace Role"
-                          :option-label="upperFirst"
-                          :options="WorkspaceMembershipRoleModel.options"
-                          options-dense
-                          outlined
-                        />
-                        <div>
-                          <q-btn
-                            v-close-popup
-                            class="full-width"
-                            color="primary"
-                            dense
-                            :disable="addingMemberRole == null"
-                            label="Add"
-                            @click="
-                              () => {
-                                if (addingMember != null && addingMemberRole != null) {
-                                  addMember(addingMember, addingMemberRole)
-                                }
-                              }
-                            "
-                          />
-                        </div>
-                      </div>
-                    </q-card>
-                  </q-menu>
-                </q-btn>
-              </div>
+            <div v-if="action === 'create' && !canShare" class="text-grey-6">
+              Sharing requires manage access.
             </div>
-          </q-tab-panel>
-        </q-tab-panels>
+            <template v-if="canMarkForHome">
+              <q-separator class="q-mb-sm q-mt-sm" />
+              <q-toggle
+                v-model="form.data.showWhenLoggedOut"
+                dense
+                :disable="form.readonly"
+                label="Show on the home page"
+              />
+              <div class="q-mt-xs text-grey-6">
+                Workspaces shown here are what a new user sees when they first sign in.
+              </div>
+            </template>
+          </div>
+        </q-form>
+        <div v-if="canManage" class="q-col-gutter-x-sm q-pb-md q-px-md row">
+          <div v-if="action === 'view' && form.readonly" class="col">
+            <q-btn
+              class="full-width"
+              color="primary"
+              :icon="icons.edit"
+              label="Edit"
+              unelevated
+              @click="form.edit()"
+            />
+          </div>
+          <div v-if="action === 'view' && form.editable" class="col">
+            <q-btn
+              class="full-width"
+              color="grey-8"
+              :icon="icons.cancel"
+              label="Cancel"
+              unelevated
+              @click="form.discard()"
+            />
+          </div>
+          <div v-if="form.editable" class="col">
+            <q-btn
+              class="full-width"
+              color="primary"
+              :disable="form.validation !== 'valid'"
+              :icon="icons.confirm"
+              :label="submitLabels[action]"
+              :loading="form.state === 'submitting'"
+              type="submit"
+              unelevated
+              @click="form.submit()"
+            />
+          </div>
+        </div>
       </template>
     </q-card>
   </q-dialog>
@@ -628,30 +347,5 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
 .card {
   max-width: 560px;
   width: 560px;
-}
-
-.invisible {
-  opacity: 0;
-}
-
-.tab {
-  margin-top: -1px;
-  flex: 1 !important;
-}
-
-.membershipsTabContent {
-  flex-direction: row !important;
-}
-
-.membershipsCountBadge {
-  opacity: 0.85;
-}
-
-.memberListContainer {
-  max-height: 300px;
-}
-
-.addMemberMenu {
-  min-width: 220px;
 }
 </style>

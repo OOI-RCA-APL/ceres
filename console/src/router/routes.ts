@@ -3,7 +3,7 @@ import { RouteRecordRaw } from 'vue-router'
 import AppLayout from '@/AppLayout.vue'
 import Account from '@/pages/Account.vue'
 import CreateUser from '@/pages/CreateUser.vue'
-import Dashboard from '@/pages/Dashboard.vue'
+import Home from '@/pages/Home.vue'
 import Login from '@/pages/Login.vue'
 import User from '@/pages/User.vue'
 import Users from '@/pages/Users.vue'
@@ -17,7 +17,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
-        component: Dashboard,
+        component: Home,
       },
       {
         path: '/login',
@@ -26,7 +26,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: '/account',
         meta: {
-          auth: 'viewer',
+          auth: true,
         },
         component: Account,
       },
@@ -57,7 +57,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: '/workspaces/:id',
         meta: {
-          auth: 'viewer',
+          auth: true,
         },
         props: (route) => ({
           id: parseStringOrNull(route.params.id),
@@ -65,12 +65,32 @@ const routes: RouteRecordRaw[] = [
         component: Workspace,
       },
       {
+        path: '/components/:address(.*)',
+        component: () => import('@/pages/ComponentDetail.vue'),
+        meta: { auth: true },
+      },
+      {
+        path: '/groups/create',
+        component: () => import('@/pages/CreateGroup.vue'),
+        meta: { auth: 'admin' },
+      },
+      {
+        path: '/groups',
+        component: () => import('@/pages/Groups.vue'),
+        meta: { auth: 'admin' },
+      },
+      {
+        path: '/groups/:id',
+        component: () => import('@/pages/GroupDetail.vue'),
+        meta: { auth: 'admin' },
+      },
+      {
         path: '/developer/schema-form-playground',
         component: SchemaFormPlayground,
       },
       {
         path: '/:catchAll(.*)*',
-        redirect: '/units',
+        redirect: '/',
       },
     ],
   },

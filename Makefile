@@ -10,6 +10,8 @@ update:
 	cd console && make update
 test:
 	uv run pytest -vv -s
+test-postgres:
+	CERES_TEST_DATABASE=postgres uv run pytest -vv -s
 coverage:
 	uv run ./scripts/update-coverage.py
 coverage-check:

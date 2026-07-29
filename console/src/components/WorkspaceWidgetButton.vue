@@ -1,19 +1,30 @@
 <script lang="ts" setup>
-import { useAuth } from '@/api/auth'
+import { useAccess } from '@/api/access'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import { isError } from '@/api/shared'
 import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
-import { ButtonWidget } from '@/workspace'
+import { ButtonWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ButtonWidget
 }>()
 
+const access = useAccess()
 const engine = useEngine()
-const auth = useAuth()
 const notify = useNotify()
 const preferences = usePreferences()
+const workspace = useWorkspace()
+
+const resolvedAddress = $computed(() => {
+  const resolved = workspace.resolveAddress(widget.address)
+  return resolved == null ? null : Address.parse(resolved)
+})
+
+const canOperate = $computed(
+  () => resolvedAddress != null && access.canOperate(resolvedAddress.toString())
+)
 
 const color = $computed(() => {
   if (widget.color == null) {
@@ -34,11 +45,11 @@ const textColor = $computed(() => {
 let isRunning = $ref(false)
 
 const action = $computed(() => {
-  if (widget.address == null || widget.action == null) {
+  if (resolvedAddress == null || widget.action == null) {
     return null
   }
 
-  return engine.components.getAction(widget.address, widget.action)
+  return engine.components.getAction(resolvedAddress, widget.action)
 })
 
 const label = $computed(() => {
@@ -54,13 +65,13 @@ const label = $computed(() => {
 })
 
 async function onClick() {
-  if (!auth.isOperator) {
+  if (!canOperate) {
     return
   }
 
   try {
     isRunning = true
-    const result = await engine.components.call(widget.address, widget.action, widget.arguments)
+    const result = await engine.components.call(resolvedAddress, widget.action, widget.arguments)
     if (isError(result)) {
       notify.error(`Action "${widget.action}" failed. ${JSON.stringify(result)}`, {
         timeout: 10000,
@@ -79,7 +90,7 @@ async function onClick() {
     <q-btn
       :color="color"
       dense
-      :disabled="!auth.isOperator || action == null"
+      :disabled="!canOperate || action == null"
       :flat="widget.styling === 'flat'"
       :label="label"
       :loading="isRunning"
@@ -93,7 +104,7 @@ async function onClick() {
         Button action is not configured.
       </q-tooltip>
       <q-tooltip v-else-if="action == null" class="bg-negative text-white">
-        Button action {{ widget.address }}::action::{{ widget.action }} not found.
+        Button action {{ resolvedAddress }}::action::{{ widget.action }} not found.
       </q-tooltip>
       <q-tooltip v-else-if="widget.tooltip" :class="`bg-${color} text-white`">
         {{ widget.tooltip }}

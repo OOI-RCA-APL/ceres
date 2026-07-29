@@ -208,10 +208,6 @@ Auto-generated reference documentation for the Ceres public API.
 
 :::ceres.user.User
 
-### UserRole
-
-:::ceres.user.UserRole
-
 ### Workspace
 
 :::ceres.workspace.Workspace

@@ -2,17 +2,19 @@ import pytest
 
 from ceres.alert import Alert
 from ceres.entity import EntityType
+from ceres.group import Group, GroupMembership
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.particle import Particle
+from ceres.permission import GroupPermission, UserPermission
 from ceres.setting import Setting
 from ceres.user import User
 from ceres.variable import Variable
-from ceres.workspace import Workspace, WorkspaceEdit, WorkspaceMembership
+from ceres.workspace import Workspace, WorkspaceEdit
 
 
 def test_entity_type_member_count():
-    assert len(EntityType) == 10
+    assert len(EntityType) == 13
 
 
 def test_entity_type_string_values():
@@ -24,8 +26,11 @@ def test_entity_type_string_values():
     assert EntityType.VARIABLE == "variable"
     assert EntityType.SETTING == "setting"
     assert EntityType.WORKSPACE == "workspace"
-    assert EntityType.WORKSPACE_MEMBERSHIP == "workspace-membership"
     assert EntityType.WORKSPACE_EDIT == "workspace-edit"
+    assert EntityType.GROUP == "group"
+    assert EntityType.GROUP_MEMBERSHIP == "group-membership"
+    assert EntityType.USER_PERMISSION == "user-permission"
+    assert EntityType.GROUP_PERMISSION == "group-permission"
 
 
 EXPECTED_CLASSES: dict[EntityType, type] = {
@@ -37,8 +42,11 @@ EXPECTED_CLASSES: dict[EntityType, type] = {
     EntityType.VARIABLE: Variable,
     EntityType.SETTING: Setting,
     EntityType.WORKSPACE: Workspace,
-    EntityType.WORKSPACE_MEMBERSHIP: WorkspaceMembership,
     EntityType.WORKSPACE_EDIT: WorkspaceEdit,
+    EntityType.GROUP: Group,
+    EntityType.GROUP_MEMBERSHIP: GroupMembership,
+    EntityType.USER_PERMISSION: UserPermission,
+    EntityType.GROUP_PERMISSION: GroupPermission,
 }
 
 
@@ -67,8 +75,11 @@ EXPECTED_ALIASES: dict[str, EntityType] = {
     "variables": EntityType.VARIABLE,
     "settings": EntityType.SETTING,
     "workspaces": EntityType.WORKSPACE,
-    "workspace-memberships": EntityType.WORKSPACE_MEMBERSHIP,
     "workspace-edits": EntityType.WORKSPACE_EDIT,
+    "groups": EntityType.GROUP,
+    "group-memberships": EntityType.GROUP_MEMBERSHIP,
+    "user-permissions": EntityType.USER_PERMISSION,
+    "group-permissions": EntityType.GROUP_PERMISSION,
 }
 
 

@@ -1,11 +1,15 @@
 import Zod from 'zod'
 
+/** The address of the engine root, the placement of anything not bound to a component. */
+export const engineRoot = '~'
+
 const namePattern = '^[a-zA-Z_-][a-zA-Z0-9_-]*$'
 const name = namePattern.slice(1, -1)
 const modifier = ':(all|children|descendants)'
-const segment = `\\~(${modifier})?|@?[a-z-A-Z_\\-.]+(${modifier})?|@(${modifier})?|${modifier}`
+const base = `@?${name}(\\.${name})*`
+const segment = `\\~(:(all|descendants))?|${base}(${modifier})?|@${modifier}|${modifier}`
 
-const addressSelectorRegex = new RegExp(`^${segment}(\\|${segment})*$`)
+const addressSelectorRegex = new RegExp(`^(?:${segment})(?:\\|(?:${segment}))*$`)
 
 export class AddressSelector {
   public readonly value: string
@@ -42,9 +46,32 @@ export class AddressSelector {
   public equals(other: string | Address): boolean {
     return other.valueOf() === this.value
   }
+
+  public get isAbsolute(): boolean {
+    return this.value === '~' || this.value.startsWith('@') || this.value.startsWith(':')
+  }
+
+  // Resolve relative segments against a root address, mirroring the backend `as_absolute`.
+  public asAbsolute(root: Address | null): AddressSelector {
+    const base = root == null || root.value === '~' ? '@' : root.value
+    const segments = this.value.split('|').map((segment) => {
+      if (segment.startsWith(':')) {
+        return base + segment
+      } else if (segment.startsWith('~') || segment.startsWith('@')) {
+        return segment
+      } else if (base === '@') {
+        return base + segment
+      } else if (segment === '') {
+        return base
+      } else {
+        return `${base}.${segment}`
+      }
+    })
+    return new AddressSelector(segments.join('|'))
+  }
 }
 
-const addressRegex = new RegExp(`^~|@(${name}(\\.${name})*)*$`)
+const addressRegex = new RegExp(`^(?:~|@?${name}(\\.${name})*)$`)
 
 export class Address extends AddressSelector {
   constructor(value: string | AddressSelector) {
@@ -64,15 +91,10 @@ export class Address extends AddressSelector {
     return new Address(address)
   }
 
-  public get isRoot(): boolean {
-    return this.value === '@'
-  }
-
   public get name(): string | null {
-    if (this.isRoot) {
-    }
-
-    return this.value.slice(this.value.lastIndexOf('.') + 1).trim() || null
+    const index = this.value.lastIndexOf('.')
+    const tail = index === -1 ? this.value.replace(/^@/, '') : this.value.slice(index + 1)
+    return tail.trim() || null
   }
 
   public get names(): string[] {
@@ -81,19 +103,30 @@ export class Address extends AddressSelector {
   }
 
   public get depth(): number {
-    if (this.isRoot) {
-      return 0
-    }
-
     return [...this.value].filter((current) => current === '.').length + 1
   }
 
   public append(name: string): Address {
-    if (this.isRoot) {
-      return new Address('@' + name)
-    }
-
     return new Address(this.value + '.' + name)
+  }
+
+  public get isAbsolute(): boolean {
+    return this.isEngine || this.value.startsWith('@')
+  }
+
+  /** Whether this addresses the engine root rather than a component. */
+  public get isEngine(): boolean {
+    return this.value === engineRoot
+  }
+
+  public asAbsolute(root: Address | null): Address {
+    if (this.isAbsolute) {
+      return this
+    } else if (root == null || root.value === '~') {
+      return new Address('@' + this.value)
+    } else {
+      return new Address(`${root.value}.${this.value}`)
+    }
   }
 
   public all(): AddressSelector {

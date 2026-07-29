@@ -33,6 +33,7 @@ from pydantic import ConfigDict, Field, ImportString, SerializeAsAny, Validation
 from sqlalchemy import JSON, Index, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ceres.__internal__.database.types import TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -56,7 +57,6 @@ from ceres.__internal__.record import (
 from ceres.__internal__.utilities.classes import fields_cached_class_property
 from ceres.__internal__.utilities.typing import extract_annotation
 from ceres.__internal__.utilities.undefined import Undefined
-from ceres.address import Address
 from ceres.data import (
     DataObject,
     DateTime,
@@ -80,6 +80,7 @@ if TYPE_CHECKING:
     from sqlalchemy.schema import SchemaItem
 
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
+    from ceres.address import Address
     from ceres.connection import Buffer
     from ceres.database import DatabaseType
     from ceres.message import Message
@@ -102,7 +103,7 @@ class ParticleRow(BaseRecordRow, kw_only=True):
 
     __tablename__: ClassVar[str] = "particles"
 
-    type: Mapped[str] = mapped_column(Text)
+    type: Mapped[str] = mapped_column(TextMapper())
     """Discriminator string identifying the concrete particle data class."""
     data: Mapped[JSONSerializableDict] = mapped_column(JSON)
     """Parsed payload serialized as a JSON object."""
@@ -293,7 +294,11 @@ class ParticleFilter(
             return False
 
         if self.cls is not None:
-            if not isinstance(obj.data, self.cls):
+            expected = _get_cls_particle_type(self.cls)
+            if expected is not None:
+                if obj.type != expected:
+                    return False
+            elif not isinstance(obj.data, self.cls):
                 return False
 
         if not self._match_value(obj.type, self.type):
@@ -339,7 +344,10 @@ class ParticleFilter(
         columns = self._get_row_cls()
 
         if self.cls is not None:
-            if issubclass(self.cls, ParticleData):
+            expected = _get_cls_particle_type(self.cls)
+            if expected is not None:
+                yield columns.type == expected
+            elif issubclass(self.cls, ParticleData):
                 yield columns.type == self.cls.type
 
         if self.type is not None:
@@ -699,12 +707,32 @@ class Particle(
 _particle_class_is_defined = True
 
 
+def _get_cls_particle_type(cls: type) -> str | None:
+    """Return the `type` discriminator a `Particle` subclass declares, or `None`.
+
+    Concrete particle classes declare `type` as a `Literal` field with a default. Classes
+    without one (including the base `Particle` and `ParticleData` subclasses) return `None`.
+    """
+    if not (isinstance(cls, type) and issubclass(cls, Particle)):
+        return None
+
+    field = cls.__pydantic_fields__.get("type")
+    default = field.default if field is not None else None
+    if isinstance(default, str):
+        return default
+
+    attribute = getattr(cls, "type", None)
+    return attribute if isinstance(attribute, str) else None
+
+
 def _convert_or_none[ParticleT: Particle[Any]](
     particle: Particle | None,
     cls: type[ParticleT] | None,
 ) -> ParticleT | None:
     # Pass `None` through unchanged, when no target class is requested return the particle
-    # as-is, and swallow validation failures so the stream filter simply drops mismatches.
+    # as-is, and drop validation failures so the stream filter simply skips mismatches. Drops
+    # are logged because a systematic mismatch (for example a data class that cannot re-validate
+    # its own stored payload) silently empties every query result.
     if particle is None:
         return None
 
@@ -713,7 +741,13 @@ def _convert_or_none[ParticleT: Particle[Any]](
 
     try:
         return particle.convert(cls)
-    except ValueError:
+    except ValueError as error:
+        from ceres.logs import get_logger
+
+        get_logger("ceres.particle").warning(
+            f"Dropped particle {particle.id} of type {particle.type!r} while converting to "
+            f"{cls.__name__}. {error}"
+        )
         return None
 
 
@@ -745,7 +779,7 @@ class ParseableParticle[DataT: ParticleData = ParticleData](Particle[DataT]):
         cls,
         bytes: bytes,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
         span: tuple[int, int] | None = None,
     ) -> Self:
@@ -802,7 +836,7 @@ class BinaryParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         bytes: bytes,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
         span: tuple[int, int] | None = None,
     ) -> Self:
@@ -922,7 +956,7 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         bytes: bytes,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
         span: tuple[int, int] | None = None,
     ) -> Self:
@@ -952,7 +986,7 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         match: Match[bytes],
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
     ) -> Self:
         """Build a particle instance from a regex `match`.
@@ -975,7 +1009,7 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         data: Buffer,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
     ) -> Iterable[RegexParticleMatch[Self]]:
         """Yield every regex match in `data` paired with its resolved chunk timestamp.
@@ -1010,7 +1044,7 @@ class RegexParticle[T: ParticleData](ParseableParticle[T]):
         cls,
         data: Buffer,
         /,
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
         errors: Literal["ignore", "raise"] | Callable[[ParseFailed], Any] = "ignore",
     ) -> Iterable[Self]:
@@ -1104,7 +1138,7 @@ class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
     def from_match(
         cls,
         match: Match[bytes],
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
     ) -> Self:
         """Build a particle by mapping named regex groups onto `ParticleData` fields.
@@ -1156,7 +1190,7 @@ class BinaryRegexParticle[T: ParticleData](BinaryParticle[T], RegexParticle[T]):
     def from_match(
         cls,
         match: Match[bytes],
-        address: Address = Address.ROOT,
+        address: Address,
         timestamp: DateTime | None = None,
     ) -> Self:
         """Decode a particle by unpacking the matched byte range as fixed-layout binary.

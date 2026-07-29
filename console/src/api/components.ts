@@ -1,14 +1,13 @@
 import { useQuery } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
-import Zod, { ZodTypeAny } from 'zod'
+import Zod from 'zod'
 
 import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
-import { ElementModel } from '@/api/elements'
 import { MessageModel } from '@/api/messages'
-import { AnyResultModel, ResultModel } from '@/api/shared'
+import { AnyResultModel, ConnectivityModel } from '@/api/shared'
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
 export const ProcedureTypeModel = Zod.enum(['query', 'action'])
@@ -44,10 +43,14 @@ export const ProcedureOutputInfoModel = Zod.discriminatedUnion('type', [
   ProcedureFileOutputInfoModel,
 ])
 
+export type ProcedurePermissions = Zod.infer<typeof ProcedurePermissionsModel>
+export const ProcedurePermissionsModel = Zod.enum(['public', 'deny', 'view', 'operate', 'manage'])
+
 const BaseProcedureInfoModel = Zod.object({
   name: Zod.string(),
   type: ProcedureTypeModel,
   live: Zod.boolean(),
+  permissions: ProcedurePermissionsModel,
   arguments: ProcedureArgumentsInfoModel,
   output: ProcedureOutputInfoModel,
 })
@@ -65,8 +68,20 @@ export const ActionInfoModel = BaseProcedureInfoModel.extend({
 export type ProcedureInfo = Zod.infer<typeof ProcedureInfoModel>
 export const ProcedureInfoModel = Zod.discriminatedUnion('type', [QueryInfoModel, ActionInfoModel])
 
-export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
-export const ComponentRoleModel = Zod.enum(['interface'])
+export type ConnectionStateInfo = Zod.infer<typeof ConnectionStateInfoModel>
+export const ConnectionStateInfoModel = Zod.object({
+  name: Zod.string(),
+  label: Zod.string(),
+  connectivity: ConnectivityModel,
+})
+
+export type JobInfo = Zod.infer<typeof JobInfoModel>
+export const JobInfoModel = Zod.object({
+  name: Zod.string(),
+  action: Zod.string(),
+  schedule: Zod.string(),
+  next_run: Zod.string().nullable(),
+})
 
 export type ConnectionInfo = Zod.infer<typeof ConnectionInfoModel>
 export const ConnectionInfoModel = Zod.object({
@@ -77,7 +92,7 @@ export const ConnectionInfoModel = Zod.object({
 export type ComponentInfo = {
   name: string
   address: Address
-  roles: ComponentRole[]
+  tags: string[]
   procedures: ProcedureInfo[]
   connections: ConnectionInfo[]
   components: ComponentInfo[]
@@ -86,27 +101,39 @@ export type ComponentInfo = {
 export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   name: Zod.string(),
   address: AddressModel,
-  roles: Zod.array(ComponentRoleModel),
+  tags: Zod.array(Zod.string()),
   procedures: Zod.array(ProcedureInfoModel),
   connections: Zod.array(ConnectionInfoModel),
   components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
 }) as any
 
-export type RenderResult = Zod.infer<typeof RenderResultModel>
-const RenderResultModel = ResultModel(ElementModel)
-
 export const useComponents = defineStore('components', () => {
   const client = useClient()
   const auth = useAuth()
 
-  async function getComponent(address: Address) {
-    try {
-      return await client.get(`/api/components/${address}`, {
-        parse: ComponentInfoModel,
-      })
-    } catch {
-      return null
-    }
+  async function getComponents(): Promise<ComponentInfo[]> {
+    return await client.get('/api/components', { parse: Zod.array(ComponentInfoModel) })
+  }
+
+  /** Fetch a component's configuration. Rejects for callers with no access to the component. */
+  async function getConfig(address: Address): Promise<Record<string, any> | null> {
+    return await client.get(`/api/components/${address}/config`, {
+      parse: Zod.record(Zod.string(), Zod.any()).nullable(),
+    })
+  }
+
+  /** Fetch a component's scheduled jobs. Rejects for callers with no access to the component. */
+  async function getJobs(address: Address): Promise<JobInfo[]> {
+    return await client.get(`/api/components/${address}/jobs`, {
+      parse: Zod.array(JobInfoModel),
+    })
+  }
+
+  /** Fetch a component's connections with their live connectivity states. */
+  async function getConnections(address: Address): Promise<ConnectionStateInfo[]> {
+    return await client.get(`/api/components/${address}/connections`, {
+      parse: Zod.array(ConnectionStateInfoModel),
+    })
   }
 
   async function call(
@@ -133,46 +160,20 @@ export const useComponents = defineStore('components', () => {
     })
   }
 
-  function useElementStream<TModel extends ZodTypeAny>(
-    address: MaybeRef<Address>,
-    query: MaybeRef<string>,
-    args: MaybeRef<Record<string, unknown>>,
-    onMessage: (message: Zod.infer<TModel>) => unknown
-  ) {
-    return client.useStream({
-      stream: computed(() => ({
-        path: `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe`,
-        query: { arguments: unref(args) },
-      })) as any,
-      parse: ElementModel,
-      onReceive: onMessage,
-    })
-  }
-
-  async function render(address: Address): Promise<RenderResult> {
-    return await client.get(`/api/components/${address}/procedures/render/call`, {
-      parse: RenderResultModel,
-    })
-  }
-
   const query = useQuery({
-    queryKey: computed(() => ['root-component', auth.user?.id ?? null]),
+    queryKey: computed(() => ['components', auth.user?.id ?? null]),
     queryFn: async () => {
       if (auth.user == null) {
         return null
       }
 
-      return await getComponent(new Address('@'))
+      return await getComponents()
     },
   })
 
-  const root = $computed<ComponentInfo | null>(() => query.data.value ?? null)
+  const topLevel = $computed<ComponentInfo[]>(() => query.data.value ?? [])
 
   const mapping = $computed<Record<string, ComponentInfo>>(() => {
-    if (root == null) {
-      return {}
-    }
-
     const mapping: Record<string, ComponentInfo> = {}
 
     function traverse(current: ComponentInfo) {
@@ -182,7 +183,10 @@ export const useComponents = defineStore('components', () => {
       }
     }
 
-    traverse(root)
+    for (const component of topLevel) {
+      traverse(component)
+    }
+
     return mapping
   })
 
@@ -253,16 +257,17 @@ export const useComponents = defineStore('components', () => {
 
   return {
     ...query,
-    root: computed(() => root),
+    topLevel: computed(() => topLevel),
     get: computed(() => get),
     getDescendants: computed(() => getDescendants),
     all: computed(() => all),
     getProcedure: computed(() => getProcedure),
     getQuery: computed(() => getQuery),
     getAction: computed(() => getAction),
+    getConfig,
+    getJobs,
+    getConnections,
     call,
     send,
-    useElementStream,
-    render,
   }
 })

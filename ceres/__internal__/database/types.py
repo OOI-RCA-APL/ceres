@@ -8,11 +8,15 @@ from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDeco
 from ceres.__internal__.utilities.case import snakecase
 from ceres.address import Address
 
+CODE_POINT_COLLATION = "C"
+"""PostgreSQL collation that orders text by byte, which for UTF-8 is by code point."""
+
 if TYPE_CHECKING:
     from enum import Enum as BaseEnum
 
     from sqlalchemy.orm import InstrumentedAttribute
     from sqlalchemy.sql.operators import OperatorType
+    from sqlalchemy.types import TypeEngine
 
 
 def EnumMapper(cls: type[BaseEnum]) -> Enum:
@@ -25,18 +29,29 @@ def EnumMapper(cls: type[BaseEnum]) -> Enum:
         cls: The Python enum class to map.
 
     Returns:
-        A SQLAlchemy ``Enum`` type configured for the given enum class.
+        A SQLAlchemy ``Enum`` type configured for the given enum class, collated by code point on
+        PostgreSQL.
     """
-    enum = Enum(
-        cls,
-        values_callable=lambda enum: [current.value for current in enum],
-        native_enum=False,
-        create_constraint=False,
-        name=snakecase(cls.__name__),
-    )
 
-    enum.length = None
-    return enum
+    def build() -> Enum:
+        enum = Enum(
+            cls,
+            values_callable=lambda enum: [current.value for current in enum],
+            native_enum=False,
+            create_constraint=False,
+            name=snakecase(cls.__name__),
+        )
+
+        enum.length = None
+        return enum
+
+    # Values are stored as text rather than as a native enum type, so they are collated for the
+    # reasons in `TextMapper`. The collation is assigned after construction because `Enum` accepts
+    # it as a constructor argument and then silently discards it. It goes through a variant because
+    # SQLite rejects a collation it does not define, and `C` is not one of its three.
+    collated = build()
+    collated.collation = CODE_POINT_COLLATION
+    return build().with_variant(collated, "postgresql")
 
 
 def EnumConstraint(
@@ -165,11 +180,47 @@ class UUIDMapper(TypeDecorator[UUID]):
         raise NotImplementedError(f"Received invalid UUID value from driver: {value!r}")
 
 
+def AddressColumn() -> TypeEngine[Address]:
+    """Create an address column type that PostgreSQL orders by code point.
+
+    Addresses are machine tokens, and a locale collation reorders or ignores their punctuation, so
+    this matters more for them than for prose. See `TextMapper` for the reasoning.
+
+    Returns:
+        An `AddressMapper` carrying `COLLATE "C"` on PostgreSQL only.
+    """
+    return AddressMapper().with_variant(AddressMapper(CODE_POINT_COLLATION), "postgresql")
+
+
+def TextMapper() -> TypeEngine[str]:
+    """Create a text column type that PostgreSQL orders by code point.
+
+    Ceres orders text by code point, matching SQLite and matching every general-purpose language,
+    so an index can only serve those sorts when the column is collated the same way. PostgreSQL
+    otherwise takes the collation the database was created with, which on a managed instance is
+    usually a locale.
+
+    SQLite has no equivalent to name and already compares text by byte, so it gets a plain column.
+
+    Returns:
+        A `Text` type carrying `COLLATE "C"` on PostgreSQL only.
+    """
+    return Text().with_variant(Text(collation=CODE_POINT_COLLATION), "postgresql")
+
+
 class AddressMapper(TypeDecorator[Address]):
     """SQLAlchemy type decorator that map ``Address`` values to and from text columns."""
 
     impl = Text
     cache_ok = True
+
+    def __init__(self, collation: str | None = None) -> None:
+        """Map addresses to a text column, optionally collated.
+
+        Args:
+            collation: Collation for the underlying column, or `None` for the database's own.
+        """
+        super().__init__(collation=collation)
 
     @override
     def process_bind_param(

@@ -6,7 +6,7 @@ import { useEngine } from '@/api/engine'
 import { isMediaSourceSupported, isSafari } from '@/environment'
 import icons from '@/icons'
 import { getHttpUrl } from '@/utilities'
-import { VideoWidget } from '@/workspace'
+import { useWorkspace, VideoWidget } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: VideoWidget
@@ -15,6 +15,7 @@ const { widget } = defineProps<{
 defineEmits(['reload-requested', 'settings-requested'])
 
 const engine = useEngine()
+const workspace = useWorkspace()
 
 const element = $ref<HTMLVideoElement>()
 
@@ -24,7 +25,17 @@ let isUnloading = $ref(false)
 let isMuted = $ref(widget.startMuted)
 let isDisposed = false
 
-const queryComponent = $computed(() => widget.query?.split('::')?.[0] ?? null)
+// The query field encodes a component address as `@component::queries::name` (or a relative
+// address in place of `@component` inside a scoped workspace). Only the leading address portion
+// resolves through the scope, the rest names a query on that component.
+const queryComponent = $computed(() => {
+  const raw = widget.query?.split('::')?.[0]
+  if (raw == null || raw === '') {
+    return null
+  }
+
+  return workspace.resolveAddress(raw)?.toString() ?? null
+})
 const queryName = $computed(() => widget.query?.split('::')?.[2] ?? null)
 const queryInfo = $computed(() => {
   if (queryComponent == null || queryName == null) {

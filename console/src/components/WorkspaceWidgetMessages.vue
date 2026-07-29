@@ -7,27 +7,63 @@ import RecordView from '@/components/RecordView.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
-import { MessagesWidget } from '@/workspace'
+import { MessagesWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: MessagesWidget
 }>()
 
 const engine = useEngine()
+const workspace = useWorkspace()
+
+const resolvedCommandAddress = $computed(() => {
+  const resolved = workspace.resolveAddress(widget.commandAddress)
+  return resolved == null ? null : Address.parse(resolved)
+})
+
+const resolvedFilter = $computed(() => ({
+  ...widget.filter,
+  address: workspace.resolveFilterAddress(widget.filter.address),
+}))
+
+// Only connections the workspace can address. A command sent to a component outside the placement
+// would be refused anyway, so offering it is a dead end dressed up as a choice.
 const connectionEntries = $computed(() =>
-  engine.components.all.flatMap((component) =>
-    component.connections.map((connection) => [component.address, connection.name])
-  )
+  engine.components.all
+    .filter((component) => workspace.isWithinScope(component.address))
+    .flatMap((component) =>
+      component.connections.map((connection) => [component.address, connection.name])
+    )
 )
 const connectionModelValue = $computed(() => {
-  if (widget.commandAddress == null || widget.commandConnection == null) {
+  if (resolvedCommandAddress == null || widget.commandConnection == null) {
     return null
   }
 
-  return `${widget.commandAddress}::connections::${widget.commandConnection}`
+  return `${resolvedCommandAddress}::connections::${widget.commandConnection}`
 })
 const connectionOptions = $computed(() =>
   connectionEntries.map(([address, name]) => `${address}::connections::${name}`)
+)
+
+// A widget with no target starts on the first connection the workspace can reach, which on a
+// component-bound workspace is almost always the one meant. A target that no longer exists, from a
+// connection that has gone or a workspace that has moved, falls back the same way rather than
+// sitting there naming nothing.
+watch(
+  () => [connectionOptions, connectionModelValue] as const,
+  ([options, current]) => {
+    if (current != null && options.includes(current)) {
+      return
+    }
+
+    if (current == null && options.length === 0) {
+      return
+    }
+
+    onConnectionModelUpdate(options[0] ?? null)
+  },
+  { immediate: true }
 )
 
 function onConnectionModelUpdate(option: string | null) {
@@ -118,7 +154,7 @@ const isConnected = true
 
 async function submit() {
   if (
-    widget.commandAddress == null ||
+    resolvedCommandAddress == null ||
     widget.commandText == null ||
     widget.commandText.trim() === ''
   ) {
@@ -130,7 +166,7 @@ async function submit() {
     return
   }
 
-  await engine.components.send(widget.commandAddress, widget.commandConnection, {
+  await engine.components.send(resolvedCommandAddress, widget.commandConnection, {
     data: widget.commandText,
   })
 
@@ -147,7 +183,7 @@ async function submit() {
 </script>
 
 <template>
-  <record-view :columns="columns" :filter="widget.filter" :widget>
+  <record-view :columns="columns" :filter="resolvedFilter" :widget>
     <template #column-filter-connection>
       <div style="min-width: 200px">
         <schema-form-value
@@ -193,7 +229,7 @@ async function submit() {
         />
       </div>
     </template>
-    <template v-if="engine.auth.isOperator" #default>
+    <template v-if="engine.auth.isAdmin" #default>
       <q-form @submit.prevent="submit">
         <q-separator />
         <div class="row">

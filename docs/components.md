@@ -84,11 +84,11 @@ components:
 
 The nested components above have addresses `@sensors.temperature` and `@sensors.pressure`.
 
-In most deployments, components are direct children of the root node. Nesting is available when logical grouping is useful, but it is not required.
+In most deployments, components are declared directly at the top level of `ceres.yaml`. Nesting is available when logical grouping is useful, but it is not required.
 
 ### Addresses
 
-A component's address describes its position in the tree. The root component has the address `@`. Other addresses are relative to the root, with `.` separating levels. For example, `@a.b.c` refers to component `c`, child of `@a.b`, child of `@a`, child of `@`.
+A component's address describes its position in the tree. `@` is the absolute-address anchor, similar to a leading `/` in a file path: it prefixes every address and is not itself the address of any component. Top-level components have addresses like `@a`, and nested addresses separate levels with `.`. For example, `@a.b.c` refers to component `c`, child of `@a.b`, child of `@a`. `@` is also the base of selectors that span every component (`@:all`). If you want a shared root that all your components live under, declare an ordinary component and nest everything else beneath it.
 
 ### Lifecycle Rules
 
@@ -154,11 +154,12 @@ class Sensor(Component):
         return {"calibrated": True}
 ```
 
-Both decorators accept a `permit` parameter controlling who can call them.
+Both decorators accept a `permit` parameter controlling who can call them. It takes `"public"` or a `ComponentAccessLevel`, checked against the caller's effective access on the component.
 
-- `"public"` (default for queries): Anyone can call.
-- `"operators"` (default for actions): Requires operator or admin role.
-- `"admins"`: Requires admin role.
+- `"public"`: Anyone can call, including unauthenticated requests.
+- `"view"` (default for queries): Requires `VIEW` access or higher.
+- `"operate"` (default for actions): Requires `OPERATE` access or higher.
+- `"manage"`: Requires `MANAGE` access.
 
 ## Events
 

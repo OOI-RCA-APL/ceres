@@ -7,19 +7,24 @@ from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
-from sqlalchemy import insert
+from sqlalchemy import delete, insert
 
 from ceres import (
     Address,
     Alert,
     Entity,
+    Group,
+    GroupMembership,
+    GroupPermission,
     Level,
     LogEntry,
     Message,
     MessageDirection,
     Particle,
+    PermissionTargetType,
     Setting,
     User,
+    UserPermission,
     Variable,
     utc,
 )
@@ -32,11 +37,10 @@ from ceres.__internal__.entity import (
 from ceres.__internal__.utilities.collections import group_by
 from ceres.__internal__.utilities.randomize import randstr
 from ceres.concurrency import awaitify
-from ceres.config import BCryptHashingConfig
+from ceres.config import BCryptHashingConfig, ComponentAccessLevel
 from ceres.data import JSONDict, MaybeSequence, StrEnum, to_json, uuid7, validate
 from ceres.database import Database
 from ceres.timing import set_fake_now
-from ceres.user import UserRole
 
 if TYPE_CHECKING:
     from ceres.__internal__.record import BaseRecordFilterArgs
@@ -106,17 +110,30 @@ async def execute_filter_test(
                 entities[key] = entity
 
     database = Database()
-    await database.init()
+    await database.migrate()
     manager = cls.Manager(database)
 
+    # Grouped once, in the order the fixtures name their types, so a row that references another is
+    # inserted after the row it points at and deleted before it.
+    fixtures = [(entity_cls.Row, rows) for entity_cls, rows in group_by(entity_inserts, type)]
+
     async def reset() -> None:
-        await database.clear()
-        async with database.session() as session:
-            for group_cls, group in group_by(entity_inserts, type):
-                shuffle(group)
-                values = [entity.__entity_to_column_values__() for entity in group]
-                await session.execute(insert(group_cls.Row).values(values))
-                await session.commit()
+        """Put the fixture rows back, replacing whatever the last assertion left behind.
+
+        Every assertion below deletes or updates rows and then calls this, so it runs hundreds of
+        times per test and its cost is most of what the filter tests cost. It clears only the
+        tables the fixtures populate, because no other table is ever written here and clearing the
+        rest is a round trip that deletes nothing, and it does the whole restore in one transaction
+        so a case pays for one commit rather than one per type.
+        """
+        async with database.engine.begin() as connection:
+            for row_cls, _ in reversed(fixtures):
+                await connection.execute(delete(row_cls.__table__))
+
+            for row_cls, rows in fixtures:
+                shuffle(rows)
+                values = [entity.__entity_to_column_values__() for entity in rows]
+                await connection.execute(insert(row_cls.__table__).values(values))
 
     await reset()
 
@@ -260,7 +277,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "direction": choice(list(MessageDirection)),
                     "data": randbytes(32),
                     **values,
@@ -273,7 +290,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "type": randstr(printable, 8),
                     "data": {},
                     **values,
@@ -286,7 +303,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "level": choice(list(Level)),
                     "type": randstr(printable, 8),
                     **values,
@@ -299,7 +316,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "level": choice(list(Level)),
                     "content": randstr(printable, 32),
                     **values,
@@ -318,7 +335,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                         randstr(printable, 8),
                         BCryptHashingConfig(rounds=4),
                     ),
-                    "role": choice(list(UserRole)),
+                    "admin": choice([True, False]),
                     "disabled": choice([True, False]),
                     **values,
                 },
@@ -330,7 +347,7 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
             validate(
                 cls,
                 {
-                    "address": Address.ROOT,
+                    "address": Address("@test"),
                     "name": randstr(printable, 8),
                     "value": 0,
                     **values,
@@ -349,6 +366,70 @@ async def arbitrary(cls: type[Entity], values: JSONDict) -> list[Entity]:
                     "user_id": user_id,
                     "name": randstr(printable, 8),
                     "value": 0,
+                    **values,
+                },
+            ),
+        ]
+
+    if cls is Group:
+        return [
+            validate(
+                cls,
+                {
+                    "name": randstr(ascii_letters, 8),
+                    "description": "",
+                    **values,
+                },
+            )
+        ]
+
+    if cls is GroupMembership:
+        user_id = values.get("user_id") or str(uuid7())
+        group_id = values.get("group_id") or str(uuid7())
+        user = (await arbitrary(User, {"id": user_id}))[0]
+        group = (await arbitrary(Group, {"id": group_id}))[0]
+        return [
+            user,
+            group,
+            validate(
+                cls,
+                {
+                    "user_id": user_id,
+                    "group_id": group_id,
+                    **values,
+                },
+            ),
+        ]
+
+    if cls is UserPermission:
+        user_id = values.get("user_id") or str(uuid7())
+        user = (await arbitrary(User, {"id": user_id}))[0]
+        return [
+            user,
+            validate(
+                cls,
+                {
+                    "user_id": user_id,
+                    "target_type": PermissionTargetType.COMPONENT,
+                    "target": randstr(printable, 8),
+                    "level": ComponentAccessLevel.VIEW,
+                    **values,
+                },
+            ),
+        ]
+
+    if cls is GroupPermission:
+        group_id = values.get("group_id") or str(uuid7())
+        group = (await arbitrary(Group, {"id": group_id}))[0]
+        return [
+            group,
+            validate(
+                cls,
+                {
+                    "group_id": group_id,
+                    "target_type": PermissionTargetType.COMPONENT,
+                    "target": randstr(printable, 8),
+                    "level": ComponentAccessLevel.VIEW,
                     **values,
                 },
             ),
@@ -542,7 +623,6 @@ async def execute_email_filter_test(
 async def execute_address_filter_test(cls: type[Item]):
     group: FilterTestGroup[BaseAddressEntityFilterArgs] = {
         "entities": {
-            "@": {"address": "@"},
             "@abc": {"address": "@abc"},
             "@abc.cde": {"address": "@abc.cde"},
             "@abc.cde.efg": {"address": "@abc.cde.efg"},
@@ -556,14 +636,13 @@ async def execute_address_filter_test(cls: type[Item]):
             {"filter": {"address": "none"}, "keys": []},
             {"filter": {"address": "none:all"}, "keys": []},
             {"filter": {"address": "~"}, "keys": ["~"]},
-            {"filter": {"address": "@"}, "keys": ["@"]},
             {"filter": {"address": "@abc"}, "keys": ["@abc"]},
             {"filter": {"address": "@abc.cde"}, "keys": ["@abc.cde"]},
-            {"filter": {"address": ["@", "@cde"]}, "keys": ["@", "@cde"]},
+            {"filter": {"address": ["@abc", "@cde"]}, "keys": ["@abc", "@cde"]},
             {"filter": {"address": "~:all"}, "keys": None},
             {
                 "filter": {"address": "@:all"},
-                "keys": ["@", "@abc", "@abc.cde", "@abc.cde.efg", "@cde"],
+                "keys": ["@abc", "@abc.cde", "@abc.cde.efg", "@cde"],
             },
             {"filter": {"address": "~:all|@:all"}, "keys": None},
             # {"filter": {"address": "all"}, "keys": None}, # TODO: Fix bare all.

@@ -525,13 +525,22 @@ class DatabaseLoadError(Error, slots=True):
     """Description of the load failure."""
 
 
-class DatabaseInitError(Error, slots=True):
-    """Raised when the database fails to initialize."""
+class DatabaseMigrationError(Error, slots=True):
+    """Raised when applying a database migration fails."""
 
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
-    type: Literal["database-init-error"] = "database-init-error"
+    type: Literal["database-migration-error"] = "database-migration-error"
     message: str
-    """Description of the initialization failure."""
+    """Description of the migration failure."""
+
+
+class DatabaseVersionError(Error, slots=True):
+    """Raised when the database schema does not match the running version of ceres."""
+
+    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    type: Literal["database-version-error"] = "database-version-error"
+    message: str
+    """Description of the version mismatch and how to resolve it."""
 
 
 DatabaseError: TypeAlias = (
@@ -542,7 +551,8 @@ DatabaseError: TypeAlias = (
     | DatabaseProgrammingError
     | DatabaseUnexpectedError
     | DatabaseLoadError
-    | DatabaseInitError
+    | DatabaseMigrationError
+    | DatabaseVersionError
 )
 """Discriminated union of all database-related errors."""
 

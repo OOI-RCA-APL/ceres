@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
 )
+from sqlalchemy.pool import QueuePool
 
 from ceres.__internal__.database.bytes import tokenize_bytes
 from ceres.__internal__.database.errors import wrap_database_errors
@@ -23,7 +24,16 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, to_json, uuid4
-from ceres.error import DatabaseInitError
+from ceres.error import DatabaseMigrationError, DatabaseVersionError
+from ceres.logs import get_logger
+
+DESTRUCTIVE_MIGRATIONS: dict[str, str] = {}
+"""Migrations that discard data, keyed by name, with the warning logged before they run.
+
+A migration belongs here only while operators still have it ahead of them. Once every deployment
+has run it the warning is noise on each load, and a warning nobody can act on teaches people to
+ignore the ones that matter.
+"""
 
 if TYPE_CHECKING:
     import sqlite3
@@ -35,6 +45,7 @@ if TYPE_CHECKING:
 
     from ceres.__internal__.entity import BaseEntityManager, BaseEntityRow
     from ceres.database import DatabaseType
+    from ceres.database.migrations import Migration
     from ceres.entity import Entity
 
     _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
@@ -45,20 +56,53 @@ else:
 with __lazy_imports__(__name__):
     from ceres.__internal__.auth import get_password_hash, verify_password, verify_password_hash
     from ceres.alert import AlertManager
+    from ceres.group import GroupManager, GroupMembershipManager
     from ceres.logs import LogManager
     from ceres.message import MessageManager
     from ceres.particle import ParticleManager
+    from ceres.permission import GroupPermissionManager, UserPermissionManager
     from ceres.setting import SettingManager
     from ceres.statistics import StatisticsManager
     from ceres.user import UserManager
     from ceres.variable import VariableManager
-    from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
+    from ceres.workspace import WorkspaceEditManager, WorkspaceManager
 
 __all__ = [
     "Database",
     "SQLiteDatabase",
     "PostgresDatabase",
+    "default_database_config",
 ]
+
+
+_MIGRATIONS_TABLE_DDL_SQLITE = """
+CREATE TABLE IF NOT EXISTS migrations (
+    id INTEGER PRIMARY KEY,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+)
+""".strip()
+
+_MIGRATIONS_TABLE_DDL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS migrations (
+    id INTEGER PRIMARY KEY,
+    applied_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+)
+""".strip()
+# The migrations table is intentionally not an entity row, it is bookkeeping owned by the
+# database layer.
+
+
+def default_database_config() -> DatabaseConfig:
+    """Build the configuration a `Database` uses when it is constructed without one.
+
+    Every unconfigured `Database`, including the one an unconfigured `Engine` creates for itself,
+    runs through here. Deployments always pass a config, so in practice this serves throwaway
+    databases, and the test suite replaces it to run the same code against another backend.
+
+    Returns:
+        A `SQLiteDatabaseConfig` for a temporary on-disk database.
+    """
+    return SQLiteDatabaseConfig()
 
 
 class Database:
@@ -68,27 +112,35 @@ class Database:
     persisted record type, and handles one-time schema initialization. Instantiating the base
     class dispatches to the appropriate concrete subclass based on the configuration, so
     `Database(SQLiteDatabaseConfig())` returns a `SQLiteDatabase` and
-    `Database(PostgresDatabaseConfig(...))` returns a `PostgresDatabase`.
+    `Database(PostgresDatabaseConfig(...))` returns a `PostgresDatabase`. Omitting the config
+    entirely dispatches on whatever `default_database_config` returns.
     """
 
     def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
-            match config:
-                case None | SQLiteDatabaseConfig():
-                    return SQLiteDatabase(config)
-                case PostgresDatabaseConfig():
-                    return PostgresDatabase(config)
+            match config if config is not None else default_database_config():
+                case SQLiteDatabaseConfig() as resolved:
+                    return SQLiteDatabase(resolved)
+                case PostgresDatabaseConfig() as resolved:
+                    return PostgresDatabase(resolved)
 
         return cls(config)
 
     def __init__(self, config: DatabaseConfig | None = None, /) -> None:
+        # Every subclass builds itself from `__new__`, and Python then calls `__init__` a second
+        # time with the arguments the caller wrote, which are not necessarily the resolved ones.
+        # The first call wins, so that second pass neither rebuilds the engine nor overwrites the
+        # resolved config with the `None` a caller who wanted the default passed.
+        if getattr(self, "_config", None) is not None:
+            return
+
         assert config is not None
 
         self._id = uuid4()
         self._config = config
         self._engine = self._create_engine()
-        self._init_lock = AsyncLock()
-        self._init_completed = False
+        self._migrate_lock = AsyncLock()
+        self._bootstrapped = False
 
     @property
     def __database__(self) -> Database:
@@ -168,14 +220,29 @@ class Database:
         return WorkspaceManager(self)
 
     @cached_property
-    def workspace_memberships(self) -> WorkspaceMembershipManager:
-        """Manager for `WorkspaceMembership` records."""
-        return WorkspaceMembershipManager(self)
-
-    @cached_property
     def workspace_edits(self) -> WorkspaceEditManager:
         """Manager for `WorkspaceEdit` records."""
         return WorkspaceEditManager(self)
+
+    @cached_property
+    def groups(self) -> GroupManager:
+        """Manager for `Group` records."""
+        return GroupManager(self)
+
+    @cached_property
+    def group_memberships(self) -> GroupMembershipManager:
+        """Manager for `GroupMembership` records."""
+        return GroupMembershipManager(self)
+
+    @cached_property
+    def user_permissions(self) -> UserPermissionManager:
+        """Manager for `UserPermission` records."""
+        return UserPermissionManager(self)
+
+    @cached_property
+    def group_permissions(self) -> GroupPermissionManager:
+        """Manager for `GroupPermission` records."""
+        return GroupPermissionManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:
@@ -289,12 +356,23 @@ class Database:
         return self._engine.connect()
 
     async def use(self) -> AsyncConnection:
-        """Ensure the schema is initialized, then open a new connection.
+        """Bootstrap an empty database through the migration chain, then open a new connection.
+
+        Databases that already have tables are left untouched here, `assert_schema_current`
+        is what guards against stale schemas on those. Bootstrapping only happens once per
+        instance, a cached flag makes every later call zero-I/O. Concurrent first calls may
+        each run `initialized()` and `migrate()`, but `migrate()` serializes on the instance's
+        migration lock, so migrations are still only applied once.
 
         Returns:
-            An `AsyncConnection` ready for use against an initialized database.
+            An `AsyncConnection` ready for use against a bootstrapped database.
         """
-        await self.init()
+        if not self._bootstrapped:
+            if not await self.initialized():
+                await self.migrate()
+
+            self._bootstrapped = True
+
         return self.connect()
 
     async def ping(self) -> bool:
@@ -320,31 +398,120 @@ class Database:
         with wrap_database_errors():
             await self._engine.dispose()
 
-    async def init(self) -> None:
-        """Run every DDL statement needed to bring the schema up to date.
+    async def _get_applied_migration_ids(self) -> list[int]:
+        """Return the IDs of every migration recorded as applied, in ascending order."""
+        ddl = (
+            _MIGRATIONS_TABLE_DDL_POSTGRES
+            if self.type.value == "postgres"
+            else _MIGRATIONS_TABLE_DDL_SQLITE
+        )
+        with wrap_database_errors():
+            async with self._engine.begin() as connection:
+                await connection.execute(text(ddl))
+                result = await connection.execute(text("SELECT id FROM migrations ORDER BY id"))
+                return [row[0] for row in result]
 
-        The work runs at most once per `Database` instance, subsequent calls are a cheap no-op so
-        it is safe to call at the start of any operation that needs the schema.
+    async def get_applied_migrations(self) -> list[Migration]:
+        """Return known migrations recorded as applied, in application order."""
+        from ceres.database.migrations import MIGRATIONS
+
+        applied = set(await self._get_applied_migration_ids())
+        return [migration for migration in MIGRATIONS if migration.id in applied]
+
+    async def get_pending_migrations(self) -> list[Migration]:
+        """Return known migrations that have not been applied, in application order."""
+        from ceres.database.migrations import MIGRATIONS
+
+        applied = set(await self._get_applied_migration_ids())
+        return [migration for migration in MIGRATIONS if migration.id not in applied]
+
+    async def get_unknown_migrations(self) -> list[int]:
+        """Return applied migration IDs this version of ceres does not know about."""
+        from ceres.database.migrations import MIGRATIONS
+
+        known = {migration.id for migration in MIGRATIONS}
+        return [id for id in await self._get_applied_migration_ids() if id not in known]
+
+    async def migrate(self) -> list[int]:
+        """Apply every pending migration in order, recording each as it completes.
+
+        Holds an instance-level lock for the duration of the call, so concurrent callers on
+        the same `Database` instance apply migrations one at a time instead of racing to
+        insert the same migration ID.
+
+        Returns:
+            The IDs of the migrations that were applied.
 
         Raises:
-            DatabaseInitError: If schema creation fails.
+            DatabaseMigrationError: If a migration fails.
         """
-        with wrap_database_errors():
-            if self._init_completed:
-                return
+        async with self._migrate_lock:
+            applied: list[int] = []
+            for migration in await self.get_pending_migrations():
+                warning = DESTRUCTIVE_MIGRATIONS.get(migration.name)
+                if warning is not None:
+                    get_logger("ceres.database").warning(
+                        "Migration %s (%s) is destructive. %s",
+                        migration.id,
+                        migration.name,
+                        warning,
+                    )
 
-            async with self._init_lock:
-                if self._init_completed:
-                    return
+                with wrap_database_errors():
+                    try:
+                        async with self._engine.begin() as connection:
+                            sql = migration.render(self.type.value)
+                            if sql is not None:
+                                await self._execute_script(connection, sql)
 
-                try:
-                    async with self._engine.begin() as connection:
-                        for statement in self.ddl:
-                            await connection.execute(text(statement))
-                except Exception as error:
-                    raise DatabaseInitError(message=str(error)) from error
+                            await connection.execute(
+                                text("INSERT INTO migrations (id) VALUES (:id)"),
+                                {"id": migration.id},
+                            )
+                    except Exception as error:
+                        raise DatabaseMigrationError(
+                            message=(f"Migration {migration.id} ({migration.name}) failed. {error}")
+                        ) from error
 
-                self._init_completed = True
+                applied.append(migration.id)
+
+            return applied
+
+    @abstractmethod
+    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
+        """Execute a possibly multi-statement SQL script through the backend driver.
+
+        Args:
+            connection: Connection whose transaction the script runs within.
+            sql: SQL script text, which may contain multiple `;`-terminated statements.
+        """
+        ...
+
+    async def assert_schema_current(self) -> None:
+        """Verify the database schema matches this version of ceres.
+
+        Raises:
+            DatabaseVersionError: If migrations are pending or unknown migrations are applied.
+        """
+        unknown = await self.get_unknown_migrations()
+        if unknown:
+            raise DatabaseVersionError(
+                message=(
+                    f"Database contains migrations unknown to this Ceres version: "
+                    f"{', '.join(str(id) for id in unknown)}. The database is newer than the "
+                    "running version."
+                )
+            )
+
+        pending = await self.get_pending_migrations()
+        if pending:
+            count = len(pending)
+            raise DatabaseVersionError(
+                message=(
+                    f"Database has {count} pending migration(s). "
+                    f"Run `ceres database migrate` to apply {'it' if count == 1 else 'them'}."
+                )
+            )
 
     async def clear(self) -> None:
         """Delete every row from every known entity table, preserving the schema itself."""
@@ -418,10 +585,11 @@ class Database:
 
 @final
 class SQLiteDatabase(Database):
-    """`Database` backed by a local SQLite file or a per-process temporary file.
+    """`Database` backed by a local SQLite file, a per-process temporary file, or memory.
 
     When `config.path` is unset, `SQLiteDatabase` creates a temporary on-disk database whose files
-    are cleaned up when the instance is disposed.
+    are cleaned up when the instance is disposed. When `config.is_memory` is `True`, the database
+    lives entirely in memory for the lifetime of its engine and touches no disk at all.
     """
 
     @override
@@ -456,15 +624,19 @@ class SQLiteDatabase(Database):
     def path(self) -> Path:
         """Filesystem path of the SQLite database file.
 
-        Returns the configured `config.path` when set, otherwise a temporary path derived
-        from this instance's `id`.
+        Returns the configured `config.path` when set (including the `:memory:` sentinel for an
+        in-memory database, which is returned as-is rather than resolved to an absolute path),
+        otherwise a temporary path derived from this instance's `id`.
         """
-        # If a path is provided, create an database at the provided path.
-        if self.config.path is not None:
-            return self.config.path.absolute()
+        path = self.config.path
+        if path is None:
+            # No path was provided, create a temporary on-disk database.
+            return self._get_temporary_path()
 
-        # Otherwise create a temporary on-disk database.
-        return self._get_temporary_path()
+        if self.config.is_memory:
+            return path
+
+        return path.absolute()
 
     def __del__(self) -> None:
         try:
@@ -482,6 +654,21 @@ class SQLiteDatabase(Database):
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:
+        if self.config.is_memory:
+            return {
+                # A single connection kept alive for the life of the engine, a fresh connection
+                # would otherwise see a brand new empty database. "AsyncAdaptedQueuePool" blocks
+                # concurrent checkouts instead of handing the connection out twice, so overlapping
+                # callers wait their turn instead of interleaving transactions on the same
+                # connection, which "StaticPool" would allow and this database's manual "BEGIN
+                # IMMEDIATE" transaction handling can't tolerate.
+                "poolclass": AsyncAdaptedQueuePool,
+                "pool_size": 1,
+                "max_overflow": 0,
+                "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
+                **self.config.engine,
+            }
+
         return {
             "poolclass": AsyncAdaptedQueuePool,
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
@@ -497,7 +684,8 @@ class SQLiteDatabase(Database):
         @event.listens_for(engine.sync_engine, "do_connect")
         def do_connect(*args: object) -> None:
             # Create the directory containing the database file if it doesn't already exist.
-            if self.config.path is not None:
+            # An in-memory database has no directory to create.
+            if self.config.path is not None and not self.config.is_memory:
                 try:
                     self.config.path.parent.mkdir(parents=True, exist_ok=True)
                 except Exception:
@@ -545,6 +733,14 @@ class SQLiteDatabase(Database):
         # Enable a 30 second busy timeout.
         yield "PRAGMA busy_timeout = 30000"
 
+    @override
+    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
+        # Run the script through aiosqlite's "executescript", which handles multiple
+        # ";"-terminated statements in a single call.
+        raw = await connection.get_raw_connection()
+        assert raw.driver_connection is not None
+        await raw.driver_connection.executescript(sql)
+
     def _get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
 
@@ -558,12 +754,12 @@ class SQLiteDatabase(Database):
 class PostgresDatabase(Database):
     """`Database` backed by a PostgreSQL server reached over `asyncpg`."""
 
-    def __new__(cls, /, config: PostgresDatabaseConfig) -> Self:
+    def __new__(cls, /, config: PostgresDatabaseConfig | None = None) -> Self:
         instance = object.__new__(cls)
         cls.__init__(instance, config)
         return instance
 
-    def __init__(self, /, config: PostgresDatabaseConfig) -> None:
+    def __init__(self, /, config: PostgresDatabaseConfig | None = None) -> None:
         super().__init__(config)
 
     @property
@@ -618,7 +814,7 @@ class PostgresDatabase(Database):
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:
-        return {
+        config: dict[str, Any] = {
             "poolclass": AsyncAdaptedQueuePool,
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
@@ -627,6 +823,22 @@ class PostgresDatabase(Database):
             "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
+
+        # Pools that hold nothing between checkouts, such as `NullPool`, reject the sizing
+        # arguments outright, so they only travel with a pool that queues connections.
+        if not issubclass(config["poolclass"], QueuePool):
+            config.pop("pool_size", None)
+            config.pop("max_overflow", None)
+
+        return config
+
+    @override
+    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
+        # asyncpg's simple query protocol executes an entire multi-statement string in one
+        # call, including the "$$"-quoted function bodies the baseline schema defines.
+        raw = await connection.get_raw_connection()
+        assert raw.driver_connection is not None
+        await raw.driver_connection.execute(sql)
 
 
 def _ceres_tokenize_bytes(value: bytes) -> str:
@@ -665,13 +877,15 @@ def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
 
 def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.alert import AlertRow
+    from ceres.group import GroupMembershipRow, GroupRow
     from ceres.logs import LogEntryRow
     from ceres.message import MessageRow
     from ceres.particle import ParticleRow
+    from ceres.permission import GroupPermissionRow, UserPermissionRow
     from ceres.setting import SettingRow
     from ceres.user import UserRow
     from ceres.variable import VariableRow
-    from ceres.workspace import WorkspaceEditRow, WorkspaceMembershipRow, WorkspaceRow
+    from ceres.workspace import WorkspaceEditRow, WorkspaceRow
 
     return [
         MessageRow,
@@ -682,6 +896,9 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
         SettingRow,
         VariableRow,
         WorkspaceRow,
-        WorkspaceMembershipRow,
         WorkspaceEditRow,
+        GroupRow,
+        GroupMembershipRow,
+        UserPermissionRow,
+        GroupPermissionRow,
     ]

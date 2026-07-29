@@ -9,7 +9,7 @@ import { Option, DataValue } from '@/chart'
 import Chart from '@/components/Chart.vue'
 import { duration, utc, useTime } from '@/time'
 import { toTitle, debouncedComputed, parseDuration } from '@/utilities'
-import { ChartWidget, ChartWidgetSeries } from '@/workspace'
+import { ChartWidget, ChartWidgetSeries, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ChartWidget
@@ -18,6 +18,7 @@ const { widget } = defineProps<{
 const engine = useEngine()
 const client = useClient()
 const time = useTime()
+const workspace = useWorkspace()
 
 type DataEntry = [number, DataValue]
 type Data = Record<string, DataEntry[]>
@@ -220,7 +221,7 @@ async function load() {
       if (instance != null) {
         const particles = await engine.particles.getAll(
           {
-            address,
+            address: workspace.resolveAddress(address),
             type,
             after: widget.after,
             timespan: widget.timespan ?? '1h',
@@ -414,7 +415,7 @@ client.useStream({
       id: String(i),
       path: '/api/particles',
       query: {
-        address: particle.address,
+        address: workspace.resolveAddress(particle.address),
         type: particle.type,
       },
     }))

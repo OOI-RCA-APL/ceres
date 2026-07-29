@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 
 _NAME = _NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
-_SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@({_MODIFIER})?|{_MODIFIER}"
+_PATH = rf"@?{_NAME}(\.{_NAME})*"
+_SEGMENT = rf"\~(:(all|descendants))?|{_PATH}({_MODIFIER})?|@{_MODIFIER}|{_MODIFIER}"
 
 __all__ = [
     "AddressSelector",
@@ -30,8 +31,9 @@ class AddressSelector:
 
     Selectors support a small DSL for matching addresses by exact value or by structural
     relationship. A selector consists of one or more pipe-separated segments where each segment
-    is either a literal address (e.g. `@sensor`), one of the special bases `~` (engine) or `@`
-    (root), or a base followed by a modifier:
+    is either a literal address (e.g. `@sensor`), the special base `~` (engine), or a base
+    followed by a modifier. The base `@` selects every component and requires a modifier, it
+    is not a matchable address on its own:
 
     - `:all` matches the base itself plus every descendant.
     - `:children` matches only the immediate children of the base.
@@ -44,7 +46,7 @@ class AddressSelector:
 
     _cache: LRUCache[str, Self] = LRUCache(256)
 
-    REGEX: Final = re.compile(rf"^{_SEGMENT}(\|{_SEGMENT})*$")
+    REGEX: Final = re.compile(rf"^(?:{_SEGMENT})(\|(?:{_SEGMENT}))*$")
     """Regex used to validate the textual form of a selector."""
 
     def __copy__(self) -> Self:
@@ -160,42 +162,42 @@ class AddressSelector:
 
         return segments
 
-    def as_absolute(self, root: Address) -> AddressSelector:
+    def as_absolute(self, root: Address | None) -> AddressSelector:
         """Resolve relative selector segments against `root` to produce an absolute selector.
 
         Segments that already begin with `~`, `@`, or `:` are left untouched. Everything else is
         treated as relative to `root` and gets prefixed accordingly.
 
         Args:
-            root: Address that relative segments resolve against.
+            root: Address that relative segments resolve against. `None` or the engine resolve
+                against every component.
 
         Returns:
             An equivalent selector whose segments are all absolute.
         """
         segments: list[str] = []
-
-        if root.is_engine:
-            root = Address.ROOT
+        base = "@" if root is None or root.is_engine else root._text
 
         for segment in self._get_normalized_segments():
             if segment._text.startswith(":"):
-                segments.append(root._text + segment._text)
+                segments.append(base + segment._text)
             elif segment._text.startswith("~") or segment._text.startswith("@"):
                 segments.append(segment._text)
             else:
-                if root._text == "~" or root._text == "@":
-                    segments.append(root._text + segment._text)
+                if base == "@":
+                    segments.append(base + segment._text)
                 else:
-                    segments.append(root._text + "." + segment._text)
+                    segments.append(base + "." + segment._text)
 
         return AddressSelector(segments)
 
-    def matches(self, address: Address, root: Address) -> bool:
+    def matches(self, address: Address, root: Address | None) -> bool:
         """Check whether `address` is selected by this selector when resolved against `root`.
 
         Args:
             address: Component address to test.
-            root: Reference address used to resolve any relative segments.
+            root: Reference address used to resolve any relative segments. `None` or the engine
+                resolve against every component.
 
         Returns:
             `True` if any segment matches `address`, `False` otherwise.
@@ -218,21 +220,18 @@ class AddressSelector:
                 elif modifier == "descendants":
                     if address._text != "~":
                         return True
-                elif modifier == "children":
-                    if address._text == "@":
-                        return True
 
                 continue
 
             if base == "@":
-                if modifier == "all":
+                # With no root component, `@` selects every component, so `descendants` and `all`
+                # both match anything that is not the engine.
+                if modifier in ("all", "descendants"):
                     if address._text != "~":
                         return True
-                elif modifier == "descendants":
-                    if address._text != "~" and address._text != "@":
-                        return True
                 elif modifier == "children":
-                    return address._text.startswith("@") and len(address._text) > 1
+                    if address._text.startswith("@") and "." not in address._text:
+                        return True
 
                 continue
 
@@ -254,13 +253,14 @@ class AddressSelector:
     def matches_expression(
         self,
         address: SQLColumnExpression[Address],
-        root: Address,
+        root: Address | None,
     ) -> ColumnElement[bool]:
         """Build a SQL boolean expression equivalent to `matches()` for use in queries.
 
         Args:
             address: SQL column expression of the address being tested.
-            root: Reference address used to resolve any relative segments.
+            root: Reference address used to resolve any relative segments. `None` or the engine
+                resolve against every component.
 
         Returns:
             A SQL `OR` of conditions, one per selector segment.
@@ -283,18 +283,16 @@ class AddressSelector:
                     conditions.append(expression.true())
                 elif modifier == "descendants":
                     conditions.append(address != "~")
-                elif modifier == "children":
-                    conditions.append(address == "@")
 
                 continue
 
             if base == "@":
-                if modifier == "all":
+                # With no root component, `@` selects every component, so `descendants` and `all`
+                # both match anything that is not the engine.
+                if modifier in ("all", "descendants"):
                     conditions.append(address != "~")
-                elif modifier == "descendants":
-                    conditions.append(address.like("@_%"))
                 elif modifier == "children":
-                    conditions.append(address.like("@_%") & address.not_like("%.%"))
+                    conditions.append(address.like("@%") & address.not_like("%.%"))
 
                 continue
 
@@ -316,7 +314,7 @@ class DynamicAddress(AddressSelector):
     `path`, etc.) and operators for joining segments (`/`).
     """
 
-    REGEX: Final = re.compile(rf"^~|@|@?{_NAME}(\.{_NAME})*$")  # type: ignore
+    REGEX: Final = re.compile(rf"^(?:~|@?{_NAME}(\.{_NAME})*)$")  # type: ignore
 
     _cache: LRUCache[str, Self] = LRUCache(256)
 
@@ -335,7 +333,7 @@ class DynamicAddress(AddressSelector):
 
     @property
     def name(self) -> str | None:
-        """The trailing name segment of the address, or `None` for `~`/`@`."""
+        """The trailing name segment of the address, or `None` for `~`."""
         self = self.as_relative()
         if self is None:
             return None
@@ -355,21 +353,15 @@ class DynamicAddress(AddressSelector):
 
     @property
     def parent(self) -> Self | None:
-        """The parent address, or `None` if this address has no parent (root, engine, or bare)."""
-        if self.is_root:
-            return None
-
+        """The parent address, or `None` if this address has no parent."""
         if "." in self._text:
             return type(self)(self._text[: self._text.rindex(".")]) or None
-
-        if self._text.startswith("@"):
-            return type(self)("@")
 
         return None
 
     @property
     def depth(self) -> int:
-        """Number of name segments in the address. `~` and `@` both have depth `0`."""
+        """Number of name segments in the address. `~` has depth `0`."""
         self = self.as_relative()
         if self is None:
             return 0
@@ -378,7 +370,7 @@ class DynamicAddress(AddressSelector):
 
     @property
     def path(self) -> Sequence[Self]:
-        """The address chain from root to self, inclusive."""
+        """The address chain from the top-level ancestor to self, inclusive."""
         path: list[Self] = []
         current: Self | None = self
 
@@ -390,7 +382,7 @@ class DynamicAddress(AddressSelector):
 
     @property
     def ancestors(self) -> Sequence[Self]:
-        """All ancestor addresses, from immediate parent up to the root."""
+        """All ancestor addresses, from immediate parent up to the top-level ancestor."""
         ancestors: list[Self] = []
         current = self.parent
 
@@ -414,13 +406,8 @@ class DynamicAddress(AddressSelector):
         return self._text == "~"
 
     @property
-    def is_root(self) -> bool:
-        """`True` if this address refers to the root component (`@`)."""
-        return self._text == "@"
-
-    @property
     def is_absolute(self) -> bool:
-        """`True` if this address starts at the engine or root rather than being relative."""
+        """`True` if this address starts at the engine or a component rather than being relative."""
         return self.is_engine or self._text.startswith("@")
 
     @property
@@ -433,23 +420,26 @@ class DynamicAddress(AddressSelector):
         if self.is_engine:
             return self
 
-        return type(self)(f"{self._text}{'.' if not self.is_root else ''}{other._text.strip('.')}")
+        return type(self)(f"{self._text}.{other._text.strip('.')}")
 
     @override
-    def as_absolute(self, root: Address) -> Address:
+    def as_absolute(self, root: Address | None) -> Address:
         """Resolve this address against `root` and return the result as an absolute `Address`.
 
         If this address is already absolute, return it directly. Otherwise, join it onto `root`.
 
         Args:
-            root: Base address to resolve against when this address is relative.
+            root: Base address to resolve against when this address is relative. `None` or the
+                engine resolve against every component.
 
         Returns:
             An absolute `Address`.
         """
-        root = Address(root)
         if self.is_absolute:
             return Address(self)
+
+        if root is None or root.is_engine:
+            return Address(f"@{self._text}")
 
         return root / self
 
@@ -458,11 +448,7 @@ class DynamicAddress(AddressSelector):
         if self.is_engine:
             return None
 
-        stripped = self._text.lstrip("@")
-        if not stripped:
-            return None
-
-        return DynamicAddress(stripped)
+        return DynamicAddress(self._text.lstrip("@"))
 
     @property
     def base(self) -> str | None:
@@ -494,24 +480,17 @@ class DynamicAddress(AddressSelector):
 class Address(DynamicAddress):
     """An absolute address pointing to a single component or the engine.
 
-    The two reserved values are `~` (the engine itself) and `@` (the root component). Every other
-    valid address is a dot-separated sequence of name segments rooted at `@`, e.g.
-    `@parent.child.grandchild`.
+    The reserved value is `~` (the engine). Every component address is `@` followed by
+    dot-separated names, e.g. `@parent.child.grandchild`.
     """
 
-    REGEX: Final = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")  # type: ignore
+    REGEX: Final = re.compile(rf"^(?:~|@{_NAME}(\.{_NAME})*)$")  # type: ignore
 
     @class_property
     @classmethod
     def ENGINE(cls) -> Address:
         """The engine address (`~`)."""
         return _ENGINE
-
-    @class_property
-    @classmethod
-    def ROOT(cls) -> Address:
-        """The root component address (`@`)."""
-        return _ROOT
 
     _cache: LRUCache[str, Self] = LRUCache(256)
 
@@ -526,23 +505,15 @@ class Address(DynamicAddress):
         """Return the engine address (`~`)."""
         return _ENGINE
 
-    @classmethod
-    def root(cls) -> Address:
-        """Return the root component address (`@`)."""
-        return _ROOT
-
     def contains(self, other: Address) -> bool:
         """Return `True` if `other` is `self` or a descendant of `self`.
 
-        The engine address contains every other address. The root contains all component
-        addresses.
+        The engine address contains every other address.
         """
         if self.is_engine:
             return True
-        return other == self or (
-            (not other.is_engine) and (other._text.startswith(f"{self._text}.") or self.is_root)
-        )
+
+        return other == self or (not other.is_engine and other._text.startswith(f"{self._text}."))
 
 
 _ENGINE = Address("~")
-_ROOT = Address("@")

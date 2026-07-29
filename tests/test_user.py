@@ -10,8 +10,8 @@ async def test_user_email_filtering():
     await testing.execute_email_filter_test(User, "email")
 
 
-async def test_user_role_filtering():
-    await testing.execute_enum_filter_test(User, "role", User.Role)
+async def test_user_admin_filtering():
+    await testing.execute_boolean_filter_test(User, "admin")
 
 
 async def test_disabled_filtering():

@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from sqlalchemy import JSON, Index, PrimaryKeyConstraint, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ceres.__internal__.database.types import TextMapper
 from ceres.__internal__.entity import (
     BaseAddressEntity,
     BaseAddressEntityCreate,
@@ -41,7 +42,7 @@ class VariableRow(BaseAddressEntityRow, kw_only=True):
 
     __tablename__: ClassVar[str] = "variables"
 
-    name: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(TextMapper())
     value: Mapped[JSONSerializable] = mapped_column(JSON)
 
     @classmethod

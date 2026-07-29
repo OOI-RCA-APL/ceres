@@ -68,27 +68,27 @@ const users = $computed(() => query.data.value ?? [])
         <q-icon :name="icons.search" />
       </template>
     </q-input>
-    <q-card bordered flat>
-      <div v-if="users.length === 0" :class="[$style.emptyMessageText, 'q-pa-sm']">
-        {{ empty ?? 'No users found.' }}
-      </div>
-      <q-list v-else :class="[$style.list, 'scroll']" dense>
-        <q-item
-          v-for="user in users"
-          :key="user.id"
-          :active="users.length === 1"
-          class="q-pb-sm"
-          clickable
-          :disable="disable?.(user) ?? false"
-          @click="$emit('select', user)"
-        >
-          <q-item-section>
-            <q-item-label>{{ user.username }}</q-item-label>
-            <q-item-label caption>{{ user.email }}</q-item-label>
-          </q-item-section>
-        </q-item>
-      </q-list>
-    </q-card>
+    <div v-if="users.length === 0" :class="[$style.emptyMessageText, 'q-pa-sm']">
+      {{ empty ?? 'No users found.' }}
+    </div>
+    <q-list v-else bordered :class="[$style.list, 'rounded-borders', 'scroll']" dense separator>
+      <q-item
+        v-for="user in users"
+        :key="user.id"
+        :active="users.length === 1"
+        clickable
+        :disable="disable?.(user) ?? false"
+        @click="$emit('select', user)"
+      >
+        <q-item-section avatar>
+          <q-icon :name="icons.user" size="18px" />
+        </q-item-section>
+        <q-item-section>
+          <q-item-label>{{ user.username }}</q-item-label>
+          <q-item-label caption>{{ user.email }}</q-item-label>
+        </q-item-section>
+      </q-item>
+    </q-list>
   </div>
 </template>
 

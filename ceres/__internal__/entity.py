@@ -29,6 +29,8 @@ from uuid import UUID
 from pydantic import Field, NonNegativeInt, model_validator
 from sqlalchemy import (
     ClauseElement,
+    Column,
+    ColumnElement,
     Delete,
     Dialect,
     Engine,
@@ -39,7 +41,9 @@ from sqlalchemy import (
     Row,
     Select,
     SQLColumnExpression,
+    String,
     Table,
+    TypeDecorator,
     Update,
     and_,
     delete,
@@ -55,7 +59,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_
 from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
 
 from ceres.__internal__.database.errors import wrap_database_errors
-from ceres.__internal__.database.types import AddressMapper, DateTimeMapper, UUIDMapper
+from ceres.__internal__.database.types import AddressColumn, DateTimeMapper, UUIDMapper
 from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
 from ceres.__internal__.manager import BaseDatabaseManager
 from ceres.__internal__.utilities.case import kebabcase, snakecase
@@ -83,6 +87,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
+    from sqlalchemy.types import TypeEngine
 
     from ceres.__internal__.protocols import DatabaseSource
     from ceres.database import Database
@@ -258,6 +263,41 @@ def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) ->
     return statement
 
 
+def _resolve_type(type_: TypeEngine[Any]) -> TypeEngine[Any]:
+    """Unwrap a `TypeDecorator` down to the type the database actually sees."""
+    while isinstance(type_, TypeDecorator):
+        type_ = type_.impl if not isinstance(type_.impl, type) else type_.impl()
+
+    return type_
+
+
+def _ordered_by_code_point(column: Column[Any], dialect: DatabaseType) -> ColumnElement[Any]:
+    """Order a text column by code point rather than by the database's own collation.
+
+    Ordering of text follows the collation a database was created with, so the same query returns
+    a different order on a deployment whose cluster was initialized with a locale. Naming `C` in
+    the statement makes the order a property of Ceres instead, and matches SQLite, which compares
+    text by byte and has no equivalent to name.
+
+    Enum columns are included, because they are stored as text rather than as a native enum type.
+    Non-text columns are returned untouched, since collating them is an error.
+
+    Args:
+        column: Column being ordered by.
+        dialect: Backend the statement is being built for.
+
+    Returns:
+        The column, collated when that both applies and is needed.
+    """
+    if dialect is not DatabaseType.POSTGRES:
+        return column
+
+    if not isinstance(_resolve_type(column.type), String):
+        return column
+
+    return column.collate("C")
+
+
 class BaseEntityFilterArgs[
     FieldT: str,
     OrderT: str,
@@ -354,6 +394,10 @@ class BaseEntityFilter[
         or__.annotation = cast("type[Any]", FromYAML[MaybeSequence[FromYAML[cls]]] | None)
         and__ = cls.__pydantic_fields__["and__"]
         and__.annotation = cast("type[Any]", FromYAML[MaybeSequence[FromYAML[cls]]] | None)
+
+        # The core schema is already built by this point, so it still validates subfilters against
+        # the inherited annotation. Rebuild so subfilters accept the fields this subclass declares.
+        cls.model_rebuild(force=True)
 
     @model_validator(mode="after")
     def _resolve_and_or(self) -> Self:
@@ -463,8 +507,16 @@ class BaseEntityFilter[
     @abstractmethod
     def _get_default_order(self) -> MaybeSequence[OrderT]: ...
 
-    def _get_order_by(self) -> tuple[SQLColumnExpression[Any], ...]:
-        """Build the ``ORDER BY`` column tuple from this filter's ``order`` (or the default)."""
+    def _get_order_by(self, dialect: DatabaseType) -> tuple[SQLColumnExpression[Any], ...]:
+        """Build the ``ORDER BY`` column tuple from this filter's ``order`` (or the default).
+
+        Args:
+            dialect: Backend the statement is being built for, which decides whether an explicit
+                collation is needed.
+
+        Returns:
+            The columns to order by, in order.
+        """
         order = self.order
         if order is None:
             order = self._get_default_order()
@@ -474,7 +526,7 @@ class BaseEntityFilter[
         for value in seq(order):
             base = value.split(":")[0]
             ascending = not value.endswith(":desc")
-            column = Row.__table__.columns[base]
+            column = _ordered_by_code_point(Row.__table__.columns[base], dialect)
             columns.append(column if ascending else column.desc())
 
         return tuple(columns)
@@ -505,7 +557,7 @@ class BaseEntityFilter[
             The modified statement with filter criteria applied.
         """
         where = () if ignore_where else tuple(self._get_combined_where(dialect))
-        order_by = () if ignore_order else tuple(self._get_order_by())
+        order_by = () if ignore_order else tuple(self._get_order_by(dialect))
         limit = self.limit
         offset = self.offset
 
@@ -1533,7 +1585,7 @@ class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
 
     __abstract__: ClassVar[bool] = True
 
-    address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
+    address: Mapped[Address] = mapped_column(AddressColumn(), sort_order=-2000)
 
     @classmethod
     @override
@@ -1558,7 +1610,7 @@ class BaseAddressEntityFilterArgs[
 ](BaseEntityFilterArgs[FieldT, OrderT], total=False):
     """TypedDict adding ``address`` and ``root`` keyword arguments for address-based filters."""
 
-    root: Address
+    root: Address | None
     address: AddressSelector | str | None
 
 
@@ -1571,8 +1623,9 @@ class BaseAddressEntityFilter[
 
     address: AddressSelector | None = None
     """Filter by `address` matching one or more address selectors."""
-    root: Address = Address.ROOT
-    """The address which relative address selectors in `address` are relative to."""
+    root: Address | None = None
+    """The address which relative address selectors in `address` are relative to, `None` means
+    all components."""
 
     @override
     def _matches(self, obj: ItemT) -> bool:

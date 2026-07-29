@@ -168,45 +168,58 @@ function useStream<TParseModel extends ZodTypeAny>(
     })
   })
 
-  let entries = $ref<Record<string, StreamEntry>>({})
+  /** Open sockets, held outside the reactive graph and keyed by stream.
+
+  A plain map rather than a ref, because the effect below both reads and writes it. A reactive
+  record would have the write retrigger the effect that made it, and each pass opened another
+  socket while orphaning the one before it, so a long session accumulated hundreds of live streams
+  all pushing the same data. Stale snapshots from the slower ones then landed after fresh ones and
+  the interface flickered between them.
+  */
+  const entries = new Map<string, StreamEntry>()
+
+  function closeEntry(id: string) {
+    entries.get(id)?.socket?.close()
+    entries.delete(id)
+  }
+
+  function open(stream: Stream) {
+    entries.set(stream.id, {
+      stream,
+      socket: createSocket(stream, options as any as UseStreamOptions<TParseModel>, onClose),
+    })
+  }
 
   function onClose(stream: Stream) {
-    const entry = entries[stream.id]
+    const entry = entries.get(stream.id)
     if (entry == null) {
       return
     }
 
     entry.socket?.close()
     entry.socket = null
-    if (mounted && !options.disable) {
-      setTimeout(() => {
-        if (
-          !options.disable &&
-          mounted &&
-          entry.socket == null &&
-          entries[stream.id] != null &&
-          entries[stream.id].socket == null &&
-          JSON.stringify(entries[stream.id].stream) === JSON.stringify(stream)
-        ) {
-          entries[stream.id].socket = createSocket(
-            entry.stream,
-            options as any as UseStreamOptions<TParseModel>,
-            onClose
-          )
-        }
-      }, 1000)
+    if (!mounted || options.disable) {
+      return
     }
+
+    setTimeout(() => {
+      const current = entries.get(stream.id)
+      if (
+        !options.disable &&
+        mounted &&
+        current != null &&
+        current.socket == null &&
+        JSON.stringify(current.stream) === JSON.stringify(stream)
+      ) {
+        open(stream)
+      }
+    }, 1000)
   }
 
   function clear() {
-    for (const entry of Object.values(entries)) {
-      if (entry.socket != null && entry.socket.readyState === WebSocket.OPEN) {
-        entry.socket.close()
-        entry.socket = null
-      }
+    for (const id of [...entries.keys()]) {
+      closeEntry(id)
     }
-
-    entries = {}
   }
 
   window.addEventListener('unload', clear)
@@ -217,22 +230,35 @@ function useStream<TParseModel extends ZodTypeAny>(
   })
 
   watchEffect(() => {
-    for (const stream of options.stream) {
-      const entry = entries[stream.id]
+    const wanted = options.stream
+    const wantedIds = new Set(wanted.map((stream) => stream.id))
 
+    // Streams no longer asked for, including every one of them while disabled.
+    for (const id of [...entries.keys()]) {
+      if (options.disable || !wantedIds.has(id)) {
+        closeEntry(id)
+      }
+    }
+
+    if (options.disable) {
+      return
+    }
+
+    for (const stream of wanted) {
+      const entry = entries.get(stream.id)
+
+      // Already connected to exactly this, so it is left alone. Reopening an unchanged stream is
+      // what leaked, since the socket being replaced was never closed.
       if (
         entry != null &&
-        (options.disable || JSON.stringify(stream ?? null) !== JSON.stringify(entry.stream))
+        entry.socket != null &&
+        JSON.stringify(entry.stream) === JSON.stringify(stream)
       ) {
-        entry.socket?.close()
-        delete entries[stream.id]
+        continue
       }
 
-      const socket = options.disable
-        ? null
-        : createSocket(stream, options as any as UseStreamOptions<TParseModel>, onClose)
-
-      entries[stream.id] = { stream, socket }
+      closeEntry(stream.id)
+      open(stream)
     }
   })
 }
@@ -333,7 +359,7 @@ function createQueryParameters(values: Record<string, unknown>): string {
       continue
     }
 
-    if (value !== undefined) {
+    if (value != undefined) {
       result.append(key, stringify(value))
     }
   }

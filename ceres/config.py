@@ -1,6 +1,6 @@
 import ssl
 from abc import abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from re import Pattern
@@ -15,7 +15,6 @@ from pydantic import (
     NonNegativeInt,
     PositiveInt,
     SecretStr,
-    SerializeAsAny,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -33,6 +32,7 @@ from ceres.data import (
     Name,
     NonBlankStr,
     NonEmptyStr,
+    OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
     to_kwargs,
@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
     from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
+    from ceres.reference import Reference
     from ceres.sieve import FunctionSieve, Sieve
 else:
     Sieve = Any
@@ -370,6 +371,70 @@ def _get_component_class() -> type[Component]:
     return Component
 
 
+def collect_unresolved_reference_errors(
+    components: Iterable[Component],
+    skip: Callable[[Reference], bool] | None = None,
+) -> list[ComponentError]:
+    """Re-resolve every component's references and report those that still do not resolve.
+
+    Run this after every top-level tree exists so absolute cross-tree references can route
+    through the engine. Intra-tree references have already been resolved during creation.
+
+    Args:
+        components: The components whose references to re-synchronize.
+        skip: Optional predicate that returns `True` for a reference whose non-resolution should
+            not be reported, used to defer cross-tree references until every tree exists.
+
+    Returns:
+        A `ComponentReferenceInvalidError` for each reference that remains unresolved.
+    """
+    from ceres.reference import unref
+
+    errors: list[ComponentError] = []
+    for component in components:
+        _, unresolved = component.system.sync_references()
+        for reference in unresolved:
+            if skip is not None and skip(reference):
+                continue
+
+            errors.append(
+                ComponentReferenceInvalidError(
+                    address=component.system.address,
+                    referenced=reference.__reference_ultimate_target__,
+                    expected=reference.__reference_constraint__ or Component,
+                    actual=type(unref(reference)),
+                )
+            )
+
+    return errors
+
+
+class ComponentAccessLevel(OrderedStrEnum):
+    """Access level controlling what a user may do with a component.
+
+    The hierarchy is strict: each level implies all levels below it. `DENY` is only valid
+    as a default access level on a component definition and means no access unless
+    explicitly granted.
+
+    Defined here rather than in `ceres.component` because `ComponentConfig` needs it as a
+    field type and `ceres.component` already imports from this module at load time.
+    `ceres.component` re-exports this enum for API discoverability.
+    """
+
+    DENY = "deny"
+    """No access, the component is invisible to the user."""
+    VIEW = "view"
+    """Can see the component and view its data."""
+    OPERATE = "operate"
+    """Can invoke actions and send data on connections."""
+    MANAGE = "manage"
+    """Can change configuration and manage permissions."""
+
+
+RawComponentAccessLevel = Literal["deny", "view", "operate", "manage"]
+ComponentAccessLevelInput = ComponentAccessLevel | RawComponentAccessLevel
+
+
 class ComponentConfig(DataObject):
     """Configuration tree for a single component and any nested child components.
 
@@ -393,6 +458,12 @@ class ComponentConfig(DataObject):
 
     logging: LoggingConfig | None = None
     """Per-component logging overrides, falls back to the engine config when omitted."""
+
+    tags: list[str] = Field(default_factory=list)
+    """Arbitrary labels for cross-cutting permission grants."""
+
+    access: ComponentAccessLevel | None = None
+    """Default access level for this component, inherited by children when not overridden."""
 
     connections: list[ConnectionConfig] = Field(default_factory=list)
     """Connections owned by this component."""
@@ -487,7 +558,8 @@ class ComponentConfig(DataObject):
 
         Args:
             container: The parent component, component system, or engine to attach
-                the new component to. Pass `None` to construct a root component.
+                the new component to. Pass `None` to construct a detached top-level
+                component.
 
         Returns:
             The instantiated component, fully wired with children and references resolved.
@@ -507,13 +579,20 @@ class ComponentConfig(DataObject):
         self,
         container: ComponentSystem | Engine | None,
     ) -> tuple[Component | None, list[ComponentError]]:
-        from ceres.reference import unref
-
         parent = as_component_system(container)
         if parent is not None:
             address = parent.address / self.name
         else:
-            address = Address.ROOT
+            address = Address(f"@{self.name}")
+
+        # Top-level trees under an engine are created one at a time, so an absolute
+        # reference into a sibling tree cannot resolve until every tree exists. Defer those
+        # out of the per-tree check and let the engine validate them across all trees.
+        defer_absolute = as_engine(container) is not None
+
+        def skip(reference: Reference) -> bool:
+            target = reference.__reference_ultimate_target__
+            return defer_absolute and isinstance(target, DynamicAddress) and target.is_absolute
 
         errors: list[ComponentError] = []
         instance = self._create(
@@ -526,19 +605,12 @@ class ComponentConfig(DataObject):
         # references, any references that cannot be resolved are reported as errors so
         # the caller can present them all at once.
         if instance is not None and not errors:
-            components = instance.system.get_components(inclusive=True)
-            for component in components:
-                _, unresolved = component.system.sync_references()
-                if unresolved:
-                    for reference in unresolved:
-                        errors.append(
-                            ComponentReferenceInvalidError(
-                                address=component.system.address,
-                                referenced=reference.__reference_ultimate_target__,
-                                expected=reference.__reference_constraint__ or Component,
-                                actual=type(unref(reference)),
-                            )
-                        )
+            errors.extend(
+                collect_unresolved_reference_errors(
+                    instance.system.get_components(inclusive=True),
+                    skip=skip,
+                )
+            )
 
         # Detach a partially constructed tree on error so we never leak components into
         # the parent system.
@@ -652,7 +724,10 @@ class ServerSSLConfig(DataObject):
     """Path to the server private key file."""
 
     key_password: str | None = None
-    """Password for an encrypted private key."""
+    """Password for an encrypted private key.
+
+    Never served over the API, dropped from config responses by `EXCLUDE_CREDENTIALS`.
+    """
 
     cert: Path | None = None
     """Path to the server certificate file."""
@@ -668,10 +743,23 @@ class ServerAuthenticationConfig(DataObject):
     """Authentication settings for the engine's HTTP server."""
 
     secret: NonEmptyStr
-    """Secret used to sign and verify authentication tokens."""
+    """Secret used to sign and verify authentication tokens.
+
+    Never served over the API. The config routes drop it, along with every other credential in the
+    configuration, through `EXCLUDE_CREDENTIALS`.
+    """
 
     duration: PositiveTimeDelta = timedelta(minutes=30)
     """Lifetime of an issued authentication token."""
+
+    allow_impersonate: bool = False
+    """Whether an administrator may take on another user's identity without their password.
+
+    Turn this on to check what a given user can see, which is otherwise hard to answer with
+    confidence. It also means anyone who reaches an administrator's session reaches every account
+    without a password, so it belongs in development and should stay off in production. It is off
+    unless asked for, and the engine logs a warning on every load while it is on.
+    """
 
 
 class ServerCORSConfig(DataObject):
@@ -730,11 +818,6 @@ class ConsoleConfig(DataObject):
 
     favicon: Path | None = None
     """Path to a favicon image served by the console."""
-
-    # `SerializeAsAny` works around a Pydantic union-serialization bug for `T | Sequence[T]`,
-    # see https://github.com/pydantic/pydantic/milestone/13.
-    dashboard: SerializeAsAny[MaybeSequence[Address] | None] = None
-    """Address (or addresses) of components rendered as the console dashboard."""
 
 
 class DatabaseRetryConfig(DataObject):
@@ -830,12 +913,33 @@ class _DatabaseConfig(DataObject):
     """Optional database-specific connection string query parameters."""
 
 
+_SQLITE_MEMORY_PATH = Path(":memory:")
+
+
 class SQLiteDatabaseConfig(_DatabaseConfig):
     """Configuration for a SQLite-backed database, the default for local deployments."""
 
     type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
     path: Path | None = None
-    """Path to the SQLite file, omit to use an in-memory database."""
+    """Path to the SQLite file. Omit to use a temporary on-disk file, or set to `:memory:` (see
+    `SQLiteDatabaseConfig.in_memory`) for a private in-memory database."""
+
+    @classmethod
+    def in_memory(cls) -> Self:
+        """Build a config for a private in-memory database scoped to this process.
+
+        The returned database exists only in memory for the lifetime of its engine, useful for
+        tests and other short-lived, detached databases that should never touch disk.
+
+        Returns:
+            A config whose `path` is the special `:memory:` sentinel.
+        """
+        return cls(path=_SQLITE_MEMORY_PATH)
+
+    @property
+    def is_memory(self) -> bool:
+        """`True` if `path` is the special `:memory:` sentinel used by `in_memory`."""
+        return self.path == _SQLITE_MEMORY_PATH
 
 
 class PostgresDatabaseConfig(_DatabaseConfig):
@@ -1002,79 +1106,69 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
     """Top-level Ceres configuration, including the component tree.
 
     `Config` is the strict, fully-typed view of a configuration file. Unknown fields
-    are rejected here so users get clear errors for typos. The root of the component
-    tree is always present, callers can also write `components:` at the top level as
-    a shorthand and it will be folded into `root.components` automatically.
+    are rejected here so users get clear errors for typos. `components` holds every
+    top-level component configuration, there is no implicit wrapping root component.
     """
 
-    root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
-    """Root of the component tree, every other component nests under this one."""
+    components: list[ComponentConfig] = Field(default_factory=list)
+    """Top-level component configurations, the engine's components."""
 
-    @model_validator(mode="before")
-    @to_kwargs
-    @classmethod
-    def _validate_before(cls, values: object | Mapping[str, Any]) -> object:
-        # Accept `components:` at the top level as shorthand for `root: { components: ... }`,
-        # this lets simple configurations skip the explicit root wrapper.
-        if isinstance(values, Mapping):
-            values = dict(values)
-            if "components" in values:
-                if "root" in values:
-                    raise ValueError(
-                        "cannot have both `root` and `components` defined at base level of config"
-                    )
+    tags: list[str] = Field(default_factory=list)
+    """Tags inherited by every component that does not override them."""
 
-                values["root"] = {"components": values.pop("components")}
+    access: ComponentAccessLevel | None = None
+    """Default access level for components with none declared in their ancestor chain."""
 
-        return values
+    @field_validator("components")
+    def _validate_components(cls, components: list[ComponentConfig]) -> list[ComponentConfig]:
+        for component_name, group in group_by(components, lambda current: current.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate top-level component name '{component_name}'")
 
-    @model_validator(mode="after")
-    def _validate_after(self) -> Self:
-        from ceres.interface import Interface
-
-        # Dashboard components must exist and must be `Interface` subclasses, this is
-        # validated up front so dashboard misconfiguration fails at config load time.
-        if self.console.dashboard is not None:
-            for address in seq(self.console.dashboard):
-                component = self.get_component(address)
-                if component is None:
-                    raise ValueError(f"dashboard component '{address}' does not exist")
-                if not issubclass(component.cls, Interface):
-                    raise ValueError(
-                        f"dashboard component '{address}' must be a subclass of {Interface}, got {component.cls}"
-                    )
-
-        return self
-
-    @field_validator("root", mode="before")
-    @to_kwargs
-    def _validate_root(cls, values: object | Mapping[str, Any]) -> object:
-        # The root component's name is fixed, default it when omitted so users do not
-        # have to repeat it in every configuration file.
-        if isinstance(values, Mapping):
-            if "name" not in values:
-                values = {"name": "root", **values}
-
-        return values
+        return components
 
     @override
     async def _check_components(self) -> list[ComponentError]:
+        from ceres.engine import Engine
+
+        errors: list[ComponentError] = []
+
+        # Create every top-level tree under a shared throwaway engine so absolute
+        # cross-tree references resolve during checks exactly as they do at load time.
+        engine = Engine()
         try:
-            self.root.create()
-            return []
-        except Error as error:
-            if isinstance(error, ComponentCombinedError):
-                return error.errors
-            elif isinstance(error, ComponentError):
-                return [error]
-            else:
-                return [ComponentUnexpectedError(exception=trace(error))]
-        except Exception as exception:
-            return [ComponentUnexpectedError(exception=trace(exception))]
+            for config in self.components:
+                try:
+                    config.create(engine)
+                except Error as error:
+                    if isinstance(error, ComponentCombinedError):
+                        errors.extend(error.errors)
+                    elif isinstance(error, ComponentError):
+                        errors.append(error)
+                    else:
+                        errors.append(ComponentUnexpectedError(exception=trace(error)))
+                except Exception as exception:
+                    errors.append(ComponentUnexpectedError(exception=trace(exception)))
+
+            # Cross-tree references were deferred during per-tree creation, validate them
+            # now that every tree exists.
+            errors.extend(collect_unresolved_reference_errors(engine.get_components()))
+        finally:
+            await engine.database.dispose()
+
+        return errors
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
-        """Look up a component configuration anywhere under the root."""
-        return self.root.get_component(address)
+        """Look up a component configuration anywhere in the tree."""
+        names = address.names
+        if not names:
+            return None
+
+        current = next((child for child in self.components if child.name == names[0]), None)
+        if current is None:
+            return None
+
+        return current.get_component(DynamicAddress(".".join(names[1:]))) if names[1:] else current
 
     def get_components(
         self,
@@ -1084,7 +1178,7 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
 
         Args:
             address: Optional selector restricting which addresses are returned, omit
-                to return every component including the root.
+                to return every component in the tree.
 
         Returns:
             Mapping from absolute address to component configuration.
@@ -1092,18 +1186,19 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         configs: dict[Address, ComponentConfig] = {}
 
         def recurse(config: ComponentConfig, address: Address, selector: AddressSelector | None):
-            if not selector or selector.matches(address, Address.ROOT):
+            if not selector or selector.matches(address, None):
                 configs[address] = config
 
             for child in config.components:
                 recurse(child, address / child.name, selector)
 
-        recurse(self.root, Address.ROOT, address)
+        for config in self.components:
+            recurse(config, Address(f"@{config.name}"), address)
 
         return configs
 
     def get_component_class(self, address: DynamicAddress) -> type[Component] | None:
-        """Look up the component class declared at `address`, anywhere under the root."""
+        """Look up the component class declared at `address`, anywhere in the tree."""
         config = self.get_component(address)
         if config is None:
             return None

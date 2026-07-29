@@ -36,6 +36,10 @@ export const useNavigation = defineStore('navigation', () => {
       }
     },
 
+    async push(to: RouteLocationRaw) {
+      await router.push(to)
+    },
+
     async replace(to: RouteLocationRaw) {
       await router.replace(to)
     },

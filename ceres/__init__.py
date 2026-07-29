@@ -20,10 +20,10 @@ __all__ = [
     # .component
     "Bound",
     "Component",
+    "ComponentAccessLevel",
     "ComponentSystem",
     "Output",
     "FileOutput",
-    "ProcedureAccessLevel",
     "ProcedureType",
     "StreamingOutput",
     "action",
@@ -71,8 +71,9 @@ __all__ = [
     # .event
     "Event",
     "StandardEvent",
-    # .interface
-    "Interface",
+    # .group
+    "Group",
+    "GroupMembership",
     # .item
     "Item",
     "ItemType",
@@ -99,6 +100,10 @@ __all__ = [
     "ParticleData",
     "RegexParticle",
     "GroupedRegexParticle",
+    # .permission
+    "GroupPermission",
+    "PermissionTargetType",
+    "UserPermission",
     # .record
     "Record",
     "RecordType",
@@ -128,13 +133,11 @@ __all__ = [
     "utc",
     # .user
     "User",
-    "UserRole",
     # .variable
     "Variable",
     # .version
     "__version__",
     "Workspace",
-    "WorkspaceMembership",
 ]
 
 from ceres.__internal__.lazy import __lazy_imports__
@@ -147,10 +150,10 @@ with __lazy_imports__(__name__, export=True):
     from ceres.component import (
         Bound,
         Component,
+        ComponentAccessLevel,
         ComponentSystem,
         FileOutput,
         Output,
-        ProcedureAccessLevel,
         ProcedureType,
         StreamingOutput,
         action,
@@ -185,7 +188,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.engine import Engine
     from ceres.entity import Entity, EntityType
     from ceres.event import Event, StandardEvent
-    from ceres.interface import Interface
+    from ceres.group import Group, GroupMembership
     from ceres.item import Item, ItemType
     from ceres.level import Level
     from ceres.loaded import Loaded, Loader
@@ -201,6 +204,7 @@ with __lazy_imports__(__name__, export=True):
         ParticleData,
         RegexParticle,
     )
+    from ceres.permission import GroupPermission, PermissionTargetType, UserPermission
     from ceres.record import Record, RecordType
     from ceres.reference import Ref, Reference, unref
     from ceres.schedule import Schedule, ScheduleType
@@ -217,7 +221,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.statistics import Statistics
     from ceres.status import Status
     from ceres.timing import utc
-    from ceres.user import User, UserRole
+    from ceres.user import User
     from ceres.variable import Variable
     from ceres.version import __version__
-    from ceres.workspace import Workspace, WorkspaceMembership
+    from ceres.workspace import Workspace

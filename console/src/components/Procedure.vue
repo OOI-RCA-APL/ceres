@@ -5,7 +5,6 @@ import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import SchemaFormControls from '@/components/schema-form/SchemaFormControls.vue'
-import { useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
 import { utc, type Datetime } from '@/time'
 import { displayDuration, useTime } from '@/time'
@@ -23,7 +22,6 @@ const address = $computed(() => props.address)
 const procedure = $computed(() => props.procedure)
 const persist = $computed(() => !hasArgumentsModel)
 
-const context = useInterfaceContext()
 const time = useTime()
 const engine = useEngine()
 
@@ -52,7 +50,7 @@ const options = $computed(() => {
   return {
     persist: () =>
       persist
-        ? [context.key, 'state', 'procedure', 'schema-form', address, 'procedures', procedure.name]
+        ? ['state', 'procedure', 'schema-form', address, 'procedures', procedure.name]
         : undefined,
   }
 })

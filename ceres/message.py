@@ -1,12 +1,12 @@
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Unpack, override
 
-from sqlalchemy import Index, LargeBinary, Text, func
+from sqlalchemy import Index, LargeBinary, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
 from ceres.__internal__.database.bytes import tokenize_bytes
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -73,7 +73,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "messages"
 
     connection: Mapped[str | None] = mapped_column(
-        Text,
+        TextMapper(),
         nullable=True,
         default=None,
         server_default=expression.null(),

@@ -30,7 +30,7 @@ from ceres.concurrency import race, sleep
 from ceres.data import DataObject, DateTime, StrEnum, adapt, from_json, to_json, validate
 from ceres.error import NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
-from ceres.user import User, UserRole
+from ceres.user import User
 
 # Allow using short JWT secrets without warnings.
 warnings.filterwarnings("ignore", category=jwt.warnings.InsecureKeyLengthWarning, module="jwt")
@@ -43,6 +43,9 @@ if TYPE_CHECKING:
 
     from ceres.__internal__.app.main import App
     from ceres.__internal__.server import Server
+    from ceres.access import ResolvedAccess
+    from ceres.address import Address
+    from ceres.component import Component, ComponentAccessLevel, ComponentSystem
     from ceres.config import ServerAuthenticationConfig
     from ceres.engine import Engine
     from ceres.message import BoundMessageManager, MessageFilter
@@ -68,6 +71,14 @@ def exclude_recursively(fields: Iterable[str]) -> IncEx:
 
 
 EXCLUDE_PASSWORDS: IncEx = exclude_recursively(["password"])
+
+EXCLUDE_CREDENTIALS: IncEx = exclude_recursively(["secret", "password", "key_password"])
+"""Credential fields dropped from any serialized configuration.
+
+The signing secret mints a token for any user, so serving it to an administrator hands over every
+account. Excluded by name at every nesting level, which also covers a credential named this way
+inside a component's own configuration.
+"""
 
 
 class Router(APIRouter):
@@ -294,17 +305,27 @@ class Identity(DataObject):
     token: str
     expires: DateTime
     user: User
+    impersonated_by: UUID | None = None
+    """Administrator impersonating this identity, marking it as not their own account.
+
+    A marker for the console to show, not a right. Impersonating is administrators only, and the
+    identity it issues is somebody else's, so it confers nothing.
+    """
 
 
 def create_identity(
     user: User,
     authentication: ServerAuthenticationConfig,
+    impersonated_by: UUID | None = None,
 ) -> Identity:
     """Create a signed JWT identity for the given user using the server authentication config.
 
     Args:
         user: The user to issue a token for.
         authentication: Server auth config providing the signing secret and token duration.
+        impersonated_by: Administrator who took on this identity by impersonating, recorded
+            so they can return to their own account without their password. `None` for a token
+            issued to the user themselves.
 
     Returns:
         An `Identity` containing the encoded token, its expiration time, and the user.
@@ -312,19 +333,20 @@ def create_identity(
     import jwt
 
     expires = utc() + authentication.duration
-    token = jwt.encode(
-        {
-            "sub": str(user.id),
-            "exp": expires,
-        },
-        authentication.secret,
-        "HS256",
-    )
+    claims: dict[str, Any] = {
+        "sub": str(user.id),
+        "exp": expires,
+    }
+    if impersonated_by is not None:
+        claims["imp"] = str(impersonated_by)
+
+    token = jwt.encode(claims, authentication.secret, "HS256")
 
     return Identity(
         user=user,
         token=token,
         expires=expires,
+        impersonated_by=impersonated_by,
     )
 
 
@@ -413,10 +435,17 @@ async def _get_current_identity(
         if user is None:
             return None
 
+        impersonated_by = info.get("swf")
+        try:
+            impersonated_by = UUID(str(impersonated_by)) if impersonated_by is not None else None
+        except ValueError:
+            return None
+
         return Identity(
             token=token,
             expires=expires,
             user=user,
+            impersonated_by=impersonated_by,
         )
 
 
@@ -464,97 +493,71 @@ async def _require_current_user(user: CurrentUser) -> User:
 type RequireUser = Annotated[User, Depends(_require_current_user)]
 
 
-def _get_current_role(user: CurrentUser, cli: CurrentCLI) -> UserRole | None:
-    """Return the effective role of the current caller.
+@dataclass(frozen=True, kw_only=True)
+class Actor:
+    """The acting context of a request: the user plus CLI/auth-disabled bypass state."""
 
-    CLI mode always resolves to admin. Unauthenticated callers resolve to ``None``.
+    user: User | None
+    unrestricted: bool
+    """Whether the request bypasses all permission checks (CLI or auth disabled)."""
+
+    @property
+    def admin(self) -> bool:
+        """Whether the actor has admin capability."""
+        return self.unrestricted or (self.user is not None and self.user.admin)
+
+    @property
+    def authenticated(self) -> bool:
+        """Whether the actor is an authenticated user or an unrestricted context."""
+        return self.unrestricted or self.user is not None
+
+
+def _get_current_actor(engine: CurrentEngine, user: CurrentUser, cli: CurrentCLI) -> Actor:
+    """Return the acting context of the current caller.
+
+    CLI mode and disabled authentication are unrestricted. Otherwise the actor wraps the
+    current user, who may be ``None`` when unauthenticated.
     """
-    if cli:
-        return UserRole.ADMIN
-    if user is None:
-        return None
-    return user.role
+    unrestricted = cli or engine.config.server.authentication is None
+    return Actor(user=user, unrestricted=unrestricted)
 
 
-type CurrentRole = Annotated[UserRole | None, Depends(_get_current_role)]
+type CurrentActor = Annotated[Actor, Depends(_get_current_actor)]
 
 
-def _restrict(
-    required: UserRole,
-    engine: CurrentEngine,
-    user: CurrentUser,
-    cli: CurrentCLI,
-    role: CurrentRole,
-) -> User | None:
-    """Enforce a minimum role requirement for the current caller.
-
-    Bypass the check when authentication is disabled or the request comes from the CLI.
-
-    Args:
-        required: The minimum `UserRole` needed to proceed.
-        engine: The current engine instance (used to check the auth config).
-        user: The current user, or ``None`` if unauthenticated.
-        cli: Whether the app is in CLI mode.
-        role: The effective role of the caller.
+def _require_authenticated(actor: CurrentActor) -> User | None:
+    """Require an authenticated caller.
 
     Returns:
         The authenticated user, or ``None`` when access is granted without a user context.
 
     Raises:
         NotAuthenticatedError: If the caller is unauthenticated.
-        NotPermittedError: If the caller is disabled or lacks the required role.
+        NotPermittedError: If the caller is disabled.
     """
-    if engine.config.server.authentication is None:
-        # Authentication is disabled, so allow all users.
+    if actor.unrestricted:
         return None
-    if cli:
-        # The CLI is functionally an admin, and so can do anything.
-        return None
-
-    if user is None:
+    if actor.user is None:
         raise NotAuthenticatedError()
-    if user.disabled or role < required:
+    if actor.user.disabled:
+        raise NotPermittedError()
+
+    return actor.user
+
+
+def _require_admin(actor: CurrentActor) -> User | None:
+    """Require an admin caller."""
+    user = _require_authenticated(actor)
+    if user is not None and not user.admin:
         raise NotPermittedError()
 
     return user
 
 
-def _require_viewer(
-    engine: CurrentEngine,
-    user: CurrentUser,
-    cli: CurrentCLI,
-    role: CurrentRole,
-) -> User | None:
-    """Require at least viewer-level access for the current caller."""
-    return _restrict(UserRole.VIEWER, engine, user, cli, role)
-
-
-def _require_operator(
-    engine: CurrentEngine,
-    user: CurrentUser,
-    cli: CurrentCLI,
-    role: CurrentRole,
-) -> User | None:
-    """Require at least operator-level access for the current caller."""
-    return _restrict(UserRole.OPERATOR, engine, user, cli, role)
-
-
-def _require_admin(
-    engine: CurrentEngine,
-    user: CurrentUser,
-    cli: CurrentCLI,
-    role: CurrentRole,
-) -> User | None:
-    """Require admin-level access for the current caller."""
-    return _restrict(UserRole.ADMIN, engine, user, cli, role)
-
-
-VIEWER = Depends(_require_viewer)
-OPERATOR = Depends(_require_operator)
+AUTHENTICATED = Depends(_require_authenticated)
 ADMIN = Depends(_require_admin)
 
-type RequireViewer = Annotated[User | None, VIEWER]
-type RequireOperator = Annotated[User | None, OPERATOR]
+type RequireAuthenticated = Annotated[User | None, AUTHENTICATED]
 type RequireAdmin = Annotated[User | None, ADMIN]
 
 
@@ -570,6 +573,161 @@ def assert_found[T](value: T | None, /) -> T:
     return value
 
 
+async def get_component_access(
+    engine: Engine,
+    user: User | None,
+    component: Component,
+) -> ComponentAccessLevel | None:
+    """Resolve the effective access level for a user on a component."""
+    if user is None:
+        return None
+
+    from ceres.access import resolve_access
+
+    system = component.system
+    return await resolve_access(
+        database=engine.database,
+        user=user,
+        address_chain=build_address_chain(system),
+        resolved_access=system.get_resolved_access(),
+        inherited_tags=system.get_inherited_tags(),
+    )
+
+
+async def get_engine_access_detail(engine: Engine, user: User | None) -> ResolvedAccess | None:
+    """Resolve a user's access on the engine root, keeping what conferred the level.
+
+    The engine root is the placement that workspaces spanning several components sit on. It has no
+    component to resolve against, so it resolves like a component with no address chain and no
+    tags, leaving the configured default access and any all-target grant. Authenticated users get
+    `VIEW` unless the configuration lowers it, which mirrors how a component with no declared
+    access behaves.
+
+    Args:
+        engine: Engine whose configuration and grants to resolve against.
+        user: The user to check, or `None` for an unauthenticated caller.
+
+    Returns:
+        The effective level and its source, or `None` when there is no user or no access.
+    """
+    from ceres.access import fetch_access_grants, resolve_access_detail_from
+    from ceres.component import ComponentAccessLevel
+
+    if user is None:
+        return None
+
+    default = (
+        engine.default_access if engine.default_access is not None else ComponentAccessLevel.VIEW
+    )
+    grants = await fetch_access_grants(engine.database, user)
+    return resolve_access_detail_from(
+        grants,
+        address_chain=[],
+        resolved_access=default,
+        inherited_tags=set(),
+    )
+
+
+async def get_engine_access(engine: Engine, user: User | None) -> ComponentAccessLevel | None:
+    """Resolve the effective access level for a user on the engine root.
+
+    Args:
+        engine: Engine whose configuration and grants to resolve against.
+        user: The user to check, or `None` for an unauthenticated caller.
+
+    Returns:
+        The effective `ComponentAccessLevel`, or `None` when there is no user or no access.
+    """
+    resolved = await get_engine_access_detail(engine, user)
+    return resolved.level if resolved is not None else None
+
+
+async def get_components_access_detail(
+    engine: Engine,
+    user: User | None,
+    components: Iterable[Component],
+) -> dict[Address, ResolvedAccess | None]:
+    """Resolve access across many components, keeping what conferred each level.
+
+    Args:
+        engine: The engine whose database holds the grants.
+        user: The user to check, or `None` for an unauthenticated caller with no access.
+        components: The components to resolve access for.
+
+    Returns:
+        A mapping from each component's address to its resolved level and source, or `None` where
+        the user has no access.
+    """
+    if user is None:
+        return {component.system.address: None for component in components}
+
+    from ceres.access import fetch_access_grants, resolve_access_detail_from
+
+    grants = await fetch_access_grants(engine.database, user)
+
+    result: dict[Address, ResolvedAccess | None] = {}
+    for component in components:
+        system = component.system
+        result[system.address] = resolve_access_detail_from(
+            grants,
+            address_chain=build_address_chain(system),
+            resolved_access=system.get_resolved_access(),
+            inherited_tags=system.get_inherited_tags(),
+        )
+
+    return result
+
+
+async def get_components_access(
+    engine: Engine,
+    user: User | None,
+    components: Iterable[Component],
+) -> dict[Address, ComponentAccessLevel | None]:
+    """Resolve the effective access level for a user across many components in one grant fetch.
+
+    Fetch the user's grants once, then resolve each component in memory. Prefer this over calling
+    `get_component_access` in a loop, which re-queries the grants for every component.
+
+    Args:
+        engine: The engine whose database holds the grants.
+        user: The user to check, or `None` for an unauthenticated caller with no access.
+        components: The components to resolve access for.
+
+    Returns:
+        A mapping from each component's address to its effective level, or `None` where the user
+        has no access.
+    """
+    if user is None:
+        return {component.system.address: None for component in components}
+
+    from ceres.access import fetch_access_grants, resolve_access_from
+
+    grants = await fetch_access_grants(engine.database, user)
+
+    result: dict[Address, ComponentAccessLevel | None] = {}
+    for component in components:
+        system = component.system
+        result[system.address] = resolve_access_from(
+            grants,
+            address_chain=build_address_chain(system),
+            resolved_access=system.get_resolved_access(),
+            inherited_tags=system.get_inherited_tags(),
+        )
+
+    return result
+
+
+def build_address_chain(system: ComponentSystem) -> list[str]:
+    """Build the list of addresses from a component up to its top-level ancestor."""
+    chain: list[str] = []
+    current: ComponentSystem | None = system
+    while current is not None:
+        chain.append(str(current.address))
+        current = current.parent
+
+    return chain
+
+
 def create_record_get_route(router: Router, Record: type[Record]):
     """Register a GET-by-ID route on `router` for the given record type."""
     naming = Record.__entity_naming__
@@ -582,7 +740,7 @@ def create_record_get_route(router: Router, Record: type[Record]):
     return router.get(
         "/{id:uuid}",
         response_model=Record,
-        dependencies=[VIEWER],
+        dependencies=[AUTHENTICATED],
         tags=[kebabcase(naming.plural)],
     )(get)
 
@@ -605,7 +763,7 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
     return router.get(
         "",
         response_model=list[Record],
-        dependencies=[VIEWER],
+        dependencies=[AUTHENTICATED],
         tags=[kebabcase(naming.plural)],
     )(get_all)
 
@@ -623,7 +781,7 @@ def create_record_count_route(router: Router, Record: type[Record]):
     count.__name__ = f"count_{snakecase(naming.plural)}"
     return router.get(
         "/count",
-        dependencies=[VIEWER],
+        dependencies=[AUTHENTICATED],
         tags=[kebabcase(naming.plural)],
     )(count)
 
@@ -646,7 +804,7 @@ def create_record_stream_route(router: Router, Record: type[Record]):
         await socket.execute(write)
 
     stream.__name__ = f"stream_{snakecase(naming.plural)}"
-    return router.websocket("", dependencies=[VIEWER])(stream)
+    return router.websocket("", dependencies=[AUTHENTICATED])(stream)
 
 
 def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
@@ -675,8 +833,8 @@ def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
 
 def _require_self_or_admin(
     connection: HTTPConnection,
-    user: RequireViewer,
-    role: CurrentRole,
+    user: RequireAuthenticated,
+    actor: CurrentActor,
 ) -> UUID:
     """Require that the caller is either the user identified in the URL path or an admin.
 
@@ -695,7 +853,7 @@ def _require_self_or_admin(
     except ValueError:
         raise NotPermittedError()
 
-    if role < UserRole.ADMIN:
+    if not actor.admin:
         if user is None or user.id != user_id:
             raise NotPermittedError()
 

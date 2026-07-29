@@ -68,6 +68,8 @@ from ceres.__internal__.utilities.validation import (
 )
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import awaitify, concurrently, sleep
+from ceres.config import ComponentAccessLevel as ComponentAccessLevel
+from ceres.config import ComponentAccessLevelInput as ComponentAccessLevelInput
 from ceres.config import (
     ComponentConfig,
     ConnectionConfig,
@@ -75,12 +77,13 @@ from ceres.config import (
     MethodSieveConfig,
     PrunerConfig,
     SieveConfig,
+    SQLiteDatabaseConfig,
 )
+from ceres.config import RawComponentAccessLevel as RawComponentAccessLevel
 from ceres.data import (
     DataObject,
     MaybeSequence,
     Name,
-    OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
     WithDefaults,
@@ -160,7 +163,7 @@ __all__ = [
 class ComponentFilterArgs(BaseFilterArgs, total=False):
     """Keyword-form arguments for `ComponentFilter`, used by helpers like `get_components`."""
 
-    root: Address
+    root: Address | None
     address: AddressSelector | None
     enabled: bool | None
     running: bool | None
@@ -169,8 +172,8 @@ class ComponentFilterArgs(BaseFilterArgs, total=False):
 class ComponentFilter(BaseFilter):
     """Filter for selecting components by address and lifecycle state."""
 
-    root: Address = Address.ROOT
-    """Address to interpret relative selectors against, defaults to the absolute root."""
+    root: Address | None = None
+    """Address to interpret relative selectors against, `None` means all components."""
 
     address: AddressSelector | None = None
     """Optional selector restricting matches by address."""
@@ -648,43 +651,8 @@ ProcedureOutputInfo: TypeAlias = (
 )
 
 
-class ProcedureAccessLevel(OrderedStrEnum):
-    """Access level controlling which user roles may invoke a procedure.
-
-    The order is derived from `UserRole`, with `PUBLIC` sitting one step below `VIEWER` so
-    unauthenticated callers can be permitted explicitly.
-    """
-
-    @classmethod
-    @override
-    def __order_mapping__(cls) -> dict[ProcedureAccessLevel, int]:
-        from ceres.user import UserRole
-
-        return {
-            cls.PUBLIC: UserRole.VIEWER.order - 1,
-            cls.VIEWERS: UserRole.VIEWER.order,
-            cls.OPERATORS: UserRole.OPERATOR.order,
-            cls.ADMINS: UserRole.ADMIN.order,
-        }
-
-    PUBLIC = "public"
-    """Anyone, including unauthenticated callers, may invoke the procedure."""
-
-    VIEWERS = "viewers"
-    """Authenticated users with viewer role or higher may invoke the procedure."""
-
-    OPERATORS = "operators"
-    """Operators or admins may invoke the procedure."""
-
-    ADMINS = "admins"
-    """Only admins may invoke the procedure."""
-
-
-RawProcedureAccessLevel = Literal["public", "viewers", "operators", "admins"]
-ProcedureAccessLevelInput = ProcedureAccessLevel | RawProcedureAccessLevel
-
-ProcedurePermissions = ProcedureAccessLevel
-ProcedurePermissionsInput = ProcedureAccessLevelInput
+ProcedurePermissions = ComponentAccessLevel | Literal["public"]
+ProcedurePermissionsInput = ComponentAccessLevelInput | Literal["public"]
 
 
 class _ProcedureBinding(DataObject.Frozen):
@@ -908,7 +876,7 @@ def query[**P, T](
     *,
     poll: float | timedelta = timedelta(seconds=5),
     media: str | None = None,
-    permit: ProcedurePermissionsInput = ProcedureAccessLevel.PUBLIC,
+    permit: ProcedurePermissionsInput = ComponentAccessLevel.VIEW,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """Mark a method as a query, a read-only RPC endpoint with optional polling subscription.
 
@@ -920,7 +888,8 @@ def query[**P, T](
         poll: Interval used when subscribing to a non-live query.
         media: Media type for streaming queries, required when the return type is `StreamingOutput`
             and otherwise optional.
-        permit: Minimum access level required to call the query.
+        permit: Minimum access level required to call the query, or `"public"` to allow
+            unauthenticated access.
 
     Returns:
         Either the decorated method (when used without arguments) or a decorator returning the
@@ -929,11 +898,14 @@ def query[**P, T](
 
     def query(method: Callable[P, T]) -> Callable[P, T]:
         info = _get_procedure_method_info(method, ProcedureType.QUERY, media)
+        permissions: ProcedurePermissions = (
+            "public" if permit == "public" else ComponentAccessLevel(permit)
+        )
         _add_binding(
             method,
             QueryBinding(
                 name=_get_bound_name(method),
-                permissions=ProcedureAccessLevel(permit),
+                permissions=permissions,
                 method=get_function_name(method),
                 arguments=info.arguments,
                 output=info.output,
@@ -966,7 +938,7 @@ def action[**P, T](
     method: Callable[P, T] | None = None,
     *,
     media: str | None = None,
-    permit: ProcedurePermissionsInput = ProcedureAccessLevel.OPERATORS,
+    permit: ProcedurePermissionsInput = ComponentAccessLevel.OPERATE,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     """Mark a method as an action, a mutating RPC endpoint that performs side effects.
 
@@ -977,7 +949,8 @@ def action[**P, T](
         method: When used without arguments, the method being decorated.
         media: Media type for streaming actions, required when the return type is
             `StreamingOutput` and otherwise optional.
-        permit: Minimum access level required to invoke the action, defaults to operator level.
+        permit: Minimum access level required to invoke the action, or `"public"` to allow
+            unauthenticated access.
 
     Returns:
         Either the decorated method (when used without arguments) or a decorator returning the
@@ -986,11 +959,14 @@ def action[**P, T](
 
     def action(method: Callable[P, T]) -> Callable[P, T]:
         validated = _get_procedure_method_info(method, ProcedureType.ACTION, media)
+        permissions: ProcedurePermissions = (
+            "public" if permit == "public" else ComponentAccessLevel(permit)
+        )
         _add_binding(
             method,
             ActionBinding(
                 name=_get_bound_name(method),
-                permissions=ProcedureAccessLevel(permit),
+                permissions=permissions,
                 method=get_function_name(method),
                 arguments=validated.arguments,
                 output=validated.output,
@@ -1592,18 +1568,18 @@ class ComponentSystem(Node, ComponentSource):
     @property
     @override
     def address(self) -> Address:
-        """The current address of the component, derived by walking up to the root."""
+        """The current address of the component, derived by walking up to its top-level ancestor."""
         if self.parent is not None:
             return self.parent.address / self.name
 
-        return Address.ROOT
+        return Address(f"@{self.name}")
 
     @property
     def container(self) -> ComponentSystem | Engine | None:
         """The container of the component system.
 
         This is either another `ComponentSystem` (the parent component) or an `Engine` (when
-        this component is the engine's root). Returns `None` when the component is detached.
+        this component is a top-level component). Returns `None` when the component is detached.
         """
         return self._container
 
@@ -1615,7 +1591,7 @@ class ComponentSystem(Node, ComponentSource):
         # Make sure the container actually knows about us, calling `attach` is idempotent when
         # the relationship is already in sync.
         if isinstance(container, Engine):
-            if container.root is not self:
+            if container.get_component(Address(f"@{self.name}")) is not self.component:
                 container.attach(self)
         elif isinstance(container, ComponentSystem):
             if container._children.get(self._name) is not self:
@@ -1648,7 +1624,7 @@ class ComponentSystem(Node, ComponentSource):
             return container.database
 
         if self._database is None:
-            self._database = Database()
+            self._database = Database(SQLiteDatabaseConfig.in_memory())
         return self._database
 
     @property
@@ -1668,9 +1644,8 @@ class ComponentSystem(Node, ComponentSource):
         self._config = config
 
     @property
-    @override
     def root(self) -> ComponentSystem:
-        """The root of this component's tree, or this component itself when it has no parent."""
+        """The top-level system of this component's tree, or itself when it has no parent."""
         current: ComponentSystem | None = self
         while current.parent is not None:
             current = current.parent
@@ -1681,6 +1656,55 @@ class ComponentSystem(Node, ComponentSource):
     def parent(self) -> ComponentSystem | None:
         """The parent component's system, or `None` if there is no parent."""
         return as_component_system(self._container)
+
+    @property
+    def tags(self) -> list[str]:
+        """Tags declared on this component's config, empty if none."""
+        if self._config is None:
+            return []
+        return self._config.tags
+
+    @property
+    def access(self) -> ComponentAccessLevel | None:
+        """Default access level from this component's config, or None if not set."""
+        if self._config is None:
+            return None
+        return self._config.access
+
+    def get_resolved_access(self) -> ComponentAccessLevel:
+        """Walk the ancestor chain to find the nearest declared access level.
+
+        Return the first non-None `access` found walking from this component up to its
+        top-level ancestor, then the config-level default, then `ComponentAccessLevel.VIEW`.
+        """
+        current: ComponentSystem | None = self
+
+        while current is not None:
+            if current.access is not None:
+                return current.access
+
+            current = current.parent
+
+        engine = self.engine
+        if engine is not None and engine.default_access is not None:
+            return engine.default_access
+
+        return ComponentAccessLevel.VIEW
+
+    def get_inherited_tags(self) -> set[str]:
+        """Collect tags from this component, all ancestors, and the config level."""
+        result: set[str] = set()
+        current: ComponentSystem | None = self
+
+        while current is not None:
+            result.update(current.tags)
+            current = current.parent
+
+        engine = self.engine
+        if engine is not None:
+            result.update(engine.default_tags)
+
+        return result
 
     @cached_property
     def jobs(self) -> JobManager:
@@ -1834,10 +1858,18 @@ class ComponentSystem(Node, ComponentSource):
         return get_connection_bindings(type(self.component))
 
     def __propagate_tree_change(self) -> None:
-        # Notify every component in the tree that the structure changed so they can recompute
-        # cached child order and re-resolve references that may now point somewhere different.
-        for component in self.root.get_components():
-            component.system.__on_tree_change()
+        # Notify every component that the structure changed so they can recompute cached child
+        # order and re-resolve references that may now point somewhere different. When the system
+        # belongs to an engine the notification spans every top-level tree, since absolute
+        # references can cross between them, otherwise it stays within the local tree.
+        engine = self.engine
+        if engine is not None:
+            systems = [component.system for component in engine.get_components()]
+        else:
+            systems = [component.system for component in self.root.get_components()]
+
+        for system in systems:
+            system.__on_tree_change()
 
     def __on_tree_change(self) -> None:
         self.sync_child_order()
@@ -2027,8 +2059,13 @@ class ComponentSystem(Node, ComponentSource):
             logging_before = self.get_resolved_logging_config()
 
             self._container = None
-            engine.root = None
-            self.__propagate_tree_change()
+            engine.detach(self)
+
+            # The detached subtree is no longer part of the engine, so notify both it and the
+            # remaining trees. Sibling trees re-resolve to drop stale references into the removed
+            # subtree, and the subtree re-resolves so its references into the engine unresolve.
+            for component in [*engine.get_components(), *self.get_components(inclusive=True)]:
+                component.system.__on_tree_change()
 
             engine.events.propagate(
                 DetachedEvent(address=address_before),
@@ -2073,7 +2110,9 @@ class ComponentSystem(Node, ComponentSource):
 
         Args:
             address: Address string or `DynamicAddress`. An empty value returns this component.
-                Absolute addresses on a non-root system are resolved against the tree root.
+                Absolute addresses route through the engine when this system is attached to
+                one, so they can reach components in any top-level tree. On a detached system,
+                absolute addresses are resolved against the local tree root instead.
 
         Returns:
             The matching component, or `None` if no component exists at that address.
@@ -2084,11 +2123,30 @@ class ComponentSystem(Node, ComponentSource):
         if not isinstance(address, DynamicAddress):
             address = DynamicAddress(address)
 
-        if address.is_absolute and self.parent is not None:
-            return self.root.get_component(address)
+        if address.is_absolute:
+            # Cross-tree references route through the engine so an absolute address can name a
+            # component in any top-level tree, not just this one.
+            if self.engine is not None:
+                return self.engine.get_component(address)
+
+            if self.parent is not None:
+                return self.root.get_component(address)
+
+            names = list(address.names)
+            # An absolute address's first segment names the top-level component itself, not
+            # one of its children, strip it before walking down into the tree.
+            if not names:
+                return self.component
+
+            if names[0] != self.name:
+                return None
+
+            names = names[1:]
+        else:
+            names = list(address.names)
 
         current: ComponentSystem | None = self
-        for name in address.names:
+        for name in names:
             if current is None:
                 break
 
@@ -2144,10 +2202,25 @@ class ComponentSystem(Node, ComponentSource):
 
     @override
     async def get_status(self) -> Status:
-        """Return the component's status augmented with its enabled flag and connectivity."""
+        """Return the component's status augmented with its enabled flag and connectivity.
+
+        A component may define `__connectivity__` to report a single overall connectivity state.
+        Otherwise the per-connection states are reported so observers can represent each one.
+        """
+        from ceres.status import ConnectionStatus
+
         status = await super().get_status()
         status.enabled = self.enabled
         status.connectivity = self.component.__connectivity__()
+        status.connections = [
+            ConnectionStatus(
+                name=connection.name,
+                label=connection.label,
+                connectivity=connection.connectivity,
+            )
+            for connection in self.connections.all()
+            if connection.name is not None
+        ]
         return status
 
     def contains(

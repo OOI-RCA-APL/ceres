@@ -148,6 +148,18 @@ def test_indirect_references():
     assert d.system.get_referencing_components() == []
 
 
+def test_absolute_reference_into_foreign_tree_resolves_to_none_when_detached():
+    class Referencer(Component):
+        target: Ref[Component]
+
+    # A detached tree has no engine to route absolute cross-tree addresses through, so a
+    # reference into a foreign tree resolves to `None`.
+    referencer = Referencer("alpha", target=ref("@beta.x", Component))
+    referencer.system.sync_references()
+
+    assert unref(referencer.target) is None
+
+
 def test_init_with_invalid_target_type():
     with pytest.raises(ValueError, match="first argument must be"):
         Reference(42)  # type: ignore[arg-type]
@@ -393,3 +405,39 @@ def test_getattr_proxying():
 def test_class_getitem_with_non_type_raises():
     with pytest.raises(ValueError, match="reference constraint must be"):
         Reference["not_a_type"]  # type: ignore[type-var]
+
+
+async def test_cross_tree_referencers_cleared_when_target_tree_detaches():
+    """Detaching a top-level tree clears stale referencer bookkeeping in sibling trees."""
+    from ceres import Engine
+    from ceres.config import collect_unresolved_reference_errors
+    from ceres.reference import ref
+
+    class Target(Component):
+        pass
+
+    class Source(Component):
+        target: Ref[Target]
+
+    engine = Engine()
+    await engine.database.migrate()
+
+    target = Target(__with_name__="target")
+    engine.attach(target)
+
+    source = Source(__with_name__="source", target=ref(target.system.address, Target))
+    engine.attach(source)
+
+    # Resolve references across every tree, as the engine does once all trees exist. This
+    # registers the source as a referencer of the target in the sibling tree.
+    assert collect_unresolved_reference_errors(engine.get_components()) == []
+    assert unref(source.target) is target
+    assert source in target.system.get_referencing_components()
+
+    target.system.detach()
+
+    # With the target tree gone, the reference unresolves and its stale referencer entry clears.
+    assert unref(source.target) is None
+    assert source not in target.system.get_referencing_components()
+
+    await engine.database.dispose()

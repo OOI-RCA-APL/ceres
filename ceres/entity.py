@@ -10,15 +10,18 @@ from ceres.data import StrEnum
 
 with __lazy_imports__(__name__, export=True):
     from ceres.alert import Alert as Alert
+    from ceres.group import Group as Group
+    from ceres.group import GroupMembership as GroupMembership
     from ceres.logs import LogEntry as LogEntry
     from ceres.message import Message as Message
     from ceres.particle import Particle as Particle
+    from ceres.permission import GroupPermission as GroupPermission
+    from ceres.permission import UserPermission as UserPermission
     from ceres.setting import Setting as Setting
     from ceres.user import User as User
     from ceres.variable import Variable as Variable
     from ceres.workspace import Workspace as Workspace
     from ceres.workspace import WorkspaceEdit as WorkspaceEdit
-    from ceres.workspace import WorkspaceMembership as WorkspaceMembership
 
 __all__ = [
     "Entity",
@@ -39,8 +42,11 @@ if TYPE_CHECKING:
         | Variable
         | Setting
         | Workspace
-        | WorkspaceMembership
         | WorkspaceEdit
+        | Group
+        | GroupMembership
+        | UserPermission
+        | GroupPermission
     )
     """Union of every persistent entity managed by the engine.
 
@@ -59,13 +65,15 @@ def __getattr__(name: str):
     if name == "Entity":
         if _Entity is None:
             from ceres.alert import Alert
+            from ceres.group import Group, GroupMembership
             from ceres.logs import LogEntry
             from ceres.message import Message
             from ceres.particle import Particle
+            from ceres.permission import GroupPermission, UserPermission
             from ceres.setting import Setting
             from ceres.user import User
             from ceres.variable import Variable
-            from ceres.workspace import Workspace, WorkspaceEdit, WorkspaceMembership
+            from ceres.workspace import Workspace, WorkspaceEdit
 
             _Entity = (
                 Message
@@ -76,8 +84,11 @@ def __getattr__(name: str):
                 | Variable
                 | Setting
                 | Workspace
-                | WorkspaceMembership
                 | WorkspaceEdit
+                | Group
+                | GroupMembership
+                | UserPermission
+                | GroupPermission
             )
 
         return _Entity
@@ -100,8 +111,11 @@ class EntityType(StrEnum):
     VARIABLE = "variable"
     SETTING = "setting"
     WORKSPACE = "workspace"
-    WORKSPACE_MEMBERSHIP = "workspace-membership"
     WORKSPACE_EDIT = "workspace-edit"
+    GROUP = "group"
+    GROUP_MEMBERSHIP = "group-membership"
+    USER_PERMISSION = "user-permission"
+    GROUP_PERMISSION = "group-permission"
 
     @property
     def cls(self) -> type[Entity]:
@@ -149,14 +163,26 @@ class EntityType(StrEnum):
                 from ceres.workspace import Workspace
 
                 return Workspace
-            case EntityType.WORKSPACE_MEMBERSHIP:
-                from ceres.workspace import WorkspaceMembership
-
-                return WorkspaceMembership
             case EntityType.WORKSPACE_EDIT:
                 from ceres.workspace import WorkspaceEdit
 
                 return WorkspaceEdit
+            case EntityType.GROUP:
+                from ceres.group import Group
+
+                return Group
+            case EntityType.GROUP_MEMBERSHIP:
+                from ceres.group import GroupMembership
+
+                return GroupMembership
+            case EntityType.USER_PERMISSION:
+                from ceres.permission import UserPermission
+
+                return UserPermission
+            case EntityType.GROUP_PERMISSION:
+                from ceres.permission import GroupPermission
+
+                return GroupPermission
 
         raise ValueError(self)
 
@@ -190,10 +216,16 @@ class EntityType(StrEnum):
                 return cls.SETTING
             case "Workspace":
                 return cls.WORKSPACE
-            case "WorkspaceMembership":
-                return cls.WORKSPACE_MEMBERSHIP
             case "WorkspaceEdit":
                 return cls.WORKSPACE_EDIT
+            case "Group":
+                return cls.GROUP
+            case "GroupMembership":
+                return cls.GROUP_MEMBERSHIP
+            case "UserPermission":
+                return cls.USER_PERMISSION
+            case "GroupPermission":
+                return cls.GROUP_PERMISSION
             case _:
                 raise ValueError(f"Unknown entity type: {source}")
 
@@ -210,8 +242,11 @@ _ENTITY_TYPE_ALIASES = {
     "variables": "variable",
     "settings": "setting",
     "workspaces": "workspace",
-    "workspace-memberships": "workspace-membership",
     "workspace-edits": "workspace-edit",
+    "groups": "group",
+    "group-memberships": "group-membership",
+    "user-permissions": "user-permission",
+    "group-permissions": "group-permission",
 }
 
 _base__new__ = EntityType.__new__

@@ -10,10 +10,10 @@ from typing import (
     override,
 )
 
-from sqlalchemy import Index, Text
+from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -67,7 +67,7 @@ class LogEntryRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "logs"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
-    content: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(TextMapper())
 
     @classmethod
     @override

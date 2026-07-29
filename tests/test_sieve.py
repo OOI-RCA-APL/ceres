@@ -21,11 +21,15 @@ class SimpleParticle(Particle[SimpleData]):
     type = "test/simple"
 
 
-def _make_message(data: bytes, connection: str | None = None) -> Message:
+def _make_message(
+    data: bytes,
+    connection: str | None = None,
+    address: Address = Address("@test"),
+) -> Message:
     return Message(
         data=data,
         direction=Message.Direction.RECEIVE,
-        address=Address.ROOT,
+        address=address,
         connection=connection,
     )
 
@@ -49,7 +53,7 @@ class TestSieveAbstract:
                 async for message in messages:
                     yield SimpleParticle(
                         type="test/simple",
-                        address=Address.ROOT,
+                        address=Address("@test"),
                         data=SimpleData(value=int(message.data)),
                     )
 
@@ -187,7 +191,7 @@ class TestFunctionSievePolySieve:
                 total += int(message.data)
             yield SimpleParticle(
                 type="test/simple",
-                address=Address.ROOT,
+                address=Address("@test"),
                 data=SimpleData(value=total),
             )
 
@@ -214,7 +218,7 @@ class TestFunctionSieveBufferSieve:
                 results.append(
                     SimpleParticle(
                         type="test/simple",
-                        address=Address.ROOT,
+                        address=Address("@test"),
                         data=SimpleData(value=value),
                         span=match.span(),
                     )
@@ -246,7 +250,7 @@ class TestFunctionSieveBufferSieve:
                 results.append(
                     SimpleParticle(
                         type="test/simple",
-                        address=Address.ROOT,
+                        address=Address("@test"),
                         data=SimpleData(value=value),
                         span=match.span(),
                     )
@@ -270,7 +274,7 @@ class TestFunctionSieveBufferSieve:
             return [
                 SimpleParticle(
                     type="test/simple",
-                    address=Address.ROOT,
+                    address=Address("@test"),
                     data=SimpleData(value=1),
                 )
             ]
@@ -336,7 +340,7 @@ class TestFunctionSieveSignatureValidation:
             async for message in messages:
                 yield SimpleParticle(
                     type="test/simple",
-                    address=Address.ROOT,
+                    address=Address("@test"),
                     data=SimpleData(value=0),
                 )
 
@@ -350,7 +354,7 @@ class TestFunctionSieveEmptyStream:
         def parse(message: Message) -> SimpleParticle | None:
             return SimpleParticle(
                 type="test/simple",
-                address=Address.ROOT,
+                address=Address("@test"),
                 data=SimpleData(value=0),
             )
 
@@ -429,12 +433,12 @@ class TestSieveConnectionBinding:
         for label in [b"a1", b"a2", b"a3"]:
             driver.system.events.emit(
                 MessageReceivedEvent,
-                message=_make_message(label, connection="alpha"),
+                message=_make_message(label, connection="alpha", address=driver.system.address),
             )
         for label in [b"b1", b"b2"]:
             driver.system.events.emit(
                 MessageReceivedEvent,
-                message=_make_message(label, connection="beta"),
+                message=_make_message(label, connection="beta", address=driver.system.address),
             )
 
         await sleep(0.5)
@@ -465,11 +469,11 @@ class TestSieveConnectionBinding:
 
         driver.system.events.emit(
             MessageReceivedEvent,
-            message=_make_message(b"a1", connection="alpha"),
+            message=_make_message(b"a1", connection="alpha", address=driver.system.address),
         )
         driver.system.events.emit(
             MessageReceivedEvent,
-            message=_make_message(b"b1", connection="beta"),
+            message=_make_message(b"b1", connection="beta", address=driver.system.address),
         )
 
         await sleep(0.5)

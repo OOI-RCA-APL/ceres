@@ -12,38 +12,8 @@ from ceres.__internal__.cli.shared import (
     get_confirmation,
     temporary_signal_handler,
 )
+from ceres.database.migrations import MIGRATIONS
 from ceres.timing import sdelta, utc
-
-
-class InitCommand(CLICommand):
-    """
-    Initialize the database, creating tables and indexes as needed.
-    """
-
-    @override
-    async def __run__(self) -> None:
-        """Show pending DDL statements, prompt for confirmation, and initialize the database."""
-        async with self.use_database(require_initialized=False) as database:
-            try:
-                async with database.connect():
-                    pass
-            except Exception:
-                raise CLICommandFailed("Failed to connect to database.")
-
-            self.write("<PENDING>", color=False)
-            for statement in database.ddl:
-                self.write(statement)
-            self.write("</PENDING>", color=False)
-
-            if await database.initialized():
-                confirmation = "Database is not empty, execute above commands anyway?"
-            else:
-                confirmation = "Database appears uninitialized. Execute above commands now?"
-
-            if get_confirmation(confirmation):
-                await database.init()
-            else:
-                self.write("Database has not been modified.")
 
 
 class DDLCommand(CLICommand):
@@ -72,7 +42,9 @@ class ShellCommand(CLICommand):
 
         from ceres.database import DatabaseType, PostgresDatabase, SQLiteDatabase
 
-        async with self.use_database() as database:
+        # The shell is for inspecting and repairing the database, so it must open regardless of
+        # whether the schema is initialized or current.
+        async with self.use_database(require_initialized=False) as database:
             command: list[str] = []
             env: dict[str, str] = {**os.environ}
 
@@ -98,6 +70,11 @@ class ShellCommand(CLICommand):
 
                 case DatabaseType.SQLITE:
                     assert isinstance(database, SQLiteDatabase)
+                    if database.config.is_memory:
+                        raise CLICommandFailed(
+                            "Database is in-memory and has no file to open a shell against."
+                        )
+
                     command = ["sqlite3", str(database.path)]
                     command.extend(["-cmd", f".output {os.devnull}"])
                     for statement in database._get_connect_commands():
@@ -151,12 +128,64 @@ class ClearCommand(CLICommand):
             self.write(f"Cleared all data from database in {sdelta(duration, decimals=2)}.")
 
 
+class MigrateCommand(CLICommand):
+    """
+    Apply pending database migrations.
+    """
+
+    @override
+    async def __run__(self) -> None:
+        """List pending migrations, prompt for confirmation, and apply them in order."""
+        async with self.use_database(require_initialized=False) as database:
+            unknown = await database.get_unknown_migrations()
+            if unknown:
+                raise CLICommandFailed(
+                    "Database contains migrations unknown to this version of ceres: "
+                    f"{', '.join(str(id) for id in unknown)}."
+                )
+
+            pending = await database.get_pending_migrations()
+            if not pending:
+                self.write("Database is up to date.")
+                return
+
+            for migration in pending:
+                self.write(f"{migration.id}: {migration.name}")
+
+            if get_confirmation("Apply the above migrations now?"):
+                applied = await database.migrate()
+                self.write(f"Applied {len(applied)} migration(s).")
+            else:
+                self.write("Database has not been modified.")
+
+
+class MigrationsCommand(CLICommand):
+    """
+    Show applied and pending database migrations.
+    """
+
+    @override
+    async def __run__(self) -> None:
+        """Print each known migration with its applied/pending status."""
+        async with self.use_database(require_initialized=False) as database:
+            applied = {migration.id for migration in await database.get_applied_migrations()}
+            unknown = await database.get_unknown_migrations()
+
+            for migration in MIGRATIONS:
+                status = "applied" if migration.id in applied else "pending"
+                self.write(f"{migration.id}: {migration.name} ({status})")
+
+            for id in unknown:
+                self.write(f"{id}: unknown (database is newer than this version)")
+
+
 class DatabaseCommand(CLICommandGroup):
     """
     Manage the project database.
     """
 
-    init: CliSubCommand[InitCommand]
     ddl: CliSubCommand[DDLCommand]
     shell: CliSubCommand[ShellCommand]
     clear: CliSubCommand[ClearCommand]
+    migrate: CliSubCommand[MigrateCommand]
+    migrations: CliSubCommand[MigrationsCommand]

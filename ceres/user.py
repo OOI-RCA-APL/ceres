@@ -1,12 +1,11 @@
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
-from uuid import UUID
 
-from sqlalchemy import Boolean, Text, UniqueConstraint, select
+from sqlalchemy import Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import expression
 
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper
+from ceres.__internal__.database.types import TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -25,13 +24,14 @@ from ceres.__internal__.manager import BaseNodeManager
 from ceres.data import (
     EmailAddress,
     MaybeSequence,
-    OrderedStrEnum,
     Password,
     PasswordHash,
     Username,
 )
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
@@ -43,26 +43,18 @@ __all__ = [
 ]
 
 
-class UserRole(OrderedStrEnum):
-    """Permission tier granted to a `User`, ordered from least to most privileged."""
-
-    VIEWER = "viewer"
-    OPERATOR = "operator"
-    ADMIN = "admin"
-
-
 class UserRow(BaseUUIDEntityRow, kw_only=True):
     """SQLAlchemy row type backing the `User` entity."""
 
     __tablename__: ClassVar[str] = "users"
 
-    username: Mapped[Username] = mapped_column(Text)
-    email: Mapped[EmailAddress] = mapped_column(Text)
-    password: Mapped[PasswordHash] = mapped_column(Text)
-    role: Mapped[UserRole] = mapped_column(
-        EnumMapper(UserRole),
-        default=UserRole.OPERATOR,
-        server_default=str(UserRole.OPERATOR),
+    username: Mapped[Username] = mapped_column(TextMapper())
+    email: Mapped[EmailAddress] = mapped_column(TextMapper())
+    password: Mapped[PasswordHash] = mapped_column(TextMapper())
+    admin: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=expression.false(),
     )
     disabled: Mapped[bool] = mapped_column(
         Boolean,
@@ -76,7 +68,6 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             UniqueConstraint(cls.username, name=f"uq_{cls.__tablename__}__username"),
-            EnumConstraint(cls.role, UserRole, name=f"ck_{cls.__tablename__}__role"),
         )
 
 
@@ -85,7 +76,7 @@ type UserField = (
     | Literal[
         "username",
         "email",
-        "role",
+        "admin",
         "disabled",
     ]
 )
@@ -100,9 +91,9 @@ type UserOrder = (
         "email",
         "email:asc",
         "email:desc",
-        "role",
-        "role:asc",
-        "role:desc",
+        "admin",
+        "admin:asc",
+        "admin:desc",
         "disabled",
         "disabled:asc",
         "disabled:desc",
@@ -122,16 +113,12 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
     email_contains: MaybeSequence[str] | None
     email_prefix: MaybeSequence[str] | None
     email_suffix: MaybeSequence[str] | None
-    role: MaybeSequence[UserRole] | None
+    admin: bool | None
     disabled: bool | None
-    can_view_workspace: MaybeSequence[UUID] | None
-    can_edit_workspace: MaybeSequence[UUID] | None
-    can_own_workspace: MaybeSequence[UUID] | None
-    has_workspace_membership: MaybeSequence[UUID] | None
 
 
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
-    """Filter for selecting `User` records by identity, role, or workspace membership."""
+    """Filter for selecting `User` records by identity or admin status."""
 
     username: MaybeSequence[str] | None = None
     """Filter by `username` being equal to one or more given usernames."""
@@ -149,18 +136,10 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     """Filter by `email` starting with one or more given prefixes."""
     email_suffix: MaybeSequence[str] | None = None
     """Filter by `email` ending with one or more given suffixes."""
-    role: MaybeSequence[UserRole] | None = None
-    """Filter by `role` being one or more given roles."""
+    admin: bool | None = None
+    """Filter by `admin` being either `True` or `False`."""
     disabled: bool | None = None
     """Filter by `disabled` being either `True` or `False`."""
-    can_view_workspace: MaybeSequence[UUID] | None = None
-    """Filter, matching only users who can view at least one of the given workspaces."""
-    can_edit_workspace: MaybeSequence[UUID] | None = None
-    """Filter, matching only users who can edit at least one of the given workspaces."""
-    can_own_workspace: MaybeSequence[UUID] | None = None
-    """Filter, matching only users who can own at least one of the given workspaces."""
-    has_workspace_membership: MaybeSequence[UUID] | None = None
-    """Filter, matching only users who have a membership in at least one of the given workspaces."""
 
     @classmethod
     @override
@@ -190,7 +169,7 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         if not self._match_string_suffix(obj.email, self.email_suffix, insensitive=True):
             return False
 
-        if not self._match_value(obj.role, self.role):
+        if not self._match_value(obj.admin, self.admin):
             return False
         if not self._match_value(obj.disabled, self.disabled):
             return False
@@ -222,30 +201,10 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         if self.email_suffix is not None:
             yield self._sql_match_string_suffix(columns.email, self.email_suffix, insensitive=True)
 
-        if self.role is not None:
-            yield self._sql_match_value(columns.role, self.role)
+        if self.admin is not None:
+            yield columns.admin == self.admin
         if self.disabled is not None:
             yield columns.disabled == self.disabled
-
-        if (
-            self.can_view_workspace is not None
-            or self.can_edit_workspace is not None
-            or self.can_own_workspace is not None
-            or self.has_workspace_membership is not None
-        ):
-            from ceres.workspace import WorkspaceFilter, WorkspaceRow
-
-            filter = WorkspaceFilter()
-            if self.can_view_workspace is not None:
-                filter = filter.with_overrides(WorkspaceFilter(viewable_by=self.id))
-            if self.can_edit_workspace is not None:
-                filter = filter.with_overrides(WorkspaceFilter(editable_by=self.id))
-            if self.can_own_workspace is not None:
-                filter = filter.with_overrides(WorkspaceFilter(manageable_by=self.id))
-            if self.has_workspace_membership is not None:
-                filter = filter.with_overrides(WorkspaceFilter(joined_by=self.id))
-
-            yield filter.apply(select(WorkspaceRow.id), dialect).exists()
 
     @override
     def _get_default_order(self) -> MaybeSequence[UserOrder]:
@@ -261,8 +220,8 @@ class UserCreate(BaseUUIDEntityCreate, slots=True):
     """Email address associated with the user."""
     password: Password | PasswordHash
     """Plaintext password or pre-computed hash, plaintext values are hashed on create."""
-    role: UserRole = UserRole.OPERATOR
-    """Permission tier granted to the user."""
+    admin: bool = False
+    """Whether the user has administrative access to all components and workspaces."""
     disabled: bool = False
     """Whether the user account is disabled and unable to authenticate."""
 
@@ -273,7 +232,7 @@ class UserUpdate(TypedDict, total=False):
     username: Username
     email: EmailAddress
     password: Password | PasswordHash
-    role: UserRole
+    admin: bool
     disabled: bool
 
 
@@ -381,11 +340,11 @@ class User(
     ConcreteEntity[UserRow],
     slots=True,
 ):
-    """Authenticated account with a role that governs access to workspaces and resources.
+    """Authenticated account with an `admin` flag that governs access to workspaces and resources.
 
-    Each user has a unique `username`, an `email`, a hashed `password`, and a `role` that determines
-    their base permissions. Users may additionally be granted or restricted from specific workspaces
-    via workspace memberships.
+    Each user has a unique `username`, an `email`, a hashed `password`, and an `admin` flag that
+    grants full access when set. Users may additionally be granted or restricted from specific
+    workspaces and components via memberships and permission grants.
     """
 
     Manager = UserManager
@@ -396,7 +355,6 @@ class User(
     FilterArgs = UserFilterArgs
     Field = UserField
     Order = UserOrder
-    Role = UserRole
 
     __entity_naming__: ClassVar[EntityNaming] = EntityNaming("user")
 

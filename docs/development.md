@@ -92,7 +92,7 @@ ceres/
 ### Key Modules
 
 - `component.py`: The `Component` class, `ComponentSystem`, and all decorators (`@routine`, `@listener`, `@query`, `@action`, `@sieve`). This is the largest and most important module.
-- `engine.py`: The `Engine` class that owns the root component, database, and server. Handles configuration loading and reconciliation.
+- `engine.py`: The `Engine` class that owns the component tree, database, and server. Handles configuration loading and reconciliation.
 - `config.py`: Pydantic models for every section of `ceres.yaml`. Configuration validation and type checking.
 - `connection/`: `Connection`, `Source` (TCP, Unix), `Splitter`, and `Buffer` classes.
 - `event.py`: `Event` base class and all standard event types.
@@ -118,6 +118,31 @@ Run a specific test file or test:
 uv run pytest tests/test_error.py -vv
 uv run pytest tests/test_error.py::TestErrorIsException -vv
 ```
+
+### Running Against PostgreSQL
+
+The suite runs on SQLite by default, while deployments run on PostgreSQL, so SQL that only one
+backend accepts can pass every test. `make test-postgres` runs the same tests against a real
+PostgreSQL server instead.
+
+It expects a server on `localhost:5432` with the `ceres` role, and a database of its own. Create
+that database once, as a superuser, since the `ceres` role cannot create databases:
+
+```sh
+psql postgres -c "CREATE DATABASE ceres_test OWNER ceres TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'"
+```
+
+The `C` collation is recommended rather than required. Ceres names its own collation when it orders
+text, so ordering does not depend on how the database was created, and the harness checks the
+collation on startup only to keep the test database representative of the recommended deployment.
+See `2026-07-27-string-ordering-design.md`.
+
+The database is deliberately separate from the one a local deployment uses, because the suite
+deletes rows and drops schemas wholesale. Set `CERES_TEST_POSTGRES_URL` to point somewhere else.
+
+Every test gets a private schema, so the two runs assert exactly the same things. Two modules are
+backend-specific by nature and stay that way: `tests/test_migrations.py` reads `sqlite_master`, and
+`tests/test_migrations_postgres.py` replays the migrations against PostgreSQL on either run.
 
 ## Documentation
 

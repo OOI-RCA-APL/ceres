@@ -1,5 +1,16 @@
 <script lang="ts" setup>
-import type { TextVariant } from '@/api/elements'
+// Named here rather than in a shared model, since these are this component's own styles and
+// nothing else chooses between them.
+type TextVariant =
+  | 'title1'
+  | 'title2'
+  | 'title3'
+  | 'body1'
+  | 'body2'
+  | 'th'
+  | 'description'
+  | 'value'
+
 const { element = 'div' } = defineProps<{
   variant: TextVariant
   element?: string

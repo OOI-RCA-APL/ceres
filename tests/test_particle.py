@@ -78,7 +78,7 @@ class TestRegexParticleAbstract:
             regex = compile(rb"(?P<value>\d+)")
 
         # Abstract from_match returns None, so from_bytes returns None.
-        result = MyParticle.from_bytes(b"42")
+        result = MyParticle.from_bytes(b"42", address=Address("@test"))
         assert result is None
 
     def test_subclass_with_custom_from_match_works(self):
@@ -91,7 +91,7 @@ class TestRegexParticleAbstract:
 
             @classmethod
             @override
-            def from_match(cls, match, /, address=Address.ROOT, timestamp=None):
+            def from_match(cls, match, /, address=Address("@test"), timestamp=None):
                 from ceres.data import construct, validate
                 from ceres.timing import utc
 
@@ -104,7 +104,7 @@ class TestRegexParticleAbstract:
                     span=match.span(),
                 )
 
-        particle = MyParticle.from_bytes(b"42")
+        particle = MyParticle.from_bytes(b"42", address=Address("@test"))
         assert particle.data.value == 42
 
 
@@ -117,7 +117,7 @@ class TestGroupedRegexParticleFromBytes:
             type = "test/single"
             regex = compile(rb"(?P<value>\d+)")
 
-        particle = MyParticle.from_bytes(b"42")
+        particle = MyParticle.from_bytes(b"42", address=Address("@test"))
         assert particle.data.value == 42
         assert particle.type == "test/single"
 
@@ -131,7 +131,7 @@ class TestGroupedRegexParticleFromBytes:
             type = "test/multi"
             regex = compile(rb"(?P<name>\w+),(?P<count>\d+),(?P<ratio>[\d.]+)")
 
-        particle = MyParticle.from_bytes(b"sensor,100,3.14")
+        particle = MyParticle.from_bytes(b"sensor,100,3.14", address=Address("@test"))
         assert particle.data.name == "sensor"
         assert particle.data.count == 100
         assert particle.data.ratio == 3.14
@@ -145,7 +145,7 @@ class TestGroupedRegexParticleFromBytes:
             regex = compile(rb"(?P<value>\d+)")
 
         with pytest.raises(ParseFailed, match="did not match"):
-            MyParticle.from_bytes(b"not-a-number")
+            MyParticle.from_bytes(b"not-a-number", address=Address("@test"))
 
     def test_preserves_address(self):
         class Data(ParticleData):
@@ -168,7 +168,7 @@ class TestGroupedRegexParticleFromBytes:
             regex = compile(rb"(?P<value>\d+)")
 
         timestamp = datetime(2024, 1, 1, tzinfo=UTC)
-        particle = MyParticle.from_bytes(b"42", timestamp=timestamp)
+        particle = MyParticle.from_bytes(b"42", timestamp=timestamp, address=Address("@test"))
         assert particle.timestamp == timestamp
 
     def test_span_reflects_match(self):
@@ -179,7 +179,7 @@ class TestGroupedRegexParticleFromBytes:
             type = "test/span"
             regex = compile(rb"(?P<value>\d+)")
 
-        particle = MyParticle.from_bytes(b"42")
+        particle = MyParticle.from_bytes(b"42", address=Address("@test"))
         assert particle.span == (0, 2)
 
     def test_verbose_dotall_regex(self):
@@ -198,7 +198,7 @@ class TestGroupedRegexParticleFromBytes:
                 VERBOSE | DOTALL,
             )
 
-        particle = MyParticle.from_bytes(b"temp=25")
+        particle = MyParticle.from_bytes(b"temp=25", address=Address("@test"))
         assert particle.data.key == "temp"
         assert particle.data.value == 25
 
@@ -215,7 +215,7 @@ class TestGroupedRegexParticleFromMatch:
 
         match = MyParticle.regex.match(b"10,20")
         assert match is not None
-        particle = MyParticle.from_match(match)
+        particle = MyParticle.from_match(match, address=Address("@test"))
         assert particle.data.x == 10
         assert particle.data.y == 20
         assert particle.span == (0, 5)
@@ -231,7 +231,7 @@ class TestGroupedRegexParticleFromMatch:
 
         match = MyParticle.regex.match(b"ABC123")
         assert match is not None
-        particle = MyParticle.from_match(match)
+        particle = MyParticle.from_match(match, address=Address("@test"))
         assert particle.data.prefix == "ABC"
         assert particle.data.value == 123
 
@@ -246,7 +246,7 @@ class TestGroupedRegexParticleFromMatch:
 
         match = MyParticle.regex.match(b"456")
         assert match is not None
-        particle = MyParticle.from_match(match)
+        particle = MyParticle.from_match(match, address=Address("@test"))
         assert particle.data.prefix is None
         assert particle.data.value == 456
 
@@ -261,7 +261,7 @@ class TestGroupedRegexParticleFromMatch:
         match = MyParticle.regex.match(b"abc")
         assert match is not None
         with pytest.raises(ParseFailed, match="validation failed"):
-            MyParticle.from_match(match)
+            MyParticle.from_match(match, address=Address("@test"))
 
 
 class TestGroupedRegexParticleFromMessage:
@@ -311,7 +311,7 @@ class TestGroupedRegexParticleScan:
         buffer = Buffer()
         buffer.push(b"abc 42 def 99 ghi", utc())
 
-        matches = list(MyParticle.scan(buffer))
+        matches = list(MyParticle.scan(buffer, address=Address("@test")))
         assert len(matches) == 2
         assert matches[0].span == (4, 6)
         assert matches[1].span == (11, 13)
@@ -331,7 +331,7 @@ class TestGroupedRegexParticleScan:
         buffer.push(b"42\n", time_1)
         buffer.push(b"99\n", time_2)
 
-        matches = list(MyParticle.scan(buffer))
+        matches = list(MyParticle.scan(buffer, address=Address("@test")))
         assert len(matches) == 2
         assert matches[0].timestamp == time_1
         assert matches[1].timestamp == time_2
@@ -347,7 +347,7 @@ class TestGroupedRegexParticleScan:
         buffer = Buffer()
         buffer.push(b"abc 42 def", utc())
 
-        matches = list(MyParticle.scan(buffer))
+        matches = list(MyParticle.scan(buffer, address=Address("@test")))
         assert len(matches) == 1
         match = matches[0]
         assert match.start == 4
@@ -366,7 +366,7 @@ class TestGroupedRegexParticleScan:
         buffer = Buffer()
         buffer.push(b"42", utc())
 
-        matches = list(MyParticle.scan(buffer))
+        matches = list(MyParticle.scan(buffer, address=Address("@test")))
         particle = matches[0].parse()
         assert particle.data.value == 42
 
@@ -381,7 +381,7 @@ class TestGroupedRegexParticleScan:
         buffer = Buffer()
         buffer.push(b"abc", utc())
 
-        matches = list(MyParticle.scan(buffer))
+        matches = list(MyParticle.scan(buffer, address=Address("@test")))
         result = matches[0].parse(default=None)
         assert result is None
 
@@ -398,7 +398,7 @@ class TestGroupedRegexParticleExtract:
         buffer = Buffer()
         buffer.push(b"42 99", utc())
 
-        particles = list(MyParticle.extract(buffer))
+        particles = list(MyParticle.extract(buffer, address=Address("@test")))
         assert len(particles) == 2
         assert particles[0].data.value == 42
         assert particles[1].data.value == 99
@@ -415,7 +415,7 @@ class TestGroupedRegexParticleExtract:
         buffer = Buffer()
         buffer.push(b"ABC123 456", utc())
 
-        particles = list(MyParticle.extract(buffer))
+        particles = list(MyParticle.extract(buffer, address=Address("@test")))
         assert len(particles) == 2
         assert particles[0].data.prefix == "ABC"
         assert particles[0].data.value == 123
@@ -434,7 +434,7 @@ class TestGroupedRegexParticleExtract:
         buffer.push(b"abc 42 def", utc())
 
         # "abc" and "def" will fail validation, "42" should succeed.
-        particles = list(MyParticle.extract(buffer, errors="ignore"))
+        particles = list(MyParticle.extract(buffer, errors="ignore", address=Address("@test")))
         assert len(particles) == 1
         assert particles[0].data.value == 42
 
@@ -450,7 +450,7 @@ class TestGroupedRegexParticleExtract:
         buffer.push(b"abc", utc())
 
         with pytest.raises(ParseFailed):
-            list(MyParticle.extract(buffer, errors="raise"))
+            list(MyParticle.extract(buffer, errors="raise", address=Address("@test")))
 
     def test_extract_errors_callback(self):
         class Data(ParticleData):
@@ -463,7 +463,7 @@ class TestGroupedRegexParticleExtract:
         errors: list[ParseFailed] = []
         buffer = Buffer()
         buffer.push(b"abc", utc())
-        list(MyParticle.extract(buffer, errors=errors.append))
+        list(MyParticle.extract(buffer, errors=errors.append, address=Address("@test")))
         assert len(errors) == 1
         assert isinstance(errors[0], ParseFailed)
 
@@ -476,7 +476,7 @@ class TestGroupedRegexParticleExtract:
             regex = compile(rb"(?P<value>\d+)")
 
         buffer = Buffer()
-        particles = list(MyParticle.extract(buffer))
+        particles = list(MyParticle.extract(buffer, address=Address("@test")))
         assert particles == []
 
     def test_extract_no_matches(self):
@@ -489,7 +489,7 @@ class TestGroupedRegexParticleExtract:
 
         buffer = Buffer()
         buffer.push(b"no numbers here", utc())
-        particles = list(MyParticle.extract(buffer))
+        particles = list(MyParticle.extract(buffer, address=Address("@test")))
         assert particles == []
 
 
@@ -524,7 +524,7 @@ class TestGroupedRegexParticleDefinition:
             type = "test/extra"
             regex = compile(rb"(?P<value>\d+),(?P<extra>\w+)")
 
-        particle = MyParticle.from_bytes(b"42,ignored")
+        particle = MyParticle.from_bytes(b"42,ignored", address=Address("@test"))
         assert particle.data.value == 42
 
 
@@ -548,7 +548,7 @@ class BinaryTestParticle(BinaryRegexParticle[BinaryTestData]):
 class TestBinaryRegexParticle:
     def test_from_bytes(self):
         raw = BINARY_SYNC + struct.pack("<H", 1234)
-        particle = BinaryTestParticle.from_bytes(raw)
+        particle = BinaryTestParticle.from_bytes(raw, address=Address("@test"))
         assert particle.data.value == 1234
         assert particle.span == (0, 4)
 
@@ -559,7 +559,7 @@ class TestBinaryRegexParticle:
             utc(),
         )
 
-        particles = list(BinaryTestParticle.extract(buffer))
+        particles = list(BinaryTestParticle.extract(buffer, address=Address("@test")))
         assert len(particles) == 2
         assert particles[0].data.value == 100
         assert particles[1].data.value == 200
@@ -568,7 +568,7 @@ class TestBinaryRegexParticle:
         raw = BINARY_SYNC + struct.pack("<H", 999)
         match = BinaryTestParticle.regex.match(raw)
         assert match is not None
-        particle = BinaryTestParticle.from_match(match)
+        particle = BinaryTestParticle.from_match(match, address=Address("@test"))
         assert particle.data.value == 999
         assert particle.span == (0, 4)
 
@@ -576,7 +576,7 @@ class TestBinaryRegexParticle:
         buffer = Buffer()
         buffer.push(b"\x00\x00\x00\x00", utc())
 
-        particles = list(BinaryTestParticle.extract(buffer))
+        particles = list(BinaryTestParticle.extract(buffer, address=Address("@test")))
         assert particles == []
 
 
@@ -618,3 +618,70 @@ async def test_particle_type_filtering():
 
 async def test_particle_data_filtering():
     await testing.execute_json_data_filter_test(Particle, "data")
+
+
+class _ClsFilterData(ParticleData):
+    value: int
+
+
+class _ClsFilterAParticle(Particle[_ClsFilterData]):
+    type = "test/cls-filter-a"
+
+
+class _ClsFilterBParticle(Particle[_ClsFilterData]):
+    type = "test/cls-filter-b"
+
+
+def _cls_filter_particle(cls: type, value: int) -> Particle:
+    return cls(
+        type=cls.type,
+        address=Address("@cls-filter"),
+        timestamp=utc(),
+        data=_ClsFilterData(value=value),
+    )
+
+
+async def _cls_filter_engine():
+    from ceres import Engine
+
+    engine = Engine()
+    await engine.database.migrate()
+
+    for cls, count in ((_ClsFilterAParticle, 3), (_ClsFilterBParticle, 2)):
+        for value in range(count):
+            particle = _cls_filter_particle(cls, value)
+            await engine.database.particles.create(particle.to_dynamic())
+
+    return engine
+
+
+async def test_where_cls_constrains_the_query_to_the_particle_type() -> None:
+    """`where(cls=...)` with a `Particle` subclass must filter in SQL, not by dropped rows."""
+    engine = await _cls_filter_engine()
+
+    rows = await engine.database.particles.where(cls=_ClsFilterAParticle).all()
+    assert len(rows) == 3
+    assert all(row.type == "test/cls-filter-a" for row in rows)
+
+    rows = await engine.database.particles.where(cls=_ClsFilterBParticle).all()
+    assert len(rows) == 2
+
+
+async def test_where_cls_count_matches_all() -> None:
+    """`count()` must agree with `all()` when filtering by particle class."""
+    engine = await _cls_filter_engine()
+
+    count = await engine.database.particles.where(cls=_ClsFilterAParticle).count()
+    assert count == 3
+
+
+def test_filter_matches_by_particle_class() -> None:
+    from ceres.particle import ParticleFilter
+
+    particle = _cls_filter_particle(_ClsFilterAParticle, 1)
+
+    # The `cls` field is aliased to "class", a keyword, so construct via validation.
+    filter_a = ParticleFilter.model_validate({"cls": _ClsFilterAParticle})
+    filter_b = ParticleFilter.model_validate({"cls": _ClsFilterBParticle})
+    assert filter_a.matches(particle)
+    assert not filter_b.matches(particle)

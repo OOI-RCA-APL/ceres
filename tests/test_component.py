@@ -8,11 +8,15 @@ import pytest
 from ceres import Component, Engine, Event, Level, Ref, action, listener, query, routine
 from ceres.address import Address
 from ceres.component import (
+    ComponentAccessLevel,
     RoutineBinding,
     RoutineRestartPolicy,
+    get_procedure_bindings,
     get_routine_bindings,
 )
 from ceres.concurrency import sleep
+from ceres.config import ComponentConfig, Config
+from ceres.data import validate
 from ceres.error import (
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
@@ -29,21 +33,21 @@ from ceres.event import (
 )
 
 
-def test_assign_engine_root_component() -> None:
+def test_attach_engine_top_level_component() -> None:
     engine = Engine()
 
     root = Component()
-    engine.root = root
-    assert engine.root is root.system
+    engine.attach(root)
+    assert engine.get_component(root.system.address) is root
     assert root.system.engine is engine
 
 
-def test_assign_engine_root_component_system() -> None:
+def test_attach_engine_top_level_component_system() -> None:
     engine = Engine()
 
     root = Component()
-    engine.root = root.system
-    assert engine.root is root.system
+    engine.attach(root.system)
+    assert engine.get_component(root.system.address) is root
     assert root.system.engine is engine
 
 
@@ -51,17 +55,18 @@ def test_detach_from_engine() -> None:
     engine = Engine()
 
     root = Component()
-    engine.root = root
-    assert engine.root is root.system
+    engine.attach(root)
+    address = root.system.address
+    assert engine.get_component(address) is root
     assert root.system.engine is engine
 
     root.system.detach()
-    assert engine.root is None
+    assert engine.get_component(address) is None
     assert root.system.engine is None
     assert root.system.container is None
 
     root.system.detach()
-    assert engine.root is None
+    assert engine.get_component(address) is None
     assert root.system.engine is None
     assert root.system.container is None
 
@@ -75,7 +80,7 @@ def test_tree(with_engine: bool) -> None:
     grandchild = Component(__with_name__="grandchild")
 
     if engine is not None:
-        engine.root = root
+        engine.attach(root)
 
     root.system.attach(child)
     child.system.attach(grandchild)
@@ -96,9 +101,9 @@ def test_tree(with_engine: bool) -> None:
     assert child.system.children == [grandchild.system]
     assert grandchild.system.children == []
 
-    assert root.system.address == Address.ROOT
-    assert child.system.address == Address("@child")
-    assert grandchild.system.address == Address("@child.grandchild")
+    assert root.system.address == Address("@root")
+    assert child.system.address == Address("@root.child")
+    assert grandchild.system.address == Address("@root.child.grandchild")
 
     assert root.system.database is child.system.database is grandchild.system.database
 
@@ -471,6 +476,213 @@ async def test_routines_wait_on_cancellation() -> None:
     assert component.count == 3
 
 
+async def test_component_access_level_ordering() -> None:
+    assert ComponentAccessLevel.DENY < ComponentAccessLevel.VIEW
+    assert ComponentAccessLevel.VIEW < ComponentAccessLevel.OPERATE
+    assert ComponentAccessLevel.OPERATE < ComponentAccessLevel.MANAGE
+    assert ComponentAccessLevel.MANAGE > ComponentAccessLevel.DENY
+    assert ComponentAccessLevel.VIEW > None
+
+
+async def test_component_access_level_values() -> None:
+    assert ComponentAccessLevel.DENY == "deny"
+    assert ComponentAccessLevel.VIEW == "view"
+    assert ComponentAccessLevel.OPERATE == "operate"
+    assert ComponentAccessLevel.MANAGE == "manage"
+
+
+async def test_component_config_tags_default_empty() -> None:
+    config = ComponentConfig(name="test")
+    assert config.tags == []
+
+
+async def test_component_config_tags_set() -> None:
+    config = ComponentConfig(name="test", tags=["pressure", "seabird"])
+    assert config.tags == ["pressure", "seabird"]
+
+
+async def test_component_config_access_default_none() -> None:
+    config = ComponentConfig(name="test")
+    assert config.access is None
+
+
+async def test_component_config_access_set() -> None:
+    config = ComponentConfig(name="test", access=ComponentAccessLevel.VIEW)
+    assert config.access == ComponentAccessLevel.VIEW
+
+
+async def test_component_config_access_deny() -> None:
+    config = ComponentConfig(name="test", access=ComponentAccessLevel.DENY)
+    assert config.access == ComponentAccessLevel.DENY
+
+
+def test_component_system_tags_empty_without_config() -> None:
+    component = Component()
+    assert component.system.tags == []
+
+
+def test_component_system_tags_from_config() -> None:
+    component = Component(__with_config__=ComponentConfig(name="test", tags=["pressure"]))
+    assert component.system.tags == ["pressure"]
+
+
+def test_component_system_access_none_without_config() -> None:
+    component = Component()
+    assert component.system.access is None
+
+
+def test_component_system_access_from_config() -> None:
+    component = Component(
+        __with_config__=ComponentConfig(name="test", access=ComponentAccessLevel.OPERATE)
+    )
+    assert component.system.access == ComponentAccessLevel.OPERATE
+
+
+def test_component_system_get_resolved_access_defaults_to_view() -> None:
+    component = Component()
+    assert component.system.get_resolved_access() == ComponentAccessLevel.VIEW
+
+
+def test_component_system_get_resolved_access_from_own_config() -> None:
+    component = Component(
+        __with_config__=ComponentConfig(name="test", access=ComponentAccessLevel.MANAGE)
+    )
+    assert component.system.get_resolved_access() == ComponentAccessLevel.MANAGE
+
+
+def test_component_system_get_resolved_access_from_ancestor() -> None:
+    parent = Component(
+        __with_config__=ComponentConfig(name="parent", access=ComponentAccessLevel.OPERATE)
+    )
+    child = Component(__with_name__="child")
+    parent.system.attach(child)
+    assert child.system.get_resolved_access() == ComponentAccessLevel.OPERATE
+
+
+def test_component_system_get_inherited_tags_combines_ancestors() -> None:
+    parent = Component(__with_config__=ComponentConfig(name="parent", tags=["site-a"]))
+    child = Component(
+        __with_name__="child",
+        __with_config__=ComponentConfig(name="child", tags=["pressure"]),
+    )
+    parent.system.attach(child)
+    assert child.system.get_inherited_tags() == {"site-a", "pressure"}
+
+
+async def test_component_system_get_resolved_access_falls_back_to_config_default() -> None:
+    engine = Engine()
+    config = validate(
+        Config,
+        {
+            "database": {"type": "sqlite", "path": ":memory:"},
+            "access": "operate",
+            "components": [{"name": "leaf", "class": "ceres.component:Component"}],
+        },
+    )
+    await engine.load(config, checks=())
+
+    leaf = engine.get_component(Address("@leaf"))
+    assert leaf is not None
+    assert leaf.system.get_resolved_access() == ComponentAccessLevel.OPERATE
+
+    await engine.database.dispose()
+
+
+async def test_component_system_get_resolved_access_ancestor_wins_over_config_default() -> None:
+    engine = Engine()
+    config = validate(
+        Config,
+        {
+            "database": {"type": "sqlite", "path": ":memory:"},
+            "access": "operate",
+            "components": [
+                {
+                    "name": "parent",
+                    "class": "ceres.component:Component",
+                    "access": "view",
+                    "components": [{"name": "child", "class": "ceres.component:Component"}],
+                }
+            ],
+        },
+    )
+    await engine.load(config, checks=())
+
+    child = engine.get_component(Address("@parent.child"))
+    assert child is not None
+    assert child.system.get_resolved_access() == ComponentAccessLevel.VIEW
+
+    await engine.database.dispose()
+
+
+async def test_component_system_get_resolved_access_detached_defaults_to_view() -> None:
+    component = Component()
+    assert component.system.engine is None
+    assert component.system.get_resolved_access() == ComponentAccessLevel.VIEW
+
+
+async def test_component_system_get_inherited_tags_falls_back_to_config_default() -> None:
+    engine = Engine()
+    config = validate(
+        Config,
+        {
+            "database": {"type": "sqlite", "path": ":memory:"},
+            "tags": ["site"],
+            "components": [{"name": "leaf", "class": "ceres.component:Component"}],
+        },
+    )
+    await engine.load(config, checks=())
+
+    leaf = engine.get_component(Address("@leaf"))
+    assert leaf is not None
+    assert leaf.system.get_inherited_tags() == {"site"}
+
+    await engine.database.dispose()
+
+
+async def test_component_system_get_inherited_tags_detached_has_no_config_tags() -> None:
+    component = Component()
+    assert component.system.engine is None
+    assert component.system.get_inherited_tags() == set()
+
+
+class _PermissionTestComponent:
+    @query
+    def default_query(self) -> str:
+        return "data"
+
+    @action
+    def default_action(self) -> str:
+        return "done"
+
+    @query(permit="public")
+    def public_query(self) -> str:
+        return "public"
+
+    @action(permit=ComponentAccessLevel.MANAGE)
+    def manage_action(self) -> str:
+        return "managed"
+
+
+async def test_query_default_permission_is_view() -> None:
+    bindings = get_procedure_bindings(_PermissionTestComponent)
+    assert bindings["default-query"].permissions == ComponentAccessLevel.VIEW
+
+
+async def test_action_default_permission_is_operate() -> None:
+    bindings = get_procedure_bindings(_PermissionTestComponent)
+    assert bindings["default-action"].permissions == ComponentAccessLevel.OPERATE
+
+
+async def test_query_public_permission() -> None:
+    bindings = get_procedure_bindings(_PermissionTestComponent)
+    assert bindings["public-query"].permissions == "public"
+
+
+async def test_action_custom_permission() -> None:
+    bindings = get_procedure_bindings(_PermissionTestComponent)
+    assert bindings["manage-action"].permissions == ComponentAccessLevel.MANAGE
+
+
 def test_component_repr() -> None:
     component = Component()
     assert repr(component) == "Component()"
@@ -478,3 +690,66 @@ def test_component_repr() -> None:
     child = Component(__with_name__="child")
     component.system.attach(child)
     assert repr(child) == "Component()"
+
+
+async def test_status_reports_per_connection_connectivity() -> None:
+    from ceres.config import ConnectionConfig
+    from ceres.connectivity import Connectivity
+    from ceres.data import validate
+
+    engine = Engine()
+    connection = validate(
+        ConnectionConfig,
+        {
+            "name": "link",
+            "arguments": {
+                "name": "link",
+                "source": {
+                    "class": "ceres.TCPSource",
+                    "arguments": {"host": "localhost", "port": 2999},
+                },
+            },
+        },
+    )
+    config = ComponentConfig(name="wired", connections=[connection])
+    component = Component(__with_name__="wired", __with_config__=config)
+    engine.attach(component)
+
+    status = await component.system.get_status()
+
+    assert status.connectivity is None
+    assert len(status.connections) == 1
+    assert status.connections[0].name == "link"
+    assert status.connections[0].label == "tcp://localhost:2999"
+    assert status.connections[0].connectivity == Connectivity.DISCONNECTED
+
+
+async def test_status_has_no_connections_without_any() -> None:
+    engine = Engine()
+    component = Component(__with_name__="bare")
+    engine.attach(component)
+
+    status = await component.system.get_status()
+
+    assert status.connections == []
+    assert status.connectivity is None
+
+
+class _ConnectivityComponent(Component):
+    @override
+    def __connectivity__(self):
+        from ceres.connectivity import Connectivity
+
+        return Connectivity.CONNECTED
+
+
+async def test_status_uses_defined_connectivity_override() -> None:
+    from ceres.connectivity import Connectivity
+
+    engine = Engine()
+    component = _ConnectivityComponent(__with_name__="explicit")
+    engine.attach(component)
+
+    status = await component.system.get_status()
+
+    assert status.connectivity == Connectivity.CONNECTED

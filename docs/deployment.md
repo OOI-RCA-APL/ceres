@@ -74,15 +74,25 @@ Before starting the service, validate your configuration.
 ceres check
 ```
 
-## Initializing the Database
+## Database Migrations
 
-If you are using PostgreSQL, initialize the database schema.
+The `ceres/database/migrations/` directory is the source of truth for the database schema. Every schema change ships as a migration file named `<id>-<name>.sql`, or `<id>-<name>.sqlite.sql` / `<id>-<name>.postgres.sql` when the SQL differs by backend, rather than as a standalone schema definition.
+
+If you are using PostgreSQL, apply pending migrations to create or update the schema.
 
 ```sh
-ceres database init
+ceres database migrate
 ```
 
-SQLite databases are created and initialized automatically.
+This shows the pending migrations and prompts for confirmation before applying them. SQLite databases are created and migrated automatically.
+
+Show every known migration alongside its applied or pending status.
+
+```sh
+ceres database migrations
+```
+
+On startup, the engine refuses to run if the schema does not match what the running version of Ceres expects: migrations are pending, or the database has migration IDs the running version does not recognize (for example, after a downgrade). Run `ceres database migrate` to apply pending migrations. An unknown migration ID means the database was already migrated by a newer version of Ceres.
 
 ## Starting the Service
 
@@ -184,7 +194,7 @@ ceres service stop
 ceres service start
 ```
 
-If there are database schema changes, run `ceres database init` after upgrading and before starting the service.
+If there are database schema changes, run `ceres database migrate` after upgrading and before starting the service.
 
 ## Logging
 

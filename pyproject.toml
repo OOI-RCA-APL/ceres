@@ -62,7 +62,7 @@ ceres = "ceres.__internal__.cli.main:main"
 
 [tool.hatch.build]
 packages = ["ceres"]
-include = ["./ceres/**/*.py", "./ceres/py.typed", "./ceres/static/"]
+include = ["./ceres/**/*.py", "./ceres/py.typed", "./ceres/static/", "./ceres/database/migrations/*.sql"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

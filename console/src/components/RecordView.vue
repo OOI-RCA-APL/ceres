@@ -21,7 +21,13 @@ import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
 import { utc, type Datetime } from '@/time'
 import { debouncedComputed } from '@/utilities'
-import { MessagesWidget, ParticlesWidget, AlertsWidget, LogsWidget } from '@/workspace'
+import {
+  MessagesWidget,
+  ParticlesWidget,
+  AlertsWidget,
+  LogsWidget,
+  useWorkspace,
+} from '@/workspace'
 
 type ColumnDefinition = {
   label: string
@@ -66,7 +72,18 @@ const columns = $computed(() => [
 ])
 
 const engine = useEngine()
+const workspace = useWorkspace()
 const slots = useSlots()
+
+// The address filter offers each component and its subtree selector, narrowed to the workspace's
+// placement so it matches what the record APIs can actually return once the filter resolves
+// through the workspace. A workspace at the engine root is narrowed to nothing, since the root
+// contains every component.
+const addressFilterOptions = $computed(() =>
+  engine.components.all
+    .filter((component) => workspace.isWithinScope(component.address))
+    .flatMap((component) => [component.address.toString(), component.address.all().toString()])
+)
 
 const get = $computed(() => {
   switch (widget.type) {
@@ -345,7 +362,11 @@ async function appendRecords(appended: Record[]) {
 
   records.push(...appended)
   if (resort) {
-    records.sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+    // Compared directly rather than with localeCompare. These are ISO timestamps, so the result is
+    // the same either way, but nothing here depends on a locale and saying otherwise misleads.
+    records.sort((left, right) =>
+      left.timestamp < right.timestamp ? -1 : left.timestamp > right.timestamp ? 1 : 0
+    )
   }
 
   if (follow) {
@@ -601,10 +622,7 @@ useStream(debouncedFilter, async (record: Record) => {
                       :schema="{
                         title: 'Address',
                         type: 'string',
-                        enum: engine.components.all.flatMap((current) => [
-                          current.address.toString(),
-                          current.address.all().toString(),
-                        ]),
+                        enum: addressFilterOptions,
                         optional: true,
                       }"
                       @update:model-value="

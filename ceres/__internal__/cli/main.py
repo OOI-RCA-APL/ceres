@@ -27,13 +27,12 @@ from ceres.__internal__.cli.shared import (
     write,
     write_table,
 )
-from ceres.__internal__.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
 from ceres.__internal__.lazy import __lazy_imports__, unlazy
 from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import Address, AddressSelector
 from ceres.concurrency import cancel, el, race, spawn
 from ceres.data import to_json
-from ceres.error import Error
+from ceres.error import ComponentCombinedError, Error
 
 if TYPE_CHECKING:
     from ceres.database import Database
@@ -177,6 +176,26 @@ class StatusCommand(CLICommand):
                     )
 
 
+async def _assert_matches(client: Client, address: AddressSelector) -> None:
+    """Fail with a quoting hint when a selector matches no components.
+
+    Shell glob expansion can silently rewrite selectors (for example `sensor.*` matching a
+    file named `sensor.yaml`), surfacing as a selector that matches nothing.
+    """
+    from ceres.status import Status
+
+    statuses = await client.get(
+        "/statuses",
+        params=ComponentFilter(address=address),
+        result=list[Status],
+    )
+    if not statuses:
+        raise CLICommandFailed(
+            f"No components match '{address}'. If your shell expanded a wildcard, quote "
+            "the selector."
+        )
+
+
 class StartCommand(CLICommand):
     """
     Start components at the provided addresses.
@@ -192,6 +211,7 @@ class StartCommand(CLICommand):
         """Send a start request to the running engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
+        await _assert_matches(client, address)
         query = ComponentFilter(address=address)
         await self.put(await client.post("/start", query))
 
@@ -209,6 +229,7 @@ class StopCommand(CLICommand):
         """Send a stop request to the running engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
+        await _assert_matches(client, address)
         query = ComponentFilter(address=address)
         await self.put(await client.post("/stop", query))
 
@@ -228,6 +249,7 @@ class EnableCommand(CLICommand):
         address = AddressSelector(self.addresses)
 
         if await client.alive():
+            await _assert_matches(client, address)
             query = ComponentFilter(address=address)
             result = await client.post("/enable", query)
         else:
@@ -252,6 +274,7 @@ class DisableCommand(CLICommand):
         address = AddressSelector(self.addresses)
 
         if await client.alive():
+            await _assert_matches(client, address)
             query = ComponentFilter(address=address)
             result = await client.post("/disable", query)
         else:
@@ -274,6 +297,7 @@ class UpCommand(CLICommand):
         """Send a combined start-and-enable request to the engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
+        await _assert_matches(client, address)
         query = ComponentFilter(address=address)
         await self.put(await client.post("/up", query))
 
@@ -291,6 +315,7 @@ class DownCommand(CLICommand):
         """Send a combined stop-and-disable request to the engine for the specified addresses."""
         client = await self.use_client()
         address = AddressSelector(self.addresses)
+        await _assert_matches(client, address)
         query = ComponentFilter(address=address)
         await self.put(await client.post("/down", query))
 
@@ -435,7 +460,6 @@ with __lazy_imports__(__name__):
     from ceres.__internal__.cli.subcommands.settings import SettingsCommand
     from ceres.__internal__.cli.subcommands.users import UsersCommand
     from ceres.__internal__.cli.subcommands.variables import VariablesCommand
-    from ceres.__internal__.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
     from ceres.__internal__.cli.subcommands.workspaces import WorkspacesCommand
 
 
@@ -484,7 +508,6 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
         "users": UsersCommand,
         "variables": VariablesCommand,
         "workspaces": WorkspacesCommand,
-        "workspace-memberships": WorkspaceMembershipsCommand,
     }
 
     if subcommand in subcommands:
@@ -552,6 +575,18 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             try:
                 await engine.load(config_path)
             except Error as error:
+                # Structured errors carry an actionable message, show it instead of a dump.
+                message = getattr(error, "message", None) or getattr(error, "reason", None)
+                if isinstance(message, str):
+                    raise CLICommandFailed(f"Failed to load engine. {message}")
+
+                if isinstance(error, ComponentCombinedError):
+                    count = len(error.errors)
+                    raise CLICommandFailed(
+                        f"Failed to load engine. {count} component error(s) occurred, "
+                        "see the log output above."
+                    )
+
                 raise CLICommandFailed(
                     f"Failed to load engine with current configuration. {to_json(error, indent=2)}"
                 )
@@ -575,10 +610,15 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
-        if not isinstance(exception, CLICommandFailed):
-            raise CLICommandFailed(f"Engine startup failed. {trace(exception)}")
-        else:
+        if isinstance(exception, CLICommandFailed):
             raise
+
+        # Structured errors carry an actionable message, show it instead of a traceback.
+        message = getattr(exception, "message", None) or getattr(exception, "reason", None)
+        if isinstance(exception, Error) and isinstance(message, str):
+            raise CLICommandFailed(f"Engine startup failed. {message}")
+
+        raise CLICommandFailed(f"Engine startup failed. {trace(exception)}")
 
 
 async def _run_watch(

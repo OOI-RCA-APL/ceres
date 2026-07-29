@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
-import { debounce } from 'lodash-es'
+import { debounce, orderBy } from 'lodash-es'
 import { defineStore } from 'pinia'
-import { exportFile as download } from 'quasar'
+import { copyToClipboard, exportFile as download } from 'quasar'
 import { v7 } from 'uuid'
 import {
   computed,
@@ -18,7 +18,14 @@ import {
 } from 'vue'
 import Zod from 'zod'
 
-import { AddressModel, AddressSelectorModel } from '@/api/address'
+import { useAccess } from '@/api/access'
+import {
+  Address,
+  AddressModel,
+  AddressSelector,
+  AddressSelectorModel,
+  engineRoot,
+} from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
@@ -27,10 +34,10 @@ import { LogEntryFilterModel } from '@/api/logs'
 import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
-import { User, UserRoleOf } from '@/api/users'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
+import { workspaceQueryKey } from '@/tabs'
 import { deepClone, isStructurallyEqual, safeArrayOf, selectFile } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
@@ -39,6 +46,7 @@ const BaseWidgetModel = Zod.object({
   name: Zod.string(),
   // Fraction of row width out of 120, not pixels.
   width: Zod.number().catch(() => widgetWidthSubdivisions),
+  restricted: Zod.boolean().catch(false),
 })
 
 export type MessageDataDisplay = Zod.infer<typeof MessageDataDisplayModel>
@@ -87,13 +95,6 @@ export const ProceduresWidgetModel = BaseWidgetModel.extend({
   procedureAddress: AddressModel.nullish(),
   procedureType: ProcedureTypeModel.catch('action'),
   procedureName: Zod.string().nullish(),
-})
-
-export type UIWidget = Zod.infer<typeof UIWidgetModel>
-export const UIWidgetModel = BaseWidgetModel.extend({
-  type: Zod.literal('ui'),
-  name: Zod.string().catch('UI'),
-  interfaceAddress: AddressModel.nullish(),
 })
 
 export type ChartWidgetDisplay = Zod.infer<typeof ChartWidgetDisplayModel>
@@ -177,7 +178,6 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   AlertsWidgetModel,
   LogsWidgetModel,
   ProceduresWidgetModel,
-  UIWidgetModel,
   ChartWidgetModel,
   ValueWidgetModel,
   VideoWidgetModel,
@@ -237,7 +237,7 @@ export const widgetInfos = {
     type: 'alerts',
     name: 'Alerts View',
     model: AlertsWidgetModel,
-    component: () => defineAsyncComponent(() => import('@/components/WorkspaceWidgetAlerts.vue')),
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetAlerts.vue')),
     options: widgetOptions({}),
   },
   logs: {
@@ -252,15 +252,6 @@ export const widgetInfos = {
     name: 'Procedures View',
     model: ProceduresWidgetModel,
     component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetProcedures.vue')),
-    options: widgetOptions({
-      fullHeight: false,
-    }),
-  },
-  ui: {
-    type: 'ui',
-    name: 'UI View',
-    model: UIWidgetModel,
-    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetUi.vue')),
     options: widgetOptions({
       fullHeight: false,
     }),
@@ -326,52 +317,78 @@ export const WidgetRowModel = Zod.object({
   widgets: safeArrayOf(WidgetModel),
 })
 
+export type WorkspaceMeta = Zod.infer<typeof WorkspaceMetaModel>
+
+/** Presentation state the console keeps alongside a workspace's contents.
+
+The engine stores this without interpreting it, so nothing here may affect how a workspace
+behaves, only how the console chooses to display it.
+*/
+export const WorkspaceMetaModel = Zod.object({
+  // Position among the workspaces scoped to the same component, ascending. Workspaces without
+  // one sort last, which is where a newly created workspace belongs.
+  order: Zod.number().nullish().catch(undefined),
+})
+
 export type WorkspaceDataInput = Zod.input<typeof WorkspaceDataModel>
 export type WorkspaceData = Zod.infer<typeof WorkspaceDataModel>
 export const WorkspaceDataModel = Zod.object({
   layout: WidgetRowModel.array().catch(() => []),
+  meta: WorkspaceMetaModel.catch(() => ({ order: undefined })),
 })
 
-export type WorkspaceAccessRestriction = Zod.infer<typeof WorkspaceAccessRestrictionModel>
-export const WorkspaceAccessRestrictionModel = Zod.enum([
-  'anyone',
-  'operators',
-  'admins',
-  'private',
-])
-export const WorkspaceAccessRestrictionOf = {
-  anyone: 0,
-  operators: 1,
-  admins: 2,
-  private: 3,
-} as const
+/** Whether a caller may rename, delete, or otherwise write this workspace.
+
+A private workspace belongs to its owner alone, so they may write it whatever their access on the
+placement. A shared one follows the placement.
+*/
+export function isWorkspaceWritable(
+  workspace: Workspace,
+  userId: string | null | undefined,
+  canManagePlacement: boolean
+): boolean {
+  if (workspace.owner_id != null) {
+    return workspace.owner_id === userId
+  }
+
+  return canManagePlacement
+}
+
+/** Sort workspaces into the shared standard order.
+
+Position is carried in each workspace's own data, and those without one sort last, which is where a
+newly created workspace belongs. Ties fall back to the name so the order is stable.
+*/
+export function inStandardOrder(workspaces: Workspace[]): Workspace[] {
+  return orderBy(workspaces, [
+    (workspace) => workspace.data.meta.order ?? Number.MAX_SAFE_INTEGER,
+    (workspace) => workspace.name,
+  ])
+}
+
+/** Return a workspace's data without `meta`.
+
+`meta` is shared presentation state that any user with manage on the placement rewrites when they
+reorder a strip. Comparing it against a stored edit would report every workspace in that strip as
+having unsaved changes, for every user holding an edit, which is why it is excluded from both the
+comparison and the edit itself.
+*/
+export function withoutMeta(data: WorkspaceData): Omit<WorkspaceData, 'meta'> {
+  // Content is named rather than spread, so adding a field to a workspace's data fails to compile
+  // here until it is decided whether that field is content or presentation.
+  const { layout } = data
+  return { layout }
+}
 
 export type Workspace = Zod.infer<typeof WorkspaceModel>
 export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
   id: Zod.string().catch(() => v7()),
   name: Zod.string(),
-  general_viewership: WorkspaceAccessRestrictionModel.default('private'),
-  general_editorship: WorkspaceAccessRestrictionModel.default('private'),
-  general_managership: WorkspaceAccessRestrictionModel.default('private'),
+  scope: AddressModel.catch(() => Address.parse(engineRoot)),
+  owner_id: Zod.string().nullish().catch(null),
+  show_when_logged_out: Zod.boolean().catch(false),
   data: WorkspaceDataModel.catch(() => WorkspaceDataModel.parse({})),
-})
-
-export type WorkspaceMembershipRole = Zod.infer<typeof WorkspaceMembershipRoleModel>
-export const WorkspaceMembershipRoleModel = Zod.enum(['viewer', 'editor', 'manager'])
-
-export const WorkspaceMembershipRoleOf = {
-  viewer: 0,
-  editor: 1,
-  manager: 2,
-} as const
-
-export type WorkspaceMembership = Zod.infer<typeof WorkspaceMembershipModel>
-export const WorkspaceMembershipModel = Zod.object({
-  user_id: Zod.string(),
-  workspace_id: Zod.string(),
-  role: WorkspaceMembershipRoleModel.default('viewer'),
-  data: WorkspaceDataModel.nullish().catch(null),
 })
 
 export type WorkspaceEdit = Zod.infer<typeof WorkspaceEditModel>
@@ -383,6 +400,33 @@ export const WorkspaceEditModel = Zod.object({
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
+/** Handlers a `Workspace.vue` instance exposes to whatever renders its `header-prepend` slot,
+so a scoped workspace's tab strip can drive the same actions the standalone header would.
+*/
+export type WorkspaceHeaderActions = {
+  rename: (name: string) => void
+  openSettings: () => void
+  undo: () => void
+  redo: () => void
+  duplicate: () => void
+  exportFile: () => void
+  promptDelete: () => void
+  promptCommit: () => void
+  promptRevert: () => void
+  startViewingOriginal: () => void
+  stopViewingOriginal: () => void
+}
+
+/** State a `Workspace.vue` instance exposes alongside `WorkspaceHeaderActions`, read-only. */
+export type WorkspaceHeaderState = {
+  edited: boolean
+  canManage: boolean
+  canEdit: boolean
+  canUndo: boolean
+  canRedo: boolean
+  isViewingOriginal: boolean
+}
+
 export type Drag = {
   widget: Widget
   row: number
@@ -391,6 +435,7 @@ export type Drag = {
 
 function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   const auth = useAuth()
+  const access = useAccess()
   const workspaces = useWorkspaces()
   const id = $computed(() => unref(workspaceId))
 
@@ -398,10 +443,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     queryKey: computed(() => ['workspace-context', id, auth.user?.id]),
     experimental_prefetchInRender: true,
     queryFn: async () => {
-      return {
-        workspace: await workspaces.get(id),
-        membership: await workspaces.getMembership(id),
-      }
+      return { workspace: await workspaces.get(id) }
     },
   })
 
@@ -412,11 +454,114 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
         : null) as Workspace | null
   )
 
-  const membership = $computed(
-    () => (query.data.value?.membership ?? null) as WorkspaceMembership | null
-  )
+  const scope = $computed(() => workspace?.scope ?? null)
+
+  /** Whether the caller may edit and manage this workspace, which are the same right. */
+  function isWritable(): boolean {
+    if (workspace == null) {
+      return false
+    }
+    if (workspace.owner_id != null) {
+      return workspace.owner_id === auth.user?.id
+    }
+
+    return access.canManage(workspace.scope.toString())
+  }
+
+  function resolveAddress(
+    value: string | AddressSelector | null | undefined
+  ): AddressSelector | null {
+    if (value == null) {
+      return null
+    }
+
+    return AddressSelector.parse(value).asAbsolute(scope)
+  }
+
+  // Whether this workspace is bound to a component, rather than sitting at the engine root. The
+  // engine root contains every component, so a workspace placed there restricts nothing, and the
+  // controls that narrow a choice to the placement have nothing to narrow.
+  const isBound = $computed(() => scope != null && !scope.isEngine)
+
+  /** Whether an address falls within this workspace's placement.
+   *
+   * A workspace at the engine root admits every component. One bound to a component admits that
+   * component and its descendants. Callers use this to offer only the addresses whose records the
+   * widget can actually resolve, so it must agree with what `resolveFilterAddress` produces.
+   */
+  function isWithinScope(address: Address | string): boolean {
+    if (scope == null || scope.isEngine) {
+      return true
+    }
+
+    const base = scope.toString()
+    const value = address.toString()
+    return value === base || value.startsWith(`${base}.`)
+  }
+
+  // Like resolveAddress, but an unset value falls back to the scope's own subtree instead of
+  // staying null. Record widgets (messages, logs, alerts, particles) use this for their
+  // `filter.address` field, since a widget added to a scoped workspace with no address chosen
+  // yet must default to showing only the scope and its descendants, not every component.
+  function resolveFilterAddress(
+    value: string | AddressSelector | null | undefined
+  ): AddressSelector | null {
+    if (value == null) {
+      return scope == null ? null : AddressSelector.parse(`${scope}:all`)
+    }
+
+    return AddressSelector.parse(value).asAbsolute(scope)
+  }
 
   let data = $ref<WorkspaceData | null>(null)
+
+  // Undo history for the working copy, capped so a long editing session cannot grow without
+  // bound. Snapshots are recorded on the same debounce as the autosave, which groups a burst of
+  // drags or keystrokes into one undo step rather than one per frame.
+  const historyLimit = 50
+  let history = $ref<WorkspaceData[]>([])
+  let historyIndex = $ref(-1)
+
+  const canUndo = $computed(() => historyIndex > 0)
+  const canRedo = $computed(() => historyIndex >= 0 && historyIndex < history.length - 1)
+
+  function recordHistory() {
+    if (data == null) {
+      return
+    }
+
+    // An undo or redo assigns a state already in the history, which must not be recorded again
+    // or it would erase the redo tail it just moved through.
+    if (historyIndex >= 0 && isStructurallyEqual(data, history[historyIndex])) {
+      return
+    }
+
+    const snapshot = deepClone(data) as WorkspaceData
+    const kept = [
+      ...history.slice(Math.max(0, history.length - historyLimit + 1), historyIndex + 1),
+      snapshot,
+    ]
+    history = kept
+    historyIndex = kept.length - 1
+  }
+
+  function undo() {
+    if (!canUndo) {
+      return
+    }
+
+    historyIndex--
+    data = deepClone(history[historyIndex]) as WorkspaceData
+  }
+
+  function redo() {
+    if (!canRedo) {
+      return
+    }
+
+    historyIndex++
+    data = deepClone(history[historyIndex]) as WorkspaceData
+  }
 
   async function saveEdit() {
     if (workspace == null || data == null) {
@@ -427,7 +572,14 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     await workspaces.assignEdit(id, data)
   }
 
-  watch(() => data, debounce(saveEdit, 500), { deep: true })
+  watch(
+    () => data,
+    debounce(() => {
+      recordHistory()
+      void saveEdit()
+    }, 500),
+    { deep: true }
+  )
 
   useEventListener(window, 'beforeunload', async () => {
     try {
@@ -438,7 +590,11 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   })
 
   const edited = $computed(() => {
-    return data != null && workspace != null && !isStructurallyEqual(data, workspace?.data)
+    if (data == null || workspace == null) {
+      return false
+    }
+
+    return !isStructurallyEqual(withoutMeta(data), withoutMeta(workspace.data))
   })
 
   async function rename(newName: string) {
@@ -478,18 +634,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   async function del() {
     return await workspaces.delete(id)
-  }
-
-  async function join(role: WorkspaceMembershipRole) {
-    const result = await workspaces.join(id, role)
-    await refresh()
-    return result
-  }
-
-  async function leave() {
-    const result = await workspaces.leave(id)
-    await refresh()
-    return result
   }
 
   async function exportFile() {
@@ -669,12 +813,23 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   async function afterFetch() {
     if (data == null) {
       data = (await workspaces.getEdit(id))?.data ?? deepClone(workspace?.data ?? null) ?? null
+
+      // Seed the history with the loaded state so the first edit has something to undo back to.
+      if (data != null) {
+        history = [deepClone(data) as WorkspaceData]
+        historyIndex = 0
+      }
     }
   }
+
+  // True while a workspace is being fetched and its working copy seeded, so a host can tell an
+  // empty context apart from one whose workspace does not exist.
+  let loading = $ref(true)
 
   async function load() {
     await query.promise.value
     await afterFetch()
+    loading = false
   }
 
   async function refresh() {
@@ -683,24 +838,48 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     await afterFetch()
   }
 
+  // The context follows its workspace ID rather than being rebuilt for each one, so a host that
+  // switches between workspaces keeps its surrounding chrome mounted. Everything derived from the
+  // previous workspace has to be cleared first, since the working copy and its history belong to
+  // the workspace they were loaded for.
+  watch(
+    () => id,
+    async () => {
+      loading = true
+      data = null
+      history = []
+      historyIndex = -1
+      await query.promise.value
+      await afterFetch()
+      loading = false
+    }
+  )
+
   return reactive({
     load,
     refresh,
+    loading: computed(() => loading),
     name: computed(() => workspace?.name ?? null),
-    membership: computed(() => membership),
-    defaultViewership: computed(() => workspace?.general_viewership ?? 'private'),
-    defaultEditorship: computed(() => workspace?.general_editorship ?? 'private'),
-    defaultManagership: computed(() => workspace?.general_managership ?? 'private'),
+    scope: computed(() => scope),
+    resolveAddress,
+    resolveFilterAddress,
+    isWithinScope,
+    isBound: computed(() => isBound),
+    owner: computed(() => workspace?.owner_id ?? null),
+    isPrivate: computed(() => workspace?.owner_id != null),
+    isEnginePlaced: computed(() => workspace?.scope.isEngine === true),
     originalData: computed(() => workspace?.data ?? null),
     data: computed(() => data),
     edited: computed(() => edited),
+    canUndo: computed(() => canUndo),
+    canRedo: computed(() => canRedo),
+    undo,
+    redo,
     delete: del,
     rename,
     update,
     save,
     revert,
-    join,
-    leave,
     exportFile,
     getWidget,
     getWidgetAt,
@@ -711,18 +890,25 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     moveWidget,
     duplicateWidget,
     drag: null as Drag | null,
-    canView: computed(() => workspace != null && userCanViewWorkspace(auth.user, membership)),
-    couldView: computed(() => workspace != null && userCouldViewWorkspace(auth.user, workspace)),
-    canEdit: computed(() => workspace != null && userCanEditWorkspace(auth.user, membership)),
-    couldEdit: computed(() => workspace != null && userCouldEditWorkspace(auth.user, workspace)),
-    canManage: computed(() => workspace != null && userCanManageWorkspace(auth.user, membership)),
-    couldManage: computed(
-      () => workspace != null && userCouldManageWorkspace(auth.user, workspace)
-    ),
+    // A workspace is placed on a component or on the engine root, and its access is that
+    // placement's access. A private workspace belongs to its owner alone, whatever the placement
+    // says, since nobody else can see it at all.
+    canView: computed(() => {
+      if (workspace == null) {
+        return false
+      }
+      if (workspace.owner_id != null) {
+        return workspace.owner_id === auth.user?.id
+      }
+
+      return access.canView(workspace.scope.toString())
+    }),
+    canEdit: computed(() => isWritable()),
+    canManage: computed(() => isWritable()),
   })
 }
 
-export function provideWorkspace(id: string) {
+export function provideWorkspace(id: MaybeRef<string>) {
   const context = createWorkspaceContext(id)
   provide(workspaceInjectionKey, context)
   return context
@@ -757,30 +943,28 @@ export const useWorkspaces = defineStore('workspaces', () => {
     })
   }
 
+  // Every workspace the caller may see, whatever it is placed on, which is what the drawer's
+  // Workspaces section lists. The server does the limiting, returning the workspaces whose
+  // placement the caller can view plus the private ones they own.
   async function getAll() {
     return await client.get(`/api/workspaces`, {
       parse: Zod.array(WorkspaceModel),
-      query: {
-        'viewable-by': getUserId(),
-      },
     })
   }
 
-  async function getAllJoined() {
-    return await client.get(`/api/users/${getUserId()}/workspaces`, {
+  async function listScoped(scope: Address) {
+    return await client.get(`/api/workspaces`, {
       parse: Zod.array(WorkspaceModel),
+      query: {
+        scope: scope.toString(),
+      },
     })
   }
 
   const query = useQuery({
     queryKey: computed(() => ['workspaces', auth.user?.id]),
     queryFn: async () => {
-      const [all, joined, memberships] = await Promise.all([
-        getAll(),
-        getAllJoined(),
-        getMemberships(),
-      ])
-      return { all, joined, memberships }
+      return { all: await getAll() }
     },
   })
 
@@ -796,33 +980,10 @@ export const useWorkspaces = defineStore('workspaces', () => {
     () => new Map((query.data.value?.all ?? []).map((workspace) => [workspace.id, workspace]))
   )
 
-  const joinedWorkspaces = $computed(
-    () => new Map((query.data.value?.joined ?? []).map((workspace) => [workspace.id, workspace]))
-  )
-
-  const unjoinedWorkspaces = $computed(
-    () =>
-      new Map(
-        [...allWorkspaces.values()]
-          .filter((workspace) => !joinedWorkspaces.has(workspace.id))
-          .map((workspace) => [workspace.id, workspace])
-      )
-  )
-
-  const memberships = $computed(
-    () =>
-      new Map(
-        (query.data.value?.memberships ?? []).map((membership) => [
-          membership.workspace_id,
-          membership,
-        ])
-      )
-  )
-
   async function create(
     workspace?: Omit<WorkspaceInput, 'name'> & { name?: string }
   ): Promise<Workspace> {
-    workspace = WorkspaceModel.parse({ name: 'New Workspace', ...workspace })
+    workspace = WorkspaceModel.parse({ name: 'Workspace', ...workspace })
     const result = await client.post(`/api/workspaces`, {
       data: workspace,
       parse: WorkspaceModel,
@@ -844,8 +1005,31 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return await update(id, { name })
   }
 
+  /** Show a workspace on home.
+
+  Home is where a workspace is looked at, so opening one goes there rather than to a page of its
+  own. The workspace keeps its placement, so one bound to a component still resolves its widgets
+  against that component from here.
+
+  Naming it in the query is the whole of it. Home reads that query and puts the workspace on its
+  strip if it was not already there, so a link, a sidebar click, and an action all arrive the same
+  way.
+  */
   async function open(id: string) {
-    await navigation.go(`/workspaces/${id}`)
+    await navigation.push({ path: '/', query: { [workspaceQueryKey]: id } })
+  }
+
+  /** Copy a link that opens workspaces on the page a placement belongs to.
+
+  Sharing is deliberate rather than a side effect of looking at something, because the address is
+  read on arrival and taken back out of the bar. This is what puts one together on request.
+  */
+  async function copyLink(placement: string, ids: string[]) {
+    const path = placement === engineRoot ? '/' : `/components/${placement}`
+    const { href } = navigation.resolve({ path, query: { [workspaceQueryKey]: ids } })
+
+    await copyToClipboard(window.location.origin + href)
+    notify.success(ids.length > 1 ? 'Links copied to clipboard.' : 'Link copied to clipboard.')
   }
 
   async function del(id: string) {
@@ -854,68 +1038,6 @@ export const useWorkspaces = defineStore('workspaces', () => {
     })
     await refresh()
     return result
-  }
-
-  async function getMembership(workspaceId: string) {
-    if (auth.user == null) {
-      return null
-    }
-
-    try {
-      return await client.get(`/api/users/${auth.user.id}/workspace-memberships/${workspaceId}`, {
-        parse: WorkspaceMembershipModel,
-      })
-    } catch {
-      return null
-    }
-  }
-
-  function getStoredMembership(workspaceId: string) {
-    return memberships.get(workspaceId)
-  }
-
-  async function getMemberships() {
-    if (auth.user == null) {
-      return []
-    }
-
-    return await client.get(`/api/users/${auth.user.id}/workspace-memberships`, {
-      parse: Zod.array(WorkspaceMembershipModel),
-    })
-  }
-
-  async function getMembershipsInWorkspace(workspaceId: string) {
-    return await client.get(`/api/workspaces/${workspaceId}/memberships`, {
-      parse: Zod.array(WorkspaceMembershipModel),
-    })
-  }
-
-  async function createMembership(
-    userId: string,
-    workspaceId: string,
-    role: WorkspaceMembershipRole
-  ) {
-    return await client.post(`/api/users/${userId}/workspace-memberships/${workspaceId}`, {
-      data: {
-        role,
-      },
-      parse: WorkspaceMembershipModel,
-    })
-  }
-
-  async function updateMembership(
-    userId: string,
-    workspaceId: string,
-    data: Partial<WorkspaceMembership>
-  ) {
-    return await client.patch(`/api/users/${userId}/workspace-memberships/${workspaceId}`, {
-      data,
-      parse: WorkspaceMembershipModel,
-    })
-  }
-
-  async function deleteMembership(userId: string, workspaceId: string) {
-    return await client.delete(`/api/users/${userId}/workspace-memberships/${workspaceId}`)
   }
 
   async function getEdit(workspaceId: string) {
@@ -935,9 +1057,27 @@ export const useWorkspaces = defineStore('workspaces', () => {
   async function assignEdit(workspaceId: string, data: WorkspaceData) {
     return await client.put(`/api/users/${getUserId()}/workspace-edits/${workspaceId}`, {
       data: {
-        data,
+        // `meta` is shared, so an edit carries content only. Committing an edit must not restore
+        // the tab order that was in force when the edit began.
+        data: withoutMeta(data),
       },
       parse: WorkspaceEditModel,
+    })
+  }
+
+  // Used by the component-scoped tab strip to learn which of several workspaces it is not
+  // currently displaying still have unsaved local changes, without loading each one's full
+  // workspace context.
+  async function getEdits(workspaceIds: string[]) {
+    if (auth.user == null || workspaceIds.length === 0) {
+      return []
+    }
+
+    return await client.get(`/api/users/${auth.user.id}/workspace-edits`, {
+      parse: Zod.array(WorkspaceEditModel),
+      query: {
+        'workspace-id': workspaceIds,
+      },
     })
   }
 
@@ -953,14 +1093,6 @@ export const useWorkspaces = defineStore('workspaces', () => {
     } catch {
       return null
     }
-  }
-
-  async function join(workspaceId: string, role: WorkspaceMembershipRole) {
-    return await createMembership(getUserId(), workspaceId, role)
-  }
-
-  async function leave(workspaceId: string) {
-    return await deleteMembership(getUserId(), workspaceId)
   }
 
   async function exportFile(workspaceOrId: string | WorkspaceInput) {
@@ -982,17 +1114,18 @@ export const useWorkspaces = defineStore('workspaces', () => {
     download(`${workspace.name}.workspace.json`, json)
   }
 
-  async function importFiles() {
-    const files = await selectFile({ multiple: true, accept: 'application/json' })
-    if (files == null) {
-      return null
-    }
-
+  /** Import exported workspace files, placing each one on `placement`. */
+  async function importWorkspaces(
+    files: Iterable<File>,
+    placement?: { scope?: Address; owner_id?: string | null }
+  ) {
     const imported: Workspace[] = []
 
     for (const file of files) {
-      const parsed = JSON.parse(await file.text())
-      if (parsed === undefined) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(await file.text())
+      } catch {
         notify.error(`Import of '${file.name}' failed. Invalid JSON.`)
         continue
       }
@@ -1003,49 +1136,52 @@ export const useWorkspaces = defineStore('workspaces', () => {
         continue
       }
 
+      // An exported file carries the identity of where it came from. Only its name and contents
+      // travel, so the import lands where the user dropped it rather than where it was made.
       const created = await create({
         name: workspace.name,
         data: workspace.data,
+        ...placement,
       })
       imported.push(created)
     }
 
-    if (imported.length == 0) {
+    if (imported.length > 0) {
       notify.success(`${imported.length} workspace(s) imported successfully.`)
     }
 
     return imported
   }
 
+  async function importFiles(placement?: { scope?: Address; owner_id?: string | null }) {
+    const files = await selectFile({ multiple: true, accept: 'application/json' })
+    if (files == null) {
+      return null
+    }
+
+    return await importWorkspaces(files, placement)
+  }
+
   return {
     load,
     refresh,
     all: computed(() => [...allWorkspaces.values()]),
-    joined: computed(() => [...joinedWorkspaces.values()]),
-    unjoined: computed(() => [...unjoinedWorkspaces.values()]),
-    memberships: computed(() => [...memberships.values()]),
     get,
     getAll,
-    getAllJoined,
+    listScoped,
     create,
     rename,
     update,
     open,
+    copyLink,
     delete: del,
-    getMembership,
-    getStoredMembership,
-    getMemberships,
-    getMembershipsInWorkspace,
-    createMembership,
-    updateMembership,
-    deleteMembership,
     getEdit,
+    getEdits,
     assignEdit,
     discardEdit,
     importFiles,
+    importWorkspaces,
     exportFile,
-    join,
-    leave,
   }
 })
 
@@ -1094,56 +1230,33 @@ export function resolveWidgetWidths(
   }
 }
 
-export function userCouldViewWorkspace(user: User | null, workspace: Workspace) {
-  return (
-    user != null &&
-    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_viewership]
-  )
-}
+// Build a value that changes whenever any of a widget's address-bearing fields change. Used to
+// detect when a user repoints a restricted stub so its lock placeholder can be cleared, since
+// the redacted field the widget loaded with is not something the user could have knowingly set.
+export function widgetTargetSignature(widget: Widget): string {
+  const values: unknown[] = []
 
-export function userCanViewWorkspace(user: User | null, membership: WorkspaceMembership | null) {
-  if (user == null) {
-    return false
+  if ('address' in widget) {
+    values.push(widget.address)
+  }
+  if ('commandAddress' in widget) {
+    values.push(widget.commandAddress)
+  }
+  if ('procedureAddress' in widget) {
+    values.push(widget.procedureAddress)
+  }
+  if ('particleAddress' in widget) {
+    values.push(widget.particleAddress)
+  }
+  if ('query' in widget) {
+    values.push(widget.query)
+  }
+  if ('filter' in widget) {
+    values.push(widget.filter.address)
+  }
+  if ('particles' in widget) {
+    values.push(widget.particles.map((particle) => particle.address?.toString() ?? null))
   }
 
-  return (
-    membership != null &&
-    WorkspaceMembershipRoleOf[membership.role] >= WorkspaceMembershipRoleOf.viewer
-  )
-}
-
-export function userCouldEditWorkspace(user: User | null, workspace: Workspace) {
-  return (
-    user != null &&
-    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_editorship]
-  )
-}
-
-export function userCanEditWorkspace(user: User | null, membership: WorkspaceMembership | null) {
-  if (user == null) {
-    return false
-  }
-
-  return (
-    membership != null &&
-    WorkspaceMembershipRoleOf[membership.role] >= WorkspaceMembershipRoleOf.editor
-  )
-}
-
-export function userCouldManageWorkspace(user: User | null, workspace: Workspace) {
-  return (
-    user != null &&
-    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_managership]
-  )
-}
-
-export function userCanManageWorkspace(user: User | null, membership: WorkspaceMembership | null) {
-  if (user == null) {
-    return false
-  }
-
-  return (
-    membership != null &&
-    WorkspaceMembershipRoleOf[membership.role] >= WorkspaceMembershipRoleOf.manager
-  )
+  return JSON.stringify(values.map((value) => value?.toString() ?? null))
 }

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { AddressSelector } from '@/api/address'
-import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
+import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import { ValueWidget, TextWeightModel } from '@/workspace'
@@ -9,8 +9,6 @@ import { ValueWidget, TextWeightModel } from '@/workspace'
 const { widget } = defineProps<{
   widget: ValueWidget
 }>()
-
-const engine = useEngine()
 </script>
 
 <template>
@@ -23,20 +21,13 @@ const engine = useEngine()
       <common-text class="q-mb-sm" variant="title2">Particles</common-text>
       <div class="q-col-gutter-sm q-mb-sm row">
         <div class="col-6">
-          <schema-form-value
-            :model-value="widget.particleAddress?.toString()"
-            :schema="{
-              type: 'string',
-              title: 'Address',
-              enum: engine.components.all.flatMap((current) => [
-                current.address.toString(),
-                current.address.all().toString(),
-              ]),
-              optional: true,
-            }"
-            @update:model-value="(value: string) => {
-              widget.particleAddress = value ? AddressSelector.parse(value) : null
-            }"
+          <workspace-address-select
+            :model-value="widget.particleAddress?.toString() ?? null"
+            @update:model-value="
+              (value) =>
+                (widget.particleAddress =
+                  value != null && value !== '' ? AddressSelector.parse(value) : null)
+            "
           />
         </div>
         <div class="col-6">

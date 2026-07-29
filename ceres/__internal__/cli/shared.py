@@ -614,6 +614,15 @@ class CLICommand(DataModel):
                 if not await database.initialized():
                     raise CLICommandFailed("Database appears uninitialized, exiting.")
 
+                try:
+                    await database.assert_schema_current()
+                except Error as error:
+                    message = getattr(error, "message", None)
+                    raise CLICommandFailed(
+                        message
+                        or "Database schema is out of date. Run `ceres database migrate` to update it."
+                    )
+
         async with database:
             yield database
 
