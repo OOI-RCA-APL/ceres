@@ -10,99 +10,12 @@
 //! and no alignment. Composite nodes concatenate their children, `Nx`-style padding becomes
 //! zero bytes on pack and skipped bytes on unpack.
 
+use ceres_binary::{Endian, Node, Spec};
 use half::f16;
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyComplex, PyDict, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
-use serde::Deserialize;
-
-/// One node in a compiled packing program, mirroring the Python schema classes.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum Node {
-    Bytes { length: usize },
-    Bool,
-    Uint8,
-    Int8,
-    Uint16,
-    Int16,
-    Uint32,
-    Int32,
-    Uint64,
-    Int64,
-    Float16,
-    Float32,
-    Float64,
-    Complex64,
-    Complex128,
-    Tuple { values: Vec<Spec> },
-    Sequence { element: Box<Spec>, length: usize },
-    Model { fields: Vec<(String, Spec)> },
-}
-
-/// A node together with its layout modifiers.
-#[derive(Debug, Deserialize)]
-struct Spec {
-    #[serde(flatten)]
-    node: Node,
-    #[serde(default)]
-    order: Option<String>,
-    #[serde(default)]
-    padding_before: usize,
-    #[serde(default)]
-    padding_after: usize,
-}
-
-impl Spec {
-    fn size(&self) -> usize {
-        self.padding_before + self.node.size() + self.padding_after
-    }
-}
-
-impl Node {
-    fn size(&self) -> usize {
-        match self {
-            Node::Bytes { length } => *length,
-            Node::Bool | Node::Uint8 | Node::Int8 => 1,
-            Node::Uint16 | Node::Int16 | Node::Float16 => 2,
-            Node::Uint32 | Node::Int32 | Node::Float32 => 4,
-            Node::Uint64 | Node::Int64 | Node::Float64 | Node::Complex64 => 8,
-            Node::Complex128 => 16,
-            Node::Tuple { values } => values.iter().map(Spec::size).sum(),
-            Node::Sequence { element, length } => element.size() * length,
-            Node::Model { fields } => fields.iter().map(|(_, spec)| spec.size()).sum(),
-        }
-    }
-}
-
-/// A resolved byte order. The `=` specifier resolves to the platform's order at call time.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Endian {
-    Little,
-    Big,
-}
-
-impl Endian {
-    fn native() -> Self {
-        if cfg!(target_endian = "big") {
-            Self::Big
-        } else {
-            Self::Little
-        }
-    }
-
-    fn parse(symbol: &str) -> PyResult<Self> {
-        match symbol {
-            "<" => Ok(Self::Little),
-            ">" => Ok(Self::Big),
-            "=" => Ok(Self::native()),
-            other => Err(PyValueError::new_err(format!(
-                "byte order must be one of '<', '>', '=', got {other:?}"
-            ))),
-        }
-    }
-}
 
 /// Append a fixed-width value in the requested byte order.
 fn write<const N: usize>(out: &mut Vec<u8>, little: [u8; N], big: [u8; N], endian: Endian) {
@@ -437,51 +350,8 @@ impl PackingProgram {
 impl PackingProgram {
     fn resolve_order(&self, order: Option<&str>) -> PyResult<Endian> {
         match order.or(self.spec.order.as_deref()) {
-            Some(symbol) => Endian::parse(symbol),
+            Some(symbol) => Endian::parse(symbol).map_err(PyValueError::new_err),
             None => Ok(Endian::Little),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn leaf(node: Node) -> Spec {
-        Spec {
-            node,
-            order: None,
-            padding_before: 0,
-            padding_after: 0,
-        }
-    }
-
-    #[test]
-    fn sizes_match_the_struct_layout() {
-        let spec = Spec {
-            node: Node::Tuple {
-                values: vec![
-                    leaf(Node::Uint8),
-                    leaf(Node::Float32),
-                    Spec {
-                        padding_before: 2,
-                        ..leaf(Node::Bytes { length: 4 })
-                    },
-                ],
-            },
-            order: None,
-            padding_before: 0,
-            padding_after: 1,
-        };
-        assert_eq!(spec.size(), 1 + 4 + 2 + 4 + 1);
-    }
-
-    #[test]
-    fn sequences_multiply_their_element_size() {
-        let spec = leaf(Node::Sequence {
-            element: Box::new(leaf(Node::Int16)),
-            length: 5,
-        });
-        assert_eq!(spec.size(), 10);
     }
 }
