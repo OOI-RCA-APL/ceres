@@ -34,6 +34,14 @@ const edgeMargin = 40
 quarter. */
 const leastBand = 10
 
+/** The most a row gives up to them, however tall it is.
+
+A quarter alone reads as a seam being greedy on a tall row, where it would swallow half the row and
+leave a drop beside the widget hard to reach. Past this the seam is a band of its own rather than a
+share of anything, which also makes every seam the same size to aim at.
+*/
+const largestBand = 28
+
 type WidgetBounds = { left: number; right: number }
 
 type RowBounds = { top: number; bottom: number; widgets: WidgetBounds[] }
@@ -42,7 +50,7 @@ type RowBounds = { top: number; bottom: number; widgets: WidgetBounds[] }
 function measure(element: HTMLElement): RowBounds[] {
   const origin = element.getBoundingClientRect()
 
-  return [...element.querySelectorAll(':scope > [data-row]')].map((row) => {
+  return [...element.querySelectorAll('[data-row]')].map((row) => {
     const bounds = row.getBoundingClientRect()
 
     return {
@@ -108,7 +116,7 @@ function withoutHeld(bounds: RowBounds[], layout: WidgetRow[], held: Set<string>
 function bandOf(row: RowBounds): number {
   const height = row.bottom - row.top
 
-  return Math.min(Math.max(height / 4, leastBand), height / 2)
+  return Math.min(Math.max(height / 4, leastBand), largestBand, height / 2)
 }
 
 function resolveColumn(row: RowBounds, index: number, x: number): WidgetPlacement | null {

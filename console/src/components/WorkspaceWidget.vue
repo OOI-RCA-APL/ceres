@@ -319,10 +319,6 @@ watch(
   overflow: visible;
 }
 
-.name:hover {
-  opacity: 0.6;
-}
-
 .content {
   height: 0 !important;
 }

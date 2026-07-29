@@ -440,69 +440,82 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         <div>No workspace named "{{ name }}" exists.</div>
       </div>
       <div v-else ref="layout">
-        <div
-          v-for="(row, i) in rows"
-          :key="row.id"
-          class="full-width no-wrap q-my-sm relative-position row"
-          data-row
-          :style="{
-            height: row.collapsed ? undefined : `${row.height}px`,
-          }"
+        <!-- Rows slide to wherever a change puts them instead of arriving there outright, which is
+        what makes a gap opening somewhere legible as these rows moving down rather than as the page
+        having been redrawn. Rendered under a tag of its own, since working out whether a row can be
+        moved at all needs an element to test against and a fragment has none. -->
+        <transition-group
+          :enter-active-class="$style.rowEnterActive"
+          :enter-from-class="$style.rowEnterFrom"
+          :move-class="$style.rowMove"
+          tag="div"
         >
-          <resize-handle
-            v-if="!drop.active && !row.collapsed"
-            v-model="row.height"
-            :class="$style.verticalResizeHandle"
-            direction="vertical"
-            :min="
-              Math.max(
-                ...row.widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight ?? 50),
-                50
-              )
-            "
-            :step="5"
-            visibility="hover"
-          />
           <div
-            v-for="(widget, j) in row.widgets"
-            :key="widget.id"
-            :class="[
-              j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow',
-              'relative-position',
-              row.widgets.length === 1
-                ? ''
-                : j === 0
-                ? 'q-pr-xs'
-                : j === row.widgets.length - 1
-                ? 'q-pl-xs'
-                : 'q-px-xs',
-            ]"
-            data-widget
-            :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
+            v-for="(row, i) in rows"
+            :key="row.id"
+            class="full-width no-wrap q-my-sm relative-position row"
+            data-row
+            :style="{
+              height: row.collapsed ? undefined : `${row.height}px`,
+            }"
           >
             <resize-handle
-              v-if="layoutWidth && !drop.active && j < row.widgets.length - 1"
-              :class="$style.horizontalResizeHandle"
-              direction="horizontal"
-              :min="100"
-              :model-value="(widget.width / widgetWidthSubdivisions) * layoutWidth"
-              :step="1 / widgetWidthSubdivisions"
-              visibility="hover"
-              @update:model-value="
-                (pixels) => {
-                  if (layoutWidth == null) {
-                    return
-                  }
-
-                  widget.width = Math.round((pixels / layoutWidth) * widgetWidthSubdivisions)
-                  resolveWidgetWidths(row.widgets, j, 'after')
-                }
+              v-if="!drop.active && !row.collapsed"
+              v-model="row.height"
+              :class="$style.verticalResizeHandle"
+              direction="vertical"
+              :min="
+                Math.max(
+                  ...row.widgets.map(
+                    (widget) => getWidgetInfo(widget.type).options.minHeight ?? 50
+                  ),
+                  50
+                )
               "
+              :step="5"
+              visibility="hover"
             />
-            <workspace-widget-placeholder v-if="isHeld(widget)" :widget="widget" />
-            <workspace-widget v-else :column="j" :container="row" :row="i" :widget="widget" />
+            <div
+              v-for="(widget, j) in row.widgets"
+              :key="widget.id"
+              :class="[
+                j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow',
+                'relative-position',
+                row.widgets.length === 1
+                  ? ''
+                  : j === 0
+                  ? 'q-pr-xs'
+                  : j === row.widgets.length - 1
+                  ? 'q-pl-xs'
+                  : 'q-px-xs',
+              ]"
+              data-widget
+              :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
+            >
+              <resize-handle
+                v-if="layoutWidth && !drop.active && j < row.widgets.length - 1"
+                :class="$style.horizontalResizeHandle"
+                direction="horizontal"
+                :min="100"
+                :model-value="(widget.width / widgetWidthSubdivisions) * layoutWidth"
+                :step="1 / widgetWidthSubdivisions"
+                visibility="hover"
+                @update:model-value="
+                  (pixels) => {
+                    if (layoutWidth == null) {
+                      return
+                    }
+
+                    widget.width = Math.round((pixels / layoutWidth) * widgetWidthSubdivisions)
+                    resolveWidgetWidths(row.widgets, j, 'after')
+                  }
+                "
+              />
+              <workspace-widget-placeholder v-if="isHeld(widget)" :widget="widget" />
+              <workspace-widget v-else :column="j" :container="row" :row="i" :widget="widget" />
+            </div>
           </div>
-        </div>
+        </transition-group>
       </div>
     </div>
     <div
@@ -660,5 +673,23 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   position: fixed;
   z-index: 5000;
   pointer-events: none;
+}
+
+// Rows travel to wherever a change puts them. Short enough to keep up with a pointer that is still
+// moving, and eased so the movement reads as one thing settling rather than everything restarting.
+// Only the position is animated. A row's height arrives at once, so the gap a drop opens is there
+// to see straight away and only the rows giving way to it are in motion.
+.rowMove {
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+// A row arriving fades up while the rows around it slide apart, which separates the thing that is
+// new from the things that moved to make room for it.
+.rowEnterActive {
+  transition: opacity 140ms ease-out;
+}
+
+.rowEnterFrom {
+  opacity: 0;
 }
 </style>
