@@ -22,7 +22,11 @@ fn main() {
     let stub = ceres_core::stub_info().expect("the stub inventory gathers");
     stub.generate().expect("the stubs generate");
 
-    let content = std::fs::read_to_string(&stub_path).expect("the generated stubs are readable");
+    // The generator resolves its output from the runtime manifest directory, which is this
+    // crate's while a build script runs, so the raw stubs land here and move into place.
+    let generated = manifest.join("ceres_core.pyi");
+    let content = std::fs::read_to_string(&generated).expect("the generated stubs are readable");
+    std::fs::remove_file(&generated).expect("the intermediate stubs remove");
     std::fs::write(&stub_path, polish(&content)).expect("the polished stubs write");
 
     format_with_ruff(&manifest, &stub_path);
