@@ -769,6 +769,23 @@ class _BaseStatementExecutor[
 
             return entities
 
+    async def mappings(self) -> list[Mapping[str, Any]]:
+        """Execute the query and return raw row mappings without materializing entities.
+
+        The native record path serializes straight from these values, so no Python entity
+        objects are built for rows that only pass through to a response body.
+        """
+        database = self._query._get_database()
+        statement = await self._get_statement(True)
+
+        async with await database.use() as connection:
+            result = await connection.execute(statement)
+            rows = [cast("Mapping[str, Any]", row._mapping) for row in result]
+            if self._should_commit():
+                await connection.commit()
+
+            return rows
+
     @abstractmethod
     def _should_commit(self) -> bool: ...
 
@@ -1211,6 +1228,10 @@ class EntityQuery[
 
     async def first(self) -> EntityT | None:
         return await self.select().first()
+
+    async def mappings(self) -> list[Mapping[str, Any]]:
+        """Execute the query and return raw row mappings without materializing entities."""
+        return await self.select().mappings()
 
     def limit(self, limit: int) -> Self:
         return self.where(limit=limit)  # type: ignore

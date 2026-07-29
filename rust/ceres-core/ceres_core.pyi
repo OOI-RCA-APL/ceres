@@ -16,6 +16,7 @@ __all__ = [
     "LoggingConfig",
     "PackingProgram",
     "PostgresDatabaseConfig",
+    "RecordBatch",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
     "ServerCORSConfig",
@@ -376,6 +377,28 @@ class PostgresDatabaseConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
+
+@final
+class RecordBatch:
+    r"""
+    A batch of records held natively, parsed from database rows.
+
+    Built through `parse` from the raw row mappings a query produces, and serialized with
+    `to_json` as the API's wire format for a record listing.
+    """
+    @staticmethod
+    def parse(table: str, rows: Sequence[Any]) -> RecordBatch:
+        r"""
+        Parse database row mappings into a native batch.
+
+        `table` selects the record type by its table name. Row values arrive through the
+        database layer's column mappers, so they are trusted rather than revalidated here.
+        """
+    def __len__(self) -> int: ...
+    def to_json(self) -> bytes:
+        r"""
+        Serialize the batch as a JSON array in the API's wire format.
+        """
 
 class SQLiteDatabaseConfig:
     r"""

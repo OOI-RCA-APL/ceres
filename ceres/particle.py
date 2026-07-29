@@ -399,6 +399,8 @@ class _BaseParticleQuery(
     @override
     def _get_transform(self) -> EntityTransform | None:
         cls = self._get_resolved_filter().cls
+        if cls is None:
+            return None
 
         def transform(entity: Particle[DataT]) -> Particle[Any] | None:
             return _convert_or_none(entity, cls)

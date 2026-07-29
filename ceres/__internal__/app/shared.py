@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast, override
 from uuid import UUID
 
 import jwt.warnings
+from ceres_core import RecordBatch
 from fastapi import (
     APIRouter,
     Cookie,
@@ -783,7 +784,16 @@ def create_record_get_all_route(router: Router, Record: type[Record], limit: int
             Limit(limit),
         ],
     ):
-        return await engine.__manager__(Record).where(filter)
+        query = engine.__manager__(Record).where(filter)
+        if query._get_transform() is not None:
+            # A transform (a typed particle class, say) needs Python objects, so the query
+            # takes the materializing path.
+            return await query
+
+        # Rows parse into native records and serialize in one call, no Python entity
+        # objects are built for a plain listing.
+        batch = RecordBatch.parse(naming.table, await query.mappings())
+        return Response(batch.to_json(), media_type="application/json")
 
     get_all.__name__ = f"get_all_{snakecase(naming.plural)}"
     return router.get(

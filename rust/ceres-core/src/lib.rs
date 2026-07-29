@@ -10,6 +10,7 @@
 
 pub mod binary;
 pub mod database;
+pub mod entities;
 pub mod interop;
 pub mod logging;
 
@@ -153,6 +154,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<database::TursoDatabaseConfig>()?;
     module.add_class::<database::PostgresDatabaseConfig>()?;
     module.add_class::<binary::PackingProgram>()?;
+    module.add_class::<entities::RecordBatch>()?;
     Ok(())
 }
 
