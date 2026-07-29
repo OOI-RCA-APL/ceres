@@ -8,6 +8,7 @@ members = [
     "ceres-database",
     "ceres-entities",
     "ceres-macros",
+    "ceres-server",
     "ceres-stubs",
 ]
 
@@ -21,6 +22,7 @@ default-members = [
     "ceres-database",
     "ceres-entities",
     "ceres-macros",
+    "ceres-server",
     "ceres-stubs",
 ]
 

@@ -1,0 +1,24 @@
+[package]
+name = "ceres-server"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+axum = "0.8"
+# preserve_order keeps envelope and payload keys in insertion order, matching the
+# Python layer's serialization byte for byte.
+serde_json = { version = "1", features = ["preserve_order"] }
+subtle = "2"
+tower = "0.5"
+tower-http = { version = "0.7", features = ["fs"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+
+[lints]
+workspace = true
