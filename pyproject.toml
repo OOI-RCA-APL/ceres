@@ -41,8 +41,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The Turso backend is experimental and most deployments will never ask for it, so it stays out of
-# the default install. See `TursoDatabaseConfig` for what it does not support.
+# Consider making required once free-threaded support lands for `pyturso`.
 turso = ["pyturso>=0.7.1"]
 
 [dependency-groups]
