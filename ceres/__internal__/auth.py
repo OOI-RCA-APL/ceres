@@ -1,6 +1,9 @@
 from typing import TYPE_CHECKING, TypeGuard
 
-from ceres.config import Argon2HashingConfig, BCryptHashingConfig, HashingConfig
+# The configuration getters return the native base classes, and the Python subclasses in
+# `ceres.config` extend them, so matching against the bases covers both.
+from ceres_core import Argon2HashingConfig, BCryptHashingConfig
+
 from ceres.config import HashType as HashType
 from ceres.data import Argon2Hash, BCryptHash, Password, PasswordHash, validate
 
@@ -46,7 +49,10 @@ def verify_password_hash(hash: str) -> TypeGuard[PasswordHash]:
     return get_password_hash_type(hash) is not None
 
 
-def get_password_hash(password: Password, config: HashingConfig) -> PasswordHash:
+def get_password_hash(
+    password: Password,
+    config: BCryptHashingConfig | Argon2HashingConfig,
+) -> PasswordHash:
     """Hash a plaintext password using the algorithm specified by `config`.
 
     Args:

@@ -5,9 +5,8 @@
 //! whose semantics live here and nowhere else. The `ceres-core` extension module exposes the
 //! same types to Python, so both halves of the system share one implementation.
 //!
-//! Sections not yet ported (`server`, `database`, `logging`) parse leniently into raw values
-//! and validate where they are consumed. The component tree always passes through untouched,
-//! because its schema is defined by user code.
+//! The component tree always passes through untouched, because its schema is defined by
+//! user code.
 
 mod database;
 mod error;
@@ -18,10 +17,11 @@ mod types;
 mod values;
 
 pub use database::{
-    Argon2HashingConfig, BcryptHashingConfig, DatabaseConfig, DatabaseConfigHooks,
-    DatabaseRetryConfig, HashingConfig, MEMORY_PATH, PostgresDatabaseConfig, RawDatabaseConfig,
-    RawPostgresDatabaseConfig, RawSqliteDatabaseConfig, RawTursoDatabaseConfig,
-    SharedDatabaseConfig, SqliteDatabaseConfig, TursoDatabaseConfig,
+    Argon2HashingConfig, BcryptHashingConfig, DatabaseConfig, DatabaseConfigHooks, HashingConfig,
+    MEMORY_PATH, PostgresDatabaseConfig, RawArgon2HashingConfig, RawBcryptHashingConfig,
+    RawDatabaseConfig, RawDatabaseConfigHooks, RawHashingConfig, RawPostgresDatabaseConfig,
+    RawSharedDatabaseConfig, RawSqliteDatabaseConfig, RawTursoDatabaseConfig, SharedDatabaseConfig,
+    SqliteDatabaseConfig, TursoDatabaseConfig,
 };
 pub use error::{Problem, Problems};
 pub use logging::{Level, LogToggle, LoggingConfig, RawLoggingConfig};

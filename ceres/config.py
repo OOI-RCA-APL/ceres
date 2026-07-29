@@ -4,22 +4,29 @@ from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
+from ceres_core import Argon2HashingConfig as _CoreArgon2HashingConfig
+from ceres_core import BCryptHashingConfig as _CoreBCryptHashingConfig
 from ceres_core import ConsoleConfig as _CoreConsoleConfig
+from ceres_core import DatabaseConfigHooks as _CoreDatabaseConfigHooks
 from ceres_core import LoggingConfig as _CoreLoggingConfig
+from ceres_core import PostgresDatabaseConfig as _CorePostgresDatabaseConfig
 from ceres_core import ServerAuthenticationConfig as _CoreServerAuthenticationConfig
 from ceres_core import ServerCompressionConfig as _CoreServerCompressionConfig
 from ceres_core import ServerConfig as _CoreServerConfig
 from ceres_core import ServerCORSConfig as _CoreServerCORSConfig
 from ceres_core import ServerSSLConfig as _CoreServerSSLConfig
 from ceres_core import ServiceConfig as _CoreServiceConfig
+from ceres_core import SQLiteDatabaseConfig as _CoreSQLiteDatabaseConfig
+from ceres_core import TursoDatabaseConfig as _CoreTursoDatabaseConfig
 from pydantic import (
     ByteSize,
     ConfigDict,
+    Discriminator,
     Field,
     ImportString,
     NonNegativeInt,
-    PositiveInt,
     SecretStr,
+    Tag,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -34,9 +41,7 @@ from ceres.alert import AlertFilter
 from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_SIZE
 from ceres.data import (
     DataObject,
-    MaybeSequence,
     Name,
-    NonBlankStr,
     OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
@@ -797,27 +802,12 @@ class ConsoleConfig(RustConfigModel, _CoreConsoleConfig):
     """
 
 
-class DatabaseRetryConfig(DataObject):
-    """Retry policy used when connecting to the database."""
+class DatabaseConfigHooks(RustConfigModel, _CoreDatabaseConfigHooks):
+    """SQL statements executed at well-known points in the database lifecycle.
 
-    timeout: PositiveTimeDelta = timedelta(seconds=15)
-    """Total time to keep retrying before giving up."""
-
-    interval: PositiveTimeDelta = timedelta(seconds=3)
-    """Delay between retry attempts."""
-
-
-class DatabaseConfigHooks(DataObject):
-    """SQL statements executed at well-known points in the database lifecycle."""
-
-    init: list[str] | None = None
-    """Statements run once when the database is first created."""
-
-    connect: list[str] | None = None
-    """Statements run on every new connection."""
-
-    close: list[str] | None = None
-    """Statements run before a connection is closed."""
+    The fields and their validation live in the native `ceres_core.DatabaseConfigHooks`, this
+    subclass only wires the class into Pydantic.
+    """
 
 
 class HashType(StrEnum):
@@ -827,99 +817,64 @@ class HashType(StrEnum):
     ARGON2 = "argon2"
 
 
-class _HashingConfig(DataObject):
-    type: HashType
+class BCryptHashingConfig(RustConfigModel, _CoreBCryptHashingConfig):
+    """Configuration for the bcrypt password hashing algorithm.
+
+    The fields and their validation live in the native `ceres_core.BCryptHashingConfig`, this
+    subclass wires the class into Pydantic and converts the selector into `HashType`.
+    """
+
+    if TYPE_CHECKING:
+
+        @property
+        @override
+        def type(self) -> Literal[HashType.BCRYPT]: ...
+
+    __type_tag__ = "bcrypt"
+    __field_wrappers__ = {"type": HashType}
 
 
-class BCryptHashingConfig(_HashingConfig):
-    """Configuration for the bcrypt password hashing algorithm."""
-
-    type: Literal[HashType.BCRYPT] = HashType.BCRYPT
-    rounds: int = Field(default=12, ge=4)
-    """Cost factor controlling how expensive each hash is to compute."""
-
-
-class Argon2HashingConfig(_HashingConfig):
+class Argon2HashingConfig(RustConfigModel, _CoreArgon2HashingConfig):
     """Configuration for the Argon2id password hashing algorithm.
 
     Default parameters mirror `argon2.profiles.RFC_9106_LOW_MEMORY`, callers can tune
-    them to trade memory and CPU cost against latency.
+    them to trade memory and CPU cost against latency. The fields and their validation
+    live in the native `ceres_core.Argon2HashingConfig`.
     """
 
-    type: Literal[HashType.ARGON2] = HashType.ARGON2
-    time_cost: PositiveInt = 3
-    """Number of iterations Argon2 performs."""
+    if TYPE_CHECKING:
 
-    memory_cost: int = Field(default=65536, ge=8)  # Default is 64 MiB.
-    """Memory budget in KiB."""
+        @property
+        @override
+        def type(self) -> Literal[HashType.ARGON2]: ...
 
-    parallelism: PositiveInt = 4
-    """Number of parallel lanes used during hashing."""
-
-    hash_length: int = Field(default=32, ge=4, le=256)  # True allowed range is 4-32768.
-    """Length of the produced hash in bytes."""
-
-    salt_length: int = Field(default=16, ge=8, le=64)  # True allowed range is 8-4096.
-    """Length of the random salt in bytes."""
-
-    @field_validator("parallelism")
-    def _validate_memory_cost(cls, value: int, info: ValidationInfo) -> int:
-        # Argon2 requires `memory_cost / parallelism >= 8`, enforce that here so a bad
-        # combination is caught at config load time rather than at hash time.
-        memory_cost = info.data.get("memory_cost", 65536)
-        if (memory_cost / value) < 8:
-            raise ValueError("parallelism must be at least 8 times smaller than memory_cost")
-
-        return value
+    __type_tag__ = "argon2"
+    __field_wrappers__ = {"type": HashType}
 
 
 HashingConfig: TypeAlias = BCryptHashingConfig | Argon2HashingConfig
-"""Discriminated union of hashing configurations, dispatched by the `type` field."""
+"""Union of hashing configurations, dispatched by the `type` field."""
 
 
-class _DatabaseConfig(DataObject):
-    type: DatabaseType
-    hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
-    engine: dict[str, Any] = Field(default_factory=dict)
-    """Extra keyword arguments forwarded to the SQLAlchemy engine factory."""
+class SQLiteDatabaseConfig(RustConfigModel, _CoreSQLiteDatabaseConfig):
+    """Configuration for a SQLite-backed database, the default for local deployments.
 
-    hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
-    """Password hashing configuration used for users stored in this database."""
+    The fields and their validation live in the native `ceres_core.SQLiteDatabaseConfig`,
+    this subclass wires the class into Pydantic and converts the selector into
+    `DatabaseType`.
+    """
 
-    query: dict[str, MaybeSequence[str]] | None = None
-    """Optional database-specific connection string query parameters."""
+    if TYPE_CHECKING:
 
+        @property
+        @override
+        def type(self) -> Literal[DatabaseType.SQLITE]: ...
 
-_SQLITE_MEMORY_PATH = Path(":memory:")
-
-
-class SQLiteDatabaseConfig(_DatabaseConfig):
-    """Configuration for a SQLite-backed database, the default for local deployments."""
-
-    type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
-    path: Path | None = None
-    """Path to the SQLite file. Omit to use a temporary on-disk file, or set to `:memory:` (see
-    `SQLiteDatabaseConfig.in_memory`) for a private in-memory database."""
-
-    @classmethod
-    def in_memory(cls) -> Self:
-        """Build a config for a private in-memory database scoped to this process.
-
-        The returned database exists only in memory for the lifetime of its engine, useful for
-        tests and other short-lived, detached databases that should never touch disk.
-
-        Returns:
-            A config whose `path` is the special `:memory:` sentinel.
-        """
-        return cls(path=_SQLITE_MEMORY_PATH)
-
-    @property
-    def is_memory(self) -> bool:
-        """`True` if `path` is the special `:memory:` sentinel used by `in_memory`."""
-        return self.path == _SQLITE_MEMORY_PATH
+    __type_tag__ = "sqlite"
+    __field_wrappers__ = {"type": DatabaseType}
 
 
-class TursoDatabaseConfig(SQLiteDatabaseConfig):
+class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     """Configuration for a Turso-backed database, a SQLite-compatible file that allows
     concurrent writers.
 
@@ -932,45 +887,68 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     against SQLite. `mvcc` is the one setting that changes that, in what it allows and in what it
     irreversibly does to the file.
 
+    **Turning `mvcc` on converts the database file and the conversion cannot be undone.** MVCC
+    rewrites the file into a format SQLite does not recognize, after which `sqlite3` reports "file
+    is not a database" and every other SQLite tool fails the same way. Back the file up first and
+    treat turning it on as a migration rather than as a setting. It is also off by default because
+    overlapping writers are optimistic rather than blocking. Two transactions touching the same
+    rows both proceed and the second fails when it commits, so a caller has to be prepared to
+    retry. Turning it on is necessary but not sufficient, a transaction also has to be opened
+    inside `Database.concurrent_transactions()`, which is how a caller says its writes are safe
+    to retry.
+
     `pyturso` is not installed with Ceres. `pip install "ceres[turso]"` adds it.
     """
 
-    type: Literal[DatabaseType.TURSO] = DatabaseType.TURSO  # pyright: ignore[reportIncompatibleVariableOverride]
+    if TYPE_CHECKING:
 
-    mvcc: bool = False
-    """Put the database in Turso's MVCC journal mode, which is what lets writers overlap.
+        @property
+        @override
+        def type(self) -> Literal[DatabaseType.TURSO]: ...  # pyright: ignore[reportIncompatibleMethodOverride]
 
-    **This converts the database file and the conversion cannot be undone.** MVCC rewrites the file
-    into a format SQLite does not recognize, after which `sqlite3` reports "file is not a database"
-    and every other SQLite tool fails the same way. Back the file up first and treat turning this on
-    as a migration rather than as a setting.
+    __type_tag__ = "turso"
 
-    Left off, this backend writes an ordinary SQLite file that either engine can open, so it stays
-    interchangeable with `SQLiteDatabaseConfig`.
 
-    It is also off by default because overlapping writers are optimistic rather than blocking. Two
-    transactions touching the same rows both proceed and the second fails when it commits, so a
-    caller has to be prepared to retry. That suits writes that are frequent and mostly independent,
-    and little else.
+def _secret_or_none(value: str | None) -> SecretStr | None:
+    """Wrap a native secret value into `SecretStr`."""
+    if value is None:
+        return None
 
-    Turning it on is necessary but not sufficient. A transaction also has to be opened inside
-    `Database.concurrent_transactions()`, which is how a caller says its writes are safe to retry.
+    return SecretStr(value)
+
+
+class PostgresDatabaseConfig(RustConfigModel, _CorePostgresDatabaseConfig):
+    """Configuration for a PostgreSQL-backed database.
+
+    The fields and their validation live in the native `ceres_core.PostgresDatabaseConfig`,
+    this subclass wires the class into Pydantic, converts the selector into `DatabaseType`,
+    and wraps the password into `SecretStr`.
     """
 
+    if TYPE_CHECKING:
 
-class PostgresDatabaseConfig(_DatabaseConfig):
-    """Configuration for a PostgreSQL-backed database."""
+        @property
+        @override
+        def type(self) -> Literal[DatabaseType.POSTGRES]: ...
 
-    type: Literal[DatabaseType.POSTGRES] = DatabaseType.POSTGRES
-    host: NonBlankStr
-    port: NonNegativeInt | None = None
-    database: NonBlankStr
-    user: NonBlankStr
-    password: SecretStr | None = None
+        @property
+        @override
+        def password(self) -> SecretStr | None: ...  # pyright: ignore[reportIncompatibleMethodOverride]
+
+    __type_tag__ = "postgres"
+    __field_wrappers__ = {"type": DatabaseType, "password": _secret_or_none}
+
+
+def _database_config_type(value: Any) -> Any:
+    """Read the database union selector from a mapping or an instance."""
+    if isinstance(value, Mapping):
+        return value.get("type")
+
+    return getattr(value, "type", None)
 
 
 DatabaseConfig: TypeAlias = SQLiteDatabaseConfig | TursoDatabaseConfig | PostgresDatabaseConfig
-"""Discriminated union of database configurations, dispatched by the `type` field."""
+"""Union of database configurations, dispatched by the `type` field."""
 
 
 class ConfigCheckType(StrEnum):
@@ -1000,7 +978,12 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
-    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
+    database: Annotated[
+        Annotated[SQLiteDatabaseConfig, Tag("sqlite")]
+        | Annotated[TursoDatabaseConfig, Tag("turso")]
+        | Annotated[PostgresDatabaseConfig, Tag("postgres")],
+        Discriminator(_database_config_type),
+    ] = Field(default_factory=SQLiteDatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod

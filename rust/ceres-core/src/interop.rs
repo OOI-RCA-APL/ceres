@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use ceres_config::{ByteSize, Name, TimeDelta};
+use ceres_config::{ByteSize, Name, Secret, TimeDelta};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pythonize::{depythonize, pythonize};
@@ -82,7 +82,7 @@ macro_rules! identity_field {
     };
 }
 
-identity_field!(String, PathBuf, bool, u16, u32, u64, i64, f64);
+identity_field!(String, PathBuf, bool, u16, u32, u64, i64, f64, Vec<String>);
 
 impl<T: PyFieldType> PyFieldType for Option<T> {
     type Input = Option<T::Input>;
@@ -113,6 +113,45 @@ impl PyFieldType for Name {
 impl ToPyValue<String> for Name {
     fn to_py_value(&self) -> String {
         self.to_string()
+    }
+}
+
+/// A secret constructor argument, accepting a string or a wrapper like Pydantic's
+/// `SecretStr` that exposes its value through `get_secret_value`.
+pub struct SecretInput(Secret);
+
+impl FromPyObject<'_, '_> for SecretInput {
+    type Error = PyErr;
+
+    fn extract(value: pyo3::Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
+        if let Ok(text) = value.extract::<String>() {
+            return Ok(Self(Secret::new(text)));
+        }
+
+        let exposed: String = value.call_method0("get_secret_value")?.extract()?;
+        Ok(Self(Secret::new(exposed)))
+    }
+}
+
+impl pyo3_stub_gen::PyStubType for SecretInput {
+    fn type_output() -> pyo3_stub_gen::TypeInfo {
+        pyo3_stub_gen::TypeInfo::with_module("str | pydantic.SecretStr", "pydantic".into())
+    }
+}
+
+impl PyFieldType for Secret {
+    type Input = SecretInput;
+    type Py = String;
+    type Raw = Secret;
+
+    fn from_input(input: SecretInput) -> PyResult<Secret> {
+        Ok(input.0)
+    }
+}
+
+impl ToPyValue<String> for Secret {
+    fn to_py_value(&self) -> String {
+        self.expose().to_string()
     }
 }
 

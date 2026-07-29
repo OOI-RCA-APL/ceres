@@ -1,42 +1,22 @@
 //! The database configuration section.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Problem, Problems};
-use crate::values::{MaybeSequence, Secret, TimeDelta};
+use crate::values::{MaybeSequence, Secret};
 
 /// The path sentinel selecting a private in-memory SQLite database.
 pub const MEMORY_PATH: &str = ":memory:";
 
-/// Retry policy used when connecting to the database.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
-#[schemars(title = "DatabaseRetryConfig")]
-pub struct DatabaseRetryConfig {
-    /// Total time to keep retrying before giving up.
-    pub timeout: TimeDelta,
-
-    /// Delay between retry attempts.
-    pub interval: TimeDelta,
-}
-
-impl Default for DatabaseRetryConfig {
-    fn default() -> Self {
-        Self {
-            timeout: TimeDelta::from_secs(15),
-            interval: TimeDelta::from_secs(3),
-        }
-    }
-}
-
 /// SQL statements executed at well-known points in the database lifecycle.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 #[schemars(title = "DatabaseConfigHooks")]
-pub struct DatabaseConfigHooks {
+pub struct RawDatabaseConfigHooks {
     /// Statements run once when the database is first created.
     pub init: Option<Vec<String>>,
 
@@ -47,36 +27,61 @@ pub struct DatabaseConfigHooks {
     pub close: Option<Vec<String>>,
 }
 
-/// Configuration for the bcrypt password hashing algorithm.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(title = "BCryptHashingConfig")]
-pub struct BcryptHashingConfig {
-    /// Cost factor controlling how expensive each hash is to compute.
-    #[serde(default = "default_bcrypt_rounds")]
-    pub rounds: i64,
+/// Validated SQL statements executed at well-known points in the database lifecycle.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct DatabaseConfigHooks {
+    pub init: Option<Vec<String>>,
+    pub connect: Option<Vec<String>>,
+    pub close: Option<Vec<String>>,
 }
 
-fn default_bcrypt_rounds() -> i64 {
-    12
+impl TryFrom<RawDatabaseConfigHooks> for DatabaseConfigHooks {
+    type Error = Problems;
+
+    fn try_from(raw: RawDatabaseConfigHooks) -> Result<Self, Problems> {
+        Ok(Self {
+            init: raw.init,
+            connect: raw.connect,
+            close: raw.close,
+        })
+    }
+}
+
+/// Configuration for the bcrypt password hashing algorithm.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+#[schemars(title = "BCryptHashingConfig")]
+pub struct RawBcryptHashingConfig {
+    /// Cost factor controlling how expensive each hash is to compute.
+    pub rounds: Option<i64>,
+}
+
+/// Validated configuration for the bcrypt password hashing algorithm.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BcryptHashingConfig {
+    pub rounds: i64,
 }
 
 impl Default for BcryptHashingConfig {
     fn default() -> Self {
-        Self {
-            rounds: default_bcrypt_rounds(),
-        }
+        Self { rounds: 12 }
     }
 }
 
-impl BcryptHashingConfig {
-    fn validate(&self) -> Problems {
+impl TryFrom<RawBcryptHashingConfig> for BcryptHashingConfig {
+    type Error = Problems;
+
+    fn try_from(raw: RawBcryptHashingConfig) -> Result<Self, Problems> {
+        let config = Self {
+            rounds: raw.rounds.unwrap_or(12),
+        };
+
         let mut problems = Problems::default();
-        if self.rounds < 4 {
+        if config.rounds < 4 {
             problems.push(Problem::new("rounds", "must be at least 4."));
         }
 
-        problems
+        problems.into_result(config)
     }
 }
 
@@ -84,23 +89,33 @@ impl BcryptHashingConfig {
 ///
 /// Default parameters mirror `argon2.profiles.RFC_9106_LOW_MEMORY`, callers can tune them to
 /// trade memory and CPU cost against latency.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 #[schemars(title = "Argon2HashingConfig")]
-pub struct Argon2HashingConfig {
+pub struct RawArgon2HashingConfig {
     /// Number of iterations Argon2 performs.
-    pub time_cost: i64,
+    pub time_cost: Option<i64>,
 
     /// Memory budget in KiB.
-    pub memory_cost: i64,
+    pub memory_cost: Option<i64>,
 
     /// Number of parallel lanes used during hashing.
-    pub parallelism: i64,
+    pub parallelism: Option<i64>,
 
     /// Length of the produced hash in bytes.
-    pub hash_length: i64,
+    pub hash_length: Option<i64>,
 
     /// Length of the random salt in bytes.
+    pub salt_length: Option<i64>,
+}
+
+/// Validated configuration for the Argon2id password hashing algorithm.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Argon2HashingConfig {
+    pub time_cost: i64,
+    pub memory_cost: i64,
+    pub parallelism: i64,
+    pub hash_length: i64,
     pub salt_length: i64,
 }
 
@@ -108,48 +123,76 @@ impl Default for Argon2HashingConfig {
     fn default() -> Self {
         Self {
             time_cost: 3,
+            // The default is 64 MiB.
             memory_cost: 65536,
             parallelism: 4,
+            // The true allowed range is 4-32768.
             hash_length: 32,
+            // The true allowed range is 8-4096.
             salt_length: 16,
         }
     }
 }
 
-impl Argon2HashingConfig {
-    fn validate(&self) -> Problems {
+impl TryFrom<RawArgon2HashingConfig> for Argon2HashingConfig {
+    type Error = Problems;
+
+    fn try_from(raw: RawArgon2HashingConfig) -> Result<Self, Problems> {
+        let defaults = Self::default();
+        let config = Self {
+            time_cost: raw.time_cost.unwrap_or(defaults.time_cost),
+            memory_cost: raw.memory_cost.unwrap_or(defaults.memory_cost),
+            parallelism: raw.parallelism.unwrap_or(defaults.parallelism),
+            hash_length: raw.hash_length.unwrap_or(defaults.hash_length),
+            salt_length: raw.salt_length.unwrap_or(defaults.salt_length),
+        };
+
         let mut problems = Problems::default();
-        if self.time_cost < 1 {
+        if config.time_cost < 1 {
             problems.push(Problem::new("time_cost", "must be positive."));
         }
 
-        if self.memory_cost < 8 {
+        if config.memory_cost < 8 {
             problems.push(Problem::new("memory_cost", "must be at least 8."));
         }
 
-        if self.parallelism < 1 {
+        if config.parallelism < 1 {
             problems.push(Problem::new("parallelism", "must be positive."));
-        } else if self.memory_cost / self.parallelism < 8 {
+        } else if config.memory_cost / config.parallelism < 8 {
             problems.push(Problem::new(
                 "parallelism",
                 "must be at least 8 times smaller than memory_cost.",
             ));
         }
 
-        if !(4..=256).contains(&self.hash_length) {
+        if !(4..=256).contains(&config.hash_length) {
             problems.push(Problem::new("hash_length", "must be between 4 and 256."));
         }
 
-        if !(8..=64).contains(&self.salt_length) {
+        if !(8..=64).contains(&config.salt_length) {
             problems.push(Problem::new("salt_length", "must be between 8 and 64."));
         }
 
-        problems
+        problems.into_result(config)
     }
 }
 
-/// Password hashing configuration, dispatched by the `type` field.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, JsonSchema)]
+/// A password hashing configuration, dispatched by the `type` field.
+#[derive(Debug, Clone, PartialEq, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum RawHashingConfig {
+    Bcrypt(RawBcryptHashingConfig),
+    Argon2(RawArgon2HashingConfig),
+}
+
+impl Default for RawHashingConfig {
+    fn default() -> Self {
+        Self::Argon2(RawArgon2HashingConfig::default())
+    }
+}
+
+/// A validated password hashing configuration, dispatched by the `type` field.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum HashingConfig {
     Bcrypt(BcryptHashingConfig),
@@ -162,11 +205,13 @@ impl Default for HashingConfig {
     }
 }
 
-impl HashingConfig {
-    fn validate(&self) -> Problems {
-        match self {
-            Self::Bcrypt(config) => config.validate(),
-            Self::Argon2(config) => config.validate(),
+impl TryFrom<RawHashingConfig> for HashingConfig {
+    type Error = Problems;
+
+    fn try_from(raw: RawHashingConfig) -> Result<Self, Problems> {
+        match raw {
+            RawHashingConfig::Bcrypt(raw) => raw.try_into().map(Self::Bcrypt),
+            RawHashingConfig::Argon2(raw) => raw.try_into().map(Self::Argon2),
         }
     }
 }
@@ -174,20 +219,20 @@ impl HashingConfig {
 /// The settings shared by every database backend.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
-struct RawSharedDatabaseConfig {
-    hooks: Option<DatabaseConfigHooks>,
+pub struct RawSharedDatabaseConfig {
+    pub hooks: Option<RawDatabaseConfigHooks>,
 
     /// Extra keyword arguments forwarded to the SQLAlchemy engine factory.
     ///
     /// Values must be JSON-compatible. Anything richer than that belongs in code rather than
     /// in configuration.
-    engine: Option<serde_json::Map<String, serde_json::Value>>,
+    pub engine: Option<serde_json::Map<String, serde_json::Value>>,
 
     /// Password hashing configuration used for users stored in this database.
-    hashing: Option<HashingConfig>,
+    pub hashing: Option<RawHashingConfig>,
 
     /// Optional database-specific connection string query parameters.
-    query: Option<std::collections::BTreeMap<String, MaybeSequence<String>>>,
+    pub query: Option<BTreeMap<String, MaybeSequence<String>>>,
 }
 
 /// The validated settings shared by every database backend.
@@ -196,16 +241,24 @@ pub struct SharedDatabaseConfig {
     pub hooks: DatabaseConfigHooks,
     pub engine: serde_json::Map<String, serde_json::Value>,
     pub hashing: HashingConfig,
-    pub query: Option<std::collections::BTreeMap<String, MaybeSequence<String>>>,
+    pub query: Option<BTreeMap<String, MaybeSequence<String>>>,
 }
 
 impl RawSharedDatabaseConfig {
     fn validate(self, problems: &mut Problems) -> SharedDatabaseConfig {
-        let hashing = self.hashing.unwrap_or_default();
-        problems.absorb(hashing.validate(), "hashing");
+        let hashing = match self.hashing.unwrap_or_default().try_into() {
+            Ok(hashing) => hashing,
+            Err(hashing_problems) => {
+                problems.absorb(hashing_problems, "hashing");
+                HashingConfig::default()
+            }
+        };
 
         SharedDatabaseConfig {
-            hooks: self.hooks.unwrap_or_default(),
+            hooks: self
+                .hooks
+                .map(|hooks| hooks.try_into().expect("hook validation cannot fail"))
+                .unwrap_or_default(),
             engine: self.engine.unwrap_or_default(),
             hashing,
             query: self.query,
@@ -223,7 +276,7 @@ pub struct RawSqliteDatabaseConfig {
     pub path: Option<PathBuf>,
 
     #[serde(flatten)]
-    shared: RawSharedDatabaseConfig,
+    pub shared: RawSharedDatabaseConfig,
 }
 
 /// Validated configuration for a SQLite-backed database.
@@ -272,7 +325,7 @@ pub struct RawTursoDatabaseConfig {
     pub mvcc: Option<bool>,
 
     #[serde(flatten)]
-    shared: RawSharedDatabaseConfig,
+    pub shared: RawSharedDatabaseConfig,
 }
 
 /// Validated configuration for a Turso-backed database.
@@ -307,6 +360,17 @@ impl TryFrom<RawTursoDatabaseConfig> for TursoDatabaseConfig {
     }
 }
 
+/// A Turso configuration is a SQLite configuration, the settings SQLite understands carry
+/// over unchanged.
+impl From<&TursoDatabaseConfig> for SqliteDatabaseConfig {
+    fn from(config: &TursoDatabaseConfig) -> Self {
+        Self {
+            path: config.path.clone(),
+            shared: config.shared.clone(),
+        }
+    }
+}
+
 /// Configuration for a PostgreSQL-backed database.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
@@ -328,7 +392,7 @@ pub struct RawPostgresDatabaseConfig {
     pub password: Option<Secret>,
 
     #[serde(flatten)]
-    shared: RawSharedDatabaseConfig,
+    pub shared: RawSharedDatabaseConfig,
 }
 
 /// Validated configuration for a PostgreSQL-backed database.
@@ -486,6 +550,24 @@ mod tests {
         .unwrap();
         let problems = SqliteDatabaseConfig::try_from(raw).unwrap_err();
         assert_eq!(problems.0[0].location, "hashing.parallelism");
+    }
+
+    #[test]
+    fn hashing_configurations_fill_their_defaults() {
+        let raw: RawHashingConfig = serde_yaml_ng::from_str("type: bcrypt\n").unwrap();
+        let config = HashingConfig::try_from(raw).unwrap();
+        assert_eq!(
+            config,
+            HashingConfig::Bcrypt(BcryptHashingConfig::default())
+        );
+    }
+
+    #[test]
+    fn database_configurations_serialize_with_their_type() {
+        let config = DatabaseConfig::default();
+        let serialized = serde_json::to_value(&config).unwrap();
+        assert_eq!(serialized["type"], "sqlite");
+        assert_eq!(serialized["hashing"]["type"], "argon2");
     }
 
     #[test]
