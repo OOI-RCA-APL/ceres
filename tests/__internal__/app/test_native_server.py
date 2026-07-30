@@ -8,9 +8,7 @@ implementations.
 
 import asyncio
 import json
-from pathlib import Path
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from ceres_core import NativeServer
@@ -19,6 +17,10 @@ from ceres import Engine
 from ceres.config import Config
 from ceres.data import to_json, validate
 from ceres.user import User
+
+if TYPE_CHECKING:
+    from pathlib import Path
+    from uuid import UUID
 
 SECRET = "an-adequately-long-test-signing-secret"
 PASSWORD = "pw12345"
