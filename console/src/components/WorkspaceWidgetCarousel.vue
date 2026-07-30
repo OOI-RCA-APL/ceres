@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import { useEventListener, useIntervalFn, useMediaQuery } from '@vueuse/core'
+import { QMenu } from 'quasar'
 import { v7 } from 'uuid'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
-import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
@@ -19,7 +19,6 @@ const workspace = useWorkspace()
 const drop = useWidgetDrop()
 
 let index = $ref(0)
-let isEditingName = $ref(false)
 
 // Which way the last change went, so a slide arrives from the side it would have come from. A
 // carousel reaching its end and starting over is still going forwards, so this follows what was
@@ -177,6 +176,14 @@ const reorder = usePointerReorder({
   },
 })
 
+// Held so a dot and the slide's own menu open the same one.
+const nameMenu = $ref<QMenu | null>(null)
+
+function onDotDoubleClick(at: number, event: MouseEvent) {
+  step(at - index)
+  nameMenu?.show(event)
+}
+
 function onDotClick(at: number) {
   // A press that turned into a drag has already done what it was for.
   if (reorder.consumeClick()) {
@@ -250,26 +257,6 @@ function moveSlide(by: number) {
     <!-- A slide is a workspace in miniature, arranged through the same editor the workspace itself
     is drawn by, so everything that can be done to a layout can be done to one. -->
     <template v-else>
-      <!-- Named only if a name was wanted, and shown over the slide it names. A carousel of one
-      thing per slide reads perfectly well from the slides themselves. -->
-      <template v-if="slide.name !== '' || isEditingName">
-        <div :class="[$style.title, 'q-px-sm', 'row']">
-          <!-- Reached by double-click or by shift-clicking it, the same as a widget's own name. -->
-          <common-text
-            :class="$style.name"
-            variant="th"
-            @click.shift.stop="isEditingName = true"
-            @dblclick.stop="isEditingName = true"
-          >
-            <inline-name-edit
-              v-model:editing="isEditingName"
-              :name="slide.name"
-              @rename="(value: string) => slide != null && (slide.name = value)"
-            />
-          </common-text>
-        </div>
-        <q-separator />
-      </template>
       <!-- Slides travel sideways, arriving from the side the carousel is heading towards and
       leaving to the other. Both are on screen for as long as it takes, which is what makes turning
       to the next one read as one thing giving way to another rather than as a swap. -->
@@ -317,6 +304,7 @@ function moveSlide(by: number) {
               type="button"
               v-bind="reorder.handlers(at)"
               @click="onDotClick(at)"
+              @dblclick="onDotDoubleClick(at, $event)"
             >
               <!-- How long is left of this slide, drawn as a ring closing around its dot. Keyed on
             the slide so the sweep starts over each time one is turned to, which is also when the
@@ -341,14 +329,29 @@ function moveSlide(by: number) {
                   :style="{ animationDuration: `${Math.max(widget.interval, 1)}s` }"
                 />
               </svg>
-              <q-tooltip v-if="current.name !== '' && !reorder.isDragging" class="bg-primary">{{
-                current.name
+              <q-tooltip v-if="!reorder.isDragging" class="bg-primary">{{
+                current.name !== '' ? current.name : `Slide ${at + 1}`
               }}</q-tooltip>
             </button>
             <q-btn dense flat :icon="icons.menuRight" round size="10px" @click="step(1)">
               <q-tooltip class="bg-primary">Next</q-tooltip>
             </q-btn>
           </template>
+          <!-- A slide is named on its dot, which is the thing that stands for it everywhere else.
+          Opened deliberately, by double-clicking a dot or from the slide's own menu, since a single
+          press on a dot is what turns to that slide. -->
+          <q-menu ref="nameMenu" no-parent-event touch-position>
+            <q-input
+              autofocus
+              :class="$style.nameField"
+              dense
+              label="Slide Title"
+              :model-value="slide?.name ?? ''"
+              outlined
+              @keyup.enter="nameMenu?.hide()"
+              @update:model-value="(value) => slide != null && (slide.name = String(value ?? ''))"
+            />
+          </q-menu>
         </div>
         <div :class="[$style.actions, 'items-center', 'no-wrap', 'row']">
           <q-btn
@@ -370,7 +373,7 @@ function moveSlide(by: number) {
           <q-btn dense flat :icon="icons.more" round size="10px">
             <q-menu>
               <q-list bordered dense>
-                <q-item v-close-popup clickable dense @click="isEditingName = true">
+                <q-item v-close-popup clickable dense @click="nameMenu?.show()">
                   <q-item-section avatar>
                     <q-icon :name="icons.rename" />
                   </q-item-section>
@@ -454,17 +457,6 @@ function moveSlide(by: number) {
   scrollbar-gutter: stable;
 }
 
-// A name band over the slide and a band of controls under it, both dressed the way a widget's own
-// header is so the carousel reads as one piece of chrome around the layout it holds.
-.title {
-  padding-top: 3px;
-  padding-bottom: 3px;
-}
-
-:global(.light) .title {
-  background-color: color.adjust(white, $lightness: -1%);
-}
-
 // Long enough to be followed across the width of a widget, and short enough not to be waited on.
 .travelling {
   transition: transform 260ms cubic-bezier(0.2, 0, 0, 1);
@@ -491,6 +483,12 @@ function moveSlide(by: number) {
   gap: 6px;
 }
 
+// Wide enough to read a slide's title back without the popup sizing itself to what is typed.
+.nameField {
+  margin: 8px;
+  width: 200px;
+}
+
 .actions {
   gap: 6px;
   justify-self: end;
@@ -498,12 +496,6 @@ function moveSlide(by: number) {
 
 :global(.light) .controls {
   background-color: color.adjust(white, $lightness: -1%);
-}
-
-.name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 // Small enough to sit under a slide without competing with it, and large enough to aim at. Drawn
