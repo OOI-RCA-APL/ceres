@@ -515,67 +515,56 @@ for _namespace in ("procedures", "queries", "actions"):
     _calls(_namespace)
 
 
-def _entity_family(
-    name: str,
-    manager: str,
-    create: str | None = None,
-    update: str | None = None,
-    limit: int | None = None,
-) -> None:
-    """Register the listing, count, and single-entity operations for one family."""
+@operation("groups.list")
+async def groups_list(host: Host, arguments: dict[str, Any]) -> Any:
+    from ceres.group import GroupFilter
 
-    def managed(host: Host):
-        return getattr(host.engine, manager)
-
-    @operation(f"{name}.list")
-    async def listing(host: Host, arguments: dict[str, Any]) -> Any:
-        entity = managed(host)
-        filter = _filter(entity.__entity__.Filter, arguments, limit)
-        return _entities(await entity.where(filter))
-
-    @operation(f"{name}.count")
-    async def counting(host: Host, arguments: dict[str, Any]) -> Any:
-        entity = managed(host)
-        return await entity.where(_filter(entity.__entity__.Filter, arguments)).count()
-
-    @operation(f"{name}.get")
-    async def single(host: Host, arguments: dict[str, Any]) -> Any:
-        found = await managed(host).get(_uuid(arguments, "id"))
-        if found is None:
-            raise NotFoundError()
-
-        return _serialize(found)
-
-    if create is not None:
-
-        @operation(f"{name}.create")
-        async def creating(host: Host, arguments: dict[str, Any]) -> Any:
-            entity = managed(host)
-            data = _validated(getattr(entity.__entity__, create), arguments)
-            return _serialize(await entity.create(data))
-
-    if update is not None:
-
-        @operation(f"{name}.update")
-        async def updating(host: Host, arguments: dict[str, Any]) -> Any:
-            entity = managed(host)
-            data = _validated(getattr(entity.__entity__, update), arguments)
-            return await entity.update(_uuid(arguments, "id"), data)
-
-    @operation(f"{name}.delete")
-    async def deleting(host: Host, arguments: dict[str, Any]) -> Any:
-        return await managed(host).delete(_uuid(arguments, "id"))
+    return _entities(await host.engine.database.groups.where(_filter(GroupFilter, arguments, 1000)))
 
 
-_entity_family("groups", "groups", create="Create", update="Update")
+@operation("groups.count")
+async def groups_count(host: Host, arguments: dict[str, Any]) -> Any:
+    from ceres.group import GroupFilter
+
+    return await host.engine.database.groups.where(_filter(GroupFilter, arguments)).count()
+
+
+@operation("groups.get")
+async def groups_get(host: Host, arguments: dict[str, Any]) -> Any:
+    found = await host.engine.database.groups.get(_uuid(arguments, "id"))
+    if found is None:
+        raise NotFoundError()
+
+    return _serialize(found)
+
+
+@operation("groups.create")
+async def groups_create(host: Host, arguments: dict[str, Any]) -> Any:
+    from ceres.group import Group
+
+    data = _validated(Group.Create, arguments)
+    return _serialize(await host.engine.database.groups.create(data))
+
+
+@operation("groups.update")
+async def groups_update(host: Host, arguments: dict[str, Any]) -> Any:
+    from ceres.group import Group
+
+    data = _validated(Group.Update, arguments)
+    return await host.engine.database.groups.where(id=_uuid(arguments, "id")).update(data)
+
+
+@operation("groups.delete")
+async def groups_delete(host: Host, arguments: dict[str, Any]) -> Any:
+    return await host.engine.database.groups.where(id=_uuid(arguments, "id")).delete()
 
 
 @operation("groups.members")
 async def groups_members(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import GroupMembership
 
-    filter = validate(GroupMembership.Filter, {"group_id": _uuid(arguments, "id")})
-    return _entities(await host.engine.database.group_memberships.where(filter))
+    return _entities(
+        await host.engine.database.group_memberships.where(group_id=_uuid(arguments, "id"))
+    )
 
 
 @operation("groups.add_member")
@@ -590,21 +579,18 @@ async def groups_add_member(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("groups.remove_member")
 async def groups_remove_member(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import GroupMembership
 
-    filter = validate(
-        GroupMembership.Filter,
-        {"group_id": _uuid(arguments, "id"), "user_id": _uuid(arguments, "user_id")},
-    )
-    return await host.engine.database.group_memberships.where(filter).delete()
+    return await host.engine.database.group_memberships.where(
+        group_id=_uuid(arguments, "id"), user_id=_uuid(arguments, "user_id")
+    ).delete()
 
 
 @operation("memberships.list")
 async def memberships_list(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import GroupMembership
 
-    filter = validate(GroupMembership.Filter, {"user_id": _uuid(arguments, "user_id")})
-    return _entities(await host.engine.database.group_memberships.where(filter))
+    return _entities(
+        await host.engine.database.group_memberships.where(user_id=_uuid(arguments, "user_id"))
+    )
 
 
 @operation("memberships.add")
@@ -620,13 +606,10 @@ async def memberships_add(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("memberships.remove")
 async def memberships_remove(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import GroupMembership
 
-    filter = validate(
-        GroupMembership.Filter,
-        {"user_id": _uuid(arguments, "user_id"), "group_id": _uuid(arguments, "group_id")},
-    )
-    return await host.engine.database.group_memberships.where(filter).delete()
+    return await host.engine.database.group_memberships.where(
+        user_id=_uuid(arguments, "user_id"), group_id=_uuid(arguments, "group_id")
+    ).delete()
 
 
 @operation("permissions.user")

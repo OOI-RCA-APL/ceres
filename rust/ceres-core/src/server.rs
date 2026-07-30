@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use ceres_server::axum::Router;
 use ceres_server::{
-    AppConfig, AuthSettings, BoundServer, ConsolePaths, Host, HostError, Stopper, UserRecord,
-    apply_compression, apply_cors, build_router,
+    AppConfig, AuthSettings, BoundServer, ConsolePaths, Host, HostError, StreamClose, Stopper,
+    UserRecord, apply_compression, apply_cors, build_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -30,26 +30,36 @@ struct PyHost {
     locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
 }
 
-/// Call one host method with the given arguments, awaiting its JSON envelope.
-macro_rules! host_call {
-    ($self:ident, $method:literal, ($($argument:expr),*)) => {{
+impl PyHost {
+    /// Await one host method, answering with the JSON envelope it returned.
+    ///
+    /// Host coroutines run on the event loop captured when serving started, because the
+    /// server's own tasks run on tokio threads with no ambient loop of their own.
+    async fn call<A>(&self, method: &str, arguments: A) -> Result<String, String>
+    where
+        A: for<'py> pyo3::call::PyCallArgs<'py> + Send,
+    {
         let future = Python::attach(|py| {
-            let locals = $self.locals.get().ok_or_else(|| {
+            let locals = self.locals.get().ok_or_else(|| {
                 PyRuntimeError::new_err("the host cannot answer before the server serves")
             })?;
-            let coroutine = $self
-                .host
-                .bind(py)
-                .call_method1($method, ($($argument,)*))?;
+            let coroutine = self.host.bind(py).call_method1(method, arguments)?;
             pyo3_async_runtimes::into_future_with_locals(locals, coroutine)
         })
-        .map_err(|error| HostError::Internal(error.to_string()))?;
+        .map_err(|error| error.to_string())?;
 
-        let result = future
+        let result = future.await.map_err(|error| error.to_string())?;
+        Python::attach(|py| result.extract::<String>(py)).map_err(|error| error.to_string())
+    }
+}
+
+/// Call one host method returning a user record envelope.
+macro_rules! host_call {
+    ($self:ident, $method:literal, ($($argument:expr),*)) => {{
+        let envelope = $self
+            .call($method, ($($argument,)*))
             .await
-            .map_err(|error| HostError::Internal(error.to_string()))?;
-        let envelope: String = Python::attach(|py| result.extract::<String>(py))
-            .map_err(|error| HostError::Internal(error.to_string()))?;
+            .map_err(HostError::Internal)?;
         parse_envelope(&envelope)
     }};
 }
@@ -78,25 +88,80 @@ impl Host for PyHost {
     }
 
     async fn operate(&self, operation: &str, arguments: Value) -> Result<Value, HostError> {
-        let arguments = arguments.to_string();
-        let future = Python::attach(|py| {
-            let locals = self.locals.get().ok_or_else(|| {
-                PyRuntimeError::new_err("the host cannot answer before the server serves")
-            })?;
-            let coroutine = self
-                .host
-                .bind(py)
-                .call_method1("operate", (operation, arguments))?;
-            pyo3_async_runtimes::into_future_with_locals(locals, coroutine)
-        })
-        .map_err(|error| HostError::Internal(error.to_string()))?;
-
-        let result = future
+        let envelope = self
+            .call("operate", (operation.to_string(), arguments.to_string()))
             .await
-            .map_err(|error| HostError::Internal(error.to_string()))?;
-        let envelope: String = Python::attach(|py| result.extract::<String>(py))
-            .map_err(|error| HostError::Internal(error.to_string()))?;
+            .map_err(HostError::Internal)?;
         parse_value_envelope(&envelope)
+    }
+
+    async fn stream_open(&self, operation: &str, arguments: Value) -> Result<u64, StreamClose> {
+        let envelope = self
+            .call("stream_open", (operation.to_string(), arguments.to_string()))
+            .await
+            .map_err(StreamClose::internal)?;
+        match parse_stream_envelope(&envelope)? {
+            StreamMessage::Value(handle) => handle
+                .as_u64()
+                .ok_or_else(|| StreamClose::internal("the host returned no stream handle")),
+            StreamMessage::End => Err(StreamClose::internal("the host opened no stream")),
+        }
+    }
+
+    async fn stream_next(&self, handle: u64) -> Result<Option<String>, StreamClose> {
+        let envelope = self
+            .call("stream_next", (handle,))
+            .await
+            .map_err(StreamClose::internal)?;
+        match parse_stream_envelope(&envelope)? {
+            StreamMessage::Value(message) => Ok(Some(
+                message
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| message.to_string()),
+            )),
+            StreamMessage::End => Ok(None),
+        }
+    }
+
+    async fn stream_close(&self, handle: u64) {
+        let _ = self.call("stream_close", (handle,)).await;
+    }
+}
+
+/// What a stream envelope carried.
+enum StreamMessage {
+    Value(Value),
+    End,
+}
+
+/// Parse a stream envelope into its message, its end, or the close it reported.
+fn parse_stream_envelope(envelope: &str) -> Result<StreamMessage, StreamClose> {
+    let value: Value = serde_json::from_str(envelope)
+        .map_err(|error| StreamClose::internal(format!("unparseable host envelope. {error}")))?;
+
+    if let Some(close) = value.get("close") {
+        return Err(StreamClose {
+            code: close
+                .get("code")
+                .and_then(Value::as_u64)
+                .and_then(|code| u16::try_from(code).ok())
+                .unwrap_or(1011),
+            reason: close
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        });
+    }
+
+    if value.get("end").is_some() {
+        return Ok(StreamMessage::End);
+    }
+
+    match value.get("message").or_else(|| value.get("ok")) {
+        Some(message) => Ok(StreamMessage::Value(message.clone())),
+        None => Ok(StreamMessage::End),
     }
 }
 

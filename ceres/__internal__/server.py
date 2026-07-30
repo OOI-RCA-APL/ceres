@@ -1,18 +1,20 @@
-import socket
 import traceback
-from contextlib import closing
-from typing import TYPE_CHECKING, Any, Final, override
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, override
 
-from ceres.concurrency import concurrently, spawn
+from ceres.concurrency import concurrently
 from ceres.data import DataObject, uuid4
 from ceres.tasklet import Tasklet
 
 if TYPE_CHECKING:
-    from granian.server.embed import Server as Granian
+    from ceres_core import NativeServer as Native
 
     from ceres.__internal__.project import LoadedProject
     from ceres.config import ServerConfig
     from ceres.engine import Engine
+
+CONSOLE = Path(__file__).parent.parent / "static" / "console"
+"""Where the built console assets live."""
 
 
 class CLIServerInfo(DataObject):
@@ -23,11 +25,12 @@ class CLIServerInfo(DataObject):
 
 
 class Server(Tasklet):
-    """Run one or two embedded Granian HTTP servers for the Ceres engine.
+    """Run the engine's native HTTP servers.
 
-    A CLI-only server is always started on an ephemeral port with token authentication. If
-    the configuration specifies a public port, a second Granian instance is started for web
-    traffic (optionally with TLS).
+    A control server is always bound on an ephemeral loopback port with token
+    authentication, and when the configuration names a public port a second server serves
+    the API and console there, with TLS when the `ssl` section provides it. Both reach the
+    engine through one host object.
     """
 
     __slots__ = (
@@ -36,8 +39,8 @@ class Server(Tasklet):
         "_config",
         "_cli_port",
         "_cli_token",
-        "_granian_cli",
-        "_granian_web",
+        "_native_cli",
+        "_native_web",
     )
 
     def __init__(self, engine: Engine, project: LoadedProject, config: ServerConfig) -> None:
@@ -46,8 +49,8 @@ class Server(Tasklet):
         self._config: Final = config
         self._cli_port: int | None = None
         self._cli_token: str | None = None
-        self._granian_cli: Granian | None = None
-        self._granian_web: Granian | None = None
+        self._native_cli: Native | None = None
+        self._native_web: Native | None = None
 
     @property
     def config(self) -> ServerConfig:
@@ -85,60 +88,45 @@ class Server(Tasklet):
 
     @override
     async def __run__(self) -> None:
-        self._cli_port = await self._get_free_port()
         self._cli_token = str(uuid4())
 
-        self._project.write_cli_server_info(
-            CLIServerInfo(
-                port=self._cli_port,
-                token=self._cli_token,
-            )
-        )
+        from ceres_core import NativeServer
 
-        from granian.constants import Interfaces, SSLProtocols
-        from granian.server.embed import Server as Granian
+        # Operations register on import, so the module has to load before anything serves.
+        import ceres.__internal__.app.operations  # noqa: F401
+        from ceres.__internal__.app.host import Host
 
-        from ceres.__internal__.app import App
-
-        shared: dict[str, Any] = {
-            "log_enabled": False,
-            "interface": Interfaces.ASGI,
-        }
+        host = Host(self._engine)
 
         # The CLI server is loopback-only. Its token grants full privileges, and everything
         # that talks to it (the CLI, the server info file scheme) is local by design.
-        self._granian_cli = Granian(
-            App(self._engine, None, self._cli_token),
-            address="127.0.0.1",
-            port=self._cli_port,
-            **shared,
-        )
+        self._native_cli = NativeServer.cli(host, self._config, self._cli_token)
+        self._cli_port = self._native_cli.port
 
         if self._config.port is not None:
-            ssl = self._config.ssl
-            self._granian_web = Granian(
-                App(self._engine),
-                address=self._config.host,
-                port=self._config.port,
-                ssl_key=ssl.key if ssl else None,
-                ssl_cert=ssl.cert if ssl else None,
-                ssl_key_password=ssl.key_password if ssl else None,
-                ssl_ca=ssl.ca_certs if ssl else None,
-                # Every `ssl` protocol constant the config's `version` accepts floors the
-                # negotiation at TLS 1.2, matching Python's own default minimum, so that
-                # is what the server offers rather than Granian's 1.3-only default.
-                ssl_protocol_min=SSLProtocols.tls12,
-                **shared,
+            console = CONSOLE
+            self._native_web = NativeServer.web(
+                host,
+                self._config,
+                console,
+                _favicon(self._engine, ".ico", console),
+                _favicon(self._engine, ".png", console),
+                _favicon(self._engine, ".svg", console),
             )
+
+        # The info file records the port the control server actually bound.
+        self._project.write_cli_server_info(
+            CLIServerInfo(port=self._cli_port, token=self._cli_token)
+        )
 
         try:
             await concurrently(
-                self._granian_cli.serve() if self._granian_cli is not None else None,
-                self._granian_web.serve() if self._granian_web is not None else None,
+                self._native_cli.serve() if self._native_cli is not None else None,
+                self._native_web.serve() if self._native_web is not None else None,
             )
         finally:
-            self._granian_cli = None
-            self._granian_web = None
+            self._native_cli = None
+            self._native_web = None
             try:
                 self._project.delete_cli_server_info()
             except Exception:
@@ -146,21 +134,15 @@ class Server(Tasklet):
 
     @override
     async def __stop__(self) -> None:
-        cli = self._granian_cli
-        if cli is not None:
-            cli.stop()
+        for server in (self._native_cli, self._native_web):
+            if server is not None:
+                server.stop()
 
-        web = self._granian_web
-        if web is not None:
-            web.stop()
 
-    async def _get_free_port(self) -> int:
-        """Bind an ephemeral TCP socket to discover a free port, then release it."""
+def _favicon(engine: Engine, suffix: str, console: Path) -> Path:
+    """Resolve one favicon, the configured override winning when its suffix matches."""
+    configured = engine.config.console.favicon
+    if configured is not None and configured.suffix == suffix:
+        return configured
 
-        def run():
-            with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as stream:
-                stream.bind(("", 0))
-                stream.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                return stream.getsockname()[1]
-
-        return await spawn(run)
+    return console / f"favicon{suffix}"
