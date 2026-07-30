@@ -1,7 +1,7 @@
 import pytest
 
 from ceres import Engine
-from ceres.__internal__.app.api.routes.workspaces import (
+from ceres.__internal__.app.handlers.workspaces import (
     create_workspace,
     delete_workspace,
     get_workspace,

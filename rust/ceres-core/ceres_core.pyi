@@ -30,6 +30,7 @@ __all__ = [
     "ServerSSLConfig",
     "ServiceConfig",
     "TursoDatabaseConfig",
+    "openapi_schema",
 ]
 
 class Argon2HashingConfig:
@@ -1033,3 +1034,8 @@ class RecordTable(Enum):
     PARTICLES = ...
     ALERTS = ...
     LOGS = ...
+
+def openapi_schema(version: str) -> str:
+    r"""
+    Serve the OpenAPI document describing the API, as JSON text.
+    """

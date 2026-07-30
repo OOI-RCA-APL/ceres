@@ -1,16 +1,8 @@
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Annotated
-from uuid import UUID
-
-from fastapi import Query
+from typing import TYPE_CHECKING
 
 from ceres.__internal__.app.shared import (
     Actor,
-    CurrentActor,
-    CurrentEngine,
-    Limit,
-    RequireAuthenticated,
-    Router,
     assert_found,
     build_address_chain,
     get_component_access,
@@ -31,10 +23,10 @@ from ceres.workspace import (
 )
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from ceres.engine import Engine
     from ceres.user import User
-
-router = Router(tags=["workspaces"])
 
 
 async def build_can_view(engine: Engine, user: User) -> Callable[[Address], bool]:
@@ -224,11 +216,10 @@ async def require_writable(
     )
 
 
-@router.get("/workspaces/{id:uuid}")
 async def get_workspace(
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    user: RequireAuthenticated,
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
     id: UUID,
 ) -> Workspace:
     """Return a single workspace by ID.
@@ -262,12 +253,11 @@ async def filter_visible(
     ]
 
 
-@router.get("/workspaces")
 async def get_workspaces(
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    user: RequireAuthenticated,
-    filter: Annotated[WorkspaceFilter, Query(), Limit(1000)],
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
+    filter: WorkspaceFilter,
 ) -> list[Workspace]:
     """Return workspaces matching the given filter, capped at 1000 results.
 
@@ -280,11 +270,10 @@ async def get_workspaces(
     return [await redact_workspace(engine, actor, user, workspace) for workspace in visible]
 
 
-@router.post("/workspaces")
 async def create_workspace(
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    user: RequireAuthenticated,
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
     workspace: WorkspaceCreate,
 ) -> Workspace:
     """Create a new workspace.
@@ -313,11 +302,10 @@ async def create_workspace(
     return await redact_workspace(engine, actor, user, created)
 
 
-@router.patch("/workspaces/{id:uuid}")
 async def update_workspace(
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    user: RequireAuthenticated,
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
     id: UUID,
     update: WorkspaceUpdate,
 ) -> Workspace:
@@ -375,11 +363,10 @@ async def update_workspace(
     return await redact_workspace(engine, actor, user, updated)
 
 
-@router.delete("/workspaces/{id:uuid}")
 async def delete_workspace(
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    user: RequireAuthenticated,
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
     id: UUID,
 ) -> Workspace:
     """Delete a workspace by ID.

@@ -129,6 +129,7 @@ mod tests {
             cli_token: None,
             auth: None,
             host: std::sync::Arc::new(crate::host::NoHost),
+            version: "0.0.0".to_string(),
         });
         let serving = tokio::spawn(server.serve(app));
 

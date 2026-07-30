@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use ceres_server::axum::Router;
 use ceres_server::{
-    AppConfig, AuthSettings, BoundServer, ConsolePaths, Host, HostError, StreamClose, Stopper,
+    AppConfig, AuthSettings, BoundServer, ConsolePaths, Host, HostError, Stopper, StreamClose,
     UserRecord, apply_compression, apply_cors, build_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -97,7 +97,10 @@ impl Host for PyHost {
 
     async fn stream_open(&self, operation: &str, arguments: Value) -> Result<u64, StreamClose> {
         let envelope = self
-            .call("stream_open", (operation.to_string(), arguments.to_string()))
+            .call(
+                "stream_open",
+                (operation.to_string(), arguments.to_string()),
+            )
             .await
             .map_err(StreamClose::internal)?;
         match parse_stream_envelope(&envelope)? {
@@ -222,6 +225,15 @@ fn parse_envelope(envelope: &str) -> Result<Option<UserRecord>, HostError> {
     }
 }
 
+/// Serve the OpenAPI document describing the API, as JSON text.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn openapi_schema(version: &str) -> PyResult<String> {
+    ceres_server::openapi_document(version)
+        .to_json()
+        .map_err(|error| PyValueError::new_err(error.to_string()))
+}
+
 /// A natively-served HTTP application.
 ///
 /// Binds at construction, so the real port is known immediately, and serves as an
@@ -263,6 +275,7 @@ impl NativeServer {
         let router = build_router(AppConfig {
             console,
             cli_token,
+            version: env!("CARGO_PKG_VERSION").to_string(),
             auth,
             host: Arc::new(PyHost {
                 host,

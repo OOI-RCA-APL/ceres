@@ -1,13 +1,12 @@
-from typing import Self
+from typing import TYPE_CHECKING, Self
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from ceres.engine import Engine
 
 from pydantic import model_validator
 
 from ceres.__internal__.app.shared import (
-    ADMIN,
-    SELF_OR_ADMIN,
-    CurrentEngine,
-    Router,
     get_component_access,
     get_components_access_detail,
     get_engine_access,
@@ -24,20 +23,16 @@ from ceres.permission import (
     UserPermission,
 )
 
-router = Router(prefix="/permissions", tags=["permissions"])
 
-
-@router.get("/user/{user_id:uuid}", dependencies=[SELF_OR_ADMIN])
 async def get_user_permissions(
-    engine: CurrentEngine,
+    engine: Engine,
     user_id: UUID,
 ) -> list[UserPermission]:
     return await engine.database.user_permissions.where(user_id=user_id)
 
 
-@router.get("/group/{group_id:uuid}", dependencies=[ADMIN])
 async def get_group_permissions(
-    engine: CurrentEngine,
+    engine: Engine,
     group_id: UUID,
 ) -> list[GroupPermission]:
     return await engine.database.group_permissions.where(group_id=group_id)
@@ -64,9 +59,8 @@ class UserPermissionData(PermissionTargetData):
     level: ComponentAccessLevel
 
 
-@router.put("/user/{user_id:uuid}", dependencies=[ADMIN])
 async def set_user_permission(
-    engine: CurrentEngine,
+    engine: Engine,
     user_id: UUID,
     data: UserPermissionData,
 ) -> UserPermission:
@@ -85,9 +79,8 @@ class DeletePermissionData(PermissionTargetData):
     pass
 
 
-@router.delete("/user/{user_id:uuid}", dependencies=[ADMIN])
 async def delete_user_permission(
-    engine: CurrentEngine,
+    engine: Engine,
     user_id: UUID,
     data: DeletePermissionData,
 ) -> int:
@@ -102,9 +95,8 @@ class GroupPermissionData(PermissionTargetData):
     level: ComponentAccessLevel
 
 
-@router.put("/group/{group_id:uuid}", dependencies=[ADMIN])
 async def set_group_permission(
-    engine: CurrentEngine,
+    engine: Engine,
     group_id: UUID,
     data: GroupPermissionData,
 ) -> GroupPermission:
@@ -119,9 +111,8 @@ async def set_group_permission(
     )
 
 
-@router.delete("/group/{group_id:uuid}", dependencies=[ADMIN])
 async def delete_group_permission(
-    engine: CurrentEngine,
+    engine: Engine,
     group_id: UUID,
     data: DeletePermissionData,
 ) -> int:
@@ -149,9 +140,8 @@ class ComponentEffectiveAccess(DataObject):
     """The group that supplied the winning grant, when `origin` is `group`."""
 
 
-@router.get("/effective/{user_id:uuid}", dependencies=[SELF_OR_ADMIN])
 async def get_all_effective_access(
-    engine: CurrentEngine,
+    engine: Engine,
     user_id: UUID,
 ) -> list[ComponentEffectiveAccess]:
     """Resolve the effective access level for every target the user can access.
@@ -184,9 +174,8 @@ async def get_all_effective_access(
     ]
 
 
-@router.get("/effective/{user_id:uuid}/{address:path}", dependencies=[SELF_OR_ADMIN])
 async def get_effective_access(
-    engine: CurrentEngine,
+    engine: Engine,
     user_id: UUID,
     address: Address,
 ) -> EffectiveAccessResult:

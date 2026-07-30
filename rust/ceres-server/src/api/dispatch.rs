@@ -82,6 +82,18 @@ macro_rules! host_routes {
     )*) => {
         $(path_struct!($(#[$doc])* $name, $path, [$($($field),+)?]);)*
 
+        /// Describe every declared route for the OpenAPI document.
+        pub(crate) fn documented() -> Vec<crate::api::schema::Documented> {
+            vec![$(crate::api::schema::Documented {
+                method: crate::api::schema::method_of(stringify!($method)),
+                path: $path,
+                summary: $operation,
+                parameters: &[$($(stringify!($field)),+)?],
+                secured: !matches!($gate, Gate::Open),
+                tag: $operation.split('.').next().unwrap_or($operation),
+            }),*]
+        }
+
         /// Register every declared route.
         pub(crate) fn register(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
             $(let router = router.$method(

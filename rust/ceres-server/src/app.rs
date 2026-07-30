@@ -32,6 +32,8 @@ pub struct AppConfig {
     pub auth: Option<AuthSettings>,
     /// The engine on the other side of the language boundary.
     pub host: Arc<dyn Host>,
+    /// The package version the OpenAPI document reports.
+    pub version: String,
 }
 
 /// Where the console's assets live.
@@ -46,6 +48,7 @@ pub struct ConsolePaths {
 
 pub(crate) struct AppState {
     console: Option<ConsolePaths>,
+    version: String,
     pub(crate) auth: Option<AuthSettings>,
     pub(crate) host: Arc<dyn Host>,
     cli: bool,
@@ -98,6 +101,7 @@ favicons! {
 pub fn build_router(config: AppConfig) -> Router {
     let state = Arc::new(AppState {
         console: config.console,
+        version: config.version,
         auth: config.auth,
         host: config.host,
         cli: config.cli_token.is_some(),
@@ -124,6 +128,7 @@ pub fn build_router(config: AppConfig) -> Router {
         .route("/api/config/server", get(crate::api::config::server))
         .route("/api/config/database", get(crate::api::config::database))
         .route("/api/config/console", get(crate::api::config::console))
+        .route("/api/openapi.json", get(openapi))
         .route("/api/{*path}", get(api_not_found));
     router = record_routes(router);
     router = crate::api::dispatch::register(router);
@@ -183,6 +188,19 @@ fn record_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
         particles => "particles";
         alerts => "alerts";
         logs => "logs";
+    }
+}
+
+/// Serve the OpenAPI document describing every route.
+async fn openapi(State(state): State<Arc<AppState>>) -> Response {
+    match crate::api::schema::document(&state.version).to_json() {
+        Ok(document) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            document,
+        )
+            .into_response(),
+        Err(_) => ApiError::http(StatusCode::INTERNAL_SERVER_ERROR).into_response(),
     }
 }
 

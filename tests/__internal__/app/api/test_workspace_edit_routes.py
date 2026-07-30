@@ -1,5 +1,5 @@
 from ceres import Engine
-from ceres.__internal__.app.api.routes.workspace_edits import (
+from ceres.__internal__.app.handlers.workspace_edits import (
     AssignWorkspaceEditData,
     assign_workspace_edit,
     get_workspace_edit,

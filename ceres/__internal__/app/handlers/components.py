@@ -1,17 +1,7 @@
 import traceback
-from typing import TYPE_CHECKING, Annotated, Any, Literal
-
-from fastapi import Body, Request, Response, WebSocket, WebSocketException
-from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
+from typing import TYPE_CHECKING, Any, Literal
 
 from ceres.__internal__.app.shared import (
-    AUTHENTICATED,
-    CurrentActor,
-    CurrentEngine,
-    CurrentProcedureQueryArguments,
-    CurrentSocket,
-    CurrentUser,
-    Router,
     get_component_access,
     get_components_access,
 )
@@ -26,16 +16,13 @@ from ceres.component import (
     ProcedureType,
     QueryBinding,
 )
-from ceres.config import ComponentConfig
 from ceres.connectivity import Connectivity
-from ceres.data import DataModel, DataObject, DateTime, Name, to_json
+from ceres.data import DataModel, DataObject, DateTime, Name
 from ceres.error import (
     NotConnectedError,
     NotFoundError,
     NotPermittedError,
     ProcedureComponentNotFoundError,
-    ProcedureError,
-    ProcedureInternalError,
     ProcedureNotFoundError,
     ProcedureNotPermittedError,
 )
@@ -44,9 +31,8 @@ from ceres.message import Message, MessageData
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from starlette.requests import HTTPConnection
-
     from ceres.__internal__.app.shared import Actor
+    from ceres.config import ComponentConfig
     from ceres.engine import Engine
 
 
@@ -70,8 +56,6 @@ class ComponentInfo(DataObject):
 
 ComponentInfo.__name__ = "Component"
 ComponentInfo.__qualname__ = "Component"
-
-router = Router(prefix="/components", tags=["components"])
 
 
 def _describe_component(component: Component, *, visible: bool) -> ComponentInfo:
@@ -132,8 +116,7 @@ def _build_tree(
     return info
 
 
-@router.get("", dependencies=[AUTHENTICATED])
-async def get_components(engine: CurrentEngine, actor: CurrentActor) -> list[ComponentInfo]:
+async def get_components(engine: Engine, actor: Actor) -> list[ComponentInfo]:
     """Return every top-level component the caller may view as a recursive description."""
     components = engine.get_components()
     if actor.unrestricted:
@@ -153,10 +136,7 @@ async def get_components(engine: CurrentEngine, actor: CurrentActor) -> list[Com
     return result
 
 
-@router.get("/{address}", dependencies=[AUTHENTICATED])
-async def get_component(
-    engine: CurrentEngine, actor: CurrentActor, address: Address
-) -> ComponentInfo:
+async def get_component(engine: Engine, actor: Actor, address: Address) -> ComponentInfo:
     """Return a recursive description of a component and all its children the caller may view.
 
     Raises:
@@ -186,14 +166,9 @@ async def get_component(
     return info
 
 
-@router.get(
-    "/{address}/config",
-    dependencies=[AUTHENTICATED],
-    response_model_exclude_defaults=True,
-)
 async def get_component_config(
-    engine: CurrentEngine,
-    actor: CurrentActor,
+    engine: Engine,
+    actor: Actor,
     address: Address,
 ) -> ComponentConfig | None:
     """Return the configuration for the component at the given address.
@@ -226,10 +201,9 @@ class ConnectionStateInfo(DataObject):
     connectivity: Connectivity
 
 
-@router.get("/{address}/connections", dependencies=[AUTHENTICATED])
 async def get_component_connections(
-    engine: CurrentEngine,
-    actor: CurrentActor,
+    engine: Engine,
+    actor: Actor,
     address: Address,
 ) -> list[ConnectionStateInfo]:
     """Return the component's connections with their live connectivity states.
@@ -283,10 +257,9 @@ def _describe_schedule(schedule: object) -> str:
     return strify(schedule)
 
 
-@router.get("/{address}/jobs", dependencies=[AUTHENTICATED])
 async def get_component_jobs(
-    engine: CurrentEngine,
-    actor: CurrentActor,
+    engine: Engine,
+    actor: Actor,
     address: Address,
 ) -> list[JobInfo]:
     """Return the scheduled jobs for the component at the given address.
@@ -317,8 +290,7 @@ async def get_component_jobs(
     ]
 
 
-@router.get("/{address}/procedures", dependencies=[AUTHENTICATED], tags=["procedures"])
-async def get_procedures(engine: CurrentEngine, address: Address) -> list[ProcedureBinding]:
+async def get_procedures(engine: Engine, address: Address) -> list[ProcedureBinding]:
     """Return all procedure bindings for the component at the given address.
 
     Raises:
@@ -331,9 +303,8 @@ async def get_procedures(engine: CurrentEngine, address: Address) -> list[Proced
     return list(component.system.get_procedure_bindings().values())
 
 
-@router.get("/{address}/procedures/{procedure}", dependencies=[AUTHENTICATED], tags=["procedures"])
 async def get_procedure(
-    engine: CurrentEngine,
+    engine: Engine,
     address: Address,
     procedure: Name,
 ) -> ProcedureBinding:
@@ -352,9 +323,8 @@ async def get_procedure(
     return binding
 
 
-@router.get("/{address}/queries", dependencies=[AUTHENTICATED], tags=["queries"])
 async def get_queries(
-    engine: CurrentEngine,
+    engine: Engine,
     address: Address,
 ) -> list[QueryBinding]:
     """Return all query bindings for the component at the given address.
@@ -369,9 +339,8 @@ async def get_queries(
     return list(component.system.get_query_bindings().values())
 
 
-@router.get("/{address}/queries/{query}", dependencies=[AUTHENTICATED], tags=["queries"])
 async def get_query_info(
-    engine: CurrentEngine,
+    engine: Engine,
     address: Address,
     query: Name,
 ) -> QueryBinding:
@@ -390,9 +359,8 @@ async def get_query_info(
     return binding
 
 
-@router.get("/{address}/actions", dependencies=[AUTHENTICATED], tags=["actions"])
 async def get_actions(
-    engine: CurrentEngine,
+    engine: Engine,
     address: Address,
 ) -> list[ActionBinding]:
     """Return all action bindings for the component at the given address.
@@ -407,9 +375,8 @@ async def get_actions(
     return list(component.system.get_action_bindings().values())
 
 
-@router.get("/{address}/actions/{action}", dependencies=[AUTHENTICATED], tags=["actions"])
 async def get_action(
-    engine: CurrentEngine,
+    engine: Engine,
     address: Address,
     action: Name,
 ) -> ActionBinding:
@@ -429,6 +396,8 @@ async def get_action(
 
 
 if TYPE_CHECKING:
+    from starlette.responses import Response
+
     type CallResult = Any | Response | None
 else:
     type CallResult = Any
@@ -462,8 +431,8 @@ async def _assert_procedure_access(
 
 async def call_natively(
     *,
-    engine: CurrentEngine,
-    actor: CurrentActor,
+    engine: Engine,
+    actor: Actor,
     address: Address,
     procedure: Name,
     namespace: _ProcedureNamespace,
@@ -511,95 +480,10 @@ async def call_natively(
 _ProcedureNamespace = Literal["procedures", "queries", "actions"]
 
 
-def _get_namespace(request: HTTPConnection) -> _ProcedureNamespace:
-    """Extract the procedure namespace (procedures, queries, or actions) from the request URL path.
-
-    Raises:
-        ValueError: If the URL does not contain a recognized namespace segment.
-    """
-    if "/procedures" in request.url.path:
-        return "procedures"
-    elif "/queries" in request.url.path:
-        return "queries"
-    elif "/actions" in request.url.path:
-        return "actions"
-
-    raise ValueError("Invalid namespace.")
-
-
-async def call_procedure(
-    request: Request,
-    engine: CurrentEngine,
-    user: CurrentUser,
-    actor: CurrentActor,
-    address: Address,
-    name: Name,
-    arguments: Annotated[dict[Name, object] | None, Body()] = None,
-) -> CallResult:
-    """Call a procedure by POST with arguments supplied in the request body."""
-    return await call_natively(
-        engine=engine,
-        actor=actor,
-        address=address,
-        procedure=name,
-        namespace=_get_namespace(request),
-        method=request.method,
-        arguments=arguments,
-    )
-
-
-for namespace, kind in (("procedures", "procedure"), ("queries", "query"), ("actions", "action")):
-    name = f"call_{kind}"
-    router.post(
-        "/{address}/" + namespace + "/{name}/call",
-        tags=[namespace],
-        name=name,
-        operation_id=name,
-    )(call_procedure)
-
-
-async def call_procedure_by_get(
-    request: Request,
-    engine: CurrentEngine,
-    user: CurrentUser,
-    actor: CurrentActor,
-    address: Address,
-    name: Name,
-    query_arguments: CurrentProcedureQueryArguments,
-) -> CallResult:
-    """Call a procedure by GET with arguments merged from the `arguments` query parameter and any
-    additional query parameters.
-    """
-    arguments = {}
-    arguments.update(query_arguments or {})
-    arguments.update(request.query_params)
-    arguments.pop("arguments", None)
-    arguments.pop("args", None)
-
-    return await call_natively(
-        engine=engine,
-        actor=actor,
-        address=address,
-        procedure=name,
-        namespace=_get_namespace(request),
-        method=request.method,
-        arguments=arguments,
-    )
-
-
-for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
-    name = f"call_{kind}_by_get"
-    router.get(
-        "/{address}/" + namespace + "/{name}/call",
-        name=name,
-        operation_id=name,
-    )(call_procedure_by_get)
-
-
 async def subscribe_natively(
     *,
-    engine: CurrentEngine,
-    actor: CurrentActor,
+    engine: Engine,
+    actor: Actor,
     address: Address,
     procedure: Name,
     namespace: _ProcedureNamespace,
@@ -634,101 +518,18 @@ async def subscribe_natively(
         yield output
 
 
-async def subscribe_procedure(
-    socket: CurrentSocket,
-    connection: WebSocket,
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    address: Address,
-    name: Name,
-    query_arguments: CurrentProcedureQueryArguments,
-) -> None:
-    """Subscribe to a procedure over WebSocket, streaming outputs to the client as they arrive.
-
-    Close the socket with an appropriate code if the procedure raises an error or the caller
-    lacks permission.
-    """
-    namespace = _get_namespace(connection)
-
-    arguments = {}
-    arguments.update(query_arguments or {})
-    arguments.update(connection.query_params)
-    arguments.pop("arguments", None)
-    arguments.pop("args", None)
-
-    component = engine.get_component(address)
-    if component is None:
-        raise WebSocketException(
-            WS_1008_POLICY_VIOLATION,
-            to_json(ProcedureComponentNotFoundError()),
-        )
-
-    binding = component.system.get_procedure_bindings().get(name)
-    if binding is None:
-        raise WebSocketException(
-            WS_1008_POLICY_VIOLATION,
-            to_json(ProcedureNotFoundError()),
-        )
-
-    if namespace == "queries":
-        if binding.type != ProcedureType.QUERY:
-            raise WebSocketException(
-                WS_1008_POLICY_VIOLATION,
-                to_json(ProcedureNotFoundError()),
-            )
-    if namespace == "actions":
-        if binding.type != ProcedureType.ACTION:
-            raise WebSocketException(
-                WS_1008_POLICY_VIOLATION,
-                to_json(ProcedureNotFoundError()),
-            )
-
-    try:
-        await _assert_procedure_access(engine, actor, component, binding)
-    except ProcedureNotPermittedError as error:
-        raise WebSocketException(
-            WS_1008_POLICY_VIOLATION,
-            to_json(error),
-        )
-
-    async def write() -> None:
-        try:
-            async for output in component.system.subscribe(name, arguments):
-                await socket.send(output)
-        except Exception as exception:
-            if isinstance(exception, ProcedureError):
-                if not isinstance(exception, ProcedureInternalError):
-                    code = WS_1011_INTERNAL_ERROR
-                else:
-                    code = WS_1008_POLICY_VIOLATION
-
-                reason = to_json(exception)
-            else:
-                code = WS_1011_INTERNAL_ERROR
-                reason = to_json(strify(exception)[0:100])
-
-            await socket.close(code, reason)
-
-    await socket.execute(write)
-
-
-for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
-    router.websocket("/{address}/" + namespace + "/{name}/subscribe")(subscribe_procedure)
-
-
 class SendMessageInput(DataModel):
     """Request body for sending a message through a component connection."""
 
     data: MessageData
 
 
-@router.post("/{address}/connections/{connection}/send", dependencies=[AUTHENTICATED])
 async def send_message(
-    engine: CurrentEngine,
-    actor: CurrentActor,
+    engine: Engine,
+    actor: Actor,
     address: Address,
     connection: str,
-    input: Annotated[SendMessageInput, Body()],
+    input: SendMessageInput,
 ) -> Message:
     """Send a message through a named connection on the specified component.
 

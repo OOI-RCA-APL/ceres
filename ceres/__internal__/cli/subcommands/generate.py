@@ -30,11 +30,12 @@ class OpenApiCommand(CLICommand):
     @override
     async def __run__(self) -> None:
         """Generate the OpenAPI schema and write it to a file or stdout."""
-        from ceres.__internal__.app.main import App
-        from ceres.engine import Engine
+        from ceres_core import openapi_schema
 
-        app = App(Engine())
-        schema = app.openapi()
+        from ceres.data import from_json
+        from ceres.version import __version__
+
+        schema = from_json(openapi_schema(__version__))
 
         match self.format:
             case OpenAPISchemaFormat.YAML:

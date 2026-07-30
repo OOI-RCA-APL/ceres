@@ -1,15 +1,8 @@
-from typing import TYPE_CHECKING, Annotated
-from uuid import UUID
+from typing import TYPE_CHECKING
 
-from fastapi import Query
-
-from ceres.__internal__.app.api.routes.workspaces import build_can_view
+from ceres.__internal__.app.handlers.workspaces import build_can_view
 from ceres.__internal__.app.shared import (
-    SELF_OR_ADMIN,
-    CurrentActor,
-    CurrentEngine,
-    Limit,
-    Router,
+    Actor,
     assert_found,
 )
 from ceres.__internal__.workspace_redaction import merge_redacted_widgets, redact_workspace_data
@@ -17,15 +10,15 @@ from ceres.data import DataObject, JSONSerializableDict, construct, to_dict
 from ceres.workspace import WorkspaceEdit, WorkspaceEditCreate, WorkspaceEditFilter
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from ceres.address import Address
     from ceres.engine import Engine
-
-router = Router(tags=["workspace-edits"])
 
 
 async def _redact_edit(
     engine: Engine,
-    actor: CurrentActor,
+    actor: Actor,
     edit: WorkspaceEdit,
 ) -> WorkspaceEdit:
     """Return `edit` with widgets the acting user cannot view replaced by stubs.
@@ -43,13 +36,9 @@ async def _redact_edit(
     return construct(WorkspaceEdit, **{**to_dict(edit), "data": data})
 
 
-@router.get(
-    "/users/{user_id:uuid}/workspace-edits/{workspace_id:uuid}",
-    dependencies=[SELF_OR_ADMIN],
-)
 async def get_workspace_edit(
-    engine: CurrentEngine,
-    actor: CurrentActor,
+    engine: Engine,
+    actor: Actor,
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceEdit:
@@ -62,12 +51,11 @@ async def get_workspace_edit(
     return await _redact_edit(engine, actor, edit)
 
 
-@router.get("/users/{user_id:uuid}/workspace-edits", dependencies=[SELF_OR_ADMIN])
 async def get_workspace_edits(
-    engine: CurrentEngine,
-    actor: CurrentActor,
+    engine: Engine,
+    actor: Actor,
     user_id: UUID,
-    filter: Annotated[WorkspaceEditFilter, Query(), Limit(1000)],
+    filter: WorkspaceEditFilter,
 ) -> list[WorkspaceEdit]:
     """Return workspace edits for the given user, filtered and capped at 1000 results."""
     results = await engine.workspace_edits.where(user_id=user_id, and__=filter)
@@ -80,12 +68,8 @@ class CreateWorkspaceEditData(DataObject):
     data: JSONSerializableDict
 
 
-@router.post(
-    "/users/{user_id:uuid}/workspace-edits/{workspace_id:uuid}",
-    dependencies=[SELF_OR_ADMIN],
-)
 async def create_workspace_edit(
-    engine: CurrentEngine,
+    engine: Engine,
     user_id: UUID,
     workspace_id: UUID,
     values: CreateWorkspaceEditData,
@@ -106,12 +90,8 @@ class AssignWorkspaceEditData(CreateWorkspaceEditData):
     pass
 
 
-@router.put(
-    "/users/{user_id:uuid}/workspace-edits/{workspace_id:uuid}",
-    dependencies=[SELF_OR_ADMIN],
-)
 async def assign_workspace_edit(
-    engine: CurrentEngine,
+    engine: Engine,
     user_id: UUID,
     workspace_id: UUID,
     values: AssignWorkspaceEditData,
@@ -137,12 +117,8 @@ async def assign_workspace_edit(
     )
 
 
-@router.delete(
-    "/users/{user_id:uuid}/workspace-edits/{workspace_id:uuid}",
-    dependencies=[SELF_OR_ADMIN],
-)
 async def delete_workspace_edit(
-    engine: CurrentEngine,
+    engine: Engine,
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceEdit:

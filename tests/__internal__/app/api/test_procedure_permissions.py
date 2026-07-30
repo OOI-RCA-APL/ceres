@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 
 from ceres import Component, Engine, action
-from ceres.__internal__.app.api.routes.components import (
+from ceres.__internal__.app.handlers.components import (
     SendMessageInput,
     _assert_procedure_access,
     call_natively,

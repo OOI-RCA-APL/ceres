@@ -20,6 +20,7 @@ mod tls;
 
 pub use axum;
 
+pub use api::schema::document as openapi_document;
 pub use app::{AppConfig, ConsolePaths, build_router};
 pub use auth::{
     Actor, AuthSettings, Identity, MintedToken, current_actor, current_identity, mint, parse,
@@ -81,6 +82,7 @@ mod tests {
             cli_token: None,
             auth: None,
             host: std::sync::Arc::new(NoHost),
+            version: "0.0.0".to_string(),
         })
     }
 
@@ -285,6 +287,7 @@ mod tests {
                 users: vec![(admin, "admin", true), (viewer, "viewer", false)],
                 ..TestHost::default()
             }),
+            version: "0.0.0".to_string(),
         })
     }
 
@@ -297,6 +300,7 @@ mod tests {
                 users: vec![(user, "u", false)],
                 ..TestHost::default()
             }),
+            version: "0.0.0".to_string(),
         })
     }
 
@@ -384,6 +388,7 @@ mod tests {
             cli_token: None,
             auth: None,
             host: std::sync::Arc::new(NoHost),
+            version: "0.0.0".to_string(),
         });
         let response = request_json!(
             disabled, post "/api/auth/login",
@@ -554,6 +559,7 @@ mod tests {
             cli_token: None,
             auth: None,
             host: std::sync::Arc::new(NoHost),
+            version: "0.0.0".to_string(),
         });
         let response = request_json!(
             unrestricted, post "/api/auth/change-password",
@@ -852,6 +858,7 @@ mod tests {
             cli_token: Some("cli-test-token".to_string()),
             auth: None,
             host: std::sync::Arc::new(NoHost),
+            version: "0.0.0".to_string(),
         });
 
         assert_response!(

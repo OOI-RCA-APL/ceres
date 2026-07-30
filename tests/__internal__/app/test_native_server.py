@@ -136,10 +136,14 @@ async def test_the_native_server_serves_the_engine_over_tcp(tmp_path: Path) -> N
 
 
 async def test_tokens_verify_across_both_implementations(tmp_path: Path) -> None:
-    """A Python-minted token must pass the Rust verifier and the other way around."""
-    import jwt as pyjwt
+    """Tokens must cross between the two JWT implementations in both directions.
 
-    from ceres.__internal__.app.shared import create_identity
+    The reference implementation mints a token the server has to accept, and a token the
+    server minted has to decode there, so the claim names and encoding stay compatible.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    import jwt as pyjwt
 
     engine, user = await _build_engine()
     console = _build_console(tmp_path)
@@ -157,12 +161,14 @@ async def test_tokens_verify_across_both_implementations(tmp_path: Path) -> None
 
     try:
         async with httpx.AsyncClient() as client:
-            authentication = engine.config.server.authentication
-            assert authentication is not None
-            minted = create_identity(user, authentication)
+            reference = pyjwt.encode(
+                {"sub": str(user.id), "exp": datetime.now(UTC) + timedelta(minutes=30)},
+                SECRET,
+                "HS256",
+            )
             response = await client.get(
                 f"{base}/api/auth/me",
-                headers={"Authorization": f"Bearer {minted.token}"},
+                headers={"Authorization": f"Bearer {reference}"},
             )
             assert response.status_code == 200
             assert response.json()["user"]["id"] == str(user.id)

@@ -1,28 +1,20 @@
-from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
-from starlette.requests import HTTPConnection
 
 from ceres import Component, Engine
-from ceres.__internal__.app.api.routes.permissions import (
+from ceres.__internal__.app.handlers.permissions import (
     UserPermissionData,
     get_all_effective_access,
     get_effective_access,
 )
-from ceres.__internal__.app.shared import Actor, _require_self_or_admin, build_address_chain
+from ceres.__internal__.app.shared import build_address_chain
 from ceres.address import Address
 from ceres.component import ComponentAccessLevel, ComponentConfig
-from ceres.error import NotFoundError, NotPermittedError
+from ceres.error import NotFoundError
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
-
-
-def _connection_for(user_id: UUID) -> HTTPConnection:
-    """Build a minimal HTTP connection carrying `user_id` as its `user_id` path parameter."""
-    scope: dict[str, Any] = {"type": "http", "headers": [], "path_params": {"user_id": user_id}}
-    return HTTPConnection(scope)
 
 
 async def _build_engine() -> tuple[Engine, Component, Component, Component]:
@@ -80,39 +72,6 @@ async def test_batch_effective_access_lists_accessible_components() -> None:
     entries = {str(entry.address): entry.level for entry in result}
     assert entries[str(granted.system.address)] == ComponentAccessLevel.OPERATE
     assert str(hidden.system.address) not in entries
-
-    await engine.database.dispose()
-
-
-async def test_self_or_admin_forbids_querying_another_user() -> None:
-    """The dependency guarding the effective-access routes rejects a non-admin querying others."""
-    engine, *_ = await _build_engine()
-    user = await _create_user(engine)
-    connection = _connection_for(uuid4())
-
-    with pytest.raises(NotPermittedError):
-        _require_self_or_admin(connection, user, Actor(user=user, unrestricted=False))
-
-    await engine.database.dispose()
-
-
-async def test_self_or_admin_allows_self_and_admin() -> None:
-    """The dependency allows a user querying themselves and any admin querying anyone."""
-    engine, *_ = await _build_engine()
-    user = await _create_user(engine)
-    admin = await _create_user(engine, admin=True)
-    other_id = uuid4()
-
-    assert (
-        _require_self_or_admin(_connection_for(user.id), user, Actor(user=user, unrestricted=False))
-        == user.id
-    )
-    assert (
-        _require_self_or_admin(
-            _connection_for(other_id), admin, Actor(user=admin, unrestricted=False)
-        )
-        == other_id
-    )
 
     await engine.database.dispose()
 

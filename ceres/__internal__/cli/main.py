@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from ceres.database import Database
 
 with __lazy_imports__(__name__):
-    from ceres.__internal__.app.api import DisableResult, EnableResult
+    from ceres.__internal__.app.handlers.engine import DisableResult, EnableResult
     from ceres.__internal__.cli.client import Client
     from ceres.component import ComponentFilter
     from ceres.engine import Engine

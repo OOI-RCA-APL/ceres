@@ -13,13 +13,13 @@
 | `ceres/__internal__/database/writer.py` | 88% |
 | `ceres/__internal__/entity.py` | 92% |
 | `ceres/__internal__/filter.py` | 93% |
-| `ceres/__internal__/interop.py` | 86% |
+| `ceres/__internal__/interop.py` | 83% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |
 | `ceres/__internal__/project.py` | 52% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 88% |
-| `ceres/__internal__/server.py` | 52% |
+| `ceres/__internal__/server.py` | 55% |
 | `ceres/__internal__/templates/__init__.py` | 100% |
 | `ceres/__internal__/utilities/__init__.py` | 100% |
 | `ceres/__internal__/utilities/algorithms.py` | 100% |
@@ -63,7 +63,7 @@
 | `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
-| `ceres/engine.py` | 73% |
+| `ceres/engine.py` | 72% |
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |

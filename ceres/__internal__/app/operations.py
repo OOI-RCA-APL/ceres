@@ -18,7 +18,7 @@ from ceres.address import Address
 from ceres.alert import Alert
 from ceres.component import ComponentFilter
 from ceres.data import Name, to_json, validate
-from ceres.error import NotFoundError, NotPermittedError, simplify
+from ceres.error import NotFoundError, NotPermittedError, ProcedureInternalError, simplify, trace
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.particle import Particle
@@ -237,15 +237,15 @@ def _control(name: str):
 
     @operation(f"engine.{name}")
     async def control(host: Host, arguments: dict[str, Any]) -> Any:
-        from ceres.__internal__.app import api
+        from ceres.__internal__.app.handlers import engine as control
 
         handlers = {
-            "start": api.start,
-            "stop": api.stop,
-            "enable": api.enable,
-            "disable": api.disable,
-            "up": api.up,
-            "down": api.down,
+            "start": control.start,
+            "stop": control.stop,
+            "enable": control.enable,
+            "disable": control.disable,
+            "up": control.up,
+            "down": control.down,
         }
         filter = _validated(ComponentFilter, arguments)
         actor = await _actor(host, arguments)
@@ -354,7 +354,7 @@ async def statuses_stream(host: Host, arguments: dict[str, Any]) -> AsyncIterato
 
 @operation("components.list")
 async def components_list(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.components import get_components
+    from ceres.__internal__.app.handlers.components import get_components
 
     actor = await _actor(host, arguments)
     return _entities(await get_components(engine=host.engine, actor=actor))
@@ -362,7 +362,7 @@ async def components_list(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("components.get")
 async def components_get(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.components import get_component
+    from ceres.__internal__.app.handlers.components import get_component
 
     actor = await _actor(host, arguments)
     described = await get_component(engine=host.engine, actor=actor, address=_address(arguments))
@@ -371,7 +371,7 @@ async def components_get(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("components.config")
 async def components_config(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.components import get_component_config
+    from ceres.__internal__.app.handlers.components import get_component_config
 
     actor = await _actor(host, arguments)
     config = await get_component_config(
@@ -382,7 +382,7 @@ async def components_config(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("components.connections")
 async def components_connections(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.components import get_component_connections
+    from ceres.__internal__.app.handlers.components import get_component_connections
 
     actor = await _actor(host, arguments)
     return _entities(
@@ -394,7 +394,7 @@ async def components_connections(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("components.jobs")
 async def components_jobs(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.components import get_component_jobs
+    from ceres.__internal__.app.handlers.components import get_component_jobs
 
     actor = await _actor(host, arguments)
     return _entities(
@@ -404,7 +404,7 @@ async def components_jobs(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("components.send")
 async def components_send(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.components import SendMessageInput, send_message
+    from ceres.__internal__.app.handlers.components import SendMessageInput, send_message
 
     actor = await _actor(host, arguments)
     data = _validated(SendMessageInput, arguments)
@@ -462,7 +462,7 @@ def _calls(namespace: str):
     async def call(host: Host, arguments: dict[str, Any], method: str) -> Any:
         from typing import cast
 
-        from ceres.__internal__.app.api.routes.components import call_natively
+        from ceres.__internal__.app.handlers.components import call_natively
 
         actor = await _actor(host, arguments)
         if method == "GET":
@@ -481,6 +481,18 @@ def _calls(namespace: str):
             namespace=cast("Any", namespace),
             method=method,
         )
+
+        # A procedure declaring media returns a prepared response, which the native
+        # server cannot serve yet.
+        from starlette.responses import Response
+
+        if isinstance(result, Response):
+            raise ProcedureInternalError(
+                exception=trace(
+                    NotImplementedError("procedures returning media serve through the engine")
+                )
+            )
+
         return _serialize(result)
 
     @operation(f"{namespace}.call")
@@ -495,7 +507,7 @@ def _calls(namespace: str):
     async def subscription(host: Host, arguments: dict[str, Any]) -> AsyncIterator[str]:
         from typing import cast
 
-        from ceres.__internal__.app.api.routes.components import subscribe_natively
+        from ceres.__internal__.app.handlers.components import subscribe_natively
 
         actor = await _actor(host, arguments)
         async for output in subscribe_natively(
@@ -614,7 +626,7 @@ async def memberships_remove(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("permissions.user")
 async def permissions_user(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.permissions import get_user_permissions
+    from ceres.__internal__.app.handlers.permissions import get_user_permissions
 
     return _entities(
         await get_user_permissions(engine=host.engine, user_id=_uuid(arguments, "user_id"))
@@ -623,7 +635,7 @@ async def permissions_user(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("permissions.group")
 async def permissions_group(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.permissions import get_group_permissions
+    from ceres.__internal__.app.handlers.permissions import get_group_permissions
 
     return _entities(
         await get_group_permissions(engine=host.engine, group_id=_uuid(arguments, "group_id"))
@@ -632,7 +644,7 @@ async def permissions_group(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("permissions.assign_user")
 async def permissions_assign_user(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.permissions import (
+    from ceres.__internal__.app.handlers.permissions import (
         UserPermissionData,
         set_user_permission,
     )
@@ -647,7 +659,7 @@ async def permissions_assign_user(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("permissions.delete_user")
 async def permissions_delete_user(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.permissions import (
+    from ceres.__internal__.app.handlers.permissions import (
         DeletePermissionData,
         delete_user_permission,
     )
@@ -660,7 +672,7 @@ async def permissions_delete_user(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("permissions.assign_group")
 async def permissions_assign_group(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.permissions import (
+    from ceres.__internal__.app.handlers.permissions import (
         GroupPermissionData,
         set_group_permission,
     )
@@ -675,7 +687,7 @@ async def permissions_assign_group(host: Host, arguments: dict[str, Any]) -> Any
 
 @operation("permissions.delete_group")
 async def permissions_delete_group(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.permissions import (
+    from ceres.__internal__.app.handlers.permissions import (
         DeletePermissionData,
         delete_group_permission,
     )
@@ -688,7 +700,7 @@ async def permissions_delete_group(host: Host, arguments: dict[str, Any]) -> Any
 
 @operation("permissions.effective")
 async def permissions_effective(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.permissions import get_all_effective_access
+    from ceres.__internal__.app.handlers.permissions import get_all_effective_access
 
     return _entities(
         await get_all_effective_access(engine=host.engine, user_id=_uuid(arguments, "user_id"))
@@ -697,7 +709,7 @@ async def permissions_effective(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("permissions.effective_at")
 async def permissions_effective_at(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.permissions import get_effective_access
+    from ceres.__internal__.app.handlers.permissions import get_effective_access
 
     resolved = await get_effective_access(
         engine=host.engine,
@@ -709,7 +721,7 @@ async def permissions_effective_at(host: Host, arguments: dict[str, Any]) -> Any
 
 def _workspace_operations() -> None:
     """Register the workspace operations, each keeping its placement rules."""
-    from ceres.__internal__.app.api.routes import workspaces as routes
+    from ceres.__internal__.app.handlers import workspaces as routes
 
     @operation("workspaces.list")
     async def listing(host: Host, arguments: dict[str, Any]) -> Any:
@@ -777,7 +789,7 @@ _workspace_operations()
 
 def _edit_operations() -> None:
     """Register the per-user workspace edit operations."""
-    from ceres.__internal__.app.api.routes import workspace_edits as routes
+    from ceres.__internal__.app.handlers import workspace_edits as routes
 
     @operation("edits.list")
     async def listing(host: Host, arguments: dict[str, Any]) -> Any:
@@ -845,7 +857,7 @@ _edit_operations()
 
 @operation("settings.get")
 async def settings_get(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.settings import get_setting
+    from ceres.__internal__.app.handlers.settings import get_setting
 
     actor = await _actor(host, arguments)
     found = await get_setting(
@@ -860,7 +872,7 @@ async def settings_get(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("settings.assign")
 async def settings_assign(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.api.routes.settings import put_setting
+    from ceres.__internal__.app.handlers.settings import put_setting
     from ceres.setting import Setting
 
     actor = await _actor(host, arguments)

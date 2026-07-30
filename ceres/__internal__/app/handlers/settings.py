@@ -1,18 +1,21 @@
-from uuid import UUID
+from typing import TYPE_CHECKING
 
-from ceres.__internal__.app.shared import CurrentActor, CurrentEngine, CurrentUser, Router
-from ceres.data import Name
 from ceres.error import NotFoundError, NotPermittedError
-from ceres.setting import Setting, SettingCreate
 
-router = Router(prefix="/settings", tags=["settings"])
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from ceres.__internal__.app.shared import Actor
+    from ceres.data import Name
+    from ceres.engine import Engine
+    from ceres.setting import Setting, SettingCreate
+    from ceres.user import User
 
 
-@router.get("/{user_id}/{name}")
 async def get_setting(
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    user: CurrentUser,
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
     user_id: UUID,
     name: Name,
 ) -> Setting:
@@ -32,11 +35,10 @@ async def get_setting(
     return setting
 
 
-@router.put("")
 async def put_setting(
-    engine: CurrentEngine,
-    actor: CurrentActor,
-    user: CurrentUser,
+    engine: Engine,
+    actor: Actor,
+    user: User | None,
     setting: SettingCreate,
 ) -> Setting:
     """Create or replace a user setting via upsert.

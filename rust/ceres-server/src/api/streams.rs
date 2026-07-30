@@ -120,6 +120,18 @@ macro_rules! socket_routes {
             }
         )*
 
+        /// Describe every socket-only route for the OpenAPI document.
+        pub(crate) fn documented() -> Vec<crate::api::schema::Documented> {
+            vec![$(crate::api::schema::Documented {
+                method: utoipa::openapi::HttpMethod::Get,
+                path: $path,
+                summary: $operation,
+                parameters: &[$(stringify!($field)),+],
+                secured: false,
+                tag: $operation.split('.').next().unwrap_or($operation),
+            }),*]
+        }
+
         /// Register every socket-only route.
         pub(crate) fn register(router: axum::Router<Arc<AppState>>) -> axum::Router<Arc<AppState>> {
             $(let router = router.typed_get(
