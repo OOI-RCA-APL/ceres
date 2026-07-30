@@ -1,13 +1,12 @@
 from typing import Any
 
 import pytest
-from starlette.requests import Request
 
 from ceres import Component, Engine, action
 from ceres.__internal__.app.api.routes.components import (
     SendMessageInput,
     _assert_procedure_access,
-    _call,
+    call_natively,
     send_message,
 )
 from ceres.__internal__.app.shared import Actor
@@ -55,16 +54,15 @@ async def _build_engine() -> tuple[Engine, Component]:
 async def test_call_action_unrestricted_actor_bypasses_permission_check() -> None:
     """CLI mode (an unrestricted actor) may call a non-public action without any grant."""
     engine, widget = await _build_engine()
-    request = Request(_http_scope(f"/api/components/{widget.system.address}/actions/turn/call"))
     actor = Actor(user=None, unrestricted=True)
 
-    result = await _call(
-        request=request,
+    result = await call_natively(
         engine=engine,
-        user=None,
         actor=actor,
         address=Address(str(widget.system.address)),
         procedure="turn",
+        namespace="actions",
+        method="POST",
     )
 
     assert result == "turned"

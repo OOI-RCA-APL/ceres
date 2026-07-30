@@ -42,6 +42,8 @@ from ceres.error import (
 from ceres.message import Message, MessageData
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from starlette.requests import HTTPConnection
 
     from ceres.__internal__.app.shared import Actor
@@ -458,14 +460,14 @@ async def _assert_procedure_access(
         raise ProcedureNotPermittedError()
 
 
-async def _call(
+async def call_natively(
     *,
-    request: Request,
     engine: CurrentEngine,
-    user: CurrentUser,
     actor: CurrentActor,
     address: Address,
     procedure: Name,
+    namespace: _ProcedureNamespace,
+    method: str,
     arguments: dict[Name, object] | None = None,
 ) -> CallResult:
     """Execute a procedure on a component and return the result.
@@ -478,8 +480,6 @@ async def _call(
         ProcedureNotFoundError: If the procedure is not found.
         ProcedureNotPermittedError: If the caller lacks permission.
     """
-    namespace = _get_namespace(request)
-
     component = engine.get_component(address)
     if component is None:
         raise ProcedureComponentNotFoundError()
@@ -498,7 +498,7 @@ async def _call(
 
     await _assert_procedure_access(engine, actor, component, binding)
 
-    if request.method == "GET" and binding.type == ProcedureType.ACTION:
+    if method == "GET" and binding.type == ProcedureType.ACTION:
         raise ProcedureNotPermittedError()
 
     output = await component.system.call(procedure, arguments)
@@ -537,13 +537,13 @@ async def call_procedure(
     arguments: Annotated[dict[Name, object] | None, Body()] = None,
 ) -> CallResult:
     """Call a procedure by POST with arguments supplied in the request body."""
-    return await _call(
-        request=request,
+    return await call_natively(
         engine=engine,
-        user=user,
         actor=actor,
         address=address,
         procedure=name,
+        namespace=_get_namespace(request),
+        method=request.method,
         arguments=arguments,
     )
 
@@ -576,13 +576,13 @@ async def call_procedure_by_get(
     arguments.pop("arguments", None)
     arguments.pop("args", None)
 
-    return await _call(
-        request=request,
+    return await call_natively(
         engine=engine,
-        user=user,
         actor=actor,
         address=address,
         procedure=name,
+        namespace=_get_namespace(request),
+        method=request.method,
         arguments=arguments,
     )
 
@@ -594,6 +594,44 @@ for namespace, kind in (("procedures", "procedure"), ("queries", "query")):
         name=name,
         operation_id=name,
     )(call_procedure_by_get)
+
+
+async def subscribe_natively(
+    *,
+    engine: CurrentEngine,
+    actor: CurrentActor,
+    address: Address,
+    procedure: Name,
+    namespace: _ProcedureNamespace,
+    arguments: dict[Name, object] | None = None,
+) -> AsyncIterator[object]:
+    """Subscribe to a procedure, yielding its outputs as they arrive.
+
+    Refusals raise their typed errors, which the caller renders as the socket's close
+    code and reason.
+
+    Raises:
+        ProcedureComponentNotFoundError: If the component is not found.
+        ProcedureNotFoundError: If the procedure is not found or is in another namespace.
+        ProcedureNotPermittedError: If the caller lacks permission.
+    """
+    component = engine.get_component(address)
+    if component is None:
+        raise ProcedureComponentNotFoundError()
+
+    binding = component.system.get_procedure_bindings().get(procedure)
+    if binding is None:
+        raise ProcedureNotFoundError()
+
+    if namespace == "queries" and binding.type != ProcedureType.QUERY:
+        raise ProcedureNotFoundError()
+    if namespace == "actions" and binding.type != ProcedureType.ACTION:
+        raise ProcedureNotFoundError()
+
+    await _assert_procedure_access(engine, actor, component, binding)
+
+    async for output in component.system.subscribe(procedure, arguments):
+        yield output
 
 
 async def subscribe_procedure(
