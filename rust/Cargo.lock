@@ -621,6 +621,8 @@ name = "ceres-cli"
 version = "0.0.0"
 dependencies = [
  "ceres-config",
+ "ceres-database",
+ "ceres-entities",
  "clap",
  "libc",
  "plist",
@@ -630,6 +632,7 @@ dependencies = [
  "serde_yaml_ng",
  "sha1",
  "tempfile",
+ "tokio",
  "ureq",
 ]
 

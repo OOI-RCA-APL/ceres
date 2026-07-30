@@ -14,6 +14,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::process::ExitCode;
 
+use ceres_database::RecordTable;
 use clap::{CommandFactory, Parser};
 
 use crate::cli::{Cli, Command, ConsoleCommand, ServiceCommand};
@@ -61,14 +62,25 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
         | Command::Check(_)
         | Command::Database(_)
         | Command::Generate(_)
-        | Command::Alerts(_)
-        | Command::Logs(_)
-        | Command::Messages(_)
-        | Command::Particles(_)
         | Command::Settings(_)
         | Command::Users(_)
         | Command::Variables(_)
         | Command::Workspaces(_) => match runtime::delegate(arguments)? {},
+
+        // A plain JSON select or count over a record table runs natively, everything
+        // else delegates to the Python runtime.
+        Command::Messages(args) => {
+            records_or_delegate(RecordTable::Messages, config, &args.arguments, arguments)
+        }
+        Command::Particles(args) => {
+            records_or_delegate(RecordTable::Particles, config, &args.arguments, arguments)
+        }
+        Command::Alerts(args) => {
+            records_or_delegate(RecordTable::Alerts, config, &args.arguments, arguments)
+        }
+        Command::Logs(args) => {
+            records_or_delegate(RecordTable::Logs, config, &args.arguments, arguments)
+        }
 
         Command::Reload => {
             let project = Project::discover(config)?;
@@ -129,6 +141,20 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
             }
         }
     }
+}
+
+/// Serve a record command natively when it fits the native subset, or delegate.
+fn records_or_delegate(
+    table: RecordTable,
+    config: Option<&Path>,
+    raw: &[OsString],
+    arguments: Vec<OsString>,
+) -> Result<()> {
+    if commands::records::try_run(table, config, raw)? {
+        return Ok(());
+    }
+
+    match runtime::delegate(arguments)? {}
 }
 
 /// Run an engine operation that requires a running engine.
