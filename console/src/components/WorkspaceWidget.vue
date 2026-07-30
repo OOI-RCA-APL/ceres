@@ -1,24 +1,31 @@
 <script lang="ts" setup>
-import { QPopupEdit } from 'quasar'
+import { QMenu } from 'quasar'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
+import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
 import { getWidgetInfo, useWorkspace, widgetTargetSignature, Widget, WidgetRow } from '@/workspace'
 
-const { widget } = defineProps<{
+const { widget, layoutId } = defineProps<{
   widget: Widget
   container: WidgetRow
   row: number
   column: number
+
+  /** The layout this widget sits in, which is what its row and column are counted against. */
+  layoutId: string
 }>()
 
 const workspace = useWorkspace()
 const preferences = usePreferences()
-const popupEdit = $ref<QPopupEdit | null>(null)
+
+// Renaming is reached deliberately, by double-clicking the name or from the widget's menu, since a
+// single press on the header is what picks the widget out and takes hold of it.
+let isEditingName = $ref(false)
 
 const info = $computed(() => getWidgetInfo(widget.type))
 const settingsComponent = $computed(() => {
@@ -31,6 +38,9 @@ const settingsComponent = $computed(() => {
 
 let isShowingSettingsDialog = $ref(false)
 let reloads = $ref(0)
+
+// Held so the dots can open the same menu a right click does, at wherever the pointer is.
+const menu = $ref<QMenu | null>(null)
 
 function onReloadRequested() {
   reloads++
@@ -68,6 +78,32 @@ const targetAddress = $computed(() => {
   return text != null && text.startsWith('@') && !text.includes(':') ? text : null
 })
 
+// A press on the header either picks the widget out or takes hold of it. Held with a modifier it
+// only changes what is picked out, since a selection is built up one press at a time. Otherwise it
+// takes hold of everything picked out, which is just this widget unless it was already among them.
+function onPress(event: MouseEvent | TouchEvent) {
+  // Only the primary button arranges anything. A right press is asking the widget a question, and
+  // the menu it opens is the answer.
+  if ('button' in event && event.button !== 0) {
+    return
+  }
+
+  if ('metaKey' in event && (event.metaKey || event.ctrlKey)) {
+    workspace.selectWidget(widget.id, 'toggle', layoutId)
+    return
+  }
+  if ('shiftKey' in event && event.shiftKey) {
+    workspace.selectWidget(widget.id, 'extend', layoutId)
+    return
+  }
+
+  if (!workspace.isSelected(widget.id) || workspace.selectionLayout !== layoutId) {
+    workspace.selectWidget(widget.id, 'replace', layoutId)
+  }
+
+  workspace.drag = { widget, widgets: [...workspace.selectedWidgets], layout: layoutId }
+}
+
 // A restricted stub loads with its address fields redacted, so the user could not have set
 // them knowingly. Once the user repoints the widget to a new target, the stub is stale and its
 // lock placeholder should give way to a fresh, editable widget.
@@ -83,40 +119,35 @@ watch(
 </script>
 
 <template>
-  <q-card v-if="workspace != null" bordered class="col column full-height" flat>
+  <q-card
+    v-if="workspace != null"
+    bordered
+    class="col column full-height"
+    :class="workspace.isSelected(widget.id) && $style.selected"
+    flat
+  >
     <div
       :class="[$style.header, 'q-px-sm', 'q-py-xs']"
+      data-widget-header
       :style="{ cursor: workspace.drag != null ? 'grabbing' : 'grab' }"
-      @mousedown.prevent="workspace.drag = { widget, row, column }"
+      @mousedown.prevent="onPress"
       @mousemove.prevent
       @touchmove.prevent
-      @touchstart.prevent="workspace.drag = { widget, row, column }"
+      @touchstart.prevent="onPress"
     >
       <div class="items-center no-wrap row">
         <div>
-          <common-text :class="$style.name" variant="th" @mousedown.stop @touchstart.stop>
-            {{ widget.name }}
-            <q-popup-edit
-              ref="popupEdit"
-              v-slot="scope"
-              v-model="widget.name"
-              auto-save
-              :class="$style.popupEdit"
-              self="top left"
-            >
-              <q-card bordered class="q-pa-sm" flat style="max-width: 200px">
-                <q-input
-                  v-model.trim="scope.value"
-                  autofocus
-                  clearable
-                  dense
-                  filled
-                  label="Widget Name"
-                  @clear="scope.value = ''"
-                  @keyup.enter="scope.set()"
-                />
-              </q-card>
-            </q-popup-edit>
+          <common-text
+            :class="[$style.name, isEditingName && $style.editingName]"
+            variant="th"
+            @click.shift.stop="isEditingName = true"
+            @dblclick.stop="isEditingName = true"
+          >
+            <inline-name-edit
+              v-model:editing="isEditingName"
+              :name="widget.name"
+              @rename="(value: string) => (widget.name = value)"
+            />
           </common-text>
         </div>
         <div v-if="settingsComponent != null">
@@ -153,63 +184,10 @@ watch(
             :icon="icons.more"
             round
             size="7px"
+            @click="menu?.show($event)"
             @mousedown.stop
             @touchstart.stop
-          >
-            <q-menu anchor="top right" :offset="[8, 0]" self="top left">
-              <q-list bordered>
-                <q-item v-close-popup clickable dense @click="popupEdit?.show()">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.rename" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Rename</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-item
-                  v-close-popup
-                  clickable
-                  dense
-                  @click="workspace.duplicateWidget(widget.id, row, column + 1)"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="icons.duplicate" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Duplicate</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item clickable dense>
-                  <q-item-section avatar>
-                    <q-icon :name="icons.add" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Add Widget Before</q-item-label>
-                  </q-item-section>
-                  <workspace-add-widget-menu :column="column" :row="row" />
-                </q-item>
-                <q-item clickable dense>
-                  <q-item-section avatar>
-                    <q-icon :name="icons.add" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Add Widget After</q-item-label>
-                  </q-item-section>
-                  <workspace-add-widget-menu :column="column + 1" :row="row" />
-                </q-item>
-                <q-separator />
-                <q-item v-close-popup clickable dense @click="workspace.deleteWidget(widget.id)">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.delete" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Delete</q-item-label>
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-menu>
-          </q-btn>
+          />
         </div>
         <q-btn
           v-if="targetAddress != null"
@@ -266,21 +244,96 @@ watch(
         />
       </div>
     </template>
+    <!-- One menu, opened by the dots or by right-clicking the widget itself, which is where a
+    context menu is looked for first. Hung off the card so the whole widget answers to it. -->
+    <q-menu ref="menu" context-menu>
+      <q-list bordered>
+        <q-item v-close-popup clickable dense @click="isEditingName = true">
+          <q-item-section avatar>
+            <q-icon :name="icons.rename" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Rename</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item
+          v-close-popup
+          clickable
+          dense
+          @click="workspace.duplicateWidget(widget.id, row, column + 1, layoutId)"
+        >
+          <q-item-section avatar>
+            <q-icon :name="icons.duplicate" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Duplicate</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-separator />
+        <q-item clickable dense>
+          <q-item-section avatar>
+            <q-icon :name="icons.add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Add Widget Before</q-item-label>
+          </q-item-section>
+          <workspace-add-widget-menu :column="column" :layout-id="layoutId" :row="row" />
+        </q-item>
+        <q-item clickable dense>
+          <q-item-section avatar>
+            <q-icon :name="icons.add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Add Widget After</q-item-label>
+          </q-item-section>
+          <workspace-add-widget-menu :column="column + 1" :layout-id="layoutId" :row="row" />
+        </q-item>
+        <q-separator />
+        <q-item v-close-popup clickable dense @click="workspace.deleteWidget(widget.id)">
+          <q-item-section avatar>
+            <q-icon :name="icons.delete" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Delete</q-item-label>
+          </q-item-section>
+        </q-item>
+      </q-list>
+    </q-menu>
   </q-card>
 </template>
 
 <style lang="scss" module>
 @use 'sass:color';
+
+// The header is what a widget is dragged by, so a touch that starts on it is a drag rather than
+// the page being scrolled.
+.header {
+  touch-action: none;
+}
+
+// Drawn outside the card's own border rather than in place of it, so picking a widget out does not
+// nudge everything inside it by a pixel.
+.selected {
+  outline: 2px solid $primary;
+  outline-offset: -1px;
+}
+
 :global(.light) .header {
   background-color: color.adjust(white, $lightness: -1%);
 }
 
 .name {
-  cursor: text;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.name:hover {
-  opacity: 0.6;
+// A name being edited is not truncated, since the ellipsis that keeps a header tidy would clip the
+// text being typed and the caret with it. The field grows with what is typed.
+.editingName {
+  max-width: none;
+  overflow: visible;
 }
 
 .content {
@@ -289,11 +342,6 @@ watch(
 
 :global(.dark) .content {
   background-color: $darker;
-}
-
-.popupEdit {
-  box-shadow: unset !important;
-  padding: 0 !important;
 }
 
 .editDialog {
