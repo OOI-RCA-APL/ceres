@@ -9,6 +9,7 @@ pub(crate) mod config;
 pub(crate) mod dispatch;
 pub(crate) mod records;
 pub(crate) mod schema;
+pub(crate) mod served;
 pub(crate) mod streams;
 
 /// Unwrap a fallible expression or answer with its response.

@@ -42,7 +42,7 @@
 | `ceres/address.py` | 96% |
 | `ceres/alert.py` | 92% |
 | `ceres/channel.py` | 92% |
-| `ceres/component.py` | 85% |
+| `ceres/component.py` | 86% |
 | `ceres/concurrency.py` | 91% |
 | `ceres/config.py` | 77% |
 | `ceres/connection/__init__.py` | 61% |

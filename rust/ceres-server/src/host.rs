@@ -6,6 +6,8 @@
 //! extension module's bridge, tests use stubs, and the boundary is exactly the seam a
 //! future non-Python host would implement.
 
+use std::path::PathBuf;
+
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::Value;
@@ -52,6 +54,29 @@ impl IntoResponse for HostError {
             }
         }
     }
+}
+
+/// A response the host described rather than serialized, whose body the server produces.
+///
+/// A procedure declaring a media type answers with one of these. The host decided every
+/// header, including the content type and length, so the server sends them as they
+/// arrive and only has to find the bytes.
+pub struct Served {
+    pub status: u16,
+    /// The headers to send, in order, each name already lowercased by the host.
+    pub headers: Vec<(String, String)>,
+    /// The file to stream, or `None` when the body is the handle's chunks.
+    pub file: Option<PathBuf>,
+    /// The handle to release once the body ends, which runs the output's exit hook.
+    pub handle: u64,
+}
+
+/// What an operation answered with.
+pub enum Answer {
+    /// A payload to serialize into the response, which nearly every operation returns.
+    Payload(Value),
+    /// A body the server produces itself, which only a media output answers with.
+    Served(Served),
 }
 
 /// Why a stream refused to open or stopped early.
@@ -117,6 +142,15 @@ pub trait Host: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// Await the next chunk of a described response's body, `None` once it ends.
+    ///
+    /// Chunks arrive as raw bytes, so a body the host produces crosses without an
+    /// encoding step of its own.
+    async fn next_chunk(&self, handle: u64) -> Result<Option<Vec<u8>>, HostError> {
+        let _ = handle;
+        Ok(None)
+    }
+
     /// Release a stream's resources, whatever ended it.
     async fn stream_close(&self, handle: u64) {
         let _ = handle;
@@ -125,13 +159,26 @@ pub trait Host: Send + Sync + 'static {
     /// Run a named engine operation, the generic channel most route families ride.
     ///
     /// The operation names and argument shapes form the contract between the server and
-    /// its host, one name per route behavior, and the result is the payload the route
-    /// serves.
-    async fn operate(&self, operation: &str, arguments: Value) -> Result<Value, HostError> {
+    /// its host, one name per route behavior, and the answer is what the route serves.
+    async fn operate(&self, operation: &str, arguments: Value) -> Result<Answer, HostError> {
         let _ = arguments;
         Err(HostError::Internal(format!(
             "this host does not support the {operation:?} operation"
         )))
+    }
+
+    /// Run an operation that answers with a payload.
+    ///
+    /// Only the procedure call routes reach an operation that can describe a response,
+    /// so every other route asks for the payload and treats a description as a failure
+    /// of the host rather than carrying a branch that cannot be taken.
+    async fn payload(&self, operation: &str, arguments: Value) -> Result<Value, HostError> {
+        match self.operate(operation, arguments).await? {
+            Answer::Payload(payload) => Ok(payload),
+            Answer::Served(_) => Err(HostError::Internal(format!(
+                "the {operation:?} operation answered with a body of its own"
+            ))),
+        }
     }
 }
 

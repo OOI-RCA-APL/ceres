@@ -6,7 +6,7 @@ and leaves the wire behavior unpinned. A server port must pass this file unchang
 """
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -15,6 +15,7 @@ import httpx
 
 from ceres import Component, Engine, query
 from ceres.address import Address
+from ceres.component import FileOutput, StreamingOutput
 from ceres.config import Config
 from ceres.data import to_json, validate
 from ceres.particle import Particle
@@ -32,12 +33,67 @@ class _Probe(Component):
         return text
 
 
+_media: dict[str, Any] = {}
+"""What the media component serves, and which of its exit hooks have run."""
+
+
+def _exit(name: str) -> Callable[[], Awaitable[None]]:
+    """An exit hook recording that it ran, under its procedure's name."""
+
+    async def hook() -> None:
+        _media.setdefault("exited", []).append(name)
+
+    return hook
+
+
+class _Media(Component):
+    """A component whose queries answer with media, for the described-response path."""
+
+    @query(permit="public")
+    async def download(self) -> FileOutput:
+        return FileOutput(_media["path"], http_filename="export.csv", on_exit=_exit("download"))
+
+    @query(permit="public", media="text/csv")
+    async def rows(self) -> StreamingOutput:
+        async def chunks() -> AsyncIterator[bytes]:
+            yield b"a,b\n"
+            for index in range(3):
+                yield f"{index},{index * 2}\n".encode()
+
+        return StreamingOutput(chunks, "text/csv", on_exit=_exit("rows"))
+
+    @query(permit="public", media="application/octet-stream")
+    async def endless(self) -> StreamingOutput:
+        async def chunks() -> AsyncIterator[bytes]:
+            import asyncio
+
+            while True:
+                yield b"x" * 4096
+                await asyncio.sleep(0.01)
+
+        return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("endless"))
+
+
+async def _exited(name: str) -> bool:
+    """Whether an exit hook has run, giving the release its moment to arrive."""
+    import asyncio
+
+    for _ in range(50):
+        if name in _media.get("exited", []):
+            return True
+
+        await asyncio.sleep(0.02)
+
+    return False
+
+
 @asynccontextmanager
 async def _serve(
     *,
     authentication: bool = True,
     allow_impersonate: bool = False,
     probe: bool = False,
+    media: bool = False,
     cli_token: str | None = None,
 ) -> AsyncIterator[tuple[Engine, httpx.AsyncClient]]:
     """Serve an engine natively on a loopback port and yield a client against it.
@@ -67,6 +123,10 @@ async def _serve(
     await engine.load(validate(Config, {"components": [], "server": server}), checks=())
     if probe:
         engine.attach(_Probe(__with_name__="probe"))
+
+    if media:
+        _media["exited"] = []
+        engine.attach(_Media(__with_name__="media"))
 
     host = Host(engine)
     console = Path(__file__).parent.parent.parent.parent.parent / "ceres" / "static" / "console"
@@ -283,6 +343,56 @@ async def test_public_procedures_call_anonymously() -> None:
         response = await client.get("/api/components/@probe/queries/ping/call?text=hi")
         assert response.status_code == 200
         assert response.json() == "hi"
+
+
+async def test_a_file_output_serves_the_file_with_its_headers(tmp_path: Path) -> None:
+    """A procedure answering with a file streams it, described rather than serialized."""
+    _media["path"] = tmp_path / "report.csv"
+    _media["path"].write_bytes(b"name,value\nalpha,1\n")
+
+    async with _serve(media=True) as (_, client):
+        response = await client.get("/api/components/@media/queries/download/call")
+
+        assert response.status_code == 200
+        assert response.content == b"name,value\nalpha,1\n"
+        assert response.headers["content-type"] == "text/csv"
+        assert response.headers["content-length"] == "19"
+        assert response.headers["content-disposition"] == 'attachment; filename="export.csv"'
+        assert await _exited("download")
+
+
+async def test_a_missing_file_refuses_rather_than_truncating() -> None:
+    """The file is stat'd before the response starts, so its absence is a plain failure."""
+    _media["path"] = Path("/nonexistent/report.csv")
+
+    async with _serve(media=True) as (_, client):
+        response = await client.get("/api/components/@media/queries/download/call")
+
+        assert response.status_code == 500
+        assert response.json()["__error__"] is True
+
+
+async def test_a_streaming_output_serves_its_chunks() -> None:
+    """A procedure answering with a stream has its chunks pulled across as raw bytes."""
+    async with _serve(media=True) as (_, client):
+        response = await client.get("/api/components/@media/queries/rows/call")
+
+        assert response.status_code == 200
+        assert response.content == b"a,b\n0,0\n1,2\n2,4\n"
+        assert response.headers["content-type"] == "text/csv"
+        assert "content-length" not in response.headers
+        assert await _exited("rows")
+
+
+async def test_a_client_leaving_mid_stream_still_runs_the_exit_hook() -> None:
+    """Releasing the body is what runs the hook, so a download abandoned partway runs it too."""
+    async with _serve(media=True) as (_, client):
+        async with client.stream("GET", "/api/components/@media/queries/endless/call") as response:
+            assert response.status_code == 200
+            chunks = response.aiter_bytes()
+            assert len(await anext(chunks)) > 0
+
+        assert await _exited("endless")
 
 
 async def test_config_routes_gate_by_admin_and_scrub_credentials() -> None:

@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::app::AppState;
 use crate::auth::{Actor, require_admin, require_authenticated, require_self_or_admin};
 use crate::error::{ApiError, Problem};
-use crate::host::HostError;
+use crate::host::{Answer, HostError};
 
 /// Who a route admits.
 #[derive(Clone, Copy)]
@@ -399,12 +399,15 @@ async fn dispatch(
     });
 
     match state.host.operate(operation, arguments).await {
-        Ok(payload) => (
+        Ok(Answer::Payload(payload)) => (
             StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
             [(header::CONTENT_TYPE, "application/json")],
             payload.to_string(),
         )
             .into_response(),
+        // A described response carries the status the output declared, so a route's own
+        // created-status override does not apply to it.
+        Ok(Answer::Served(served)) => crate::api::served::respond(&state.host, served).await,
         Err(HostError::Typed { status, envelope }) => (
             StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
             [(header::CONTENT_TYPE, "application/json")],

@@ -28,7 +28,7 @@ pub use auth::{
 };
 pub use cookie::CookieType;
 pub use error::{ApiError, Problem};
-pub use host::{Host, HostError, NoHost, StreamClose, UserRecord};
+pub use host::{Answer, Host, HostError, NoHost, Served, StreamClose, UserRecord};
 pub use layers::{apply_compression, apply_cors};
 pub use scrub::scrub_credentials;
 pub use serve::{BoundServer, Error as ServeError, Stopper};
@@ -258,11 +258,11 @@ mod tests {
             &self,
             operation: &str,
             _arguments: serde_json::Value,
-        ) -> Result<serde_json::Value, HostError> {
-            Ok(serde_json::json!({
+        ) -> Result<Answer, HostError> {
+            Ok(Answer::Payload(serde_json::json!({
                 "section": operation,
                 "authentication": {"secret": "the-signing-secret", "duration": 1800},
-            }))
+            })))
         }
     }
 

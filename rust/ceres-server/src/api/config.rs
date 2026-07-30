@@ -19,7 +19,7 @@ use crate::scrub::scrub_credentials;
 
 /// Serve one configuration section through the host, scrubbed.
 async fn serve_section(state: &AppState, operation: &str) -> Response {
-    match state.host.operate(operation, json!({})).await {
+    match state.host.payload(operation, json!({})).await {
         Ok(payload) => json_response(scrub_credentials(payload)),
         Err(error) => error.into_response(),
     }

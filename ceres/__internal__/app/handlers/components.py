@@ -11,7 +11,6 @@ from ceres.component import (
     ActionBinding,
     Component,
     ComponentAccessLevel,
-    Output,
     ProcedureBinding,
     ProcedureType,
     QueryBinding,
@@ -395,12 +394,8 @@ async def get_action(
     return binding
 
 
-if TYPE_CHECKING:
-    from starlette.responses import Response
-
-    type CallResult = Any | Response | None
-else:
-    type CallResult = Any
+type CallResult = Any
+"""What a procedure answered with, a value, a media output, or nothing."""
 
 
 async def _assert_procedure_access(
@@ -470,11 +465,8 @@ async def call_natively(
     if method == "GET" and binding.type == ProcedureType.ACTION:
         raise ProcedureNotPermittedError()
 
-    output = await component.system.call(procedure, arguments)
-    if isinstance(output, Output):
-        return output.to_response()
-
-    return output
+    # A media output travels as itself, so the caller decides how to serve its body.
+    return await component.system.call(procedure, arguments)
 
 
 _ProcedureNamespace = Literal["procedures", "queries", "actions"]

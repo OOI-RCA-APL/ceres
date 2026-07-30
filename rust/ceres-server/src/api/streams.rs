@@ -171,7 +171,7 @@ pub(crate) async fn statuses(State(state): State<Arc<AppState>>, request: Reques
     let arguments = json!({"query": query_pairs(query)});
     match requested_upgrade(&mut parts, &state).await {
         Some(upgrade) => stream(&state, upgrade, "statuses.stream", arguments),
-        None => match state.host.operate("statuses.list", arguments).await {
+        None => match state.host.payload("statuses.list", arguments).await {
             Ok(payload) => crate::app::json_response(payload),
             Err(error) => error.into_response(),
         },

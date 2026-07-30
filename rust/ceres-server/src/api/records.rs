@@ -32,7 +32,7 @@ async fn list(state: &Arc<AppState>, table: &str, request: Request) -> Response 
         return crate::api::streams::stream(state, upgrade, "records.stream", arguments);
     }
 
-    match state.host.operate("records.list", arguments).await {
+    match state.host.payload("records.list", arguments).await {
         Ok(payload) => json_response(payload),
         Err(error) => error.into_response(),
     }
@@ -49,7 +49,7 @@ async fn count(
     attempt!(require_authenticated(&actor));
 
     let arguments = json!({"table": table, "query": crate::api::streams::query_pairs(query)});
-    match state.host.operate("records.count", arguments).await {
+    match state.host.payload("records.count", arguments).await {
         Ok(payload) => json_response(payload),
         Err(error) => error.into_response(),
     }
@@ -69,7 +69,7 @@ async fn get(state: &AppState, headers: &HeaderMap, table: &str, id: &str) -> Re
 
     match state
         .host
-        .operate("records.get", json!({"table": table, "id": id}))
+        .payload("records.get", json!({"table": table, "id": id}))
         .await
     {
         Ok(Value::Null) => ApiError::not_found().into_response(),

@@ -18,7 +18,7 @@ from ceres.address import Address
 from ceres.alert import Alert
 from ceres.component import ComponentFilter
 from ceres.data import Name, to_json, validate
-from ceres.error import NotFoundError, NotPermittedError, ProcedureInternalError, simplify, trace
+from ceres.error import NotFoundError, NotPermittedError, simplify
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.particle import Particle
@@ -482,16 +482,12 @@ def _calls(namespace: str):
             method=method,
         )
 
-        # A procedure declaring media returns a prepared response, which the native
-        # server cannot serve yet.
-        from starlette.responses import Response
+        # A procedure declaring media answers with an output the server serves as a body
+        # of its own, described rather than serialized into the payload.
+        from ceres.component import BaseOutput
 
-        if isinstance(result, Response):
-            raise ProcedureInternalError(
-                exception=trace(
-                    NotImplementedError("procedures returning media serve through the engine")
-                )
-            )
+        if isinstance(result, BaseOutput):
+            return host.serve(result)
 
         return _serialize(result)
 

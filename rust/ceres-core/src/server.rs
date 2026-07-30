@@ -4,16 +4,17 @@
 //! the control server's ephemeral port is known before anything serves, and serves on
 //! the shared tokio runtime as an awaitable. The engine crosses the boundary the other
 //! way through the host object, whose async methods answer the server's `Host` calls
-//! with one JSON envelope per result, `{"ok": ...}` carrying a user record or null, and
-//! `{"error": {"status", "envelope"}}` passing a typed error through verbatim.
+//! with one JSON envelope per result, `{"ok": ...}` carrying a user record or null,
+//! `{"error": {"status", "envelope"}}` passing a typed error through verbatim, and
+//! `{"response": ...}` describing a body the server produces itself.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use ceres_server::axum::Router;
 use ceres_server::{
-    AppConfig, AuthSettings, BoundServer, ConsolePaths, Host, HostError, Stopper, StreamClose,
-    UserRecord, apply_compression, apply_cors, build_router,
+    Answer, AppConfig, AuthSettings, BoundServer, ConsolePaths, Host, HostError, Served, Stopper,
+    StreamClose, UserRecord, apply_compression, apply_cors, build_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -31,11 +32,11 @@ struct PyHost {
 }
 
 impl PyHost {
-    /// Await one host method, answering with the JSON envelope it returned.
+    /// Await one host method, answering with whatever it returned.
     ///
     /// Host coroutines run on the event loop captured when serving started, because the
     /// server's own tasks run on tokio threads with no ambient loop of their own.
-    async fn call<A>(&self, method: &str, arguments: A) -> Result<String, String>
+    async fn await_call<A>(&self, method: &str, arguments: A) -> Result<Py<PyAny>, String>
     where
         A: for<'py> pyo3::call::PyCallArgs<'py> + Send,
     {
@@ -48,7 +49,15 @@ impl PyHost {
         })
         .map_err(|error| error.to_string())?;
 
-        let result = future.await.map_err(|error| error.to_string())?;
+        future.await.map_err(|error| error.to_string())
+    }
+
+    /// Await one host method, answering with the JSON envelope it returned.
+    async fn call<A>(&self, method: &str, arguments: A) -> Result<String, String>
+    where
+        A: for<'py> pyo3::call::PyCallArgs<'py> + Send,
+    {
+        let result = self.await_call(method, arguments).await?;
         Python::attach(|py| result.extract::<String>(py)).map_err(|error| error.to_string())
     }
 }
@@ -87,12 +96,22 @@ impl Host for PyHost {
         host_call!(self, "change_password", (user, old_password, new_password))
     }
 
-    async fn operate(&self, operation: &str, arguments: Value) -> Result<Value, HostError> {
+    async fn operate(&self, operation: &str, arguments: Value) -> Result<Answer, HostError> {
         let envelope = self
             .call("operate", (operation.to_string(), arguments.to_string()))
             .await
             .map_err(HostError::Internal)?;
-        parse_value_envelope(&envelope)
+        parse_answer_envelope(&envelope)
+    }
+
+    async fn next_chunk(&self, handle: u64) -> Result<Option<Vec<u8>>, HostError> {
+        let chunk = self
+            .await_call("next_chunk", (handle,))
+            .await
+            .map_err(HostError::Internal)?;
+        Python::attach(|py| chunk.extract::<Option<Vec<u8>>>(py)).map_err(|error| {
+            HostError::Internal(format!("the host answered with no chunk. {error}"))
+        })
     }
 
     async fn stream_open(&self, operation: &str, arguments: Value) -> Result<u64, StreamClose> {
@@ -168,8 +187,8 @@ fn parse_stream_envelope(envelope: &str) -> Result<StreamMessage, StreamClose> {
     }
 }
 
-/// Parse a host result envelope into its payload or a typed error.
-fn parse_value_envelope(envelope: &str) -> Result<Value, HostError> {
+/// Parse a host result envelope into its answer or a typed error.
+fn parse_answer_envelope(envelope: &str) -> Result<Answer, HostError> {
     let value: Value = serde_json::from_str(envelope)
         .map_err(|error| HostError::Internal(format!("unparseable host envelope. {error}")))?;
 
@@ -182,7 +201,56 @@ fn parse_value_envelope(envelope: &str) -> Result<Value, HostError> {
         });
     }
 
-    Ok(value.get("ok").cloned().unwrap_or(Value::Null))
+    // A described response arrives in its own envelope key rather than inside the
+    // payload, so data an operation returns can never be mistaken for one.
+    if let Some(described) = value.get("response") {
+        return parse_served(described);
+    }
+
+    Ok(Answer::Payload(
+        value.get("ok").cloned().unwrap_or(Value::Null),
+    ))
+}
+
+/// Parse a described response into the body and headers the server serves.
+fn parse_served(described: &Value) -> Result<Answer, HostError> {
+    let handle = described
+        .get("handle")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            HostError::Internal("the host's described response carries no handle".to_string())
+        })?;
+
+    let headers = described
+        .get("headers")
+        .and_then(Value::as_array)
+        .map(|headers| {
+            headers
+                .iter()
+                .filter_map(|header| {
+                    let pair = header.as_array()?;
+                    Some((
+                        pair.first()?.as_str()?.to_string(),
+                        pair.get(1)?.as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(Answer::Served(Served {
+        status: described
+            .get("status")
+            .and_then(Value::as_u64)
+            .and_then(|status| u16::try_from(status).ok())
+            .unwrap_or(200),
+        headers,
+        file: described
+            .get("file")
+            .and_then(Value::as_str)
+            .map(std::path::PathBuf::from),
+        handle,
+    }))
 }
 
 /// Parse a host result envelope into a user record, absence, or a typed error.
