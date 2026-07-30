@@ -13,12 +13,12 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+from ceres_core import NativeServer
 
 from ceres import Engine
 from ceres.config import Config
 from ceres.data import to_json, validate
 from ceres.user import User
-from ceres_core import NativeServer
 
 SECRET = "an-adequately-long-test-signing-secret"
 PASSWORD = "pw12345"
