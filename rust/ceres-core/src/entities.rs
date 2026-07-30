@@ -80,6 +80,18 @@ impl RecordBatch {
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(PyBytes::new(py, &serialized))
     }
+
+    /// Serialize the batch as JSON lines in the wire format, one record per line.
+    ///
+    /// The shape a CLI record dump writes, so a select can produce its whole output in
+    /// one native pass.
+    fn to_json_lines<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let serialized = self
+            .records
+            .to_json_lines()
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        Ok(PyBytes::new(py, &serialized))
+    }
 }
 
 /// One of the record tables, the selector native record operations dispatch on.

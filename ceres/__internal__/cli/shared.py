@@ -969,6 +969,46 @@ class CLIDataOutputCommand(CLICommand):
             fields=fields,
         )
 
+    def plain_json_output(self) -> bool:
+        """Whether output is plain JSON lines, with no field selection and no color.
+
+        The shape a native dump can produce in one pass, so a select checks this before
+        deciding whether it can skip materializing entities.
+        """
+        if self.field is not None or getattr(self, "fields", None) is not None:
+            return False
+
+        data_format = self.data_format
+        if self.output is not None:
+            data_format = _resolve_data_format(self.output, data_format)
+
+        if (data_format or CLIDataFormat.JSON) is not CLIDataFormat.JSON:
+            return False
+
+        color = self.color
+        if color is None:
+            color = _get_color_enabled_by_variables()
+
+        if color is None:
+            color = self.output is None and sys.stdout.isatty()
+
+        return not color
+
+    def put_text(self, text: str) -> None:
+        """Write already-rendered output through the command's configured destination."""
+        if self.output is not None:
+            try:
+                file = open(self.output, "w")
+            except FileNotFoundError:
+                raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
+            except OSError:
+                raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
+
+            with file:
+                file.write(text)
+        else:
+            sys.stdout.write(text)
+
 
 class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
     """CLI data output command that additionally accepts positional field selection arguments."""
@@ -1011,6 +1051,35 @@ class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
         )
 
 
+async def dump_records_natively(database: Any, Entity: type[Any], query: Any) -> str | None:
+    """Render a record query as JSON lines in one native pass, `None` when it cannot.
+
+    The query compiles here and executes through the native fetcher, so rows never
+    become Python objects and records serialize once, in Rust. Only the record tables
+    on a native backend qualify, and a query carrying a transform needs Python objects
+    and takes the materializing path instead.
+    """
+    from ceres.__internal__.app.shared import RECORD_TABLES
+
+    table = RECORD_TABLES.get(Entity.__entity_naming__.table)
+    if table is None or query._get_transform() is not None:
+        return None
+
+    fetcher = database._record_fetcher()
+    if fetcher is None:
+        return None
+
+    sql, parameters = await query.compiled()
+    try:
+        batch = await fetcher.fetch_sql(table, sql, parameters)
+    except TypeError, ValueError:
+        # The native engine can lag the Python one in corner cases. The dump stays
+        # correct through the materializing path, just slower.
+        return None
+
+    return batch.to_json_lines().decode()
+
+
 def create_entity_select_command(Entity: type[Entity]):
     """Create a CLI subcommand class that retrieves and outputs entities matching a filter."""
     naming = Entity.__entity_naming__
@@ -1025,7 +1094,17 @@ def create_entity_select_command(Entity: type[Entity]):
         async def __run__(self) -> None:
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                await self.put(database.__manager__(Entity).where(filter).select())
+                query = database.__manager__(Entity).where(filter)
+
+                # A plain JSON dump of a record table renders natively in one pass,
+                # which is what makes a select over a large table fast.
+                if self.plain_json_output():
+                    dumped = await dump_records_natively(database, Entity, query)
+                    if dumped is not None:
+                        self.put_text(dumped)
+                        return
+
+                await self.put(query.select())
 
     return SelectCommand
 

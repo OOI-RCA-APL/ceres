@@ -454,6 +454,13 @@ class RecordBatch:
         r"""
         Serialize the batch as a JSON array in the API's wire format.
         """
+    def to_json_lines(self) -> bytes:
+        r"""
+        Serialize the batch as JSON lines in the wire format, one record per line.
+
+        The shape a CLI record dump writes, so a select can produce its whole output in
+        one native pass.
+        """
 
 @final
 class RecordFetcher:

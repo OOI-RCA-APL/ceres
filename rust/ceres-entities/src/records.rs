@@ -101,6 +101,17 @@ pub fn to_json_array<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>>
     serde_json::to_vec(records)
 }
 
+/// Serialize a sequence of records as JSON lines, one record per line.
+pub fn to_json_lines<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
+    let mut lines = Vec::new();
+    for record in records {
+        serde_json::to_writer(&mut lines, record)?;
+        lines.push(b'\n');
+    }
+
+    Ok(lines)
+}
+
 /// The records of one query result, all of a single entity type.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Records {
@@ -124,6 +135,16 @@ impl Records {
     /// Whether no records are held.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Serialize the records as JSON lines in the wire format, one record per line.
+    pub fn to_json_lines(&self) -> serde_json::Result<Vec<u8>> {
+        match self {
+            Self::Messages(records) => to_json_lines(records),
+            Self::Particles(records) => to_json_lines(records),
+            Self::Alerts(records) => to_json_lines(records),
+            Self::LogEntries(records) => to_json_lines(records),
+        }
     }
 
     /// Serialize the records as one JSON array in the API's wire format.
