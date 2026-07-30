@@ -593,6 +593,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatched_routes_gate_and_forward() {
+        let admin = uuid::Uuid::new_v4();
+        let viewer = uuid::Uuid::new_v4();
+        let app = two_user_app(admin, viewer, false);
+        let admin_token = mint(admin, None, &settings(false)).unwrap().token;
+        let viewer_token = mint(viewer, None, &settings(false)).unwrap().token;
+
+        // Reloading requires an administrator.
+        assert_response!(request!(app, post "/api/reload"), UNAUTHORIZED);
+        assert_response!(
+            request!(app, post "/api/reload", header::AUTHORIZATION => format!("Bearer {viewer_token}")),
+            FORBIDDEN
+        );
+        let response = request!(
+            app, post "/api/reload",
+            header::AUTHORIZATION => format!("Bearer {admin_token}")
+        );
+        let body = json_of(assert_response!(response, OK)).await;
+        assert_eq!(body["section"], "engine.reload");
+
+        // Creating a user answers 201, the API's one non-default status.
+        let response = request_json!(
+            app, post "/api/users", serde_json::json!({"username": "new"}),
+            header::AUTHORIZATION => format!("Bearer {admin_token}")
+        );
+        assert_response!(response, CREATED);
+
+        // A malformed UUID capture means the route never matched.
+        assert_response!(
+            request!(
+                app, get "/api/users/not-a-uuid",
+                header::AUTHORIZATION => format!("Bearer {admin_token}")
+            ),
+            NOT_FOUND,
+            br#"{"__error__":true,"type":"not-found-error"}"#
+        );
+
+        // Self-or-admin admits the named user and refuses everyone else.
+        assert_response!(
+            request!(
+                app, get format!("/api/permissions/user/{viewer}").as_str(),
+                header::AUTHORIZATION => format!("Bearer {viewer_token}")
+            ),
+            OK
+        );
+        assert_response!(
+            request!(
+                app, get format!("/api/permissions/user/{admin}").as_str(),
+                header::AUTHORIZATION => format!("Bearer {viewer_token}")
+            ),
+            FORBIDDEN
+        );
+
+        // Open routes dispatch without credentials, the operation applying its own rules.
+        let response = request_json!(
+            app, post "/api/components/@probe/queries/ping/call",
+            serde_json::json!({"text": "hi"})
+        );
+        let body = json_of(assert_response!(response, OK)).await;
+        assert_eq!(body["section"], "queries.call");
+
+        // A wildcard capture carries the whole remaining path.
+        let response = request!(
+            app, get format!("/api/permissions/effective/{admin}/@sensor.temp").as_str(),
+            header::AUTHORIZATION => format!("Bearer {admin_token}")
+        );
+        let body = json_of(assert_response!(response, OK)).await;
+        assert_eq!(body["section"], "permissions.effective_at");
+    }
+
+    #[tokio::test]
     async fn features_report_impersonation() {
         let user = uuid::Uuid::new_v4();
         assert_response!(

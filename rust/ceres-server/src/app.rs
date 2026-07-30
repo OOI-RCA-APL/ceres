@@ -126,6 +126,7 @@ pub fn build_router(config: AppConfig) -> Router {
         .route("/api/config/console", get(crate::api::config::console))
         .route("/api/{*path}", get(api_not_found));
     router = record_routes(router);
+    router = crate::api::dispatch::register(router);
 
     if state.console.is_some() {
         router = router

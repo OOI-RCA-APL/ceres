@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 async-trait = "0.1"
 axum = "0.8"
+axum-extra = { version = "0.12.6", features = ["typed-routing"] }
 axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
 ceres-config = { path = "../ceres-config" }
 ceres-entities = { path = "../ceres-entities" }
@@ -23,6 +24,7 @@ rustls = { version = "0.23", default-features = false, features = [
     "tls12",
 ] }
 rustls-pemfile = "2"
+serde = { version = "1.0.229", features = ["derive"] }
 # `preserve_order` keeps envelope and payload keys in insertion order, matching the
 # Python layer's serialization byte for byte.
 serde_json = { version = "1", features = ["preserve_order"] }

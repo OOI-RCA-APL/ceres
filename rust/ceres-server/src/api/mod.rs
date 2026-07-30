@@ -6,6 +6,7 @@
 
 pub(crate) mod auth;
 pub(crate) mod config;
+pub(crate) mod dispatch;
 pub(crate) mod records;
 
 /// Unwrap a fallible expression or answer with its response.
