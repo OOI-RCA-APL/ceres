@@ -67,7 +67,7 @@
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |
-| `ceres/group.py` | 98% |
+| `ceres/group.py` | 99% |
 | `ceres/item.py` | 90% |
 | `ceres/job.py` | 59% |
 | `ceres/level.py` | 100% |

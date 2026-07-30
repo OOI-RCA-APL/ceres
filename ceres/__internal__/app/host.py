@@ -326,16 +326,20 @@ def _record(user: User | None) -> str:
 
 
 def _failure(error: Error) -> str:
-    """The envelope carrying a typed refusal, with its status and serialized form."""
-    from ceres.error import simplify
+    """The envelope carrying a typed refusal, with its status and serialized form.
+
+    A generic HTTP error carries the status it stands for on the instance rather than on
+    its class, which is the status it serves under.
+    """
+    from ceres.error import HTTPError, simplify
+
+    if isinstance(error, HTTPError):
+        status = error.status
+    else:
+        status = error.__error_status_code__
 
     return json.dumps(
-        {
-            "error": {
-                "status": error.__error_status_code__,
-                "envelope": json.loads(to_json(simplify(error))),
-            }
-        }
+        {"error": {"status": status, "envelope": json.loads(to_json(simplify(error)))}}
     )
 
 

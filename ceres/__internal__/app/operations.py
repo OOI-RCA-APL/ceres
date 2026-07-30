@@ -18,7 +18,13 @@ from ceres.address import Address
 from ceres.alert import Alert
 from ceres.component import ComponentFilter
 from ceres.data import Name, to_json, validate
-from ceres.error import NotFoundError, NotPermittedError, simplify
+from ceres.error import (
+    HTTPError,
+    NotAuthenticatedError,
+    NotFoundError,
+    NotPermittedError,
+    simplify,
+)
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.particle import Particle
@@ -67,9 +73,15 @@ def _path(arguments: dict[str, Any], name: str) -> str:
 
 
 def _uuid(arguments: dict[str, Any], name: str) -> UUID:
+    """Read one path parameter as a UUID, reporting a malformed one as a bad request.
+
+    Most routes declare their captures as UUIDs and never match a malformed one, so this
+    matters where a route takes the capture as text, which is where the framework's own
+    coercion reported a validation failure rather than a missing route.
+    """
     from uuid import UUID as Parse
 
-    return Parse(_path(arguments, name))
+    return validate(Parse, _path(arguments, name))
 
 
 def _address(arguments: dict[str, Any], name: str = "address") -> Address:
@@ -99,9 +111,23 @@ async def _actor(host: Host, arguments: dict[str, Any]) -> Actor:
 
 
 async def _require_user(host: Host, arguments: dict[str, Any]) -> Any:
-    """Return the concrete user behind the actor, refusing when there is none."""
+    """Return the user behind the actor, `None` when the context grants access without one.
+
+    An unrestricted context, the CLI or a server with authentication disabled, has no user
+    and passes through, which is what the routes have always been handed.
+
+    Raises:
+        NotAuthenticatedError: If there is no user and nothing granting access without one.
+        NotPermittedError: If the user is disabled.
+    """
     actor = await _actor(host, arguments)
+    if actor.unrestricted:
+        return None
+
     if actor.user is None:
+        raise NotAuthenticatedError()
+
+    if actor.user.disabled:
         raise NotPermittedError()
 
     return actor.user
@@ -303,13 +329,14 @@ async def users_update(host: Host, arguments: dict[str, Any]) -> Any:
     data = _validated(User.Update, arguments)
 
     # Only administrators may change another account's standing.
-    supplied = _body(arguments) or {}
-    if not actor.admin and ("admin" in supplied or "disabled" in supplied):
+    if not actor.admin and ("admin" in data or "disabled" in data):
         raise NotPermittedError()
 
-    id = _uuid(arguments, "id")
-    await host.engine.users.where(id=id).update(data)
-    return _serialize(await host.engine.users.get(id), EXCLUDE_PASSWORDS)
+    updated = await host.engine.users.where(id=_uuid(arguments, "id")).update(data).first()
+    if updated is None:
+        raise NotFoundError()
+
+    return _serialize(updated, EXCLUDE_PASSWORDS)
 
 
 @operation("users.delete")
@@ -443,7 +470,7 @@ def _bindings(namespace: str):
     async def single(host: Host, arguments: dict[str, Any]) -> Any:
         component = component_of(host, arguments)
         bindings = getattr(component.system, getters[namespace])()
-        binding = bindings.get(_path(arguments, "name"))
+        binding = bindings.get(validate(Name, _path(arguments, "name")))
         if binding is None:
             raise NotFoundError()
 
@@ -456,6 +483,40 @@ for _namespace in ("procedures", "queries", "actions"):
     _bindings(_namespace)
 
 
+def _called_with(arguments: dict[str, Any]) -> dict[str, Any]:
+    """The arguments a call by query supplies, from `arguments` and the plain parameters.
+
+    The `arguments` parameter carries a JSON object, and the plain parameters sit over it,
+    a repeat taking its last value. Both `arguments` and `args` drop out afterwards, so
+    neither reaches the procedure as an argument of its own.
+
+    Raises:
+        HTTPError: If `arguments` is present and is not a JSON object.
+    """
+    from collections.abc import Mapping as Mapped
+
+    supplied: dict[str, Any] = {}
+    plain: dict[str, Any] = {}
+    for name, value in arguments.get("query") or ():
+        if name == "arguments" and value not in ("", "null"):
+            try:
+                decoded = json.loads(value)
+            except ValueError:
+                decoded = None
+
+            if not isinstance(decoded, Mapped):
+                raise HTTPError(status=400)
+
+            supplied.update(cast("Mapping[str, Any]", decoded))
+
+        plain[name] = value
+
+    supplied.update(plain)
+    supplied.pop("arguments", None)
+    supplied.pop("args", None)
+    return supplied
+
+
 def _calls(namespace: str):
     """Register the call operations for one namespace, by body and by query."""
 
@@ -466,9 +527,7 @@ def _calls(namespace: str):
 
         actor = await _actor(host, arguments)
         if method == "GET":
-            supplied = _pairs(arguments)
-            supplied.pop("arguments", None)
-            supplied.pop("args", None)
+            supplied = _called_with(arguments)
         else:
             supplied = _body(arguments)
 
@@ -511,7 +570,7 @@ def _calls(namespace: str):
             actor=actor,
             address=_address(arguments),
             procedure=validate(Name, _path(arguments, "name")),
-            arguments=_pairs(arguments),
+            arguments=_called_with(arguments),
             namespace=cast("Any", namespace),
         ):
             yield to_json(output)
@@ -523,11 +582,21 @@ for _namespace in ("procedures", "queries", "actions"):
     _calls(_namespace)
 
 
+async def _require_group(host: Host, id: UUID) -> None:
+    """Refuse when no group carries an ID, which the membership routes check first.
+
+    Raises:
+        NotFoundError: If no group has that ID.
+    """
+    if await host.engine.database.groups.get(id) is None:
+        raise NotFoundError()
+
+
 @operation("groups.list")
 async def groups_list(host: Host, arguments: dict[str, Any]) -> Any:
     from ceres.group import GroupFilter
 
-    return _entities(await host.engine.database.groups.where(_filter(GroupFilter, arguments, 1000)))
+    return _entities(await host.engine.database.groups.where(_filter(GroupFilter, arguments)))
 
 
 @operation("groups.count")
@@ -569,19 +638,17 @@ async def groups_delete(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("groups.members")
 async def groups_members(host: Host, arguments: dict[str, Any]) -> Any:
-
-    return _entities(
-        await host.engine.database.group_memberships.where(group_id=_uuid(arguments, "id"))
-    )
+    group = _uuid(arguments, "id")
+    await _require_group(host, group)
+    return _entities(await host.engine.database.group_memberships.where(group_id=group))
 
 
 @operation("groups.add_member")
 async def groups_add_member(host: Host, arguments: dict[str, Any]) -> Any:
     from ceres.group import GroupMembership
 
-    body = dict(_body(arguments) or {})
-    body["group_id"] = str(_uuid(arguments, "id"))
-    data = validate(GroupMembership.Create, body)
+    await _require_group(host, _uuid(arguments, "id"))
+    data = _validated(GroupMembership.Create, arguments)
     return _serialize(await host.engine.database.group_memberships.create(data))
 
 
@@ -605,6 +672,7 @@ async def memberships_list(host: Host, arguments: dict[str, Any]) -> Any:
 async def memberships_add(host: Host, arguments: dict[str, Any]) -> Any:
     from ceres.group import GroupMembership
 
+    await _require_group(host, _uuid(arguments, "group_id"))
     data = validate(
         GroupMembership.Create,
         {"user_id": _uuid(arguments, "user_id"), "group_id": _uuid(arguments, "group_id")},

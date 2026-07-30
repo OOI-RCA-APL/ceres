@@ -608,6 +608,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reloading_scrubs_the_configuration_it_answers_with() {
+        // Reloading answers with the whole configuration, so it drops credentials the way
+        // the configuration routes do.
+        let admin = uuid::Uuid::new_v4();
+        let viewer = uuid::Uuid::new_v4();
+        let app = two_user_app(admin, viewer, false);
+        let token = mint(admin, None, &settings(false)).unwrap().token;
+
+        assert_response!(request!(app, post "/api/reload"), UNAUTHORIZED);
+
+        let response = request!(
+            app, post "/api/reload",
+            header::AUTHORIZATION => format!("Bearer {token}")
+        );
+        let body = json_of(assert_response!(response, OK)).await;
+
+        assert_eq!(body["section"], "engine.reload");
+        assert_eq!(body["authentication"]["duration"], 1800);
+        assert!(body["authentication"].get("secret").is_none());
+    }
+
+    #[tokio::test]
     async fn record_routes_gate_and_dispatch() {
         let user = uuid::Uuid::new_v4();
         let app = authenticated_app(user, false);

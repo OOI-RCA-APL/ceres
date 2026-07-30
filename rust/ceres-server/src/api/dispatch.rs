@@ -78,6 +78,7 @@ macro_rules! host_routes {
             $(, params($($field:ident => $host:literal: $kind:ident),+))?
             $(, body: $body:literal)?
             $(, status: $status:literal)?
+            $(, scrub: $scrub:literal)?
         ;
     )*) => {
         $(path_struct!($(#[$doc])* $name, $path, [$($($field),+)?]);)*
@@ -114,6 +115,7 @@ macro_rules! host_routes {
                         query,
                         (false $(|| $body)?).then_some(bytes.as_ref()),
                         200 $(- 200 + $status)?,
+                        false $(|| $scrub)?,
                     )
                     .await
                 },
@@ -125,8 +127,8 @@ macro_rules! host_routes {
 }
 
 host_routes! {
-    /// Reload the engine's configuration.
-    ReloadEngine: typed_post "/api/reload" => Gate::Admin, "engine.reload";
+    /// Reload the engine's configuration, which answers with it and so scrubs it.
+    ReloadEngine: typed_post "/api/reload" => Gate::Admin, "engine.reload", scrub: true;
     /// Start matching components.
     StartComponents: typed_post "/api/start" => Gate::Authenticated, "engine.start", body: true;
     /// Stop matching components.
@@ -336,6 +338,7 @@ async fn dispatch(
     query: Option<String>,
     body: Option<&[u8]>,
     status: u16,
+    scrub: bool,
 ) -> Response {
     // Path parameters first, a UUID that fails to parse means no route matched.
     let mut path = Map::new();
@@ -399,12 +402,21 @@ async fn dispatch(
     });
 
     match state.host.operate(operation, arguments).await {
-        Ok(Answer::Payload(payload)) => (
-            StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
-            [(header::CONTENT_TYPE, "application/json")],
-            payload.to_string(),
-        )
-            .into_response(),
+        Ok(Answer::Payload(payload)) => {
+            // An operation answering with configuration drops its credentials, because
+            // reading the configuration is not permission to take the signing secret.
+            let payload = if scrub {
+                crate::scrub::scrub_credentials(payload)
+            } else {
+                payload
+            };
+            (
+                StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
+                [(header::CONTENT_TYPE, "application/json")],
+                payload.to_string(),
+            )
+                .into_response()
+        }
         // A described response carries the status the output declared, so a route's own
         // created-status override does not apply to it.
         Ok(Answer::Served(served)) => crate::api::served::respond(&state.host, served).await,

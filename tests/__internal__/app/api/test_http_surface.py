@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
@@ -343,6 +344,69 @@ async def test_public_procedures_call_anonymously() -> None:
         response = await client.get("/api/components/@probe/queries/ping/call?text=hi")
         assert response.status_code == 200
         assert response.json() == "hi"
+
+
+async def test_a_call_by_query_reads_the_arguments_parameter() -> None:
+    """The `arguments` parameter carries a JSON object, with plain parameters over it."""
+    async with _serve(probe=True) as (_, client):
+        response = await client.get(
+            '/api/components/@probe/queries/ping/call?arguments={"text": "encoded"}'
+        )
+        assert response.status_code == 200
+        assert response.json() == "encoded"
+
+        # A plain parameter wins over the same name inside `arguments`.
+        response = await client.get(
+            '/api/components/@probe/queries/ping/call?arguments={"text": "encoded"}&text=plain'
+        )
+        assert response.status_code == 200
+        assert response.json() == "plain"
+
+        response = await client.get("/api/components/@probe/queries/ping/call?arguments=[1]")
+        assert response.status_code == 400
+
+
+async def test_disabling_authentication_admits_the_user_routes() -> None:
+    """An unrestricted context has no user, which the routes taking one still admit."""
+    async with _serve(authentication=False) as (_, client):
+        assert (await client.get("/api/workspaces")).status_code == 200
+        assert (await client.get("/api/users")).status_code == 200
+        assert (await client.get("/api/statuses")).status_code == 200
+
+
+async def test_updating_a_missing_user_is_not_found() -> None:
+    async with _serve() as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        response = await client.patch(
+            f"/api/users/{uuid4()}", json={"email": "new@test.com"}, headers=_bearer(identity)
+        )
+        assert response.status_code == 404
+        assert response.json()["type"] == "not-found-error"
+
+
+async def test_group_membership_routes_require_the_group() -> None:
+    """Listing or adding members refuses when no group carries the ID in the path."""
+    async with _serve() as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+        missing = uuid4()
+
+        response = await client.get(f"/api/groups/{missing}/members", headers=_bearer(identity))
+        assert response.status_code == 404
+
+        response = await client.post(
+            f"/api/groups/{missing}/members",
+            json={"user_id": str(uuid4()), "group_id": str(missing)},
+            headers=_bearer(identity),
+        )
+        assert response.status_code == 404
+
+        response = await client.post(
+            f"/api/users/{uuid4()}/group-memberships/{missing}", headers=_bearer(identity)
+        )
+        assert response.status_code == 404
 
 
 async def test_a_file_output_serves_the_file_with_its_headers(tmp_path: Path) -> None:
