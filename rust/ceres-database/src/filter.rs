@@ -349,17 +349,56 @@ impl RecordFilter {
         (sql, values.0)
     }
 
+    /// The filter's offset, `None` when unset.
+    pub fn offset(&self) -> Option<u64> {
+        self.offset
+    }
+
+    /// The combined `WHERE` conditions rendered as inline SQL, `None` when the filter
+    /// is unconditional.
+    ///
+    /// The text embeds into a statement another engine builds, the Python session's,
+    /// so values render as literals rather than binds.
+    pub fn where_sql(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> Option<String> {
+        let now = now.unwrap_or_else(|| Utc::now().naive_utc()).trunc_subsecs(6);
+        let conditions = self.node.combined_conditions(self.table, dialect, now);
+        if conditions.is_empty() {
+            return None;
+        }
+
+        let mut statement = Query::select();
+        statement.expr(all_of(conditions));
+        Some(rendered_after(&statement, dialect, "SELECT "))
+    }
+
+    /// The `ORDER BY` terms rendered as inline SQL, `None` when the table brings no
+    /// default ordering.
+    pub fn order_sql(&self, dialect: SqlDialect) -> Option<String> {
+        let terms = self.order_terms();
+        if terms.is_empty() {
+            return None;
+        }
+
+        let mut statement = Query::select();
+        statement.expr(Expr::val(1));
+        for term in terms {
+            order_by(&mut statement, term, dialect);
+        }
+
+        Some(rendered_after(&statement, dialect, "SELECT 1 ORDER BY "))
+    }
+
     /// Whether one serialized record matches this filter, like the Python filter's
     /// `matches`.
     ///
     /// Query controls and subsampling do not participate, this reads a single record
     /// the way live stream filtering does. Age-relative conditions compare against
     /// the moment of the call.
-    pub fn matches(&self, record_json: &str) -> Result<bool, String> {
+    pub fn matches(&self, record_json: &str, now: Option<NaiveDateTime>) -> Result<bool, String> {
         let fields: std::collections::HashMap<&str, &serde_json::value::RawValue> =
             serde_json::from_str(record_json)
                 .map_err(|error| format!("unreadable record: {error}"))?;
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+        let now = now.unwrap_or_else(|| Utc::now().naive_utc()).trunc_subsecs(6);
         Ok(self.node.matches(self.table, &fields, now))
     }
 
@@ -1689,7 +1728,7 @@ fn bucket_expression(
     match dialect {
         SqlDialect::Postgres => Expr::cust_with_expr(
             format!(
-                "date_bin(INTERVAL '{width} microseconds', $1, TIMESTAMP '{}')",
+                "date_bin(INTERVAL '{width} microseconds', $1, TIMESTAMPTZ '{}+00')",
                 Parameter::timestamp_text(&origin)
             ),
             Expr::col(Alias::new(key)),
@@ -1697,11 +1736,14 @@ fn bucket_expression(
         SqlDialect::SqliteText => {
             let origin_seconds = origin.and_utc().timestamp();
             let origin_microseconds = i64::from(origin.and_utc().timestamp_subsec_micros());
+            // The division floors over reals, matching the floored true division the
+            // Python layer compiled, so a record older than the origin still lands in
+            // the bucket below rather than truncating toward zero.
             Expr::cust_with_exprs(
                 format!(
-                    "CAST(((unixepoch(?) - {origin_seconds}) * 1000000 + \
+                    "CAST(floor(((unixepoch(?) - {origin_seconds}) * 1000000.0 + \
                      (CAST(substr(substr(?, 20) || '.000000', 2, 6) AS INTEGER) - \
-                     {origin_microseconds})) / {width} AS INTEGER)"
+                     {origin_microseconds})) / {width}) AS INTEGER)"
                 ),
                 [
                     Expr::col(Alias::new(key)).into(),
@@ -1932,6 +1974,18 @@ fn record_timestamp(text: Option<&str>) -> Option<NaiveDateTime> {
     None
 }
 
+/// Render a statement in a dialect and return what follows a fixed prefix.
+fn rendered_after(statement: &SelectStatement, dialect: SqlDialect, prefix: &str) -> String {
+    let rendered = match dialect {
+        SqlDialect::SqliteText => statement.to_string(sea_query::SqliteQueryBuilder),
+        SqlDialect::Postgres => statement.to_string(sea_query::PostgresQueryBuilder),
+    };
+    rendered
+        .strip_prefix(prefix)
+        .expect("the statement renders with its fixed prefix")
+        .to_string()
+}
+
 /// All conditions joined with `AND`, as one expression.
 fn all_of(conditions: Vec<SimpleExpr>) -> SimpleExpr {
     conditions
@@ -1959,10 +2013,13 @@ fn id_value(id: Uuid, dialect: SqlDialect) -> Value {
 }
 
 /// A timestamp in its bound form, the stored text on the SQLite family.
+///
+/// PostgreSQL takes the aware UTC form, its timestamp columns carry a zone and a
+/// naive value would read in the session's own.
 fn timestamp_value(timestamp: NaiveDateTime, dialect: SqlDialect) -> Value {
     match dialect {
         SqlDialect::SqliteText => Value::from(Parameter::timestamp_text(&timestamp)),
-        SqlDialect::Postgres => Value::from(timestamp),
+        SqlDialect::Postgres => Value::from(timestamp.and_utc()),
     }
 }
 
@@ -2036,13 +2093,13 @@ mod tests {
             "{sql}"
         );
         assert!(sql.contains("GROUP BY CAST"), "{sql}");
-        assert!(sql.contains("/ 60000000 AS INTEGER)"), "{sql}");
+        assert!(sql.contains("/ 60000000) AS INTEGER)"), "{sql}");
 
         let sql = filter
             .statement(SqlDialect::Postgres)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
-            sql.contains("GROUP BY date_bin(INTERVAL '60000000 microseconds', \"timestamp\", TIMESTAMP '2026-07-30 00:00:00.000000')"),
+            sql.contains("GROUP BY date_bin(INTERVAL '60000000 microseconds', \"timestamp\", TIMESTAMPTZ '2026-07-30 00:00:00.000000+00')"),
             "{sql}"
         );
 
@@ -2061,7 +2118,7 @@ mod tests {
             .statement(SqlDialect::SqliteText)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("SELECT MAX(\"timestamp\")"), "{sql}");
-        assert!(sql.contains("/ 60000000 AS INTEGER)"), "{sql}");
+        assert!(sql.contains("/ 60000000) AS INTEGER)"), "{sql}");
     }
 
     #[test]

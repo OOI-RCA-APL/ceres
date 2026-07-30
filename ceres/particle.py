@@ -30,7 +30,7 @@ from typing import (
 
 import pydantic
 from pydantic import ConfigDict, Field, ImportString, SerializeAsAny, ValidationError
-from sqlalchemy import JSON, Index, Text, cast
+from sqlalchemy import JSON, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ceres.__internal__.database.types import TextMapper
@@ -66,23 +66,19 @@ from ceres.data import (
     construct,
     dump,
     simplify,
-    to_json,
     unpack,
     validate,
 )
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from uuid import UUID
 
-    from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
     from ceres.connection import Buffer
-    from ceres.database import DatabaseType
     from ceres.message import Message
 
 __all__ = [
@@ -288,41 +284,45 @@ class ParticleFilter(
     """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
 
     @override
-    def _matches(self, obj: Particle[Any], *, now: datetime | None = None) -> bool:
-        now = utc(now)
-        if not super()._matches(obj):
-            return False
+    def _native_dump(self) -> str:
+        """Serialize for the native compiler, the class filter resolved to its type.
 
+        A particle class is a Python import with no native form, so its discriminator
+        folds into an `and` subfilter, mirroring the extra type condition the class
+        filter has always compiled to.
+        """
+        import json
+
+        data = json.loads(self.model_dump_json(by_alias=True, exclude_none=True))
+        data.pop("class", None)
+
+        expected = None
         if self.cls is not None:
             expected = _get_cls_particle_type(self.cls)
-            if expected is not None:
-                if obj.type != expected:
-                    return False
-            elif not isinstance(obj.data, self.cls):
-                return False
+            if expected is None and issubclass(self.cls, ParticleData):
+                expected = self.cls.type
 
-        if not self._match_value(obj.type, self.type):
-            return False
-        if not self._match_string_contains(obj.type, self.type_contains):
-            return False
-        if not self._match_string_prefix(obj.type, self.type_prefix):
-            return False
-        if not self._match_string_suffix(obj.type, self.type_suffix):
+        if expected is not None:
+            grouped = data.get("and")
+            if grouped is None:
+                grouped = []
+            elif not isinstance(grouped, list):
+                grouped = [grouped]
+
+            grouped.append({"type": expected})
+            data["and"] = grouped
+
+        return json.dumps(data)
+
+    @override
+    def matches(self, obj: Particle[Any]) -> bool:
+        if not super().matches(obj):
             return False
 
-        # Only serialize the payload to JSON if at least one data filter is set, the JSON
-        # encode is expensive and most particles do not need it.
-        if (
-            self.data_contains is not None
-            or self.data_prefix is not None
-            or self.data_suffix is not None
-        ):
-            data_json = to_json(obj.data)
-            if not self._match_string_contains(data_json, self.data_contains):
-                return False
-            if not self._match_string_prefix(data_json, self.data_prefix):
-                return False
-            if not self._match_string_suffix(data_json, self.data_suffix):
+        # A class without a literal discriminator matches by instance check, which
+        # only Python can perform.
+        if self.cls is not None and _get_cls_particle_type(self.cls) is None:
+            if not isinstance(obj.data, self.cls):
                 return False
 
         return True
@@ -331,40 +331,6 @@ class ParticleFilter(
     @override
     def _get_row_cls(cls) -> type[ParticleRow]:
         return ParticleRow
-
-    @override
-    def _get_where(
-        self,
-        dialect: DatabaseType,
-        *,
-        now: datetime | None = None,
-    ) -> Iterable[SQLColumnExpression[bool]]:
-        now = utc(now)
-        yield from super()._get_where(dialect, now=now)
-        columns = self._get_row_cls()
-
-        if self.cls is not None:
-            expected = _get_cls_particle_type(self.cls)
-            if expected is not None:
-                yield columns.type == expected
-            elif issubclass(self.cls, ParticleData):
-                yield columns.type == self.cls.type
-
-        if self.type is not None:
-            yield self._sql_match_value(columns.type, self.type)
-        if self.type_contains is not None:
-            yield self._sql_match_string_contains(columns.type, self.type_contains)
-        if self.type_prefix is not None:
-            yield self._sql_match_string_prefix(columns.type, self.type_prefix)
-        if self.type_suffix is not None:
-            yield self._sql_match_string_suffix(columns.type, self.type_suffix)
-
-        if self.data_contains is not None:
-            yield self._sql_match_string_contains(cast(columns.data, Text), self.data_contains)
-        if self.data_prefix is not None:
-            yield self._sql_match_string_prefix(cast(columns.data, Text), self.data_prefix)
-        if self.data_suffix is not None:
-            yield self._sql_match_string_suffix(cast(columns.data, Text), self.data_suffix)
 
 
 class ParticleCreate(BaseRecordCreate, slots=True):

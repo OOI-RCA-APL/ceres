@@ -111,4 +111,6 @@ def test_plain_json_output_gates_on_fields_format_and_color() -> None:
     assert Command(color=True).plain_json_output() is False
     assert Command(color=False, field="id").plain_json_output() is False
     assert Command(color=False, fields=["id"]).plain_json_output() is False
-    assert Command(color=False, data_format="csv").plain_json_output() is False
+    from ceres.__internal__.cli.shared import CLIDataFormat
+
+    assert Command(color=False, data_format=CLIDataFormat.CSV).plain_json_output() is False

@@ -73,6 +73,36 @@ impl RecordFilter {
         self.filter.limit()
     }
 
+    /// The filter's offset, `None` when unset.
+    #[getter]
+    fn offset(&self) -> Option<u64> {
+        self.filter.offset()
+    }
+
+    /// The `WHERE` conditions as inline SQL for a dialect, `None` when the filter is
+    /// unconditional.
+    ///
+    /// The text embeds into a statement the Python session builds, so values render
+    /// as literals rather than binds.
+    /// The caller's clock decides age-relative conditions, so a session under a faked
+    /// or frozen time stays authoritative.
+    #[pyo3(signature = (dialect, now = None))]
+    fn where_sql(
+        &self,
+        dialect: &str,
+        now: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> PyResult<Option<String>> {
+        Ok(self
+            .filter
+            .where_sql(dialect_of(dialect)?, now.map(|now| now.naive_utc())))
+    }
+
+    /// The `ORDER BY` terms as inline SQL for a dialect, including the table's
+    /// default ordering.
+    fn order_sql(&self, dialect: &str) -> PyResult<Option<String>> {
+        Ok(self.filter.order_sql(dialect_of(dialect)?))
+    }
+
     /// Compile to SQL and its parameters for a dialect, a listing statement or a
     /// count.
     ///
@@ -97,9 +127,14 @@ impl RecordFilter {
     ///
     /// Query controls and subsampling do not participate, this reads a single record
     /// the way live stream filtering does.
-    fn matches(&self, record_json: &str) -> PyResult<bool> {
+    #[pyo3(signature = (record_json, now = None))]
+    fn matches(
+        &self,
+        record_json: &str,
+        now: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> PyResult<bool> {
         self.filter
-            .matches(record_json)
+            .matches(record_json, now.map(|now| now.naive_utc()))
             .map_err(PyValueError::new_err)
     }
 }
@@ -131,6 +166,7 @@ fn bind_value<'py>(
         // The Python layer binds aware UTC datetimes, and PostgreSQL's timestamps are
         // timezone-aware columns, so a naive bind would read in the session's zone.
         Value::ChronoDateTime(value) => value.map(|value| value.and_utc()).into_bound_py_any(py)?,
+        Value::ChronoDateTimeUtc(value) => value.map(|value| *value).into_bound_py_any(py)?,
         Value::Uuid(value) => value.map(|value| *value).into_bound_py_any(py)?,
         other => {
             return Err(PyValueError::new_err(format!(
