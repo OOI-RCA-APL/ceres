@@ -468,10 +468,16 @@ async def test_record_routes_serve_natively_with_wire_parity(tmp_path: Path) -> 
         missing = await client.get(f"/api/particles/{uuid4()}", headers=_bearer(identity))
         assert missing.status_code == 404
 
-        # A construct outside the subset delegates and still answers correctly.
-        delegated = await client.get("/api/particles?type_prefix=sa", headers=_bearer(identity))
+        # A construct outside the compiler, subsampling, delegates and still answers
+        # correctly, and a native operation filter answers identically to the query
+        # layer.
+        delegated = await client.get(
+            "/api/particles?subsample_every=1h", headers=_bearer(identity)
+        )
         assert delegated.status_code == 200
-        assert delegated.json() == [
+        operation = await client.get("/api/particles?type_prefix=sa", headers=_bearer(identity))
+        assert operation.status_code == 200
+        assert operation.json() == [
             json.loads(to_json(entity))
             for entity in await engine.__manager__(Particle).where(
                 validate(Particle.Filter, {"type_prefix": "sa"})

@@ -16,9 +16,12 @@
 //! semantics, and the cross-backend parity suite holds the two compilers to identical
 //! result sets.
 
-use ceres_entities::{FieldFamily, FilterField, FilterValues, Level};
+use ceres_entities::{FieldFamily, FilterField, FilterValues, Level, OperationKind};
 use chrono::{Duration, NaiveDateTime, SubsecRound, Utc};
-use sea_query::{Alias, Asterisk, Expr, Order, Query, SelectStatement, SimpleExpr, Value};
+use sea_query::{
+    Alias, Asterisk, BinOper, Expr, ExprTrait, Func, LikeExpr, Order, Query, SelectStatement,
+    SimpleExpr, Value,
+};
 use uuid::Uuid;
 
 use crate::records::RecordTable;
@@ -56,6 +59,8 @@ impl Refusal {
 enum KeyRole {
     /// Equality on a field, one value compiling to `=` and several to `IN`.
     Equality(&'static FilterField),
+    /// One of a field's operation filters, matching within its content.
+    Operation(&'static FilterField, OperationKind),
     /// One of the window operators a timestamp field brings.
     Window(WindowOp),
     /// One of the ordered bounds a level field brings.
@@ -86,6 +91,16 @@ enum Values {
     Uuids(Vec<Uuid>),
     Texts(Vec<String>),
     Stamps(Vec<NaiveDateTime>),
+    Bytes(Vec<Vec<u8>>),
+}
+
+/// One field operation filter, matching within the field's content.
+#[derive(Clone, Debug, PartialEq)]
+struct OperationFilter {
+    field: &'static FilterField,
+    kind: OperationKind,
+    /// The patterns, text for text and JSON fields and bytes for byte fields.
+    values: Values,
 }
 
 /// One ordering term, a field and its direction.
@@ -104,6 +119,8 @@ struct OrderTerm {
 struct FilterNode {
     /// Equality values by wire key, compiled in the entity's field order.
     equalities: Vec<(&'static str, Values)>,
+    /// Operation filters, compiled per field in the entity's field order.
+    operations: Vec<OperationFilter>,
     after: Option<NaiveDateTime>,
     before: Option<NaiveDateTime>,
     timespan: Option<Duration>,
@@ -128,11 +145,15 @@ impl RecordFilter {
     /// The field and query filter keys the native compiler serves for a table.
     ///
     /// Generated from the entity's field families, never written out. Equality for
-    /// every native family, the window operators a timestamp brings, the ordered
-    /// bounds a level brings, and the query keys.
+    /// every native family, each field's operation filters, the window operators a
+    /// timestamp brings, the ordered bounds a level brings, and the query keys.
     pub fn supported_keys(table: RecordTable) -> Vec<&'static str> {
         let mut keys = Vec::new();
         for field in table.fields() {
+            for operation in field.operations {
+                keys.push(operation.key);
+            }
+
             if !field.family.native() {
                 continue;
             }
@@ -155,11 +176,10 @@ impl RecordFilter {
 
     /// The filter keys the compiler knowingly delegates for a table.
     ///
-    /// The field operation filters and the byte and JSON field filters generate from
-    /// the entity like the native surface does. What remains is Python's structural
-    /// query filters, shared by every table, plus its Python-only constructs, and the
-    /// classification test holds the union of both lists to exactly what the Pydantic
-    /// models declare so a new filter field cannot ship unclassified.
+    /// What remains is Python's structural query filters, shared by every table, plus
+    /// its Python-only constructs, and the classification test holds the union of this
+    /// list and the supported one to exactly what the Pydantic models declare so a new
+    /// filter field cannot ship unclassified.
     pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
         const STRUCTURAL: [&str; 10] = [
             "root",
@@ -175,9 +195,6 @@ impl RecordFilter {
         ];
 
         let mut keys: Vec<&'static str> = STRUCTURAL.to_vec();
-        for field in table.fields() {
-            keys.extend(field.operations);
-        }
 
         // A particle's `class` filters by a Python type, which has no native form.
         if table == RecordTable::Particles {
@@ -202,6 +219,7 @@ impl RecordFilter {
         for (key, value) in pairs {
             match resolve(table, key)? {
                 KeyRole::Equality(field) => filter.node.push_equality(field, value)?,
+                KeyRole::Operation(field, kind) => filter.node.push_operation(field, kind, value),
                 KeyRole::Window(operator) => match operator {
                     WindowOp::After => {
                         set_once(&mut filter.node.after, key, parse_timestamp(value)?)?;
@@ -403,7 +421,10 @@ impl FilterNode {
                     .ok_or_else(|| Refusal::invalid(format!("invalid level {value:?}")))?;
                 Values::Texts(vec![value.to_string()])
             }
-            FieldFamily::Bytes | FieldFamily::Json => return Err(Refusal::Delegated),
+            FieldFamily::Bytes => Values::Bytes(vec![latin1_bytes(value)]),
+            // A JSON field carries no equality key, only its operation filters, so its
+            // own key never resolves here.
+            FieldFamily::Json => return Err(Refusal::Delegated),
         };
 
         match self
@@ -422,11 +443,38 @@ impl FilterNode {
                     existing.append(&mut more);
                 }
                 (Values::Stamps(existing), Values::Stamps(more)) => existing.extend(more),
+                (Values::Bytes(existing), Values::Bytes(more)) => existing.extend(more),
                 _ => return Err(Refusal::Delegated),
             },
         }
 
         Ok(())
+    }
+
+    /// Add one operation filter value, repeats collecting like the Python layer's
+    /// list folding.
+    fn push_operation(&mut self, field: &'static FilterField, kind: OperationKind, value: &str) {
+        let parsed = match field.family {
+            FieldFamily::Bytes => Values::Bytes(vec![latin1_bytes(value)]),
+            _ => Values::Texts(vec![value.to_string()]),
+        };
+
+        let existing = self
+            .operations
+            .iter_mut()
+            .find(|operation| operation.field.key == field.key && operation.kind == kind);
+        match existing {
+            None => self.operations.push(OperationFilter {
+                field,
+                kind,
+                values: parsed,
+            }),
+            Some(operation) => match (&mut operation.values, parsed) {
+                (Values::Texts(existing), Values::Texts(mut more)) => existing.append(&mut more),
+                (Values::Bytes(existing), Values::Bytes(more)) => existing.extend(more),
+                _ => unreachable!("one field's operation values share a family"),
+            },
+        }
     }
 
     /// The `WHERE` conditions, in the entity's field order.
@@ -450,8 +498,13 @@ impl FilterNode {
                         column.clone(),
                         stamps.iter().map(|stamp| timestamp_value(*stamp, dialect)),
                     ),
+                    Values::Bytes(patterns) => {
+                        match_values(column.clone(), patterns.iter().cloned().map(Value::from))
+                    }
                 });
             }
+
+            self.operation_conditions(&mut conditions, field, dialect);
 
             match field.family {
                 FieldFamily::Timestamp => {
@@ -527,6 +580,42 @@ impl FilterNode {
             .find(|(key, _)| *key == field.key)
             .map(|(_, values)| values)
     }
+
+    /// Compile one field's operation filters, in the operations' declared order.
+    fn operation_conditions(
+        &self,
+        conditions: &mut Vec<SimpleExpr>,
+        field: &'static FilterField,
+        dialect: SqlDialect,
+    ) {
+        for operation in field.operations {
+            let held = self.operations.iter().find(|candidate| {
+                candidate.field.key == field.key && candidate.kind == operation.kind
+            });
+            let Some(held) = held else {
+                continue;
+            };
+
+            let condition = match &held.values {
+                Values::Texts(patterns) => {
+                    // A JSON payload matches against its serialized text, so the
+                    // column casts before the comparison, like the Python layer's.
+                    let column = Expr::col(Alias::new(field.key));
+                    let subject = if field.family == FieldFamily::Json {
+                        column.cast_as(Alias::new("TEXT"))
+                    } else {
+                        column.into()
+                    };
+                    match_text_patterns(subject, held.kind, patterns, dialect)
+                }
+                Values::Bytes(patterns) => {
+                    match_bytes_patterns(field.key, held.kind, patterns, dialect)
+                }
+                _ => unreachable!("operation values are text or bytes"),
+            };
+            conditions.push(condition);
+        }
+    }
 }
 
 /// Resolve what one wire key means for a table, from the entity's field families.
@@ -539,8 +628,14 @@ fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
     }
 
     for field in table.fields() {
-        if field.key == key {
+        if field.key == key && field.family.native() {
             return Ok(KeyRole::Equality(field));
+        }
+
+        for operation in field.operations {
+            if operation.key == key {
+                return Ok(KeyRole::Operation(field, operation.kind));
+            }
         }
 
         match field.family {
@@ -708,6 +803,143 @@ fn parse_order(table: RecordTable, text: &str) -> Result<OrderTerm, Refusal> {
     Ok(OrderTerm { field, ascending })
 }
 
+/// Bytes from a wire value the way Python's `latin-1` decode with `ignore` reads it,
+/// each code point one byte, anything above `U+00FF` dropped.
+fn latin1_bytes(text: &str) -> Vec<u8> {
+    text.chars()
+        .filter_map(|character| u8::try_from(u32::from(character)).ok())
+        .collect()
+}
+
+/// Escape the `LIKE` wildcards `%` and `_` with `^`, like the Python layer.
+fn like_escape(text: &str) -> String {
+    text.replace('%', "^%").replace('_', "^_")
+}
+
+/// Escape the characters `GLOB` treats as wildcards, so the text matches literally.
+///
+/// `GLOB` has no `ESCAPE` clause, a metacharacter is made literal by wrapping it in a
+/// character class instead. The `[` goes first so the classes the later replacements
+/// introduce stay intact.
+fn glob_escape(text: &str) -> String {
+    text.replace('[', "[[]")
+        .replace('*', "[*]")
+        .replace('?', "[?]")
+}
+
+/// Wrap an already-escaped pattern in the wildcards its kind calls for.
+fn with_wildcards(text: String, kind: OperationKind, wildcard: char) -> String {
+    match kind {
+        OperationKind::Contains => format!("{wildcard}{text}{wildcard}"),
+        OperationKind::Prefix => format!("{text}{wildcard}"),
+        OperationKind::Suffix => format!("{wildcard}{text}"),
+    }
+}
+
+/// The space-separated hex tokenization of a bytes value, empty bytes staying empty.
+///
+/// This mirrors the Python `tokenize_bytes`, whose form the PostgreSQL
+/// `ceres_tokenize_bytes` function and its trigram index share, the trailing space
+/// marking the last byte's token boundary.
+fn tokenize_bytes(value: &[u8]) -> String {
+    if value.is_empty() {
+        return String::new();
+    }
+
+    let mut text = String::with_capacity(value.len() * 3);
+    for byte in value {
+        text.push_str(&format!("{byte:02x} "));
+    }
+
+    text
+}
+
+/// Match a text subject against patterns, `GLOB` on the SQLite family and an escaped
+/// `LIKE` on PostgreSQL, like the Python `_sql_match_string`.
+///
+/// When every pattern is empty the whole match is true, even for a null subject,
+/// which is the one place the Python layer answers with a bare `true` rather than a
+/// comparison.
+fn match_text_patterns(
+    subject: SimpleExpr,
+    kind: OperationKind,
+    patterns: &[String],
+    dialect: SqlDialect,
+) -> SimpleExpr {
+    if patterns.iter().all(|pattern| pattern.is_empty()) {
+        return Expr::value(true);
+    }
+
+    patterns
+        .iter()
+        .map(|pattern| match dialect {
+            SqlDialect::SqliteText => {
+                let pattern = with_wildcards(glob_escape(pattern), kind, '*');
+                subject
+                    .clone()
+                    .binary(BinOper::Custom("GLOB"), Expr::val(pattern))
+            }
+            SqlDialect::Postgres => {
+                let pattern = with_wildcards(like_escape(pattern), kind, '%');
+                subject.clone().like(LikeExpr::new(pattern).escape('^'))
+            }
+        })
+        .reduce(|combined, condition| combined.or(condition))
+        .expect("patterns are never empty here")
+}
+
+/// Match a bytes column against patterns, whole-byte comparisons on the SQLite family
+/// and the tokenized hex its trigram index covers on PostgreSQL.
+///
+/// An empty pattern is contained in, starts, and ends every value, so it matches any
+/// non-null one, which byte comparison against an empty needle preserves.
+fn match_bytes_patterns(
+    key: &'static str,
+    kind: OperationKind,
+    patterns: &[Vec<u8>],
+    dialect: SqlDialect,
+) -> SimpleExpr {
+    patterns
+        .iter()
+        .map(|pattern| match dialect {
+            SqlDialect::SqliteText => {
+                let column = Expr::col(Alias::new(key));
+                let needle = Expr::val(pattern.clone());
+                if pattern.is_empty() {
+                    return Expr::value(true);
+                }
+
+                match kind {
+                    OperationKind::Contains => Func::cust(Alias::new("instr"))
+                        .arg(column)
+                        .arg(needle)
+                        .gt(0),
+                    OperationKind::Prefix => Func::cust(Alias::new("substr"))
+                        .arg(column)
+                        .arg(1)
+                        .arg(pattern.len() as i64)
+                        .eq(needle),
+                    OperationKind::Suffix => Func::cust(Alias::new("substr"))
+                        .arg(column)
+                        .arg(-(pattern.len() as i64))
+                        .eq(needle),
+                }
+            }
+            SqlDialect::Postgres => {
+                if pattern.is_empty() {
+                    return Expr::value(true);
+                }
+
+                let tokens =
+                    Func::cust(Alias::new("ceres_tokenize_bytes")).arg(Expr::col(Alias::new(key)));
+                let pattern = with_wildcards(like_escape(&tokenize_bytes(pattern)), kind, '%');
+                tokens.like(LikeExpr::new(pattern).escape('^'))
+            }
+        })
+        .reduce(|combined, condition| combined.or(condition))
+        .unwrap_or_else(|| Expr::value(false))
+}
+
 /// An equality for one value, an `IN` for several, like the Python `_sql_match_value`.
 fn match_values(column: Expr, values: impl Iterator<Item = Value> + Clone) -> SimpleExpr {
     let mut peek = values.clone();
@@ -775,14 +1007,12 @@ mod tests {
         for rejected in [
             pairs(&[("subsample", "10")]),
             pairs(&[("and", "{}")]),
-            pairs(&[("data", "abc")]),
             pairs(&[("address", "@a,@b")]),
             pairs(&[("address", "@a:children")]),
             pairs(&[("address", "sensor")]),
             pairs(&[("address", "@a"), ("address", "@b")]),
             pairs(&[("after", "1722340000")]),
             pairs(&[("timespan", "PT5S")]),
-            pairs(&[("order", "data")]),
         ] {
             assert_eq!(
                 RecordFilter::parse(RecordTable::Messages, &rejected),
@@ -834,14 +1064,25 @@ mod tests {
             "after",
             "timespan",
             "connection",
+            "connection_contains",
+            "connection_suffix",
             "direction",
+            "data",
+            "contains",
+            "prefix",
+            "suffix",
             "order",
             "limit",
         ] {
             assert!(keys.contains(&expected), "{expected} missing");
         }
 
-        // Bytes and JSON payloads never derive a native filter.
+        let keys = RecordFilter::supported_keys(RecordTable::Alerts);
+        for expected in ["type_contains", "data_prefix", "min_level"] {
+            assert!(keys.contains(&expected), "{expected} missing");
+        }
+
+        // A JSON payload carries operation filters but no equality key of its own.
         assert!(!keys.contains(&"data"));
         assert!(RecordFilter::supported_keys(RecordTable::Logs).contains(&"min_level"));
     }
@@ -886,6 +1127,143 @@ mod tests {
             .statement(SqlDialect::SqliteText)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"level\" IN ('info', 'error')"), "{sql}");
+    }
+
+    #[test]
+    fn text_operations_compile_per_backend() {
+        let filter = RecordFilter::parse(
+            RecordTable::Alerts,
+            &pairs(&[("type_contains", "temp_high"), ("type_prefix", "d[o]or")]),
+        )
+        .unwrap();
+
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(sql.contains("\"type\" GLOB '*temp_high*'"), "{sql}");
+        assert!(sql.contains("\"type\" GLOB 'd[[]o]or*'"), "{sql}");
+
+        let sql = filter
+            .statement(SqlDialect::Postgres)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(
+            sql.contains("\"type\" LIKE '%temp^_high%' ESCAPE '^'"),
+            "{sql}"
+        );
+        assert!(sql.contains("\"type\" LIKE 'd[o]or%' ESCAPE '^'"), "{sql}");
+    }
+
+    #[test]
+    fn repeated_operation_values_combine_with_or() {
+        let filter = RecordFilter::parse(
+            RecordTable::Logs,
+            &pairs(&[("contains", "warm"), ("contains", "cold")]),
+        )
+        .unwrap();
+
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("(\"content\" GLOB '*warm*') OR (\"content\" GLOB '*cold*')"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn json_operations_match_the_serialized_text() {
+        let filter =
+            RecordFilter::parse(RecordTable::Alerts, &pairs(&[("data_contains", "sensor")]))
+                .unwrap();
+
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("CAST(\"data\" AS TEXT) GLOB '*sensor*'"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn bytes_operations_compile_whole_byte_matches() {
+        let filter = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("contains", "ab"), ("prefix", "x"), ("suffix", "yz")]),
+        )
+        .unwrap();
+
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(sql.contains("instr(\"data\", x'6162') > 0"), "{sql}");
+        assert!(sql.contains("substr(\"data\", 1, 1) = x'78'"), "{sql}");
+        assert!(sql.contains("substr(\"data\", -2) = x'797A'"), "{sql}");
+
+        let sql = filter
+            .statement(SqlDialect::Postgres)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(
+            sql.contains("ceres_tokenize_bytes(\"data\") LIKE '%61 62 %' ESCAPE '^'"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("ceres_tokenize_bytes(\"data\") LIKE '78 %' ESCAPE '^'"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("ceres_tokenize_bytes(\"data\") LIKE '%79 7a ' ESCAPE '^'"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn bytes_equality_binds_the_stored_blob() {
+        let filter = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("data", "ab"), ("data", "cd")]),
+        )
+        .unwrap();
+
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(sql.contains("\"data\" IN (x'6162', x'6364')"), "{sql}");
+    }
+
+    #[test]
+    fn empty_patterns_match_like_the_python_layer() {
+        // All-empty text patterns collapse to a bare true.
+        let all_empty =
+            RecordFilter::parse(RecordTable::Logs, &pairs(&[("contains", "")])).unwrap();
+        let sql = all_empty
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(sql.contains("WHERE TRUE"), "{sql}");
+
+        // A mixed set keeps the empty pattern as a wildcard-only match.
+        let mixed = RecordFilter::parse(
+            RecordTable::Logs,
+            &pairs(&[("contains", ""), ("contains", "x")]),
+        )
+        .unwrap();
+        let sql = mixed
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("(\"content\" GLOB '**') OR (\"content\" GLOB '*x*')"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn bytes_columns_order_natively() {
+        let filter =
+            RecordFilter::parse(RecordTable::Messages, &pairs(&[("order", "data:desc")])).unwrap();
+        let sql = filter
+            .statement(SqlDialect::Postgres)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(sql.contains("ORDER BY \"data\" DESC"), "{sql}");
     }
 
     #[test]

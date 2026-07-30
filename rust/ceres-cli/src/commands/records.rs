@@ -309,7 +309,7 @@ mod tests {
         assert!(RecordFilter::parse(RecordTable::Messages, &invocation.pairs).is_ok());
 
         // Unknown keys lex into pairs too, and the filter is what refuses them.
-        let unknown = Invocation::lex(&raw(&["select", "--contains", "x"])).unwrap();
+        let unknown = Invocation::lex(&raw(&["select", "--nope", "x"])).unwrap();
         assert!(RecordFilter::parse(RecordTable::Messages, &unknown.pairs).is_err());
     }
 
