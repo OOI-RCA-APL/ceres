@@ -1008,13 +1008,13 @@ impl FilterNode {
                 FieldFamily::Level => {
                     let position = text.as_deref().and_then(level_position);
                     if let Some(minimum) = self.min_level
-                        && !position.is_some_and(|position| position >= minimum)
+                        && position.is_none_or(|position| position < minimum)
                     {
                         return false;
                     }
 
                     if let Some(maximum) = self.max_level
-                        && !position.is_some_and(|position| position <= maximum)
+                        && position.is_none_or(|position| position > maximum)
                     {
                         return false;
                     }
