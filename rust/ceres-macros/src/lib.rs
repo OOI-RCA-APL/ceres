@@ -1,8 +1,34 @@
-//! Procedural macros for the Ceres Python bindings.
+//! Procedural macros for the Ceres native crates.
 
+mod filterable;
 mod python_config;
 
 use proc_macro::TokenStream;
+use syn::{DeriveInput, parse_macro_input};
+
+/// Derive the filterable field surface of a record entity from its struct.
+///
+/// Each named field whose type belongs to a filter family, UUIDs, addresses,
+/// timestamps, text, levels, and `FilterValues` enums, contributes its wire key and
+/// family to the entity's `FIELDS` table, honoring `#[serde(rename)]`. The native
+/// filter subset reads that table, so the filterable surface follows the entity
+/// definition at compile time rather than being written out anywhere else.
+#[proc_macro_derive(Filterable, attributes(filterable))]
+pub fn filterable(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    filterable::expand_filterable(input)
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
+
+/// Derive the admissible wire values of a plain enum from its variants.
+#[proc_macro_derive(FilterValues)]
+pub fn filter_values(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    filterable::expand_filter_values(input)
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
 
 /// Define a Python class wrapping a validated configuration type.
 ///

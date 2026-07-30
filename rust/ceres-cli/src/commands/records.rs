@@ -3,133 +3,104 @@
 //! A plain JSON `select` or `count` over a record table runs entirely natively, the
 //! filter parses into the native subset, the database opens read-only through the
 //! native store, and the output renders in one pass, so the interpreter never starts.
-//! Anything else, an unrecognized flag, a construct outside the filter subset, a
+//!
+//! The command carries no filter flag surface of its own. Every `--key value` token
+//! pair lexes into the same wire pairs the server parses, and the native filter subset,
+//! which the entities' `Filterable` derives generate, is the single authority on what
+//! is admitted. Anything else, an unknown key, a construct outside the subset, a
 //! non-JSON format, colorized terminal output, or a database the native store cannot
 //! join, delegates to the Python runtime, which either serves it or produces the
 //! canonical error. Failures follow the same rule, the native attempt renders its whole
 //! output before writing anything, and any error along the way delegates rather than
 //! surfacing a message of its own.
 
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use ceres_config::DatabaseConfig;
 use ceres_database::{RecordFilter, RecordStore, RecordTable};
-use clap::Parser;
 
 use crate::error::Result;
 use crate::project::Project;
 
-/// The record subcommands the native path serves.
-#[derive(Debug, Parser)]
-#[command(no_binary_name = true, disable_help_flag = true)]
-enum RecordCommand {
-    Select(SelectArgs),
-    Count(SelectArgs),
-}
-
-/// The strict flag surface of a native record query.
-///
-/// Filter values stay text here, the native filter parser is the single authority on
-/// what parses and what delegates, so the CLI and the server admit exactly the same
-/// subset.
-#[derive(Debug, Parser)]
-struct SelectArgs {
-    #[arg(long)]
-    id: Vec<String>,
-    #[arg(long)]
-    address: Option<String>,
-    #[arg(long)]
-    timestamp: Vec<String>,
-    #[arg(long)]
-    after: Option<String>,
-    #[arg(long)]
-    before: Option<String>,
-    #[arg(long)]
-    timespan: Option<String>,
-    #[arg(long)]
-    max_age: Option<String>,
-    #[arg(long)]
-    min_age: Option<String>,
-    #[arg(long)]
-    order: Vec<String>,
-    #[arg(long)]
-    limit: Option<String>,
-    #[arg(long)]
-    offset: Option<String>,
-    #[arg(long)]
-    connection: Vec<String>,
-    #[arg(long)]
-    direction: Vec<String>,
-    #[arg(long = "type")]
-    kind: Vec<String>,
-    #[arg(long)]
-    level: Vec<String>,
-    #[arg(long)]
-    min_level: Option<String>,
-    #[arg(long)]
-    max_level: Option<String>,
-    #[arg(long)]
-    content: Vec<String>,
-
-    /// Output destination and rendering, matching the Python command's surface.
-    #[arg(long)]
+/// What a record invocation asked for, lexed without a declared flag surface.
+#[derive(Debug, Default, PartialEq)]
+struct Invocation {
+    counting: bool,
+    /// The filter's wire pairs, every flag that is not an output control.
+    pairs: Vec<(String, String)>,
     output: Option<PathBuf>,
-    #[arg(long)]
     data_format: Option<String>,
-    #[arg(long)]
     config: Option<PathBuf>,
-    #[arg(long)]
-    color: bool,
-    #[arg(long)]
-    no_color: bool,
-    /// Field projection, positional or by flag, which always delegates.
-    #[arg(long)]
-    field: Vec<String>,
-    fields: Vec<String>,
+    /// The explicit color choice, `--color` or `--no-color`.
+    color: Option<bool>,
+    /// Whether fields were projected, positionally or by flag, which always delegates.
+    projecting: bool,
 }
 
-impl SelectArgs {
-    /// The filter's wire pairs, in flag order per key.
-    fn pairs(&self) -> Vec<(String, String)> {
-        let mut pairs = Vec::new();
-        let mut many = |key: &str, values: &[String]| {
-            for value in values {
-                pairs.push((key.to_string(), value.clone()));
-            }
+impl Invocation {
+    /// Lex raw arguments, `None` for anything the native path cannot represent.
+    fn lex(raw: &[OsString]) -> Option<Self> {
+        let mut tokens = raw.iter().map(|token| token.to_str());
+        let mut invocation = Self {
+            counting: match tokens.next()?? {
+                "select" => false,
+                "count" => true,
+                _ => return None,
+            },
+            ..Self::default()
         };
 
-        many("id", &self.id);
-        many("timestamp", &self.timestamp);
-        many("order", &self.order);
-        many("connection", &self.connection);
-        many("direction", &self.direction);
-        many("type", &self.kind);
-        many("level", &self.level);
-        many("content", &self.content);
-        let mut one = |key: &str, value: &Option<String>| {
-            if let Some(value) = value {
-                pairs.push((key.to_string(), value.clone()));
-            }
-        };
+        let mut tokens = tokens.peekable();
+        while let Some(token) = tokens.next() {
+            let token = token?;
+            let Some(flag) = token.strip_prefix("--") else {
+                // A bare token is positional field projection.
+                invocation.projecting = true;
+                continue;
+            };
 
-        one("address", &self.address);
-        one("after", &self.after);
-        one("before", &self.before);
-        one("timespan", &self.timespan);
-        one("max_age", &self.max_age);
-        one("min_age", &self.min_age);
-        one("limit", &self.limit);
-        one("offset", &self.offset);
-        one("min_level", &self.min_level);
-        one("max_level", &self.max_level);
-        pairs
+            // `--flag=value` and `--flag value` both lex, a flag at the end or before
+            // another flag carries no value and delegates.
+            let (flag, mut value) = match flag.split_once('=') {
+                Some((flag, value)) => (flag, Some(value.to_string())),
+                None => (flag, None),
+            };
+
+            match flag {
+                "color" => invocation.color = Some(true),
+                "no-color" => invocation.color = Some(false),
+                _ => {
+                    if value.is_none() {
+                        let next = tokens.peek()?.as_ref()?;
+                        if next.starts_with("--") {
+                            return None;
+                        }
+
+                        value = Some((*next).to_string());
+                        tokens.next();
+                    }
+
+                    let value = value?;
+                    match flag {
+                        "output" => invocation.output = Some(PathBuf::from(value)),
+                        "data-format" => invocation.data_format = Some(value),
+                        "config" => invocation.config = Some(PathBuf::from(value)),
+                        "field" => invocation.projecting = true,
+                        key => invocation.pairs.push((key.replace('-', "_"), value)),
+                    }
+                }
+            }
+        }
+
+        Some(invocation)
     }
 
     /// Whether output is plain JSON with no projection and no color, the shape the
     /// native path renders. Mirrors the Python command's color resolution.
     fn plain_json_output(&self) -> bool {
-        if !self.fields.is_empty() || !self.field.is_empty() {
+        if self.projecting {
             return false;
         }
 
@@ -141,50 +112,36 @@ impl SelectArgs {
             return false;
         }
 
-        if self.color {
-            return false;
-        }
+        match self.color {
+            Some(true) => false,
+            Some(false) => true,
+            None => {
+                if std::env::var_os("FORCE_COLOR").is_some() {
+                    return false;
+                }
 
-        if !self.no_color {
-            if std::env::var_os("FORCE_COLOR").is_some() {
-                return false;
-            }
-
-            if std::env::var_os("NO_COLOR").is_none()
-                && self.output.is_none()
-                && std::io::IsTerminal::is_terminal(&std::io::stdout())
-            {
-                return false;
+                std::env::var_os("NO_COLOR").is_some()
+                    || self.output.is_some()
+                    || !std::io::IsTerminal::is_terminal(&std::io::stdout())
             }
         }
-
-        true
     }
 }
 
 /// Attempt one record command natively, `false` meaning the caller delegates.
-pub fn try_run(
-    table: RecordTable,
-    config: Option<&Path>,
-    raw: &[std::ffi::OsString],
-) -> Result<bool> {
-    let Ok(command) = RecordCommand::try_parse_from(raw) else {
+pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> Result<bool> {
+    let Some(invocation) = Invocation::lex(raw) else {
         return Ok(false);
     };
-
-    let (arguments, counting) = match &command {
-        RecordCommand::Select(arguments) => (arguments, false),
-        RecordCommand::Count(arguments) => (arguments, true),
-    };
-    if !arguments.plain_json_output() {
+    if !invocation.plain_json_output() {
         return Ok(false);
     }
 
-    let Some(filter) = RecordFilter::parse(table, &arguments.pairs()) else {
+    let Some(filter) = RecordFilter::parse(table, &invocation.pairs) else {
         return Ok(false);
     };
 
-    let config = arguments.config.as_deref().or(config);
+    let config = invocation.config.as_deref().or(config);
     let Ok(project) = Project::discover(config) else {
         return Ok(false);
     };
@@ -206,7 +163,7 @@ pub fn try_run(
     // The whole result renders before anything writes, so a failure here can still
     // delegate without having produced partial output.
     let rendered = runtime.block_on(async {
-        if counting {
+        if invocation.counting {
             store
                 .count_filter(table, &filter)
                 .await
@@ -222,7 +179,7 @@ pub fn try_run(
         return Ok(false);
     };
 
-    write_output(arguments.output.as_deref(), &rendered)
+    write_output(invocation.output.as_deref(), &rendered)
 }
 
 /// Open the native store for a configured database, `None` when it cannot join.
@@ -316,8 +273,6 @@ fn write_output(output: Option<&Path>, rendered: &[u8]) -> Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
-
     use super::*;
 
     fn raw(arguments: &[&str]) -> Vec<OsString> {
@@ -325,52 +280,55 @@ mod tests {
     }
 
     #[test]
-    fn unknown_flags_and_subcommands_fail_the_strict_parse() {
-        assert!(RecordCommand::try_parse_from(raw(&["select", "--contains", "x"])).is_err());
-        assert!(RecordCommand::try_parse_from(raw(&["select", "--help"])).is_err());
-        assert!(RecordCommand::try_parse_from(raw(&["create"])).is_err());
-        assert!(RecordCommand::try_parse_from(raw(&["select", "--limit", "5"])).is_ok());
-        assert!(RecordCommand::try_parse_from(raw(&["count", "--min-level", "error"])).is_ok());
+    fn only_select_and_count_lex() {
+        assert!(Invocation::lex(&raw(&["select"])).is_some());
+        assert!(Invocation::lex(&raw(&["count", "--limit", "5"])).is_some());
+        assert!(Invocation::lex(&raw(&["create"])).is_none());
+        assert!(Invocation::lex(&raw(&[])).is_none());
     }
 
     #[test]
-    fn flags_map_to_the_same_wire_pairs_the_server_parses() {
-        let RecordCommand::Select(arguments) = RecordCommand::try_parse_from(raw(&[
+    fn every_unclaimed_flag_becomes_a_wire_pair() {
+        let invocation = Invocation::lex(&raw(&[
             "select",
             "--address",
             "@sensor.temp",
-            "--max-age",
-            "2h",
+            "--max-age=2h",
             "--order",
             "timestamp:desc",
             "--limit",
             "10",
         ]))
-        .unwrap() else {
-            panic!("expected a select");
-        };
+        .unwrap();
 
-        let pairs = arguments.pairs();
-        assert!(RecordFilter::parse(RecordTable::Messages, &pairs).is_some());
-        assert!(pairs.contains(&("max_age".to_string(), "2h".to_string())));
+        assert!(
+            invocation
+                .pairs
+                .contains(&("max_age".to_string(), "2h".to_string()))
+        );
+        assert!(RecordFilter::parse(RecordTable::Messages, &invocation.pairs).is_some());
+
+        // Unknown keys lex into pairs too, and the filter is what refuses them.
+        let unknown = Invocation::lex(&raw(&["select", "--contains", "x"])).unwrap();
+        assert!(RecordFilter::parse(RecordTable::Messages, &unknown.pairs).is_none());
+    }
+
+    #[test]
+    fn valueless_flags_delegate() {
+        assert!(Invocation::lex(&raw(&["select", "--help"])).is_none());
+        assert!(Invocation::lex(&raw(&["select", "--limit"])).is_none());
+        assert!(Invocation::lex(&raw(&["select", "--limit", "--offset", "2"])).is_none());
     }
 
     #[test]
     fn projection_format_and_color_gate_the_native_path() {
-        let parse = |arguments: &[&str]| {
-            let RecordCommand::Select(arguments) =
-                RecordCommand::try_parse_from(raw(arguments)).unwrap()
-            else {
-                panic!("expected a select");
-            };
-            arguments
-        };
+        let lex = |arguments: &[&str]| Invocation::lex(&raw(arguments)).unwrap();
 
-        assert!(!parse(&["select", "--field", "id", "--no-color"]).plain_json_output());
-        assert!(!parse(&["select", "id", "--no-color"]).plain_json_output());
-        assert!(!parse(&["select", "--data-format", "csv", "--no-color"]).plain_json_output());
-        assert!(!parse(&["select", "--color"]).plain_json_output());
-        assert!(parse(&["select", "--no-color"]).plain_json_output());
-        assert!(parse(&["select", "--output", "out.json", "--no-color"]).plain_json_output());
+        assert!(!lex(&["select", "--field", "id", "--no-color"]).plain_json_output());
+        assert!(!lex(&["select", "id", "--no-color"]).plain_json_output());
+        assert!(!lex(&["select", "--data-format", "csv", "--no-color"]).plain_json_output());
+        assert!(!lex(&["select", "--color"]).plain_json_output());
+        assert!(lex(&["select", "--no-color"]).plain_json_output());
+        assert!(lex(&["select", "--output", "out.json", "--no-color"]).plain_json_output());
     }
 }

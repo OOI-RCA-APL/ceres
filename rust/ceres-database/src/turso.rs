@@ -100,6 +100,31 @@ impl TursoBackend {
         decode(table, &mut rows).await
     }
 
+    /// Read a gate user row, `None` when no user carries the ID.
+    pub(crate) async fn gate_user(
+        &self,
+        sql: &str,
+        id: uuid::Uuid,
+    ) -> Result<Option<crate::store::GateUser>, Error> {
+        let connection = self.connection().await?;
+        let mut rows = connection
+            .query(sql, turso::params_from_iter([Value::Text(id.to_string())]))
+            .await?;
+        let Some(row) = rows.next().await? else {
+            return Ok(None);
+        };
+
+        let flag = |value: Value| match value {
+            Value::Integer(value) => Ok(value != 0),
+            other => Err(Error::Decode(format!("{other:?} is not a flag"))),
+        };
+        Ok(Some(crate::store::GateUser {
+            id,
+            admin: flag(row.get_value(0)?)?,
+            disabled: flag(row.get_value(1)?)?,
+        }))
+    }
+
     /// Execute a single-value count query.
     pub(crate) async fn scalar_count(
         &self,

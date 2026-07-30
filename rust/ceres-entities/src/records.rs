@@ -5,6 +5,7 @@
 //! wire format for it.
 
 use ceres_config::Level;
+use ceres_macros::{FilterValues, Filterable};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
@@ -13,7 +14,7 @@ use crate::address::Address;
 use crate::timestamp::Timestamp;
 
 /// The direction a message traveled through a connection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, FilterValues)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageDirection {
     Send,
@@ -21,7 +22,7 @@ pub enum MessageDirection {
 }
 
 /// Raw bytes exchanged with an external system over a component connection.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Message {
     pub id: Uuid,
     pub address: Address,
@@ -29,11 +30,12 @@ pub struct Message {
     pub connection: Option<String>,
     pub direction: MessageDirection,
     #[serde(with = "latin1")]
+    #[filterable(bare_operations)]
     pub data: Vec<u8>,
 }
 
 /// A parsed sample extracted from message bytes or produced directly by a component.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Particle {
     pub id: Uuid,
     pub address: Address,
@@ -46,7 +48,7 @@ pub struct Particle {
 }
 
 /// A leveled notification raised by a component.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Alert {
     pub id: Uuid,
     pub address: Address,
@@ -58,12 +60,13 @@ pub struct Alert {
 }
 
 /// One line of component log output.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct LogEntry {
     pub id: Uuid,
     pub address: Address,
     pub timestamp: Timestamp,
     pub level: Level,
+    #[filterable(bare_operations)]
     pub content: String,
 }
 
@@ -101,6 +104,14 @@ pub fn to_json_array<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>>
     serde_json::to_vec(records)
 }
 
+/// Serialize a sequence's first record, `null` when the sequence is empty.
+pub fn to_json_first<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
+    match records.first() {
+        Some(record) => serde_json::to_vec(record),
+        None => Ok(b"null".to_vec()),
+    }
+}
+
 /// Serialize a sequence of records as JSON lines, one record per line.
 pub fn to_json_lines<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
     let mut lines = Vec::new();
@@ -135,6 +146,16 @@ impl Records {
     /// Whether no records are held.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Serialize the first record in the wire format, `null` when none matched.
+    pub fn to_json_first(&self) -> serde_json::Result<Vec<u8>> {
+        match self {
+            Self::Messages(records) => to_json_first(records),
+            Self::Particles(records) => to_json_first(records),
+            Self::Alerts(records) => to_json_first(records),
+            Self::LogEntries(records) => to_json_first(records),
+        }
     }
 
     /// Serialize the records as JSON lines in the wire format, one record per line.

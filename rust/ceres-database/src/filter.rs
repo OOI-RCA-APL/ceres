@@ -7,27 +7,20 @@
 //! which either serves it or produces the canonical validation error. The native path
 //! therefore never invents an error a client sees.
 //!
-//! Compilation mirrors the Python query layer's `_get_where` semantics construct for
-//! construct, and the cross-backend parity suite holds the two compilers to identical
+//! The admissible keys are not written out anywhere. Each entity's `Filterable` derive
+//! reads its struct at compile time, and every field's family brings its operators, a
+//! timestamp brings the window operators, a level brings ordered bounds, text and enum
+//! fields bring equality. Compilation mirrors the Python query layer's `_get_where`
+//! semantics, and the cross-backend parity suite holds the two compilers to identical
 //! result sets.
 
+use ceres_entities::{FieldFamily, FilterField, FilterValues, Level};
 use chrono::{Duration, NaiveDateTime, SubsecRound, Utc};
 use sea_query::{Alias, Asterisk, Expr, Order, Query, SelectStatement, SimpleExpr, Value};
 use uuid::Uuid;
 
 use crate::records::RecordTable;
 use crate::store::Parameter;
-
-/// Every level, in severity order, for expanding `min_level`/`max_level` into `IN`
-/// lists the way the Python filter does.
-const LEVELS: [&str; 5] = ["debug", "info", "warning", "error", "critical"];
-
-/// The columns an order value may name, shared across the record tables.
-const COMMON_ORDER: [&str; 3] = ["id", "address", "timestamp"];
-
-/// Text columns, which order with an explicit `C` collation on PostgreSQL so the order
-/// is a property of Ceres rather than of the cluster's locale.
-const TEXT_COLUMNS: [&str; 6] = ["id", "address", "connection", "direction", "type", "level"];
 
 /// How values render into the statement, per backend family.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -37,108 +30,128 @@ pub enum SqlDialect {
     Postgres,
 }
 
-/// One ordering term, a column and its direction.
+/// What one wire key means for a table, resolved from the entity's field families.
+enum KeyRole {
+    /// Equality on a field, one value compiling to `=` and several to `IN`.
+    Equality(&'static FilterField),
+    /// One of the window operators a timestamp field brings.
+    Window(WindowOp),
+    /// One of the ordered bounds a level field brings.
+    Bound(BoundOp),
+    Order,
+    Limit,
+    Offset,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum WindowOp {
+    After,
+    Before,
+    Timespan,
+    MaxAge,
+    MinAge,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum BoundOp {
+    Minimum,
+    Maximum,
+}
+
+/// The values one field's equality holds, in the family's typed form.
 #[derive(Clone, Debug, PartialEq)]
+enum Values {
+    Uuids(Vec<Uuid>),
+    Texts(Vec<String>),
+    Stamps(Vec<NaiveDateTime>),
+}
+
+/// One ordering term, a field and its direction.
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct OrderTerm {
-    column: &'static str,
+    field: &'static FilterField,
     ascending: bool,
 }
 
 /// The parsed subset of one record filter.
-///
-/// Fields hold lists where the wire accepts one value or several, an empty list
-/// meaning the key was absent.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecordFilter {
-    id: Vec<Uuid>,
-    address: Option<String>,
-    timestamp: Vec<NaiveDateTime>,
+    /// Equality values by wire key, compiled in the entity's field order.
+    equalities: Vec<(&'static str, Values)>,
     after: Option<NaiveDateTime>,
     before: Option<NaiveDateTime>,
     timespan: Option<Duration>,
     max_age: Option<Duration>,
     min_age: Option<Duration>,
+    /// Level bounds as indexes into the level family's ordered values.
+    min_level: Option<usize>,
+    max_level: Option<usize>,
     order: Vec<OrderTerm>,
     limit: Option<u64>,
     offset: Option<u64>,
-    /// `connection` equality on messages.
-    connection: Vec<String>,
-    /// `direction` equality on messages, as the stored text.
-    direction: Vec<String>,
-    /// `type` equality on particles and alerts.
-    kind: Vec<String>,
-    /// `level` equality on alerts and logs, as the stored text.
-    level: Vec<String>,
-    min_level: Option<&'static str>,
-    max_level: Option<&'static str>,
-    /// `content` equality on logs.
-    content: Vec<String>,
 }
 
 impl RecordFilter {
-    /// The query keys the native subset serves for a table, underscore wire names.
-    pub fn supported_keys(table: RecordTable) -> &'static [&'static str] {
-        macro_rules! keys {
-            ($($extra:literal),*) => {
-                &[
-                    "id", "address", "timestamp", "after", "before", "timespan", "max_age",
-                    "min_age", "order", "limit", "offset", $($extra),*
-                ]
-            };
+    /// The field and query filter keys the native subset serves for a table.
+    ///
+    /// Generated from the entity's field families, never written out. Equality for
+    /// every native family, the window operators a timestamp brings, the ordered
+    /// bounds a level brings, and the query keys.
+    pub fn supported_keys(table: RecordTable) -> Vec<&'static str> {
+        let mut keys = Vec::new();
+        for field in table.fields() {
+            if !field.family.native() {
+                continue;
+            }
+
+            keys.push(field.key);
+            match field.family {
+                FieldFamily::Timestamp => {
+                    keys.extend(["after", "before", "timespan", "max_age", "min_age"]);
+                }
+                FieldFamily::Level => {
+                    keys.extend(bound_keys(field));
+                }
+                _ => {}
+            }
         }
 
-        match table {
-            RecordTable::Messages => keys!("connection", "direction"),
-            RecordTable::Particles => keys!("type"),
-            RecordTable::Alerts => keys!("type", "level", "min_level", "max_level"),
-            RecordTable::Logs => keys!("level", "min_level", "max_level", "content"),
-        }
+        keys.extend(["order", "limit", "offset"]);
+        keys
     }
 
-    /// The query keys the subset knowingly delegates for a table.
+    /// The filter keys the subset knowingly delegates for a table.
     ///
-    /// Together with [`Self::supported_keys`], this covers every field the Python
-    /// filter declares, and the classification test holds the union to that shape so a
-    /// new filter field cannot ship unclassified.
-    pub fn delegated_keys(table: RecordTable) -> &'static [&'static str] {
-        macro_rules! keys {
-            ($($extra:literal),*) => {
-                &[
-                    "root", "or", "and", "subsample_every", "subsample", "subsample_select",
-                    "after_hour", "before_hour", "after_minute", "before_minute", $($extra),*
-                ]
-            };
+    /// The field operation filters and the byte and JSON field filters generate from
+    /// the entity like the native surface does. What remains is Python's structural
+    /// query filters, shared by every table, plus its Python-only constructs, and the
+    /// classification test holds the union of both lists to exactly what the Pydantic
+    /// models declare so a new filter field cannot ship unclassified.
+    pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
+        const STRUCTURAL: [&str; 10] = [
+            "root",
+            "or",
+            "and",
+            "subsample_every",
+            "subsample",
+            "subsample_select",
+            "after_hour",
+            "before_hour",
+            "after_minute",
+            "before_minute",
+        ];
+
+        let mut keys: Vec<&'static str> = STRUCTURAL.to_vec();
+        for field in table.fields() {
+            keys.extend(field.operations);
         }
 
-        match table {
-            RecordTable::Messages => keys!(
-                "connection_contains",
-                "connection_prefix",
-                "connection_suffix",
-                "data",
-                "contains",
-                "prefix",
-                "suffix"
-            ),
-            RecordTable::Particles => keys!(
-                "class",
-                "type_contains",
-                "type_prefix",
-                "type_suffix",
-                "data_contains",
-                "data_prefix",
-                "data_suffix"
-            ),
-            RecordTable::Alerts => keys!(
-                "type_contains",
-                "type_prefix",
-                "type_suffix",
-                "data_contains",
-                "data_prefix",
-                "data_suffix"
-            ),
-            RecordTable::Logs => keys!("contains", "prefix", "suffix"),
+        // A particle's `class` filters by a Python type, which has no native form.
+        if table == RecordTable::Particles {
+            keys.push("class");
         }
+
+        keys
     }
 
     /// Parse query pairs into the subset, `None` when the request must delegate.
@@ -146,59 +159,97 @@ impl RecordFilter {
     /// Repeated keys collect into lists, matching how the Python layer folds ordered
     /// pairs before validating.
     pub fn parse(table: RecordTable, pairs: &[(String, String)]) -> Option<Self> {
-        let supported = Self::supported_keys(table);
-
         let mut filter = Self::default();
         for (key, value) in pairs {
-            if !supported.contains(&key.as_str()) {
-                return None;
-            }
+            match resolve(table, key)? {
+                KeyRole::Equality(field) => filter.push_equality(field, value)?,
+                KeyRole::Window(operator) => match operator {
+                    WindowOp::After => set_once(&mut filter.after, parse_timestamp(value)?)?,
+                    WindowOp::Before => set_once(&mut filter.before, parse_timestamp(value)?)?,
+                    WindowOp::Timespan => {
+                        let timespan = parse_duration(value)?;
+                        // A timespan is a positive duration on the wire, zero or below
+                        // validates as an error there.
+                        if timespan < Duration::microseconds(1) {
+                            return None;
+                        }
 
-            match key.as_str() {
-                "id" => filter.id.push(value.parse().ok()?),
-                "address" => {
-                    // A second address, a selector modifier, or a relative form is
-                    // outside the subset. A plain absolute address compiles to the
-                    // equality the Python selector expression reduces to.
-                    if filter.address.is_some() || !plain_address(value) {
-                        return None;
+                        set_once(&mut filter.timespan, timespan)?;
                     }
-
-                    filter.address = Some(value.clone());
-                }
-                "timestamp" => filter.timestamp.push(parse_timestamp(value)?),
-                "after" => set_once(&mut filter.after, parse_timestamp(value)?)?,
-                "before" => set_once(&mut filter.before, parse_timestamp(value)?)?,
-                "timespan" => set_once(&mut filter.timespan, parse_duration(value)?)?,
-                "max_age" => set_once(&mut filter.max_age, parse_duration(value)?)?,
-                "min_age" => set_once(&mut filter.min_age, parse_duration(value)?)?,
-                "order" => filter.order.push(parse_order(table, value)?),
-                "limit" => set_once(&mut filter.limit, value.parse().ok()?)?,
-                "offset" => set_once(&mut filter.offset, value.parse().ok()?)?,
-                "connection" => filter.connection.push(value.clone()),
-                "direction" => {
-                    if value != "send" && value != "receive" {
-                        return None;
+                    WindowOp::MaxAge => set_once(&mut filter.max_age, parse_duration(value)?)?,
+                    WindowOp::MinAge => set_once(&mut filter.min_age, parse_duration(value)?)?,
+                },
+                KeyRole::Bound(operator) => {
+                    let position = level_position(value)?;
+                    match operator {
+                        BoundOp::Minimum => set_once(&mut filter.min_level, position)?,
+                        BoundOp::Maximum => set_once(&mut filter.max_level, position)?,
                     }
-
-                    filter.direction.push(value.clone());
                 }
-                "type" => filter.kind.push(value.clone()),
-                "level" => filter.level.push(parse_level(value)?.to_string()),
-                "min_level" => set_once(&mut filter.min_level, parse_level(value)?)?,
-                "max_level" => set_once(&mut filter.max_level, parse_level(value)?)?,
-                "content" => filter.content.push(value.clone()),
-                _ => return None,
+                KeyRole::Order => {
+                    let term = parse_order(table, value)?;
+                    filter.order.push(term);
+                }
+                KeyRole::Limit => set_once(&mut filter.limit, value.parse().ok()?)?,
+                KeyRole::Offset => set_once(&mut filter.offset, value.parse().ok()?)?,
             }
-        }
-
-        if filter.timespan.is_some() && filter.timespan < Some(Duration::microseconds(1)) {
-            // `timespan` is a positive duration on the wire, zero or below validates
-            // as an error there.
-            return None;
         }
 
         Some(filter)
+    }
+
+    /// Add one equality value for a field, parsed by its family.
+    fn push_equality(&mut self, field: &'static FilterField, value: &str) -> Option<()> {
+        let parsed = match field.family {
+            FieldFamily::Uuid => Values::Uuids(vec![value.parse().ok()?]),
+            // A selector modifier or a relative form is outside the subset. A plain
+            // absolute address compiles to the equality the Python selector expression
+            // reduces to, and a second one delegates rather than guessing at selector
+            // semantics.
+            FieldFamily::Address => {
+                if !plain_address(value) {
+                    return None;
+                }
+
+                Values::Texts(vec![value.to_string()])
+            }
+            FieldFamily::Timestamp => Values::Stamps(vec![parse_timestamp(value)?]),
+            FieldFamily::Text => Values::Texts(vec![value.to_string()]),
+            FieldFamily::Values(admissible) => {
+                if !admissible.contains(&value) {
+                    return None;
+                }
+
+                Values::Texts(vec![value.to_string()])
+            }
+            FieldFamily::Level => {
+                level_position(value)?;
+                Values::Texts(vec![value.to_string()])
+            }
+            FieldFamily::Bytes | FieldFamily::Json => return None,
+        };
+
+        match self
+            .equalities
+            .iter_mut()
+            .find(|(key, _)| *key == field.key)
+        {
+            None => self.equalities.push((field.key, parsed)),
+            Some((_, existing)) => match (existing, parsed) {
+                (Values::Uuids(existing), Values::Uuids(more)) => existing.extend(more),
+                (Values::Texts(existing), Values::Texts(mut more)) => {
+                    if field.family == FieldFamily::Address {
+                        return None;
+                    }
+
+                    existing.append(&mut more);
+                }
+                (Values::Stamps(existing), Values::Stamps(more)) => existing.extend(more),
+                _ => return None,
+            },
+        }
+
+        Some(())
     }
 
     /// The parsed limit, which callers cap before executing on the server.
@@ -222,11 +273,11 @@ impl RecordFilter {
     pub fn statement(&self, table: RecordTable, dialect: SqlDialect) -> SelectStatement {
         let mut statement = Query::select();
         statement.column(Asterisk).from(Alias::new(table.name()));
-        for condition in self.conditions(dialect) {
+        for condition in self.conditions(table, dialect) {
             statement.and_where(condition);
         }
 
-        for term in self.order_terms() {
+        for term in self.order_terms(table) {
             order_by(&mut statement, term, dialect);
         }
 
@@ -251,7 +302,7 @@ impl RecordFilter {
             statement
                 .expr(Expr::cust("COUNT(*)"))
                 .from(Alias::new(table.name()));
-            for condition in self.conditions(dialect) {
+            for condition in self.conditions(table, dialect) {
                 statement.and_where(condition);
             }
 
@@ -262,11 +313,11 @@ impl RecordFilter {
         inner
             .column(Alias::new("id"))
             .from(Alias::new(table.name()));
-        for condition in self.conditions(dialect) {
+        for condition in self.conditions(table, dialect) {
             inner.and_where(condition);
         }
 
-        for term in self.order_terms() {
+        for term in self.order_terms(table) {
             order_by(&mut inner, term, dialect);
         }
 
@@ -285,114 +336,184 @@ impl RecordFilter {
         statement
     }
 
-    /// The `WHERE` conditions, in the order the Python filter yields them.
-    fn conditions(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+    /// The `WHERE` conditions, in the entity's field order.
+    fn conditions(&self, table: RecordTable, dialect: SqlDialect) -> Vec<SimpleExpr> {
         let mut conditions = Vec::new();
-        let column = |name: &str| Expr::col(Alias::new(name));
         // `now` truncates to microseconds so arithmetic and rendering match Python's
         // `datetime` resolution exactly.
         let now = Utc::now().naive_utc().trunc_subsecs(6);
 
-        if !self.id.is_empty() {
-            let values = self.id.iter().map(|id| id_value(*id, dialect));
-            conditions.push(match_values(column("id"), values));
-        }
-
-        if let Some(address) = &self.address {
-            conditions.push(column("address").eq(address.clone()));
-        }
-
-        if !self.timestamp.is_empty() {
-            let values = self
-                .timestamp
-                .iter()
-                .map(|timestamp| timestamp_value(*timestamp, dialect));
-            conditions.push(match_values(column("timestamp"), values));
-        }
-
-        if let Some(after) = self.after {
-            conditions.push(column("timestamp").gte(timestamp_value(after, dialect)));
-        }
-
-        if let Some(before) = self.before {
-            conditions.push(column("timestamp").lt(timestamp_value(before, dialect)));
-        }
-
-        if let Some(timespan) = self.timespan {
-            if let Some(after) = self.after {
-                conditions.push(column("timestamp").lt(timestamp_value(after + timespan, dialect)));
-            } else if let Some(before) = self.before {
-                conditions
-                    .push(column("timestamp").gte(timestamp_value(before - timespan, dialect)));
-            } else {
-                conditions.push(column("timestamp").gte(timestamp_value(now - timespan, dialect)));
-                conditions.push(column("timestamp").lt(timestamp_value(now, dialect)));
+        for field in table.fields() {
+            let column = Expr::col(Alias::new(field.key));
+            if let Some(values) = self.values_of(field) {
+                conditions.push(match values {
+                    Values::Uuids(ids) => {
+                        match_values(column.clone(), ids.iter().map(|id| id_value(*id, dialect)))
+                    }
+                    Values::Texts(texts) => {
+                        match_values(column.clone(), texts.iter().cloned().map(Value::from))
+                    }
+                    Values::Stamps(stamps) => match_values(
+                        column.clone(),
+                        stamps.iter().map(|stamp| timestamp_value(*stamp, dialect)),
+                    ),
+                });
             }
-        }
 
-        if let Some(max_age) = self.max_age {
-            conditions.push(column("timestamp").gt(timestamp_value(now - max_age, dialect)));
-        }
+            match field.family {
+                FieldFamily::Timestamp => {
+                    self.window_conditions(&mut conditions, &column, now, dialect);
+                }
+                FieldFamily::Level => {
+                    let levels = <Level as FilterValues>::VALUES;
+                    if let Some(minimum) = self.min_level {
+                        let qualifying = levels[minimum..].iter().map(|level| Value::from(*level));
+                        conditions.push(column.clone().is_in(qualifying));
+                    }
 
-        if let Some(min_age) = self.min_age {
-            conditions.push(column("timestamp").lte(timestamp_value(now - min_age, dialect)));
-        }
-
-        if !self.connection.is_empty() {
-            let values = self.connection.iter().cloned().map(Value::from);
-            conditions.push(match_values(column("connection"), values));
-        }
-
-        if !self.direction.is_empty() {
-            let values = self.direction.iter().cloned().map(Value::from);
-            conditions.push(match_values(column("direction"), values));
-        }
-
-        if !self.kind.is_empty() {
-            let values = self.kind.iter().cloned().map(Value::from);
-            conditions.push(match_values(column("type"), values));
-        }
-
-        if !self.level.is_empty() {
-            let values = self.level.iter().cloned().map(Value::from);
-            conditions.push(match_values(column("level"), values));
-        }
-
-        if let Some(minimum) = self.min_level {
-            let start = LEVELS.iter().position(|level| *level == minimum);
-            let qualifying = LEVELS[start.unwrap_or(0)..]
-                .iter()
-                .map(|level| Value::from(*level));
-            conditions.push(column("level").is_in(qualifying));
-        }
-
-        if let Some(maximum) = self.max_level {
-            let end = LEVELS.iter().position(|level| *level == maximum);
-            let qualifying = LEVELS[..=end.unwrap_or(LEVELS.len() - 1)]
-                .iter()
-                .map(|level| Value::from(*level));
-            conditions.push(column("level").is_in(qualifying));
-        }
-
-        if !self.content.is_empty() {
-            let values = self.content.iter().cloned().map(Value::from);
-            conditions.push(match_values(column("content"), values));
+                    if let Some(maximum) = self.max_level {
+                        let qualifying = levels[..=maximum].iter().map(|level| Value::from(*level));
+                        conditions.push(column.clone().is_in(qualifying));
+                    }
+                }
+                _ => {}
+            }
         }
 
         conditions
     }
 
-    /// The order terms, the record default of ascending timestamp when none given.
-    fn order_terms(&self) -> Vec<OrderTerm> {
-        if self.order.is_empty() {
-            return vec![OrderTerm {
-                column: "timestamp",
-                ascending: true,
-            }];
+    /// The window operator conditions on the timestamp column.
+    fn window_conditions(
+        &self,
+        conditions: &mut Vec<SimpleExpr>,
+        column: &Expr,
+        now: NaiveDateTime,
+        dialect: SqlDialect,
+    ) {
+        if let Some(after) = self.after {
+            conditions.push(column.clone().gte(timestamp_value(after, dialect)));
         }
 
-        self.order.clone()
+        if let Some(before) = self.before {
+            conditions.push(column.clone().lt(timestamp_value(before, dialect)));
+        }
+
+        if let Some(timespan) = self.timespan {
+            if let Some(after) = self.after {
+                conditions.push(
+                    column
+                        .clone()
+                        .lt(timestamp_value(after + timespan, dialect)),
+                );
+            } else if let Some(before) = self.before {
+                conditions.push(
+                    column
+                        .clone()
+                        .gte(timestamp_value(before - timespan, dialect)),
+                );
+            } else {
+                conditions.push(column.clone().gte(timestamp_value(now - timespan, dialect)));
+                conditions.push(column.clone().lt(timestamp_value(now, dialect)));
+            }
+        }
+
+        if let Some(max_age) = self.max_age {
+            conditions.push(column.clone().gt(timestamp_value(now - max_age, dialect)));
+        }
+
+        if let Some(min_age) = self.min_age {
+            conditions.push(column.clone().lte(timestamp_value(now - min_age, dialect)));
+        }
     }
+
+    /// The equality values held for one field.
+    fn values_of(&self, field: &FilterField) -> Option<&Values> {
+        self.equalities
+            .iter()
+            .find(|(key, _)| *key == field.key)
+            .map(|(_, values)| values)
+    }
+
+    /// The order terms, the record default of ascending timestamp when none given.
+    fn order_terms(&self, table: RecordTable) -> Vec<OrderTerm> {
+        if !self.order.is_empty() {
+            return self.order.clone();
+        }
+
+        table
+            .fields()
+            .iter()
+            .find(|field| field.family == FieldFamily::Timestamp)
+            .map(|field| {
+                vec![OrderTerm {
+                    field,
+                    ascending: true,
+                }]
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Resolve what one wire key means for a table, from the entity's field families.
+fn resolve(table: RecordTable, key: &str) -> Option<KeyRole> {
+    match key {
+        "order" => return Some(KeyRole::Order),
+        "limit" => return Some(KeyRole::Limit),
+        "offset" => return Some(KeyRole::Offset),
+        _ => {}
+    }
+
+    for field in table.fields() {
+        if field.key == key {
+            return Some(KeyRole::Equality(field));
+        }
+
+        match field.family {
+            FieldFamily::Timestamp => {
+                let operator = match key {
+                    "after" => Some(WindowOp::After),
+                    "before" => Some(WindowOp::Before),
+                    "timespan" => Some(WindowOp::Timespan),
+                    "max_age" => Some(WindowOp::MaxAge),
+                    "min_age" => Some(WindowOp::MinAge),
+                    _ => None,
+                };
+                if let Some(operator) = operator {
+                    return Some(KeyRole::Window(operator));
+                }
+            }
+            FieldFamily::Level => {
+                let [minimum, maximum] = bound_keys(field);
+                if key == minimum {
+                    return Some(KeyRole::Bound(BoundOp::Minimum));
+                }
+
+                if key == maximum {
+                    return Some(KeyRole::Bound(BoundOp::Maximum));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+/// The bound keys a level field brings, `min_` and `max_` prefixed on its key.
+fn bound_keys(field: &FilterField) -> [&'static str; 2] {
+    // The record level fields are all named `level` today, and the keys have to be
+    // `'static` for the classification lists, so the prefix join is spelled out here
+    // and checked against the field at runtime.
+    debug_assert_eq!(field.key, "level");
+    ["min_level", "max_level"]
+}
+
+/// The position of a level name in severity order.
+fn level_position(value: &str) -> Option<usize> {
+    <Level as FilterValues>::VALUES
+        .iter()
+        .position(|level| *level == value)
 }
 
 /// Refuse a key that appears more than once where the wire takes one value.
@@ -474,7 +595,8 @@ fn parse_duration(text: &str) -> Option<Duration> {
     Some(Duration::microseconds((value * scale).round() as i64))
 }
 
-/// Parse an order value, `field`, `field:asc`, or `field:desc` over the allowlist.
+/// Parse an order value, `field`, `field:asc`, or `field:desc` over the entity's
+/// filterable fields.
 fn parse_order(table: RecordTable, text: &str) -> Option<OrderTerm> {
     let (base, ascending) = match text.split_once(':') {
         None => (text, true),
@@ -483,23 +605,12 @@ fn parse_order(table: RecordTable, text: &str) -> Option<OrderTerm> {
         Some(_) => return None,
     };
 
-    let extra: &[&str] = match table {
-        RecordTable::Messages => &["connection", "direction"],
-        RecordTable::Particles => &["type"],
-        RecordTable::Alerts => &["type", "level"],
-        RecordTable::Logs => &["level", "content"],
-    };
-    let column = COMMON_ORDER
-        .iter()
-        .chain(extra)
-        .find(|column| **column == base)?;
+    let field = table.fields().iter().find(|field| field.key == base)?;
+    if !field.family.native() {
+        return None;
+    }
 
-    Some(OrderTerm { column, ascending })
-}
-
-/// Parse a level name to its canonical form.
-fn parse_level(text: &str) -> Option<&'static str> {
-    LEVELS.iter().find(|level| **level == text).copied()
+    Some(OrderTerm { field, ascending })
 }
 
 /// An equality for one value, an `IN` for several, like the Python `_sql_match_value`.
@@ -529,6 +640,9 @@ fn timestamp_value(timestamp: NaiveDateTime, dialect: SqlDialect) -> Value {
 }
 
 /// Apply one order term, collating text by code point on PostgreSQL.
+///
+/// Only columns stored as text collate, the way the Python layer's own ordering does.
+/// A native UUID or timestamp column takes no collation, PostgreSQL rejects one.
 fn order_by(statement: &mut SelectStatement, term: OrderTerm, dialect: SqlDialect) {
     let direction = if term.ascending {
         Order::Asc
@@ -536,11 +650,15 @@ fn order_by(statement: &mut SelectStatement, term: OrderTerm, dialect: SqlDialec
         Order::Desc
     };
 
-    if dialect == SqlDialect::Postgres && TEXT_COLUMNS.contains(&term.column) {
-        let collated = format!("\"{}\" COLLATE \"C\"", term.column);
+    let text = matches!(
+        term.field.family,
+        FieldFamily::Address | FieldFamily::Text | FieldFamily::Values(_) | FieldFamily::Level
+    );
+    if dialect == SqlDialect::Postgres && text {
+        let collated = format!("\"{}\" COLLATE \"C\"", term.field.key);
         statement.order_by_expr(Expr::cust(collated), direction);
     } else {
-        statement.order_by(Alias::new(term.column), direction);
+        statement.order_by(Alias::new(term.field.key), direction);
     }
 }
 
@@ -563,6 +681,7 @@ mod tests {
             pairs(&[("nope", "1")]),
             pairs(&[("subsample", "10")]),
             pairs(&[("and", "{}")]),
+            pairs(&[("data", "abc")]),
             pairs(&[("address", "@a,@b")]),
             pairs(&[("address", "@a:children")]),
             pairs(&[("address", "sensor")]),
@@ -570,7 +689,6 @@ mod tests {
             pairs(&[("after", "not-a-time")]),
             pairs(&[("timespan", "PT5S")]),
             pairs(&[("direction", "sideways")]),
-            pairs(&[("level", "loud")]),
             pairs(&[("order", "data")]),
             pairs(&[("order", "timestamp:sideways")]),
             pairs(&[("limit", "-1")]),
@@ -593,6 +711,28 @@ mod tests {
         let level = pairs(&[("min_level", "warning")]);
         assert!(RecordFilter::parse(RecordTable::Alerts, &level).is_some());
         assert!(RecordFilter::parse(RecordTable::Messages, &level).is_none());
+    }
+
+    #[test]
+    fn supported_keys_generate_from_the_entity_fields() {
+        let keys = RecordFilter::supported_keys(RecordTable::Messages);
+        for expected in [
+            "id",
+            "address",
+            "timestamp",
+            "after",
+            "timespan",
+            "connection",
+            "direction",
+            "order",
+            "limit",
+        ] {
+            assert!(keys.contains(&expected), "{expected} missing");
+        }
+
+        // Bytes and JSON payloads never derive a native filter.
+        assert!(!keys.contains(&"data"));
+        assert!(RecordFilter::supported_keys(RecordTable::Logs).contains(&"min_level"));
     }
 
     #[test]
@@ -652,6 +792,25 @@ mod tests {
     }
 
     #[test]
+    fn uuid_columns_never_collate_on_postgres() {
+        let by_id = RecordFilter::parse(RecordTable::Logs, &pairs(&[("order", "id")])).unwrap();
+        let sql = by_id
+            .statement(RecordTable::Logs, SqlDialect::Postgres)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(sql.contains("ORDER BY \"id\" ASC"), "{sql}");
+
+        let by_content =
+            RecordFilter::parse(RecordTable::Logs, &pairs(&[("order", "content:desc")])).unwrap();
+        let sql = by_content
+            .statement(RecordTable::Logs, SqlDialect::Postgres)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(
+            sql.contains("ORDER BY \"content\" COLLATE \"C\" DESC"),
+            "{sql}"
+        );
+    }
+
+    #[test]
     fn durations_parse_the_suffix_grammar() {
         assert_eq!(parse_duration("5s"), Some(Duration::seconds(5)));
         assert_eq!(parse_duration("1.5 h"), Some(Duration::seconds(5400)));
@@ -684,11 +843,9 @@ mod tests {
             RecordTable::Alerts,
             RecordTable::Logs,
         ] {
+            let delegated = RecordFilter::delegated_keys(table);
             for key in RecordFilter::supported_keys(table) {
-                assert!(
-                    !RecordFilter::delegated_keys(table).contains(key),
-                    "{key} is classified twice"
-                );
+                assert!(!delegated.contains(&key), "{key} is classified twice");
             }
         }
     }

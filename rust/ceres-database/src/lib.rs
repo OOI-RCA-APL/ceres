@@ -15,5 +15,5 @@ mod writer;
 
 pub use filter::{RecordFilter, SqlDialect};
 pub use records::RecordTable;
-pub use store::{Error, Parameter, RecordStore};
+pub use store::{Error, GateUser, Parameter, RecordStore};
 pub use writer::RecordWriter;

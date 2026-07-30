@@ -5,12 +5,17 @@
 //! into Python objects when user code needs them. Serialization here defines the API wire
 //! format, byte for byte.
 
+// Let the filter derives name this crate by its external name from within.
+extern crate self as ceres_entities;
+
 mod address;
+mod filterable;
 mod records;
 mod timestamp;
 
 pub use address::Address;
 pub use ceres_config::Level;
+pub use filterable::{FieldFamily, FilterField, FilterValues, Filterable};
 pub use records::{
     Alert, LogEntry, Message, MessageDirection, Particle, Records, latin1, to_json_array,
 };

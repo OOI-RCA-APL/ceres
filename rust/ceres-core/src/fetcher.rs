@@ -220,8 +220,8 @@ impl RecordFetcher {
 pub fn record_filter_keys(table: RecordTable) -> (Vec<&'static str>, Vec<&'static str>) {
     let table = table.into();
     (
-        ceres_database::RecordFilter::supported_keys(table).to_vec(),
-        ceres_database::RecordFilter::delegated_keys(table).to_vec(),
+        ceres_database::RecordFilter::supported_keys(table),
+        ceres_database::RecordFilter::delegated_keys(table),
     )
 }
 

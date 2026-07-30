@@ -43,6 +43,27 @@ impl RecordTable {
         }
     }
 
+    /// The cap a listing route applies to this table's `limit`, which also fills in
+    /// for an absent one. Held to the route layer's values by a parity test there.
+    pub fn listing_cap(&self) -> u64 {
+        match self {
+            Self::Particles => 5000,
+            Self::Messages | Self::Alerts | Self::Logs => 1000,
+        }
+    }
+
+    /// The table's filterable fields, derived from its entity struct.
+    pub(crate) fn fields(&self) -> &'static [ceres_entities::FilterField] {
+        use ceres_entities::Filterable;
+
+        match self {
+            Self::Messages => Message::FIELDS,
+            Self::Particles => Particle::FIELDS,
+            Self::Alerts => Alert::FIELDS,
+            Self::Logs => LogEntry::FIELDS,
+        }
+    }
+
     /// Build the listing statement, ordered like the Python layer's record default.
     pub(crate) fn listing(&self, limit: Option<u64>, offset: Option<u64>) -> SelectStatement {
         let mut statement = Query::select();

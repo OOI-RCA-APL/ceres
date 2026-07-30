@@ -54,6 +54,14 @@ pub enum Error {
     Decode(String),
 }
 
+/// The standing an authentication gate reads for one user.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GateUser {
+    pub id: uuid::Uuid,
+    pub admin: bool,
+    pub disabled: bool,
+}
+
 /// The connection pool or engine for one backend.
 enum Backend {
     Sqlite(SqlitePool),
@@ -223,6 +231,50 @@ impl RecordStore {
                     .map(sea_value)
                     .collect::<Result<Vec<_>, _>>()?;
                 backend.scalar_count(&sql, parameters).await
+            }
+        }
+    }
+
+    /// Read the columns an authentication gate needs for one user, `None` when no user
+    /// carries the ID.
+    ///
+    /// The gate needs only standing, whether the account is an administrator and
+    /// whether it is disabled, so a record request never crosses into Python just to
+    /// admit its caller.
+    pub async fn gate_user(&self, id: uuid::Uuid) -> Result<Option<GateUser>, Error> {
+        const SQL: &str = "SELECT \"admin\", \"disabled\" FROM \"users\" WHERE \"id\" = ";
+
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let sql = format!("{SQL}?");
+                let row = sqlx::query(&sql)
+                    .bind(id.to_string())
+                    .fetch_optional(pool)
+                    .await?;
+                row.map(|row| {
+                    Ok(GateUser {
+                        id,
+                        admin: row.try_get("admin")?,
+                        disabled: row.try_get("disabled")?,
+                    })
+                })
+                .transpose()
+            }
+            Backend::Postgres(pool) => {
+                let sql = format!("{SQL}$1");
+                let row = sqlx::query(&sql).bind(id).fetch_optional(pool).await?;
+                row.map(|row| {
+                    Ok(GateUser {
+                        id,
+                        admin: row.try_get("admin")?,
+                        disabled: row.try_get("disabled")?,
+                    })
+                })
+                .transpose()
+            }
+            Backend::Turso(backend) => {
+                let sql = format!("{SQL}?");
+                backend.gate_user(&sql, id).await
             }
         }
     }
