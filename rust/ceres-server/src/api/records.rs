@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, RawQuery, Request, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
@@ -17,31 +17,21 @@ use crate::app::{AppState, json_response};
 use crate::auth::require_authenticated;
 use crate::error::ApiError;
 
-/// Split a raw query string into ordered pairs, percent-decoded.
+/// Serve a record listing, or stream live records when the caller upgrades.
 ///
-/// Order and repetition both matter to filter validation, so the pairs pass through as
-/// a list rather than a map.
-fn query_pairs(query: Option<String>) -> Vec<(String, String)> {
-    let Some(query) = query else {
-        return Vec::new();
-    };
-
-    form_urlencoded::parse(query.as_bytes())
-        .map(|(name, value)| (name.into_owned(), value.into_owned()))
-        .collect()
-}
-
-/// Serve a record listing.
-async fn list(
-    state: &AppState,
-    headers: &HeaderMap,
-    table: &str,
-    query: Option<String>,
-) -> Response {
-    let actor = attempt!(state.actor(headers).await);
+/// The listing and the stream share this path, a socket being a GET that asks to
+/// upgrade, exactly as they shared it in the Python application.
+async fn list(state: &Arc<AppState>, table: &str, request: Request) -> Response {
+    let (mut parts, _) = request.into_parts();
+    let actor = attempt!(state.actor(&parts.headers).await);
     attempt!(require_authenticated(&actor));
 
-    let arguments = json!({"table": table, "query": query_pairs(query)});
+    let query = parts.uri.query().map(str::to_string);
+    let arguments = json!({"table": table, "query": crate::api::streams::query_pairs(query)});
+    if let Some(upgrade) = crate::api::streams::requested_upgrade(&mut parts, state).await {
+        return crate::api::streams::stream(state, upgrade, "records.stream", arguments);
+    }
+
     match state.host.operate("records.list", arguments).await {
         Ok(payload) => json_response(payload),
         Err(error) => error.into_response(),
@@ -58,7 +48,7 @@ async fn count(
     let actor = attempt!(state.actor(headers).await);
     attempt!(require_authenticated(&actor));
 
-    let arguments = json!({"table": table, "query": query_pairs(query)});
+    let arguments = json!({"table": table, "query": crate::api::streams::query_pairs(query)});
     match state.host.operate("records.count", arguments).await {
         Ok(payload) => json_response(payload),
         Err(error) => error.into_response(),
@@ -96,10 +86,9 @@ macro_rules! record_routes {
 
             pub(crate) async fn list(
                 State(state): State<Arc<AppState>>,
-                headers: HeaderMap,
-                RawQuery(query): RawQuery,
+                request: Request,
             ) -> Response {
-                super::list(&state, &headers, $table, query).await
+                super::list(&state, $table, request).await
             }
 
             pub(crate) async fn count(

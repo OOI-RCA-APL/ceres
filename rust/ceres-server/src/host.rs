@@ -54,6 +54,25 @@ impl IntoResponse for HostError {
     }
 }
 
+/// Why a stream refused to open or stopped early.
+#[derive(Debug)]
+pub struct StreamClose {
+    /// The WebSocket close code the socket reports.
+    pub code: u16,
+    /// The close reason, a serialized error for the codes that carry one.
+    pub reason: String,
+}
+
+impl StreamClose {
+    /// A refusal the engine did not attribute, reported as an internal error.
+    pub fn internal(reason: impl Into<String>) -> Self {
+        Self {
+            code: 1011,
+            reason: reason.into(),
+        }
+    }
+}
+
 /// The engine-side operations the server calls across the language boundary.
 #[async_trait::async_trait]
 pub trait Host: Send + Sync + 'static {
@@ -77,6 +96,31 @@ pub trait Host: Send + Sync + 'static {
         old_password: String,
         new_password: String,
     ) -> Result<Option<UserRecord>, HostError>;
+
+    /// Open a stream, answering with the handle its messages arrive under.
+    ///
+    /// A refusal carries the close code the socket reports, so the policy for which
+    /// failure closes with which code stays with the engine.
+    async fn stream_open(&self, operation: &str, arguments: Value) -> Result<u64, StreamClose> {
+        let _ = arguments;
+        Err(StreamClose::internal(format!(
+            "this host does not stream {operation:?}"
+        )))
+    }
+
+    /// Await the next message on a stream, `None` once it ends.
+    ///
+    /// Messages arrive pre-serialized, so a record the engine already rendered crosses
+    /// the boundary once as text.
+    async fn stream_next(&self, handle: u64) -> Result<Option<String>, StreamClose> {
+        let _ = handle;
+        Ok(None)
+    }
+
+    /// Release a stream's resources, whatever ended it.
+    async fn stream_close(&self, handle: u64) {
+        let _ = handle;
+    }
 
     /// Run a named engine operation, the generic channel most route families ride.
     ///

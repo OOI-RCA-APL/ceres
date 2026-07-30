@@ -8,6 +8,7 @@ pub(crate) mod auth;
 pub(crate) mod config;
 pub(crate) mod dispatch;
 pub(crate) mod records;
+pub(crate) mod streams;
 
 /// Unwrap a fallible expression or answer with its response.
 macro_rules! attempt {

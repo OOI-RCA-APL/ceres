@@ -246,8 +246,6 @@ host_routes! {
     SettingsAssign: typed_put "/api/settings" => Gate::Open, "settings.assign", body: true;
     /// List alert statistics.
     StatisticsCollection: typed_get "/api/statistics" => Gate::Authenticated, "statistics.list";
-    /// List component statuses.
-    StatusesCollection: typed_get "/api/statuses" => Gate::Authenticated, "statuses.list";
     /// Fetch one component's status.
     StatusesMember: typed_get "/api/statuses/{id}" => Gate::Authenticated, "statuses.get",
         params(id => "address": Raw);

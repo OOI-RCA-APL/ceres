@@ -27,7 +27,7 @@ pub use auth::{
 };
 pub use cookie::CookieType;
 pub use error::{ApiError, Problem};
-pub use host::{Host, HostError, NoHost, UserRecord};
+pub use host::{Host, HostError, NoHost, StreamClose, UserRecord};
 pub use layers::{apply_compression, apply_cors};
 pub use scrub::scrub_credentials;
 pub use serve::{BoundServer, Error as ServeError, Stopper};
@@ -162,8 +162,11 @@ mod tests {
     const PASSWORD: &str = "pw12345";
 
     /// A host holding a fixed set of users sharing one password.
+    #[derive(Default)]
     struct TestHost {
         users: Vec<(uuid::Uuid, &'static str, bool)>,
+        /// Open streams by handle, each tracking how many messages it has sent.
+        streams: std::sync::Mutex<std::collections::HashMap<u64, (String, u32)>>,
     }
 
     impl TestHost {
@@ -212,6 +215,43 @@ mod tests {
             self.user(user).await
         }
 
+        async fn stream_open(
+            &self,
+            operation: &str,
+            _arguments: serde_json::Value,
+        ) -> Result<u64, StreamClose> {
+            if operation == "queries.subscribe" {
+                return Err(StreamClose {
+                    code: 1008,
+                    reason: r#"{"__error__":true,"type":"not-permitted-error"}"#.to_string(),
+                });
+            }
+
+            let mut streams = self.streams.lock().unwrap();
+            let handle = streams.len() as u64 + 1;
+            streams.insert(handle, (operation.to_string(), 0));
+            Ok(handle)
+        }
+
+        async fn stream_next(&self, handle: u64) -> Result<Option<String>, StreamClose> {
+            let mut streams = self.streams.lock().unwrap();
+            let Some((operation, sent)) = streams.get_mut(&handle) else {
+                return Ok(None);
+            };
+            if *sent >= 2 {
+                return Ok(None);
+            }
+
+            *sent += 1;
+            Ok(Some(format!(
+                r#"{{"stream":"{operation}","index":{sent}}}"#
+            )))
+        }
+
+        async fn stream_close(&self, handle: u64) {
+            self.streams.lock().unwrap().remove(&handle);
+        }
+
         async fn operate(
             &self,
             operation: &str,
@@ -243,6 +283,7 @@ mod tests {
             auth: Some(settings(allow_impersonate)),
             host: std::sync::Arc::new(TestHost {
                 users: vec![(admin, "admin", true), (viewer, "viewer", false)],
+                ..TestHost::default()
             }),
         })
     }
@@ -254,6 +295,7 @@ mod tests {
             auth: Some(settings(allow_impersonate)),
             host: std::sync::Arc::new(TestHost {
                 users: vec![(user, "u", false)],
+                ..TestHost::default()
             }),
         })
     }
@@ -661,6 +703,131 @@ mod tests {
         );
         let body = json_of(assert_response!(response, OK)).await;
         assert_eq!(body["section"], "permissions.effective_at");
+    }
+
+    /// Serve an app on a loopback port for the duration of a socket test.
+    async fn served(app: axum::Router) -> (u16, serve::Stopper, tokio::task::JoinHandle<()>) {
+        let server = BoundServer::bind("127.0.0.1", 0).unwrap();
+        let port = server.port();
+        let stopper = server.stopper();
+        let serving = tokio::spawn(async move {
+            let _ = server.serve(app).await;
+        });
+        (port, stopper, serving)
+    }
+
+    #[tokio::test]
+    async fn record_streams_share_their_listing_paths() {
+        let user = uuid::Uuid::new_v4();
+        let token = mint(user, None, &settings(false)).unwrap().token;
+        let (port, stopper, serving) = served(authenticated_app(user, false)).await;
+
+        // The same path serves a listing without an upgrade.
+        let listing = reqwest_get(port, "/api/particles", &token).await;
+        assert_eq!(listing["section"], "records.list");
+
+        // With an upgrade it streams, and the messages arrive as the host rendered them.
+        let messages = read_socket(port, "/api/particles", Some(&token)).await;
+        assert_eq!(
+            messages,
+            vec![
+                r#"{"stream":"records.stream","index":1}"#,
+                r#"{"stream":"records.stream","index":2}"#,
+            ]
+        );
+
+        stopper.stop(std::time::Duration::from_millis(50));
+        let _ = serving.await;
+    }
+
+    #[tokio::test]
+    async fn status_and_procedure_streams_serve() {
+        let user = uuid::Uuid::new_v4();
+        let token = mint(user, None, &settings(false)).unwrap().token;
+        let (port, stopper, serving) = served(authenticated_app(user, false)).await;
+
+        let messages = read_socket(port, "/api/statuses", Some(&token)).await;
+        assert_eq!(messages.len(), 2);
+        assert!(messages[0].contains("statuses.stream"));
+
+        // Procedure subscriptions need no credentials, the operation gates them.
+        let messages = read_socket(
+            port,
+            "/api/components/@probe/procedures/ping/subscribe",
+            None,
+        )
+        .await;
+        assert!(messages[0].contains("procedures.subscribe"));
+
+        // A refused stream closes with the code and reason the host reported.
+        let messages =
+            read_socket(port, "/api/components/@probe/queries/ping/subscribe", None).await;
+        assert!(messages.is_empty(), "a refused stream sends no messages");
+
+        stopper.stop(std::time::Duration::from_millis(50));
+        let _ = serving.await;
+    }
+
+    #[tokio::test]
+    async fn record_streams_refuse_anonymous_callers() {
+        let user = uuid::Uuid::new_v4();
+        let (port, stopper, serving) = served(authenticated_app(user, false)).await;
+
+        // The gate runs before the upgrade, so the handshake itself fails and the
+        // caller never holds an accepted socket.
+        let attempt =
+            tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/api/particles")).await;
+        assert!(attempt.is_err(), "an anonymous caller must not upgrade");
+
+        stopper.stop(std::time::Duration::from_millis(50));
+        let _ = serving.await;
+    }
+
+    /// Fetch one JSON body over HTTP.
+    async fn reqwest_get(port: u16, path: &str, token: &str) -> serde_json::Value {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        let request = format!(
+            "GET {path} HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer {token}\r\n\
+             connection: close\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        let body = response.rsplit("\r\n\r\n").next().unwrap();
+        serde_json::from_str(body).unwrap()
+    }
+
+    /// Open a socket and collect its text messages until it closes.
+    async fn read_socket(port: u16, path: &str, token: Option<&str>) -> Vec<String> {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+        let mut request = format!("ws://127.0.0.1:{port}{path}")
+            .into_client_request()
+            .unwrap();
+        if let Some(token) = token {
+            request
+                .headers_mut()
+                .insert("authorization", format!("Bearer {token}").parse().unwrap());
+        }
+
+        let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+        let mut messages = Vec::new();
+        while let Some(Ok(message)) = socket.next().await {
+            match message {
+                tokio_tungstenite::tungstenite::Message::Text(text) => {
+                    messages.push(text.to_string());
+                }
+                tokio_tungstenite::tungstenite::Message::Close(_) => break,
+                _ => continue,
+            }
+        }
+
+        messages
     }
 
     #[tokio::test]

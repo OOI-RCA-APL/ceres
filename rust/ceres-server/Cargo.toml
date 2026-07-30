@@ -8,8 +8,11 @@ repository.workspace = true
 
 [dependencies]
 async-trait = "0.1"
-axum = "0.8"
-axum-extra = { version = "0.12.6", features = ["typed-routing"] }
+# Pinned together, and below the latest, because axum 0.8.9's websocket support
+# requires a `tokio-tungstenite` release that is no longer published, and axum-extra
+# 0.12.6 requires exactly that axum. Bump both once axum's requirement resolves again.
+axum = { version = "=0.8.8", features = ["ws"] }
+axum-extra = { version = "=0.12.5", features = ["typed-routing"] }
 axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
 ceres-config = { path = "../ceres-config" }
 ceres-entities = { path = "../ceres-entities" }
@@ -30,7 +33,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 subtle = "2"
 thiserror = "2"
-tokio = { version = "1", default-features = false, features = ["net"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = [
     "compression-br",
@@ -42,16 +45,14 @@ tower-http = { version = "0.7", features = [
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
+futures-util = "0.3.33"
 http-body-util = "0.1"
 rand_chacha = "0.3"
 rand_core = "0.6"
 rcgen = "0.14"
 tempfile = "3"
-tokio = { version = "1", default-features = false, features = [
-    "io-util",
-    "macros",
-    "rt",
-] }
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "rt", "rt-multi-thread", "time"] }
+tokio-tungstenite = "0.28"
 
 [lints]
 workspace = true
