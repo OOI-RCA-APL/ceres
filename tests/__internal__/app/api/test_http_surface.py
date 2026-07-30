@@ -486,6 +486,18 @@ async def test_record_routes_serve_natively_with_wire_parity(tmp_path: Path) -> 
         over = await client.get("/api/particles?limit=999999", headers=_bearer(identity))
         assert over.status_code == 422
 
+        # An invalid filter value delegates so the canonical Pydantic envelope serves,
+        # with its per-field problems.
+        invalid = await client.get("/api/particles?type=1&limit=-2", headers=_bearer(identity))
+        assert invalid.status_code == 422
+        body = invalid.json()
+        assert body["type"] == "validation-failed-error"
+        assert any(problem["location"] == ["limit"] for problem in body["problems"])
+
+        unknown = await client.get("/api/particles?nope=1", headers=_bearer(identity))
+        assert unknown.status_code == 422
+        assert unknown.json()["problems"][0]["type"] == "extra_forbidden"
+
 
 async def test_a_file_output_serves_the_file_with_its_headers(tmp_path: Path) -> None:
     """A procedure answering with a file streams it, described rather than serialized."""

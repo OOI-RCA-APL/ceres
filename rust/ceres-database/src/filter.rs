@@ -1,20 +1,25 @@
-//! The native record filter compiler.
+//! The native record filter compiler, the single authority on the record filter
+//! language.
 //!
-//! A filter parses from the same query pairs the Python filter models validate, into a
-//! tree whose root carries the query controls, ordering and pagination, and whose nodes
-//! carry the matching conditions. Constructs the compiler does not serve yet refuse
-//! with [`Refusal::Delegated`], and the caller hands the whole request to the Python
-//! operation, which either serves it or produces the canonical validation error. A
-//! value that is wrong on the wire refuses with [`Refusal::Invalid`] instead, which
-//! callers treat the same way today, so the native path never invents an error a
-//! client sees.
+//! A filter parses from wire query pairs or its serialized JSON form into a tree whose
+//! root carries the query controls, ordering and pagination, and whose nodes carry the
+//! matching conditions, boolean groups hanging their own nodes off their parent. The
+//! whole language compiles here, the native server and CLI execute the statements on
+//! their own store, and the Python query layer executes the same compiled SQL on its
+//! session, so no second compiler exists to drift.
+//!
+//! A refusal is deliberate and rare. [`Refusal::Invalid`] carries a wire-invalid
+//! value, and the native paths delegate it so the canonical Pydantic envelope reports
+//! the problems, through a query layer that itself compiles here. The one construct
+//! with no native form, a particle's `class`, is a Python import the filter model
+//! resolves to its type discriminator before parsing, so only the wire paths refuse
+//! it as [`Refusal::Delegated`].
 //!
 //! The admissible keys are not written out anywhere. Each entity's `Filterable` derive
 //! reads its struct at compile time, and every field's family brings its operators, a
 //! timestamp brings the window operators, a level brings ordered bounds, text and enum
-//! fields bring equality. Compilation mirrors the Python query layer's `_get_where`
-//! semantics, and the cross-backend parity suite holds the two compilers to identical
-//! result sets.
+//! fields bring equality. The cross-backend parity suite holds the compiled statements
+//! and the matcher to the query layer's results on every backend.
 
 use ceres_entities::{FieldFamily, FilterField, FilterValues, Level, OperationKind};
 use chrono::{Duration, NaiveDateTime, SubsecRound, Utc};
@@ -40,9 +45,10 @@ pub enum SqlDialect {
 
 /// Why a filter refused to parse natively.
 ///
-/// Both variants delegate to the Python operation today. They stay distinct because
-/// the two must diverge, a delegated construct is one the compiler will serve once its
-/// port lands, while an invalid value stays an error wherever it is parsed.
+/// The native wire paths delegate both to the Python operation, an invalid value so
+/// the canonical validation envelope reports it, and the one delegated construct so
+/// the filter model resolves it. The Python query layer raises instead, its own
+/// validation having already refused anything invalid.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Refusal {
     /// The construct sits outside what the compiler serves, so the request delegates.
@@ -360,7 +366,9 @@ impl RecordFilter {
     /// The text embeds into a statement another engine builds, the Python session's,
     /// so values render as literals rather than binds.
     pub fn where_sql(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> Option<String> {
-        let now = now.unwrap_or_else(|| Utc::now().naive_utc()).trunc_subsecs(6);
+        let now = now
+            .unwrap_or_else(|| Utc::now().naive_utc())
+            .trunc_subsecs(6);
         let conditions = self.node.combined_conditions(self.table, dialect, now);
         if conditions.is_empty() {
             return None;
@@ -398,7 +406,9 @@ impl RecordFilter {
         let fields: std::collections::HashMap<&str, &serde_json::value::RawValue> =
             serde_json::from_str(record_json)
                 .map_err(|error| format!("unreadable record: {error}"))?;
-        let now = now.unwrap_or_else(|| Utc::now().naive_utc()).trunc_subsecs(6);
+        let now = now
+            .unwrap_or_else(|| Utc::now().naive_utc())
+            .trunc_subsecs(6);
         Ok(self.node.matches(self.table, &fields, now))
     }
 

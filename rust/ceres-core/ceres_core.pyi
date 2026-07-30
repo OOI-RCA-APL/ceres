@@ -40,7 +40,7 @@ __all__ = [
 class Argon2HashingConfig:
     r"""
     Configuration for the Argon2id password hashing algorithm.
-
+    
     Default parameters mirror `argon2.profiles.RFC_9106_LOW_MEMORY`, callers can tune
     them to trade memory and CPU cost against latency.
     """
@@ -74,26 +74,18 @@ class Argon2HashingConfig:
         r"""
         The algorithm selector for this configuration.
         """
-    def __new__(
-        cls,
-        *,
-        time_cost: int | None = None,
-        memory_cost: int | None = None,
-        parallelism: int | None = None,
-        hash_length: int | None = None,
-        salt_length: int | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, time_cost: int | None = None, memory_cost: int | None = None, parallelism: int | None = None, hash_length: int | None = None, salt_length: int | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -117,14 +109,14 @@ class BCryptHashingConfig:
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -144,20 +136,18 @@ class ConsoleConfig:
         r"""
         Path to a favicon image served by the console.
         """
-    def __new__(
-        cls, *, title: str | None = None, favicon: str | PathLike[str] | Path | None = None
-    ) -> Self: ...
+    def __new__(cls, *, title: str | None = None, favicon: str | PathLike[str] | Path | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -182,24 +172,18 @@ class DatabaseConfigHooks:
         r"""
         Statements run before a connection is closed.
         """
-    def __new__(
-        cls,
-        *,
-        init: Sequence[str] | None = None,
-        connect: Sequence[str] | None = None,
-        close: Sequence[str] | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, init: Sequence[str] | None = None, connect: Sequence[str] | None = None, close: Sequence[str] | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -208,7 +192,7 @@ class DatabaseConfigHooks:
 class LoggingConfig:
     r"""
     Per-component or per-engine logging configuration.
-
+    
     `output` and `store` set minimum levels for the streamed and persisted log streams, and
     the toggle fields enable optional logging of specific record types, accepting either a
     boolean or a minimum level.
@@ -243,16 +227,7 @@ class LoggingConfig:
         r"""
         Whether to log alerts, or the minimum severity to log them at.
         """
-    def __new__(
-        cls,
-        *,
-        output: str | None = None,
-        store: str | None = None,
-        events: bool | str | None = None,
-        messages: bool | str | None = None,
-        particles: bool | str | None = None,
-        alerts: bool | str | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, output: str | None = None, store: str | None = None, events: bool | str | None = None, messages: bool | str | None = None, particles: bool | str | None = None, alerts: bool | str | None = None) -> Self: ...
     def merged(self, other: LoggingConfig) -> LoggingConfig:
         r"""
         Overlay another configuration's explicitly-set fields onto this one.
@@ -260,21 +235,21 @@ class LoggingConfig:
     def provided(self) -> dict[str, Any]:
         r"""
         Return the explicitly-set fields as a plain dictionary.
-
+        
         Supports rebuilding an equivalent configuration without turning resolved defaults
         into explicit settings.
         """
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -284,7 +259,7 @@ class LoggingConfig:
 class NativeServer:
     r"""
     A natively-served HTTP application.
-
+    
     Binds at construction, so the real port is known immediately, and serves as an
     awaitable until stopped. The web form carries the console and terminates TLS, the
     CLI form binds loopback on an ephemeral port and requires its token instead.
@@ -295,22 +270,12 @@ class NativeServer:
         The port the server actually bound.
         """
     @staticmethod
-    def web(
-        host: Any,
-        config: ServerConfig,
-        console_directory: str | PathLike[str] | Path,
-        favicon_ico: str | PathLike[str] | Path,
-        favicon_png: str | PathLike[str] | Path,
-        favicon_svg: str | PathLike[str] | Path,
-        records: RecordFetcher | None = None,
-    ) -> NativeServer:
+    def web(host: Any, config: ServerConfig, console_directory: str | PathLike[str] | Path, favicon_ico: str | PathLike[str] | Path, favicon_png: str | PathLike[str] | Path, favicon_svg: str | PathLike[str] | Path, records: RecordFetcher | None = None) -> NativeServer:
         r"""
         Bind the web application, serving the console and API on the configured address.
         """
     @staticmethod
-    def cli(
-        host: Any, config: ServerConfig, token: str, records: RecordFetcher | None = None
-    ) -> NativeServer:
+    def cli(host: Any, config: ServerConfig, token: str, records: RecordFetcher | None = None) -> NativeServer:
         r"""
         Bind the CLI control application on an ephemeral loopback port.
         """
@@ -327,7 +292,7 @@ class NativeServer:
 class PackingProgram:
     r"""
     A compiled binary packing program.
-
+    
     Built by `ceres.data.binary` from a packing schema tree and executed natively, packing a
     whole value into one buffer and unpacking a whole buffer into one value tree per call.
     Models unpack to plain dictionaries, validation and model construction stay with the
@@ -402,30 +367,18 @@ class PostgresDatabaseConfig:
         r"""
         The backend selector for this configuration.
         """
-    def __new__(
-        cls,
-        *,
-        host: str | None = None,
-        port: int | None = None,
-        database: str | None = None,
-        user: str | None = None,
-        password: str | SecretStr | None = None,
-        hooks: DatabaseConfigHooks | dict[str, Any] | None = None,
-        engine: dict[str, Any] | None = None,
-        hashing: BCryptHashingConfig | Argon2HashingConfig | dict[str, Any] | None = None,
-        query: dict[str, str | list[str]] | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, host: str | None = None, port: int | None = None, database: str | None = None, user: str | None = None, password: str  |  SecretStr | None = None, hooks: DatabaseConfigHooks | dict[str, Any] | None = None, engine: dict[str, Any] | None = None, hashing: BCryptHashingConfig | Argon2HashingConfig | dict[str, Any] | None = None, query: dict[str, str | list[str]] | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -435,7 +388,7 @@ class PostgresDatabaseConfig:
 class RecordBatch:
     r"""
     A batch of records held natively, parsed from database rows.
-
+    
     Built through `parse` from the raw row mappings a query produces, and serialized with
     `to_json` as the API's wire format for a record listing.
     """
@@ -443,7 +396,7 @@ class RecordBatch:
     def parse(table: RecordTable, rows: Sequence[Any]) -> RecordBatch:
         r"""
         Parse database row mappings into a native batch.
-
+        
         Row values arrive through the database layer's column mappers, so they are trusted
         rather than revalidated here.
         """
@@ -452,7 +405,7 @@ class RecordBatch:
     def record_to_json(table: RecordTable, record: Any) -> bytes:
         r"""
         Serialize one live record entity as JSON in the API's wire format.
-
+        
         Reads the entity object's attributes rather than row values, so streamed records
         serialize natively too. Raises `ValueError` for payload values richer than JSON,
         which the caller serializes through Pydantic instead.
@@ -464,7 +417,7 @@ class RecordBatch:
     def to_json_lines(self) -> bytes:
         r"""
         Serialize the batch as JSON lines in the wire format, one record per line.
-
+        
         The shape a CLI record dump writes, so a select can produce its whole output in
         one native pass.
         """
@@ -473,7 +426,7 @@ class RecordBatch:
 class RecordFetcher:
     r"""
     A natively-connected view of a Ceres database, serving record reads.
-
+    
     Built from resolved connection parameters rather than a configuration, because the
     Python layer resolves per-instance details like temporary SQLite paths. Connections
     open lazily on first use.
@@ -484,24 +437,17 @@ class RecordFetcher:
         Open a fetcher over a SQLite database file.
         """
     @staticmethod
-    def postgres(
-        host: str,
-        database: str,
-        user: str,
-        port: int | None = None,
-        password: str | None = None,
-        settings: Sequence[tuple[str, str]] = [],
-    ) -> RecordFetcher:
+    def postgres(host: str, database: str, user: str, port: int | None = None, password: str | None = None, settings: Sequence[tuple[str, str]] = []) -> RecordFetcher:
         r"""
         Open a fetcher over a PostgreSQL database.
-
+        
         `settings` are per-connection server settings like `search_path`, matching the ones
         the query layer passes its own driver.
         """
     def fetch_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> Any:
         r"""
         Execute a compiled record query, as an awaitable `RecordBatch`.
-
+        
         The statement text and parameters come from the query layer's own compiler, so any
         filter it can express runs natively with identical semantics.
         """
@@ -512,14 +458,14 @@ class RecordFetcher:
     def fetch_pairs(self, table: RecordTable, pairs: Sequence[tuple[str, str]]) -> Any:
         r"""
         Fetch the records matching filter query pairs, as an awaitable `RecordBatch`.
-
+        
         The pairs parse against the native filter subset, and a request outside it
         answers `None` synchronously so the caller delegates to the query layer.
         """
     def count_pairs(self, table: RecordTable, pairs: Sequence[tuple[str, str]]) -> Any:
         r"""
         Count the records matching filter query pairs, as an awaitable count.
-
+        
         Like `fetch_pairs`, a request outside the native subset answers `None`
         synchronously so the caller delegates.
         """
@@ -534,18 +480,38 @@ class RecordFilter:
         r"""
         The filter's limit, `None` when unbounded.
         """
+    @property
+    def offset(self) -> int | None:
+        r"""
+        The filter's offset, `None` when unset.
+        """
+    def where_sql(self, dialect: str, now: datetime.datetime | None = None) -> str | None:
+        r"""
+        The `WHERE` conditions as inline SQL for a dialect, `None` when the filter is
+        unconditional.
+        
+        The text embeds into a statement the Python session builds, so values render
+        as literals rather than binds.
+        The caller's clock decides age-relative conditions, so a session under a faked
+        or frozen time stays authoritative.
+        """
+    def order_sql(self, dialect: str) -> str | None:
+        r"""
+        The `ORDER BY` terms as inline SQL for a dialect, including the table's
+        default ordering.
+        """
     def compiled(self, dialect: str, *, count: bool = False) -> tuple[str, list[Any]]:
         r"""
         Compile to SQL and its parameters for a dialect, a listing statement or a
         count.
-
+        
         The parameters arrive in placeholder order for a driver-level execute, `?`
         style for the SQLite family and `$n` for PostgreSQL.
         """
-    def matches(self, record_json: str) -> bool:
+    def matches(self, record_json: str, now: datetime.datetime | None = None) -> bool:
         r"""
         Whether one serialized record matches this filter.
-
+        
         Query controls and subsampling do not participate, this reads a single record
         the way live stream filtering does.
         """
@@ -554,7 +520,7 @@ class RecordFilter:
 class RecordWriter:
     r"""
     A natively-connected writer for record entities.
-
+    
     Entities extract into native records synchronously, then a whole flush upserts in one
     transaction on the writer's own pool. Built from resolved connection parameters like
     the fetcher, and matching the query layer's connection semantics.
@@ -565,21 +531,14 @@ class RecordWriter:
         Open a writer over a SQLite database file.
         """
     @staticmethod
-    def postgres(
-        host: str,
-        database: str,
-        user: str,
-        port: int | None = None,
-        password: str | None = None,
-        settings: Sequence[tuple[str, str]] = [],
-    ) -> RecordWriter:
+    def postgres(host: str, database: str, user: str, port: int | None = None, password: str | None = None, settings: Sequence[tuple[str, str]] = []) -> RecordWriter:
         r"""
         Open a writer over a PostgreSQL database, with per-connection server settings.
         """
     def write(self, groups: list[tuple[RecordTable, list[Any]]]) -> Any:
         r"""
         Upsert groups of record entities atomically, as an awaitable.
-
+        
         Each group pairs a record table name with the entities to write there. Raises
         `ValueError` when an entity cannot extract natively, before anything writes.
         """
@@ -624,26 +583,18 @@ class SQLiteDatabaseConfig:
         r"""
         Whether `path` is the special `:memory:` sentinel used by `in_memory`.
         """
-    def __new__(
-        cls,
-        *,
-        path: str | PathLike[str] | Path | None = None,
-        hooks: DatabaseConfigHooks | dict[str, Any] | None = None,
-        engine: dict[str, Any] | None = None,
-        hashing: BCryptHashingConfig | Argon2HashingConfig | dict[str, Any] | None = None,
-        query: dict[str, str | list[str]] | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, path: str | PathLike[str] | Path | None = None, hooks: DatabaseConfigHooks | dict[str, Any] | None = None, engine: dict[str, Any] | None = None, hashing: BCryptHashingConfig | Argon2HashingConfig | dict[str, Any] | None = None, query: dict[str, str | list[str]] | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -652,7 +603,7 @@ class SQLiteDatabaseConfig:
     def in_memory(cls) -> Self:
         r"""
         Build a config for a private in-memory database scoped to this process.
-
+        
         The returned database exists only in memory for the lifetime of its engine, useful
         for tests and other short-lived, detached databases that should never touch disk.
         """
@@ -676,24 +627,18 @@ class ServerAuthenticationConfig:
         r"""
         Whether an administrator may take on another user's identity without their password.
         """
-    def __new__(
-        cls,
-        *,
-        secret: str | None = None,
-        duration: timedelta | int | float | str | None = None,
-        allow_impersonate: bool | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, secret: str | None = None, duration: timedelta  |  int  |  float  |  str | None = None, allow_impersonate: bool | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -743,29 +688,18 @@ class ServerCORSConfig:
         r"""
         How long preflight responses may be cached, in seconds.
         """
-    def __new__(
-        cls,
-        *,
-        enabled: bool | None = None,
-        allow_origins: str | list[str] | None = None,
-        allow_origin_regex: str | None = None,
-        allow_methods: str | list[str] | None = None,
-        allow_headers: str | list[str] | None = None,
-        allow_credentials: bool | None = None,
-        expose_headers: str | list[str] | None = None,
-        max_age: int | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, enabled: bool | None = None, allow_origins: str | list[str] | None = None, allow_origin_regex: str | None = None, allow_methods: str | list[str] | None = None, allow_headers: str | list[str] | None = None, allow_credentials: bool | None = None, expose_headers: str | list[str] | None = None, max_age: int | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -815,29 +749,18 @@ class ServerCompressionConfig:
         r"""
         Gzip compression level.
         """
-    def __new__(
-        cls,
-        *,
-        enabled: bool | None = None,
-        min_size: int | str | None = None,
-        zstd: bool | None = None,
-        zstd_level: int | None = None,
-        brotli: bool | None = None,
-        brotli_quality: int | None = None,
-        gzip: bool | None = None,
-        gzip_level: int | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, enabled: bool | None = None, min_size: int | str | None = None, zstd: bool | None = None, zstd_level: int | None = None, brotli: bool | None = None, brotli_quality: int | None = None, gzip: bool | None = None, gzip_level: int | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -877,27 +800,18 @@ class ServerConfig:
         r"""
         Response compression settings.
         """
-    def __new__(
-        cls,
-        *,
-        host: str | None = None,
-        port: int | None = None,
-        ssl: ServerSSLConfig | dict[str, Any] | None = None,
-        authentication: ServerAuthenticationConfig | dict[str, Any] | None = None,
-        cors: ServerCORSConfig | dict[str, Any] | None = None,
-        compression: ServerCompressionConfig | dict[str, Any] | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, host: str | None = None, port: int | None = None, ssl: ServerSSLConfig | dict[str, Any] | None = None, authentication: ServerAuthenticationConfig | dict[str, Any] | None = None, cors: ServerCORSConfig | dict[str, Any] | None = None, compression: ServerCompressionConfig | dict[str, Any] | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -932,26 +846,18 @@ class ServerSSLConfig:
         r"""
         Path to a CA bundle used when validating client certificates.
         """
-    def __new__(
-        cls,
-        *,
-        key: str | PathLike[str] | Path | None = None,
-        key_password: str | None = None,
-        cert: str | PathLike[str] | Path | None = None,
-        version: int | None = None,
-        ca_certs: str | PathLike[str] | Path | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, key: str | PathLike[str] | Path | None = None, key_password: str | None = None, cert: str | PathLike[str] | Path | None = None, version: int | None = None, ca_certs: str | PathLike[str] | Path | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -981,25 +887,18 @@ class ServiceConfig:
         r"""
         Optional path to redirect standard error to.
         """
-    def __new__(
-        cls,
-        *,
-        name: str | None = None,
-        user: str | None = None,
-        stdout: str | PathLike[str] | Path | None = None,
-        stderr: str | PathLike[str] | Path | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, name: str | None = None, user: str | None = None, stdout: str | PathLike[str] | Path | None = None, stderr: str | PathLike[str] | Path | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -1052,27 +951,18 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
         r"""
         Whether `path` is the special `:memory:` sentinel used by `in_memory`.
         """
-    def __new__(
-        cls,
-        *,
-        path: str | PathLike[str] | Path | None = None,
-        mvcc: bool | None = None,
-        hooks: DatabaseConfigHooks | dict[str, Any] | None = None,
-        engine: dict[str, Any] | None = None,
-        hashing: BCryptHashingConfig | Argon2HashingConfig | dict[str, Any] | None = None,
-        query: dict[str, str | list[str]] | None = None,
-    ) -> Self: ...
+    def __new__(cls, *, path: str | PathLike[str] | Path | None = None, mvcc: bool | None = None, hooks: DatabaseConfigHooks | dict[str, Any] | None = None, engine: dict[str, Any] | None = None, hashing: BCryptHashingConfig | Argon2HashingConfig | dict[str, Any] | None = None, query: dict[str, str | list[str]] | None = None) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
         Return the configuration as a plain dictionary of JSON-compatible values.
-
+        
         Called through `ceres.data.to_dict` rather than directly.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
         Return the JSON Schema describing this configuration section.
-
+        
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
@@ -1083,7 +973,6 @@ class RecordTable(Enum):
     r"""
     One of the record tables, the selector native record operations dispatch on.
     """
-
     MESSAGES = ...
     PARTICLES = ...
     ALERTS = ...
@@ -1107,7 +996,8 @@ def record_filter_from_json(table: RecordTable, json: str) -> RecordFilter:
 def record_filter_keys(table: RecordTable) -> tuple[list[str], list[str]]:
     r"""
     The native filter subset's key classification for one record table.
-
+    
     Answers `(supported, delegated)`, and the classification test holds their union to
     exactly the fields the Python filter models declare.
     """
+

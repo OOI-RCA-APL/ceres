@@ -11,7 +11,8 @@
 //!   `prefix`, and `suffix` variants on text, byte, and JSON fields, each compiling to
 //!   the backend's own matching expression.
 //! - **Query filters** shape the query rather than match fields, `order`, `limit`, and
-//!   `offset`, plus the structural constructs, subfilter combinators and subsampling.
+//!   `offset`, plus the structural constructs, subfilter combinators and subsampling,
+//!   which compile from their own wire keys rather than from a field.
 
 use ceres_config::Level;
 
