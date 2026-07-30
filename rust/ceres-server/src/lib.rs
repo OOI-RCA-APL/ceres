@@ -17,6 +17,8 @@ mod layers;
 mod serve;
 mod tls;
 
+pub use axum;
+
 pub use app::{AppConfig, ConsolePaths, build_router};
 pub use auth::{
     Actor, AuthSettings, Identity, MintedToken, current_actor, current_identity, mint, parse,

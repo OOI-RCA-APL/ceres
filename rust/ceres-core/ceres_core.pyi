@@ -15,6 +15,7 @@ __all__ = [
     "ConsoleConfig",
     "DatabaseConfigHooks",
     "LoggingConfig",
+    "NativeServer",
     "PackingProgram",
     "PostgresDatabaseConfig",
     "RecordBatch",
@@ -273,6 +274,46 @@ class LoggingConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
+
+@final
+class NativeServer:
+    r"""
+    A natively-served HTTP application.
+
+    Binds at construction, so the real port is known immediately, and serves as an
+    awaitable until stopped. The web form carries the console and terminates TLS, the
+    CLI form binds loopback on an ephemeral port and requires its token instead.
+    """
+    @property
+    def port(self) -> int:
+        r"""
+        The port the server actually bound.
+        """
+    @staticmethod
+    def web(
+        host: Any,
+        config: ServerConfig,
+        console_directory: str | PathLike[str] | Path,
+        favicon_ico: str | PathLike[str] | Path,
+        favicon_png: str | PathLike[str] | Path,
+        favicon_svg: str | PathLike[str] | Path,
+    ) -> NativeServer:
+        r"""
+        Bind the web application, serving the console and API on the configured address.
+        """
+    @staticmethod
+    def cli(host: Any, config: ServerConfig, token: str) -> NativeServer:
+        r"""
+        Bind the CLI control application on an ephemeral loopback port.
+        """
+    def serve(self) -> Any:
+        r"""
+        Serve until stopped, as an awaitable.
+        """
+    def stop(self, grace: float = 5.0) -> None:
+        r"""
+        Stop the server, letting in-flight requests finish within the grace period.
+        """
 
 @final
 class PackingProgram:
