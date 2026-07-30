@@ -492,9 +492,20 @@ class BaseEntityFilter[
         if not self.or__:
             yield from ands
         else:
+            from sqlalchemy import true
+
+            # Each subfilter's conditions must hold together, so a subfilter with
+            # several conditions groups into one term, and one with none matches
+            # everything, the way in-memory matching reads them.
             ors: list[SQLColumnExpression[bool]] = []
             for subcondition in seq(self.or__):
-                ors.extend(subcondition._get_combined_where(dialect))
+                grouped = list(subcondition._get_combined_where(dialect))
+                if not grouped:
+                    ors.append(true())
+                elif len(grouped) == 1:
+                    ors.append(grouped[0])
+                else:
+                    ors.append(and_(*grouped))
 
             if ands:
                 yield or_(and_(*ands), *ors)

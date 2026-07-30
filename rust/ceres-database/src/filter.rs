@@ -24,6 +24,8 @@ use sea_query::{
 };
 use uuid::Uuid;
 
+use serde_norway::Value as Yaml;
+
 use crate::records::RecordTable;
 use crate::selector::{AddressSelector, valid_address};
 use crate::store::Parameter;
@@ -64,6 +66,8 @@ enum KeyRole {
     Operation(&'static FilterField, OperationKind),
     /// The root address that relative selector segments resolve against.
     Root,
+    /// An `or` or `and` group of recursive subfilters.
+    Group(GroupOp),
     /// One of the window operators a timestamp field brings.
     Window(WindowOp),
     /// One of the time-of-day windows a timestamp field brings.
@@ -82,6 +86,12 @@ enum WindowOp {
     Timespan,
     MaxAge,
     MinAge,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum GroupOp {
+    Or,
+    And,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -152,6 +162,10 @@ struct FilterNode {
     /// Level bounds as indexes into the level family's ordered values.
     min_level: Option<usize>,
     max_level: Option<usize>,
+    /// Subfilter groups, every `and` node's conditions holding with this node's and
+    /// any `or` node matching on its own.
+    and_children: Vec<FilterNode>,
+    or_children: Vec<FilterNode>,
 }
 
 /// A parsed record filter, the tree's root plus the query controls.
@@ -197,7 +211,7 @@ impl RecordFilter {
             }
         }
 
-        keys.extend(["order", "limit", "offset"]);
+        keys.extend(["order", "limit", "offset", "or", "and"]);
         keys
     }
 
@@ -208,13 +222,7 @@ impl RecordFilter {
     /// list and the supported one to exactly what the Pydantic models declare so a new
     /// filter field cannot ship unclassified.
     pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
-        const STRUCTURAL: [&str; 5] = [
-            "or",
-            "and",
-            "subsample_every",
-            "subsample",
-            "subsample_select",
-        ];
+        const STRUCTURAL: [&str; 3] = ["subsample_every", "subsample", "subsample_select"];
 
         let mut keys: Vec<&'static str> = STRUCTURAL.to_vec();
 
@@ -231,92 +239,25 @@ impl RecordFilter {
     /// Repeated keys collect into lists, matching how the Python layer folds ordered
     /// pairs before validating.
     pub fn parse(table: RecordTable, pairs: &[(String, String)]) -> Result<Self, Refusal> {
-        let mut filter = Self {
-            table,
-            node: FilterNode::default(),
-            order: Vec::new(),
-            limit: None,
-            offset: None,
-        };
+        let mut parsed = Parsed::default();
         for (key, value) in pairs {
-            match resolve(table, key)? {
-                KeyRole::Equality(field) => filter.node.push_equality(field, value)?,
-                KeyRole::Operation(field, kind) => filter.node.push_operation(field, kind, value),
-                KeyRole::Root => {
-                    if !valid_address(value) {
-                        return Err(Refusal::invalid(format!("invalid root {value:?}")));
-                    }
-
-                    set_once(&mut filter.node.root, key, value.to_string())?;
-                }
-                KeyRole::Window(operator) => match operator {
-                    WindowOp::After => {
-                        set_once(&mut filter.node.after, key, parse_timestamp(value)?)?;
-                    }
-                    WindowOp::Before => {
-                        set_once(&mut filter.node.before, key, parse_timestamp(value)?)?;
-                    }
-                    WindowOp::Timespan => {
-                        let timespan = parse_duration(value)?;
-                        if timespan < Duration::microseconds(1) {
-                            return Err(Refusal::invalid("timespan must be greater than zero"));
-                        }
-
-                        set_once(&mut filter.node.timespan, key, timespan)?;
-                    }
-                    WindowOp::MaxAge => {
-                        set_once(&mut filter.node.max_age, key, parse_duration(value)?)?;
-                    }
-                    WindowOp::MinAge => {
-                        set_once(&mut filter.node.min_age, key, parse_duration(value)?)?;
-                    }
-                },
-                KeyRole::Clock(operator) => {
-                    let cap = match operator {
-                        ClockOp::AfterHour | ClockOp::BeforeHour => 24,
-                        ClockOp::AfterMinute | ClockOp::BeforeMinute => 60,
-                    };
-                    let bound: u32 = value
-                        .parse()
-                        .ok()
-                        .filter(|bound| *bound <= cap)
-                        .ok_or_else(|| Refusal::invalid(format!("invalid {key} {value:?}")))?;
-                    let slot = match operator {
-                        ClockOp::AfterHour => &mut filter.node.after_hour,
-                        ClockOp::BeforeHour => &mut filter.node.before_hour,
-                        ClockOp::AfterMinute => &mut filter.node.after_minute,
-                        ClockOp::BeforeMinute => &mut filter.node.before_minute,
-                    };
-                    set_once(slot, key, bound)?;
-                }
-                KeyRole::Bound(operator) => {
-                    let position = level_position(value)
-                        .ok_or_else(|| Refusal::invalid(format!("invalid level {value:?}")))?;
-                    match operator {
-                        BoundOp::Minimum => set_once(&mut filter.node.min_level, key, position)?,
-                        BoundOp::Maximum => set_once(&mut filter.node.max_level, key, position)?,
-                    }
-                }
-                KeyRole::Order => {
-                    let term = parse_order(table, value)?;
-                    filter.order.push(term);
-                }
-                KeyRole::Limit => {
-                    let limit = value
-                        .parse()
-                        .map_err(|_| Refusal::invalid(format!("invalid limit {value:?}")))?;
-                    set_once(&mut filter.limit, key, limit)?;
-                }
-                KeyRole::Offset => {
-                    let offset = value
-                        .parse()
-                        .map_err(|_| Refusal::invalid(format!("invalid offset {value:?}")))?;
-                    set_once(&mut filter.offset, key, offset)?;
-                }
-            }
+            parsed.apply(table, key, &WireValue::Text(value))?;
         }
 
-        Ok(filter)
+        let Parsed {
+            node,
+            order,
+            limit,
+            offset,
+            ..
+        } = parsed.finish()?;
+        Ok(Self {
+            table,
+            node,
+            order,
+            limit,
+            offset,
+        })
     }
 
     /// The table this filter queries.
@@ -347,11 +288,14 @@ impl RecordFilter {
 
     /// Build the listing statement, mirroring the Python layer's `apply`.
     pub fn statement(&self, dialect: SqlDialect) -> SelectStatement {
+        // `now` truncates to microseconds so arithmetic and rendering match Python's
+        // `datetime` resolution exactly, and every node shares one instant.
+        let now = Utc::now().naive_utc().trunc_subsecs(6);
         let mut statement = Query::select();
         statement
             .column(Asterisk)
             .from(Alias::new(self.table.name()));
-        for condition in self.node.conditions(self.table, dialect) {
+        for condition in self.node.combined_conditions(self.table, dialect, now) {
             statement.and_where(condition);
         }
 
@@ -361,6 +305,10 @@ impl RecordFilter {
 
         if let Some(limit) = self.limit {
             statement.limit(limit);
+        } else if self.offset.is_some() && dialect == SqlDialect::SqliteText {
+            // SQLite refuses a bare `OFFSET`, so an unlimited query names the limit
+            // SQLAlchemy would, one no result set reaches.
+            statement.limit(i64::MAX as u64);
         }
 
         if let Some(offset) = self.offset {
@@ -375,12 +323,13 @@ impl RecordFilter {
     /// A limit or offset bounds the count itself, matching the Python layer, which
     /// counts over the paged primary-key subquery in that case.
     pub fn count_statement(&self, dialect: SqlDialect) -> SelectStatement {
+        let now = Utc::now().naive_utc().trunc_subsecs(6);
         if self.limit.is_none() && self.offset.is_none() {
             let mut statement = Query::select();
             statement
                 .expr(Expr::cust("COUNT(*)"))
                 .from(Alias::new(self.table.name()));
-            for condition in self.node.conditions(self.table, dialect) {
+            for condition in self.node.combined_conditions(self.table, dialect, now) {
                 statement.and_where(condition);
             }
 
@@ -391,7 +340,7 @@ impl RecordFilter {
         inner
             .column(Alias::new("id"))
             .from(Alias::new(self.table.name()));
-        for condition in self.node.conditions(self.table, dialect) {
+        for condition in self.node.combined_conditions(self.table, dialect, now) {
             inner.and_where(condition);
         }
 
@@ -401,6 +350,8 @@ impl RecordFilter {
 
         if let Some(limit) = self.limit {
             inner.limit(limit);
+        } else if self.offset.is_some() && dialect == SqlDialect::SqliteText {
+            inner.limit(i64::MAX as u64);
         }
 
         if let Some(offset) = self.offset {
@@ -431,6 +382,289 @@ impl RecordFilter {
                 }]
             })
             .unwrap_or_default()
+    }
+}
+
+/// One wire value mid-parse, plain text from query pairs or YAML from a subfilter.
+enum WireValue<'a> {
+    Text(&'a str),
+    Yaml(&'a Yaml),
+}
+
+impl WireValue<'_> {
+    /// The value as one scalar, refusing lists where the wire takes a single value.
+    fn scalar(&self, key: &str) -> Result<String, Refusal> {
+        match self {
+            Self::Text(text) => Ok((*text).to_string()),
+            Self::Yaml(value) => {
+                yaml_scalar(value).ok_or_else(|| Refusal::invalid(format!("invalid {key} value")))
+            }
+        }
+    }
+
+    /// The value as the scalars it lists, one for plain text.
+    fn scalars(&self, key: &str) -> Result<Vec<String>, Refusal> {
+        match self {
+            Self::Text(text) => Ok(vec![(*text).to_string()]),
+            Self::Yaml(Yaml::Sequence(elements)) => elements
+                .iter()
+                .map(|element| {
+                    yaml_scalar(element)
+                        .ok_or_else(|| Refusal::invalid(format!("invalid {key} value")))
+                })
+                .collect(),
+            Self::Yaml(value) => yaml_scalar(value)
+                .map(|scalar| vec![scalar])
+                .ok_or_else(|| Refusal::invalid(format!("invalid {key} value"))),
+        }
+    }
+}
+
+/// One YAML scalar in the text form the wire parsers read, `None` for the rest.
+///
+/// Booleans stay out deliberately, the Python filter fields reject them everywhere a
+/// scalar is expected.
+fn yaml_scalar(value: &Yaml) -> Option<String> {
+    match value {
+        Yaml::String(text) => Some(text.clone()),
+        Yaml::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+/// Parse one wire YAML value the way the Python `FromYAML` reads it, empty text
+/// reading as null.
+fn parse_yaml(text: &str) -> Result<Yaml, Refusal> {
+    if text.trim().is_empty() {
+        return Ok(Yaml::Null);
+    }
+
+    serde_norway::from_str(text).map_err(|_| Refusal::invalid(format!("invalid YAML {text:?}")))
+}
+
+/// A filter node mid-parse, its query controls and subfilter groups still attached.
+///
+/// A subfilter can carry `order`, `limit`, and `offset`, which hoist into its parent
+/// under the Python model's rules rather than compiling as conditions, so they ride
+/// here until the node finishes.
+#[derive(Default)]
+struct Parsed {
+    node: FilterNode,
+    order: Vec<OrderTerm>,
+    limit: Option<u64>,
+    offset: Option<u64>,
+    and_group: Vec<Parsed>,
+    or_group: Vec<Parsed>,
+}
+
+impl Parsed {
+    /// Apply one wire key to this node.
+    fn apply(&mut self, table: RecordTable, key: &str, value: &WireValue) -> Result<(), Refusal> {
+        match resolve(table, key)? {
+            KeyRole::Equality(field) => {
+                for scalar in value.scalars(key)? {
+                    self.node.push_equality(field, &scalar)?;
+                }
+            }
+            KeyRole::Operation(field, kind) => {
+                for scalar in value.scalars(key)? {
+                    self.node.push_operation(field, kind, &scalar);
+                }
+            }
+            KeyRole::Root => {
+                let value = value.scalar(key)?;
+                if !valid_address(&value) {
+                    return Err(Refusal::invalid(format!("invalid root {value:?}")));
+                }
+
+                set_once(&mut self.node.root, key, value)?;
+            }
+            KeyRole::Group(operator) => {
+                let children = group_children(table, value)?;
+                match operator {
+                    GroupOp::And => self.and_group.extend(children),
+                    GroupOp::Or => self.or_group.extend(children),
+                }
+            }
+            KeyRole::Window(operator) => {
+                let value = value.scalar(key)?;
+                match operator {
+                    WindowOp::After => {
+                        set_once(&mut self.node.after, key, parse_timestamp(&value)?)?;
+                    }
+                    WindowOp::Before => {
+                        set_once(&mut self.node.before, key, parse_timestamp(&value)?)?;
+                    }
+                    WindowOp::Timespan => {
+                        let timespan = parse_duration(&value)?;
+                        if timespan < Duration::microseconds(1) {
+                            return Err(Refusal::invalid("timespan must be greater than zero"));
+                        }
+
+                        set_once(&mut self.node.timespan, key, timespan)?;
+                    }
+                    WindowOp::MaxAge => {
+                        set_once(&mut self.node.max_age, key, parse_duration(&value)?)?;
+                    }
+                    WindowOp::MinAge => {
+                        set_once(&mut self.node.min_age, key, parse_duration(&value)?)?;
+                    }
+                }
+            }
+            KeyRole::Clock(operator) => {
+                let value = value.scalar(key)?;
+                let cap = match operator {
+                    ClockOp::AfterHour | ClockOp::BeforeHour => 24,
+                    ClockOp::AfterMinute | ClockOp::BeforeMinute => 60,
+                };
+                let bound: u32 = value
+                    .parse()
+                    .ok()
+                    .filter(|bound| *bound <= cap)
+                    .ok_or_else(|| Refusal::invalid(format!("invalid {key} {value:?}")))?;
+                let slot = match operator {
+                    ClockOp::AfterHour => &mut self.node.after_hour,
+                    ClockOp::BeforeHour => &mut self.node.before_hour,
+                    ClockOp::AfterMinute => &mut self.node.after_minute,
+                    ClockOp::BeforeMinute => &mut self.node.before_minute,
+                };
+                set_once(slot, key, bound)?;
+            }
+            KeyRole::Bound(operator) => {
+                let value = value.scalar(key)?;
+                let position = level_position(&value)
+                    .ok_or_else(|| Refusal::invalid(format!("invalid level {value:?}")))?;
+                match operator {
+                    BoundOp::Minimum => set_once(&mut self.node.min_level, key, position)?,
+                    BoundOp::Maximum => set_once(&mut self.node.max_level, key, position)?,
+                }
+            }
+            KeyRole::Order => {
+                for scalar in value.scalars(key)? {
+                    self.order.push(parse_order(table, &scalar)?);
+                }
+            }
+            KeyRole::Limit => {
+                let value = value.scalar(key)?;
+                let limit = value
+                    .parse()
+                    .map_err(|_| Refusal::invalid(format!("invalid limit {value:?}")))?;
+                set_once(&mut self.limit, key, limit)?;
+            }
+            KeyRole::Offset => {
+                let value = value.scalar(key)?;
+                let offset = value
+                    .parse()
+                    .map_err(|_| Refusal::invalid(format!("invalid offset {value:?}")))?;
+                set_once(&mut self.offset, key, offset)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse one subfilter from its YAML mapping.
+    fn from_yaml(table: RecordTable, mapping: &serde_norway::Mapping) -> Result<Self, Refusal> {
+        let mut parsed = Self::default();
+        for (key, value) in mapping {
+            let Some(key) = key.as_str() else {
+                return Err(Refusal::invalid("subfilter keys must be strings"));
+            };
+
+            // A null value leaves its field unset, like the Python models.
+            if matches!(value, Yaml::Null) {
+                continue;
+            }
+
+            parsed.apply(table, key, &WireValue::Yaml(value))?;
+        }
+
+        parsed.finish()
+    }
+
+    /// Finish the node, checking the `or` group's restrictions and hoisting the `and`
+    /// group's query controls, exactly as the Python model validator does.
+    fn finish(mut self) -> Result<Self, Refusal> {
+        for child in &self.or_group {
+            for (name, present) in [
+                ("order", !child.order.is_empty()),
+                ("limit", child.limit.is_some()),
+                ("offset", child.offset.is_some()),
+            ] {
+                if present {
+                    return Err(Refusal::invalid(format!(
+                        "Cannot specify `{name}` in `or__` subfilters. Use `and__` instead."
+                    )));
+                }
+            }
+        }
+
+        for child in std::mem::take(&mut self.and_group) {
+            let Parsed {
+                node,
+                order,
+                limit,
+                offset,
+                ..
+            } = child;
+            // The last ordering wins, the tightest limit and the deepest offset hold.
+            if !order.is_empty() {
+                self.order = order;
+            }
+
+            if let Some(limit) = limit {
+                self.limit = Some(self.limit.map_or(limit, |own| own.min(limit)));
+            }
+
+            if let Some(offset) = offset {
+                self.offset = Some(self.offset.map_or(offset, |own| own.max(offset)));
+            }
+
+            self.node.and_children.push(node);
+        }
+
+        for child in std::mem::take(&mut self.or_group) {
+            self.node.or_children.push(child.node);
+        }
+
+        Ok(self)
+    }
+}
+
+/// The subfilters one `or` or `and` wire value carries.
+///
+/// A plain text value parses as YAML first. The result is one subfilter mapping, a
+/// sequence of them, or nothing, and a sequence element may itself be YAML text of
+/// one mapping, the way the Python `FromYAML` layers read it.
+fn group_children(table: RecordTable, value: &WireValue) -> Result<Vec<Parsed>, Refusal> {
+    let parsed;
+    let value = match value {
+        WireValue::Text(text) => {
+            parsed = parse_yaml(text)?;
+            &parsed
+        }
+        WireValue::Yaml(value) => *value,
+    };
+
+    let one = |element: &Yaml| -> Result<Parsed, Refusal> {
+        let parsed;
+        let element = match element {
+            Yaml::String(text) => {
+                parsed = parse_yaml(text)?;
+                &parsed
+            }
+            _ => element,
+        };
+        match element {
+            Yaml::Mapping(mapping) => Parsed::from_yaml(table, mapping),
+            _ => Err(Refusal::invalid("a subfilter must be a mapping")),
+        }
+    };
+
+    match value {
+        Yaml::Null => Ok(Vec::new()),
+        Yaml::Sequence(elements) => elements.iter().map(one).collect(),
+        other => Ok(vec![one(other)?]),
     }
 }
 
@@ -513,13 +747,57 @@ impl FilterNode {
         }
     }
 
-    /// The `WHERE` conditions, in the entity's field order.
-    fn conditions(&self, table: RecordTable, dialect: SqlDialect) -> Vec<SimpleExpr> {
-        let mut conditions = Vec::new();
-        // `now` truncates to microseconds so arithmetic and rendering match Python's
-        // `datetime` resolution exactly.
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+    /// This node's conditions joined with its subfilter groups', one condition when
+    /// an `or` group needs the whole set to nest inside it.
+    ///
+    /// Every `and` node's conditions extend this node's. An `or` node matches on its
+    /// own, its conditions grouped so they hold together, and one with no conditions
+    /// matches everything.
+    fn combined_conditions(
+        &self,
+        table: RecordTable,
+        dialect: SqlDialect,
+        now: NaiveDateTime,
+    ) -> Vec<SimpleExpr> {
+        let mut ands = self.conditions(table, dialect, now);
+        for child in &self.and_children {
+            ands.extend(child.combined_conditions(table, dialect, now));
+        }
 
+        if self.or_children.is_empty() {
+            return ands;
+        }
+
+        let mut terms = Vec::new();
+        if !ands.is_empty() {
+            terms.push(all_of(ands));
+        }
+
+        for child in &self.or_children {
+            let grouped = child.combined_conditions(table, dialect, now);
+            terms.push(if grouped.is_empty() {
+                Expr::value(true)
+            } else {
+                all_of(grouped)
+            });
+        }
+
+        vec![
+            terms
+                .into_iter()
+                .reduce(|combined, term| combined.or(term))
+                .expect("an or group always carries terms"),
+        ]
+    }
+
+    /// The `WHERE` conditions, in the entity's field order.
+    fn conditions(
+        &self,
+        table: RecordTable,
+        dialect: SqlDialect,
+        now: NaiveDateTime,
+    ) -> Vec<SimpleExpr> {
+        let mut conditions = Vec::new();
         for field in table.fields() {
             let column = Expr::col(Alias::new(field.key));
             if let Some(values) = self.values_of(field) {
@@ -699,6 +977,8 @@ fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
         "order" => return Ok(KeyRole::Order),
         "limit" => return Ok(KeyRole::Limit),
         "offset" => return Ok(KeyRole::Offset),
+        "or" => return Ok(KeyRole::Group(GroupOp::Or)),
+        "and" => return Ok(KeyRole::Group(GroupOp::And)),
         _ => {}
     }
 
@@ -1075,6 +1355,14 @@ fn match_bytes_patterns(
         .unwrap_or_else(|| Expr::value(false))
 }
 
+/// All conditions joined with `AND`, as one expression.
+fn all_of(conditions: Vec<SimpleExpr>) -> SimpleExpr {
+    conditions
+        .into_iter()
+        .reduce(|combined, condition| combined.and(condition))
+        .expect("grouping requires at least one condition")
+}
+
 /// An equality for one value, an `IN` for several, like the Python `_sql_match_value`.
 fn match_values(column: Expr, values: impl Iterator<Item = Value> + Clone) -> SimpleExpr {
     let mut peek = values.clone();
@@ -1139,7 +1427,10 @@ mod tests {
 
     #[test]
     fn unsupported_constructs_refuse_as_delegated() {
-        for rejected in [pairs(&[("subsample", "10")]), pairs(&[("and", "{}")])] {
+        for rejected in [
+            pairs(&[("subsample", "10")]),
+            pairs(&[("subsample_every", "1h")]),
+        ] {
             assert_eq!(
                 RecordFilter::parse(RecordTable::Messages, &rejected),
                 Err(Refusal::Delegated),
@@ -1264,6 +1555,122 @@ mod tests {
             .statement(SqlDialect::SqliteText)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"level\" IN ('info', 'error')"), "{sql}");
+    }
+
+    #[test]
+    fn boolean_groups_compile_the_matching_semantics() {
+        // An or subfilter's conditions hold together as one term.
+        let filter = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[
+                ("or", "{connection: network, direction: receive}"),
+                ("connection", "serial"),
+            ]),
+        )
+        .unwrap();
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains(
+                "WHERE \"connection\" = 'serial' OR (\"connection\" = 'network' AND \
+                 \"direction\" = 'receive')"
+            ),
+            "{sql}"
+        );
+
+        // An empty or subfilter matches everything.
+        let open = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("or", "{}"), ("connection", "serial")]),
+        )
+        .unwrap();
+        let sql = open
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("WHERE \"connection\" = 'serial' OR TRUE"),
+            "{sql}"
+        );
+
+        // And subfilters extend the node's conditions.
+        let both = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("and", "[{connection: serial}, {direction: send}]")]),
+        )
+        .unwrap();
+        let sql = both
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("WHERE \"connection\" = 'serial' AND \"direction\" = 'send'"),
+            "{sql}"
+        );
+
+        // Groups nest recursively.
+        let nested = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("or", "{and: [{connection: network}, {direction: send}]}")]),
+        )
+        .unwrap();
+        let sql = nested
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("WHERE \"connection\" = 'network' AND \"direction\" = 'send'"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn and_subfilters_hoist_their_query_controls() {
+        let filter = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[
+                ("limit", "3"),
+                ("and", "{limit: 5, offset: 2, order: \"timestamp:desc\"}"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(filter.limit(), Some(3));
+
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("ORDER BY \"timestamp\" DESC LIMIT 3 OFFSET 2"),
+            "{sql}"
+        );
+
+        let tighter = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("limit", "5"), ("and", "{limit: 3}")]),
+        )
+        .unwrap();
+        assert_eq!(tighter.limit(), Some(3));
+    }
+
+    #[test]
+    fn or_subfilters_refuse_query_controls() {
+        for rejected in ["{limit: 5}", "{offset: 2}", "{order: timestamp}"] {
+            let outcome = RecordFilter::parse(RecordTable::Messages, &pairs(&[("or", rejected)]));
+            assert!(matches!(outcome, Err(Refusal::Invalid(_))), "{rejected}");
+        }
+
+        // A nested and hoists into the or subfilter, which then refuses.
+        let hoisted = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("or", "{and: {limit: 5}}")]),
+        );
+        assert!(matches!(hoisted, Err(Refusal::Invalid(_))));
+    }
+
+    #[test]
+    fn malformed_groups_refuse_as_invalid() {
+        for rejected in ["not: [valid", "5", "[5]", "abc", "{connection: {a: b}}"] {
+            let outcome = RecordFilter::parse(RecordTable::Messages, &pairs(&[("or", rejected)]));
+            assert!(matches!(outcome, Err(Refusal::Invalid(_))), "{rejected}");
+        }
     }
 
     #[test]
