@@ -6,8 +6,11 @@
 //! here, while route families still served by the Python application reach it through a
 //! fallback bridge until each is ported.
 
+mod api;
 mod app;
 mod auth;
+mod body;
+mod cookie;
 mod error;
 mod host;
 mod layers;
@@ -19,7 +22,8 @@ pub use auth::{
     Actor, AuthSettings, Identity, MintedToken, current_actor, current_identity, mint, parse,
     require_admin, require_authenticated, require_self_or_admin,
 };
-pub use error::ApiError;
+pub use cookie::CookieType;
+pub use error::{ApiError, Problem};
 pub use host::{Host, HostError, NoHost, UserRecord};
 pub use layers::{apply_compression, apply_cors};
 pub use serve::{BoundServer, Error as ServeError, Stopper};
@@ -151,38 +155,109 @@ mod tests {
         );
     }
 
-    /// A host holding exactly one user.
-    struct OneUserHost {
-        id: uuid::Uuid,
-        admin: bool,
+    const PASSWORD: &str = "pw12345";
+
+    /// A host holding a fixed set of users sharing one password.
+    struct TestHost {
+        users: Vec<(uuid::Uuid, &'static str, bool)>,
+    }
+
+    impl TestHost {
+        fn record(&self, id: uuid::Uuid, username: &str, admin: bool) -> UserRecord {
+            UserRecord {
+                id,
+                admin,
+                disabled: false,
+                payload: serde_json::json!({"id": id.to_string(), "username": username}),
+            }
+        }
     }
 
     #[async_trait::async_trait]
-    impl Host for OneUserHost {
+    impl Host for TestHost {
         async fn user(&self, id: uuid::Uuid) -> Result<Option<UserRecord>, HostError> {
-            Ok((id == self.id).then(|| UserRecord {
-                id: self.id,
-                admin: self.admin,
-                disabled: false,
-                payload: serde_json::json!({"id": self.id.to_string(), "username": "u"}),
-            }))
+            Ok(self
+                .users
+                .iter()
+                .find(|(candidate, _, _)| *candidate == id)
+                .map(|(id, username, admin)| self.record(*id, username, *admin)))
         }
+
+        async fn verify_login(
+            &self,
+            username: String,
+            password: String,
+        ) -> Result<Option<UserRecord>, HostError> {
+            Ok(self
+                .users
+                .iter()
+                .find(|(_, candidate, _)| *candidate == username && password == PASSWORD)
+                .map(|(id, username, admin)| self.record(*id, username, *admin)))
+        }
+
+        async fn change_password(
+            &self,
+            user: uuid::Uuid,
+            old_password: String,
+            _new_password: String,
+        ) -> Result<Option<UserRecord>, HostError> {
+            if old_password != PASSWORD {
+                return Ok(None);
+            }
+
+            self.user(user).await
+        }
+    }
+
+    fn settings(allow_impersonate: bool) -> AuthSettings {
+        AuthSettings {
+            secret: "an-adequately-long-test-signing-secret".to_string(),
+            duration: chrono::TimeDelta::minutes(30),
+            allow_impersonate,
+        }
+    }
+
+    fn two_user_app(
+        admin: uuid::Uuid,
+        viewer: uuid::Uuid,
+        allow_impersonate: bool,
+    ) -> axum::Router {
+        build_router(AppConfig {
+            console: None,
+            cli_token: None,
+            auth: Some(settings(allow_impersonate)),
+            host: std::sync::Arc::new(TestHost {
+                users: vec![(admin, "admin", true), (viewer, "viewer", false)],
+            }),
+        })
     }
 
     fn authenticated_app(user: uuid::Uuid, allow_impersonate: bool) -> axum::Router {
         build_router(AppConfig {
             console: None,
             cli_token: None,
-            auth: Some(AuthSettings {
-                secret: "an-adequately-long-test-signing-secret".to_string(),
-                duration: chrono::TimeDelta::minutes(30),
-                allow_impersonate,
-            }),
-            host: std::sync::Arc::new(OneUserHost {
-                id: user,
-                admin: false,
+            auth: Some(settings(allow_impersonate)),
+            host: std::sync::Arc::new(TestHost {
+                users: vec![(user, "u", false)],
             }),
         })
+    }
+
+    /// Send one request with a JSON body through a router.
+    macro_rules! request_json {
+        ($app:expr, $method:ident $path:expr, $body:expr $(, $name:expr => $value:expr)*) => {{
+            let request = Request::$method($path)
+                .header(header::CONTENT_TYPE, "application/json")
+                $(.header($name, $value))*
+                .body(Body::from(serde_json::to_vec(&$body).unwrap()))
+                .unwrap();
+            $app.clone().oneshot(request).await.unwrap()
+        }};
+    }
+
+    async fn json_of(response: axum::response::Response) -> serde_json::Value {
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&body).unwrap()
     }
 
     #[tokio::test]
@@ -196,12 +271,7 @@ mod tests {
             br#"{"__error__":true,"type":"not-authenticated-error"}"#
         );
 
-        let settings = AuthSettings {
-            secret: "an-adequately-long-test-signing-secret".to_string(),
-            duration: chrono::TimeDelta::minutes(30),
-            allow_impersonate: false,
-        };
-        let minted = mint(user, None, &settings).unwrap();
+        let minted = mint(user, None, &settings(false)).unwrap();
         let response = assert_response!(
             request!(app, get "/api/auth/me", header::AUTHORIZATION => format!("Bearer {}", minted.token)),
             OK
@@ -213,10 +283,229 @@ mod tests {
         assert_eq!(body["impersonated_by"], serde_json::Value::Null);
 
         // A token naming an unknown user resolves to anonymous.
-        let minted = mint(uuid::Uuid::new_v4(), None, &settings).unwrap();
+        let minted = mint(uuid::Uuid::new_v4(), None, &settings(false)).unwrap();
         assert_response!(
             request!(app, get "/api/auth/me", header::AUTHORIZATION => format!("Bearer {}", minted.token)),
             UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn login_issues_identities_and_assigns_cookies() {
+        let user = uuid::Uuid::new_v4();
+        let app = authenticated_app(user, false);
+
+        // Body problems refuse before anything else runs.
+        let response =
+            request_json!(app, post "/api/auth/login", serde_json::json!({"password": 5}));
+        let response = assert_response!(response, UNPROCESSABLE_ENTITY);
+        let body = json_of(response).await;
+        assert_eq!(body["type"], "validation-failed-error");
+        assert_eq!(body["problems"][0]["location"][1], "username");
+
+        let response = request_json!(
+            app, post "/api/auth/login",
+            serde_json::json!({"username": "u", "password": PASSWORD, "cookie": "insecure"})
+        );
+        let response = assert_response!(response, OK);
+        let cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(cookie.starts_with("Authorization=\"Bearer "));
+        assert!(cookie.ends_with("; Path=/; SameSite=lax"));
+        let body = json_of(response).await;
+        assert_eq!(body["user"]["id"], user.to_string());
+        assert_eq!(body["impersonated_by"], serde_json::Value::Null);
+
+        // Login with authentication unconfigured refuses as disabled.
+        let disabled = build_router(AppConfig {
+            console: None,
+            cli_token: None,
+            auth: None,
+            host: std::sync::Arc::new(NoHost),
+        });
+        let response = request_json!(
+            disabled, post "/api/auth/login",
+            serde_json::json!({"username": "u", "password": PASSWORD})
+        );
+        assert_response!(
+            response,
+            FORBIDDEN,
+            br#"{"__error__":true,"type":"authentication-disabled-error"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn wrong_credentials_stall_and_refuse() {
+        let app = authenticated_app(uuid::Uuid::new_v4(), false);
+        let started = std::time::Instant::now();
+        let response = request_json!(
+            app, post "/api/auth/login",
+            serde_json::json!({"username": "u", "password": "wrong"})
+        );
+        assert!(started.elapsed() >= std::time::Duration::from_millis(2500));
+        assert_response!(
+            response,
+            UNAUTHORIZED,
+            br#"{"__error__":true,"type":"bad-credentials-error"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_reissues_without_the_impersonation_marker() {
+        let admin = uuid::Uuid::new_v4();
+        let viewer = uuid::Uuid::new_v4();
+        let app = two_user_app(admin, viewer, true);
+
+        // The refreshed identity is the viewer's own even when the presented token was
+        // impersonated.
+        let impersonated = mint(viewer, Some(admin), &settings(true)).unwrap();
+        let response = request_json!(
+            app, post "/api/auth/refresh", serde_json::json!({}),
+            header::AUTHORIZATION => format!("Bearer {}", impersonated.token)
+        );
+        let response = assert_response!(response, OK);
+        let body = json_of(response).await;
+        assert_eq!(body["user"]["id"], viewer.to_string());
+        assert_eq!(body["impersonated_by"], serde_json::Value::Null);
+
+        let response = request_json!(app, post "/api/auth/refresh", serde_json::json!({}));
+        assert_response!(response, UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn logout_deletes_the_cookie_and_returns_the_identity() {
+        let user = uuid::Uuid::new_v4();
+        let app = authenticated_app(user, false);
+        let minted = mint(user, None, &settings(false)).unwrap();
+
+        let response = request_json!(
+            app, post "/api/auth/logout", serde_json::json!({}),
+            header::AUTHORIZATION => format!("Bearer {}", minted.token)
+        );
+        let response = assert_response!(response, OK);
+        let cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(cookie.starts_with("Authorization=\"\"; expires="));
+        assert!(cookie.contains("Max-Age=0"));
+
+        let response = request_json!(app, post "/api/auth/logout", serde_json::json!({}));
+        assert_response!(
+            response,
+            UNAUTHORIZED,
+            br#"{"__error__":true,"type":"not-authenticated-error"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn impersonation_gates_run_in_order() {
+        let admin = uuid::Uuid::new_v4();
+        let viewer = uuid::Uuid::new_v4();
+        let admin_token = mint(admin, None, &settings(true)).unwrap().token;
+        let viewer_token = mint(viewer, None, &settings(true)).unwrap().token;
+        let body = serde_json::json!({"user_id": viewer.to_string()});
+
+        // Off means absent, the route reports itself missing rather than forbidden.
+        let hidden = two_user_app(admin, viewer, false);
+        let response = request_json!(
+            hidden, post "/api/auth/impersonate", body,
+            header::AUTHORIZATION => format!("Bearer {admin_token}")
+        );
+        assert_response!(
+            response,
+            NOT_FOUND,
+            br#"{"__error__":true,"type":"not-found-error"}"#
+        );
+
+        let app = two_user_app(admin, viewer, true);
+        let response = request_json!(app, post "/api/auth/impersonate", body);
+        assert_response!(response, UNAUTHORIZED);
+
+        let response = request_json!(
+            app, post "/api/auth/impersonate", body,
+            header::AUTHORIZATION => format!("Bearer {viewer_token}")
+        );
+        assert_response!(
+            response,
+            FORBIDDEN,
+            br#"{"__error__":true,"type":"not-permitted-error"}"#
+        );
+
+        let response = request_json!(
+            app, post "/api/auth/impersonate", body,
+            header::AUTHORIZATION => format!("Bearer {admin_token}")
+        );
+        let response = assert_response!(response, OK);
+        let issued = json_of(response).await;
+        assert_eq!(issued["user"]["id"], viewer.to_string());
+        assert_eq!(issued["impersonated_by"], admin.to_string());
+
+        // The marker survives the round trip through the issued token itself.
+        let response = request_json!(
+            app, get "/api/auth/me", serde_json::json!({}),
+            header::AUTHORIZATION => format!("Bearer {}", issued["token"].as_str().unwrap())
+        );
+        let me = json_of(assert_response!(response, OK)).await;
+        assert_eq!(me["impersonated_by"], admin.to_string());
+
+        // A missing target is not found.
+        let response = request_json!(
+            app, post "/api/auth/impersonate",
+            serde_json::json!({"user_id": uuid::Uuid::new_v4().to_string()}),
+            header::AUTHORIZATION => format!("Bearer {admin_token}")
+        );
+        assert_response!(response, NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn password_changes_gate_then_verify() {
+        let user = uuid::Uuid::new_v4();
+        let app = authenticated_app(user, false);
+        let token = mint(user, None, &settings(false)).unwrap().token;
+
+        let response = request_json!(
+            app, post "/api/auth/change-password",
+            serde_json::json!({"old_password": PASSWORD, "new_password": "long enough phrase"}),
+            header::AUTHORIZATION => format!("Bearer {token}")
+        );
+        let body = json_of(assert_response!(response, OK)).await;
+        assert_eq!(body["id"], user.to_string());
+
+        // Anonymous callers refuse at the authenticated gate, in the typed shape.
+        let response = request_json!(
+            app, post "/api/auth/change-password",
+            serde_json::json!({"old_password": "a", "new_password": "b"})
+        );
+        assert_response!(
+            response,
+            UNAUTHORIZED,
+            br#"{"__error__":true,"type":"not-authenticated-error"}"#
+        );
+
+        // An unrestricted caller with no concrete user gets the bare envelope instead.
+        let unrestricted = build_router(AppConfig {
+            console: None,
+            cli_token: None,
+            auth: None,
+            host: std::sync::Arc::new(NoHost),
+        });
+        let response = request_json!(
+            unrestricted, post "/api/auth/change-password",
+            serde_json::json!({"old_password": "a", "new_password": "b"})
+        );
+        assert_response!(
+            response,
+            UNAUTHORIZED,
+            br#"{"__error__":true,"type":"http-error","status":401}"#
         );
     }
 

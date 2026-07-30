@@ -13,8 +13,7 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::get;
-use serde_json::json;
+use axum::routing::{get, post};
 use subtle::ConstantTimeEq;
 use tower::ServiceExt;
 use tower_http::services::{ServeDir, ServeFile};
@@ -45,24 +44,33 @@ pub struct ConsolePaths {
     pub favicon_svg: PathBuf,
 }
 
-struct AppState {
+pub(crate) struct AppState {
     console: Option<ConsolePaths>,
-    auth: Option<AuthSettings>,
-    host: Arc<dyn Host>,
+    pub(crate) auth: Option<AuthSettings>,
+    pub(crate) host: Arc<dyn Host>,
+    cli: bool,
 }
 
 impl AppState {
     /// Resolve the identity a request presents, anonymous on any failure.
-    async fn identity(
+    pub(crate) async fn identity(
         &self,
         headers: &HeaderMap,
     ) -> Result<Option<auth::Identity>, crate::host::HostError> {
         auth::current_identity(self.auth.as_ref(), self.host.as_ref(), headers).await
     }
+
+    /// Resolve the actor a request comes from.
+    pub(crate) async fn actor(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<auth::Actor, crate::host::HostError> {
+        auth::current_actor(self.auth.as_ref(), self.cli, self.host.as_ref(), headers).await
+    }
 }
 
 /// Respond with a JSON value.
-fn json_response(value: serde_json::Value) -> Response {
+pub(crate) fn json_response(value: serde_json::Value) -> Response {
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json")],
@@ -92,6 +100,7 @@ pub fn build_router(config: AppConfig) -> Router {
         console: config.console,
         auth: config.auth,
         host: config.host,
+        cli: config.cli_token.is_some(),
     });
 
     // The API catch-all handles GET only, like the Python layer's. A matched path with
@@ -100,8 +109,16 @@ pub fn build_router(config: AppConfig) -> Router {
     let mut router = Router::new()
         .route("/api/alive", get(alive))
         .route("/api", get(redirect_to_openapi))
-        .route("/api/auth/me", get(me))
-        .route("/api/auth/features", get(features))
+        .route("/api/auth/me", get(crate::api::auth::me))
+        .route("/api/auth/features", get(crate::api::auth::features))
+        .route("/api/auth/login", post(crate::api::auth::login))
+        .route("/api/auth/refresh", post(crate::api::auth::refresh))
+        .route("/api/auth/logout", post(crate::api::auth::logout))
+        .route("/api/auth/impersonate", post(crate::api::auth::impersonate))
+        .route(
+            "/api/auth/change-password",
+            post(crate::api::auth::change_password),
+        )
         .route("/api/{*path}", get(api_not_found));
 
     if state.console.is_some() {
@@ -131,24 +148,6 @@ pub fn build_router(config: AppConfig) -> Router {
 
 async fn alive() -> StatusCode {
     StatusCode::OK
-}
-
-/// Return the caller's identity, or refuse when the request carries none.
-async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
-    match state.identity(&headers).await {
-        Ok(Some(identity)) => json_response(identity.to_json()),
-        Ok(None) => ApiError::not_authenticated().into_response(),
-        Err(error) => error.into_response(),
-    }
-}
-
-/// Report the optional authentication behavior the console adapts itself to.
-async fn features(State(state): State<Arc<AppState>>) -> Response {
-    let impersonate = state
-        .auth
-        .as_ref()
-        .is_some_and(|settings| settings.allow_impersonate);
-    json_response(json!({"impersonate": impersonate}))
 }
 
 async fn redirect_to_openapi() -> Redirect {

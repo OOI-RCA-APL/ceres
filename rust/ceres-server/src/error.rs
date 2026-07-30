@@ -33,6 +33,37 @@ errors! {
     not_found => NOT_FOUND, "not-found-error";
     not_authenticated => UNAUTHORIZED, "not-authenticated-error";
     not_permitted => FORBIDDEN, "not-permitted-error";
+    bad_credentials => UNAUTHORIZED, "bad-credentials-error";
+    authentication_disabled => FORBIDDEN, "authentication-disabled-error";
+}
+
+/// One validation problem, in the `{type, location, message}` shape of the wire.
+#[derive(Debug)]
+pub struct Problem {
+    kind: String,
+    location: Vec<Value>,
+    message: String,
+}
+
+impl Problem {
+    pub fn new(kind: impl Into<String>, location: &[&str], message: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            location: location
+                .iter()
+                .map(|part| Value::String((*part).to_string()))
+                .collect(),
+            message: message.into(),
+        }
+    }
+
+    pub fn into_json(self) -> Value {
+        let mut body = Map::new();
+        body.insert("type".to_string(), Value::String(self.kind));
+        body.insert("location".to_string(), Value::Array(self.location));
+        body.insert("message".to_string(), Value::String(self.message));
+        Value::Object(body)
+    }
 }
 
 impl ApiError {

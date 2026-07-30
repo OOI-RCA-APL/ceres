@@ -59,6 +59,24 @@ impl IntoResponse for HostError {
 pub trait Host: Send + Sync + 'static {
     /// Look up a user by ID, `None` when no such user exists.
     async fn user(&self, id: Uuid) -> Result<Option<UserRecord>, HostError>;
+
+    /// Check a username and password, returning the user when they match.
+    async fn verify_login(
+        &self,
+        username: String,
+        password: String,
+    ) -> Result<Option<UserRecord>, HostError>;
+
+    /// Change a user's password, `None` when the old password does not match.
+    ///
+    /// The host validates the new password's shape, reporting refusals as typed
+    /// errors.
+    async fn change_password(
+        &self,
+        user: Uuid,
+        old_password: String,
+        new_password: String,
+    ) -> Result<Option<UserRecord>, HostError>;
 }
 
 /// A host for applications that never cross the boundary, tests and stubs.
@@ -67,6 +85,23 @@ pub struct NoHost;
 #[async_trait::async_trait]
 impl Host for NoHost {
     async fn user(&self, _id: Uuid) -> Result<Option<UserRecord>, HostError> {
+        Ok(None)
+    }
+
+    async fn verify_login(
+        &self,
+        _username: String,
+        _password: String,
+    ) -> Result<Option<UserRecord>, HostError> {
+        Ok(None)
+    }
+
+    async fn change_password(
+        &self,
+        _user: Uuid,
+        _old_password: String,
+        _new_password: String,
+    ) -> Result<Option<UserRecord>, HostError> {
         Ok(None)
     }
 }
