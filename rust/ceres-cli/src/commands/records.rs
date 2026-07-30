@@ -99,33 +99,47 @@ impl Invocation {
 
     /// Whether output is plain JSON with no projection and no color, the shape the
     /// native path renders. Mirrors the Python command's color resolution.
-    fn plain_json_output(&self) -> bool {
+    /// The format a native one-pass dump can render, `None` when the invocation must
+    /// delegate, for a projection, an unknown format, or colorized output.
+    fn dump_format(&self) -> Option<DumpFormat> {
         if self.projecting {
-            return false;
+            return None;
         }
 
-        if self
-            .data_format
-            .as_deref()
-            .is_some_and(|format| format != "json")
-        {
-            return false;
-        }
+        let format = match self.data_format.as_deref() {
+            Some("json") => DumpFormat::Json,
+            Some("csv") => DumpFormat::Csv,
+            Some(_) => return None,
+            None => match &self.output {
+                Some(output) if output.extension().is_some_and(|suffix| suffix == "csv") => {
+                    DumpFormat::Csv
+                }
+                _ => DumpFormat::Json,
+            },
+        };
 
-        match self.color {
+        let plain = match self.color {
             Some(true) => false,
             Some(false) => true,
             None => {
                 if std::env::var_os("FORCE_COLOR").is_some() {
-                    return false;
+                    return None;
                 }
 
                 std::env::var_os("NO_COLOR").is_some()
                     || self.output.is_some()
                     || !std::io::IsTerminal::is_terminal(&std::io::stdout())
             }
-        }
+        };
+        plain.then_some(format)
     }
+}
+
+/// The dump formats a native pass renders.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DumpFormat {
+    Json,
+    Csv,
 }
 
 /// Attempt one record command natively, `false` meaning the caller delegates.
@@ -133,9 +147,9 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
     let Some(invocation) = Invocation::lex(raw) else {
         return Ok(false);
     };
-    if !invocation.plain_json_output() {
+    let Some(format) = invocation.dump_format() else {
         return Ok(false);
-    }
+    };
 
     let Ok(filter) = RecordFilter::parse(table, &invocation.pairs) else {
         return Ok(false);
@@ -170,9 +184,12 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
                 .map(|count| format!("{count}\n").into_bytes())
         } else {
             let records = store.fetch_filter(&filter).await?;
-            records
-                .to_json_lines()
-                .map_err(|error| ceres_database::Error::Decode(error.to_string()))
+            match format {
+                DumpFormat::Json => records
+                    .to_json_lines()
+                    .map_err(|error| ceres_database::Error::Decode(error.to_string())),
+                DumpFormat::Csv => Ok(records.to_csv_lines().into_bytes()),
+            }
         }
     });
     let Ok(rendered) = rendered else {
@@ -324,11 +341,35 @@ mod tests {
     fn projection_format_and_color_gate_the_native_path() {
         let lex = |arguments: &[&str]| Invocation::lex(&raw(arguments)).unwrap();
 
-        assert!(!lex(&["select", "--field", "id", "--no-color"]).plain_json_output());
-        assert!(!lex(&["select", "id", "--no-color"]).plain_json_output());
-        assert!(!lex(&["select", "--data-format", "csv", "--no-color"]).plain_json_output());
-        assert!(!lex(&["select", "--color"]).plain_json_output());
-        assert!(lex(&["select", "--no-color"]).plain_json_output());
-        assert!(lex(&["select", "--output", "out.json", "--no-color"]).plain_json_output());
+        assert_eq!(
+            lex(&["select", "--field", "id", "--no-color"]).dump_format(),
+            None
+        );
+        assert_eq!(lex(&["select", "id", "--no-color"]).dump_format(), None);
+        assert_eq!(
+            lex(&["select", "--data-format", "csv", "--no-color"]).dump_format(),
+            Some(DumpFormat::Csv)
+        );
+        assert_eq!(
+            lex(&["select", "--output", "rows.csv"]).dump_format(),
+            Some(DumpFormat::Csv)
+        );
+        assert_eq!(
+            lex(&["select", "--output", "rows.json"]).dump_format(),
+            Some(DumpFormat::Json)
+        );
+        assert_eq!(
+            lex(&["select", "--data-format", "yaml", "--no-color"]).dump_format(),
+            None
+        );
+        assert_eq!(lex(&["select", "--color"]).dump_format(), None);
+        assert_eq!(
+            lex(&["select", "--no-color"]).dump_format(),
+            Some(DumpFormat::Json)
+        );
+        assert_eq!(
+            lex(&["select", "--output", "out.json", "--no-color"]).dump_format(),
+            Some(DumpFormat::Json)
+        );
     }
 }

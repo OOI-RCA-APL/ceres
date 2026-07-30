@@ -468,6 +468,13 @@ class RecordBatch:
         The shape a CLI record dump writes, so a select can produce its whole output in
         one native pass.
         """
+    def to_csv_lines(self) -> str:
+        r"""
+        Render the batch as CSV lines under a header row, in the wire cell forms.
+
+        The shape a CSV record dump writes, quoted the way the Python `csv` writer
+        quotes, so a select can produce its whole output in one native pass.
+        """
 
 @final
 class RecordFetcher:

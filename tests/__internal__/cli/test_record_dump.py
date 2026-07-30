@@ -51,6 +51,15 @@ async def _write_records(engine: Engine) -> None:
             data=b"\x01\x02ABC\xff",
         )
     )
+    # A payload full of CSV metacharacters, and no connection, exercise quoting and
+    # empty cells.
+    await engine.database.messages.create(
+        Message.Create(
+            address=address,
+            direction=MessageDirection.SEND,
+            data=b'a,"b"\r\nc',
+        )
+    )
     await engine.database.particles.create(
         Particle.Create(address=address, type="sample", data={"a": 1, "b": [1.5, 2.5]})
     )
@@ -102,6 +111,31 @@ async def test_in_memory_databases_decline_the_native_dump() -> None:
     assert await dump_records_natively(database, Message, query) is None
 
 
+async def test_the_native_csv_dump_matches_the_materializing_path(tmp_path: Path) -> None:
+    """The native CSV render is byte-identical to extracting and writing every row in
+    Python, header, quoting, and empty cells included.
+    """
+    from ceres.__internal__.cli.shared import CLIDataFormat, create_entity_select_command
+
+    engine = await _build_engine_on_disk(tmp_path)
+    await _write_records(engine)
+
+    try:
+        for Record in (Message, Particle, Alert, LogEntry):
+            query = engine.__manager__(Record).where()
+            dumped = await dump_records_natively(engine.database, Record, query, CLIDataFormat.CSV)
+            assert dumped is not None, f"expected a native CSV dump for {Record.__name__}"
+
+            expected_path = tmp_path / f"{Record.__name__}.csv"
+            Command = create_entity_select_command(Record)
+            command = Command(output=expected_path)
+            await command.put(engine.__manager__(Record).where().select())
+            # Bytes keep the file verbatim, text reads would fold a quoted CRLF.
+            assert dumped == expected_path.read_bytes().decode(), Record.__name__
+    finally:
+        await engine.database.dispose()
+
+
 async def test_output_files_carry_complete_rows(tmp_path: Path) -> None:
     """`--output` files hold every field of every record, flushed by the time the
     command finishes.
@@ -122,11 +156,15 @@ async def test_output_files_carry_complete_rows(tmp_path: Path) -> None:
         csv_path = tmp_path / "messages.csv"
         command = Command(output=csv_path)
         await command.put(engine.__manager__(Message).where().select())
-        lines = csv_path.read_text().splitlines()
-        assert lines[0] == "id,address,timestamp,connection,direction,data"
-        assert len(lines) == len(expected) + 1
-        assert "@sensor.temp" in lines[1]
-        assert "serial" in lines[1]
+        with csv_path.open(newline="") as file:
+            import csv
+
+            rows = list(csv.reader(file))
+
+        assert rows[0] == ["id", "address", "timestamp", "connection", "direction", "data"]
+        assert len(rows) == len(expected) + 1
+        assert rows[1][1] == "@sensor.temp"
+        assert rows[1][3] == "serial"
 
         json_path = tmp_path / "messages.json"
         command = Command(output=json_path)

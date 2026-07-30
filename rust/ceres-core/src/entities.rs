@@ -92,6 +92,14 @@ impl RecordBatch {
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(PyBytes::new(py, &serialized))
     }
+
+    /// Render the batch as CSV lines under a header row, in the wire cell forms.
+    ///
+    /// The shape a CSV record dump writes, quoted the way the Python `csv` writer
+    /// quotes, so a select can produce its whole output in one native pass.
+    fn to_csv_lines(&self) -> String {
+        self.records.to_csv_lines()
+    }
 }
 
 /// One of the record tables, the selector native record operations dispatch on.

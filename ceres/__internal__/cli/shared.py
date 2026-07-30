@@ -985,21 +985,20 @@ class CLIDataOutputCommand(CLICommand):
             if opened is not None:
                 opened.close()
 
-    def plain_json_output(self) -> bool:
-        """Whether output is plain JSON lines, with no field selection and no color.
+    def native_dump_format(self) -> CLIDataFormat | None:
+        """The format a native one-pass dump can render, `None` when entities must
+        materialize.
 
-        The shape a native dump can produce in one pass, so a select checks this before
-        deciding whether it can skip materializing entities.
+        A field projection needs Python attribute access, and colorized output routes
+        through Rich, so only an uncolored, unprojected dump can ship as one
+        pre-rendered pass.
         """
         if self.field is not None or getattr(self, "fields", None) is not None:
-            return False
+            return None
 
         data_format = self.data_format
         if self.output is not None:
             data_format = _resolve_data_format(self.output, data_format)
-
-        if (data_format or CLIDataFormat.JSON) is not CLIDataFormat.JSON:
-            return False
 
         color = self.color
         if color is None:
@@ -1008,7 +1007,14 @@ class CLIDataOutputCommand(CLICommand):
         if color is None:
             color = self.output is None and sys.stdout.isatty()
 
-        return not color
+        if color:
+            return None
+
+        return data_format or CLIDataFormat.JSON
+
+    def plain_json_output(self) -> bool:
+        """Whether output is plain JSON lines, with no field selection and no color."""
+        return self.native_dump_format() is CLIDataFormat.JSON
 
     def put_text(self, text: str) -> None:
         """Write already-rendered output through the command's configured destination."""
@@ -1067,11 +1073,17 @@ class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
         )
 
 
-async def dump_records_natively(database: Any, Entity: type[Any], query: Any) -> str | None:
-    """Render a record query as JSON lines in one native pass, `None` when it cannot.
+async def dump_records_natively(
+    database: Any,
+    Entity: type[Any],
+    query: Any,
+    data_format: CLIDataFormat = CLIDataFormat.JSON,
+) -> str | None:
+    """Render a record query as JSON or CSV lines in one native pass, `None` when it
+    cannot.
 
     The query compiles here and executes through the native fetcher, so rows never
-    become Python objects and records serialize once, in Rust. Only the record tables
+    become Python objects and records render once, in Rust. Only the record tables
     on a native backend qualify, and a query carrying a transform needs Python objects
     and takes the materializing path instead.
     """
@@ -1093,6 +1105,9 @@ async def dump_records_natively(database: Any, Entity: type[Any], query: Any) ->
         # correct through the materializing path, just slower.
         return None
 
+    if data_format is CLIDataFormat.CSV:
+        return batch.to_csv_lines()
+
     return batch.to_json_lines().decode()
 
 
@@ -1112,10 +1127,11 @@ def create_entity_select_command(Entity: type[Entity]):
             async with self.use_database() as database:
                 query = database.__manager__(Entity).where(filter)
 
-                # A plain JSON dump of a record table renders natively in one pass,
-                # which is what makes a select over a large table fast.
-                if self.plain_json_output():
-                    dumped = await dump_records_natively(database, Entity, query)
+                # A plain JSON or CSV dump of a record table renders natively in one
+                # pass, which is what makes a select over a large table fast.
+                data_format = self.native_dump_format()
+                if data_format is not None:
+                    dumped = await dump_records_natively(database, Entity, query, data_format)
                     if dumped is not None:
                         self.put_text(dumped)
                         return

@@ -99,6 +99,129 @@ pub mod latin1 {
     }
 }
 
+/// One CSV cell, quoted the way Python's `csv` module minimally quotes.
+///
+/// A cell quotes only when it holds the delimiter, a quote, or a line break, and an
+/// inner quote doubles. Everything else passes through verbatim, including the raw
+/// latin-1 text of message bytes.
+fn csv_cell(value: &str, line: &mut String) {
+    if value.contains(['"', ',', '\n', '\r']) {
+        line.push('"');
+        for character in value.chars() {
+            if character == '"' {
+                line.push('"');
+            }
+
+            line.push(character);
+        }
+
+        line.push('"');
+    } else {
+        line.push_str(value);
+    }
+}
+
+/// One CSV row from its cells, an absent value rendering as an empty cell.
+fn csv_row(cells: &[Option<String>], lines: &mut String) {
+    for (index, cell) in cells.iter().enumerate() {
+        if index > 0 {
+            lines.push(',');
+        }
+
+        if let Some(cell) = cell {
+            csv_cell(cell, lines);
+        }
+    }
+
+    lines.push('\n');
+}
+
+/// A record's fields as the CSV cells the Python row extraction produces.
+pub trait CsvRecord {
+    /// The header cells, the entity's field names in declaration order.
+    const CSV_HEADER: &'static str;
+
+    /// The record's cells, in header order, `None` rendering empty.
+    fn csv_cells(&self) -> Vec<Option<String>>;
+}
+
+impl CsvRecord for Message {
+    const CSV_HEADER: &'static str = "id,address,timestamp,connection,direction,data";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.id.to_string()),
+            Some(self.address.as_str().to_string()),
+            Some(self.timestamp.to_wire()),
+            self.connection.clone(),
+            Some(
+                match self.direction {
+                    MessageDirection::Send => "send",
+                    MessageDirection::Receive => "receive",
+                }
+                .to_string(),
+            ),
+            Some(latin1::decode(&self.data)),
+        ]
+    }
+}
+
+impl CsvRecord for Particle {
+    const CSV_HEADER: &'static str = "id,address,timestamp,type,data,span";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.id.to_string()),
+            Some(self.address.as_str().to_string()),
+            Some(self.timestamp.to_wire()),
+            Some(self.kind.clone()),
+            Some(Value::Object(self.data.clone()).to_string()),
+            self.span.map(|(start, end)| format!("[{start},{end}]")),
+        ]
+    }
+}
+
+impl CsvRecord for Alert {
+    const CSV_HEADER: &'static str = "id,address,timestamp,level,type,data";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.id.to_string()),
+            Some(self.address.as_str().to_string()),
+            Some(self.timestamp.to_wire()),
+            Some(self.level.as_str().to_string()),
+            Some(self.kind.clone()),
+            Some(Value::Object(self.data.clone()).to_string()),
+        ]
+    }
+}
+
+impl CsvRecord for LogEntry {
+    const CSV_HEADER: &'static str = "id,address,timestamp,level,content";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.id.to_string()),
+            Some(self.address.as_str().to_string()),
+            Some(self.timestamp.to_wire()),
+            Some(self.level.as_str().to_string()),
+            Some(self.content.clone()),
+        ]
+    }
+}
+
+/// Render a sequence of records as CSV lines under a header row.
+pub fn to_csv_lines<T: CsvRecord>(records: &[T]) -> String {
+    let mut lines = String::new();
+    lines.push_str(T::CSV_HEADER);
+    lines.push('\n');
+    for record in records {
+        csv_row(&record.csv_cells(), &mut lines);
+    }
+
+    lines
+}
+
 /// Serialize a sequence of records as one JSON array.
 pub fn to_json_array<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
     serde_json::to_vec(records)
@@ -175,6 +298,16 @@ impl Records {
             Self::Particles(records) => to_json_array(records),
             Self::Alerts(records) => to_json_array(records),
             Self::LogEntries(records) => to_json_array(records),
+        }
+    }
+
+    /// Render the records as CSV lines under a header row, in the wire cell forms.
+    pub fn to_csv_lines(&self) -> String {
+        match self {
+            Self::Messages(records) => to_csv_lines(records),
+            Self::Particles(records) => to_csv_lines(records),
+            Self::Alerts(records) => to_csv_lines(records),
+            Self::LogEntries(records) => to_csv_lines(records),
         }
     }
 }
@@ -265,6 +398,74 @@ mod tests {
              \"address\":\"@sensor.temp\",\
              \"timestamp\":\"2026-07-29T12:30:45.123456Z\",\
              \"level\":\"info\",\"content\":\"hello\"}"
+        );
+    }
+
+    #[test]
+    fn csv_rows_quote_like_the_python_writer() {
+        let messages = vec![
+            Message {
+                id: id(),
+                address: address(),
+                timestamp: timestamp(),
+                connection: None,
+                direction: MessageDirection::Receive,
+                data: b"plain".to_vec(),
+            },
+            Message {
+                id: id(),
+                address: address(),
+                timestamp: timestamp(),
+                connection: Some("serial".to_string()),
+                direction: MessageDirection::Send,
+                data: b"a,b \"c\"\nd".to_vec(),
+            },
+        ];
+        let rendered = to_csv_lines(&messages);
+        let mut lines = rendered.split_inclusive('\n');
+        assert_eq!(
+            lines.next().unwrap(),
+            "id,address,timestamp,connection,direction,data\n"
+        );
+        assert_eq!(
+            lines.next().unwrap(),
+            "0198c0de-0000-7000-8000-000000000001,@sensor.temp,\
+             2026-07-29T12:30:45.123456Z,,receive,plain\n"
+        );
+        // The quoted cell keeps its inner line break, so the row spans two raw lines.
+        assert_eq!(
+            rendered,
+            concat!(
+                "id,address,timestamp,connection,direction,data\n",
+                "0198c0de-0000-7000-8000-000000000001,@sensor.temp,",
+                "2026-07-29T12:30:45.123456Z,,receive,plain\n",
+                "0198c0de-0000-7000-8000-000000000001,@sensor.temp,",
+                "2026-07-29T12:30:45.123456Z,serial,send,\"a,b \"\"c\"\"\nd\"\n",
+            )
+        );
+    }
+
+    #[test]
+    fn csv_cells_render_json_and_absent_values() {
+        let mut data = Map::new();
+        data.insert("b".to_string(), Value::from(2));
+        data.insert("a".to_string(), Value::from(1));
+
+        let particles = vec![Particle {
+            id: id(),
+            address: address(),
+            timestamp: timestamp(),
+            kind: "sample".to_string(),
+            data,
+            span: None,
+        }];
+        let rendered = to_csv_lines(&particles);
+        assert!(rendered.starts_with("id,address,timestamp,type,data,span\n"));
+        // JSON cells quote for their commas, keys staying in insertion order, and an
+        // absent span renders as an empty cell.
+        assert!(
+            rendered.ends_with(",sample,\"{\"\"b\"\":2,\"\"a\"\":1}\",\n"),
+            "{rendered}"
         );
     }
 
