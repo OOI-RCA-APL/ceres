@@ -560,6 +560,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn record_routes_gate_and_dispatch() {
+        let user = uuid::Uuid::new_v4();
+        let app = authenticated_app(user, false);
+        let token = mint(user, None, &settings(false)).unwrap().token;
+
+        assert_response!(request!(app, get "/api/particles"), UNAUTHORIZED);
+
+        let response = request!(
+            app, get "/api/particles?type=sample&limit=5",
+            header::AUTHORIZATION => format!("Bearer {token}")
+        );
+        let body = json_of(assert_response!(response, OK)).await;
+        assert_eq!(body["section"], "records.list");
+
+        let response = request!(
+            app, get "/api/particles/count",
+            header::AUTHORIZATION => format!("Bearer {token}")
+        );
+        let body = json_of(assert_response!(response, OK)).await;
+        assert_eq!(body["section"], "records.count");
+
+        // A non-UUID path segment never matched the route, so it stays a plain 404.
+        assert_response!(
+            request!(
+                app, get "/api/particles/not-a-uuid",
+                header::AUTHORIZATION => format!("Bearer {token}")
+            ),
+            NOT_FOUND,
+            br#"{"__error__":true,"type":"not-found-error"}"#
+        );
+    }
+
+    #[tokio::test]
     async fn features_report_impersonation() {
         let user = uuid::Uuid::new_v4();
         assert_response!(

@@ -125,6 +125,7 @@ pub fn build_router(config: AppConfig) -> Router {
         .route("/api/config/database", get(crate::api::config::database))
         .route("/api/config/console", get(crate::api::config::console))
         .route("/api/{*path}", get(api_not_found));
+    router = record_routes(router);
 
     if state.console.is_some() {
         router = router
@@ -153,6 +154,33 @@ pub fn build_router(config: AppConfig) -> Router {
 
 async fn alive() -> StatusCode {
     StatusCode::OK
+}
+
+/// Register the three routes of every record table.
+fn record_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+    macro_rules! tables {
+        ($router:ident, $($module:ident => $name:literal;)*) => {
+            $(let $router = $router
+                .route(concat!("/api/", $name), get(crate::api::records::$module::list))
+                .route(
+                    concat!("/api/", $name, "/count"),
+                    get(crate::api::records::$module::count),
+                )
+                .route(
+                    concat!("/api/", $name, "/{id}"),
+                    get(crate::api::records::$module::get),
+                );)*
+            $router
+        };
+    }
+
+    tables! {
+        router,
+        messages => "messages";
+        particles => "particles";
+        alerts => "alerts";
+        logs => "logs";
+    }
 }
 
 async fn redirect_to_openapi() -> Redirect {

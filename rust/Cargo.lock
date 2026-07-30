@@ -676,6 +676,7 @@ dependencies = [
  "ceres-entities",
  "chrono",
  "fancy-regex 0.16.2",
+ "form_urlencoded",
  "http-body-util",
  "jsonwebtoken",
  "pkcs8",
