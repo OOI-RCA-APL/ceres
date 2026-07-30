@@ -471,9 +471,7 @@ async def test_record_routes_serve_natively_with_wire_parity(tmp_path: Path) -> 
         # A construct outside the compiler, subsampling, delegates and still answers
         # correctly, and a native operation filter answers identically to the query
         # layer.
-        delegated = await client.get(
-            "/api/particles?subsample_every=1h", headers=_bearer(identity)
-        )
+        delegated = await client.get("/api/particles?subsample_every=1h", headers=_bearer(identity))
         assert delegated.status_code == 200
         operation = await client.get("/api/particles?type_prefix=sa", headers=_bearer(identity))
         assert operation.status_code == 200

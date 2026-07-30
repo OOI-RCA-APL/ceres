@@ -25,6 +25,7 @@ use sea_query::{
 use uuid::Uuid;
 
 use crate::records::RecordTable;
+use crate::selector::{AddressSelector, valid_address};
 use crate::store::Parameter;
 
 /// How values render into the statement, per backend family.
@@ -61,6 +62,8 @@ enum KeyRole {
     Equality(&'static FilterField),
     /// One of a field's operation filters, matching within its content.
     Operation(&'static FilterField, OperationKind),
+    /// The root address that relative selector segments resolve against.
+    Root,
     /// One of the window operators a timestamp field brings.
     Window(WindowOp),
     /// One of the ordered bounds a level field brings.
@@ -121,6 +124,10 @@ struct FilterNode {
     equalities: Vec<(&'static str, Values)>,
     /// Operation filters, compiled per field in the entity's field order.
     operations: Vec<OperationFilter>,
+    /// The address selector, every `address` value's segments folded together.
+    address: Option<AddressSelector>,
+    /// The root relative selector segments resolve against.
+    root: Option<String>,
     after: Option<NaiveDateTime>,
     before: Option<NaiveDateTime>,
     timespan: Option<Duration>,
@@ -160,6 +167,9 @@ impl RecordFilter {
 
             keys.push(field.key);
             match field.family {
+                FieldFamily::Address => {
+                    keys.push("root");
+                }
                 FieldFamily::Timestamp => {
                     keys.extend(["after", "before", "timespan", "max_age", "min_age"]);
                 }
@@ -181,8 +191,7 @@ impl RecordFilter {
     /// list and the supported one to exactly what the Pydantic models declare so a new
     /// filter field cannot ship unclassified.
     pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
-        const STRUCTURAL: [&str; 10] = [
-            "root",
+        const STRUCTURAL: [&str; 9] = [
             "or",
             "and",
             "subsample_every",
@@ -220,6 +229,13 @@ impl RecordFilter {
             match resolve(table, key)? {
                 KeyRole::Equality(field) => filter.node.push_equality(field, value)?,
                 KeyRole::Operation(field, kind) => filter.node.push_operation(field, kind, value),
+                KeyRole::Root => {
+                    if !valid_address(value) {
+                        return Err(Refusal::invalid(format!("invalid root {value:?}")));
+                    }
+
+                    set_once(&mut filter.node.root, key, value.to_string())?;
+                }
                 KeyRole::Window(operator) => match operator {
                     WindowOp::After => {
                         set_once(&mut filter.node.after, key, parse_timestamp(value)?)?;
@@ -396,16 +412,11 @@ impl FilterNode {
                     .parse()
                     .map_err(|_| Refusal::invalid(format!("invalid UUID {value:?}")))?,
             ]),
-            // A selector modifier or a relative form is outside the compiler still. A
-            // plain absolute address compiles to the equality the Python selector
-            // expression reduces to, and a second one delegates rather than guessing
-            // at selector semantics.
+            // An address filters through the selector grammar, repeated values folding
+            // into more segments.
             FieldFamily::Address => {
-                if !plain_address(value) {
-                    return Err(Refusal::Delegated);
-                }
-
-                Values::Texts(vec![value.to_string()])
+                let selector = self.address.get_or_insert_with(AddressSelector::default);
+                return selector.push(value).map_err(Refusal::Invalid);
             }
             FieldFamily::Timestamp => Values::Stamps(vec![parse_timestamp(value)?]),
             FieldFamily::Text => Values::Texts(vec![value.to_string()]),
@@ -435,13 +446,7 @@ impl FilterNode {
             None => self.equalities.push((field.key, parsed)),
             Some((_, existing)) => match (existing, parsed) {
                 (Values::Uuids(existing), Values::Uuids(more)) => existing.extend(more),
-                (Values::Texts(existing), Values::Texts(mut more)) => {
-                    if field.family == FieldFamily::Address {
-                        return Err(Refusal::Delegated);
-                    }
-
-                    existing.append(&mut more);
-                }
+                (Values::Texts(existing), Values::Texts(mut more)) => existing.append(&mut more),
                 (Values::Stamps(existing), Values::Stamps(more)) => existing.extend(more),
                 (Values::Bytes(existing), Values::Bytes(more)) => existing.extend(more),
                 _ => return Err(Refusal::Delegated),
@@ -505,6 +510,12 @@ impl FilterNode {
             }
 
             self.operation_conditions(&mut conditions, field, dialect);
+
+            if field.family == FieldFamily::Address
+                && let Some(selector) = &self.address
+            {
+                conditions.push(selector.condition(field.key, self.root.as_deref(), dialect));
+            }
 
             match field.family {
                 FieldFamily::Timestamp => {
@@ -639,6 +650,9 @@ fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
         }
 
         match field.family {
+            FieldFamily::Address if key == "root" => {
+                return Ok(KeyRole::Root);
+            }
             FieldFamily::Timestamp => {
                 let operator = match key {
                     "after" => Some(WindowOp::After),
@@ -702,28 +716,6 @@ fn set_once<T>(slot: &mut Option<T>, key: &str, value: T) -> Result<(), Refusal>
 
     *slot = Some(value);
     Ok(())
-}
-
-/// Whether an address is a plain absolute one that compiles to equality.
-///
-/// Selector features, modifiers (`:`), multiple segments (`|`), wildcards, relative
-/// forms, and whitespace, all delegate until the selector port lands.
-fn plain_address(text: &str) -> bool {
-    let Some(rest) = text.strip_prefix('@') else {
-        return false;
-    };
-
-    !rest.is_empty()
-        && rest.chars().all(|character| {
-            character.is_ascii_lowercase()
-                || character.is_ascii_digit()
-                || character == '_'
-                || character == '-'
-                || character == '.'
-        })
-        && !rest.starts_with('.')
-        && !rest.ends_with('.')
-        && !rest.contains("..")
 }
 
 /// Parse a wire timestamp, RFC 3339 or a naive form read as UTC, like the Python type.
@@ -812,7 +804,7 @@ fn latin1_bytes(text: &str) -> Vec<u8> {
 }
 
 /// Escape the `LIKE` wildcards `%` and `_` with `^`, like the Python layer.
-fn like_escape(text: &str) -> String {
+pub(crate) fn like_escape(text: &str) -> String {
     text.replace('%', "^%").replace('_', "^_")
 }
 
@@ -821,7 +813,7 @@ fn like_escape(text: &str) -> String {
 /// `GLOB` has no `ESCAPE` clause, a metacharacter is made literal by wrapping it in a
 /// character class instead. The `[` goes first so the classes the later replacements
 /// introduce stay intact.
-fn glob_escape(text: &str) -> String {
+pub(crate) fn glob_escape(text: &str) -> String {
     text.replace('[', "[[]")
         .replace('*', "[*]")
         .replace('?', "[?]")
@@ -1007,10 +999,6 @@ mod tests {
         for rejected in [
             pairs(&[("subsample", "10")]),
             pairs(&[("and", "{}")]),
-            pairs(&[("address", "@a,@b")]),
-            pairs(&[("address", "@a:children")]),
-            pairs(&[("address", "sensor")]),
-            pairs(&[("address", "@a"), ("address", "@b")]),
             pairs(&[("after", "1722340000")]),
             pairs(&[("timespan", "PT5S")]),
         ] {
@@ -1032,6 +1020,10 @@ mod tests {
             pairs(&[("limit", "-1")]),
             pairs(&[("limit", "5"), ("limit", "6")]),
             pairs(&[("id", "not-a-uuid")]),
+            pairs(&[("address", "@a,@b")]),
+            pairs(&[("address", "@a|")]),
+            pairs(&[("root", "sensor")]),
+            pairs(&[("root", "@a"), ("root", "@b")]),
         ] {
             assert!(
                 matches!(
@@ -1127,6 +1119,32 @@ mod tests {
             .statement(SqlDialect::SqliteText)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"level\" IN ('info', 'error')"), "{sql}");
+    }
+
+    #[test]
+    fn address_selectors_compile_with_roots() {
+        let filter = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("address", ":children"), ("root", "@deck")]),
+        )
+        .unwrap();
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(sql.contains("GLOB '@deck.*'"), "{sql}");
+
+        let filter = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("address", "@a"), ("address", "@b:descendants")]),
+        )
+        .unwrap();
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("\"address\" = '@a' OR (\"address\" GLOB '@b.*')"),
+            "{sql}"
+        );
     }
 
     #[test]

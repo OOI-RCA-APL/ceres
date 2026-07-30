@@ -70,6 +70,9 @@ async def _seed(engine: Engine) -> None:
     """Write a dataset varied enough that every vector separates records."""
     sensor = Address("@sensor.temp")
     motor = Address("@motor")
+    # A mixed-case name with an underscore exercises case-sensitive prefix matching
+    # and wildcard escaping in the selector patterns.
+    deck = Address("@Deck_upper.motor")
 
     for index, (address, offset) in enumerate(
         [
@@ -77,6 +80,7 @@ async def _seed(engine: Engine) -> None:
             (sensor, timedelta(hours=5)),
             (motor, timedelta(hours=5, minutes=30)),
             (motor, timedelta(minutes=45)),
+            (deck, timedelta(hours=2)),
         ]
     ):
         # One whole-second timestamp exercises the fraction-free stored text form.
@@ -105,7 +109,7 @@ async def _seed(engine: Engine) -> None:
             Alert.Create(
                 address=address,
                 timestamp=timestamp,
-                level=[Level.DEBUG, Level.INFO, Level.WARNING, Level.CRITICAL][index],
+                level=[Level.DEBUG, Level.INFO, Level.WARNING, Level.CRITICAL, Level.INFO][index],
                 type="overheat" if index % 2 == 0 else "stall",
                 data={"index": index},
             )
@@ -114,7 +118,7 @@ async def _seed(engine: Engine) -> None:
             LogEntry.Create(
                 address=address,
                 timestamp=timestamp,
-                level=[Level.DEBUG, Level.INFO, Level.ERROR, Level.CRITICAL][index],
+                level=[Level.DEBUG, Level.INFO, Level.ERROR, Level.CRITICAL, Level.INFO][index],
                 content=f"entry {index}",
             )
         )
@@ -141,6 +145,7 @@ def _timestamp_of(engine: Engine, index: int) -> str:
         timedelta(hours=5),
         timedelta(hours=5, minutes=30),
         timedelta(minutes=45),
+        timedelta(hours=2),
     ]
     timestamp = NOW - offsets[index]
     if index == 2:
@@ -178,6 +183,19 @@ VECTORS: dict[type[Any], list[list[tuple[str, str]]]] = {
         [("order", "data:desc"), ("limit", "2")],
         [("contains", "%")],
         [("contains", "*")],
+        [("address", "@sensor:children")],
+        [("address", "@sensor:descendants")],
+        [("address", "@sensor:all")],
+        [("address", "@sensor.temp|@motor")],
+        [("address", "@motor"), ("address", "@sensor:descendants")],
+        [("address", "~:descendants")],
+        [("address", "@:children")],
+        [("address", "all")],
+        [("root", "@sensor"), ("address", ":children")],
+        [("root", "@sensor"), ("address", "temp")],
+        [("address", "@Deck_upper:children")],
+        [("address", "@deck_upper:children")],
+        [("address", "@Deck_upper.motor")],
     ],
     Particle: [
         [("type", "sample")],
@@ -294,9 +312,7 @@ async def test_constructs_outside_the_subset_decline(tmp_path: Path) -> None:
         for pairs in [
             [("subsample", "10")],
             [("and", "{}")],
-            [("root", "@sensor")],
-            [("address", "@sensor.temp:children")],
-            [("address", "@a"), ("address", "@b")],
+            [("address", "@a,@b")],
             [("after", "yesterday")],
             [("timespan", "PT5S")],
             [("after_hour", "9")],

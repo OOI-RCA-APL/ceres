@@ -9,6 +9,7 @@
 
 mod filter;
 mod records;
+mod selector;
 mod store;
 mod turso;
 mod writer;

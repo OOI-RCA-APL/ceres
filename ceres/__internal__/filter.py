@@ -505,6 +505,73 @@ def _compile_case_sensitive_match_sqlite(
     return compiler.process(element.column.op("GLOB")(literal(pattern)), **kw)
 
 
+class _SelectorMatch(ColumnElement[bool]):
+    """One address selector segment's modifier condition, written per backend.
+
+    SQLite's `LIKE` folds ASCII case while the in-memory selector comparison does not,
+    so the SQLite family matches with `GLOB`, which compares case by definition and is
+    how the case-sensitive string matches are written too. PostgreSQL's `LIKE` already
+    compares case, so it gets an escaped `LIKE`, protecting the `_` a component name
+    can contain.
+    """
+
+    inherit_cache = True
+
+    def __init__(
+        self,
+        column: SQLColumnExpression[Any],
+        base: str,
+        modifier: str,
+    ) -> None:
+        self.column = column
+        self.base = base
+        self.modifier = modifier
+
+
+@compiles(_SelectorMatch)
+def _compile_selector_match(element: _SelectorMatch, compiler: Any, **kw: Any) -> str:
+    from sqlalchemy import literal, not_
+
+    escaped = _escape_like_expression(element.base, "^")
+
+    def like(pattern: str) -> ColumnElement[bool]:
+        return element.column.like(literal(pattern), escape="^")
+
+    match element.modifier:
+        case "all":
+            expression = (element.column == element.base) | like(f"{escaped}.%")
+        case "descendants":
+            expression = like(f"{escaped}.%")
+        case "children":
+            expression = like(f"{escaped}.%") & not_(like(f"{escaped}.%.%"))
+        case _:
+            raise ValueError(f"invalid modifier: {element.modifier!r}")
+
+    return compiler.process(expression, **kw)
+
+
+@compiles(_SelectorMatch, "sqlite")
+def _compile_selector_match_sqlite(element: _SelectorMatch, compiler: Any, **kw: Any) -> str:
+    from sqlalchemy import literal, not_
+
+    escaped = _escape_glob_expression(element.base)
+
+    def glob(pattern: str) -> ColumnElement[bool]:
+        return element.column.op("GLOB")(literal(pattern))
+
+    match element.modifier:
+        case "all":
+            expression = (element.column == element.base) | glob(f"{escaped}.*")
+        case "descendants":
+            expression = glob(f"{escaped}.*")
+        case "children":
+            expression = glob(f"{escaped}.*") & not_(glob(f"{escaped}.*.*"))
+        case _:
+            raise ValueError(f"invalid modifier: {element.modifier!r}")
+
+    return compiler.process(expression, **kw)
+
+
 def _escape_glob_expression[T: (str, bytes)](text: T) -> T:
     """Escape the characters `GLOB` treats as wildcards, so `text` matches literally.
 
