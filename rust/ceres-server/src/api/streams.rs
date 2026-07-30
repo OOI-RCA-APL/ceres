@@ -16,23 +16,11 @@ use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use axum_extra::routing::{RouterExt, TypedPath};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
-use crate::api::attempt;
+use crate::api::{attempt, query_pairs};
 use crate::app::AppState;
-use crate::auth::require_authenticated;
 use crate::host::StreamClose;
-
-/// Collect a raw query string into ordered pairs, percent-decoded.
-pub(crate) fn query_pairs(query: Option<String>) -> Vec<(String, String)> {
-    let Some(query) = query else {
-        return Vec::new();
-    };
-
-    form_urlencoded::parse(query.as_bytes())
-        .map(|(name, value)| (name.into_owned(), value.into_owned()))
-        .collect()
-}
 
 /// Take the upgrade a request asks for, or `None` when it is a plain request.
 ///
@@ -48,61 +36,70 @@ pub(crate) async fn requested_upgrade(
         .ok()
 }
 
-/// Upgrade and stream one engine operation.
-pub(crate) fn stream(
-    state: &Arc<AppState>,
-    upgrade: WebSocketUpgrade,
-    operation: &'static str,
-    arguments: Value,
-) -> Response {
-    let state = state.clone();
-    upgrade.on_upgrade(move |socket| pump(state, socket, operation, arguments))
-}
-
-/// Forward a stream's messages until the client leaves or the stream ends.
-async fn pump(state: Arc<AppState>, mut socket: WebSocket, operation: &str, arguments: Value) {
-    let handle = match state.host.stream_open(operation, arguments).await {
-        Ok(handle) => handle,
-        Err(close) => {
-            send_close(&mut socket, close).await;
-            return;
-        }
-    };
-
-    loop {
-        tokio::select! {
-            // A client that leaves ends the stream, which is how a socket in send-only
-            // use notices the peer is gone.
-            incoming = socket.recv() => match incoming {
-                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break,
-                Some(Ok(_)) => continue,
-            },
-            message = state.host.stream_next(handle) => match message {
-                Ok(Some(text)) => {
-                    if socket.send(Message::Text(text.into())).await.is_err() {
-                        break;
-                    }
-                }
-                Ok(None) => break,
-                Err(close) => {
-                    send_close(&mut socket, close).await;
-                    break;
-                }
-            },
-        }
+impl AppState {
+    /// Upgrade and stream one engine operation.
+    pub(crate) fn stream(
+        self: &Arc<Self>,
+        upgrade: WebSocketUpgrade,
+        operation: &'static str,
+        arguments: serde_json::Value,
+    ) -> Response {
+        let state = self.clone();
+        upgrade.on_upgrade(move |socket| state.pump(socket, operation, arguments))
     }
 
-    state.host.stream_close(handle).await;
+    /// Forward a stream's messages until the client leaves or the stream ends.
+    async fn pump(
+        self: Arc<Self>,
+        mut socket: WebSocket,
+        operation: &str,
+        arguments: serde_json::Value,
+    ) {
+        let handle = match self.host.stream_open(operation, arguments).await {
+            Ok(handle) => handle,
+            Err(close) => {
+                close.send(&mut socket).await;
+                return;
+            }
+        };
+
+        loop {
+            tokio::select! {
+                // A client that leaves ends the stream, which is how a socket in
+                // send-only use notices the peer is gone.
+                incoming = socket.recv() => match incoming {
+                    None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(_)) => continue,
+                },
+                message = self.host.stream_next(handle) => match message {
+                    Ok(Some(text)) => {
+                        if socket.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(close) => {
+                        close.send(&mut socket).await;
+                        break;
+                    }
+                },
+            }
+        }
+
+        self.host.stream_close(handle).await;
+    }
 }
 
-/// Close a socket with the code and reason the engine reported.
-async fn send_close(socket: &mut WebSocket, close: StreamClose) {
-    let _ = socket
-        .send(Message::Close(Some(CloseFrame {
-            code: close.code,
-            reason: close.reason.into(),
-        })))
-        .await;
+impl StreamClose {
+    /// Close a socket with the code and reason the engine reported.
+    async fn send(self, socket: &mut WebSocket) {
+        let _ = socket
+            .send(Message::Close(Some(CloseFrame {
+                code: self.code,
+                reason: self.reason.into(),
+            })))
+            .await;
+    }
 }
 
 /// Declare the socket-only streaming routes.
@@ -143,7 +140,7 @@ macro_rules! socket_routes {
                         "path": json!({$($host: path.$field),+}),
                         "query": query_pairs(query),
                     });
-                    stream(&state, upgrade, $operation, arguments)
+                    state.stream(upgrade, $operation, arguments)
                 },
             );)*
 
@@ -165,12 +162,12 @@ socket_routes! {
 pub(crate) async fn statuses(State(state): State<Arc<AppState>>, request: Request) -> Response {
     let (mut parts, _) = request.into_parts();
     let actor = attempt!(state.actor(&parts.headers).await);
-    attempt!(require_authenticated(&actor));
+    attempt!(actor.require_authenticated());
 
     let query = parts.uri.query().map(str::to_string);
     let arguments = json!({"query": query_pairs(query)});
     match requested_upgrade(&mut parts, &state).await {
-        Some(upgrade) => stream(&state, upgrade, "statuses.stream", arguments),
+        Some(upgrade) => state.stream(upgrade, "statuses.stream", arguments),
         None => match state.host.payload("statuses.list", arguments).await {
             Ok(payload) => crate::app::json_response(payload),
             Err(error) => error.into_response(),

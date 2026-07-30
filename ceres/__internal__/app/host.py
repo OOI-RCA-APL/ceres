@@ -61,6 +61,19 @@ class Served:
     """The status, headers, body source, and the handle to release once the body ends."""
 
 
+@dataclass(frozen=True, slots=True)
+class Raw:
+    """A payload already serialized as JSON, spliced into the envelope verbatim.
+
+    Listings serialize once through the engine's own serializer and cross the boundary
+    as text, so a record dump is never parsed back into Python objects just to be
+    re-serialized into the envelope.
+    """
+
+    text: str
+    """The payload's complete JSON text."""
+
+
 def operation(name: str):
     """Register an async operation under its name."""
 
@@ -131,6 +144,9 @@ class Host:
             payload = await handler(self, json.loads(arguments))
             if isinstance(payload, Served):
                 return json.dumps({"response": payload.description})
+
+            if isinstance(payload, Raw):
+                return '{"ok":' + payload.text + "}"
 
             return json.dumps({"ok": payload})
         except Error as error:

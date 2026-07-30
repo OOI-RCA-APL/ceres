@@ -15,8 +15,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::api::attempt;
-use crate::app::{AppState, json_response};
-use crate::auth::{self, AuthSettings, require_authenticated};
+use crate::app::{AppState, json_value_response};
+use crate::auth::{AuthSettings, Identity};
 use crate::body::Body;
 use crate::cookie::{self, CookieType};
 use crate::error::ApiError;
@@ -32,15 +32,15 @@ fn identity_response(
     settings: &AuthSettings,
     kind: Option<CookieType>,
 ) -> Response {
-    let minted = attempt!(auth::mint(user.id, impersonated_by, settings));
-    let identity = auth::Identity {
+    let minted = attempt!(settings.mint(user.id, impersonated_by));
+    let identity = Identity {
         token: minted.token,
         expires: minted.expires,
         user,
         impersonated_by,
     };
 
-    let mut response = json_response(identity.to_json());
+    let mut response = json_value_response(identity.to_json());
     if let Some(kind) = kind {
         response.headers_mut().insert(
             header::SET_COOKIE,
@@ -54,7 +54,7 @@ fn identity_response(
 /// Return the caller's identity, or refuse when the request carries none.
 pub(crate) async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     match state.identity(&headers).await {
-        Ok(Some(identity)) => json_response(identity.to_json()),
+        Ok(Some(identity)) => json_value_response(identity.to_json()),
         Ok(None) => ApiError::not_authenticated().into_response(),
         Err(error) => error.into_response(),
     }
@@ -66,7 +66,7 @@ pub(crate) async fn features(State(state): State<Arc<AppState>>) -> Response {
         .auth
         .as_ref()
         .is_some_and(|settings| settings.allow_impersonate);
-    json_response(json!({"impersonate": impersonate}))
+    json_value_response(json!({"impersonate": impersonate}))
 }
 
 /// Authenticate a username and password, answering with a fresh identity.
@@ -121,7 +121,7 @@ pub(crate) async fn refresh(
 pub(crate) async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     match state.identity(&headers).await {
         Ok(Some(identity)) => {
-            let mut response = json_response(identity.to_json());
+            let mut response = json_value_response(identity.to_json());
             response
                 .headers_mut()
                 .insert(header::SET_COOKIE, cookie::delete());
@@ -182,7 +182,7 @@ pub(crate) async fn change_password(
     // The authenticated gate runs before body validation, matching the route dependency
     // it replaces, and a caller without a concrete user gets the bare envelope.
     let actor = attempt!(state.actor(&headers).await);
-    attempt!(require_authenticated(&actor));
+    attempt!(actor.require_authenticated());
     let Some(user) = actor.user else {
         return ApiError::http(StatusCode::UNAUTHORIZED).into_response();
     };
@@ -200,7 +200,7 @@ pub(crate) async fn change_password(
         .change_password(user.id, old_password, new_password)
         .await
     {
-        Ok(Some(updated)) => json_response(updated.payload),
+        Ok(Some(updated)) => json_value_response(updated.payload),
         Ok(None) => {
             tokio::time::sleep(WRONG_PASSWORD_DELAY).await;
             ApiError::bad_credentials().into_response()

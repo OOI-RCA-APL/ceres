@@ -26,12 +26,13 @@ pub struct UserRecord {
 
 /// A failure crossing the host boundary.
 ///
-/// A typed failure carries the status and envelope the host produced, anything else
-/// serves as a bare internal error like an unhandled exception always has.
+/// A typed failure carries the status and serialized envelope the host produced, served
+/// verbatim, anything else serves as a bare internal error like an unhandled exception
+/// always has.
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
     #[error("the host reported a typed error")]
-    Typed { status: u16, envelope: Value },
+    Typed { status: u16, envelope: String },
     #[error("{0}")]
     Internal(String),
 }
@@ -45,7 +46,7 @@ impl IntoResponse for HostError {
                 (
                     status,
                     [(axum::http::header::CONTENT_TYPE, "application/json")],
-                    envelope.to_string(),
+                    envelope,
                 )
                     .into_response()
             }
@@ -73,8 +74,11 @@ pub struct Served {
 
 /// What an operation answered with.
 pub enum Answer {
-    /// A payload to serialize into the response, which nearly every operation returns.
-    Payload(Value),
+    /// A payload's verbatim JSON, which nearly every operation returns.
+    ///
+    /// The host already serialized it, so it flows into the response body untouched,
+    /// a record dump never parses into a value tree on this side of the boundary.
+    Payload(String),
     /// A body the server produces itself, which only a media output answers with.
     Served(Served),
 }
@@ -172,7 +176,7 @@ pub trait Host: Send + Sync + 'static {
     /// Only the procedure call routes reach an operation that can describe a response,
     /// so every other route asks for the payload and treats a description as a failure
     /// of the host rather than carrying a branch that cannot be taken.
-    async fn payload(&self, operation: &str, arguments: Value) -> Result<Value, HostError> {
+    async fn payload(&self, operation: &str, arguments: Value) -> Result<String, HostError> {
         match self.operate(operation, arguments).await? {
             Answer::Payload(payload) => Ok(payload),
             Answer::Served(_) => Err(HostError::Internal(format!(

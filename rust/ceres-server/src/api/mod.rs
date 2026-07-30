@@ -24,6 +24,17 @@ macro_rules! attempt {
 
 pub(crate) use attempt;
 
+/// Collect a raw query string into ordered pairs, percent-decoded.
+pub(crate) fn query_pairs(query: Option<String>) -> Vec<(String, String)> {
+    let Some(query) = query else {
+        return Vec::new();
+    };
+
+    form_urlencoded::parse(query.as_bytes())
+        .map(|(name, value)| (name.into_owned(), value.into_owned()))
+        .collect()
+}
+
 /// Describe every route the server serves, for the OpenAPI document.
 pub(crate) fn documented_routes() -> Vec<schema::Documented> {
     use utoipa::openapi::HttpMethod;

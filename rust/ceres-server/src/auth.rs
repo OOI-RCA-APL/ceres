@@ -14,13 +14,76 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use crate::error::ApiError;
-use crate::host::{Host, HostError, UserRecord};
+use crate::host::UserRecord;
 
 /// The authentication section's settings, absent when authentication is disabled.
+///
+/// The signing and verifying keys derive from the secret once here, so minting and
+/// parsing spend no time on key material per request.
 pub struct AuthSettings {
-    pub secret: String,
     pub duration: TimeDelta,
     pub allow_impersonate: bool,
+    encoding: jsonwebtoken::EncodingKey,
+    decoding: jsonwebtoken::DecodingKey,
+    validation: jsonwebtoken::Validation,
+}
+
+impl AuthSettings {
+    pub fn new(secret: &str, duration: TimeDelta, allow_impersonate: bool) -> Self {
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+        validation.leeway = 0;
+        validation.required_spec_claims = ["sub", "exp"].iter().map(|s| s.to_string()).collect();
+
+        Self {
+            duration,
+            allow_impersonate,
+            encoding: jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+            decoding: jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
+            validation,
+        }
+    }
+
+    /// Mint a signed token for a user.
+    pub fn mint(
+        &self,
+        user_id: Uuid,
+        impersonated_by: Option<Uuid>,
+    ) -> Result<MintedToken, ApiError> {
+        let expires = Utc::now() + self.duration;
+        let mut claims = Map::new();
+        claims.insert("sub".to_string(), Value::String(user_id.to_string()));
+        claims.insert("exp".to_string(), expires.timestamp().into());
+        if let Some(id) = impersonated_by {
+            claims.insert("imp".to_string(), Value::String(id.to_string()));
+        }
+
+        let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &self.encoding)
+            .map_err(|_| ApiError::new(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "error"))?;
+
+        Ok(MintedToken { token, expires })
+    }
+
+    /// Recover the claims from a presented token, `None` for anything invalid.
+    pub fn parse(&self, token: &str) -> Option<ParsedToken> {
+        let decoded =
+            jsonwebtoken::decode::<Map<String, Value>>(token, &self.decoding, &self.validation)
+                .ok()?;
+
+        let claims = decoded.claims;
+        let user_id: Uuid = claims.get("sub")?.as_str()?.parse().ok()?;
+        let expires = DateTime::from_timestamp(claims.get("exp")?.as_i64()?, 0)?;
+        let impersonated_by = match claims.get("imp") {
+            Some(value) => Some(value.as_str()?.parse().ok()?),
+            None => None,
+        };
+
+        Some(ParsedToken {
+            token: token.to_string(),
+            user_id,
+            expires,
+            impersonated_by,
+        })
+    }
 }
 
 /// A freshly minted token and its expiry.
@@ -80,59 +143,50 @@ impl Actor {
     pub fn authenticated(&self) -> bool {
         self.unrestricted || self.user.is_some()
     }
-}
 
-/// Mint a signed token for a user.
-pub fn mint(
-    user_id: Uuid,
-    impersonated_by: Option<Uuid>,
-    settings: &AuthSettings,
-) -> Result<MintedToken, ApiError> {
-    let expires = Utc::now() + settings.duration;
-    let mut claims = Map::new();
-    claims.insert("sub".to_string(), Value::String(user_id.to_string()));
-    claims.insert("exp".to_string(), expires.timestamp().into());
-    if let Some(id) = impersonated_by {
-        claims.insert("imp".to_string(), Value::String(id.to_string()));
+    /// Require an enabled, authenticated user, unless the actor is unrestricted.
+    pub fn require_authenticated(&self) -> Result<(), ApiError> {
+        if self.unrestricted {
+            return Ok(());
+        }
+
+        match &self.user {
+            None => Err(ApiError::not_authenticated()),
+            Some(user) if user.disabled => Err(ApiError::not_permitted()),
+            Some(_) => Ok(()),
+        }
     }
 
-    let token = jsonwebtoken::encode(
-        &jsonwebtoken::Header::default(),
-        &claims,
-        &jsonwebtoken::EncodingKey::from_secret(settings.secret.as_bytes()),
-    )
-    .map_err(|_| ApiError::new(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "error"))?;
+    /// Require an administrator, unless the actor is unrestricted.
+    pub fn require_admin(&self) -> Result<(), ApiError> {
+        self.require_authenticated()?;
+        if self.admin() {
+            Ok(())
+        } else {
+            Err(ApiError::not_permitted())
+        }
+    }
 
-    Ok(MintedToken { token, expires })
-}
+    /// Require the target user themselves or an administrator.
+    ///
+    /// The target comes from the request path. A missing or malformed target refuses
+    /// rather than erring, matching the Python gate.
+    pub fn require_self_or_admin(&self, target: Option<Uuid>) -> Result<(), ApiError> {
+        self.require_authenticated()?;
+        if self.admin() {
+            return Ok(());
+        }
 
-/// Recover the claims from a presented token, `None` for anything invalid.
-pub fn parse(token: &str, secret: &str) -> Option<ParsedToken> {
-    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
-    validation.leeway = 0;
-    validation.required_spec_claims = ["sub", "exp"].iter().map(|s| s.to_string()).collect();
+        let Some(target) = target else {
+            return Err(ApiError::not_permitted());
+        };
 
-    let decoded = jsonwebtoken::decode::<Map<String, Value>>(
-        token,
-        &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
-        &validation,
-    )
-    .ok()?;
-
-    let claims = decoded.claims;
-    let user_id: Uuid = claims.get("sub")?.as_str()?.parse().ok()?;
-    let expires = DateTime::from_timestamp(claims.get("exp")?.as_i64()?, 0)?;
-    let impersonated_by = match claims.get("imp") {
-        Some(value) => Some(value.as_str()?.parse().ok()?),
-        None => None,
-    };
-
-    Some(ParsedToken {
-        token: token.to_string(),
-        user_id,
-        expires,
-        impersonated_by,
-    })
+        if self.user.as_ref().is_some_and(|user| user.id == target) {
+            Ok(())
+        } else {
+            Err(ApiError::not_permitted())
+        }
+    }
 }
 
 /// Extract the bearer token from the `Authorization` header or cookie, header first.
@@ -161,133 +215,43 @@ fn authorization_cookie(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-/// Resolve the current identity from a request's headers, anonymous on any failure.
-pub async fn current_identity(
-    settings: Option<&AuthSettings>,
-    host: &dyn Host,
-    headers: &HeaderMap,
-) -> Result<Option<Identity>, HostError> {
-    let Some(settings) = settings else {
-        return Ok(None);
-    };
-    let Some(token) = bearer_token(headers) else {
-        return Ok(None);
-    };
-    let Some(parsed) = parse(&token, &settings.secret) else {
-        return Ok(None);
-    };
-    let Some(user) = host.user(parsed.user_id).await? else {
-        return Ok(None);
-    };
-
-    Ok(Some(Identity {
-        token: parsed.token,
-        expires: parsed.expires,
-        user,
-        impersonated_by: parsed.impersonated_by,
-    }))
-}
-
-/// Resolve the actor a request comes from.
-pub async fn current_actor(
-    settings: Option<&AuthSettings>,
-    cli: bool,
-    host: &dyn Host,
-    headers: &HeaderMap,
-) -> Result<Actor, HostError> {
-    let identity = current_identity(settings, host, headers).await?;
-    Ok(Actor {
-        user: identity.map(|identity| identity.user),
-        unrestricted: cli || settings.is_none(),
-    })
-}
-
-/// Generate the actor gates, each returning its typed refusal.
-macro_rules! gates {
-    ($($(#[$doc:meta])* $name:ident($actor:ident) $body:block)*) => {
-        $($(#[$doc])* pub fn $name($actor: &Actor) -> Result<(), ApiError> $body)*
-    };
-}
-
-gates! {
-    /// Require an enabled, authenticated user, unless the actor is unrestricted.
-    require_authenticated(actor) {
-        if actor.unrestricted {
-            return Ok(());
-        }
-
-        match &actor.user {
-            None => Err(ApiError::not_authenticated()),
-            Some(user) if user.disabled => Err(ApiError::not_permitted()),
-            Some(_) => Ok(()),
-        }
-    }
-
-    /// Require an administrator, unless the actor is unrestricted.
-    require_admin(actor) {
-        require_authenticated(actor)?;
-        if actor.unrestricted || actor.user.as_ref().is_some_and(|user| user.admin) {
-            Ok(())
-        } else {
-            Err(ApiError::not_permitted())
-        }
-    }
-}
-
-/// Require the target user themselves or an administrator.
-///
-/// The target comes from the request path. A missing or malformed target refuses
-/// rather than erring, matching the Python gate.
-pub fn require_self_or_admin(actor: &Actor, target: Option<Uuid>) -> Result<(), ApiError> {
-    require_authenticated(actor)?;
-    if actor.admin() {
-        return Ok(());
-    }
-
-    let Some(target) = target else {
-        return Err(ApiError::not_permitted());
-    };
-
-    if actor.user.as_ref().is_some_and(|user| user.id == target) {
-        Ok(())
-    } else {
-        Err(ApiError::not_permitted())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn settings() -> AuthSettings {
-        AuthSettings {
-            secret: "an-adequately-long-test-signing-secret".to_string(),
-            duration: TimeDelta::minutes(30),
-            allow_impersonate: false,
-        }
+        AuthSettings::new(
+            "an-adequately-long-test-signing-secret",
+            TimeDelta::minutes(30),
+            false,
+        )
     }
 
     #[test]
     fn tokens_round_trip_their_claims() {
         let user = Uuid::new_v4();
         let admin = Uuid::new_v4();
-        let minted = mint(user, Some(admin), &settings()).unwrap();
+        let minted = settings().mint(user, Some(admin)).unwrap();
 
-        let parsed = parse(&minted.token, &settings().secret).unwrap();
+        let parsed = settings().parse(&minted.token).unwrap();
         assert_eq!(parsed.user_id, user);
         assert_eq!(parsed.impersonated_by, Some(admin));
         assert_eq!(parsed.expires.timestamp(), minted.expires.timestamp());
 
-        assert!(parse(&minted.token, "the-wrong-secret").is_none());
-        assert!(parse("not-even-a-token", &settings().secret).is_none());
+        let wrong = AuthSettings::new("the-wrong-secret", TimeDelta::minutes(30), false);
+        assert!(wrong.parse(&minted.token).is_none());
+        assert!(settings().parse("not-even-a-token").is_none());
     }
 
     #[test]
     fn expired_tokens_resolve_to_anonymous() {
-        let mut expired = settings();
-        expired.duration = TimeDelta::minutes(-5);
-        let minted = mint(Uuid::new_v4(), None, &expired).unwrap();
-        assert!(parse(&minted.token, &expired.secret).is_none());
+        let expired = AuthSettings::new(
+            "an-adequately-long-test-signing-secret",
+            TimeDelta::minutes(-5),
+            false,
+        );
+        let minted = expired.mint(Uuid::new_v4(), None).unwrap();
+        assert!(expired.parse(&minted.token).is_none());
     }
 
     #[test]
@@ -326,20 +290,24 @@ mod tests {
             unrestricted: false,
         };
 
-        assert!(require_authenticated(&anonymous).is_err());
-        assert!(require_authenticated(&unrestricted).is_ok());
-        assert!(require_authenticated(&user(false, false)).is_ok());
-        assert!(require_authenticated(&user(false, true)).is_err());
+        assert!(anonymous.require_authenticated().is_err());
+        assert!(unrestricted.require_authenticated().is_ok());
+        assert!(user(false, false).require_authenticated().is_ok());
+        assert!(user(false, true).require_authenticated().is_err());
 
-        assert!(require_admin(&user(false, false)).is_err());
-        assert!(require_admin(&user(true, false)).is_ok());
-        assert!(require_admin(&unrestricted).is_ok());
+        assert!(user(false, false).require_admin().is_err());
+        assert!(user(true, false).require_admin().is_ok());
+        assert!(unrestricted.require_admin().is_ok());
 
         let actor = user(false, false);
         let own_id = actor.user.as_ref().unwrap().id;
-        assert!(require_self_or_admin(&actor, Some(own_id)).is_ok());
-        assert!(require_self_or_admin(&actor, Some(Uuid::new_v4())).is_err());
-        assert!(require_self_or_admin(&actor, None).is_err());
-        assert!(require_self_or_admin(&user(true, false), Some(Uuid::new_v4())).is_ok());
+        assert!(actor.require_self_or_admin(Some(own_id)).is_ok());
+        assert!(actor.require_self_or_admin(Some(Uuid::new_v4())).is_err());
+        assert!(actor.require_self_or_admin(None).is_err());
+        assert!(
+            user(true, false)
+                .require_self_or_admin(Some(Uuid::new_v4()))
+                .is_ok()
+        );
     }
 }

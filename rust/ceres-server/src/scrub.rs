@@ -9,6 +9,16 @@ use serde_json::Value;
 /// The field names that never serve, wherever they appear.
 const CREDENTIAL_FIELDS: [&str; 3] = ["secret", "password", "key_password"];
 
+/// Drop credential fields from serialized JSON, answering with serialized JSON.
+///
+/// Anything unparseable scrubs to `null` rather than passing through, a payload this is
+/// applied to must never serve unscrubbed.
+pub fn scrub_json(payload: &str) -> String {
+    serde_json::from_str::<Value>(payload)
+        .map(|value| scrub_credentials(value).to_string())
+        .unwrap_or_else(|_| "null".to_string())
+}
+
 /// Drop credential fields from a payload, recursing through objects and arrays.
 pub fn scrub_credentials(value: Value) -> Value {
     match value {

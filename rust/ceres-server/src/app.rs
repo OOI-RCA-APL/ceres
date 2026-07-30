@@ -4,23 +4,29 @@
 //! the console's static files and favicons. The CLI control app carries neither and
 //! instead requires its per-run token on every request, granting whoever holds it
 //! unrestricted access.
+//!
+//! Everything a request needs repeatedly is prepared once at build time and held on the
+//! state, the OpenAPI document's JSON, the favicon bytes, and the console file service,
+//! so serving them is a lookup rather than work.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
+use axum::body::Bytes;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
+use serde_json::Value;
 use subtle::ConstantTimeEq;
 use tower::ServiceExt;
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::auth::{self, AuthSettings};
+use crate::auth::{Actor, AuthSettings, Identity};
 use crate::error::ApiError;
-use crate::host::Host;
+use crate::host::{Host, HostError};
 
 /// What an application instance serves.
 pub struct AppConfig {
@@ -46,9 +52,33 @@ pub struct ConsolePaths {
     pub favicon_svg: PathBuf,
 }
 
+/// The console, its file service and favicons prepared once.
+struct Console {
+    /// The static file service, the index answering for the single-page app's routes.
+    files: ServeDir<ServeFile>,
+    /// Favicon bytes by suffix, `None` when a file was unreadable at startup.
+    ico: Option<Bytes>,
+    png: Option<Bytes>,
+    svg: Option<Bytes>,
+}
+
+impl Console {
+    fn load(paths: ConsolePaths) -> Self {
+        let read = |path: &PathBuf| std::fs::read(path).ok().map(Bytes::from);
+        Self {
+            ico: read(&paths.favicon_ico),
+            png: read(&paths.favicon_png),
+            svg: read(&paths.favicon_svg),
+            files: ServeDir::new(&paths.directory)
+                .fallback(ServeFile::new(paths.directory.join("index.html"))),
+        }
+    }
+}
+
 pub(crate) struct AppState {
-    console: Option<ConsolePaths>,
-    version: String,
+    console: Option<Console>,
+    /// The OpenAPI document's JSON, rendered once at build.
+    openapi: String,
     pub(crate) auth: Option<AuthSettings>,
     pub(crate) host: Arc<dyn Host>,
     cli: bool,
@@ -59,49 +89,83 @@ impl AppState {
     pub(crate) async fn identity(
         &self,
         headers: &HeaderMap,
-    ) -> Result<Option<auth::Identity>, crate::host::HostError> {
-        auth::current_identity(self.auth.as_ref(), self.host.as_ref(), headers).await
+    ) -> Result<Option<Identity>, HostError> {
+        let Some(settings) = self.auth.as_ref() else {
+            return Ok(None);
+        };
+        let Some(token) = crate::auth::bearer_token(headers) else {
+            return Ok(None);
+        };
+        let Some(parsed) = settings.parse(&token) else {
+            return Ok(None);
+        };
+        let Some(user) = self.host.user(parsed.user_id).await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(Identity {
+            token: parsed.token,
+            expires: parsed.expires,
+            user,
+            impersonated_by: parsed.impersonated_by,
+        }))
     }
 
     /// Resolve the actor a request comes from.
-    pub(crate) async fn actor(
-        &self,
-        headers: &HeaderMap,
-    ) -> Result<auth::Actor, crate::host::HostError> {
-        auth::current_actor(self.auth.as_ref(), self.cli, self.host.as_ref(), headers).await
+    ///
+    /// The CLI control app and deployments with authentication unconfigured are
+    /// unrestricted, every permission gate short-circuits for them.
+    pub(crate) async fn actor(&self, headers: &HeaderMap) -> Result<Actor, HostError> {
+        let identity = self.identity(headers).await?;
+        Ok(Actor {
+            user: identity.map(|identity| identity.user),
+            unrestricted: self.cli || self.auth.is_none(),
+        })
     }
 }
 
-/// Respond with a JSON value.
-pub(crate) fn json_response(value: serde_json::Value) -> Response {
+/// Respond with a body of already-serialized JSON.
+pub(crate) fn json_response(body: String) -> Response {
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json")],
-        value.to_string(),
+        body,
     )
         .into_response()
 }
 
-/// Generate a favicon handler per suffix, serving the resolved file with its media type.
+/// Respond with a JSON value.
+pub(crate) fn json_value_response(value: Value) -> Response {
+    json_response(value.to_string())
+}
+
+/// Generate a favicon handler per suffix, serving the cached bytes with its media type.
 macro_rules! favicons {
     ($($name:ident: $field:ident => $media:literal;)*) => {
         $(async fn $name(State(state): State<Arc<AppState>>) -> Response {
-            favicon(&state, |console| &console.$field, $media)
+            match state.console.as_ref().and_then(|console| console.$field.clone()) {
+                Some(bytes) => {
+                    (StatusCode::OK, [(header::CONTENT_TYPE, $media)], bytes).into_response()
+                }
+                None => ApiError::http(StatusCode::NOT_FOUND).into_response(),
+            }
         })*
     };
 }
 
 favicons! {
-    serve_favicon_ico: favicon_ico => "image/x-icon";
-    serve_favicon_png: favicon_png => "image/png";
-    serve_favicon_svg: favicon_svg => "image/svg+xml";
+    serve_favicon_ico: ico => "image/x-icon";
+    serve_favicon_png: png => "image/png";
+    serve_favicon_svg: svg => "image/svg+xml";
 }
 
 /// Build the application router.
 pub fn build_router(config: AppConfig) -> Router {
     let state = Arc::new(AppState {
-        console: config.console,
-        version: config.version,
+        console: config.console.map(Console::load),
+        openapi: crate::api::schema::document(&config.version)
+            .to_json()
+            .expect("the OpenAPI document is always serializable"),
         auth: config.auth,
         host: config.host,
         cli: config.cli_token.is_some(),
@@ -191,17 +255,9 @@ fn record_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
     }
 }
 
-/// Serve the OpenAPI document describing every route.
+/// Serve the OpenAPI document rendered at build.
 async fn openapi(State(state): State<Arc<AppState>>) -> Response {
-    match crate::api::schema::document(&state.version).to_json() {
-        Ok(document) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "application/json")],
-            document,
-        )
-            .into_response(),
-        Err(_) => ApiError::http(StatusCode::INTERNAL_SERVER_ERROR).into_response(),
-    }
+    json_response(state.openapi.clone())
 }
 
 async fn redirect_to_openapi() -> Redirect {
@@ -246,29 +302,12 @@ async fn serve_console(State(state): State<Arc<AppState>>, request: Request) -> 
         .console
         .as_ref()
         .expect("the console fallback only routes when console paths exist");
-    let service = ServeDir::new(&console.directory)
-        .fallback(ServeFile::new(console.directory.join("index.html")));
 
-    match service.oneshot(request).await {
+    match console.files.clone().oneshot(request).await {
         Ok(response) if response.status().is_success() || response.status().is_redirection() => {
             response.into_response()
         }
         Ok(response) => ApiError::http(response.status()).into_response(),
         Err(error) => match error {},
-    }
-}
-
-fn favicon(
-    state: &AppState,
-    path: impl Fn(&ConsolePaths) -> &PathBuf,
-    media_type: &'static str,
-) -> Response {
-    let Some(console) = state.console.as_ref() else {
-        return ApiError::http(StatusCode::NOT_FOUND).into_response();
-    };
-
-    match std::fs::read(path(console)) {
-        Ok(bytes) => (StatusCode::OK, [(header::CONTENT_TYPE, media_type)], bytes).into_response(),
-        Err(_) => ApiError::http(StatusCode::NOT_FOUND).into_response(),
     }
 }

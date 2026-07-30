@@ -14,13 +14,12 @@ use serde_json::json;
 
 use crate::api::attempt;
 use crate::app::{AppState, json_response};
-use crate::auth::require_admin;
-use crate::scrub::scrub_credentials;
+use crate::scrub::scrub_json;
 
 /// Serve one configuration section through the host, scrubbed.
 async fn serve_section(state: &AppState, operation: &str) -> Response {
     match state.host.payload(operation, json!({})).await {
-        Ok(payload) => json_response(scrub_credentials(payload)),
+        Ok(payload) => json_response(scrub_json(&payload)),
         Err(error) => error.into_response(),
     }
 }
@@ -33,7 +32,7 @@ macro_rules! sections {
             headers: HeaderMap,
         ) -> Response {
             let actor = attempt!(state.actor(&headers).await);
-            attempt!(require_admin(&actor));
+            attempt!(actor.require_admin());
             serve_section(&state, $operation).await
         })*
     };

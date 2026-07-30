@@ -10,11 +10,10 @@ use std::sync::Arc;
 use axum::extract::{Path, RawQuery, Request, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use serde_json::{Value, json};
+use serde_json::json;
 
-use crate::api::attempt;
+use crate::api::{attempt, query_pairs};
 use crate::app::{AppState, json_response};
-use crate::auth::require_authenticated;
 use crate::error::ApiError;
 
 /// Serve a record listing, or stream live records when the caller upgrades.
@@ -24,12 +23,12 @@ use crate::error::ApiError;
 async fn list(state: &Arc<AppState>, table: &str, request: Request) -> Response {
     let (mut parts, _) = request.into_parts();
     let actor = attempt!(state.actor(&parts.headers).await);
-    attempt!(require_authenticated(&actor));
+    attempt!(actor.require_authenticated());
 
     let query = parts.uri.query().map(str::to_string);
-    let arguments = json!({"table": table, "query": crate::api::streams::query_pairs(query)});
+    let arguments = json!({"table": table, "query": query_pairs(query)});
     if let Some(upgrade) = crate::api::streams::requested_upgrade(&mut parts, state).await {
-        return crate::api::streams::stream(state, upgrade, "records.stream", arguments);
+        return state.stream(upgrade, "records.stream", arguments);
     }
 
     match state.host.payload("records.list", arguments).await {
@@ -46,9 +45,9 @@ async fn count(
     query: Option<String>,
 ) -> Response {
     let actor = attempt!(state.actor(headers).await);
-    attempt!(require_authenticated(&actor));
+    attempt!(actor.require_authenticated());
 
-    let arguments = json!({"table": table, "query": crate::api::streams::query_pairs(query)});
+    let arguments = json!({"table": table, "query": query_pairs(query)});
     match state.host.payload("records.count", arguments).await {
         Ok(payload) => json_response(payload),
         Err(error) => error.into_response(),
@@ -65,14 +64,14 @@ async fn get(state: &AppState, headers: &HeaderMap, table: &str, id: &str) -> Re
     }
 
     let actor = attempt!(state.actor(headers).await);
-    attempt!(require_authenticated(&actor));
+    attempt!(actor.require_authenticated());
 
     match state
         .host
         .payload("records.get", json!({"table": table, "id": id}))
         .await
     {
-        Ok(Value::Null) => ApiError::not_found().into_response(),
+        Ok(payload) if payload == "null" => ApiError::not_found().into_response(),
         Ok(payload) => json_response(payload),
         Err(error) => error.into_response(),
     }

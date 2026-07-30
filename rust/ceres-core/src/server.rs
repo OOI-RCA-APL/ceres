@@ -20,6 +20,7 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde_json::Value;
+use serde_json::value::RawValue;
 use uuid::Uuid;
 
 /// The Python engine as the server's host.
@@ -69,7 +70,9 @@ macro_rules! host_call {
             .call($method, ($($argument,)*))
             .await
             .map_err(HostError::Internal)?;
-        parse_envelope(&envelope)
+        Envelope::parse(&envelope)
+            .map_err(HostError::Internal)?
+            .into_user_record()
     }};
 }
 
@@ -101,7 +104,9 @@ impl Host for PyHost {
             .call("operate", (operation.to_string(), arguments.to_string()))
             .await
             .map_err(HostError::Internal)?;
-        parse_answer_envelope(&envelope)
+        Envelope::parse(&envelope)
+            .map_err(HostError::Internal)?
+            .into_answer()
     }
 
     async fn next_chunk(&self, handle: u64) -> Result<Option<Vec<u8>>, HostError> {
@@ -122,10 +127,13 @@ impl Host for PyHost {
             )
             .await
             .map_err(StreamClose::internal)?;
-        match parse_stream_envelope(&envelope)? {
-            StreamMessage::Value(handle) => handle
-                .as_u64()
-                .ok_or_else(|| StreamClose::internal("the host returned no stream handle")),
+        match Envelope::parse(&envelope)
+            .map_err(StreamClose::internal)?
+            .into_stream_message()?
+        {
+            StreamMessage::Text(handle) => handle
+                .parse()
+                .map_err(|_| StreamClose::internal("the host returned no stream handle")),
             StreamMessage::End => Err(StreamClose::internal("the host opened no stream")),
         }
     }
@@ -135,13 +143,11 @@ impl Host for PyHost {
             .call("stream_next", (handle,))
             .await
             .map_err(StreamClose::internal)?;
-        match parse_stream_envelope(&envelope)? {
-            StreamMessage::Value(message) => Ok(Some(
-                message
-                    .as_str()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| message.to_string()),
-            )),
+        match Envelope::parse(&envelope)
+            .map_err(StreamClose::internal)?
+            .into_stream_message()?
+        {
+            StreamMessage::Text(message) => Ok(Some(message)),
             StreamMessage::End => Ok(None),
         }
     }
@@ -151,144 +157,148 @@ impl Host for PyHost {
     }
 }
 
+/// A host result envelope, its payloads borrowed verbatim from the serialized text.
+///
+/// One shape covers every host method. Operations answer with `ok`, `error`, or
+/// `response`, and streams answer with `ok`, `message`, `end`, or `close`. Payload
+/// slices stay raw, so a record dump the engine already serialized crosses into the
+/// response body without ever parsing into a value tree here.
+#[derive(serde::Deserialize)]
+struct Envelope<'a> {
+    #[serde(borrow)]
+    ok: Option<&'a RawValue>,
+    error: Option<TypedError<'a>>,
+    response: Option<Described>,
+    close: Option<Close>,
+    end: Option<bool>,
+    message: Option<String>,
+}
+
+/// The `error` member, a typed refusal's status and verbatim envelope.
+#[derive(serde::Deserialize)]
+struct TypedError<'a> {
+    status: Option<u16>,
+    #[serde(borrow)]
+    envelope: Option<&'a RawValue>,
+}
+
+/// The `response` member, a body the server produces itself.
+#[derive(serde::Deserialize)]
+struct Described {
+    status: Option<u16>,
+    #[serde(default)]
+    headers: Vec<(String, String)>,
+    file: Option<std::path::PathBuf>,
+    handle: u64,
+}
+
+/// The `close` member, why a stream refused to open or stopped early.
+#[derive(serde::Deserialize)]
+struct Close {
+    code: Option<u16>,
+    reason: Option<String>,
+}
+
+/// The `ok` member of a user lookup.
+#[derive(serde::Deserialize)]
+struct RecordFields {
+    id: Uuid,
+    #[serde(default)]
+    admin: bool,
+    #[serde(default)]
+    disabled: bool,
+    #[serde(default)]
+    payload: Value,
+}
+
 /// What a stream envelope carried.
 enum StreamMessage {
-    Value(Value),
+    Text(String),
     End,
 }
 
-/// Parse a stream envelope into its message, its end, or the close it reported.
-fn parse_stream_envelope(envelope: &str) -> Result<StreamMessage, StreamClose> {
-    let value: Value = serde_json::from_str(envelope)
-        .map_err(|error| StreamClose::internal(format!("unparseable host envelope. {error}")))?;
-
-    if let Some(close) = value.get("close") {
-        return Err(StreamClose {
-            code: close
-                .get("code")
-                .and_then(Value::as_u64)
-                .and_then(|code| u16::try_from(code).ok())
-                .unwrap_or(1011),
-            reason: close
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-        });
+impl<'a> Envelope<'a> {
+    fn parse(envelope: &'a str) -> Result<Self, String> {
+        serde_json::from_str(envelope)
+            .map_err(|error| format!("unparseable host envelope. {error}"))
     }
 
-    if value.get("end").is_some() {
-        return Ok(StreamMessage::End);
-    }
-
-    match value.get("message").or_else(|| value.get("ok")) {
-        Some(message) => Ok(StreamMessage::Value(message.clone())),
-        None => Ok(StreamMessage::End),
-    }
-}
-
-/// Parse a host result envelope into its answer or a typed error.
-fn parse_answer_envelope(envelope: &str) -> Result<Answer, HostError> {
-    let value: Value = serde_json::from_str(envelope)
-        .map_err(|error| HostError::Internal(format!("unparseable host envelope. {error}")))?;
-
-    if let Some(error) = value.get("error") {
-        let status = error.get("status").and_then(Value::as_u64).unwrap_or(500);
-        let envelope = error.get("envelope").cloned().unwrap_or(Value::Null);
-        return Err(HostError::Typed {
-            status: u16::try_from(status).unwrap_or(500),
-            envelope,
-        });
-    }
-
-    // A described response arrives in its own envelope key rather than inside the
-    // payload, so data an operation returns can never be mistaken for one.
-    if let Some(described) = value.get("response") {
-        return parse_served(described);
-    }
-
-    Ok(Answer::Payload(
-        value.get("ok").cloned().unwrap_or(Value::Null),
-    ))
-}
-
-/// Parse a described response into the body and headers the server serves.
-fn parse_served(described: &Value) -> Result<Answer, HostError> {
-    let handle = described
-        .get("handle")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| {
-            HostError::Internal("the host's described response carries no handle".to_string())
-        })?;
-
-    let headers = described
-        .get("headers")
-        .and_then(Value::as_array)
-        .map(|headers| {
-            headers
-                .iter()
-                .filter_map(|header| {
-                    let pair = header.as_array()?;
-                    Some((
-                        pair.first()?.as_str()?.to_string(),
-                        pair.get(1)?.as_str()?.to_string(),
-                    ))
-                })
-                .collect()
+    /// The typed error the envelope reports, when it reports one.
+    fn typed_error(&self) -> Option<HostError> {
+        let error = self.error.as_ref()?;
+        Some(HostError::Typed {
+            status: error.status.unwrap_or(500),
+            envelope: error
+                .envelope
+                .map(|envelope| envelope.get().to_string())
+                .unwrap_or_else(|| "null".to_string()),
         })
-        .unwrap_or_default();
-
-    Ok(Answer::Served(Served {
-        status: described
-            .get("status")
-            .and_then(Value::as_u64)
-            .and_then(|status| u16::try_from(status).ok())
-            .unwrap_or(200),
-        headers,
-        file: described
-            .get("file")
-            .and_then(Value::as_str)
-            .map(std::path::PathBuf::from),
-        handle,
-    }))
-}
-
-/// Parse a host result envelope into a user record, absence, or a typed error.
-fn parse_envelope(envelope: &str) -> Result<Option<UserRecord>, HostError> {
-    let value: Value = serde_json::from_str(envelope)
-        .map_err(|error| HostError::Internal(format!("unparseable host envelope. {error}")))?;
-
-    if let Some(error) = value.get("error") {
-        let status = error.get("status").and_then(Value::as_u64).unwrap_or(500);
-        let envelope = error.get("envelope").cloned().unwrap_or(Value::Null);
-        return Err(HostError::Typed {
-            status: u16::try_from(status).unwrap_or(500),
-            envelope,
-        });
     }
 
-    match value.get("ok") {
-        None | Some(Value::Null) => Ok(None),
-        Some(record) => {
-            let id = record
-                .get("id")
-                .and_then(Value::as_str)
-                .and_then(|text| text.parse().ok())
-                .ok_or_else(|| {
-                    HostError::Internal("the host's user record carries no ID".to_string())
-                })?;
-            Ok(Some(UserRecord {
-                id,
-                admin: record
-                    .get("admin")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                disabled: record
-                    .get("disabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                payload: record.get("payload").cloned().unwrap_or(Value::Null),
-            }))
+    /// The answer an operation envelope carries.
+    fn into_answer(self) -> Result<Answer, HostError> {
+        if let Some(error) = self.typed_error() {
+            return Err(error);
+        }
+
+        // A described response arrives in its own envelope member rather than inside
+        // the payload, so data an operation returns can never be mistaken for one.
+        if let Some(described) = self.response {
+            return Ok(Answer::Served(Served {
+                status: described.status.unwrap_or(200),
+                headers: described.headers,
+                file: described.file,
+                handle: described.handle,
+            }));
+        }
+
+        Ok(Answer::Payload(
+            self.ok
+                .map(|payload| payload.get().to_string())
+                .unwrap_or_else(|| "null".to_string()),
+        ))
+    }
+
+    /// The user record a lookup envelope carries, `None` when it names nobody.
+    fn into_user_record(self) -> Result<Option<UserRecord>, HostError> {
+        if let Some(error) = self.typed_error() {
+            return Err(error);
+        }
+
+        let Some(record) = self.ok.filter(|record| record.get() != "null") else {
+            return Ok(None);
+        };
+        let fields: RecordFields = serde_json::from_str(record.get())
+            .map_err(|error| HostError::Internal(format!("malformed user record. {error}")))?;
+
+        Ok(Some(UserRecord {
+            id: fields.id,
+            admin: fields.admin,
+            disabled: fields.disabled,
+            payload: fields.payload,
+        }))
+    }
+
+    /// The message a stream envelope carries, its end, or the close it reported.
+    fn into_stream_message(self) -> Result<StreamMessage, StreamClose> {
+        if let Some(close) = self.close {
+            return Err(StreamClose {
+                code: close.code.unwrap_or(1011),
+                reason: close.reason.unwrap_or_default(),
+            });
+        }
+
+        if self.end.is_some() {
+            return Ok(StreamMessage::End);
+        }
+
+        if let Some(message) = self.message {
+            return Ok(StreamMessage::Text(message));
+        }
+
+        match self.ok {
+            Some(payload) => Ok(StreamMessage::Text(payload.get().to_string())),
+            None => Ok(StreamMessage::End),
         }
     }
 }
@@ -330,12 +340,13 @@ impl NativeServer {
             .authentication
             .as_ref()
             .map(|authentication| -> PyResult<AuthSettings> {
-                Ok(AuthSettings {
-                    secret: authentication.secret.clone(),
-                    duration: chrono::TimeDelta::from_std(authentication.duration.duration())
-                        .map_err(|error| PyValueError::new_err(error.to_string()))?,
-                    allow_impersonate: authentication.allow_impersonate,
-                })
+                let duration = chrono::TimeDelta::from_std(authentication.duration.duration())
+                    .map_err(|error| PyValueError::new_err(error.to_string()))?;
+                Ok(AuthSettings::new(
+                    &authentication.secret,
+                    duration,
+                    authentication.allow_impersonate,
+                ))
             })
             .transpose()?;
 

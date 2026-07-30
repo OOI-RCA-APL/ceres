@@ -5,7 +5,7 @@
 //! holding the handle, so the host hears about the end whether the body finished, failed,
 //! or the client left, which is what runs the output's exit hook.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
@@ -30,6 +30,16 @@ struct Release {
     runtime: tokio::runtime::Handle,
 }
 
+impl Release {
+    fn new(host: &Arc<dyn Host>, handle: u64) -> Self {
+        Self {
+            host: host.clone(),
+            handle,
+            runtime: tokio::runtime::Handle::current(),
+        }
+    }
+}
+
 impl Drop for Release {
     fn drop(&mut self) {
         let host = self.host.clone();
@@ -39,42 +49,40 @@ impl Drop for Release {
     }
 }
 
-/// Serve a described response, streaming its body from a file or from the host.
-pub(crate) async fn respond(host: &Arc<dyn Host>, served: Served) -> Response {
-    let release = Release {
-        host: host.clone(),
-        handle: served.handle,
-        runtime: tokio::runtime::Handle::current(),
-    };
+impl Served {
+    /// Serve the described response, streaming its body from a file or from the host.
+    pub(crate) async fn serve(self, host: &Arc<dyn Host>) -> Response {
+        let release = Release::new(host, self.handle);
+        let body = match self.file.as_deref() {
+            Some(path) => match file_body(path, release).await {
+                Ok(body) => body,
+                // The host stats the file before describing it, so a failure here is
+                // the file going away underneath a response that has not started yet.
+                Err(_) => {
+                    return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "error")
+                        .into_response();
+                }
+            },
+            None => chunk_body(host.clone(), self.handle, release),
+        };
 
-    let body = match served.file {
-        Some(path) => match file_body(&path, release).await {
-            Ok(body) => body,
-            // The host stats the file before describing it, so a failure here is the file
-            // going away underneath a response that has not started yet.
-            Err(_) => {
-                return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "error").into_response();
+        let mut response = Response::new(body);
+        *response.status_mut() = StatusCode::from_u16(self.status).unwrap_or(StatusCode::OK);
+        for (name, value) in &self.headers {
+            if let (Ok(name), Ok(value)) = (
+                HeaderName::try_from(name.as_str()),
+                HeaderValue::try_from(value.as_str()),
+            ) {
+                response.headers_mut().append(name, value);
             }
-        },
-        None => chunk_body(host.clone(), served.handle, release),
-    };
-
-    let mut response = Response::new(body);
-    *response.status_mut() = StatusCode::from_u16(served.status).unwrap_or(StatusCode::OK);
-    for (name, value) in &served.headers {
-        if let (Ok(name), Ok(value)) = (
-            HeaderName::try_from(name.as_str()),
-            HeaderValue::try_from(value.as_str()),
-        ) {
-            response.headers_mut().append(name, value);
         }
-    }
 
-    response
+        response
+    }
 }
 
 /// Stream a file from disk, the release riding along until the last chunk.
-async fn file_body(path: &PathBuf, release: Release) -> std::io::Result<Body> {
+async fn file_body(path: &Path, release: Release) -> std::io::Result<Body> {
     let file = tokio::fs::File::open(path).await?;
     let stream =
         futures_util::stream::try_unfold((file, release), |(mut file, release)| async move {
@@ -104,12 +112,13 @@ fn chunk_body(host: Arc<dyn Host>, handle: u64, release: Release) -> Body {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::Mutex;
 
     use http_body_util::BodyExt;
 
     use super::*;
-    use crate::host::{HostError, UserRecord};
+    use crate::host::UserRecord;
 
     /// A host handing out a fixed set of chunks and recording what was released.
     #[derive(Default)]
@@ -189,7 +198,7 @@ mod tests {
     async fn a_chunk_body_streams_and_releases_its_handle() {
         let (host, released) = chunk_host(&["one,", "two"]);
 
-        let response = respond(&host, description(7, None)).await;
+        let response = description(7, None).serve(&host).await;
         assert_eq!(response.status(), 206);
         assert_eq!(response.headers()["content-type"], "text/csv");
 
@@ -205,7 +214,7 @@ mod tests {
         // release runs has to fire for it too.
         let (host, released) = chunk_host(&["one,", "two"]);
 
-        let response = respond(&host, description(9, None)).await;
+        let response = description(9, None).serve(&host).await;
         drop(response);
 
         settle().await;
@@ -219,7 +228,7 @@ mod tests {
         std::fs::write(&path, "a,b\n1,2\n").unwrap();
         let (host, released) = chunk_host(&[]);
 
-        let response = respond(&host, description(3, Some(path))).await;
+        let response = description(3, Some(path)).serve(&host).await;
         let body = response.into_body().collect().await.unwrap().to_bytes();
 
         assert_eq!(&body[..], b"a,b\n1,2\n");
@@ -232,7 +241,7 @@ mod tests {
         let (host, released) = chunk_host(&[]);
         let missing = PathBuf::from("/nonexistent/export.csv");
 
-        let response = respond(&host, description(4, Some(missing))).await;
+        let response = description(4, Some(missing)).serve(&host).await;
 
         assert_eq!(response.status(), 500);
         settle().await;

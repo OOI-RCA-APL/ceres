@@ -3,20 +3,30 @@
 Every operation is a thin adapter over the engine and query layer, validating its
 arguments through the same Pydantic models the API always used, so filters, permissions,
 redaction, and wire shapes are unchanged by the transport moving to Rust. Arguments
-arrive as `{"actor", "path", "query", "body"}`, and results leave as JSON-compatible
-values the server serves verbatim.
+arrive as `{"actor", "path", "query", "body"}`, and results leave either as
+JSON-compatible values or as `Raw` text the server serves verbatim.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Annotated, Any, cast
+from uuid import UUID
 
-from ceres.__internal__.app.host import Host, operation, stream
-from ceres.__internal__.app.shared import Actor, Limit, exclude_recursively
+from ceres_core import RecordBatch
+
+from ceres.__internal__.app.handlers import components as component_handlers
+from ceres.__internal__.app.handlers import engine as engine_handlers
+from ceres.__internal__.app.handlers import permissions as permission_handlers
+from ceres.__internal__.app.handlers import settings as setting_handlers
+from ceres.__internal__.app.handlers import workspace_edits as edit_handlers
+from ceres.__internal__.app.handlers import workspaces as workspace_handlers
+from ceres.__internal__.app.host import Host, Raw, operation, stream
+from ceres.__internal__.app.shared import RECORD_TABLES, Actor, Limit, exclude_recursively
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.component import ComponentFilter
+from ceres.component import BaseOutput, ComponentFilter
 from ceres.data import Name, to_json, validate
 from ceres.error import (
     HTTPError,
@@ -25,13 +35,17 @@ from ceres.error import (
     NotPermittedError,
     simplify,
 )
-from ceres.logs import LogEntry
+from ceres.group import Group, GroupFilter, GroupMembership
+from ceres.logs import LogEntry, get_logger
 from ceres.message import Message
 from ceres.particle import Particle
+from ceres.setting import Setting
+from ceres.statistics import StatisticsFilter
+from ceres.user import User, UserFilter
+from ceres.workspace import Workspace, WorkspaceEditFilter, WorkspaceFilter
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping, Sequence
-    from uuid import UUID
+    from collections.abc import AsyncIterator, Sequence
 
 EXCLUDE_PASSWORDS = exclude_recursively(["password"])
 """Passwords never leave, at any nesting level."""
@@ -79,9 +93,7 @@ def _uuid(arguments: dict[str, Any], name: str) -> UUID:
     matters where a route takes the capture as text, which is where the framework's own
     coercion reported a validation failure rather than a missing route.
     """
-    from uuid import UUID as Parse
-
-    return validate(Parse, _path(arguments, name))
+    return validate(UUID, _path(arguments, name))
 
 
 def _address(arguments: dict[str, Any], name: str = "address") -> Address:
@@ -103,9 +115,7 @@ async def _actor(host: Host, arguments: dict[str, Any]) -> Actor:
     identifier = described.get("user")
     user = None
     if identifier is not None:
-        from uuid import UUID as Parse
-
-        user = await host.engine.users.get(Parse(str(identifier)))
+        user = await host.engine.users.get(UUID(str(identifier)))
 
     return Actor(user=user, unrestricted=bool(described.get("unrestricted")))
 
@@ -133,13 +143,14 @@ async def _require_user(host: Host, arguments: dict[str, Any]) -> Any:
     return actor.user
 
 
-def _serialize(value: Any, exclude: Any = None) -> Any:
-    """Render a value as JSON-compatible data, honoring a field exclusion."""
-    return json.loads(to_json(value, exclude=exclude))
+def _serialize(value: Any, exclude: Any = None) -> Raw:
+    """Serialize a value once, for the server to splice into its response verbatim."""
+    return Raw(to_json(value, exclude=exclude))
 
 
-def _entities(values: Sequence[Any], exclude: Any = None) -> list[Any]:
-    return [_serialize(value, exclude) for value in values]
+def _entities(values: Sequence[Any], exclude: Any = None) -> Raw:
+    """Serialize a listing once, one serializer pass per entity and no parse back."""
+    return Raw("[" + ",".join(to_json(value, exclude=exclude) for value in values) + "]")
 
 
 @operation("config")
@@ -178,10 +189,6 @@ def _record_type(arguments: dict[str, Any]) -> tuple[type[Any], int]:
 @operation("records.list")
 async def records_list(host: Host, arguments: dict[str, Any]) -> Any:
     """Serve a record listing, natively wherever the query allows it."""
-    from ceres_core import RecordBatch
-
-    from ceres.__internal__.app.shared import RECORD_TABLES
-
     Record, limit = _record_type(arguments)
     filter = _filter(Record.Filter, arguments, limit)
     query = host.engine.__manager__(Record).where(filter)
@@ -203,8 +210,6 @@ async def records_list(host: Host, arguments: dict[str, Any]) -> Any:
         except (TypeError, ValueError) as error:
             # The native engine can lag the Python one in corner cases. The listing stays
             # correct through the fallback, just slower.
-            from ceres.logs import get_logger
-
             get_logger("ceres.database").warning(
                 f"Native record fetch fell back to the query layer. {error}"
             )
@@ -212,7 +217,7 @@ async def records_list(host: Host, arguments: dict[str, Any]) -> Any:
     if batch is None:
         batch = RecordBatch.parse(table, await query.mappings())
 
-    return json.loads(batch.to_json())
+    return Raw(batch.to_json().decode())
 
 
 @operation("records.count")
@@ -224,10 +229,8 @@ async def records_count(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("records.get")
 async def records_get(host: Host, arguments: dict[str, Any]) -> Any:
-    from uuid import UUID as Parse
-
     Record, _ = _record_type(arguments)
-    filter = Record.Filter(id=Parse(str(arguments["id"])))
+    filter = Record.Filter(id=UUID(str(arguments["id"])))
     record = await host.engine.__manager__(Record).where(filter).first()
     if record is None:
         raise NotFoundError()
@@ -238,10 +241,6 @@ async def records_get(host: Host, arguments: dict[str, Any]) -> Any:
 @stream("records.stream")
 async def records_stream(host: Host, arguments: dict[str, Any]) -> AsyncIterator[str]:
     """Stream live records, serializing natively where the wire format allows."""
-    from ceres_core import RecordBatch
-
-    from ceres.__internal__.app.shared import RECORD_TABLES
-
     Record, _ = _record_type(arguments)
     filter = _filter(Record.Filter, arguments)
     table = RECORD_TABLES[Record.__entity_naming__.table]
@@ -260,22 +259,13 @@ async def records_stream(host: Host, arguments: dict[str, Any]) -> AsyncIterator
 
 def _control(name: str):
     """Register one of the engine's component control operations."""
+    handler = getattr(engine_handlers, name)
 
     @operation(f"engine.{name}")
     async def control(host: Host, arguments: dict[str, Any]) -> Any:
-        from ceres.__internal__.app.handlers import engine as control
-
-        handlers = {
-            "start": control.start,
-            "stop": control.stop,
-            "enable": control.enable,
-            "disable": control.disable,
-            "up": control.up,
-            "down": control.down,
-        }
         filter = _validated(ComponentFilter, arguments)
         actor = await _actor(host, arguments)
-        return _serialize(await handlers[name](engine=host.engine, actor=actor, filter=filter))
+        return _serialize(await handler(engine=host.engine, actor=actor, filter=filter))
 
     return control
 
@@ -291,16 +281,12 @@ async def engine_reload(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("users.list")
 async def users_list(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.user import UserFilter
-
     filter = _filter(UserFilter, arguments, 1000)
     return _entities(await host.engine.users.where(filter), EXCLUDE_PASSWORDS)
 
 
 @operation("users.count")
 async def users_count(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.user import UserFilter
-
     return await host.engine.users.where(_filter(UserFilter, arguments)).count()
 
 
@@ -315,16 +301,12 @@ async def users_get(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("users.create")
 async def users_create(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.user import User
-
     data = _validated(User.Create, arguments)
     return _serialize(await host.engine.users.create(data), EXCLUDE_PASSWORDS)
 
 
 @operation("users.update")
 async def users_update(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.user import User
-
     actor = await _actor(host, arguments)
     data = _validated(User.Update, arguments)
 
@@ -351,8 +333,6 @@ async def users_delete(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("statistics.list")
 async def statistics_list(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.statistics import StatisticsFilter
-
     filter = _filter(StatisticsFilter, arguments)
     return _entities(await host.engine.statistics.get_all(filter))
 
@@ -381,39 +361,33 @@ async def statuses_stream(host: Host, arguments: dict[str, Any]) -> AsyncIterato
 
 @operation("components.list")
 async def components_list(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.components import get_components
-
     actor = await _actor(host, arguments)
-    return _entities(await get_components(engine=host.engine, actor=actor))
+    return _entities(await component_handlers.get_components(engine=host.engine, actor=actor))
 
 
 @operation("components.get")
 async def components_get(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.components import get_component
-
     actor = await _actor(host, arguments)
-    described = await get_component(engine=host.engine, actor=actor, address=_address(arguments))
+    described = await component_handlers.get_component(
+        engine=host.engine, actor=actor, address=_address(arguments)
+    )
     return _serialize(described)
 
 
 @operation("components.config")
 async def components_config(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.components import get_component_config
-
     actor = await _actor(host, arguments)
-    config = await get_component_config(
+    config = await component_handlers.get_component_config(
         engine=host.engine, actor=actor, address=_address(arguments)
     )
-    return None if config is None else json.loads(to_json(config, exclude_defaults=True))
+    return None if config is None else Raw(to_json(config, exclude_defaults=True))
 
 
 @operation("components.connections")
 async def components_connections(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.components import get_component_connections
-
     actor = await _actor(host, arguments)
     return _entities(
-        await get_component_connections(
+        await component_handlers.get_component_connections(
             engine=host.engine, actor=actor, address=_address(arguments)
         )
     )
@@ -421,21 +395,19 @@ async def components_connections(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("components.jobs")
 async def components_jobs(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.components import get_component_jobs
-
     actor = await _actor(host, arguments)
     return _entities(
-        await get_component_jobs(engine=host.engine, actor=actor, address=_address(arguments))
+        await component_handlers.get_component_jobs(
+            engine=host.engine, actor=actor, address=_address(arguments)
+        )
     )
 
 
 @operation("components.send")
 async def components_send(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.components import SendMessageInput, send_message
-
     actor = await _actor(host, arguments)
-    data = _validated(SendMessageInput, arguments)
-    sent = await send_message(
+    data = _validated(component_handlers.SendMessageInput, arguments)
+    sent = await component_handlers.send_message(
         engine=host.engine,
         actor=actor,
         address=_address(arguments),
@@ -493,8 +465,6 @@ def _called_with(arguments: dict[str, Any]) -> dict[str, Any]:
     Raises:
         HTTPError: If `arguments` is present and is not a JSON object.
     """
-    from collections.abc import Mapping as Mapped
-
     supplied: dict[str, Any] = {}
     plain: dict[str, Any] = {}
     for name, value in arguments.get("query") or ():
@@ -504,7 +474,7 @@ def _called_with(arguments: dict[str, Any]) -> dict[str, Any]:
             except ValueError:
                 decoded = None
 
-            if not isinstance(decoded, Mapped):
+            if not isinstance(decoded, Mapping):
                 raise HTTPError(status=400)
 
             supplied.update(cast("Mapping[str, Any]", decoded))
@@ -521,17 +491,13 @@ def _calls(namespace: str):
     """Register the call operations for one namespace, by body and by query."""
 
     async def call(host: Host, arguments: dict[str, Any], method: str) -> Any:
-        from typing import cast
-
-        from ceres.__internal__.app.handlers.components import call_natively
-
         actor = await _actor(host, arguments)
         if method == "GET":
             supplied = _called_with(arguments)
         else:
             supplied = _body(arguments)
 
-        result = await call_natively(
+        result = await component_handlers.call_natively(
             engine=host.engine,
             actor=actor,
             address=_address(arguments),
@@ -543,8 +509,6 @@ def _calls(namespace: str):
 
         # A procedure declaring media answers with an output the server serves as a body
         # of its own, described rather than serialized into the payload.
-        from ceres.component import BaseOutput
-
         if isinstance(result, BaseOutput):
             return host.serve(result)
 
@@ -560,12 +524,8 @@ def _calls(namespace: str):
 
     @stream(f"{namespace}.subscribe")
     async def subscription(host: Host, arguments: dict[str, Any]) -> AsyncIterator[str]:
-        from typing import cast
-
-        from ceres.__internal__.app.handlers.components import subscribe_natively
-
         actor = await _actor(host, arguments)
-        async for output in subscribe_natively(
+        async for output in component_handlers.subscribe_natively(
             engine=host.engine,
             actor=actor,
             address=_address(arguments),
@@ -594,15 +554,11 @@ async def _require_group(host: Host, id: UUID) -> None:
 
 @operation("groups.list")
 async def groups_list(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import GroupFilter
-
     return _entities(await host.engine.database.groups.where(_filter(GroupFilter, arguments)))
 
 
 @operation("groups.count")
 async def groups_count(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import GroupFilter
-
     return await host.engine.database.groups.where(_filter(GroupFilter, arguments)).count()
 
 
@@ -617,16 +573,12 @@ async def groups_get(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("groups.create")
 async def groups_create(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import Group
-
     data = _validated(Group.Create, arguments)
     return _serialize(await host.engine.database.groups.create(data))
 
 
 @operation("groups.update")
 async def groups_update(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import Group
-
     data = _validated(Group.Update, arguments)
     return await host.engine.database.groups.where(id=_uuid(arguments, "id")).update(data)
 
@@ -645,8 +597,6 @@ async def groups_members(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("groups.add_member")
 async def groups_add_member(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import GroupMembership
-
     await _require_group(host, _uuid(arguments, "id"))
     data = _validated(GroupMembership.Create, arguments)
     return _serialize(await host.engine.database.group_memberships.create(data))
@@ -654,7 +604,6 @@ async def groups_add_member(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("groups.remove_member")
 async def groups_remove_member(host: Host, arguments: dict[str, Any]) -> Any:
-
     return await host.engine.database.group_memberships.where(
         group_id=_uuid(arguments, "id"), user_id=_uuid(arguments, "user_id")
     ).delete()
@@ -662,7 +611,6 @@ async def groups_remove_member(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("memberships.list")
 async def memberships_list(host: Host, arguments: dict[str, Any]) -> Any:
-
     return _entities(
         await host.engine.database.group_memberships.where(user_id=_uuid(arguments, "user_id"))
     )
@@ -670,8 +618,6 @@ async def memberships_list(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("memberships.add")
 async def memberships_add(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.group import GroupMembership
-
     await _require_group(host, _uuid(arguments, "group_id"))
     data = validate(
         GroupMembership.Create,
@@ -682,7 +628,6 @@ async def memberships_add(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("memberships.remove")
 async def memberships_remove(host: Host, arguments: dict[str, Any]) -> Any:
-
     return await host.engine.database.group_memberships.where(
         user_id=_uuid(arguments, "user_id"), group_id=_uuid(arguments, "group_id")
     ).delete()
@@ -690,32 +635,27 @@ async def memberships_remove(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("permissions.user")
 async def permissions_user(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.permissions import get_user_permissions
-
     return _entities(
-        await get_user_permissions(engine=host.engine, user_id=_uuid(arguments, "user_id"))
+        await permission_handlers.get_user_permissions(
+            engine=host.engine, user_id=_uuid(arguments, "user_id")
+        )
     )
 
 
 @operation("permissions.group")
 async def permissions_group(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.permissions import get_group_permissions
-
     return _entities(
-        await get_group_permissions(engine=host.engine, group_id=_uuid(arguments, "group_id"))
+        await permission_handlers.get_group_permissions(
+            engine=host.engine, group_id=_uuid(arguments, "group_id")
+        )
     )
 
 
 @operation("permissions.assign_user")
 async def permissions_assign_user(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.permissions import (
-        UserPermissionData,
-        set_user_permission,
-    )
-
-    data = _validated(UserPermissionData, arguments)
+    data = _validated(permission_handlers.UserPermissionData, arguments)
     return _serialize(
-        await set_user_permission(
+        await permission_handlers.set_user_permission(
             engine=host.engine, user_id=_uuid(arguments, "user_id"), data=data
         )
     )
@@ -723,27 +663,17 @@ async def permissions_assign_user(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("permissions.delete_user")
 async def permissions_delete_user(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.permissions import (
-        DeletePermissionData,
-        delete_user_permission,
-    )
-
-    data = _validated(DeletePermissionData, arguments)
-    return await delete_user_permission(
+    data = _validated(permission_handlers.DeletePermissionData, arguments)
+    return await permission_handlers.delete_user_permission(
         engine=host.engine, user_id=_uuid(arguments, "user_id"), data=data
     )
 
 
 @operation("permissions.assign_group")
 async def permissions_assign_group(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.permissions import (
-        GroupPermissionData,
-        set_group_permission,
-    )
-
-    data = _validated(GroupPermissionData, arguments)
+    data = _validated(permission_handlers.GroupPermissionData, arguments)
     return _serialize(
-        await set_group_permission(
+        await permission_handlers.set_group_permission(
             engine=host.engine, group_id=_uuid(arguments, "group_id"), data=data
         )
     )
@@ -751,31 +681,24 @@ async def permissions_assign_group(host: Host, arguments: dict[str, Any]) -> Any
 
 @operation("permissions.delete_group")
 async def permissions_delete_group(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.permissions import (
-        DeletePermissionData,
-        delete_group_permission,
-    )
-
-    data = _validated(DeletePermissionData, arguments)
-    return await delete_group_permission(
+    data = _validated(permission_handlers.DeletePermissionData, arguments)
+    return await permission_handlers.delete_group_permission(
         engine=host.engine, group_id=_uuid(arguments, "group_id"), data=data
     )
 
 
 @operation("permissions.effective")
 async def permissions_effective(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.permissions import get_all_effective_access
-
     return _entities(
-        await get_all_effective_access(engine=host.engine, user_id=_uuid(arguments, "user_id"))
+        await permission_handlers.get_all_effective_access(
+            engine=host.engine, user_id=_uuid(arguments, "user_id")
+        )
     )
 
 
 @operation("permissions.effective_at")
 async def permissions_effective_at(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.permissions import get_effective_access
-
-    resolved = await get_effective_access(
+    resolved = await permission_handlers.get_effective_access(
         engine=host.engine,
         user_id=_uuid(arguments, "user_id"),
         address=_address(arguments),
@@ -783,148 +706,134 @@ async def permissions_effective_at(host: Host, arguments: dict[str, Any]) -> Any
     return _serialize(resolved)
 
 
-def _workspace_operations() -> None:
-    """Register the workspace operations, each keeping its placement rules."""
-    from ceres.__internal__.app.handlers import workspaces as routes
-
-    @operation("workspaces.list")
-    async def listing(host: Host, arguments: dict[str, Any]) -> Any:
-        from ceres.workspace import WorkspaceFilter
-
-        actor = await _actor(host, arguments)
-        user = await _require_user(host, arguments)
-        filter = _filter(WorkspaceFilter, arguments, 1000)
-        return _entities(
-            await routes.get_workspaces(engine=host.engine, actor=actor, user=user, filter=filter)
+@operation("workspaces.list")
+async def workspaces_list(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    user = await _require_user(host, arguments)
+    filter = _filter(WorkspaceFilter, arguments, 1000)
+    return _entities(
+        await workspace_handlers.get_workspaces(
+            engine=host.engine, actor=actor, user=user, filter=filter
         )
+    )
 
-    @operation("workspaces.get")
-    async def single(host: Host, arguments: dict[str, Any]) -> Any:
-        actor = await _actor(host, arguments)
-        user = await _require_user(host, arguments)
-        found = await routes.get_workspace(
+
+@operation("workspaces.get")
+async def workspaces_get(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    user = await _require_user(host, arguments)
+    found = await workspace_handlers.get_workspace(
+        engine=host.engine, actor=actor, user=user, id=_uuid(arguments, "id")
+    )
+    return _serialize(found)
+
+
+@operation("workspaces.create")
+async def workspaces_create(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    user = await _require_user(host, arguments)
+    data = _validated(Workspace.Create, arguments)
+    return _serialize(
+        await workspace_handlers.create_workspace(
+            engine=host.engine, actor=actor, user=user, workspace=data
+        )
+    )
+
+
+@operation("workspaces.update")
+async def workspaces_update(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    user = await _require_user(host, arguments)
+    data = _validated(Workspace.Update, arguments)
+    return _serialize(
+        await workspace_handlers.update_workspace(
+            engine=host.engine,
+            actor=actor,
+            user=user,
+            id=_uuid(arguments, "id"),
+            update=data,
+        )
+    )
+
+
+@operation("workspaces.delete")
+async def workspaces_delete(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    user = await _require_user(host, arguments)
+    return _serialize(
+        await workspace_handlers.delete_workspace(
             engine=host.engine, actor=actor, user=user, id=_uuid(arguments, "id")
         )
-        return _serialize(found)
-
-    @operation("workspaces.create")
-    async def creating(host: Host, arguments: dict[str, Any]) -> Any:
-        from ceres.workspace import Workspace
-
-        actor = await _actor(host, arguments)
-        user = await _require_user(host, arguments)
-        data = _validated(Workspace.Create, arguments)
-        return _serialize(
-            await routes.create_workspace(
-                engine=host.engine, actor=actor, user=user, workspace=data
-            )
-        )
-
-    @operation("workspaces.update")
-    async def updating(host: Host, arguments: dict[str, Any]) -> Any:
-        from ceres.workspace import Workspace
-
-        actor = await _actor(host, arguments)
-        user = await _require_user(host, arguments)
-        data = _validated(Workspace.Update, arguments)
-        return _serialize(
-            await routes.update_workspace(
-                engine=host.engine,
-                actor=actor,
-                user=user,
-                id=_uuid(arguments, "id"),
-                update=data,
-            )
-        )
-
-    @operation("workspaces.delete")
-    async def deleting(host: Host, arguments: dict[str, Any]) -> Any:
-        actor = await _actor(host, arguments)
-        user = await _require_user(host, arguments)
-        return _serialize(
-            await routes.delete_workspace(
-                engine=host.engine, actor=actor, user=user, id=_uuid(arguments, "id")
-            )
-        )
+    )
 
 
-_workspace_operations()
-
-
-def _edit_operations() -> None:
-    """Register the per-user workspace edit operations."""
-    from ceres.__internal__.app.handlers import workspace_edits as routes
-
-    @operation("edits.list")
-    async def listing(host: Host, arguments: dict[str, Any]) -> Any:
-        from ceres.workspace import WorkspaceEditFilter
-
-        actor = await _actor(host, arguments)
-        filter = _filter(WorkspaceEditFilter, arguments, 1000)
-        return _entities(
-            await routes.get_workspace_edits(
-                engine=host.engine,
-                actor=actor,
-                user_id=_uuid(arguments, "user_id"),
-                filter=filter,
-            )
-        )
-
-    @operation("edits.get")
-    async def single(host: Host, arguments: dict[str, Any]) -> Any:
-        actor = await _actor(host, arguments)
-        found = await routes.get_workspace_edit(
+@operation("edits.list")
+async def edits_list(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    filter = _filter(WorkspaceEditFilter, arguments, 1000)
+    return _entities(
+        await edit_handlers.get_workspace_edits(
             engine=host.engine,
             actor=actor,
             user_id=_uuid(arguments, "user_id"),
+            filter=filter,
+        )
+    )
+
+
+@operation("edits.get")
+async def edits_get(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    found = await edit_handlers.get_workspace_edit(
+        engine=host.engine,
+        actor=actor,
+        user_id=_uuid(arguments, "user_id"),
+        workspace_id=_uuid(arguments, "workspace_id"),
+    )
+    return _serialize(found)
+
+
+@operation("edits.create")
+async def edits_create(host: Host, arguments: dict[str, Any]) -> Any:
+    data = _validated(edit_handlers.CreateWorkspaceEditData, arguments)
+    return _serialize(
+        await edit_handlers.create_workspace_edit(
+            engine=host.engine,
+            user_id=_uuid(arguments, "user_id"),
+            workspace_id=_uuid(arguments, "workspace_id"),
+            values=data,
+        )
+    )
+
+
+@operation("edits.assign")
+async def edits_assign(host: Host, arguments: dict[str, Any]) -> Any:
+    data = _validated(edit_handlers.AssignWorkspaceEditData, arguments)
+    return _serialize(
+        await edit_handlers.assign_workspace_edit(
+            engine=host.engine,
+            user_id=_uuid(arguments, "user_id"),
+            workspace_id=_uuid(arguments, "workspace_id"),
+            values=data,
+        )
+    )
+
+
+@operation("edits.delete")
+async def edits_delete(host: Host, arguments: dict[str, Any]) -> Any:
+    return _serialize(
+        await edit_handlers.delete_workspace_edit(
+            engine=host.engine,
+            user_id=_uuid(arguments, "user_id"),
             workspace_id=_uuid(arguments, "workspace_id"),
         )
-        return _serialize(found)
-
-    @operation("edits.create")
-    async def creating(host: Host, arguments: dict[str, Any]) -> Any:
-        data = _validated(routes.CreateWorkspaceEditData, arguments)
-        return _serialize(
-            await routes.create_workspace_edit(
-                engine=host.engine,
-                user_id=_uuid(arguments, "user_id"),
-                workspace_id=_uuid(arguments, "workspace_id"),
-                values=data,
-            )
-        )
-
-    @operation("edits.assign")
-    async def assigning(host: Host, arguments: dict[str, Any]) -> Any:
-        data = _validated(routes.AssignWorkspaceEditData, arguments)
-        return _serialize(
-            await routes.assign_workspace_edit(
-                engine=host.engine,
-                user_id=_uuid(arguments, "user_id"),
-                workspace_id=_uuid(arguments, "workspace_id"),
-                values=data,
-            )
-        )
-
-    @operation("edits.delete")
-    async def deleting(host: Host, arguments: dict[str, Any]) -> Any:
-        return _serialize(
-            await routes.delete_workspace_edit(
-                engine=host.engine,
-                user_id=_uuid(arguments, "user_id"),
-                workspace_id=_uuid(arguments, "workspace_id"),
-            )
-        )
-
-
-_edit_operations()
+    )
 
 
 @operation("settings.get")
 async def settings_get(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.settings import get_setting
-
     actor = await _actor(host, arguments)
-    found = await get_setting(
+    found = await setting_handlers.get_setting(
         engine=host.engine,
         actor=actor,
         user=actor.user,
@@ -936,11 +845,10 @@ async def settings_get(host: Host, arguments: dict[str, Any]) -> Any:
 
 @operation("settings.assign")
 async def settings_assign(host: Host, arguments: dict[str, Any]) -> Any:
-    from ceres.__internal__.app.handlers.settings import put_setting
-    from ceres.setting import Setting
-
     actor = await _actor(host, arguments)
     data = _validated(Setting.Create, arguments)
     return _serialize(
-        await put_setting(engine=host.engine, actor=actor, user=actor.user, setting=data)
+        await setting_handlers.put_setting(
+            engine=host.engine, actor=actor, user=actor.user, setting=data
+        )
     )

@@ -22,10 +22,7 @@ pub use axum;
 
 pub use api::schema::document as openapi_document;
 pub use app::{AppConfig, ConsolePaths, build_router};
-pub use auth::{
-    Actor, AuthSettings, Identity, MintedToken, current_actor, current_identity, mint, parse,
-    require_admin, require_authenticated, require_self_or_admin,
-};
+pub use auth::{Actor, AuthSettings, Identity, MintedToken, bearer_token};
 pub use cookie::CookieType;
 pub use error::{ApiError, Problem};
 pub use host::{Answer, Host, HostError, NoHost, Served, StreamClose, UserRecord};
@@ -259,19 +256,20 @@ mod tests {
             operation: &str,
             _arguments: serde_json::Value,
         ) -> Result<Answer, HostError> {
-            Ok(Answer::Payload(serde_json::json!({
+            let payload = serde_json::json!({
                 "section": operation,
                 "authentication": {"secret": "the-signing-secret", "duration": 1800},
-            })))
+            });
+            Ok(Answer::Payload(payload.to_string()))
         }
     }
 
     fn settings(allow_impersonate: bool) -> AuthSettings {
-        AuthSettings {
-            secret: "an-adequately-long-test-signing-secret".to_string(),
-            duration: chrono::TimeDelta::minutes(30),
+        AuthSettings::new(
+            "an-adequately-long-test-signing-secret",
+            chrono::TimeDelta::minutes(30),
             allow_impersonate,
-        }
+        )
     }
 
     fn two_user_app(
@@ -332,7 +330,7 @@ mod tests {
             br#"{"__error__":true,"type":"not-authenticated-error"}"#
         );
 
-        let minted = mint(user, None, &settings(false)).unwrap();
+        let minted = settings(false).mint(user, None).unwrap();
         let response = assert_response!(
             request!(app, get "/api/auth/me", header::AUTHORIZATION => format!("Bearer {}", minted.token)),
             OK
@@ -344,7 +342,7 @@ mod tests {
         assert_eq!(body["impersonated_by"], serde_json::Value::Null);
 
         // A token naming an unknown user resolves to anonymous.
-        let minted = mint(uuid::Uuid::new_v4(), None, &settings(false)).unwrap();
+        let minted = settings(false).mint(uuid::Uuid::new_v4(), None).unwrap();
         assert_response!(
             request!(app, get "/api/auth/me", header::AUTHORIZATION => format!("Bearer {}", minted.token)),
             UNAUTHORIZED
@@ -425,7 +423,7 @@ mod tests {
 
         // The refreshed identity is the viewer's own even when the presented token was
         // impersonated.
-        let impersonated = mint(viewer, Some(admin), &settings(true)).unwrap();
+        let impersonated = settings(true).mint(viewer, Some(admin)).unwrap();
         let response = request_json!(
             app, post "/api/auth/refresh", serde_json::json!({}),
             header::AUTHORIZATION => format!("Bearer {}", impersonated.token)
@@ -443,7 +441,7 @@ mod tests {
     async fn logout_deletes_the_cookie_and_returns_the_identity() {
         let user = uuid::Uuid::new_v4();
         let app = authenticated_app(user, false);
-        let minted = mint(user, None, &settings(false)).unwrap();
+        let minted = settings(false).mint(user, None).unwrap();
 
         let response = request_json!(
             app, post "/api/auth/logout", serde_json::json!({}),
@@ -472,8 +470,8 @@ mod tests {
     async fn impersonation_gates_run_in_order() {
         let admin = uuid::Uuid::new_v4();
         let viewer = uuid::Uuid::new_v4();
-        let admin_token = mint(admin, None, &settings(true)).unwrap().token;
-        let viewer_token = mint(viewer, None, &settings(true)).unwrap().token;
+        let admin_token = settings(true).mint(admin, None).unwrap().token;
+        let viewer_token = settings(true).mint(viewer, None).unwrap().token;
         let body = serde_json::json!({"user_id": viewer.to_string()});
 
         // Off means absent, the route reports itself missing rather than forbidden.
@@ -532,7 +530,7 @@ mod tests {
     async fn password_changes_gate_then_verify() {
         let user = uuid::Uuid::new_v4();
         let app = authenticated_app(user, false);
-        let token = mint(user, None, &settings(false)).unwrap().token;
+        let token = settings(false).mint(user, None).unwrap().token;
 
         let response = request_json!(
             app, post "/api/auth/change-password",
@@ -577,8 +575,8 @@ mod tests {
         let admin = uuid::Uuid::new_v4();
         let viewer = uuid::Uuid::new_v4();
         let app = two_user_app(admin, viewer, false);
-        let admin_token = mint(admin, None, &settings(false)).unwrap().token;
-        let viewer_token = mint(viewer, None, &settings(false)).unwrap().token;
+        let admin_token = settings(false).mint(admin, None).unwrap().token;
+        let viewer_token = settings(false).mint(viewer, None).unwrap().token;
 
         assert_response!(request!(app, get "/api/config"), UNAUTHORIZED);
         assert_response!(
@@ -614,7 +612,7 @@ mod tests {
         let admin = uuid::Uuid::new_v4();
         let viewer = uuid::Uuid::new_v4();
         let app = two_user_app(admin, viewer, false);
-        let token = mint(admin, None, &settings(false)).unwrap().token;
+        let token = settings(false).mint(admin, None).unwrap().token;
 
         assert_response!(request!(app, post "/api/reload"), UNAUTHORIZED);
 
@@ -633,7 +631,7 @@ mod tests {
     async fn record_routes_gate_and_dispatch() {
         let user = uuid::Uuid::new_v4();
         let app = authenticated_app(user, false);
-        let token = mint(user, None, &settings(false)).unwrap().token;
+        let token = settings(false).mint(user, None).unwrap().token;
 
         assert_response!(request!(app, get "/api/particles"), UNAUTHORIZED);
 
@@ -667,8 +665,8 @@ mod tests {
         let admin = uuid::Uuid::new_v4();
         let viewer = uuid::Uuid::new_v4();
         let app = two_user_app(admin, viewer, false);
-        let admin_token = mint(admin, None, &settings(false)).unwrap().token;
-        let viewer_token = mint(viewer, None, &settings(false)).unwrap().token;
+        let admin_token = settings(false).mint(admin, None).unwrap().token;
+        let viewer_token = settings(false).mint(viewer, None).unwrap().token;
 
         // Reloading requires an administrator.
         assert_response!(request!(app, post "/api/reload"), UNAUTHORIZED);
@@ -747,7 +745,7 @@ mod tests {
     #[tokio::test]
     async fn record_streams_share_their_listing_paths() {
         let user = uuid::Uuid::new_v4();
-        let token = mint(user, None, &settings(false)).unwrap().token;
+        let token = settings(false).mint(user, None).unwrap().token;
         let (port, stopper, serving) = served(authenticated_app(user, false)).await;
 
         // The same path serves a listing without an upgrade.
@@ -771,7 +769,7 @@ mod tests {
     #[tokio::test]
     async fn status_and_procedure_streams_serve() {
         let user = uuid::Uuid::new_v4();
-        let token = mint(user, None, &settings(false)).unwrap().token;
+        let token = settings(false).mint(user, None).unwrap().token;
         let (port, stopper, serving) = served(authenticated_app(user, false)).await;
 
         let messages = read_socket(port, "/api/statuses", Some(&token)).await;
