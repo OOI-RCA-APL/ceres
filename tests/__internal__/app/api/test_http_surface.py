@@ -8,6 +8,7 @@ and leaves the wire behavior unpinned. A server port must pass this file unchang
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -39,8 +40,18 @@ async def _serve(
     probe: bool = False,
     cli_token: str | None = None,
 ) -> AsyncIterator[tuple[Engine, httpx.AsyncClient]]:
-    """Run an app over an in-memory engine and yield an HTTP client against it."""
-    from ceres.__internal__.app import App
+    """Serve an engine natively on a loopback port and yield a client against it.
+
+    Requests travel over real TCP through the native server, so routing, middleware,
+    authentication, and serialization are all exercised as deployed.
+    """
+    import asyncio
+
+    from ceres_core import NativeServer
+
+    # Operations register on import, the same way the engine's server loads them.
+    import ceres.__internal__.app.operations  # noqa: F401
+    from ceres.__internal__.app.host import Host
 
     engine = Engine()
     await engine.database.migrate()
@@ -52,15 +63,36 @@ async def _serve(
             "allow_impersonate": allow_impersonate,
         }
 
+    server["port"] = 0
     await engine.load(validate(Config, {"components": [], "server": server}), checks=())
     if probe:
         engine.attach(_Probe(__with_name__="probe"))
 
-    transport = httpx.ASGITransport(app=App(engine, None, cli_token))
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    host = Host(engine)
+    console = Path(__file__).parent.parent.parent.parent.parent / "ceres" / "static" / "console"
+    if cli_token is None:
+        native = NativeServer.web(
+            host,
+            engine.config.server,
+            console,
+            console / "favicon.ico",
+            console / "favicon.png",
+            console / "favicon.svg",
+        )
+    else:
+        native = NativeServer.cli(host, engine.config.server, cli_token)
+
+    serving = asyncio.ensure_future(native.serve())
+    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{native.port}") as client:
         try:
             yield engine, client
         finally:
+            native.stop(0.2)
+            try:
+                await asyncio.wait_for(serving, 3)
+            except Exception:  # noqa: BLE001
+                pass
+
             await engine.database.dispose()
 
 
@@ -335,8 +367,21 @@ async def test_missing_users_under_unrestricted_yield_the_http_error_envelope() 
 
 
 async def test_large_responses_compress() -> None:
-    async with _serve() as (_, client):
-        response = await client.get("/api/openapi.json")
+    """A response over the minimum size negotiates one of the offered codecs."""
+    async with _serve() as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        address = Address("@sensor.temp")
+        for index in range(50):
+            await engine.database.particles.create(
+                Particle.Create(address=address, type="sample", data={"index": index})
+            )
+
+        response = await client.get(
+            "/api/particles",
+            headers={**_bearer(identity), "Accept-Encoding": "gzip, br, zstd"},
+        )
         assert response.status_code == 200
         assert response.headers.get("content-encoding") in {"gzip", "br", "zstd"}
 

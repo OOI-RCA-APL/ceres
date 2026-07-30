@@ -17,8 +17,17 @@ from collections.abc import AsyncIterator, Callable
 from itertools import count
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from ceres.data import to_json, validate
-from ceres.error import Error, HTTPError, NotAuthenticatedError, NotFoundError
+from ceres.error import (
+    Error,
+    HTTPError,
+    NotAuthenticatedError,
+    NotFoundError,
+    ValidationFailedError,
+    ValidationProblem,
+)
 from ceres.user import User
 
 if TYPE_CHECKING:
@@ -102,6 +111,11 @@ class Host:
             return json.dumps({"ok": payload})
         except Error as error:
             return _failure(error)
+        except ValidationError as error:
+            # An operation validates its own arguments, so a validation failure is a bad
+            # request rather than an internal one, reported with its problems like the
+            # framework's own handler always did.
+            return _failure(ValidationFailedError(problems=ValidationProblem.extract(error)))
         except Exception as error:  # noqa: BLE001
             del error
             return _failure(HTTPError(status=500))
@@ -117,6 +131,14 @@ class Host:
             handle = next(self._handles)
             self._streams[handle] = iterator
             return json.dumps({"ok": handle})
+        except ValidationError as error:
+            return json.dumps(
+                {
+                    "close": _close_of(
+                        ValidationFailedError(problems=ValidationProblem.extract(error))
+                    )
+                }
+            )
         except Error as error:
             return json.dumps({"close": _close_of(error)})
         except Exception as error:  # noqa: BLE001
