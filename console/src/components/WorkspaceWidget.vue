@@ -140,6 +140,7 @@ watch(
           <common-text
             :class="[$style.name, isEditingName && $style.editingName]"
             variant="th"
+            @click.shift.stop="isEditingName = true"
             @dblclick.stop="isEditingName = true"
           >
             <inline-name-edit

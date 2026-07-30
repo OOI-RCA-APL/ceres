@@ -939,6 +939,18 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     selectionAnchor = null
   }
 
+  /** Work in `layoutId` from now on, without anything in it picked out.
+
+  A layout with nothing on it has no widget to pick out, so pressing it is the only way it can say
+  that it is the one being worked in. A paste has to land somewhere, and an empty carousel slide
+  that had just been pressed is the likeliest somewhere it was meant for.
+  */
+  function focusLayout(layoutId: string) {
+    selectionLayout = layoutId
+    selection = []
+    selectionAnchor = null
+  }
+
   function selectWidget(id: string, mode: SelectMode = 'replace', layoutId: string = rootLayoutId) {
     // Reaching into another layout lets go of what was picked out in the one before it, so there
     // is nothing left to extend from or toggle against.
@@ -1176,6 +1188,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     isSelected,
     selectWidget,
     clearSelection,
+    focusLayout,
     copySelection,
     pasteWidgets,
     // A workspace is placed on a component or on the engine root, and its access is that

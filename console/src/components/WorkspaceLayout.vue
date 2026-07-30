@@ -2,9 +2,12 @@
 import { useResizeObserver } from '@vueuse/core'
 import { onMounted } from 'vue'
 
+import CommonText from '@/components/CommonText.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
+import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
 import WorkspaceWidgetPlaceholder from '@/components/WorkspaceWidgetPlaceholder.vue'
+import icons from '@/icons'
 import { useWidgetDrop } from '@/widget-drop'
 import {
   getWidgetInfo,
@@ -110,13 +113,14 @@ function isHeld(widget: Widget) {
   return drop.active && workspace.drag?.widgets.some((held) => held.id === widget.id) === true
 }
 
+// Said as a share of the row rather than as the pixels that share worked out to when the layout was
+// last measured. A width in pixels is only right until the box holding it changes size, and the
+// widths would stand at their old numbers until a measurement caught up, overflowing the row in the
+// meantime. A carousel slide changes size exactly that way, gaining and losing a scrollbar as its
+// contents change.
 function getWidgetWidthStyle(widget: Widget, isLast: boolean) {
-  if (layoutWidth == null) {
-    return undefined
-  }
-
   const units = drop.plan?.widths[widget.id] ?? widget.width
-  const width = `${Math.round((units / widgetWidthSubdivisions) * layoutWidth).toFixed(1)}px`
+  const width = `${((units / widgetWidthSubdivisions) * 100).toFixed(4)}%`
 
   // The last widget in a row is left without a ceiling, so it takes up whatever the rounding leaves
   // over. A ceiling of none is not a width anything can be animated from, so a widget arriving in
@@ -136,6 +140,33 @@ defineExpose({ element: $$(element) })
 
 <template>
   <div ref="element" :class="$style.root" data-layout>
+    <!-- A layout with nothing on it says so and offers the one thing there is to do with it, since
+    a widget can otherwise only arrive by being dragged in from somewhere that already has one. -->
+    <div
+      v-if="rows.length === 0"
+      :class="[$style.empty, 'column', 'flex-center']"
+      @pointerdown="workspace.focusLayout(layoutId)"
+    >
+      <common-text variant="description">Nothing here yet.</common-text>
+      <q-btn
+        class="q-mt-sm"
+        color="primary"
+        dense
+        flat
+        :icon="icons.add"
+        label="Add Widget"
+        no-caps
+        size="sm"
+      >
+        <workspace-add-widget-menu
+          anchor="bottom middle"
+          :layout-id="layoutId"
+          :offset="[0, 8]"
+          :row="0"
+          self="top middle"
+        />
+      </q-btn>
+    </div>
     <!-- Where the widget lands, said without the layout having to open for it. Drawn until the
     target has been held long enough to be meant, so a pointer travelling across the workspace
     does not rearrange everything it passes over on the way. -->
@@ -287,6 +318,12 @@ $easeOut: cubic-bezier(0.2, 0, 0, 1);
 $settle: 240ms;
 $fade: 210ms;
 
+// Enough of the layout to be worth pressing, which is what says a paste was meant for this one.
+.empty {
+  min-height: 120px;
+  opacity: 0.7;
+}
+
 // What the drop marker is placed against.
 //
 // Takes all the room it is given wherever that room is a definite size, which is what leaves an
@@ -297,6 +334,11 @@ $fade: 210ms;
 .root {
   position: relative;
   min-height: 100%;
+
+  // Holds the rows' own margins inside the box rather than letting them escape it. Without this
+  // the first and last margins fall outside the height, so a layout asked to fill its container
+  // stands exactly that much taller than it and scrolls when it has no reason to.
+  display: flow-root;
 }
 
 // Drawn where the next target is and nowhere in between. Travelling there would have a line lying

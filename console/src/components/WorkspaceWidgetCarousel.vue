@@ -1,11 +1,14 @@
 <script lang="ts" setup>
 import { useIntervalFn } from '@vueuse/core'
+import { v7 } from 'uuid'
 import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
+import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
-import { CarouselWidget, useWorkspace } from '@/workspace'
+import { moved, usePointerReorder } from '@/reorder'
+import { CarouselSlide, CarouselWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: CarouselWidget
@@ -14,6 +17,12 @@ const { widget } = defineProps<{
 const workspace = useWorkspace()
 
 let index = $ref(0)
+let isEditingName = $ref(false)
+
+// Which way the last change went, so a slide arrives from the side it would have come from. A
+// carousel reaching its end and starting over is still going forwards, so this follows what was
+// asked for rather than which index is larger.
+let direction = $ref(1)
 
 // Paused by hand, or while the pointer is over it. A slide moving on under someone reading it is
 // the one thing a rotating panel must not do.
@@ -39,7 +48,9 @@ watch(
   }
 )
 
-function show(next: number) {
+function show(next: number, by: number = 1) {
+  direction = by < 0 ? -1 : 1
+
   const length = widget.slides.length
   if (length === 0) {
     index = 0
@@ -62,12 +73,86 @@ watch(
   { immediate: true }
 )
 
+// Turning to a slide is asking to work on it, so it becomes the layout a paste lands in and the
+// one the keyboard acts on. Only when it was turned to deliberately. A carousel advancing on its
+// own is nobody asking for anything, and it must not move the ground under whoever is editing.
+function focusSlide() {
+  if (slide != null) {
+    workspace.focusLayout(slide.id)
+  }
+}
+
 function step(by: number) {
-  show(index + by)
+  show(index + by, by)
+  focusSlide()
+
   if (isRunning) {
     pause()
     resume()
   }
+}
+
+// The dots stand for the slides, so dragging one carries its slide with it. Driven the same way
+// the workspace tab strip is, since it is the same gesture on the same kind of row.
+let dots = $ref<HTMLElement[]>([])
+
+const reorder = usePointerReorder({
+  axis: 'horizontal',
+  elements: () => dots.filter((dot) => dot != null),
+  onReorder: (from, to) => {
+    widget.slides = moved([...widget.slides], from, to)
+
+    // The slide being looked at stays the slide being looked at, wherever it has just been put.
+    if (index === from) {
+      index = to
+    } else if (index > from && index <= to) {
+      index--
+    } else if (index < from && index >= to) {
+      index++
+    }
+  },
+})
+
+function onDotClick(at: number) {
+  // A press that turned into a drag has already done what it was for.
+  if (reorder.consumeClick()) {
+    return
+  }
+
+  step(at - index)
+}
+
+// Slides are added, named and taken away on the carousel itself, since a slide is a layout and a
+// layout is arranged by working on it rather than by describing it somewhere else. A new one is
+// shown at once, so the next thing done lands on the slide that was just asked for.
+function addSlide() {
+  const slide: CarouselSlide = { id: v7(), name: '', layout: [] }
+  widget.slides = [...widget.slides, slide]
+  index = widget.slides.length - 1
+  workspace.focusLayout(slide.id)
+}
+
+function deleteSlide() {
+  if (slide == null) {
+    return
+  }
+
+  const removing = slide
+  widget.slides = widget.slides.filter((current) => current !== removing)
+  show(index)
+}
+
+function moveSlide(by: number) {
+  const to = index + by
+  if (slide == null || to < 0 || to >= widget.slides.length) {
+    return
+  }
+
+  const slides = [...widget.slides]
+  slides.splice(index, 1)
+  slides.splice(to, 0, slide)
+  widget.slides = slides
+  index = to
 }
 </script>
 
@@ -77,48 +162,179 @@ function step(by: number) {
     @pointerenter="hovered = true"
     @pointerleave="hovered = false"
   >
-    <div v-if="slide == null" :class="[$style.empty, 'col', 'flex', 'flex-center']">
-      <common-text variant="description">
-        No slides yet. Add some from this widget's settings.
-      </common-text>
+    <div v-if="slide == null" :class="[$style.empty, 'col', 'column', 'flex-center']">
+      <common-text variant="description">A carousel shows one slide at a time.</common-text>
+      <q-btn
+        class="q-mt-sm"
+        color="primary"
+        dense
+        flat
+        :icon="icons.add"
+        label="Add Slide"
+        no-caps
+        size="sm"
+        @click="addSlide"
+      />
     </div>
+    <!-- A slide is a workspace in miniature, arranged through the same editor the workspace itself
+    is drawn by, so everything that can be done to a layout can be done to one. -->
     <template v-else>
-      <!-- A slide is a workspace in miniature, arranged through the same editor the workspace
-      itself is drawn by, so everything that can be done to a layout can be done to one. -->
-      <div :class="[$style.slide, 'overflow-auto', 'q-px-sm']">
-        <workspace-layout :key="slide.id" :layout="slide.layout" :layout-id="slide.id" />
-      </div>
-      <!-- Only worth steering when there is somewhere to steer to. -->
-      <div
-        v-if="widget.slides.length > 1"
-        :class="[$style.controls, 'items-center', 'justify-center', 'no-wrap', 'row']"
-      >
-        <q-btn dense flat :icon="icons.menuLeft" round size="9px" @click="step(-1)">
-          <q-tooltip class="bg-primary">Previous</q-tooltip>
-        </q-btn>
-        <button
-          v-for="(current, at) in widget.slides"
-          :key="current.id"
-          aria-label="Show slide"
-          :class="[$style.dot, at === index && $style.dotCurrent]"
-          type="button"
-          @click="step(at - index)"
+      <!-- Named only if a name was wanted, and shown over the slide it names. A carousel of one
+      thing per slide reads perfectly well from the slides themselves. -->
+      <template v-if="slide.name !== '' || isEditingName">
+        <div :class="[$style.title, 'q-px-sm', 'row']">
+          <!-- Reached by double-click or by shift-clicking it, the same as a widget's own name. -->
+          <common-text
+            :class="$style.name"
+            variant="th"
+            @click.shift.stop="isEditingName = true"
+            @dblclick.stop="isEditingName = true"
+          >
+            <inline-name-edit
+              v-model:editing="isEditingName"
+              :name="slide.name"
+              @rename="(value: string) => slide != null && (slide.name = value)"
+            />
+          </common-text>
+        </div>
+        <q-separator />
+      </template>
+      <!-- Slides travel sideways, arriving from the side the carousel is heading towards and
+      leaving to the other. Both are on screen for as long as it takes, which is what makes turning
+      to the next one read as one thing giving way to another rather than as a swap. -->
+      <div :class="[$style.viewport, 'col']">
+        <transition
+          :enter-active-class="$style.travelling"
+          :enter-from-class="direction > 0 ? $style.offRight : $style.offLeft"
+          :leave-active-class="$style.travelling"
+          :leave-to-class="direction > 0 ? $style.offLeft : $style.offRight"
         >
-          <q-tooltip v-if="current.name !== ''" class="bg-primary">{{ current.name }}</q-tooltip>
-        </button>
-        <q-btn dense flat :icon="icons.menuRight" round size="9px" @click="step(1)">
-          <q-tooltip class="bg-primary">Next</q-tooltip>
-        </q-btn>
+          <div :key="slide.id" :class="[$style.slide, 'overflow-auto', 'q-px-sm']">
+            <workspace-layout :layout="slide.layout" :layout-id="slide.id" />
+          </div>
+        </transition>
+      </div>
+    </template>
+    <!-- Stepping through a carousel is its own band under the slide, dressed the way a widget's
+    header is, so it reads as the carousel's own chrome rather than as something laid on the slide.
+    Held back until there is a slide, since the empty state asks for one itself. -->
+    <template v-if="slide != null">
+      <q-separator />
+      <div :class="[$style.controls, 'items-center', 'no-wrap', 'q-px-sm', 'row']">
+        <q-space />
+        <!-- Only worth steering when there is somewhere to steer to. -->
+        <template v-if="widget.slides.length > 1">
+          <q-btn dense flat :icon="icons.menuLeft" round size="10px" @click="step(-1)">
+            <q-tooltip class="bg-primary">Previous</q-tooltip>
+          </q-btn>
+          <button
+            v-for="(current, at) in widget.slides"
+            :key="current.id"
+            ref="dots"
+            aria-label="Show slide"
+            :class="[
+              $style.dot,
+              at === index && $style.dotCurrent,
+              reorder.isSwapping && $style.dotSwapping,
+              reorder.isHeld(at) && $style.dotHeld,
+              reorder.isGrabbed(at) && $style.dotGrabbed,
+            ]"
+            :style="reorder.styleFor(at)"
+            type="button"
+            v-bind="reorder.handlers(at)"
+            @click="onDotClick(at)"
+          >
+            <!-- How long is left of this slide, drawn as a ring closing around its dot. Keyed on
+            the slide so the sweep starts over each time one is turned to, which is also when the
+            wait itself restarts. Gone whenever the carousel is not advancing, since the wait is
+            reset rather than held wherever it had got to, and a part-drawn ring would claim
+            otherwise. -->
+            <svg
+              v-if="isRunning && at === index"
+              :key="index"
+              :class="$style.sweep"
+              viewBox="0 0 24 24"
+            >
+              <!-- Timed on the circle rather than on the box around it, since the circle is what
+              carries the animation and a duration set anywhere else never reaches it. -->
+              <circle
+                cx="12"
+                cy="12"
+                fill="none"
+                r="10"
+                stroke="currentColor"
+                stroke-width="1.75"
+                :style="{ animationDuration: `${Math.max(widget.interval, 1)}s` }"
+              />
+            </svg>
+            <q-tooltip v-if="current.name !== '' && !reorder.isDragging" class="bg-primary">{{
+              current.name
+            }}</q-tooltip>
+          </button>
+          <q-btn dense flat :icon="icons.menuRight" round size="10px" @click="step(1)">
+            <q-tooltip class="bg-primary">Next</q-tooltip>
+          </q-btn>
+        </template>
+        <q-space />
         <q-btn
-          v-if="widget.autoplay"
+          v-if="widget.autoplay && widget.slides.length > 1"
           dense
           flat
           :icon="paused ? icons.start : icons.pause"
           round
-          size="9px"
+          size="10px"
           @click="paused = !paused"
         >
           <q-tooltip class="bg-primary">{{ paused ? 'Resume' : 'Pause' }}</q-tooltip>
+        </q-btn>
+        <q-btn dense flat :icon="icons.add" round size="10px" @click="addSlide">
+          <q-tooltip class="bg-primary">Add Slide</q-tooltip>
+        </q-btn>
+        <!-- The slide being shown is the one these act on, since it is the one being looked at. -->
+        <q-btn dense flat :icon="icons.more" round size="10px">
+          <q-menu>
+            <q-list bordered dense>
+              <q-item v-close-popup clickable dense @click="isEditingName = true">
+                <q-item-section avatar>
+                  <q-icon :name="icons.rename" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Set Title</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item v-close-popup clickable dense :disable="index === 0" @click="moveSlide(-1)">
+                <q-item-section avatar>
+                  <q-icon :name="icons.menuLeft" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Move Slide Earlier</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item
+                v-close-popup
+                clickable
+                dense
+                :disable="index === widget.slides.length - 1"
+                @click="moveSlide(1)"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.menuRight" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Move Slide Later</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item v-close-popup clickable dense @click="deleteSlide">
+                <q-item-section avatar>
+                  <q-icon :name="icons.delete" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Delete Slide</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
         </q-btn>
       </div>
     </template>
@@ -126,45 +342,153 @@ function step(by: number) {
 </template>
 
 <style lang="scss" module>
-.root {
-  gap: 4px;
-}
+@use 'sass:color';
 
 .empty {
   opacity: 0.7;
 }
 
-// Takes the room left over rather than asking for the room its contents want, so the controls
-// under it keep their place however much a slide happens to hold.
-.slide {
+// Takes the room left over rather than asking for the room its contents want, so the band under it
+// keeps its place however much a slide happens to hold. What a slide travels through, which is why
+// nothing is drawn outside it.
+.viewport {
+  position: relative;
   flex: 1 1 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+// Laid over the viewport rather than in it, so the slide arriving and the slide leaving pass each
+// other rather than standing one after the other.
+.slide {
+  position: absolute;
+  inset: 0;
+
+  // Room for the scrollbar whether or not one is showing. A slide is as tall as its rows say, so
+  // one arrives and goes as rows are added and resized, and content that reflowed each time it did
+  // would leave the widgets at the right edge jumping under the hand arranging them.
+  scrollbar-gutter: stable;
+}
+
+// A name band over the slide and a band of controls under it, both dressed the way a widget's own
+// header is so the carousel reads as one piece of chrome around the layout it holds.
+.title {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+:global(.light) .title {
+  background-color: color.adjust(white, $lightness: -1%);
+}
+
+// Long enough to be followed across the width of a widget, and short enough not to be waited on.
+.travelling {
+  transition: transform 260ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.offRight {
+  transform: translateX(100%);
+}
+
+.offLeft {
+  transform: translateX(-100%);
 }
 
 .controls {
-  gap: 5px;
-  padding-bottom: 2px;
+  gap: 6px;
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 
-// Small enough to sit under a slide without competing with it, and large enough to aim at.
+:global(.light) .controls {
+  background-color: color.adjust(white, $lightness: -1%);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// Small enough to sit under a slide without competing with it, and large enough to aim at. Drawn
+// in its own right rather than as a faded shade of whatever text colour it inherits, which left it
+// too near the band behind it to make out.
 .dot {
-  width: 7px;
-  height: 7px;
+  position: relative;
+  width: 9px;
+  height: 9px;
   padding: 0;
   border: none;
   border-radius: 50%;
-  background-color: currentColor;
-  opacity: 0.3;
+  margin: 0 1.5px;
   cursor: pointer;
-  transition: opacity 160ms ease-out;
+  transition: background-color 160ms ease-out, transform 160ms ease;
+  touch-action: none;
 }
 
-.dot:hover {
-  opacity: 0.6;
+:global(.dark) .dot {
+  background-color: #ffffff8c;
 }
 
-.dotCurrent {
+:global(.dark) .dot:hover {
+  background-color: #ffffffd9;
+}
+
+:global(.light) .dot {
+  background-color: #00000073;
+}
+
+:global(.light) .dot:hover {
+  background-color: #000000b3;
+}
+
+// Qualified the same way, or the theme rules above would beat it on specificity.
+:global(.dark) .dotCurrent,
+:global(.light) .dotCurrent {
   background-color: $primary;
-  opacity: 1;
+}
+
+.dotHeld {
+  z-index: 2;
+}
+
+// The held dot tracks the pointer directly, so it must not smooth its own movement. It regains the
+// transition once released, which is what animates it into the gap.
+.dotGrabbed {
+  cursor: grabbing;
+  transition: background-color 160ms ease-out;
+}
+
+.dotSwapping {
+  transition: none;
+}
+
+// The ring closes clockwise from the top, drawn as a circle whose dash is drawn back in over the
+// wait. An outline rather than a fill, so the dot underneath still says which slide is showing.
+@keyframes sweep {
+  from {
+    stroke-dashoffset: 62.83;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.sweep {
+  position: absolute;
+  inset: -5px;
+  color: $primary;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.sweep circle {
+  stroke-dasharray: 62.83;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  animation-name: sweep;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
 }
 </style>
