@@ -182,6 +182,9 @@ struct FilterNode {
     /// Level bounds as indexes into the level family's ordered values.
     min_level: Option<usize>,
     max_level: Option<usize>,
+    /// Whether the node can match at all, an explicitly empty value list matching
+    /// nothing the way the Python layer's empty `IN` does.
+    impossible: bool,
     /// Subfilter groups, every `and` node's conditions holding with this node's and
     /// any `or` node matching on its own.
     and_children: Vec<FilterNode>,
@@ -301,6 +304,63 @@ impl RecordFilter {
         }
 
         Ok(self)
+    }
+
+    /// Parse a filter from its serialized JSON form, the Python filter model's dump.
+    ///
+    /// JSON is a YAML subset, so this reads through the same parser the subfilter
+    /// values use, one grammar for every front-end.
+    pub fn from_json(table: RecordTable, text: &str) -> Result<Self, Refusal> {
+        let value = parse_yaml(text)?;
+        let Yaml::Mapping(mapping) = value else {
+            return Err(Refusal::invalid("a filter must be a mapping"));
+        };
+
+        let Parsed {
+            node,
+            order,
+            limit,
+            offset,
+            ..
+        } = Parsed::from_yaml(table, &mapping)?;
+        Ok(Self {
+            table,
+            node,
+            order,
+            limit,
+            offset,
+        })
+    }
+
+    /// Compile to SQL and its bound parameters, in the dialect's placeholder style.
+    ///
+    /// The parameters arrive in placeholder order, ready for a driver-level execute,
+    /// `?` for the SQLite family and `$n` for PostgreSQL.
+    pub fn compiled(&self, dialect: SqlDialect, count: bool) -> (String, Vec<Value>) {
+        let statement = if count {
+            self.count_statement(dialect)
+        } else {
+            self.statement(dialect)
+        };
+        let (sql, values) = match dialect {
+            SqlDialect::SqliteText => statement.build(sea_query::SqliteQueryBuilder),
+            SqlDialect::Postgres => statement.build(sea_query::PostgresQueryBuilder),
+        };
+        (sql, values.0)
+    }
+
+    /// Whether one serialized record matches this filter, like the Python filter's
+    /// `matches`.
+    ///
+    /// Query controls and subsampling do not participate, this reads a single record
+    /// the way live stream filtering does. Age-relative conditions compare against
+    /// the moment of the call.
+    pub fn matches(&self, record_json: &str) -> Result<bool, String> {
+        let fields: std::collections::HashMap<&str, &serde_json::value::RawValue> =
+            serde_json::from_str(record_json)
+                .map_err(|error| format!("unreadable record: {error}"))?;
+        let now = Utc::now().naive_utc().trunc_subsecs(6);
+        Ok(self.node.matches(self.table, &fields, now))
     }
 
     /// Build the listing statement, mirroring the Python layer's `apply`.
@@ -479,12 +539,22 @@ impl Parsed {
     fn apply(&mut self, table: RecordTable, key: &str, value: &WireValue) -> Result<(), Refusal> {
         match resolve(table, key)? {
             KeyRole::Equality(field) => {
-                for scalar in value.scalars(key)? {
+                let scalars = value.scalars(key)?;
+                if scalars.is_empty() {
+                    self.node.impossible = true;
+                }
+
+                for scalar in scalars {
                     self.node.push_equality(field, &scalar)?;
                 }
             }
             KeyRole::Operation(field, kind) => {
-                for scalar in value.scalars(key)? {
+                let scalars = value.scalars(key)?;
+                if scalars.is_empty() {
+                    self.node.impossible = true;
+                }
+
+                for scalar in scalars {
                     self.node.push_operation(field, kind, &scalar);
                 }
             }
@@ -822,6 +892,221 @@ impl FilterNode {
         }
     }
 
+    /// Whether a record matches this node's tree, its own conditions and every `and`
+    /// node holding, or any `or` node holding on its own.
+    fn matches(
+        &self,
+        table: RecordTable,
+        fields: &std::collections::HashMap<&str, &serde_json::value::RawValue>,
+        now: NaiveDateTime,
+    ) -> bool {
+        (self.matches_own(table, fields, now)
+            && self
+                .and_children
+                .iter()
+                .all(|child| child.matches(table, fields, now)))
+            || self
+                .or_children
+                .iter()
+                .any(|child| child.matches(table, fields, now))
+    }
+
+    /// Whether a record satisfies this node's own conditions.
+    fn matches_own(
+        &self,
+        table: RecordTable,
+        fields: &std::collections::HashMap<&str, &serde_json::value::RawValue>,
+        now: NaiveDateTime,
+    ) -> bool {
+        if self.impossible {
+            return false;
+        }
+
+        for field in table.fields() {
+            let raw = fields.get(field.key).copied();
+            let text = raw.and_then(|raw| serde_json::from_str::<String>(raw.get()).ok());
+
+            if let Some(values) = self.values_of(field) {
+                let held = match (values, field.family) {
+                    (Values::Uuids(ids), _) => text
+                        .as_deref()
+                        .is_some_and(|text| ids.iter().any(|id| id.to_string() == text)),
+                    (Values::Stamps(stamps), _) => record_timestamp(text.as_deref())
+                        .is_some_and(|stamp| stamps.contains(&stamp)),
+                    (Values::Bytes(patterns), _) => text
+                        .as_deref()
+                        .is_some_and(|text| patterns.contains(&latin1_bytes(text))),
+                    (Values::Texts(texts), _) => text
+                        .as_deref()
+                        .is_some_and(|text| texts.iter().any(|candidate| candidate == text)),
+                };
+                if !held {
+                    return false;
+                }
+            }
+
+            if field.family == FieldFamily::Address
+                && let Some(selector) = &self.address
+            {
+                let held = text
+                    .as_deref()
+                    .is_some_and(|text| selector.matches(text, self.root.as_deref()));
+                if !held {
+                    return false;
+                }
+            }
+
+            for operation in field.operations {
+                let held_values = self.operations.iter().find(|candidate| {
+                    candidate.field.key == field.key && candidate.kind == operation.kind
+                });
+                let Some(held_values) = held_values else {
+                    continue;
+                };
+
+                let matched = match &held_values.values {
+                    Values::Texts(patterns) => {
+                        // A JSON payload matches within its serialized text, other
+                        // fields within their value.
+                        let subject = if field.family == FieldFamily::Json {
+                            raw.map(|raw| raw.get().to_string())
+                        } else {
+                            text.clone()
+                        };
+                        subject.as_deref().is_some_and(|subject| {
+                            patterns
+                                .iter()
+                                .any(|pattern| text_matches(subject, held_values.kind, pattern))
+                        })
+                    }
+                    Values::Bytes(patterns) => text.as_deref().is_some_and(|text| {
+                        let value = latin1_bytes(text);
+                        patterns
+                            .iter()
+                            .any(|pattern| bytes_match(&value, held_values.kind, pattern))
+                    }),
+                    _ => false,
+                };
+                if !matched {
+                    return false;
+                }
+            }
+
+            match field.family {
+                FieldFamily::Timestamp => {
+                    let Some(stamp) = record_timestamp(text.as_deref()) else {
+                        if self.needs_timestamp() {
+                            return false;
+                        }
+
+                        continue;
+                    };
+                    if !self.timestamp_matches(stamp, now) {
+                        return false;
+                    }
+                }
+                FieldFamily::Level => {
+                    let position = text.as_deref().and_then(level_position);
+                    if let Some(minimum) = self.min_level
+                        && !position.is_some_and(|position| position >= minimum)
+                    {
+                        return false;
+                    }
+
+                    if let Some(maximum) = self.max_level
+                        && !position.is_some_and(|position| position <= maximum)
+                    {
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        true
+    }
+
+    /// Whether any timestamp condition is set on this node.
+    fn needs_timestamp(&self) -> bool {
+        self.after.is_some()
+            || self.before.is_some()
+            || self.timespan.is_some()
+            || self.max_age.is_some()
+            || self.min_age.is_some()
+            || self.after_hour.is_some()
+            || self.before_hour.is_some()
+            || self.after_minute.is_some()
+            || self.before_minute.is_some()
+    }
+
+    /// Whether a record's timestamp satisfies the window and age conditions.
+    fn timestamp_matches(&self, stamp: NaiveDateTime, now: NaiveDateTime) -> bool {
+        if let Some(after) = self.after
+            && stamp < after
+        {
+            return false;
+        }
+
+        if let Some(before) = self.before
+            && stamp >= before
+        {
+            return false;
+        }
+
+        if let Some(timespan) = self.timespan {
+            if let Some(after) = self.after {
+                if stamp >= after + timespan {
+                    return false;
+                }
+            } else if let Some(before) = self.before {
+                if stamp < before - timespan {
+                    return false;
+                }
+            } else if stamp < now - timespan || stamp >= now {
+                return false;
+            }
+        }
+
+        if let Some(max_age) = self.max_age
+            && stamp <= now - max_age
+        {
+            return false;
+        }
+
+        if let Some(min_age) = self.min_age
+            && stamp > now - min_age
+        {
+            return false;
+        }
+
+        use chrono::Timelike;
+
+        let windows = [
+            (self.after_hour, self.before_hour, 24, stamp.hour()),
+            (self.after_minute, self.before_minute, 60, stamp.minute()),
+        ];
+        for (after, before, span, value) in windows {
+            if after.is_none() && before.is_none() {
+                continue;
+            }
+
+            let minimum = after.unwrap_or(0);
+            let maximum = before.unwrap_or(span);
+            let within_minimum = value >= minimum;
+            let within_maximum = value < maximum;
+            let held = if minimum <= maximum {
+                within_minimum && within_maximum
+            } else {
+                within_minimum || within_maximum
+            };
+            if !held {
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// This node's conditions joined with its subfilter groups', one condition when
     /// an `or` group needs the whole set to nest inside it.
     ///
@@ -873,6 +1158,10 @@ impl FilterNode {
         now: NaiveDateTime,
     ) -> Vec<SimpleExpr> {
         let mut conditions = Vec::new();
+        if self.impossible {
+            conditions.push(Expr::value(false));
+        }
+
         for field in table.fields() {
             let column = Expr::col(Alias::new(field.key));
             if let Some(values) = self.values_of(field) {
@@ -1611,6 +1900,36 @@ fn match_bytes_patterns(
         })
         .reduce(|combined, condition| combined.or(condition))
         .unwrap_or_else(|| Expr::value(false))
+}
+
+/// Whether a text value matches one pattern by an operation's kind.
+fn text_matches(value: &str, kind: OperationKind, pattern: &str) -> bool {
+    match kind {
+        OperationKind::Contains => value.contains(pattern),
+        OperationKind::Prefix => value.starts_with(pattern),
+        OperationKind::Suffix => value.ends_with(pattern),
+    }
+}
+
+/// Whether a bytes value matches one pattern by an operation's kind, whole bytes.
+fn bytes_match(value: &[u8], kind: OperationKind, pattern: &[u8]) -> bool {
+    match kind {
+        OperationKind::Contains => {
+            pattern.is_empty() || value.windows(pattern.len()).any(|window| window == pattern)
+        }
+        OperationKind::Prefix => value.starts_with(pattern),
+        OperationKind::Suffix => value.ends_with(pattern),
+    }
+}
+
+/// A record's timestamp parsed from its serialized RFC 3339 form.
+fn record_timestamp(text: Option<&str>) -> Option<NaiveDateTime> {
+    let text = text?;
+    if let Ok(aware) = chrono::DateTime::parse_from_rfc3339(text) {
+        return Some(aware.naive_utc());
+    }
+
+    None
 }
 
 /// All conditions joined with `AND`, as one expression.

@@ -20,6 +20,7 @@ __all__ = [
     "PostgresDatabaseConfig",
     "RecordBatch",
     "RecordFetcher",
+    "RecordFilter",
     "RecordTable",
     "RecordWriter",
     "SQLiteDatabaseConfig",
@@ -31,6 +32,8 @@ __all__ = [
     "ServiceConfig",
     "TursoDatabaseConfig",
     "openapi_schema",
+    "parse_record_filter",
+    "record_filter_from_json",
     "record_filter_keys",
 ]
 
@@ -519,6 +522,32 @@ class RecordFetcher:
 
         Like `fetch_pairs`, a request outside the native subset answers `None`
         synchronously so the caller delegates.
+        """
+
+@final
+class RecordFilter:
+    r"""
+    A parsed record filter, held natively and reused across calls.
+    """
+    @property
+    def limit(self) -> int | None:
+        r"""
+        The filter's limit, `None` when unbounded.
+        """
+    def compiled(self, dialect: str, *, count: bool = False) -> tuple[str, list[Any]]:
+        r"""
+        Compile to SQL and its parameters for a dialect, a listing statement or a
+        count.
+
+        The parameters arrive in placeholder order for a driver-level execute, `?`
+        style for the SQLite family and `$n` for PostgreSQL.
+        """
+    def matches(self, record_json: str) -> bool:
+        r"""
+        Whether one serialized record matches this filter.
+
+        Query controls and subsampling do not participate, this reads a single record
+        the way live stream filtering does.
         """
 
 @final
@@ -1063,6 +1092,16 @@ class RecordTable(Enum):
 def openapi_schema(version: str) -> str:
     r"""
     Serve the OpenAPI document describing the API, as JSON text.
+    """
+
+def parse_record_filter(table: RecordTable, pairs: Sequence[tuple[str, str]]) -> RecordFilter:
+    r"""
+    Parse a record filter from ordered wire query pairs.
+    """
+
+def record_filter_from_json(table: RecordTable, json: str) -> RecordFilter:
+    r"""
+    Parse a record filter from its serialized JSON form, the filter model's dump.
     """
 
 def record_filter_keys(table: RecordTable) -> tuple[list[str], list[str]]:

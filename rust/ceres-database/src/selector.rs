@@ -74,6 +74,53 @@ impl AddressSelector {
     }
 }
 
+impl AddressSelector {
+    /// Whether an address is selected, resolved against a root, like the Python
+    /// `AddressSelector.matches`.
+    pub(crate) fn matches(&self, address: &str, root: Option<&str>) -> bool {
+        let base = match root {
+            None | Some("~") => "@",
+            Some(root) => root,
+        };
+
+        self.segments
+            .iter()
+            .any(|segment| segment_matches(&absolute_segment(segment, base), address))
+    }
+}
+
+/// Whether one absolute segment selects an address, mirroring the compiled SQL.
+fn segment_matches(segment: &str, address: &str) -> bool {
+    let Some((base, modifier)) = segment.split_once(':') else {
+        return address == segment;
+    };
+
+    let modifier = Modifier::parse(modifier).expect("validation admits known modifiers only");
+
+    if base == "~" {
+        return match modifier {
+            Modifier::All => true,
+            _ => address != "~",
+        };
+    }
+
+    if base == "@" {
+        return match modifier {
+            Modifier::All | Modifier::Descendants => address != "~",
+            Modifier::Children => address.starts_with('@') && !address.contains('.'),
+        };
+    }
+
+    let descendant = address
+        .strip_prefix(base)
+        .and_then(|rest| rest.strip_prefix('.'));
+    match modifier {
+        Modifier::All => address == base || descendant.is_some(),
+        Modifier::Descendants => descendant.is_some(),
+        Modifier::Children => descendant.is_some_and(|rest| !rest.contains('.')),
+    }
+}
+
 /// Whether a root value is an absolute address, `~` or `@` with dotted names.
 pub(crate) fn valid_address(text: &str) -> bool {
     if text == "~" {

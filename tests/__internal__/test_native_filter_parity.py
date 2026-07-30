@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from ceres_core import RecordTable, record_filter_keys
+from ceres_core import RecordTable, parse_record_filter, record_filter_keys
 
 from ceres import Engine
 from ceres.address import Address
@@ -317,6 +317,15 @@ async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None
                 counting = fetcher.count_pairs(table, pairs)
                 assert counting is not None
                 assert await counting == expected_count, f"count diverged on {pairs}"
+
+                # The native matcher must read each record the way the Python filter's
+                # in-memory matching does.
+                handle = parse_record_filter(table, pairs)
+                for entity in await engine.__manager__(Record).where(Record.Filter()):
+                    record_json = to_json(entity)
+                    assert handle.matches(record_json) == filter.matches(entity), (
+                        f"{Record.__name__} match diverged on {pairs} for {record_json}"
+                    )
     finally:
         await engine.database.dispose()
 
