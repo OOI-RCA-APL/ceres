@@ -76,6 +76,45 @@ impl Host for PyHost {
     ) -> Result<Option<UserRecord>, HostError> {
         host_call!(self, "change_password", (user, old_password, new_password))
     }
+
+    async fn operate(&self, operation: &str, arguments: Value) -> Result<Value, HostError> {
+        let arguments = arguments.to_string();
+        let future = Python::attach(|py| {
+            let locals = self.locals.get().ok_or_else(|| {
+                PyRuntimeError::new_err("the host cannot answer before the server serves")
+            })?;
+            let coroutine = self
+                .host
+                .bind(py)
+                .call_method1("operate", (operation, arguments))?;
+            pyo3_async_runtimes::into_future_with_locals(locals, coroutine)
+        })
+        .map_err(|error| HostError::Internal(error.to_string()))?;
+
+        let result = future
+            .await
+            .map_err(|error| HostError::Internal(error.to_string()))?;
+        let envelope: String = Python::attach(|py| result.extract::<String>(py))
+            .map_err(|error| HostError::Internal(error.to_string()))?;
+        parse_value_envelope(&envelope)
+    }
+}
+
+/// Parse a host result envelope into its payload or a typed error.
+fn parse_value_envelope(envelope: &str) -> Result<Value, HostError> {
+    let value: Value = serde_json::from_str(envelope)
+        .map_err(|error| HostError::Internal(format!("unparseable host envelope. {error}")))?;
+
+    if let Some(error) = value.get("error") {
+        let status = error.get("status").and_then(Value::as_u64).unwrap_or(500);
+        let envelope = error.get("envelope").cloned().unwrap_or(Value::Null);
+        return Err(HostError::Typed {
+            status: u16::try_from(status).unwrap_or(500),
+            envelope,
+        });
+    }
+
+    Ok(value.get("ok").cloned().unwrap_or(Value::Null))
 }
 
 /// Parse a host result envelope into a user record, absence, or a typed error.

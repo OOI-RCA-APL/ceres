@@ -77,6 +77,18 @@ pub trait Host: Send + Sync + 'static {
         old_password: String,
         new_password: String,
     ) -> Result<Option<UserRecord>, HostError>;
+
+    /// Run a named engine operation, the generic channel most route families ride.
+    ///
+    /// The operation names and argument shapes form the contract between the server and
+    /// its host, one name per route behavior, and the result is the payload the route
+    /// serves.
+    async fn operate(&self, operation: &str, arguments: Value) -> Result<Value, HostError> {
+        let _ = arguments;
+        Err(HostError::Internal(format!(
+            "this host does not support the {operation:?} operation"
+        )))
+    }
 }
 
 /// A host for applications that never cross the boundary, tests and stubs.

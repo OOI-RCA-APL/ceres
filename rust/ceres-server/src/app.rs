@@ -119,6 +119,11 @@ pub fn build_router(config: AppConfig) -> Router {
             "/api/auth/change-password",
             post(crate::api::auth::change_password),
         )
+        .route("/api/config", get(crate::api::config::full))
+        .route("/api/config/service", get(crate::api::config::service))
+        .route("/api/config/server", get(crate::api::config::server))
+        .route("/api/config/database", get(crate::api::config::database))
+        .route("/api/config/console", get(crate::api::config::console))
         .route("/api/{*path}", get(api_not_found));
 
     if state.console.is_some() {

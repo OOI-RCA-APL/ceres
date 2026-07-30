@@ -5,6 +5,7 @@
 //! answer in the exact wire shapes the Python application produced.
 
 pub(crate) mod auth;
+pub(crate) mod config;
 
 /// Unwrap a fallible expression or answer with its response.
 macro_rules! attempt {

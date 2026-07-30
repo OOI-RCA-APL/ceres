@@ -14,6 +14,7 @@ mod cookie;
 mod error;
 mod host;
 mod layers;
+mod scrub;
 mod serve;
 mod tls;
 
@@ -28,6 +29,7 @@ pub use cookie::CookieType;
 pub use error::{ApiError, Problem};
 pub use host::{Host, HostError, NoHost, UserRecord};
 pub use layers::{apply_compression, apply_cors};
+pub use scrub::scrub_credentials;
 pub use serve::{BoundServer, Error as ServeError, Stopper};
 
 #[cfg(test)]
@@ -208,6 +210,17 @@ mod tests {
             }
 
             self.user(user).await
+        }
+
+        async fn operate(
+            &self,
+            operation: &str,
+            _arguments: serde_json::Value,
+        ) -> Result<serde_json::Value, HostError> {
+            Ok(serde_json::json!({
+                "section": operation,
+                "authentication": {"secret": "the-signing-secret", "duration": 1800},
+            }))
         }
     }
 
@@ -509,6 +522,41 @@ mod tests {
             UNAUTHORIZED,
             br#"{"__error__":true,"type":"http-error","status":401}"#
         );
+    }
+
+    #[tokio::test]
+    async fn config_sections_gate_by_admin_and_scrub() {
+        let admin = uuid::Uuid::new_v4();
+        let viewer = uuid::Uuid::new_v4();
+        let app = two_user_app(admin, viewer, false);
+        let admin_token = mint(admin, None, &settings(false)).unwrap().token;
+        let viewer_token = mint(viewer, None, &settings(false)).unwrap().token;
+
+        assert_response!(request!(app, get "/api/config"), UNAUTHORIZED);
+        assert_response!(
+            request!(app, get "/api/config", header::AUTHORIZATION => format!("Bearer {viewer_token}")),
+            FORBIDDEN
+        );
+
+        for path in [
+            "/api/config",
+            "/api/config/service",
+            "/api/config/server",
+            "/api/config/database",
+        ] {
+            let response =
+                request!(app, get path, header::AUTHORIZATION => format!("Bearer {admin_token}"));
+            let body = json_of(assert_response!(response, OK)).await;
+            assert_eq!(
+                body["authentication"],
+                serde_json::json!({"duration": 1800})
+            );
+        }
+
+        // The console section is open and carries the operation it asked the host for.
+        let response = request!(app, get "/api/config/console");
+        let body = json_of(assert_response!(response, OK)).await;
+        assert_eq!(body["section"], "config.console");
     }
 
     #[tokio::test]
