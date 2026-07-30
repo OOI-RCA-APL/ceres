@@ -25,7 +25,7 @@ pub use app::{AppConfig, ConsolePaths, build_router};
 pub use auth::{Actor, AuthSettings, Identity, MintedToken, bearer_token};
 pub use cookie::CookieType;
 pub use error::{ApiError, Problem};
-pub use host::{Answer, Host, HostError, NoHost, Served, StreamClose, UserRecord};
+pub use host::{Answer, GateUser, Host, HostError, NoHost, Served, StreamClose, UserRecord};
 pub use layers::{apply_compression, apply_cors};
 pub use scrub::scrub_credentials;
 pub use serve::{BoundServer, Error as ServeError, Stopper};

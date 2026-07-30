@@ -299,12 +299,15 @@ class NativeServer:
         favicon_ico: str | PathLike[str] | Path,
         favicon_png: str | PathLike[str] | Path,
         favicon_svg: str | PathLike[str] | Path,
+        records: RecordFetcher | None = None,
     ) -> NativeServer:
         r"""
         Bind the web application, serving the console and API on the configured address.
         """
     @staticmethod
-    def cli(host: Any, config: ServerConfig, token: str) -> NativeServer:
+    def cli(
+        host: Any, config: ServerConfig, token: str, records: RecordFetcher | None = None
+    ) -> NativeServer:
         r"""
         Bind the CLI control application on an ephemeral loopback port.
         """

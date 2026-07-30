@@ -11,10 +11,11 @@
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use ceres_database::{RecordFilter, RecordStore, RecordTable};
 use ceres_server::axum::Router;
 use ceres_server::{
-    Answer, AppConfig, AuthSettings, BoundServer, ConsolePaths, Host, HostError, Served, Stopper,
-    StreamClose, UserRecord, apply_compression, apply_cors, build_router,
+    Answer, AppConfig, AuthSettings, BoundServer, ConsolePaths, GateUser, Host, HostError, Served,
+    Stopper, StreamClose, UserRecord, apply_compression, apply_cors, build_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -30,6 +31,12 @@ use uuid::Uuid;
 struct PyHost {
     host: Py<PyAny>,
     locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
+    /// The native record store, when the engine's database supports one.
+    ///
+    /// Record requests inside the native filter subset serve through it without
+    /// touching Python at all, including their authentication gate, and everything
+    /// else falls back to the host's coroutines.
+    store: Option<Arc<RecordStore>>,
 }
 
 impl PyHost {
@@ -154,6 +161,47 @@ impl Host for PyHost {
 
     async fn stream_close(&self, handle: u64) {
         let _ = self.call("stream_close", (handle,)).await;
+    }
+
+    async fn native_gate_user(&self, id: Uuid) -> Option<Option<GateUser>> {
+        let store = self.store.as_ref()?;
+        match store.gate_user(id).await {
+            Ok(found) => Some(found.map(|gate| GateUser {
+                id: gate.id,
+                admin: gate.admin,
+                disabled: gate.disabled,
+            })),
+            // A store failure falls back to the full lookup rather than erroring.
+            Err(_) => None,
+        }
+    }
+
+    async fn native_records(&self, table: &str, pairs: &[(String, String)]) -> Option<String> {
+        let store = self.store.as_ref()?;
+        let table = RecordTable::parse(table).ok()?;
+        let filter = RecordFilter::parse(table, pairs)?.with_limit_cap(table.listing_cap())?;
+        let records = store.fetch_filter(table, &filter).await.ok()?;
+        String::from_utf8(records.to_json_array().ok()?).ok()
+    }
+
+    async fn native_record_count(&self, table: &str, pairs: &[(String, String)]) -> Option<String> {
+        let store = self.store.as_ref()?;
+        let table = RecordTable::parse(table).ok()?;
+        let filter = RecordFilter::parse(table, pairs)?;
+        let count = store.count_filter(table, &filter).await.ok()?;
+        Some(count.to_string())
+    }
+
+    async fn native_record(&self, table: &str, id: Uuid) -> Option<String> {
+        let store = self.store.as_ref()?;
+        let table = RecordTable::parse(table).ok()?;
+        let pairs = [
+            ("id".to_string(), id.to_string()),
+            ("limit".to_string(), "1".to_string()),
+        ];
+        let filter = RecordFilter::parse(table, &pairs)?;
+        let records = store.fetch_filter(table, &filter).await.ok()?;
+        String::from_utf8(records.to_json_first().ok()?).ok()
     }
 }
 
@@ -327,8 +375,10 @@ pub struct NativeServer {
 }
 
 impl NativeServer {
+    #[allow(clippy::too_many_arguments)]
     fn build(
         host: Py<PyAny>,
+        records: Option<&crate::fetcher::RecordFetcher>,
         config: &ceres_config::ServerConfig,
         bind: &str,
         port: u16,
@@ -359,6 +409,7 @@ impl NativeServer {
             host: Arc::new(PyHost {
                 host,
                 locals: locals.clone(),
+                store: records.map(|fetcher| fetcher.store.clone()),
             }),
         });
 
@@ -391,7 +442,7 @@ impl NativeServer {
 impl NativeServer {
     /// Bind the web application, serving the console and API on the configured address.
     #[staticmethod]
-    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg))]
+    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, records=None))]
     fn web(
         #[gen_stub(override_type(type_repr = "typing.Any"))] host: Py<PyAny>,
         config: &crate::ServerConfig,
@@ -399,6 +450,7 @@ impl NativeServer {
         favicon_ico: std::path::PathBuf,
         favicon_png: std::path::PathBuf,
         favicon_svg: std::path::PathBuf,
+        records: Option<&crate::fetcher::RecordFetcher>,
     ) -> PyResult<Self> {
         let config = &config.inner;
         let port = config
@@ -406,6 +458,7 @@ impl NativeServer {
             .ok_or_else(|| PyValueError::new_err("the server port is not configured"))?;
         Self::build(
             host,
+            records,
             config,
             &config.host,
             port,
@@ -422,13 +475,16 @@ impl NativeServer {
 
     /// Bind the CLI control application on an ephemeral loopback port.
     #[staticmethod]
+    #[pyo3(signature = (host, config, token, records=None))]
     fn cli(
         #[gen_stub(override_type(type_repr = "typing.Any"))] host: Py<PyAny>,
         config: &crate::ServerConfig,
         token: String,
+        records: Option<&crate::fetcher::RecordFetcher>,
     ) -> PyResult<Self> {
         Self::build(
             host,
+            records,
             &config.inner,
             "127.0.0.1",
             0,

@@ -22,15 +22,23 @@ use crate::error::ApiError;
 /// upgrade, exactly as they shared it in the Python application.
 async fn list(state: &Arc<AppState>, table: &str, request: Request) -> Response {
     let (mut parts, _) = request.into_parts();
-    let actor = attempt!(state.actor(&parts.headers).await);
+    let actor = attempt!(state.gate_actor(&parts.headers).await);
     attempt!(actor.require_authenticated());
 
     let query = parts.uri.query().map(str::to_string);
-    let arguments = json!({"table": table, "query": query_pairs(query)});
+    let pairs = query_pairs(query);
     if let Some(upgrade) = crate::api::streams::requested_upgrade(&mut parts, state).await {
+        let arguments = json!({"table": table, "query": pairs});
         return state.stream(upgrade, "records.stream", arguments);
     }
 
+    // The native path serves the filters it proves it can, everything else crosses to
+    // the host operation, which answers or produces the canonical error.
+    if let Some(payload) = state.host.native_records(table, &pairs).await {
+        return json_response(payload);
+    }
+
+    let arguments = json!({"table": table, "query": pairs});
     match state.host.payload("records.list", arguments).await {
         Ok(payload) => json_response(payload),
         Err(error) => error.into_response(),
@@ -44,10 +52,15 @@ async fn count(
     table: &str,
     query: Option<String>,
 ) -> Response {
-    let actor = attempt!(state.actor(headers).await);
+    let actor = attempt!(state.gate_actor(headers).await);
     attempt!(actor.require_authenticated());
 
-    let arguments = json!({"table": table, "query": query_pairs(query)});
+    let pairs = query_pairs(query);
+    if let Some(payload) = state.host.native_record_count(table, &pairs).await {
+        return json_response(payload);
+    }
+
+    let arguments = json!({"table": table, "query": pairs});
     match state.host.payload("records.count", arguments).await {
         Ok(payload) => json_response(payload),
         Err(error) => error.into_response(),
@@ -59,12 +72,20 @@ async fn count(
 /// A path segment that does not parse as a UUID never matched the route in the Python
 /// application, falling through to its catch-all, so it answers the same not-found.
 async fn get(state: &AppState, headers: &HeaderMap, table: &str, id: &str) -> Response {
-    if id.parse::<uuid::Uuid>().is_err() {
+    let Ok(record) = id.parse::<uuid::Uuid>() else {
         return ApiError::not_found().into_response();
-    }
+    };
 
-    let actor = attempt!(state.actor(headers).await);
+    let actor = attempt!(state.gate_actor(headers).await);
     attempt!(actor.require_authenticated());
+
+    if let Some(payload) = state.host.native_record(table, record).await {
+        if payload == "null" {
+            return ApiError::not_found().into_response();
+        }
+
+        return json_response(payload);
+    }
 
     match state
         .host

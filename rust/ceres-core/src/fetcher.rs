@@ -69,7 +69,7 @@ fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres_core", frozen)]
 pub struct RecordFetcher {
-    store: Arc<RecordStore>,
+    pub(crate) store: Arc<RecordStore>,
 }
 
 #[gen_stub_pymethods]

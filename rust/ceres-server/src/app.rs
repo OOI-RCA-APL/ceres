@@ -122,6 +122,43 @@ impl AppState {
             unrestricted: self.cli || self.auth.is_none(),
         })
     }
+
+    /// Resolve the actor for a gate, natively when the host can.
+    ///
+    /// A gate needs only the user's standing, so a host with a native store answers
+    /// without crossing into Python, the user's wire payload left null. Routes that
+    /// serve the user's record keep the full [`Self::actor`] resolution.
+    pub(crate) async fn gate_actor(&self, headers: &HeaderMap) -> Result<Actor, HostError> {
+        let unrestricted = self.cli || self.auth.is_none();
+        let Some(settings) = self.auth.as_ref() else {
+            return Ok(Actor {
+                user: None,
+                unrestricted,
+            });
+        };
+        let Some(parsed) =
+            crate::auth::bearer_token(headers).and_then(|token| settings.parse(&token))
+        else {
+            return Ok(Actor {
+                user: None,
+                unrestricted,
+            });
+        };
+
+        let Some(found) = self.host.native_gate_user(parsed.user_id).await else {
+            return self.actor(headers).await;
+        };
+
+        Ok(Actor {
+            user: found.map(|gate| crate::host::UserRecord {
+                id: gate.id,
+                admin: gate.admin,
+                disabled: gate.disabled,
+                payload: Value::Null,
+            }),
+            unrestricted,
+        })
+    }
 }
 
 /// Respond with a body of already-serialized JSON.

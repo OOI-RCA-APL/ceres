@@ -98,9 +98,14 @@ class Server(Tasklet):
 
         host = Host(self._engine)
 
+        # Record requests inside the native filter subset serve straight from the store,
+        # never crossing into Python, so the server takes the database's fetcher when
+        # the backend supports one.
+        records = self._engine.database._record_fetcher()
+
         # The CLI server is loopback-only. Its token grants full privileges, and everything
         # that talks to it (the CLI, the server info file scheme) is local by design.
-        self._native_cli = NativeServer.cli(host, self._config, self._cli_token)
+        self._native_cli = NativeServer.cli(host, self._config, self._cli_token, records)
         self._cli_port = self._native_cli.port
 
         if self._config.port is not None:
@@ -112,6 +117,7 @@ class Server(Tasklet):
                 _favicon(self._engine, ".ico", console),
                 _favicon(self._engine, ".png", console),
                 _favicon(self._engine, ".svg", console),
+                records,
             )
 
         # The info file records the port the control server actually bound.

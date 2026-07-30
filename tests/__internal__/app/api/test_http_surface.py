@@ -96,6 +96,7 @@ async def _serve(
     probe: bool = False,
     media: bool = False,
     cli_token: str | None = None,
+    database_path: Path | None = None,
 ) -> AsyncIterator[tuple[Engine, httpx.AsyncClient]]:
     """Serve an engine natively on a loopback port and yield a client against it.
 
@@ -111,7 +112,6 @@ async def _serve(
     from ceres.__internal__.app.host import Host
 
     engine = Engine()
-    await engine.database.migrate()
 
     server: dict[str, Any] = {}
     if authentication:
@@ -121,7 +121,14 @@ async def _serve(
         }
 
     server["port"] = 0
-    await engine.load(validate(Config, {"components": [], "server": server}), checks=())
+    configuration: dict[str, Any] = {"components": [], "server": server}
+    if database_path is not None:
+        # A file-backed database carries a native record store, so its record routes and
+        # authentication gate serve without Python.
+        configuration["database"] = {"type": "sqlite", "path": str(database_path)}
+
+    await engine.load(validate(Config, configuration), checks=())
+    await engine.database.migrate()
     if probe:
         engine.attach(_Probe(__with_name__="probe"))
 
@@ -130,6 +137,7 @@ async def _serve(
         engine.attach(_Media(__with_name__="media"))
 
     host = Host(engine)
+    records = engine.database._record_fetcher()
     console = Path(__file__).parent.parent.parent.parent.parent / "ceres" / "static" / "console"
     if cli_token is None:
         native = NativeServer.web(
@@ -139,9 +147,10 @@ async def _serve(
             console / "favicon.ico",
             console / "favicon.png",
             console / "favicon.svg",
+            records,
         )
     else:
-        native = NativeServer.cli(host, engine.config.server, cli_token)
+        native = NativeServer.cli(host, engine.config.server, cli_token, records)
 
     serving = asyncio.ensure_future(native.serve())
     async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{native.port}") as client:
@@ -407,6 +416,71 @@ async def test_group_membership_routes_require_the_group() -> None:
             f"/api/users/{uuid4()}/group-memberships/{missing}", headers=_bearer(identity)
         )
         assert response.status_code == 404
+
+
+async def test_record_routes_serve_natively_with_wire_parity(tmp_path: Path) -> None:
+    """On a native-store backend, record routes serve without Python and match it.
+
+    The listing, count, and single-record routes answer through the native filter
+    subset, their gate resolves the user natively, and every payload must equal what
+    the Python query layer would have produced. A construct outside the subset still
+    answers correctly through the delegated operation.
+    """
+    from ceres.particle import Particle
+
+    async with _serve(database_path=tmp_path / "records.sqlite") as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        for index in range(4):
+            await engine.database.particles.create(
+                Particle.Create(
+                    address=Address("@sensor.temp" if index % 2 == 0 else "@motor"),
+                    type="sample" if index % 2 == 0 else "sweep",
+                    data={"index": index},
+                )
+            )
+
+        # The gate itself runs natively, and anonymous callers still refuse.
+        assert (await client.get("/api/particles")).status_code == 401
+
+        listing = await client.get(
+            "/api/particles?type=sample&order=timestamp:desc", headers=_bearer(identity)
+        )
+        assert listing.status_code == 200
+        query = engine.__manager__(Particle).where(
+            validate(Particle.Filter, {"type": "sample", "order": "timestamp:desc"})
+        )
+        expected = [json.loads(to_json(entity)) for entity in await query]
+        assert listing.json() == expected
+        assert len(expected) == 2
+
+        count = await client.get("/api/particles/count?type=sweep", headers=_bearer(identity))
+        assert count.status_code == 200
+        assert count.json() == 2
+
+        single = await client.get(f"/api/particles/{expected[0]['id']}", headers=_bearer(identity))
+        assert single.status_code == 200
+        assert single.json() == expected[0]
+
+        from uuid import uuid4
+
+        missing = await client.get(f"/api/particles/{uuid4()}", headers=_bearer(identity))
+        assert missing.status_code == 404
+
+        # A construct outside the subset delegates and still answers correctly.
+        delegated = await client.get("/api/particles?type_prefix=sa", headers=_bearer(identity))
+        assert delegated.status_code == 200
+        assert delegated.json() == [
+            json.loads(to_json(entity))
+            for entity in await engine.__manager__(Particle).where(
+                validate(Particle.Filter, {"type_prefix": "sa"})
+            )
+        ]
+
+        # A limit beyond the route's cap is the operation's validation error.
+        over = await client.get("/api/particles?limit=999999", headers=_bearer(identity))
+        assert over.status_code == 422
 
 
 async def test_a_file_output_serves_the_file_with_its_headers(tmp_path: Path) -> None:

@@ -102,11 +102,51 @@ impl StreamClose {
     }
 }
 
+/// A user's standing as the native gate reads it, no wire payload attached.
+#[derive(Clone, Copy, Debug)]
+pub struct GateUser {
+    pub id: Uuid,
+    pub admin: bool,
+    pub disabled: bool,
+}
+
 /// The engine-side operations the server calls across the language boundary.
 #[async_trait::async_trait]
 pub trait Host: Send + Sync + 'static {
     /// Look up a user by ID, `None` when no such user exists.
     async fn user(&self, id: Uuid) -> Result<Option<UserRecord>, HostError>;
+
+    /// Read a user's standing natively for an authentication gate.
+    ///
+    /// The outer `None` means this host has no native store and the caller falls back
+    /// to the full `user` lookup. The inner `None` means no user carries the ID, which
+    /// resolves to anonymous like every other token problem.
+    async fn native_gate_user(&self, id: Uuid) -> Option<Option<GateUser>> {
+        let _ = id;
+        None
+    }
+
+    /// Serve a record listing natively from filter query pairs, as its response body.
+    ///
+    /// `None` delegates to the host operation, for a filter outside the native subset,
+    /// a host without a native store, or any native failure, whose canonical answer or
+    /// error then comes from the operation.
+    async fn native_records(&self, table: &str, pairs: &[(String, String)]) -> Option<String> {
+        let _ = (table, pairs);
+        None
+    }
+
+    /// Count records natively from filter query pairs, as the count's JSON text.
+    async fn native_record_count(&self, table: &str, pairs: &[(String, String)]) -> Option<String> {
+        let _ = (table, pairs);
+        None
+    }
+
+    /// Serve one record natively by ID, as its response body, `null` when absent.
+    async fn native_record(&self, table: &str, id: Uuid) -> Option<String> {
+        let _ = (table, id);
+        None
+    }
 
     /// Check a username and password, returning the user when they match.
     async fn verify_login(
