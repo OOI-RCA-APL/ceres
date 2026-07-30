@@ -68,6 +68,8 @@ enum KeyRole {
     Root,
     /// An `or` or `and` group of recursive subfilters.
     Group(GroupOp),
+    /// One of the subsampling controls a record's timestamp brings.
+    Subsample(SubsampleOp),
     /// One of the window operators a timestamp field brings.
     Window(WindowOp),
     /// One of the time-of-day windows a timestamp field brings.
@@ -86,6 +88,20 @@ enum WindowOp {
     Timespan,
     MaxAge,
     MinAge,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum SubsampleOp {
+    Every,
+    Count,
+    Select,
+}
+
+/// Which record each subsample bucket keeps.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SubsampleSelect {
+    First,
+    Last,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -153,6 +169,10 @@ struct FilterNode {
     timespan: Option<Duration>,
     max_age: Option<Duration>,
     min_age: Option<Duration>,
+    /// Subsampling, at most one record kept per time bucket.
+    subsample_every: Option<Duration>,
+    subsample: Option<u64>,
+    subsample_select: Option<SubsampleSelect>,
     /// Time-of-day windows over the timestamp's hour and minute, wrapping around
     /// midnight when the lower bound exceeds the upper.
     after_hour: Option<u32>,
@@ -203,6 +223,7 @@ impl RecordFilter {
                 FieldFamily::Timestamp => {
                     keys.extend(["after", "before", "timespan", "max_age", "min_age"]);
                     keys.extend(["after_hour", "before_hour", "after_minute", "before_minute"]);
+                    keys.extend(["subsample_every", "subsample", "subsample_select"]);
                 }
                 FieldFamily::Level => {
                     keys.extend(bound_keys(field));
@@ -222,16 +243,12 @@ impl RecordFilter {
     /// list and the supported one to exactly what the Pydantic models declare so a new
     /// filter field cannot ship unclassified.
     pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
-        const STRUCTURAL: [&str; 3] = ["subsample_every", "subsample", "subsample_select"];
-
-        let mut keys: Vec<&'static str> = STRUCTURAL.to_vec();
-
         // A particle's `class` filters by a Python type, which has no native form.
         if table == RecordTable::Particles {
-            keys.push("class");
+            return vec!["class"];
         }
 
-        keys
+        Vec::new()
     }
 
     /// Parse query pairs into a filter, refusing what cannot compile natively.
@@ -511,6 +528,43 @@ impl Parsed {
                     }
                 }
             }
+            KeyRole::Subsample(operator) => {
+                let value = value.scalar(key)?;
+                match operator {
+                    SubsampleOp::Every => {
+                        let every = parse_duration(&value)?;
+                        if every < Duration::microseconds(1) {
+                            return Err(Refusal::invalid(
+                                "subsample_every must be greater than zero",
+                            ));
+                        }
+
+                        set_once(&mut self.node.subsample_every, key, every)?;
+                    }
+                    SubsampleOp::Count => {
+                        let count: u64 = value
+                            .parse()
+                            .ok()
+                            .filter(|count| *count >= 1)
+                            .ok_or_else(|| {
+                                Refusal::invalid(format!("invalid subsample {value:?}"))
+                            })?;
+                        set_once(&mut self.node.subsample, key, count)?;
+                    }
+                    SubsampleOp::Select => {
+                        let select = match value.as_str() {
+                            "first" => SubsampleSelect::First,
+                            "last" => SubsampleSelect::Last,
+                            _ => {
+                                return Err(Refusal::invalid(format!(
+                                    "invalid subsample_select {value:?}"
+                                )));
+                            }
+                        };
+                        set_once(&mut self.node.subsample_select, key, select)?;
+                    }
+                }
+            }
             KeyRole::Clock(operator) => {
                 let value = value.scalar(key)?;
                 let cap = match operator {
@@ -585,6 +639,27 @@ impl Parsed {
     /// Finish the node, checking the `or` group's restrictions and hoisting the `and`
     /// group's query controls, exactly as the Python model validator does.
     fn finish(mut self) -> Result<Self, Refusal> {
+        // A count-based subsample needs a bounded time range, and whether one exists
+        // follows from which range fields are set, never from the clock.
+        if self.node.subsample.is_some() {
+            let has_start = self.node.after.is_some()
+                || self.node.timespan.is_some()
+                || self.node.max_age.is_some();
+            let has_end = self.node.before.is_some()
+                || self.node.timespan.is_some()
+                || self.node.min_age.is_some();
+            if !has_start || !has_end {
+                let subject = match (has_start, has_end) {
+                    (false, false) => "Start and end time",
+                    (false, true) => "Start time",
+                    _ => "End time",
+                };
+                return Err(Refusal::invalid(format!(
+                    "{subject} for `subsample` time range could not be determined."
+                )));
+            }
+        }
+
         for child in &self.or_group {
             for (name, present) in [
                 ("order", !child.order.is_empty()),
@@ -829,6 +904,7 @@ impl FilterNode {
             match field.family {
                 FieldFamily::Timestamp => {
                     self.window_conditions(&mut conditions, &column, now, dialect);
+                    self.subsample_conditions(&mut conditions, table, field.key, now, dialect);
                     self.clock_conditions(&mut conditions, field.key, dialect);
                 }
                 FieldFamily::Level => {
@@ -891,6 +967,95 @@ impl FilterNode {
 
         if let Some(min_age) = self.min_age {
             conditions.push(column.clone().lte(timestamp_value(now - min_age, dialect)));
+        }
+    }
+
+    /// The effective start and end of the node's time range, like the Python
+    /// `_get_time_bounds`, the tightest bound winning on each side.
+    fn time_bounds(&self, now: NaiveDateTime) -> (Option<NaiveDateTime>, Option<NaiveDateTime>) {
+        let mut starts = Vec::new();
+        let mut ends = Vec::new();
+        if let Some(after) = self.after {
+            starts.push(after);
+        }
+
+        if let Some(before) = self.before {
+            ends.push(before);
+        }
+
+        if let Some(timespan) = self.timespan {
+            if let Some(after) = self.after {
+                ends.push(after + timespan);
+            } else if let Some(before) = self.before {
+                starts.push(before - timespan);
+            } else {
+                starts.push(now - timespan);
+                ends.push(now);
+            }
+        }
+
+        if let Some(max_age) = self.max_age {
+            starts.push(now - max_age);
+        }
+
+        if let Some(min_age) = self.min_age {
+            ends.push(now - min_age);
+        }
+
+        (starts.into_iter().max(), ends.into_iter().min())
+    }
+
+    /// The subsampling conditions, each a membership test against the timestamps the
+    /// buckets keep.
+    ///
+    /// Both controls group the table's rows into fixed-width buckets measured from an
+    /// origin and keep the first or last timestamp of each, so the condition is one
+    /// grouped subquery per control.
+    fn subsample_conditions(
+        &self,
+        conditions: &mut Vec<SimpleExpr>,
+        table: RecordTable,
+        key: &'static str,
+        now: NaiveDateTime,
+        dialect: SqlDialect,
+    ) {
+        if self.subsample_every.is_none() && self.subsample.is_none() {
+            return;
+        }
+
+        let (start, end) = self.time_bounds(now);
+        let select = self.subsample_select.unwrap_or(SubsampleSelect::First);
+
+        if let Some(every) = self.subsample_every {
+            // With no start the buckets measure from the day's midnight.
+            let origin =
+                start.unwrap_or_else(|| now.date().and_hms_opt(0, 0, 0).expect("midnight exists"));
+            let width = every
+                .num_microseconds()
+                .expect("durations parse within range")
+                .max(1);
+            conditions.push(bucket_condition(
+                table, key, origin, width, start, end, select, dialect,
+            ));
+        }
+
+        if let Some(count) = self.subsample {
+            // Validation guaranteed both bounds.
+            let (Some(start), Some(end)) = (start, end) else {
+                return;
+            };
+            let total = (end - start).num_microseconds().unwrap_or(0);
+            let width = divide_rounding_half_even(total, count.max(1) as i64).max(1);
+            conditions.push(bucket_condition(
+                table,
+                key,
+                start,
+                width,
+                Some(start),
+                Some(end),
+                select,
+                dialect,
+            ));
         }
     }
 
@@ -1019,6 +1184,16 @@ fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
                 };
                 if let Some(operator) = operator {
                     return Ok(KeyRole::Clock(operator));
+                }
+
+                let operator = match key {
+                    "subsample_every" => Some(SubsampleOp::Every),
+                    "subsample" => Some(SubsampleOp::Count),
+                    "subsample_select" => Some(SubsampleOp::Select),
+                    _ => None,
+                };
+                if let Some(operator) = operator {
+                    return Ok(KeyRole::Subsample(operator));
                 }
             }
             FieldFamily::Level => {
@@ -1175,6 +1350,89 @@ fn parse_duration(text: &str) -> Result<Duration, Refusal> {
     }
 
     Ok(Duration::microseconds((value * scale).round() as i64))
+}
+
+/// One bucket membership condition, the timestamp landing among each bucket's kept
+/// timestamps.
+#[expect(clippy::too_many_arguments)]
+fn bucket_condition(
+    table: RecordTable,
+    key: &'static str,
+    origin: NaiveDateTime,
+    width: i64,
+    start: Option<NaiveDateTime>,
+    end: Option<NaiveDateTime>,
+    select: SubsampleSelect,
+    dialect: SqlDialect,
+) -> SimpleExpr {
+    let kept = match select {
+        SubsampleSelect::First => Func::cust(Alias::new("MIN")).arg(Expr::col(Alias::new(key))),
+        SubsampleSelect::Last => Func::cust(Alias::new("MAX")).arg(Expr::col(Alias::new(key))),
+    };
+
+    let mut buckets = Query::select();
+    buckets.expr(kept).from(Alias::new(table.name()));
+    if let Some(start) = start {
+        buckets.and_where(Expr::col(Alias::new(key)).gte(timestamp_value(start, dialect)));
+    }
+
+    if let Some(end) = end {
+        buckets.and_where(Expr::col(Alias::new(key)).lt(timestamp_value(end, dialect)));
+    }
+
+    buckets.add_group_by([bucket_expression(key, origin, width, dialect)]);
+    Expr::col(Alias::new(key)).in_subquery(buckets)
+}
+
+/// Which bucket a row's timestamp falls in, an expression constant across a bucket.
+///
+/// PostgreSQL brings `date_bin`. The SQLite family has no equivalent and Turso cannot
+/// register one, so the bucket index computes from the stored text, whole seconds and
+/// microseconds kept apart as integers so a timestamp on a bucket boundary stays in
+/// its own bucket. The fraction reads from the text because the SQLite family parses
+/// only milliseconds, and padding covers a value stored without one.
+fn bucket_expression(
+    key: &'static str,
+    origin: NaiveDateTime,
+    width: i64,
+    dialect: SqlDialect,
+) -> SimpleExpr {
+    match dialect {
+        SqlDialect::Postgres => Expr::cust_with_expr(
+            format!(
+                "date_bin(INTERVAL '{width} microseconds', $1, TIMESTAMP '{}')",
+                Parameter::timestamp_text(&origin)
+            ),
+            Expr::col(Alias::new(key)),
+        ),
+        SqlDialect::SqliteText => {
+            let origin_seconds = origin.and_utc().timestamp();
+            let origin_microseconds = i64::from(origin.and_utc().timestamp_subsec_micros());
+            Expr::cust_with_exprs(
+                format!(
+                    "CAST(((unixepoch(?) - {origin_seconds}) * 1000000 + \
+                     (CAST(substr(substr(?, 20) || '.000000', 2, 6) AS INTEGER) - \
+                     {origin_microseconds})) / {width} AS INTEGER)"
+                ),
+                [
+                    Expr::col(Alias::new(key)).into(),
+                    Expr::col(Alias::new(key)).into(),
+                ],
+            )
+        }
+    }
+}
+
+/// Integer division rounding half to even, the way Python divides a `timedelta`.
+fn divide_rounding_half_even(total: i64, divisor: i64) -> i64 {
+    let quotient = total.div_euclid(divisor);
+    let remainder = total.rem_euclid(divisor);
+    let doubled = remainder * 2;
+    if doubled > divisor || (doubled == divisor && quotient % 2 != 0) {
+        quotient + 1
+    } else {
+        quotient
+    }
 }
 
 /// The hour or minute of the stored timestamp, per backend.
@@ -1426,17 +1684,105 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_constructs_refuse_as_delegated() {
-        for rejected in [
-            pairs(&[("subsample", "10")]),
-            pairs(&[("subsample_every", "1h")]),
+    fn only_the_particle_class_still_delegates() {
+        assert_eq!(
+            RecordFilter::parse(RecordTable::Particles, &pairs(&[("class", "a.b:C")])),
+            Err(Refusal::Delegated),
+        );
+        assert!(matches!(
+            RecordFilter::parse(RecordTable::Messages, &pairs(&[("class", "a.b:C")])),
+            Err(Refusal::Invalid(_)),
+        ));
+        for table in [
+            RecordTable::Messages,
+            RecordTable::Alerts,
+            RecordTable::Logs,
         ] {
-            assert_eq!(
-                RecordFilter::parse(RecordTable::Messages, &rejected),
-                Err(Refusal::Delegated),
-                "{rejected:?}"
-            );
+            assert!(RecordFilter::delegated_keys(table).is_empty());
         }
+    }
+
+    #[test]
+    fn subsampling_compiles_grouped_bucket_subqueries() {
+        let filter = RecordFilter::parse(
+            RecordTable::Particles,
+            &pairs(&[("subsample_every", "1m"), ("after", "2026-07-30T00:00:00Z")]),
+        )
+        .unwrap();
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains("\"timestamp\" IN (SELECT MIN(\"timestamp\") FROM \"particles\""),
+            "{sql}"
+        );
+        assert!(sql.contains("GROUP BY CAST"), "{sql}");
+        assert!(sql.contains("/ 60000000 AS INTEGER)"), "{sql}");
+
+        let sql = filter
+            .statement(SqlDialect::Postgres)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(
+            sql.contains("GROUP BY date_bin(INTERVAL '60000000 microseconds', \"timestamp\", TIMESTAMP '2026-07-30 00:00:00.000000')"),
+            "{sql}"
+        );
+
+        // A count-based subsample derives its width from the bounded range.
+        let counted = RecordFilter::parse(
+            RecordTable::Particles,
+            &pairs(&[
+                ("subsample", "60"),
+                ("after", "2026-07-30T00:00:00Z"),
+                ("before", "2026-07-30T01:00:00Z"),
+                ("subsample_select", "last"),
+            ]),
+        )
+        .unwrap();
+        let sql = counted
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(sql.contains("SELECT MAX(\"timestamp\")"), "{sql}");
+        assert!(sql.contains("/ 60000000 AS INTEGER)"), "{sql}");
+    }
+
+    #[test]
+    fn count_subsampling_requires_a_bounded_range() {
+        for (rejected, message) in [
+            (pairs(&[("subsample", "10")]), "Start and end time"),
+            (
+                pairs(&[("subsample", "10"), ("after", "2026-07-30")]),
+                "End time",
+            ),
+            (
+                pairs(&[("subsample", "10"), ("before", "2026-07-30")]),
+                "Start time",
+            ),
+        ] {
+            match RecordFilter::parse(RecordTable::Particles, &rejected) {
+                Err(Refusal::Invalid(text)) => {
+                    assert!(text.starts_with(message), "{rejected:?}: {text}");
+                }
+                other => panic!("{rejected:?} parsed as {other:?}"),
+            }
+        }
+
+        // A timespan bounds both sides at once.
+        assert!(
+            RecordFilter::parse(
+                RecordTable::Particles,
+                &pairs(&[("subsample", "10"), ("timespan", "1h")]),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn division_rounds_half_to_even_like_python() {
+        assert_eq!(divide_rounding_half_even(7, 2), 4);
+        assert_eq!(divide_rounding_half_even(5, 2), 2);
+        assert_eq!(divide_rounding_half_even(9, 3), 3);
+        assert_eq!(divide_rounding_half_even(10, 4), 2);
+        assert_eq!(divide_rounding_half_even(14, 4), 4);
     }
 
     #[test]
