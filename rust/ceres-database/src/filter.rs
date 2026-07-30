@@ -66,6 +66,8 @@ enum KeyRole {
     Root,
     /// One of the window operators a timestamp field brings.
     Window(WindowOp),
+    /// One of the time-of-day windows a timestamp field brings.
+    Clock(ClockOp),
     /// One of the ordered bounds a level field brings.
     Bound(BoundOp),
     Order,
@@ -80,6 +82,14 @@ enum WindowOp {
     Timespan,
     MaxAge,
     MinAge,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ClockOp {
+    AfterHour,
+    BeforeHour,
+    AfterMinute,
+    BeforeMinute,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -133,6 +143,12 @@ struct FilterNode {
     timespan: Option<Duration>,
     max_age: Option<Duration>,
     min_age: Option<Duration>,
+    /// Time-of-day windows over the timestamp's hour and minute, wrapping around
+    /// midnight when the lower bound exceeds the upper.
+    after_hour: Option<u32>,
+    before_hour: Option<u32>,
+    after_minute: Option<u32>,
+    before_minute: Option<u32>,
     /// Level bounds as indexes into the level family's ordered values.
     min_level: Option<usize>,
     max_level: Option<usize>,
@@ -172,6 +188,7 @@ impl RecordFilter {
                 }
                 FieldFamily::Timestamp => {
                     keys.extend(["after", "before", "timespan", "max_age", "min_age"]);
+                    keys.extend(["after_hour", "before_hour", "after_minute", "before_minute"]);
                 }
                 FieldFamily::Level => {
                     keys.extend(bound_keys(field));
@@ -191,16 +208,12 @@ impl RecordFilter {
     /// list and the supported one to exactly what the Pydantic models declare so a new
     /// filter field cannot ship unclassified.
     pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
-        const STRUCTURAL: [&str; 9] = [
+        const STRUCTURAL: [&str; 5] = [
             "or",
             "and",
             "subsample_every",
             "subsample",
             "subsample_select",
-            "after_hour",
-            "before_hour",
-            "after_minute",
-            "before_minute",
         ];
 
         let mut keys: Vec<&'static str> = STRUCTURAL.to_vec();
@@ -258,6 +271,24 @@ impl RecordFilter {
                         set_once(&mut filter.node.min_age, key, parse_duration(value)?)?;
                     }
                 },
+                KeyRole::Clock(operator) => {
+                    let cap = match operator {
+                        ClockOp::AfterHour | ClockOp::BeforeHour => 24,
+                        ClockOp::AfterMinute | ClockOp::BeforeMinute => 60,
+                    };
+                    let bound: u32 = value
+                        .parse()
+                        .ok()
+                        .filter(|bound| *bound <= cap)
+                        .ok_or_else(|| Refusal::invalid(format!("invalid {key} {value:?}")))?;
+                    let slot = match operator {
+                        ClockOp::AfterHour => &mut filter.node.after_hour,
+                        ClockOp::BeforeHour => &mut filter.node.before_hour,
+                        ClockOp::AfterMinute => &mut filter.node.after_minute,
+                        ClockOp::BeforeMinute => &mut filter.node.before_minute,
+                    };
+                    set_once(slot, key, bound)?;
+                }
                 KeyRole::Bound(operator) => {
                     let position = level_position(value)
                         .ok_or_else(|| Refusal::invalid(format!("invalid level {value:?}")))?;
@@ -520,6 +551,7 @@ impl FilterNode {
             match field.family {
                 FieldFamily::Timestamp => {
                     self.window_conditions(&mut conditions, &column, now, dialect);
+                    self.clock_conditions(&mut conditions, field.key, dialect);
                 }
                 FieldFamily::Level => {
                     let levels = <Level as FilterValues>::VALUES;
@@ -581,6 +613,38 @@ impl FilterNode {
 
         if let Some(min_age) = self.min_age {
             conditions.push(column.clone().lte(timestamp_value(now - min_age, dialect)));
+        }
+    }
+
+    /// The time-of-day window conditions on the timestamp column.
+    ///
+    /// A window whose lower bound exceeds its upper wraps around midnight, so the two
+    /// comparisons join with `OR` instead of `AND`, like the in-memory matching.
+    fn clock_conditions(
+        &self,
+        conditions: &mut Vec<SimpleExpr>,
+        key: &'static str,
+        dialect: SqlDialect,
+    ) {
+        let windows = [
+            (self.after_hour, self.before_hour, 24, "hour", "%H"),
+            (self.after_minute, self.before_minute, 60, "minute", "%M"),
+        ];
+        for (after, before, span, part, format) in windows {
+            if after.is_none() && before.is_none() {
+                continue;
+            }
+
+            let minimum = after.unwrap_or(0);
+            let maximum = before.unwrap_or(span);
+            let value = clock_part(key, part, format, dialect);
+            let within_minimum = value.clone().gte(minimum);
+            let within_maximum = value.lt(maximum);
+            if minimum <= maximum {
+                conditions.push(within_minimum.and(within_maximum));
+            } else {
+                conditions.push(within_minimum.or(within_maximum));
+            }
         }
     }
 
@@ -665,6 +729,17 @@ fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
                 if let Some(operator) = operator {
                     return Ok(KeyRole::Window(operator));
                 }
+
+                let operator = match key {
+                    "after_hour" => Some(ClockOp::AfterHour),
+                    "before_hour" => Some(ClockOp::BeforeHour),
+                    "after_minute" => Some(ClockOp::AfterMinute),
+                    "before_minute" => Some(ClockOp::BeforeMinute),
+                    _ => None,
+                };
+                if let Some(operator) = operator {
+                    return Ok(KeyRole::Clock(operator));
+                }
             }
             FieldFamily::Level => {
                 let [minimum, maximum] = bound_keys(field);
@@ -718,30 +793,81 @@ fn set_once<T>(slot: &mut Option<T>, key: &str, value: T) -> Result<(), Refusal>
     Ok(())
 }
 
-/// Parse a wire timestamp, RFC 3339 or a naive form read as UTC, like the Python type.
-///
-/// Forms outside these, epoch numbers and bare dates, are valid on the wire and
-/// delegate until the timestamp grammar port lands.
-fn parse_timestamp(text: &str) -> Result<NaiveDateTime, Refusal> {
-    if let Ok(aware) = chrono::DateTime::parse_from_rfc3339(text) {
-        return Ok(aware.naive_utc());
-    }
+/// The parsing configuration Pydantic uses, extra fraction digits truncating rather
+/// than erroring.
+fn speedate_config() -> speedate::TimeConfig {
+    speedate::TimeConfigBuilder::new()
+        .microseconds_precision_overflow_behavior(
+            speedate::MicrosecondsPrecisionOverflowBehavior::Truncate,
+        )
+        .build()
+}
 
-    for format in ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"] {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(text, format) {
-            return Ok(naive);
+/// Parse a wire timestamp on the grammar the Python `DateTime` accepts, ISO forms,
+/// epoch numbers, and bare dates, aware values normalizing to UTC and naive ones read
+/// as UTC.
+fn parse_timestamp(text: &str) -> Result<NaiveDateTime, Refusal> {
+    let config = speedate::DateTimeConfig {
+        time_config: speedate_config(),
+        ..Default::default()
+    };
+    if let Ok(datetime) = speedate::DateTime::parse_str_with_config(text, &config) {
+        let date = chrono::NaiveDate::from_ymd_opt(
+            i32::from(datetime.date.year),
+            u32::from(datetime.date.month),
+            u32::from(datetime.date.day),
+        );
+        let naive = date.and_then(|date| {
+            date.and_hms_micro_opt(
+                u32::from(datetime.time.hour),
+                u32::from(datetime.time.minute),
+                u32::from(datetime.time.second),
+                datetime.time.microsecond,
+            )
+        });
+        if let Some(naive) = naive {
+            let offset = Duration::seconds(i64::from(datetime.time.tz_offset.unwrap_or(0)));
+            return Ok(naive - offset);
         }
     }
 
-    Err(Refusal::Delegated)
+    // A bare date reads as midnight UTC, matching the Python validator's fallback.
+    if let Ok(date) = speedate::Date::parse_str(text) {
+        let midnight = chrono::NaiveDate::from_ymd_opt(
+            i32::from(date.year),
+            u32::from(date.month),
+            u32::from(date.day),
+        )
+        .and_then(|date| date.and_hms_opt(0, 0, 0));
+        if let Some(midnight) = midnight {
+            return Ok(midnight);
+        }
+    }
+
+    Err(Refusal::invalid(format!("invalid timestamp {text:?}")))
 }
 
-/// Parse a wire duration, the suffix grammar or bare seconds.
+/// Parse a wire duration the way the Python `TimeDelta` does, the Pydantic grammar
+/// first, ISO 8601 intervals and clock forms, then the suffix grammar.
 ///
-/// ISO 8601 intervals and the other forms Pydantic accepts delegate until the duration
-/// grammar port lands, and every other failure delegates with them rather than
-/// guessing at which of them Python would refuse.
+/// Every record filter duration is non-negative on the wire, so a negative one
+/// refuses here.
 fn parse_duration(text: &str) -> Result<Duration, Refusal> {
+    let invalid = || Refusal::invalid(format!("invalid duration {text:?}"));
+
+    if let Ok(duration) =
+        speedate::Duration::parse_bytes_with_config(text.as_bytes(), &speedate_config())
+    {
+        if !duration.positive {
+            return Err(invalid());
+        }
+
+        return Ok(Duration::days(i64::from(duration.day))
+            + Duration::seconds(i64::from(duration.second))
+            + Duration::microseconds(i64::from(duration.microsecond)));
+    }
+
+    // The suffix grammar, a bare number meaning seconds.
     let text = text.trim().replace(' ', "").to_lowercase();
     let (number, scale) = if let Some(number) = text.strip_suffix("us") {
         (number, 1.0)
@@ -759,16 +885,33 @@ fn parse_duration(text: &str) -> Result<Duration, Refusal> {
         (text.as_str(), 1_000_000.0)
     };
 
-    if number.is_empty() || number.starts_with('p') || number.starts_with('+') {
-        return Err(Refusal::Delegated);
+    if number.is_empty() {
+        return Err(invalid());
     }
 
-    let value: f64 = number.parse().map_err(|_| Refusal::Delegated)?;
+    let value: f64 = number.parse().map_err(|_| invalid())?;
     if !value.is_finite() || value < 0.0 {
-        return Err(Refusal::Delegated);
+        return Err(invalid());
     }
 
     Ok(Duration::microseconds((value * scale).round() as i64))
+}
+
+/// The hour or minute of the stored timestamp, per backend.
+///
+/// The SQLite family reads it from the stored text, PostgreSQL from the native
+/// timestamp pinned to UTC, the way the Python layer writes both.
+fn clock_part(key: &'static str, part: &str, format: &str, dialect: SqlDialect) -> SimpleExpr {
+    match dialect {
+        SqlDialect::SqliteText => Func::cust(Alias::new("strftime"))
+            .arg(format)
+            .arg(Expr::col(Alias::new(key)))
+            .cast_as(Alias::new("INTEGER")),
+        SqlDialect::Postgres => Expr::cust_with_expr(
+            format!("date_part('{part}', $1 AT TIME ZONE 'UTC')"),
+            Expr::col(Alias::new(key)),
+        ),
+    }
 }
 
 /// Parse an order value, `field`, `field:asc`, or `field:desc` over the entity's
@@ -996,12 +1139,7 @@ mod tests {
 
     #[test]
     fn unsupported_constructs_refuse_as_delegated() {
-        for rejected in [
-            pairs(&[("subsample", "10")]),
-            pairs(&[("and", "{}")]),
-            pairs(&[("after", "1722340000")]),
-            pairs(&[("timespan", "PT5S")]),
-        ] {
+        for rejected in [pairs(&[("subsample", "10")]), pairs(&[("and", "{}")])] {
             assert_eq!(
                 RecordFilter::parse(RecordTable::Messages, &rejected),
                 Err(Refusal::Delegated),
@@ -1024,6 +1162,13 @@ mod tests {
             pairs(&[("address", "@a|")]),
             pairs(&[("root", "sensor")]),
             pairs(&[("root", "@a"), ("root", "@b")]),
+            pairs(&[("after", "yesterday")]),
+            pairs(&[("timespan", "-PT5S")]),
+            pairs(&[("timespan", "0")]),
+            pairs(&[("timespan", "week")]),
+            pairs(&[("after_hour", "25")]),
+            pairs(&[("before_minute", "61")]),
+            pairs(&[("after_hour", "9"), ("after_hour", "10")]),
         ] {
             assert!(
                 matches!(
@@ -1318,15 +1463,87 @@ mod tests {
     }
 
     #[test]
-    fn durations_parse_the_suffix_grammar() {
+    fn durations_parse_both_wire_grammars() {
         assert_eq!(parse_duration("5s"), Ok(Duration::seconds(5)));
         assert_eq!(parse_duration("1.5 h"), Ok(Duration::seconds(5400)));
         assert_eq!(parse_duration("100ms"), Ok(Duration::milliseconds(100)));
         assert_eq!(parse_duration("7d"), Ok(Duration::days(7)));
         assert_eq!(parse_duration("90"), Ok(Duration::seconds(90)));
-        assert_eq!(parse_duration("PT5S"), Err(Refusal::Delegated));
-        assert_eq!(parse_duration("-5s"), Err(Refusal::Delegated));
-        assert_eq!(parse_duration("week"), Err(Refusal::Delegated));
+        assert_eq!(parse_duration("90.5"), Ok(Duration::milliseconds(90500)));
+        assert_eq!(parse_duration("PT5S"), Ok(Duration::seconds(5)));
+        assert_eq!(parse_duration("P1DT2H"), Ok(Duration::hours(26)));
+        assert_eq!(parse_duration("01:02:03"), Ok(Duration::seconds(3723)));
+        assert!(matches!(parse_duration("-5s"), Err(Refusal::Invalid(_))));
+        assert!(matches!(parse_duration("-PT5S"), Err(Refusal::Invalid(_))));
+        assert!(matches!(parse_duration("week"), Err(Refusal::Invalid(_))));
+    }
+
+    #[test]
+    fn timestamps_parse_the_python_wire_grammar() {
+        let expected = chrono::NaiveDate::from_ymd_opt(2026, 7, 30)
+            .unwrap()
+            .and_hms_opt(12, 30, 0)
+            .unwrap();
+        assert_eq!(parse_timestamp("2026-07-30T12:30:00"), Ok(expected));
+        assert_eq!(parse_timestamp("2026-07-30 12:30:00Z"), Ok(expected));
+        assert_eq!(parse_timestamp("2026-07-30T14:30:00+02:00"), Ok(expected));
+
+        let midnight = chrono::NaiveDate::from_ymd_opt(2026, 7, 30)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        assert_eq!(parse_timestamp("2026-07-30"), Ok(midnight));
+
+        let epoch = parse_timestamp("1722340000").unwrap();
+        assert_eq!(epoch.and_utc().timestamp(), 1722340000);
+        assert!(matches!(
+            parse_timestamp("yesterday"),
+            Err(Refusal::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn clock_windows_compile_per_backend() {
+        let filter = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("after_hour", "9"), ("before_hour", "17")]),
+        )
+        .unwrap();
+        let sql = filter
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains(
+                "CAST(strftime('%H', \"timestamp\") AS INTEGER) >= 9 AND \
+                 CAST(strftime('%H', \"timestamp\") AS INTEGER) < 17"
+            ),
+            "{sql}"
+        );
+
+        let sql = filter
+            .statement(SqlDialect::Postgres)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(
+            sql.contains("(date_part('hour', \"timestamp\" AT TIME ZONE 'UTC')) >= 9"),
+            "{sql}"
+        );
+
+        // A wrapped window joins its bounds with OR instead.
+        let wrapped = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("after_minute", "45"), ("before_minute", "10")]),
+        )
+        .unwrap();
+        let sql = wrapped
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            sql.contains(
+                "CAST(strftime('%M', \"timestamp\") AS INTEGER) >= 45 OR \
+                 CAST(strftime('%M', \"timestamp\") AS INTEGER) < 10"
+            ),
+            "{sql}"
+        );
     }
 
     #[test]

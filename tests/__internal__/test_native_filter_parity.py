@@ -196,6 +196,17 @@ VECTORS: dict[type[Any], list[list[tuple[str, str]]]] = {
         [("address", "@Deck_upper:children")],
         [("address", "@deck_upper:children")],
         [("address", "@Deck_upper.motor")],
+        [("timespan", "PT6H")],
+        [("max_age", "PT2H30M")],
+        [("timespan", "21600")],
+        [("after_hour", "0")],
+        [("after_hour", "24")],
+        [("after_hour", "9"), ("before_hour", "17")],
+        [("after_hour", "22"), ("before_hour", "3")],
+        [("before_minute", "30")],
+        [("after_minute", "45"), ("before_minute", "10")],
+        [("after", "$epoch")],
+        [("after", "$date")],
     ],
     Particle: [
         [("type", "sample")],
@@ -241,6 +252,12 @@ def _resolve(engine: Engine, pairs: list[tuple[str, str]]) -> list[tuple[str, st
     for name, value in pairs:
         if name in ("after", "before", "timestamp") and value == "":
             value = _timestamp_of(engine, 1)
+
+        if value == "$epoch":
+            value = str((NOW - timedelta(hours=5)).timestamp())
+
+        if value == "$date":
+            value = NOW.date().isoformat()
 
         resolved.append((name, value))
 
@@ -314,8 +331,8 @@ async def test_constructs_outside_the_subset_decline(tmp_path: Path) -> None:
             [("and", "{}")],
             [("address", "@a,@b")],
             [("after", "yesterday")],
-            [("timespan", "PT5S")],
-            [("after_hour", "9")],
+            [("timespan", "-PT5S")],
+            [("after_hour", "25")],
             [("unknown", "1")],
         ]:
             assert fetcher.fetch_pairs(RecordTable.MESSAGES, pairs) is None, f"{pairs}"

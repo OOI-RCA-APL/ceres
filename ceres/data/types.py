@@ -355,6 +355,12 @@ def _pre_validate_timedelta(value: object) -> timedelta | None:
         except Exception:
             pass
 
+        # A bare number reads as seconds, like a numeric value would.
+        try:
+            return timedelta(seconds=float(value))
+        except Exception:
+            pass
+
         # Fall back to the project's custom suffix format (`5s`, `100ms`, etc.).
         from ceres.timing import _parse_sdelta
 
