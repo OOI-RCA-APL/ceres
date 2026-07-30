@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { useIntervalFn } from '@vueuse/core'
+import { useEventListener, useIntervalFn, useMediaQuery } from '@vueuse/core'
 import { v7 } from 'uuid'
 import { watch } from 'vue'
 
@@ -8,13 +8,15 @@ import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
-import { CarouselSlide, CarouselWidget, useWorkspace } from '@/workspace'
+import { useWidgetDrop } from '@/widget-drop'
+import { layoutsWithin, CarouselSlide, CarouselWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: CarouselWidget
 }>()
 
 const workspace = useWorkspace()
+const drop = useWidgetDrop()
 
 let index = $ref(0)
 let isEditingName = $ref(false)
@@ -24,18 +26,80 @@ let isEditingName = $ref(false)
 // asked for rather than which index is larger.
 let direction = $ref(1)
 
-// Paused by hand, or while the pointer is over it. A slide moving on under someone reading it is
-// the one thing a rotating panel must not do.
+// Paused by hand, or for as long as someone is working in it. A slide moving on under someone
+// reading it is the one thing a rotating panel must not do.
+//
+// What counts as working in it depends on what the machine can tell. Where there is a pointer to
+// hover with, it takes the focus and the pointer both, so a carousel reached into and then left
+// alone carries on by itself the moment the pointer moves away. Where there is no hovering to be
+// done, the focus is the whole of the answer.
 let paused = $ref(false)
+let focused = $ref(false)
 let hovered = $ref(false)
+
+const canHover = useMediaQuery('(hover: hover)')
+
+const root = $ref<HTMLElement | null>(null)
+
+// A widget picked out on one of its slides counts as well. Pressing a widget's header takes the
+// press over so it can start a drag, which means the browser never moves the focus and nothing
+// here would otherwise know the carousel was being worked in at all.
+const holdsSelection = $computed(
+  () => workspace.selection.length > 0 && layoutsWithin([widget]).has(workspace.selectionLayout)
+)
+
+const engaged = $computed(() => {
+  const reached = focused || holdsSelection
+
+  return canHover ? reached && hovered : reached
+})
+
+// The pointer moving onto a menu this carousel opened has not left it, since the menu is drawn at
+// the far end of the page while still belonging to what opened it.
+function onPointerLeave(event: PointerEvent) {
+  const next = event.relatedTarget as HTMLElement | null
+  if (next?.closest('.q-menu, .q-dialog, .q-popup-edit') != null) {
+    return
+  }
+
+  hovered = false
+}
+
+// Focus moving between two things inside the carousel never leaves it, and the focus landing
+// nowhere at all is reported as no destination rather than as somewhere outside.
+function onFocusOut(event: FocusEvent) {
+  const next = event.relatedTarget as Node | null
+  if (next == null || root == null || !root.contains(next)) {
+    focused = false
+  }
+}
+
+// Worked out from where the press landed rather than left to the focus alone. A widget's header
+// takes its own press over so that it can start a drag, and a press the page never gets to handle
+// moves the focus neither onto a carousel nor off one.
+//
+// Overlays are exempt. A menu or a dialog opened from in here is drawn at the far end of the page
+// and is still this carousel being used, so reaching into one must not let it start moving again.
+useEventListener(window, 'pointerdown', (event: PointerEvent) => {
+  const target = event.target as HTMLElement | null
+  if (target?.closest('.q-menu, .q-dialog, .q-popup-edit') != null) {
+    return
+  }
+
+  focused = root != null && target != null && root.contains(target)
+})
 
 const slide = $computed(() => widget.slides[index] ?? null)
 
-// Also held still for as long as anything is in hand anywhere in the workspace. A drag measures
-// the layouts on screen once and aims at those measurements for the rest of it, so a slide moving
-// on would take the layout being aimed at off the page.
+// Also held still for as long as something is actually in hand anywhere in the workspace. A drag
+// measures the layouts on screen once and aims at those measurements for the rest of it, so a slide
+// moving on would take the layout being aimed at off the page.
+//
+// A drag that has not travelled yet does not count. Pressing any widget's header anywhere takes
+// hold of it in case the press turns into a drag, and treating that as one would restart the wait
+// every time a widget was so much as clicked.
 const isRunning = $computed(
-  () => widget.autoplay && !paused && !hovered && workspace.drag == null && widget.slides.length > 1
+  () => widget.autoplay && !paused && !engaged && !drop.active && widget.slides.length > 1
 )
 
 // Slides can be taken away from under it, so the position is kept inside what is actually there.
@@ -157,10 +221,17 @@ function moveSlide(by: number) {
 </script>
 
 <template>
+  <!-- Focusable itself, so that pressing anywhere on it counts as reaching into it even where
+  there is nothing of its own to focus. Out of the tab order, since the things inside it are the
+  things worth tabbing to and reaching any of them focuses this all the same. -->
   <div
+    ref="root"
     :class="[$style.root, 'column', 'full-height', 'no-wrap']"
+    tabindex="-1"
+    @focusin="focused = true"
+    @focusout="onFocusOut"
     @pointerenter="hovered = true"
-    @pointerleave="hovered = false"
+    @pointerleave="onPointerLeave"
   >
     <div v-if="slide == null" :class="[$style.empty, 'col', 'column', 'flex-center']">
       <common-text variant="description">A carousel shows one slide at a time.</common-text>
@@ -220,122 +291,128 @@ function moveSlide(by: number) {
     Held back until there is a slide, since the empty state asks for one itself. -->
     <template v-if="slide != null">
       <q-separator />
-      <div :class="[$style.controls, 'items-center', 'no-wrap', 'q-px-sm', 'row']">
-        <q-space />
-        <!-- Only worth steering when there is somewhere to steer to. -->
-        <template v-if="widget.slides.length > 1">
-          <q-btn dense flat :icon="icons.menuLeft" round size="10px" @click="step(-1)">
-            <q-tooltip class="bg-primary">Previous</q-tooltip>
-          </q-btn>
-          <button
-            v-for="(current, at) in widget.slides"
-            :key="current.id"
-            ref="dots"
-            aria-label="Show slide"
-            :class="[
-              $style.dot,
-              at === index && $style.dotCurrent,
-              reorder.isSwapping && $style.dotSwapping,
-              reorder.isHeld(at) && $style.dotHeld,
-              reorder.isGrabbed(at) && $style.dotGrabbed,
-            ]"
-            :style="reorder.styleFor(at)"
-            type="button"
-            v-bind="reorder.handlers(at)"
-            @click="onDotClick(at)"
-          >
-            <!-- How long is left of this slide, drawn as a ring closing around its dot. Keyed on
+      <!-- Laid out in three, with the outer two the same width whatever they hold, so the dots sit
+      at the middle of the carousel rather than at the middle of whatever room the buttons left. -->
+      <div :class="[$style.controls, 'items-center', 'q-px-sm']">
+        <div />
+        <div :class="[$style.steps, 'items-center', 'justify-center', 'no-wrap', 'row']">
+          <!-- Only worth steering when there is somewhere to steer to. -->
+          <template v-if="widget.slides.length > 1">
+            <q-btn dense flat :icon="icons.menuLeft" round size="10px" @click="step(-1)">
+              <q-tooltip class="bg-primary">Previous</q-tooltip>
+            </q-btn>
+            <button
+              v-for="(current, at) in widget.slides"
+              :key="current.id"
+              ref="dots"
+              aria-label="Show slide"
+              :class="[
+                $style.dot,
+                at === index && $style.dotCurrent,
+                reorder.isSwapping && $style.dotSwapping,
+                reorder.isHeld(at) && $style.dotHeld,
+                reorder.isGrabbed(at) && $style.dotGrabbed,
+              ]"
+              :style="reorder.styleFor(at)"
+              type="button"
+              v-bind="reorder.handlers(at)"
+              @click="onDotClick(at)"
+            >
+              <!-- How long is left of this slide, drawn as a ring closing around its dot. Keyed on
             the slide so the sweep starts over each time one is turned to, which is also when the
             wait itself restarts. Gone whenever the carousel is not advancing, since the wait is
             reset rather than held wherever it had got to, and a part-drawn ring would claim
             otherwise. -->
-            <svg
-              v-if="isRunning && at === index"
-              :key="index"
-              :class="$style.sweep"
-              viewBox="0 0 24 24"
-            >
-              <!-- Timed on the circle rather than on the box around it, since the circle is what
-              carries the animation and a duration set anywhere else never reaches it. -->
-              <circle
-                cx="12"
-                cy="12"
-                fill="none"
-                r="10"
-                stroke="currentColor"
-                stroke-width="1.75"
-                :style="{ animationDuration: `${Math.max(widget.interval, 1)}s` }"
-              />
-            </svg>
-            <q-tooltip v-if="current.name !== '' && !reorder.isDragging" class="bg-primary">{{
-              current.name
-            }}</q-tooltip>
-          </button>
-          <q-btn dense flat :icon="icons.menuRight" round size="10px" @click="step(1)">
-            <q-tooltip class="bg-primary">Next</q-tooltip>
-          </q-btn>
-        </template>
-        <q-space />
-        <q-btn
-          v-if="widget.autoplay && widget.slides.length > 1"
-          dense
-          flat
-          :icon="paused ? icons.start : icons.pause"
-          round
-          size="10px"
-          @click="paused = !paused"
-        >
-          <q-tooltip class="bg-primary">{{ paused ? 'Resume' : 'Pause' }}</q-tooltip>
-        </q-btn>
-        <q-btn dense flat :icon="icons.add" round size="10px" @click="addSlide">
-          <q-tooltip class="bg-primary">Add Slide</q-tooltip>
-        </q-btn>
-        <!-- The slide being shown is the one these act on, since it is the one being looked at. -->
-        <q-btn dense flat :icon="icons.more" round size="10px">
-          <q-menu>
-            <q-list bordered dense>
-              <q-item v-close-popup clickable dense @click="isEditingName = true">
-                <q-item-section avatar>
-                  <q-icon :name="icons.rename" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Set Title</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item v-close-popup clickable dense :disable="index === 0" @click="moveSlide(-1)">
-                <q-item-section avatar>
-                  <q-icon :name="icons.menuLeft" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Move Slide Earlier</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item
-                v-close-popup
-                clickable
-                dense
-                :disable="index === widget.slides.length - 1"
-                @click="moveSlide(1)"
+              <svg
+                v-if="isRunning && at === index"
+                :key="index"
+                :class="$style.sweep"
+                viewBox="0 0 24 24"
               >
-                <q-item-section avatar>
-                  <q-icon :name="icons.menuRight" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Move Slide Later</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-separator />
-              <q-item v-close-popup clickable dense @click="deleteSlide">
-                <q-item-section avatar>
-                  <q-icon :name="icons.delete" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Delete Slide</q-item-label>
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </q-menu>
-        </q-btn>
+                <!-- Timed on the circle rather than on the box around it, since the circle is what
+              carries the animation and a duration set anywhere else never reaches it. -->
+                <circle
+                  cx="12"
+                  cy="12"
+                  fill="none"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  :style="{ animationDuration: `${Math.max(widget.interval, 1)}s` }"
+                />
+              </svg>
+              <q-tooltip v-if="current.name !== '' && !reorder.isDragging" class="bg-primary">{{
+                current.name
+              }}</q-tooltip>
+            </button>
+            <q-btn dense flat :icon="icons.menuRight" round size="10px" @click="step(1)">
+              <q-tooltip class="bg-primary">Next</q-tooltip>
+            </q-btn>
+          </template>
+        </div>
+        <div :class="[$style.actions, 'items-center', 'no-wrap', 'row']">
+          <q-btn
+            v-if="widget.autoplay && widget.slides.length > 1"
+            dense
+            flat
+            :icon="paused ? icons.start : icons.pause"
+            round
+            size="10px"
+            @click="paused = !paused"
+          >
+            <q-tooltip class="bg-primary">{{ paused ? 'Resume' : 'Pause' }}</q-tooltip>
+          </q-btn>
+          <q-btn dense flat :icon="icons.add" round size="10px" @click="addSlide">
+            <q-tooltip class="bg-primary">Add Slide</q-tooltip>
+          </q-btn>
+          <!-- The slide being shown is the one these act on, since it is the one being looked
+          at. -->
+          <q-btn dense flat :icon="icons.more" round size="10px">
+            <q-menu>
+              <q-list bordered dense>
+                <q-item v-close-popup clickable dense @click="isEditingName = true">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.rename" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Set Title</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item v-close-popup clickable dense :disable="index === 0" @click="moveSlide(-1)">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.menuLeft" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Move Slide Earlier</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item
+                  v-close-popup
+                  clickable
+                  dense
+                  :disable="index === widget.slides.length - 1"
+                  @click="moveSlide(1)"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="icons.menuRight" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Move Slide Later</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item v-close-popup clickable dense @click="deleteSlide">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.delete" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Delete Slide</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </q-btn>
+        </div>
       </div>
     </template>
   </div>
@@ -343,6 +420,13 @@ function moveSlide(by: number) {
 
 <style lang="scss" module>
 @use 'sass:color';
+
+// Takes the focus so that reaching into it can be told from passing over it, and shows nothing for
+// it. The focus is only being watched here, not being offered as somewhere to type.
+.root:focus,
+.root:focus-visible {
+  outline: none;
+}
 
 .empty {
   opacity: 0.7;
@@ -394,10 +478,22 @@ function moveSlide(by: number) {
   transform: translateX(-100%);
 }
 
+// Three columns with the outer two forced to the same width, which is what holds the middle one at
+// the centre of the band however many buttons sit at the end of it.
 .controls {
-  gap: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   padding-top: 3px;
   padding-bottom: 3px;
+}
+
+.steps {
+  gap: 6px;
+}
+
+.actions {
+  gap: 6px;
+  justify-self: end;
 }
 
 :global(.light) .controls {
