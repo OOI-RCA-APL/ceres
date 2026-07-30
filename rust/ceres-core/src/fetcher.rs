@@ -169,16 +169,13 @@ impl RecordFetcher {
         pairs: Vec<(String, String)>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let table = table.into();
-        let Some(filter) = ceres_database::RecordFilter::parse(table, &pairs) else {
+        let Ok(filter) = ceres_database::RecordFilter::parse(table, &pairs) else {
             return Ok(None);
         };
 
         let store = self.store.clone();
         let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let records = store
-                .fetch_filter(table, &filter)
-                .await
-                .map_err(to_value_error)?;
+            let records = store.fetch_filter(&filter).await.map_err(to_value_error)?;
             Ok(RecordBatch { records })
         })?;
         Ok(Some(awaitable))
@@ -196,16 +193,13 @@ impl RecordFetcher {
         pairs: Vec<(String, String)>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let table = table.into();
-        let Some(filter) = ceres_database::RecordFilter::parse(table, &pairs) else {
+        let Ok(filter) = ceres_database::RecordFilter::parse(table, &pairs) else {
             return Ok(None);
         };
 
         let store = self.store.clone();
         let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            store
-                .count_filter(table, &filter)
-                .await
-                .map_err(to_value_error)
+            store.count_filter(&filter).await.map_err(to_value_error)
         })?;
         Ok(Some(awaitable))
     }

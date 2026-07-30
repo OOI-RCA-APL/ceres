@@ -137,7 +137,7 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
         return Ok(false);
     }
 
-    let Some(filter) = RecordFilter::parse(table, &invocation.pairs) else {
+    let Ok(filter) = RecordFilter::parse(table, &invocation.pairs) else {
         return Ok(false);
     };
 
@@ -165,11 +165,11 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
     let rendered = runtime.block_on(async {
         if invocation.counting {
             store
-                .count_filter(table, &filter)
+                .count_filter(&filter)
                 .await
                 .map(|count| format!("{count}\n").into_bytes())
         } else {
-            let records = store.fetch_filter(table, &filter).await?;
+            let records = store.fetch_filter(&filter).await?;
             records
                 .to_json_lines()
                 .map_err(|error| ceres_database::Error::Decode(error.to_string()))
@@ -306,11 +306,11 @@ mod tests {
                 .pairs
                 .contains(&("max_age".to_string(), "2h".to_string()))
         );
-        assert!(RecordFilter::parse(RecordTable::Messages, &invocation.pairs).is_some());
+        assert!(RecordFilter::parse(RecordTable::Messages, &invocation.pairs).is_ok());
 
         // Unknown keys lex into pairs too, and the filter is what refuses them.
         let unknown = Invocation::lex(&raw(&["select", "--contains", "x"])).unwrap();
-        assert!(RecordFilter::parse(RecordTable::Messages, &unknown.pairs).is_none());
+        assert!(RecordFilter::parse(RecordTable::Messages, &unknown.pairs).is_err());
     }
 
     #[test]

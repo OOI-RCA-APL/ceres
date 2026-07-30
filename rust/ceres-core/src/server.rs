@@ -179,16 +179,19 @@ impl Host for PyHost {
     async fn native_records(&self, table: &str, pairs: &[(String, String)]) -> Option<String> {
         let store = self.store.as_ref()?;
         let table = RecordTable::parse(table).ok()?;
-        let filter = RecordFilter::parse(table, pairs)?.with_limit_cap(table.listing_cap())?;
-        let records = store.fetch_filter(table, &filter).await.ok()?;
+        let filter = RecordFilter::parse(table, pairs)
+            .ok()?
+            .with_limit_cap(table.listing_cap())
+            .ok()?;
+        let records = store.fetch_filter(&filter).await.ok()?;
         String::from_utf8(records.to_json_array().ok()?).ok()
     }
 
     async fn native_record_count(&self, table: &str, pairs: &[(String, String)]) -> Option<String> {
         let store = self.store.as_ref()?;
         let table = RecordTable::parse(table).ok()?;
-        let filter = RecordFilter::parse(table, pairs)?;
-        let count = store.count_filter(table, &filter).await.ok()?;
+        let filter = RecordFilter::parse(table, pairs).ok()?;
+        let count = store.count_filter(&filter).await.ok()?;
         Some(count.to_string())
     }
 
@@ -199,8 +202,8 @@ impl Host for PyHost {
             ("id".to_string(), id.to_string()),
             ("limit".to_string(), "1".to_string()),
         ];
-        let filter = RecordFilter::parse(table, &pairs)?;
-        let records = store.fetch_filter(table, &filter).await.ok()?;
+        let filter = RecordFilter::parse(table, &pairs).ok()?;
+        let records = store.fetch_filter(&filter).await.ok()?;
         String::from_utf8(records.to_json_first().ok()?).ok()
     }
 }
