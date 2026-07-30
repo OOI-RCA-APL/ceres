@@ -162,6 +162,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<fetcher::RecordWriter>()?;
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(fetcher::record_filter_keys, module)?)?;
     Ok(())
 }
 

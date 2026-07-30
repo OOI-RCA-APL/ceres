@@ -156,6 +156,73 @@ impl RecordFetcher {
             Ok(RecordBatch { records })
         })
     }
+
+    /// Fetch the records matching filter query pairs, as an awaitable `RecordBatch`.
+    ///
+    /// The pairs parse against the native filter subset, and a request outside it
+    /// answers `None` synchronously so the caller delegates to the query layer.
+    #[gen_stub(override_return_type(type_repr = "typing.Any"))]
+    fn fetch_pairs<'py>(
+        &self,
+        py: Python<'py>,
+        table: RecordTable,
+        pairs: Vec<(String, String)>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let table = table.into();
+        let Some(filter) = ceres_database::RecordFilter::parse(table, &pairs) else {
+            return Ok(None);
+        };
+
+        let store = self.store.clone();
+        let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let records = store
+                .fetch_filter(table, &filter)
+                .await
+                .map_err(to_value_error)?;
+            Ok(RecordBatch { records })
+        })?;
+        Ok(Some(awaitable))
+    }
+
+    /// Count the records matching filter query pairs, as an awaitable count.
+    ///
+    /// Like `fetch_pairs`, a request outside the native subset answers `None`
+    /// synchronously so the caller delegates.
+    #[gen_stub(override_return_type(type_repr = "typing.Any"))]
+    fn count_pairs<'py>(
+        &self,
+        py: Python<'py>,
+        table: RecordTable,
+        pairs: Vec<(String, String)>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let table = table.into();
+        let Some(filter) = ceres_database::RecordFilter::parse(table, &pairs) else {
+            return Ok(None);
+        };
+
+        let store = self.store.clone();
+        let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            store
+                .count_filter(table, &filter)
+                .await
+                .map_err(to_value_error)
+        })?;
+        Ok(Some(awaitable))
+    }
+}
+
+/// The native filter subset's key classification for one record table.
+///
+/// Answers `(supported, delegated)`, and the classification test holds their union to
+/// exactly the fields the Python filter models declare.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn record_filter_keys(table: RecordTable) -> (Vec<&'static str>, Vec<&'static str>) {
+    let table = table.into();
+    (
+        ceres_database::RecordFilter::supported_keys(table).to_vec(),
+        ceres_database::RecordFilter::delegated_keys(table).to_vec(),
+    )
 }
 
 fn to_value_error(error: ceres_database::Error) -> PyErr {

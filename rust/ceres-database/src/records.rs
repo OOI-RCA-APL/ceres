@@ -34,7 +34,7 @@ impl RecordTable {
         }
     }
 
-    fn name(&self) -> &'static str {
+    pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Messages => "messages",
             Self::Particles => "particles",

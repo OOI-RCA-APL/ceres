@@ -100,6 +100,26 @@ impl TursoBackend {
         decode(table, &mut rows).await
     }
 
+    /// Execute a single-value count query.
+    pub(crate) async fn scalar_count(
+        &self,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<u64, Error> {
+        let connection = self.connection().await?;
+        let mut rows = connection
+            .query(sql, turso::params_from_iter(parameters))
+            .await?;
+        let Some(row) = rows.next().await? else {
+            return Ok(0);
+        };
+
+        match row.get_value(0)? {
+            Value::Integer(count) => Ok(count.max(0) as u64),
+            other => Err(Error::Decode(format!("{other:?} is not a count"))),
+        }
+    }
+
     /// Execute statements in one transaction, rolling back if any of them fails.
     pub(crate) async fn execute_transaction(
         &self,

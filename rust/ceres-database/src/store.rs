@@ -1,11 +1,13 @@
 //! Connection pools and query execution.
 
 use ceres_entities::Records;
-use sea_query::{PostgresQueryBuilder, SqliteQueryBuilder};
+use sea_query::{PostgresQueryBuilder, SelectStatement, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
+use sqlx::Row;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
+use crate::filter::{RecordFilter, SqlDialect};
 use crate::records::{DecodeRecords, RecordTable};
 use crate::turso::{TursoBackend, parameter_value, sea_value};
 
@@ -28,17 +30,12 @@ pub enum Parameter {
 impl Parameter {
     /// The stored text form of a timestamp, matching how the Python layer writes them.
     ///
-    /// The fraction appears only when the timestamp has sub-second precision, because that
-    /// is how the driver's text binding behaves and comparisons against stored text have
-    /// to collate identically.
+    /// The six-digit fraction always appears, `.000000` included, because that is the
+    /// form the SQLite driver stores and equality against stored text has to collate
+    /// identically. A whole-second timestamp rendered without its fraction misses the
+    /// stored row.
     pub(crate) fn timestamp_text(timestamp: &chrono::NaiveDateTime) -> String {
-        use chrono::Timelike;
-
-        if timestamp.nanosecond() == 0 {
-            timestamp.format("%Y-%m-%d %H:%M:%S").to_string()
-        } else {
-            timestamp.format("%Y-%m-%d %H:%M:%S%.6f").to_string()
-        }
+        timestamp.format("%Y-%m-%d %H:%M:%S%.6f").to_string()
     }
 }
 
@@ -139,7 +136,23 @@ impl RecordStore {
             return Ok(table.empty());
         }
 
-        let statement = table.listing(limit, offset);
+        self.select(table, table.listing(limit, offset)).await
+    }
+
+    /// The dialect value forms this store's backend binds.
+    fn dialect(&self) -> SqlDialect {
+        match &self.backend {
+            Backend::Sqlite(_) | Backend::Turso(_) => SqlDialect::SqliteText,
+            Backend::Postgres(_) => SqlDialect::Postgres,
+        }
+    }
+
+    /// Execute one built statement, decoding rows for the table.
+    async fn select(
+        &self,
+        table: RecordTable,
+        statement: SelectStatement,
+    ) -> Result<Records, Error> {
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
@@ -158,6 +171,58 @@ impl RecordStore {
                     .map(sea_value)
                     .collect::<Result<Vec<_>, _>>()?;
                 backend.query(table, &sql, parameters).await
+            }
+        }
+    }
+
+    /// Fetch the records a parsed native filter matches.
+    pub async fn fetch_filter(
+        &self,
+        table: RecordTable,
+        filter: &RecordFilter,
+    ) -> Result<Records, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(table.empty());
+        }
+
+        self.select(table, filter.statement(table, self.dialect()))
+            .await
+    }
+
+    /// Count the records a parsed native filter matches.
+    ///
+    /// A limit or offset bounds the count itself, matching the Python layer's paged
+    /// counting.
+    pub async fn count_filter(
+        &self,
+        table: RecordTable,
+        filter: &RecordFilter,
+    ) -> Result<u64, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(0);
+        }
+
+        let statement = filter.count_statement(table, self.dialect());
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
+                let count: i64 = row.try_get(0)?;
+                Ok(count.max(0) as u64)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
+                let count: i64 = row.try_get(0)?;
+                Ok(count.max(0) as u64)
+            }
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.scalar_count(&sql, parameters).await
             }
         }
     }

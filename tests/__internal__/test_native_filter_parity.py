@@ -1,0 +1,295 @@
+"""Parity between the native filter subset and the Python query layer.
+
+Every vector here feeds the same wire pairs to both sides. The Python side folds them
+into the Pydantic filter and executes through the query layer, the native side parses
+them into the Rust subset and executes through the record store, and the two must
+produce identical serialized records on every backend. Constructs outside the subset
+must decline rather than guess, and the classification test holds the subset's key
+lists to exactly the fields the Pydantic filters declare.
+"""
+
+import json
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+
+import pytest
+from ceres_core import RecordTable, record_filter_keys
+
+from ceres import Engine
+from ceres.address import Address
+from ceres.alert import Alert
+from ceres.config import Config
+from ceres.data import to_json, validate
+from ceres.level import Level
+from ceres.logs import LogEntry
+from ceres.message import Message, MessageDirection
+from ceres.particle import Particle
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+pytestmark = pytest.mark.databases()
+"""Every backend, the subset must compile each dialect identically to SQLAlchemy."""
+
+RECORD_TABLES = {
+    Message: RecordTable.MESSAGES,
+    Particle: RecordTable.PARTICLES,
+    Alert: RecordTable.ALERTS,
+    LogEntry: RecordTable.LOGS,
+}
+
+NOW = datetime.now(UTC).replace(microsecond=83155)
+"""The anchor seeded timestamps offset from.
+
+Age-based vectors compare against each side's own execution instant, so seeded offsets
+sit hours from every age boundary and a few seconds of skew cannot recross one.
+"""
+
+
+async def _build_engine(tmp_path: Path) -> Engine:
+    """Build an engine on the run's backend, on disk when the default cannot fetch natively."""
+    engine = Engine()
+    if engine.database._record_fetcher() is None:
+        engine = Engine()
+        await engine.load(
+            validate(
+                Config,
+                {
+                    "components": [],
+                    "database": {"type": "sqlite", "path": str(tmp_path / "parity.sqlite")},
+                },
+            ),
+            checks=(),
+        )
+
+    await engine.database.migrate()
+    return engine
+
+
+async def _seed(engine: Engine) -> None:
+    """Write a dataset varied enough that every vector separates records."""
+    sensor = Address("@sensor.temp")
+    motor = Address("@motor")
+
+    for index, (address, offset) in enumerate(
+        [
+            (sensor, timedelta(hours=9)),
+            (sensor, timedelta(hours=5)),
+            (motor, timedelta(hours=5, minutes=30)),
+            (motor, timedelta(minutes=45)),
+        ]
+    ):
+        # One whole-second timestamp exercises the fraction-free stored text form.
+        timestamp = NOW - offset
+        if index == 2:
+            timestamp = timestamp.replace(microsecond=0)
+
+        await engine.database.messages.create(
+            Message.Create(
+                address=address,
+                timestamp=timestamp,
+                connection="serial" if index % 2 == 0 else "network",
+                direction=MessageDirection.RECEIVE if index % 2 == 0 else MessageDirection.SEND,
+                data=bytes([index, 0x01, 0xFF]),
+            )
+        )
+        await engine.database.particles.create(
+            Particle.Create(
+                address=address,
+                timestamp=timestamp,
+                type="sample" if index % 2 == 0 else "sweep",
+                data={"index": index, "values": [1.5, 2.5]},
+            )
+        )
+        await engine.database.alerts.create(
+            Alert.Create(
+                address=address,
+                timestamp=timestamp,
+                level=[Level.DEBUG, Level.INFO, Level.WARNING, Level.CRITICAL][index],
+                type="overheat" if index % 2 == 0 else "stall",
+                data={"index": index},
+            )
+        )
+        await engine.database.logs.create(
+            LogEntry.Create(
+                address=address,
+                timestamp=timestamp,
+                level=[Level.DEBUG, Level.INFO, Level.ERROR, Level.CRITICAL][index],
+                content=f"entry {index}",
+            )
+        )
+
+
+def _fold(pairs: list[tuple[str, str]]) -> dict[str, Any]:
+    """Fold ordered pairs the way the operation layer does before validating."""
+    data: dict[str, Any] = {}
+    for name, value in pairs:
+        if name not in data:
+            data[name] = value
+        elif isinstance(data[name], list):
+            data[name].append(value)
+        else:
+            data[name] = [data[name], value]
+
+    return data
+
+
+def _timestamp_of(engine: Engine, index: int) -> str:
+    """The wire text of one seeded timestamp, in RFC 3339 form."""
+    offsets = [
+        timedelta(hours=9),
+        timedelta(hours=5),
+        timedelta(hours=5, minutes=30),
+        timedelta(minutes=45),
+    ]
+    timestamp = NOW - offsets[index]
+    if index == 2:
+        timestamp = timestamp.replace(microsecond=0)
+
+    return timestamp.isoformat().replace("+00:00", "Z")
+
+
+VECTORS: dict[type[Any], list[list[tuple[str, str]]]] = {
+    Message: [
+        [],
+        [("address", "@sensor.temp")],
+        [("address", "@motor"), ("order", "timestamp:desc")],
+        [("after", ""), ("timespan", "3h")],
+        [("timespan", "6h")],
+        [("max_age", "2h")],
+        [("min_age", "4h")],
+        [("min_age", "1h"), ("max_age", "8h")],
+        [("connection", "serial")],
+        [("connection", "serial"), ("connection", "network")],
+        [("direction", "send")],
+        [("order", "address:desc"), ("order", "timestamp")],
+        [("order", "connection")],
+        [("limit", "2")],
+        [("limit", "2"), ("offset", "1")],
+        [("limit", "0")],
+    ],
+    Particle: [
+        [("type", "sample")],
+        [("type", "sample"), ("type", "sweep"), ("order", "timestamp:desc"), ("limit", "3")],
+    ],
+    Alert: [
+        [("level", "warning")],
+        [("min_level", "warning")],
+        [("max_level", "info")],
+        [("min_level", "info"), ("max_level", "error")],
+        [("type", "overheat"), ("order", "level")],
+    ],
+    LogEntry: [
+        [("level", "error"), ("level", "critical")],
+        [("min_level", "error")],
+        [("content", "entry 1")],
+    ],
+}
+"""The shared vectors, plus per-table ones. An `after` value of `""` is filled in with a
+seeded timestamp at run time, so the vector table stays static."""
+
+
+def _resolve(engine: Engine, pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    resolved = []
+    for name, value in pairs:
+        if name in ("after", "before", "timestamp") and value == "":
+            value = _timestamp_of(engine, 1)
+
+        resolved.append((name, value))
+
+    return resolved
+
+
+async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None:
+    """Every supported vector produces byte-identical records through both compilers."""
+    engine = await _build_engine(tmp_path)
+    await _seed(engine)
+    fetcher = engine.database._record_fetcher()
+    assert fetcher is not None
+
+    try:
+        for Record, vectors in VECTORS.items():
+            table = RECORD_TABLES[Record]
+            for pairs in vectors:
+                pairs = _resolve(engine, pairs)
+                filter = validate(Record.Filter, _fold(pairs))
+
+                expected = [
+                    json.loads(to_json(entity))
+                    for entity in await engine.__manager__(Record).where(filter)
+                ]
+                awaitable = fetcher.fetch_pairs(table, pairs)
+                assert awaitable is not None, f"{Record.__name__} declined {pairs}"
+                native = json.loads((await awaitable).to_json())
+                assert native == expected, f"{Record.__name__} diverged on {pairs}"
+
+                expected_count = await engine.__manager__(Record).where(filter).count()
+                counting = fetcher.count_pairs(table, pairs)
+                assert counting is not None
+                assert await counting == expected_count, f"count diverged on {pairs}"
+    finally:
+        await engine.database.dispose()
+
+
+async def test_exact_timestamps_match_in_both_stored_precisions(tmp_path: Path) -> None:
+    """Whole-second and microsecond timestamps both round-trip the stored text form."""
+    engine = await _build_engine(tmp_path)
+    await _seed(engine)
+    fetcher = engine.database._record_fetcher()
+    assert fetcher is not None
+
+    try:
+        for index in (1, 2):
+            pairs = [("timestamp", _timestamp_of(engine, index))]
+            filter = validate(Message.Filter, _fold(pairs))
+            expected = [
+                json.loads(to_json(entity))
+                for entity in await engine.__manager__(Message).where(filter)
+            ]
+            assert expected, f"expected a seeded message at index {index}"
+
+            awaitable = fetcher.fetch_pairs(RecordTable.MESSAGES, pairs)
+            assert awaitable is not None
+            assert json.loads((await awaitable).to_json()) == expected
+    finally:
+        await engine.database.dispose()
+
+
+async def test_constructs_outside_the_subset_decline(tmp_path: Path) -> None:
+    """Delegated keys, malformed values, and selector addresses all answer `None`."""
+    engine = await _build_engine(tmp_path)
+    fetcher = engine.database._record_fetcher()
+    assert fetcher is not None
+
+    try:
+        for pairs in [
+            [("subsample", "10")],
+            [("contains", "abc")],
+            [("and", "{}")],
+            [("root", "@sensor")],
+            [("address", "@sensor.temp:children")],
+            [("address", "@a"), ("address", "@b")],
+            [("after", "yesterday")],
+            [("timespan", "PT5S")],
+            [("after_hour", "9")],
+            [("unknown", "1")],
+        ]:
+            assert fetcher.fetch_pairs(RecordTable.MESSAGES, pairs) is None, f"{pairs}"
+            assert fetcher.count_pairs(RecordTable.MESSAGES, pairs) is None, f"{pairs}"
+    finally:
+        await engine.database.dispose()
+
+
+def test_every_filter_field_is_classified() -> None:
+    """The native key lists cover the Pydantic filters exactly, so new fields cannot
+    ship unclassified.
+    """
+    for Record, table in RECORD_TABLES.items():
+        supported, delegated = record_filter_keys(table)
+        assert not set(supported) & set(delegated)
+
+        declared = set()
+        for name, field in Record.Filter.model_fields.items():
+            declared.add(field.serialization_alias or name)
+
+        assert set(supported) | set(delegated) == declared, Record.__name__

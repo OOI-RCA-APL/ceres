@@ -31,6 +31,7 @@ __all__ = [
     "ServiceConfig",
     "TursoDatabaseConfig",
     "openapi_schema",
+    "record_filter_keys",
 ]
 
 class Argon2HashingConfig:
@@ -501,6 +502,20 @@ class RecordFetcher:
     def fetch(self, table: RecordTable, limit: int | None = None, offset: int | None = None) -> Any:
         r"""
         Fetch a record listing ordered by timestamp, as an awaitable `RecordBatch`.
+        """
+    def fetch_pairs(self, table: RecordTable, pairs: Sequence[tuple[str, str]]) -> Any:
+        r"""
+        Fetch the records matching filter query pairs, as an awaitable `RecordBatch`.
+
+        The pairs parse against the native filter subset, and a request outside it
+        answers `None` synchronously so the caller delegates to the query layer.
+        """
+    def count_pairs(self, table: RecordTable, pairs: Sequence[tuple[str, str]]) -> Any:
+        r"""
+        Count the records matching filter query pairs, as an awaitable count.
+
+        Like `fetch_pairs`, a request outside the native subset answers `None`
+        synchronously so the caller delegates.
         """
 
 @final
@@ -1045,4 +1060,12 @@ class RecordTable(Enum):
 def openapi_schema(version: str) -> str:
     r"""
     Serve the OpenAPI document describing the API, as JSON text.
+    """
+
+def record_filter_keys(table: RecordTable) -> tuple[list[str], list[str]]:
+    r"""
+    The native filter subset's key classification for one record table.
+
+    Answers `(supported, delegated)`, and the classification test holds their union to
+    exactly the fields the Python filter models declare.
     """
