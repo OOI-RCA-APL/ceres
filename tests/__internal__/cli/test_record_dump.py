@@ -102,6 +102,41 @@ async def test_in_memory_databases_decline_the_native_dump() -> None:
     assert await dump_records_natively(database, Message, query) is None
 
 
+async def test_output_files_carry_complete_rows(tmp_path: Path) -> None:
+    """`--output` files hold every field of every record, flushed by the time the
+    command finishes.
+
+    Records keep their values in native storage rather than instance attributes, so
+    row extraction must read the model's fields, and the file the command opens must
+    close with it or its tail never reaches disk.
+    """
+    engine = await _build_engine_on_disk(tmp_path)
+    await _write_records(engine)
+    Command = create_entity_select_command(Message)
+
+    try:
+        query = engine.__manager__(Message).where()
+        expected = [json.loads(to_json(entity)) for entity in await query]
+        assert expected
+
+        csv_path = tmp_path / "messages.csv"
+        command = Command(output=csv_path)
+        await command.put(engine.__manager__(Message).where().select())
+        lines = csv_path.read_text().splitlines()
+        assert lines[0] == "id,address,timestamp,connection,direction,data"
+        assert len(lines) == len(expected) + 1
+        assert "@sensor.temp" in lines[1]
+        assert "serial" in lines[1]
+
+        json_path = tmp_path / "messages.json"
+        command = Command(output=json_path)
+        await command.put(engine.__manager__(Message).where().select())
+        dumped = [json.loads(line) for line in json_path.read_text().splitlines()]
+        assert dumped == expected
+    finally:
+        await engine.database.dispose()
+
+
 def test_plain_json_output_gates_on_fields_format_and_color() -> None:
     """The native path only applies to a plain JSON dump, uncolored and unprojected."""
     Command = create_entity_select_command(Message)

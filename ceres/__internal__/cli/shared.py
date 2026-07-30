@@ -772,11 +772,18 @@ def _extract(obj: object, fields: Mapping[str, str] | None = None) -> Mapping[st
         A mapping of (possibly aliased) field names to their values.
     """
     if fields is None:
-        __dict__ = getattr(obj, "__dict__")
-        if __dict__ is not None:
+        # A data object declares its fields on the model, and its values can live in
+        # native storage rather than instance attributes, so the model is the
+        # authority on what a row holds.
+        model_fields = getattr(type(obj), "__pydantic_fields__", None)
+        if model_fields:
+            return {name: getattr(obj, name) for name in model_fields}
+
+        __dict__ = getattr(obj, "__dict__", None)
+        if __dict__:
             return __dict__
 
-        __slots__ = getattr(obj, "__slots__")
+        __slots__ = getattr(obj, "__slots__", None)
         if __slots__ is not None:
             return {slot: getattr(obj, slot) for slot in __slots__}
 
@@ -936,14 +943,19 @@ class CLIDataOutputCommand(CLICommand):
         fields: Sequence[str] | Mapping[str, str] | None = None,
     ) -> None:
         """Write data using the command's configured output file, format, and field selection."""
+        # A file this call opens must close with it, or its final buffer never
+        # reaches disk.
+        opened: IO[str] | None = None
         if file is None:
             if self.output is not None:
                 try:
-                    file = open(self.output, "w")
+                    opened = open(self.output, "w")
                 except FileNotFoundError:
                     raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
                 except OSError:
                     raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
+
+                file = opened
 
         if file is None:
             file = sys.stdout
@@ -959,15 +971,19 @@ class CLIDataOutputCommand(CLICommand):
 
         fields = _resolve_fields(fields)
 
-        await super().put(
-            data,
-            file,
-            end=end,
-            flush=flush,
-            color=color,
-            data_format=data_format,
-            fields=fields,
-        )
+        try:
+            await super().put(
+                data,
+                file,
+                end=end,
+                flush=flush,
+                color=color,
+                data_format=data_format,
+                fields=fields,
+            )
+        finally:
+            if opened is not None:
+                opened.close()
 
     def plain_json_output(self) -> bool:
         """Whether output is plain JSON lines, with no field selection and no color.
