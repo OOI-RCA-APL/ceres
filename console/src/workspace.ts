@@ -358,9 +358,8 @@ export const widgetInfos = {
     name: 'Carousel',
     model: CarouselWidgetModel,
     component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetCarousel.vue')),
-    settingsComponent: defineAsyncComponent(
-      () => import('@/components/WorkspaceWidgetCarouselSettings.vue')
-    ),
+    // No settings of its own. A carousel is arranged on the carousel, and how it runs is set from
+    // the band of controls under its slides, beside the slides those settings act on.
     options: widgetOptions({
       paddingClass: [],
     }),

@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import { useEventListener, useIntervalFn, useMediaQuery } from '@vueuse/core'
-import { QMenu } from 'quasar'
 import { v7 } from 'uuid'
-import { watch } from 'vue'
+import { nextTick, watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
+import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
@@ -176,17 +176,79 @@ const reorder = usePointerReorder({
   },
 })
 
-// Held so a dot and the slide's own menu open the same one.
-const nameMenu = $ref<QMenu | null>(null)
+// A slide is named on the dot that stands for it. The tooltip holding the name is the field for it
+// as well, so reading a slide's name and changing it are the same place rather than two.
+//
+// Which dot is being pointed at, and which one is being typed into. Typing outlasts pointing, so a
+// name half entered is not taken away by the pointer wandering off the tooltip holding it.
+let pointedDot = $ref<number | null>(null)
+let typedDot = $ref<number | null>(null)
+let leaving: ReturnType<typeof setTimeout> | null = null
 
-function onDotDoubleClick(at: number, event: MouseEvent) {
-  step(at - index)
-  nameMenu?.show(event)
+const shownDot = $computed(() => typedDot ?? pointedDot)
+
+// The gap between a dot and the tooltip under it is crossed with the pointer over neither, so
+// leaving is given a moment to be reconsidered rather than acted on the instant it happens.
+const leaveDelay = 180
+
+function pointAtDot(at: number) {
+  if (leaving != null) {
+    clearTimeout(leaving)
+    leaving = null
+  }
+
+  pointedDot = at
+}
+
+function leaveDot() {
+  if (leaving != null) {
+    clearTimeout(leaving)
+  }
+
+  leaving = setTimeout(() => {
+    pointedDot = null
+    leaving = null
+  }, leaveDelay)
+}
+
+/** Take the caret to the name of the slide at `at`, if that is the name being asked for.
+
+The field is always there to be clicked into, so this only has to take the focus.
+*/
+function focusDotName(at: number) {
+  if (typedDot !== at) {
+    return
+  }
+
+  // Asked for by the dot it belongs to. The tooltip of whichever dot was pointed at before may
+  // still be on its way out, and taking the first field on the page would find that one.
+  document.querySelector<HTMLInputElement>(`.q-tooltip [data-slide-dot="${at}"] input`)?.focus()
+}
+
+/** Open the name of the slide at `at` and put the caret in it.
+
+Reached from a press on the slide already being shown, and from its menu. A tooltip still arriving
+settles by moving its own element, which drops whatever focus it held, so a tooltip that has to
+open first is left to say when it has finished and the caret is taken then.
+*/
+async function editDotName(at: number) {
+  typedDot = at
+  pointAtDot(at)
+
+  await nextTick()
+  focusDotName(at)
 }
 
 function onDotClick(at: number) {
   // A press that turned into a drag has already done what it was for.
   if (reorder.consumeClick()) {
+    return
+  }
+
+  // Pressing the slide already being shown is asking about it rather than asking for it, which is
+  // the one thing left to do to a dot once turning to it would change nothing.
+  if (at === index) {
+    void editDotName(at)
     return
   }
 
@@ -304,7 +366,8 @@ function moveSlide(by: number) {
               type="button"
               v-bind="reorder.handlers(at)"
               @click="onDotClick(at)"
-              @dblclick="onDotDoubleClick(at, $event)"
+              @pointerenter="pointAtDot(at)"
+              @pointerleave="leaveDot"
             >
               <!-- How long is left of this slide, drawn as a ring closing around its dot. Keyed on
             the slide so the sweep starts over each time one is turned to, which is also when the
@@ -329,29 +392,41 @@ function moveSlide(by: number) {
                   :style="{ animationDuration: `${Math.max(widget.interval, 1)}s` }"
                 />
               </svg>
-              <q-tooltip v-if="!reorder.isDragging" class="bg-primary">{{
-                current.name !== '' ? current.name : `Slide ${at + 1}`
-              }}</q-tooltip>
+              <!-- The name, and the field for it, are the same thing. Offered rather than claimed,
+              so pointing at a dot never takes the caret from wherever it already was, and a press
+              into the field is what turns the offer into a real edit. -->
+              <q-tooltip
+                :class="[$style.dotTooltip, 'bg-primary', 'text-white']"
+                :model-value="shownDot === at && !reorder.isDragging"
+                no-parent-event
+                :offset="[0, 6]"
+                @pointerenter="pointAtDot(at)"
+                @pointerleave="leaveDot"
+                @show="focusDotName(at)"
+                @update:model-value="
+                  (shown: boolean) => {
+                    if (!shown) {
+                      pointedDot = null
+                      typedDot = null
+                    }
+                  }
+                "
+              >
+                <div :data-slide-dot="at">
+                  <inline-name-edit
+                    :claim="false"
+                    :editing="true"
+                    :name="current.name !== '' ? current.name : `Slide ${at + 1}`"
+                    @rename="(value: string) => (current.name = value)"
+                    @update:editing="(editing: boolean) => (typedDot = editing ? at : null)"
+                  />
+                </div>
+              </q-tooltip>
             </button>
             <q-btn dense flat :icon="icons.menuRight" round size="10px" @click="step(1)">
               <q-tooltip class="bg-primary">Next</q-tooltip>
             </q-btn>
           </template>
-          <!-- A slide is named on its dot, which is the thing that stands for it everywhere else.
-          Opened deliberately, by double-clicking a dot or from the slide's own menu, since a single
-          press on a dot is what turns to that slide. -->
-          <q-menu ref="nameMenu" no-parent-event touch-position>
-            <q-input
-              autofocus
-              :class="$style.nameField"
-              dense
-              label="Slide Title"
-              :model-value="slide?.name ?? ''"
-              outlined
-              @keyup.enter="nameMenu?.hide()"
-              @update:model-value="(value) => slide != null && (slide.name = String(value ?? ''))"
-            />
-          </q-menu>
         </div>
         <div :class="[$style.actions, 'items-center', 'no-wrap', 'row']">
           <q-btn
@@ -373,7 +448,7 @@ function moveSlide(by: number) {
           <q-btn dense flat :icon="icons.more" round size="10px">
             <q-menu>
               <q-list bordered dense>
-                <q-item v-close-popup clickable dense @click="nameMenu?.show()">
+                <q-item v-close-popup clickable dense @click="editDotName(index)">
                   <q-item-section avatar>
                     <q-icon :name="icons.rename" />
                   </q-item-section>
@@ -410,6 +485,28 @@ function moveSlide(by: number) {
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Delete Slide</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <!-- How the carousel runs, rather than what is on any one slide, which is why these
+                sit under a rule at the end. The menu stays open, since setting a wait and watching
+                it take effect is one thing being done rather than two. -->
+                <q-item dense>
+                  <q-item-section>
+                    <q-checkbox v-model="widget.autoplay" dense label="Autoplay" />
+                  </q-item-section>
+                </q-item>
+                <q-item v-if="widget.autoplay" dense>
+                  <q-item-section>
+                    <q-input
+                      v-model.number="widget.interval"
+                      dense
+                      label="Seconds Per Slide"
+                      :max="3600"
+                      :min="1"
+                      outlined
+                      type="number"
+                    />
                   </q-item-section>
                 </q-item>
               </q-list>
@@ -483,10 +580,11 @@ function moveSlide(by: number) {
   gap: 6px;
 }
 
-// Wide enough to read a slide's title back without the popup sizing itself to what is typed.
-.nameField {
-  margin: 8px;
-  width: 200px;
+// A tooltip is normally only read, so Quasar has every one of them let presses through to whatever
+// is under it. This one is a field as well and has to take them, which needs both the weight to
+// beat that rule and the name twice over to outrank it.
+.dotTooltip.dotTooltip {
+  pointer-events: auto !important;
 }
 
 .actions {
