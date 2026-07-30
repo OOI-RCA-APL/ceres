@@ -31,7 +31,7 @@ impl TimeDelta {
         self.0
     }
 
-    /// Parse a duration from seconds or ISO 8601 or `HH:MM:SS` text.
+    /// Parse a duration from seconds, ISO 8601, `HH:MM:SS`, or suffixed text.
     pub fn parse(text: &str) -> Result<Self, String> {
         let text = text.trim();
         if let Ok(seconds) = text.parse::<f64>() {
@@ -46,7 +46,36 @@ impl TimeDelta {
             return Self::parse_clock(text);
         }
 
-        Err(format!("invalid duration {text:?}"))
+        Self::parse_suffixed(text)
+    }
+
+    /// Parse the engine's suffix grammar, a number carrying `us`, `ms`, `s`, `m`,
+    /// `h`, or `d`, spaces and case ignored.
+    fn parse_suffixed(text: &str) -> Result<Self, String> {
+        let error = || format!("invalid duration {text:?}");
+        let text = text.replace(' ', "").to_lowercase();
+        let (number, scale) = if let Some(number) = text.strip_suffix("us") {
+            (number, 1e-6)
+        } else if let Some(number) = text.strip_suffix("ms") {
+            (number, 1e-3)
+        } else if let Some(number) = text.strip_suffix('s') {
+            (number, 1.0)
+        } else if let Some(number) = text.strip_suffix('m') {
+            (number, 60.0)
+        } else if let Some(number) = text.strip_suffix('h') {
+            (number, 3600.0)
+        } else if let Some(number) = text.strip_suffix('d') {
+            (number, 86400.0)
+        } else {
+            return Err(error());
+        };
+
+        if number.is_empty() {
+            return Err(error());
+        }
+
+        let value: f64 = number.parse().map_err(|_| error())?;
+        Self::from_seconds(value * scale)
     }
 
     fn from_seconds(seconds: f64) -> Result<Self, String> {
@@ -357,6 +386,30 @@ mod tests {
         );
         assert!(TimeDelta::parse("-PT30S").is_err());
         assert!(TimeDelta::parse("nonsense").is_err());
+    }
+
+    /// The suffix grammar must accept exactly what the engine's Python `_parse_sdelta`
+    /// accepts, every unit, floats, exponents, spacing, and case included.
+    #[test]
+    fn durations_parse_the_suffix_grammar() {
+        let seconds = |value: f64| TimeDelta::from_duration(Duration::from_secs_f64(value));
+        assert_eq!(TimeDelta::parse("30d").unwrap(), seconds(30.0 * 86400.0));
+        assert_eq!(TimeDelta::parse("12h").unwrap(), seconds(12.0 * 3600.0));
+        assert_eq!(TimeDelta::parse("30m").unwrap(), seconds(1800.0));
+        assert_eq!(TimeDelta::parse("45s").unwrap(), seconds(45.0));
+        assert_eq!(TimeDelta::parse("250ms").unwrap(), seconds(0.25));
+        assert_eq!(TimeDelta::parse("500us").unwrap(), seconds(0.0005));
+        assert_eq!(TimeDelta::parse("1.5h").unwrap(), seconds(5400.0));
+        assert_eq!(TimeDelta::parse("0.5d").unwrap(), seconds(43200.0));
+        assert_eq!(TimeDelta::parse("1e2s").unwrap(), seconds(100.0));
+        assert_eq!(TimeDelta::parse(" 30 d ").unwrap(), seconds(30.0 * 86400.0));
+        assert_eq!(TimeDelta::parse("30D").unwrap(), seconds(30.0 * 86400.0));
+        assert_eq!(TimeDelta::parse("+5s").unwrap(), seconds(5.0));
+        assert_eq!(TimeDelta::parse("0s").unwrap(), TimeDelta::from_secs(0));
+
+        for rejected in ["d", "s", "-5s", "week", "5x", "5dd", "infs", "nans", ""] {
+            assert!(TimeDelta::parse(rejected).is_err(), "{rejected}");
+        }
     }
 
     #[test]
