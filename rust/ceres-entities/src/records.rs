@@ -246,6 +246,86 @@ pub fn to_json_lines<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>>
     Ok(lines)
 }
 
+/// One record's projected wire object, aliased keys in projection order.
+///
+/// A name the wire object lacks, whether unknown or an omitted `span`, projects as
+/// null. A repeated alias keeps its first position and takes the last field's value,
+/// which is how a Python dict built from the same pairs behaves.
+fn project<T: Serialize>(
+    record: &T,
+    fields: &[(String, String)],
+) -> serde_json::Result<Map<String, Value>> {
+    let mut object = match serde_json::to_value(record)? {
+        Value::Object(object) => object,
+        _ => Map::new(),
+    };
+
+    let mut projected = Map::new();
+    for (field, alias) in fields {
+        let value = object.remove(field).unwrap_or(Value::Null);
+        projected.insert(alias.clone(), value);
+    }
+
+    Ok(projected)
+}
+
+/// The aliases a projection outputs, first occurrence winning the position.
+fn projected_aliases(fields: &[(String, String)]) -> Vec<&str> {
+    let mut aliases: Vec<&str> = Vec::new();
+    for (_, alias) in fields {
+        if !aliases.contains(&alias.as_str()) {
+            aliases.push(alias);
+        }
+    }
+
+    aliases
+}
+
+/// One projected wire value as its CSV cell, JSON text for anything structured.
+fn projected_cell(value: Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text),
+        other => Some(other.to_string()),
+    }
+}
+
+/// Serialize projected records as JSON lines, one aliased object per line.
+pub fn to_json_lines_projected<T: Serialize>(
+    records: &[T],
+    fields: &[(String, String)],
+) -> serde_json::Result<Vec<u8>> {
+    let mut lines = Vec::new();
+    for record in records {
+        serde_json::to_writer(&mut lines, &Value::Object(project(record, fields)?))?;
+        lines.push(b'\n');
+    }
+
+    Ok(lines)
+}
+
+/// Render projected records as CSV lines, the header row holding the aliases.
+pub fn to_csv_lines_projected<T: Serialize>(
+    records: &[T],
+    fields: &[(String, String)],
+) -> serde_json::Result<String> {
+    let mut lines = String::new();
+    let header: Vec<Option<String>> = projected_aliases(fields)
+        .into_iter()
+        .map(|alias| Some(alias.to_string()))
+        .collect();
+    csv_row(&header, &mut lines);
+    for record in records {
+        let cells: Vec<Option<String>> = project(record, fields)?
+            .into_iter()
+            .map(|(_, value)| projected_cell(value))
+            .collect();
+        csv_row(&cells, &mut lines);
+    }
+
+    Ok(lines)
+}
+
 /// The records of one query result, all of a single entity type.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Records {
@@ -308,6 +388,32 @@ impl Records {
             Self::Particles(records) => to_csv_lines(records),
             Self::Alerts(records) => to_csv_lines(records),
             Self::LogEntries(records) => to_csv_lines(records),
+        }
+    }
+
+    /// Serialize a field projection of the records as JSON lines, aliased objects.
+    pub fn to_json_lines_projected(
+        &self,
+        fields: &[(String, String)],
+    ) -> serde_json::Result<Vec<u8>> {
+        match self {
+            Self::Messages(records) => to_json_lines_projected(records, fields),
+            Self::Particles(records) => to_json_lines_projected(records, fields),
+            Self::Alerts(records) => to_json_lines_projected(records, fields),
+            Self::LogEntries(records) => to_json_lines_projected(records, fields),
+        }
+    }
+
+    /// Render a field projection of the records as CSV lines under an alias header.
+    pub fn to_csv_lines_projected(
+        &self,
+        fields: &[(String, String)],
+    ) -> serde_json::Result<String> {
+        match self {
+            Self::Messages(records) => to_csv_lines_projected(records, fields),
+            Self::Particles(records) => to_csv_lines_projected(records, fields),
+            Self::Alerts(records) => to_csv_lines_projected(records, fields),
+            Self::LogEntries(records) => to_csv_lines_projected(records, fields),
         }
     }
 }
@@ -474,5 +580,103 @@ mod tests {
         let bytes: Vec<u8> = (0..=255).collect();
         assert_eq!(latin1::encode(&latin1::decode(&bytes)), bytes);
         assert_eq!(latin1::encode("A\u{2603}B"), b"AB");
+    }
+
+    fn pairs(fields: &[(&str, &str)]) -> Vec<(String, String)> {
+        fields
+            .iter()
+            .map(|(field, alias)| (field.to_string(), alias.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn projections_alias_reorder_and_null_unknown_fields() {
+        let mut data = Map::new();
+        data.insert("a".to_string(), Value::from(1));
+
+        let particles = vec![Particle {
+            id: id(),
+            address: address(),
+            timestamp: timestamp(),
+            kind: "sample".to_string(),
+            data,
+            span: None,
+        }];
+        let fields = pairs(&[
+            ("type", "kind"),
+            ("id", "id"),
+            ("nonexistent", "nonexistent"),
+            ("span", "span"),
+        ]);
+
+        let lines = to_json_lines_projected(&particles, &fields).unwrap();
+        // An omitted span and an unknown name both project as null, and the keys
+        // follow the projection's own order.
+        assert_eq!(
+            String::from_utf8(lines).unwrap(),
+            "{\"kind\":\"sample\",\
+             \"id\":\"0198c0de-0000-7000-8000-000000000001\",\
+             \"nonexistent\":null,\"span\":null}\n"
+        );
+
+        let rendered = to_csv_lines_projected(&particles, &fields).unwrap();
+        assert_eq!(
+            rendered,
+            "kind,id,nonexistent,span\n\
+             sample,0198c0de-0000-7000-8000-000000000001,,\n"
+        );
+    }
+
+    #[test]
+    fn projections_render_structured_cells_as_json() {
+        let mut data = Map::new();
+        data.insert("b".to_string(), Value::from(2.5));
+        data.insert("a".to_string(), Value::from(1));
+
+        let particles = vec![Particle {
+            id: id(),
+            address: address(),
+            timestamp: timestamp(),
+            kind: "sample".to_string(),
+            data,
+            span: Some((3, 17)),
+        }];
+        let fields = pairs(&[("data", "data"), ("span", "span")]);
+
+        let lines = to_json_lines_projected(&particles, &fields).unwrap();
+        assert_eq!(
+            String::from_utf8(lines).unwrap(),
+            "{\"data\":{\"b\":2.5,\"a\":1},\"span\":[3,17]}\n"
+        );
+
+        let rendered = to_csv_lines_projected(&particles, &fields).unwrap();
+        assert_eq!(
+            rendered,
+            "data,span\n\"{\"\"b\"\":2.5,\"\"a\"\":1}\",\"[3,17]\"\n"
+        );
+    }
+
+    #[test]
+    fn a_repeated_alias_collapses_onto_its_first_position() {
+        let entries = vec![LogEntry {
+            id: id(),
+            address: address(),
+            timestamp: timestamp(),
+            level: Level::Info,
+            content: "hello".to_string(),
+        }];
+        let fields = pairs(&[("level", "value"), ("content", "value"), ("id", "id")]);
+
+        let lines = to_json_lines_projected(&entries, &fields).unwrap();
+        assert_eq!(
+            String::from_utf8(lines).unwrap(),
+            "{\"value\":\"hello\",\"id\":\"0198c0de-0000-7000-8000-000000000001\"}\n"
+        );
+
+        let rendered = to_csv_lines_projected(&entries, &fields).unwrap();
+        assert_eq!(
+            rendered,
+            "value,id\nhello,0198c0de-0000-7000-8000-000000000001\n"
+        );
     }
 }

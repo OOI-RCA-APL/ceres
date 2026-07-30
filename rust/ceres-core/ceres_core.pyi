@@ -461,19 +461,23 @@ class RecordBatch:
         r"""
         Serialize the batch as a JSON array in the API's wire format.
         """
-    def to_json_lines(self) -> bytes:
+    def to_json_lines(self, fields: Sequence[tuple[str, str]] | None = None) -> bytes:
         r"""
         Serialize the batch as JSON lines in the wire format, one record per line.
 
         The shape a CLI record dump writes, so a select can produce its whole output in
-        one native pass.
+        one native pass. A field projection, ordered `(field, alias)` pairs, renders
+        each line as an object of the aliased wire values, unknown or absent fields
+        serializing as null.
         """
-    def to_csv_lines(self) -> str:
+    def to_csv_lines(self, fields: Sequence[tuple[str, str]] | None = None) -> str:
         r"""
         Render the batch as CSV lines under a header row, in the wire cell forms.
 
         The shape a CSV record dump writes, quoted the way the Python `csv` writer
-        quotes, so a select can produce its whole output in one native pass.
+        quotes, so a select can produce its whole output in one native pass. A field
+        projection, ordered `(field, alias)` pairs, selects the columns, with the
+        aliases as the header row.
         """
 
 @final

@@ -84,21 +84,38 @@ impl RecordBatch {
     /// Serialize the batch as JSON lines in the wire format, one record per line.
     ///
     /// The shape a CLI record dump writes, so a select can produce its whole output in
-    /// one native pass.
-    fn to_json_lines<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        let serialized = self
-            .records
-            .to_json_lines()
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    /// one native pass. A field projection, ordered `(field, alias)` pairs, renders
+    /// each line as an object of the aliased wire values, unknown or absent fields
+    /// serializing as null.
+    #[pyo3(signature = (fields=None))]
+    fn to_json_lines<'py>(
+        &self,
+        py: Python<'py>,
+        fields: Option<Vec<(String, String)>>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let serialized = match &fields {
+            Some(fields) => self.records.to_json_lines_projected(fields),
+            None => self.records.to_json_lines(),
+        }
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(PyBytes::new(py, &serialized))
     }
 
     /// Render the batch as CSV lines under a header row, in the wire cell forms.
     ///
     /// The shape a CSV record dump writes, quoted the way the Python `csv` writer
-    /// quotes, so a select can produce its whole output in one native pass.
-    fn to_csv_lines(&self) -> String {
-        self.records.to_csv_lines()
+    /// quotes, so a select can produce its whole output in one native pass. A field
+    /// projection, ordered `(field, alias)` pairs, selects the columns, with the
+    /// aliases as the header row.
+    #[pyo3(signature = (fields=None))]
+    fn to_csv_lines(&self, fields: Option<Vec<(String, String)>>) -> PyResult<String> {
+        match &fields {
+            Some(fields) => self
+                .records
+                .to_csv_lines_projected(fields)
+                .map_err(|error| PyValueError::new_err(error.to_string())),
+            None => Ok(self.records.to_csv_lines()),
+        }
     }
 }
 

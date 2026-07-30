@@ -175,15 +175,91 @@ async def test_output_files_carry_complete_rows(tmp_path: Path) -> None:
         await engine.database.dispose()
 
 
-def test_plain_json_output_gates_on_fields_format_and_color() -> None:
-    """The native path only applies to a plain JSON dump, uncolored and unprojected."""
+def test_plain_json_output_gates_on_format_and_color() -> None:
+    """The native path applies to any uncolored JSON dump, projected or not."""
     Command = create_entity_select_command(Message)
 
     assert Command().plain_json_output() in (True, False)
     assert Command(color=False).plain_json_output() is True
     assert Command(color=True).plain_json_output() is False
-    assert Command(color=False, field="id").plain_json_output() is False
-    assert Command(color=False, fields=["id"]).plain_json_output() is False
+    assert Command(color=False, field="id").plain_json_output() is True
+    assert Command(color=False, fields=["id"]).plain_json_output() is True
     from ceres.__internal__.cli.shared import CLIDataFormat
 
     assert Command(color=False, data_format=CLIDataFormat.CSV).plain_json_output() is False
+
+
+def test_field_specs_resolve_as_whole_names() -> None:
+    """A lone `--field` value is one spec, and flags override positional aliases by
+    field name, never splitting into characters."""
+    Command = create_entity_select_command(LogEntry)
+
+    assert Command(field="level").resolved_fields() == {"level": "level"}
+    assert Command(field="id:the id").resolved_fields() == {"id": "the id"}
+    assert Command(fields=["content", "id:first"], field="id:last").resolved_fields() == {
+        "content": "content",
+        "id": "last",
+    }
+    assert Command().resolved_fields() is None
+
+
+PROJECTIONS: dict[type, list[str]] = {
+    Message: ["timestamp", "id:key", "data", "nonexistent", "connection"],
+    Particle: ["data", "span", "type:kind", "id"],
+    Alert: ["level", "type:type", "data", "id"],
+    LogEntry: ["content:text", "level", "missing:gone"],
+}
+
+
+async def test_the_native_projected_dumps_match_the_materializing_path(tmp_path: Path) -> None:
+    """A projected dump renders each field's wire value under its alias, byte-equal to
+    extracting and writing every row in Python, for JSON and CSV alike.
+
+    The projections exercise aliases, reordering, unknown names, an unset `span`, and
+    a message payload that is not valid UTF-8.
+    """
+    from ceres.__internal__.cli.shared import CLIDataFormat
+
+    engine = await _build_engine_on_disk(tmp_path)
+    await _write_records(engine)
+
+    try:
+        for Record, fields in PROJECTIONS.items():
+            for data_format in (CLIDataFormat.JSON, CLIDataFormat.CSV):
+                query = engine.__manager__(Record).where()
+                Command = create_entity_select_command(Record)
+                expected_path = tmp_path / f"{Record.__name__}.{data_format.value}"
+                command = Command(output=expected_path, field=list(fields))
+                await command.put(engine.__manager__(Record).where().select())
+
+                dumped = await dump_records_natively(
+                    engine.database, Record, query, data_format, command.resolved_fields()
+                )
+                assert dumped is not None, f"expected a native dump for {Record.__name__}"
+                assert dumped == expected_path.read_bytes().decode(), (
+                    f"{Record.__name__} {data_format}"
+                )
+    finally:
+        await engine.database.dispose()
+
+
+async def test_projected_message_data_renders_the_wire_text(tmp_path: Path) -> None:
+    """A projected `data` field carries the record's latin-1 wire text, so a payload
+    that is not valid UTF-8 still dumps."""
+    engine = await _build_engine_on_disk(tmp_path)
+    await _write_records(engine)
+
+    try:
+        query = engine.__manager__(Message).where(Message.Filter(connection="serial"))
+        dumped = await dump_records_natively(
+            engine.database, Message, query, fields={"data": "data", "span": "span"}
+        )
+        assert dumped == '{"data":"\\u0001\\u0002ABCÿ","span":null}\n'
+
+        Command = create_entity_select_command(Message)
+        json_path = tmp_path / "data.json"
+        command = Command(output=json_path, field=["data", "span"])
+        await command.put(query.select())
+        assert json_path.read_bytes().decode() == dumped
+    finally:
+        await engine.database.dispose()

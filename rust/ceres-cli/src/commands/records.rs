@@ -1,14 +1,15 @@
 //! Native record dumps.
 //!
-//! A plain JSON `select` or `count` over a record table runs entirely natively, the
-//! filter parses into the native subset, the database opens read-only through the
-//! native store, and the output renders in one pass, so the interpreter never starts.
+//! An uncolored JSON or CSV `select` or `count` over a record table runs entirely
+//! natively, the filter parses into the native subset, the database opens read-only
+//! through the native store, and the output renders in one pass, projected or not, so
+//! the interpreter never starts.
 //!
 //! The command carries no filter flag surface of its own. Every `--key value` token
 //! pair lexes into the same wire pairs the server parses, and the native filter subset,
 //! which the entities' `Filterable` derives generate, is the single authority on what
-//! is admitted. Anything else, an unknown key, a construct outside the subset, a
-//! non-JSON format, colorized terminal output, or a database the native store cannot
+//! is admitted. Anything else, an unknown key, a construct outside the subset, an
+//! unknown format, colorized terminal output, or a database the native store cannot
 //! join, delegates to the Python runtime, which either serves it or produces the
 //! canonical error. Failures follow the same rule, the native attempt renders its whole
 //! output before writing anything, and any error along the way delegates rather than
@@ -35,8 +36,10 @@ struct Invocation {
     config: Option<PathBuf>,
     /// The explicit color choice, `--color` or `--no-color`.
     color: Option<bool>,
-    /// Whether fields were projected, positionally or by flag, which always delegates.
-    projecting: bool,
+    /// Positional field specs, `field` or `field:alias`, in argument order.
+    positional_fields: Vec<String>,
+    /// The `--field` spec, a repeated flag keeping only its last value.
+    flag_field: Option<String>,
 }
 
 impl Invocation {
@@ -56,8 +59,14 @@ impl Invocation {
         while let Some(token) = tokens.next() {
             let token = token?;
             let Some(flag) = token.strip_prefix("--") else {
-                // A bare token is positional field projection.
-                invocation.projecting = true;
+                // A bare token is one positional field spec. The Python parser splits
+                // positional lists on commas and reads bracketed values as JSON, so
+                // only a plain spec lexes and anything fancier delegates.
+                if token.contains(',') || token.starts_with('[') {
+                    return None;
+                }
+
+                invocation.positional_fields.push(token.to_string());
                 continue;
             };
 
@@ -87,7 +96,7 @@ impl Invocation {
                         "output" => invocation.output = Some(PathBuf::from(value)),
                         "data-format" => invocation.data_format = Some(value),
                         "config" => invocation.config = Some(PathBuf::from(value)),
-                        "field" => invocation.projecting = true,
+                        "field" => invocation.flag_field = Some(value),
                         key => invocation.pairs.push((key.replace('-', "_"), value)),
                     }
                 }
@@ -97,12 +106,40 @@ impl Invocation {
         Some(invocation)
     }
 
-    /// Whether output is plain JSON with no projection and no color, the shape the
-    /// native path renders. Mirrors the Python command's color resolution.
+    /// The merged field projection as ordered `(field, alias)` pairs, empty when
+    /// every field is output.
+    ///
+    /// Positional specs come first in argument order, then the `--field` spec, each
+    /// splitting on its first colon and a repeated field name replacing the alias in
+    /// place, which is how the Python command's dict merge behaves.
+    fn projection(&self) -> Vec<(String, String)> {
+        let mut projection: Vec<(String, String)> = Vec::new();
+        let specs = self
+            .positional_fields
+            .iter()
+            .chain(self.flag_field.as_ref());
+        for spec in specs {
+            let (field, alias) = match spec.split_once(':') {
+                Some((field, alias)) => (field.to_string(), alias.to_string()),
+                None => (spec.clone(), spec.clone()),
+            };
+
+            match projection.iter_mut().find(|(name, _)| *name == field) {
+                Some((_, existing)) => *existing = alias,
+                None => projection.push((field, alias)),
+            }
+        }
+
+        projection
+    }
+
     /// The format a native one-pass dump can render, `None` when the invocation must
-    /// delegate, for a projection, an unknown format, or colorized output.
+    /// delegate, for an unknown format or colorized output. Mirrors the Python
+    /// command's color resolution.
     fn dump_format(&self) -> Option<DumpFormat> {
-        if self.projecting {
+        // A count carries no field surface, so a projection on one is an argument
+        // error the Python command owns.
+        if self.counting && (!self.positional_fields.is_empty() || self.flag_field.is_some()) {
             return None;
         }
 
@@ -176,6 +213,7 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
 
     // The whole result renders before anything writes, so a failure here can still
     // delegate without having produced partial output.
+    let projection = invocation.projection();
     let rendered = runtime.block_on(async {
         if invocation.counting {
             store
@@ -184,12 +222,15 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
                 .map(|count| format!("{count}\n").into_bytes())
         } else {
             let records = store.fetch_filter(&filter).await?;
-            match format {
-                DumpFormat::Json => records
-                    .to_json_lines()
-                    .map_err(|error| ceres_database::Error::Decode(error.to_string())),
-                DumpFormat::Csv => Ok(records.to_csv_lines().into_bytes()),
-            }
+            let rendered = match (format, projection.is_empty()) {
+                (DumpFormat::Json, true) => records.to_json_lines(),
+                (DumpFormat::Json, false) => records.to_json_lines_projected(&projection),
+                (DumpFormat::Csv, true) => Ok(records.to_csv_lines().into_bytes()),
+                (DumpFormat::Csv, false) => records
+                    .to_csv_lines_projected(&projection)
+                    .map(String::into_bytes),
+            };
+            rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
         }
     });
     let Ok(rendered) = rendered else {
@@ -338,14 +379,63 @@ mod tests {
     }
 
     #[test]
+    fn projections_lex_and_merge_like_the_python_command() {
+        let lex = |arguments: &[&str]| Invocation::lex(&raw(arguments)).unwrap();
+
+        // Positional specs keep argument order, aliases split on the first colon.
+        let invocation = lex(&["select", "content", "id:the id", "--no-color"]);
+        assert_eq!(
+            invocation.projection(),
+            vec![
+                ("content".to_string(), "content".to_string()),
+                ("id".to_string(), "the id".to_string()),
+            ]
+        );
+        assert_eq!(invocation.dump_format(), Some(DumpFormat::Json));
+
+        // The last `--field` wins and overrides a positional alias in place.
+        let invocation = lex(&[
+            "select",
+            "id:first",
+            "level",
+            "--field",
+            "id",
+            "--field=id:last",
+            "--no-color",
+        ]);
+        assert_eq!(
+            invocation.projection(),
+            vec![
+                ("id".to_string(), "last".to_string()),
+                ("level".to_string(), "level".to_string()),
+            ]
+        );
+
+        // The Python parser splits positional lists on commas and reads bracketed
+        // values as JSON, so those delegate wholesale.
+        assert!(Invocation::lex(&raw(&["select", "id,content"])).is_none());
+        assert!(Invocation::lex(&raw(&["select", "[\"id\"]"])).is_none());
+
+        // A count has no field surface, so projecting one delegates.
+        assert_eq!(
+            lex(&["count", "--field", "id", "--no-color"]).dump_format(),
+            None
+        );
+        assert_eq!(lex(&["count", "id", "--no-color"]).dump_format(), None);
+    }
+
+    #[test]
     fn projection_format_and_color_gate_the_native_path() {
         let lex = |arguments: &[&str]| Invocation::lex(&raw(arguments)).unwrap();
 
         assert_eq!(
             lex(&["select", "--field", "id", "--no-color"]).dump_format(),
-            None
+            Some(DumpFormat::Json)
         );
-        assert_eq!(lex(&["select", "id", "--no-color"]).dump_format(), None);
+        assert_eq!(
+            lex(&["select", "id", "--no-color"]).dump_format(),
+            Some(DumpFormat::Json)
+        );
         assert_eq!(
             lex(&["select", "--data-format", "csv", "--no-color"]).dump_format(),
             Some(DumpFormat::Csv)
