@@ -34,12 +34,19 @@ enum Verb {
     Count,
     /// An existence check, which reports through its exit status as well as its output.
     Any,
+    Update,
+    Delete,
 }
 
 impl Verb {
     /// Whether the verb carries an output surface, which only `select` does.
     fn renders_records(self) -> bool {
         matches!(self, Self::Select)
+    }
+
+    /// Whether the verb writes, which decides the confirmation and transaction rules.
+    fn writes(self) -> bool {
+        matches!(self, Self::Update | Self::Delete)
     }
 }
 
@@ -56,6 +63,12 @@ struct Invocation {
     color: Option<bool>,
     /// The explicit header choice, `--header` or `--no-header`.
     header: Option<bool>,
+    /// The explicit confirmation choice, `--confirm` or `--no-confirm`.
+    confirm: Option<bool>,
+    /// Whether `--collect` asked for the affected records instead of a count.
+    collect: bool,
+    /// The `--assign` object an update carries, as its raw YAML or JSON text.
+    assign: Option<String>,
     /// Positional field specs, `field` or `field:alias`, in argument order.
     positional_fields: Vec<String>,
     /// The `--field` spec, a repeated flag keeping only its last value.
@@ -71,6 +84,8 @@ impl Invocation {
                 "select" => Verb::Select,
                 "count" => Verb::Count,
                 "any" => Verb::Any,
+                "update" => Verb::Update,
+                "delete" => Verb::Delete,
                 _ => return None,
             },
             ..Self::default()
@@ -103,6 +118,10 @@ impl Invocation {
                 "no-color" => invocation.color = Some(false),
                 "header" => invocation.header = Some(true),
                 "no-header" => invocation.header = Some(false),
+                "confirm" => invocation.confirm = Some(true),
+                "no-confirm" => invocation.confirm = Some(false),
+                "collect" => invocation.collect = true,
+                "no-collect" => invocation.collect = false,
                 _ => {
                     if value.is_none() {
                         let next = tokens.peek()?.as_ref()?;
@@ -120,6 +139,7 @@ impl Invocation {
                         "data-format" => invocation.data_format = Some(value),
                         "config" => invocation.config = Some(PathBuf::from(value)),
                         "field" => invocation.flag_field = Some(value),
+                        "assign" => invocation.assign = Some(value),
                         key => invocation.pairs.push((key.replace('-', "_"), value)),
                     }
                 }
@@ -160,8 +180,10 @@ impl Invocation {
     /// delegate, for an unknown format or colorized output. Mirrors the Python
     /// command's color resolution.
     fn dump_format(&self) -> Option<DumpFormat> {
-        // Only `select` carries an output surface. Fields, an output file, a format, or
-        // a header choice on a `count` or an `any` is an argument error Python owns.
+        // Only `select` renders records. Every other verb prints one scalar, so a field
+        // selection, an output file, a format, or a header choice on one either is an
+        // argument error Python owns or is a rendering the native path has no reason to
+        // reproduce.
         if !self.verb.renders_records()
             && (!self.positional_fields.is_empty()
                 || self.flag_field.is_some()
@@ -169,6 +191,24 @@ impl Invocation {
                 || self.data_format.is_some()
                 || self.header.is_some())
         {
+            return None;
+        }
+
+        if self.verb.writes() {
+            // An `update` needs its assignments, and only an `update` takes them.
+            if self.assign.is_some() != matches!(self.verb, Verb::Update) {
+                return None;
+            }
+
+            // Confirmation prompts and `--collect` streams both stay in Python. The
+            // prompt would duplicate a user interaction the binary has no business
+            // reproducing, and it costs a counting round trip that dwarfs the startup
+            // this path saves. Requiring `--no-confirm` also keeps the rollback rule
+            // honest, since delegating after a rollback would otherwise re-prompt.
+            if self.confirm != Some(false) || self.collect {
+                return None;
+            }
+        } else if self.assign.is_some() || self.confirm.is_some() || self.collect {
             return None;
         }
 
@@ -234,7 +274,7 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
         .build()
         .expect("the runtime always builds");
     let guard = runtime.enter();
-    let Some(store) = open_store(&meta.database) else {
+    let Some(store) = open_store(&meta.database, invocation.verb.writes()) else {
         return Ok(false);
     };
 
@@ -251,6 +291,23 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
                 .await
                 .map(|count| Rendered::Text(format!("{count}\n"))),
             Verb::Any => store.any_filter(&filter).await.map(Rendered::Exists),
+            Verb::Delete => store
+                .delete_filter(&filter)
+                .await
+                .map(|affected| Rendered::Text(format!("{affected}\n"))),
+            Verb::Update => {
+                let assign = invocation
+                    .assign
+                    .as_deref()
+                    .expect("an update carries its assignments");
+                store.update_filter(&filter, assign).await.map(|affected| {
+                    // Assignments the encoder refuses leave the table untouched, so the
+                    // command delegates and Python owns the outcome.
+                    affected.map_or(Rendered::Delegate, |affected| {
+                        Rendered::Text(format!("{affected}\n"))
+                    })
+                })
+            }
             Verb::Select => {
                 let records = store.fetch_filter(&filter).await?;
                 let rendered = match (format, projection.is_empty()) {
@@ -270,6 +327,11 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
     let Ok(rendered) = rendered else {
         return Ok(false);
     };
+    // A pass that decided mid-flight it cannot serve the command wrote nothing and
+    // changed nothing, so it delegates like any other refusal.
+    if matches!(rendered, Rendered::Delegate) {
+        return Ok(false);
+    }
 
     // An existence check reports through its exit status as well as its output, so it
     // writes first and then carries the status out.
@@ -287,6 +349,8 @@ enum Rendered {
     Text(String),
     /// An existence answer, which prints like Python's `bool` and sets the exit status.
     Exists(bool),
+    /// The pass cannot serve the command after all, having changed nothing.
+    Delegate,
 }
 
 impl Rendered {
@@ -304,6 +368,7 @@ impl Rendered {
             Self::Text(text) => text.into_bytes(),
             Self::Exists(true) => b"true\n".to_vec(),
             Self::Exists(false) => b"false\n".to_vec(),
+            Self::Delegate => Vec::new(),
         }
     }
 }
@@ -313,7 +378,7 @@ impl Rendered {
 /// The rules mirror the Python layer's own native-pool gating, an in-memory or
 /// unpathed file database is private to its instance, and a PostgreSQL configuration
 /// carrying driver-specific connection arguments cannot be reproduced faithfully.
-fn open_store(config: &DatabaseConfig) -> Option<RecordStore> {
+fn open_store(config: &DatabaseConfig, writing: bool) -> Option<RecordStore> {
     match config {
         DatabaseConfig::Sqlite(sqlite) => {
             if sqlite.is_memory() {
@@ -321,9 +386,18 @@ fn open_store(config: &DatabaseConfig) -> Option<RecordStore> {
             }
 
             let path = absolute_existing(sqlite.path.as_deref()?)?;
-            RecordStore::sqlite(&path).ok()
+            if writing {
+                RecordStore::sqlite_writable(&path).ok()
+            } else {
+                RecordStore::sqlite(&path).ok()
+            }
         }
         DatabaseConfig::Turso(turso) => {
+            // Turso keeps the Python write path until its native writer is wired.
+            if writing {
+                return None;
+            }
+
             let path = absolute_existing(turso.path.as_deref()?)?;
             Some(RecordStore::turso(&path, turso.mvcc))
         }
@@ -420,6 +494,68 @@ mod tests {
         assert_eq!(Invocation::lex(&raw(&["any"])).unwrap().verb, Verb::Any);
         assert!(Invocation::lex(&raw(&["create"])).is_none());
         assert!(Invocation::lex(&raw(&[])).is_none());
+    }
+
+    #[test]
+    fn write_verbs_require_no_confirm_and_a_matching_assignment() {
+        let lex = |arguments: &[&str]| Invocation::lex(&raw(arguments)).unwrap();
+
+        // The bare booleans lex as flags rather than swallowing the next token.
+        let invocation = lex(&["delete", "--no-confirm", "--limit", "5", "--no-color"]);
+        assert_eq!(invocation.confirm, Some(false));
+        assert!(!invocation.collect);
+        assert_eq!(
+            invocation.pairs,
+            vec![("limit".to_string(), "5".to_string())]
+        );
+        assert_eq!(invocation.dump_format(), Some(DumpFormat::Json));
+
+        // A prompt or a collected stream stays in Python.
+        assert_eq!(lex(&["delete", "--no-color"]).dump_format(), None);
+        assert_eq!(
+            lex(&["delete", "--confirm", "--no-color"]).dump_format(),
+            None
+        );
+        assert_eq!(
+            lex(&["delete", "--no-confirm", "--collect", "--no-color"]).dump_format(),
+            None
+        );
+
+        // An update needs assignments, and only an update takes them.
+        assert_eq!(
+            lex(&["update", "--no-confirm", "--no-color"]).dump_format(),
+            None
+        );
+        assert_eq!(
+            lex(&[
+                "update",
+                "--no-confirm",
+                "--assign",
+                "{\"connection\": \"usb\"}",
+                "--no-color",
+            ])
+            .dump_format(),
+            Some(DumpFormat::Json)
+        );
+        assert_eq!(
+            lex(&[
+                "delete",
+                "--no-confirm",
+                "--assign",
+                "{\"connection\": \"usb\"}",
+                "--no-color",
+            ])
+            .dump_format(),
+            None
+        );
+        assert_eq!(
+            lex(&["select", "--assign", "{\"a\": 1}", "--no-color"]).dump_format(),
+            None
+        );
+        assert_eq!(
+            lex(&["select", "--no-confirm", "--no-color"]).dump_format(),
+            None
+        );
     }
 
     #[test]

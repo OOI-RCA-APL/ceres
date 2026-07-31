@@ -24,8 +24,8 @@
 use ceres_entities::{FieldFamily, FilterField, FilterValues, Level, OperationKind};
 use chrono::{Duration, NaiveDateTime, SubsecRound, Utc};
 use sea_query::{
-    Alias, Asterisk, BinOper, Expr, ExprTrait, Func, LikeExpr, Order, Query, SelectStatement,
-    SimpleExpr, Value,
+    Alias, Asterisk, BinOper, DeleteStatement, Expr, ExprTrait, Func, LikeExpr, Order, Query,
+    SelectStatement, SimpleExpr, UpdateStatement, Value,
 };
 use uuid::Uuid;
 
@@ -516,6 +516,91 @@ impl RecordFilter {
 
         let mut statement = Query::select();
         statement.expr(Expr::exists(inner));
+        statement
+    }
+
+    /// The primary keys the filter's page selects, `None` when the filter names no
+    /// page and the caller can therefore match rows in place.
+    ///
+    /// A record's key is its single `id` column, so the outer statement tests plain
+    /// membership rather than the row-value tuple a composite key would need.
+    fn paged_keys(&self, dialect: SqlDialect) -> Option<SelectStatement> {
+        if self.limit.is_none() && self.offset.is_none() {
+            return None;
+        }
+
+        let now = Utc::now().naive_utc().trunc_subsecs(6);
+        let mut keys = Query::select();
+        keys.column(Alias::new("id"))
+            .from(Alias::new(self.table.name()));
+        for condition in self.node.combined_conditions(self.table, dialect, now) {
+            keys.and_where(condition);
+        }
+
+        for term in self.order_terms() {
+            order_by(&mut keys, term, dialect);
+        }
+
+        if let Some(limit) = self.limit {
+            keys.limit(limit);
+        } else if dialect == SqlDialect::SqliteText {
+            keys.limit(i64::MAX as u64);
+        }
+
+        if let Some(offset) = self.offset {
+            keys.offset(offset);
+        }
+
+        Some(keys)
+    }
+
+    /// Build the delete statement, mirroring the Python layer's `apply`.
+    ///
+    /// Without a page the conditions apply in place. With one the statement deletes the
+    /// keys its ordered page names, because a `DELETE` carries neither ordering nor
+    /// pagination of its own.
+    pub fn delete_statement(&self, dialect: SqlDialect) -> DeleteStatement {
+        let now = Utc::now().naive_utc().trunc_subsecs(6);
+        let mut statement = Query::delete();
+        statement.from_table(Alias::new(self.table.name()));
+        match self.paged_keys(dialect) {
+            Some(keys) => {
+                statement.and_where(Expr::col(Alias::new("id")).in_subquery(keys));
+            }
+            None => {
+                for condition in self.node.combined_conditions(self.table, dialect, now) {
+                    statement.and_where(condition);
+                }
+            }
+        }
+
+        statement
+    }
+
+    /// Build the update statement for a set of encoded assignments.
+    pub(crate) fn update_statement(
+        &self,
+        dialect: SqlDialect,
+        assignments: &[crate::assign::Assignment],
+    ) -> UpdateStatement {
+        let now = Utc::now().naive_utc().trunc_subsecs(6);
+        let mut statement = Query::update();
+        statement.table(Alias::new(self.table.name()));
+        for assignment in assignments {
+            statement.value(Alias::new(assignment.column), assignment.value.clone());
+        }
+
+        match self.paged_keys(dialect) {
+            Some(keys) => {
+                statement.and_where(Expr::col(Alias::new("id")).in_subquery(keys));
+            }
+            None => {
+                for condition in self.node.combined_conditions(self.table, dialect, now) {
+                    statement.and_where(condition);
+                }
+            }
+        }
+
         statement
     }
 
@@ -1627,7 +1712,7 @@ fn speedate_config() -> speedate::TimeConfig {
 /// Parse a wire timestamp on the grammar the Python `DateTime` accepts, ISO forms,
 /// epoch numbers, and bare dates, aware values normalizing to UTC and naive ones read
 /// as UTC.
-fn parse_timestamp(text: &str) -> Result<NaiveDateTime, Refusal> {
+pub(crate) fn parse_timestamp(text: &str) -> Result<NaiveDateTime, Refusal> {
     let config = speedate::DateTimeConfig {
         time_config: speedate_config(),
         ..Default::default()

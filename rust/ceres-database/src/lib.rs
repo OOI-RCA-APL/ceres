@@ -7,6 +7,7 @@
 //! Query semantics deliberately mirror the SQLAlchemy layer they replace, the SQL built
 //! here has to select and order exactly like the Python side does for the same filter.
 
+mod assign;
 mod filter;
 mod records;
 mod selector;

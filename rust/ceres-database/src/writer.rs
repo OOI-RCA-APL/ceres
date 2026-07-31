@@ -26,7 +26,7 @@ enum Backend {
 
 /// How a backend expects record values bound.
 #[derive(Clone, Copy, PartialEq)]
-enum Dialect {
+pub(crate) enum Dialect {
     /// Timestamps, UUIDs, and JSON payloads stored as text.
     Sqlite,
     /// Native driver types throughout.
