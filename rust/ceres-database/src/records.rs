@@ -34,7 +34,8 @@ impl RecordTable {
         }
     }
 
-    pub(crate) fn name(&self) -> &'static str {
+    /// The table's name, which is also the API route its records are served on.
+    pub fn name(&self) -> &'static str {
         match self {
             Self::Messages => "messages",
             Self::Particles => "particles",

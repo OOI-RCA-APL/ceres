@@ -30,7 +30,9 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
     let Some(format) = invocation.dump_format() else {
         return Ok(false);
     };
-    if !serves(table, &invocation) {
+    // Only the record tables declare a `follow`, so on an entity it is an argument
+    // error the Python command owns.
+    if invocation.verb.streams() || !serves(table, &invocation) {
         return Ok(false);
     }
 
@@ -134,6 +136,7 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
                     })
                 })
             }
+            Verb::Follow => unreachable!("an entity group has no follow subcommand"),
             Verb::Create => {
                 store
                     .load_entities(
@@ -327,6 +330,20 @@ mod tests {
                 ("name".to_string(), "x".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn an_entity_group_has_no_follow_to_serve() {
+        // Only the record tables pass `follow=True` to the command factory, so `follow`
+        // on an entity is an argument error the Python command owns.
+        for table in [
+            EntityTable::Users,
+            EntityTable::Variables,
+            EntityTable::Settings,
+            EntityTable::Workspaces,
+        ] {
+            assert!(lex(table, &["follow", "--no-color"]).verb.streams());
+        }
     }
 
     #[test]

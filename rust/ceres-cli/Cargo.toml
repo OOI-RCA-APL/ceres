@@ -25,6 +25,7 @@ sha1 = "0.10"
 ureq = { version = "3", features = ["json"] }
 plist = "1"
 regex-lite = "0.1"
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

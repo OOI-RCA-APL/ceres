@@ -25,6 +25,11 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
     let Some(format) = invocation.dump_format() else {
         return Ok(false);
     };
+    // A follow reads a running engine rather than the database, so it opens no store and
+    // takes its own path from here.
+    if invocation.verb.streams() {
+        return crate::commands::follow::run(table, &invocation, format, config);
+    }
 
     // A filtered verb parses its wire pairs, while `create` reads them as the new
     // record's field values and `load` opens a file it will walk as it writes.
@@ -120,6 +125,8 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
                     })
                 })
             }
+            // A follow took its own path before the store opened.
+            Verb::Follow => unreachable!("a follow never reaches the store"),
             Verb::Create => {
                 store
                     .load_records(

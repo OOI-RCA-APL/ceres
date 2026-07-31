@@ -37,12 +37,21 @@ pub(crate) enum Verb {
     Delete,
     /// A bulk load, whose arguments are a file rather than a filter.
     Load,
+    /// A live stream of new rows, which reads from a running engine rather than the
+    /// database and never finishes on its own.
+    Follow,
 }
 
 impl Verb {
-    /// Whether the verb carries an output surface, which `select` and `create` do.
+    /// Whether the verb carries an output surface, which the row-producing verbs do.
     pub(crate) fn renders_rows(self) -> bool {
-        matches!(self, Self::Select | Self::Create)
+        matches!(self, Self::Select | Self::Create | Self::Follow)
+    }
+
+    /// Whether the verb reads a live stream from a running engine rather than the
+    /// database, which only `follow` does.
+    pub(crate) fn streams(self) -> bool {
+        matches!(self, Self::Follow)
     }
 
     /// Whether the verb writes, which decides the confirmation and transaction rules.
@@ -111,6 +120,7 @@ impl Invocation {
                 "update" => Verb::Update,
                 "delete" => Verb::Delete,
                 "load" => Verb::Load,
+                "follow" => Verb::Follow,
                 _ => return None,
             },
             ..Self::default()
@@ -250,7 +260,7 @@ impl Invocation {
         // positional argument of its own, the file it reads, and every other verb takes
         // none, so a stray one is an argument error Python owns.
         let positionals = match self.verb {
-            Verb::Select => usize::MAX,
+            Verb::Select | Verb::Follow => usize::MAX,
             Verb::Load => 1,
             _ => 0,
         };
@@ -387,6 +397,12 @@ impl Rendered {
 /// decode or write error rather than a refusal, which the caller reports as its own.
 pub(crate) struct Sink<'a> {
     output: Option<&'a Path>,
+    /// Whether the first chunk waits for a second before going out.
+    ///
+    /// A dump of a finished result holds it, so a refusal partway through still writes
+    /// nothing. A live stream cannot, because the first row may be the only one for a
+    /// long while and the point of following is seeing it arrive.
+    hold: bool,
     /// The first chunk's bytes, until a second chunk forces them out.
     held: Option<Vec<u8>>,
     /// The destination, opened when the first write actually happens.
@@ -399,9 +415,18 @@ impl<'a> Sink<'a> {
     pub(crate) fn new(output: Option<&'a Path>, header: bool) -> Self {
         Self {
             output,
+            hold: true,
             held: None,
             destination: None,
             heading: header,
+        }
+    }
+
+    /// A sink that writes each chunk as it arrives, for a live stream.
+    pub(crate) fn live(output: Option<&'a Path>, header: bool) -> Self {
+        Self {
+            hold: false,
+            ..Self::new(output, header)
         }
     }
 
@@ -417,6 +442,10 @@ impl<'a> Sink<'a> {
 
     /// Take one rendered chunk, writing the previous one out if there was one.
     pub(crate) fn push(&mut self, rendered: Vec<u8>) -> std::io::Result<()> {
+        if !self.hold {
+            return self.write(&rendered);
+        }
+
         let Some(previous) = self.held.replace(rendered) else {
             return Ok(());
         };
@@ -634,8 +663,9 @@ mod tests {
         assert_eq!(verb(&["any"]), Verb::Any);
         assert_eq!(verb(&["create", "--address", "@a"]), Verb::Create);
         assert_eq!(verb(&["load", "rows.jsonl"]), Verb::Load);
-        // A verb the native path does not serve, and no verb at all.
-        assert!(Invocation::lex(&raw(&["follow"]), &[]).is_none());
+        assert_eq!(verb(&["follow"]), Verb::Follow);
+        // A verb no command declares, and no verb at all.
+        assert!(Invocation::lex(&raw(&["vacuum"]), &[]).is_none());
         assert!(Invocation::lex(&raw(&[]), &[]).is_none());
     }
 
@@ -842,6 +872,58 @@ mod tests {
         // Finishing flushes whatever was still held, and leaves nothing for the caller.
         assert_eq!(sink.finish().unwrap(), None);
         assert_eq!(std::fs::read(&path).unwrap(), b"one\ntwo\n");
+    }
+
+    #[test]
+    fn a_live_sink_writes_each_chunk_as_it_arrives() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("rows.jsonl");
+
+        // A stream cannot hold its first row back, because it may be the only one for a
+        // long while and seeing it arrive is the point of following.
+        let mut sink = Sink::live(Some(&path), true);
+        sink.push(b"one\n".to_vec()).unwrap();
+        assert!(sink.wrote());
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\n");
+
+        sink.push(b"two\n".to_vec()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\ntwo\n");
+        assert_eq!(sink.finish().unwrap(), None);
+    }
+
+    #[test]
+    fn a_follow_lexes_with_the_selection_surface_a_select_has() {
+        let invocation = lex(&["follow", "--address", "@a", "content", "--no-color"]);
+
+        assert_eq!(invocation.verb, Verb::Follow);
+        assert!(invocation.verb.streams());
+        // It reads a running engine rather than the database, so it opens no store and
+        // never takes the write path's confirmation rules.
+        assert!(!invocation.verb.writes());
+        assert!(invocation.verb.filters());
+        assert!(!invocation.verb.confirms());
+        assert_eq!(
+            invocation.pairs,
+            vec![("address".to_string(), "@a".to_string())]
+        );
+        assert_eq!(
+            invocation.projection(),
+            vec![("content".to_string(), "content".to_string())]
+        );
+        assert_eq!(invocation.dump_format(), Some(DumpFormat::Json));
+
+        // The output surface a select has applies, and colorized output delegates.
+        assert_eq!(
+            lex(&["follow", "--data-format", "csv", "--no-color"]).dump_format(),
+            Some(DumpFormat::Csv)
+        );
+        assert_eq!(lex(&["follow", "--color"]).dump_format(), None);
+        // A confirmation or an assignment on a read is an argument error Python owns.
+        assert_eq!(lex(&["follow", "--no-confirm"]).dump_format(), None);
+        assert_eq!(
+            lex(&["follow", "--assign", "{\"a\": 1}", "--no-color"]).dump_format(),
+            None
+        );
     }
 
     #[test]
