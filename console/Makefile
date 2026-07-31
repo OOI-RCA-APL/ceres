@@ -7,6 +7,8 @@ install:
 	npm install
 update:
 	npm update
+test:
+	npm run test
 lint:
 	npm run lint
 fix:
