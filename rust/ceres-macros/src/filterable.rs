@@ -58,7 +58,12 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             Family::Unfilterable => continue,
         };
 
-        let operations = operation_entries(&key, &family, bare_operations(field));
+        let operations = operation_entries(
+            &key,
+            &family,
+            bare_operations(field),
+            marked(field, "insensitive"),
+        );
         entries.push(quote! {
             ceres_entities::FilterField {
                 key: #key,
@@ -119,7 +124,12 @@ enum Family {
 
 /// The operation filters a family carries, generated as literal entries so the tables
 /// stay `'static`.
-fn operation_entries(key: &str, family: &Family, bare: bool) -> Vec<TokenStream> {
+fn operation_entries(
+    key: &str,
+    family: &Family,
+    bare: bool,
+    insensitive: bool,
+) -> Vec<TokenStream> {
     let variants = [
         (
             "contains",
@@ -141,6 +151,7 @@ fn operation_entries(key: &str, family: &Family, bare: bool) -> Vec<TokenStream>
                     ceres_entities::FieldOperation {
                         key: #operation_key,
                         kind: #kind,
+                        insensitive: #insensitive,
                     }
                 }
             })
@@ -229,6 +240,8 @@ fn bare_operations(field: &syn::Field) -> bool {
 ///
 /// `skip` drops a field whose type would otherwise filter, for a column the Python
 /// filter does not expose. `plain` takes an address out of the selector grammar.
+/// `insensitive` folds case in the field's operation filters, which an email address's
+/// do.
 fn marked(field: &syn::Field, name: &str) -> bool {
     for attribute in &field.attrs {
         if !attribute.path().is_ident("filterable") {

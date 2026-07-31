@@ -36,6 +36,9 @@ pub struct FilterField {
 pub struct FieldOperation {
     pub key: &'static str,
     pub kind: OperationKind,
+    /// Whether the comparison folds case, which an email address's operations do and
+    /// no record field's do.
+    pub insensitive: bool,
 }
 
 /// How an operation filter matches within a field's content.

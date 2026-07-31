@@ -13,7 +13,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes as PyBytesType, PyFloat, PyInt, PyString};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::entities::{RecordBatch, RecordTable};
+use crate::entities::{EntityTable, RecordBatch, RecordTable};
 
 /// Extract a compiled statement parameter, one of the primitives bind processors produce.
 fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
@@ -216,6 +216,20 @@ pub fn record_filter_keys(table: RecordTable) -> (Vec<&'static str>, Vec<&'stati
     (
         ceres_database::RecordFilter::supported_keys(table),
         ceres_database::RecordFilter::delegated_keys(table),
+    )
+}
+
+/// The native filter subset's key classification for one non-record entity table.
+///
+/// Answers `(supported, delegated)` like the record classification, and the same test
+/// holds their union to exactly the fields the Python filter models declare.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn entity_filter_keys(table: EntityTable) -> (Vec<&'static str>, Vec<&'static str>) {
+    let table = table.into();
+    (
+        ceres_database::EntityFilter::supported_keys(table),
+        ceres_database::EntityFilter::delegated_keys(table),
     )
 }
 

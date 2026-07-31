@@ -146,6 +146,28 @@ impl From<RecordTable> for ceres_database::RecordTable {
     }
 }
 
+/// One of the non-record entity tables the entity commands manage.
+#[gen_stub_pyclass_enum]
+#[pyclass(module = "ceres_core", eq, frozen, hash, rename_all = "UPPERCASE")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EntityTable {
+    Users,
+    Variables,
+    Settings,
+    Workspaces,
+}
+
+impl From<EntityTable> for ceres_database::EntityTable {
+    fn from(table: EntityTable) -> Self {
+        match table {
+            EntityTable::Users => Self::Users,
+            EntityTable::Variables => Self::Variables,
+            EntityTable::Settings => Self::Settings,
+            EntityTable::Workspaces => Self::Workspaces,
+        }
+    }
+}
+
 /// Parse live entity objects into natively-held records, for the write path.
 pub(crate) fn records_from_entities(
     table: RecordTable,

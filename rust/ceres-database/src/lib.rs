@@ -18,7 +18,7 @@ mod turso;
 mod writer;
 
 pub use entities::EntityTable;
-pub use filter::{RecordFilter, Refusal, SqlDialect};
+pub use filter::{EntityFilter, RecordFilter, Refusal, SqlDialect};
 pub use load::{Conflict, LoadFormat, build, read};
 pub use records::RecordTable;
 pub use sea_query::Value as BindValue;

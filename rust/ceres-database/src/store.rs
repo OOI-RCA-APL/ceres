@@ -8,7 +8,7 @@ use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use crate::entities::{DecodeEntities, EntityTable};
-use crate::filter::{RecordFilter, SqlDialect};
+use crate::filter::{EntityFilter, RecordFilter, SqlDialect};
 use crate::load::Conflict;
 use crate::records::{DecodeRecords, RecordTable};
 use crate::turso::{TursoBackend, parameter_value, sea_value};
@@ -226,29 +226,8 @@ impl RecordStore {
             return Ok(0);
         }
 
-        let statement = filter.count_statement(self.dialect());
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
-                let count: i64 = row.try_get(0)?;
-                Ok(count.max(0) as u64)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
-                let count: i64 = row.try_get(0)?;
-                Ok(count.max(0) as u64)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.scalar_count(&sql, parameters).await
-            }
-        }
+        self.scalar_count(filter.count_statement(self.dialect()))
+            .await
     }
 
     /// Whether any record matches a parsed native filter.
@@ -402,6 +381,121 @@ impl RecordStore {
                 DecodeEntities::decode(table, rows)
             }
             Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
+    /// Fetch the entities a parsed native filter matches.
+    pub async fn fetch_entity_filter(&self, filter: &EntityFilter) -> Result<Entities, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(filter.table().empty());
+        }
+
+        let statement = filter.statement(self.dialect());
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
+                DecodeEntities::decode(filter.table(), rows)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
+                DecodeEntities::decode(filter.table(), rows)
+            }
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
+    /// Count the entities a parsed native filter matches.
+    pub async fn count_entity_filter(&self, filter: &EntityFilter) -> Result<u64, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(0);
+        }
+
+        self.scalar_count(filter.count_statement(self.dialect()))
+            .await
+    }
+
+    /// Whether any entity matches a parsed native filter.
+    pub async fn any_entity_filter(&self, filter: &EntityFilter) -> Result<bool, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(false);
+        }
+
+        let statement = filter.exists_statement(self.dialect());
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
+                Ok(row.try_get(0)?)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
+                Ok(row.try_get(0)?)
+            }
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
+    /// Delete the entities a parsed native filter matches, returning how many went.
+    ///
+    /// Like every native write this runs in its own transaction and commits only on
+    /// success, so a failure leaves the table untouched and the command may delegate.
+    pub async fn delete_entity_filter(&self, filter: &EntityFilter) -> Result<u64, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(0);
+        }
+
+        let statement = filter.delete_statement(self.dialect());
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let mut transaction = pool.begin().await?;
+                let affected = sqlx::query_with(&sql, values)
+                    .execute(&mut *transaction)
+                    .await?
+                    .rows_affected();
+                transaction.commit().await?;
+                Ok(affected)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let mut transaction = pool.begin().await?;
+                let affected = sqlx::query_with(&sql, values)
+                    .execute(&mut *transaction)
+                    .await?
+                    .rows_affected();
+                transaction.commit().await?;
+                Ok(affected)
+            }
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
+    /// Run one count statement, whichever backend serves it.
+    async fn scalar_count(&self, statement: SelectStatement) -> Result<u64, Error> {
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
+                let count: i64 = row.try_get(0)?;
+                Ok(count.max(0) as u64)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
+                let count: i64 = row.try_get(0)?;
+                Ok(count.max(0) as u64)
+            }
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.scalar_count(&sql, parameters).await
+            }
         }
     }
 

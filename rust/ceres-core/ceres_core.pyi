@@ -14,6 +14,7 @@ __all__ = [
     "BCryptHashingConfig",
     "ConsoleConfig",
     "DatabaseConfigHooks",
+    "EntityTable",
     "LoggingConfig",
     "NativeServer",
     "PackingProgram",
@@ -31,6 +32,7 @@ __all__ = [
     "ServerSSLConfig",
     "ServiceConfig",
     "TursoDatabaseConfig",
+    "entity_filter_keys",
     "openapi_schema",
     "parse_record_filter",
     "record_filter_from_json",
@@ -1119,6 +1121,17 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     def __repr__(self) -> str: ...
 
 @final
+class EntityTable(Enum):
+    r"""
+    One of the non-record entity tables the entity commands manage.
+    """
+
+    USERS = ...
+    VARIABLES = ...
+    SETTINGS = ...
+    WORKSPACES = ...
+
+@final
 class RecordTable(Enum):
     r"""
     One of the record tables, the selector native record operations dispatch on.
@@ -1128,6 +1141,14 @@ class RecordTable(Enum):
     PARTICLES = ...
     ALERTS = ...
     LOGS = ...
+
+def entity_filter_keys(table: EntityTable) -> tuple[list[str], list[str]]:
+    r"""
+    The native filter subset's key classification for one non-record entity table.
+
+    Answers `(supported, delegated)` like the record classification, and the same test
+    holds their union to exactly the fields the Python filter models declare.
+    """
 
 def openapi_schema(version: str) -> str:
     r"""

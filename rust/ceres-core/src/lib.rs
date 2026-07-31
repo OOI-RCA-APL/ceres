@@ -159,12 +159,14 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<binary::PackingProgram>()?;
     module.add_class::<entities::RecordBatch>()?;
     module.add_class::<entities::RecordTable>()?;
+    module.add_class::<entities::EntityTable>()?;
     module.add_class::<fetcher::RecordFetcher>()?;
     module.add_class::<filters::RecordFilter>()?;
     module.add_class::<fetcher::RecordWriter>()?;
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::record_filter_keys, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(fetcher::entity_filter_keys, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(
         filters::parse_record_filter,
         module

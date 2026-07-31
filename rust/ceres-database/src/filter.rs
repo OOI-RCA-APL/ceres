@@ -33,6 +33,7 @@ use serde_norway::Value as Yaml;
 
 use ceres_entities::Address;
 
+use crate::entities::EntityTable;
 use crate::records::{Computed, RecordTable, Schema, Shape};
 use crate::selector::{AddressSelector, valid_address};
 use crate::store::Parameter;
@@ -205,44 +206,28 @@ struct FilterNode {
     or_children: Vec<FilterNode>,
 }
 
-/// A parsed record filter, the tree's root plus the query controls.
+/// A parsed filter, the tree's root plus the query controls.
+///
+/// Every statement builds from the schema alone, so the record and entity filters are
+/// each this core plus the table enum they name, and one compiler serves both.
 #[derive(Clone, Debug, PartialEq)]
-pub struct RecordFilter {
-    table: RecordTable,
+struct Filter {
+    schema: Schema,
     node: FilterNode,
     order: Vec<OrderTerm>,
     limit: Option<u64>,
     offset: Option<u64>,
 }
 
-impl RecordFilter {
-    /// The field and query filter keys the native compiler serves for a table.
-    ///
-    /// Generated from the entity's field families, never written out. Equality for
-    /// every native family, each field's operation filters, the window operators a
-    /// timestamp brings, the ordered bounds a level brings, and the query keys.
-    pub fn supported_keys(table: RecordTable) -> Vec<&'static str> {
-        schema_keys(table.schema())
-    }
-
-    /// The filter keys the compiler knowingly delegates for a table.
-    ///
-    /// What remains is Python's structural query filters, shared by every table, plus
-    /// its Python-only constructs, and the classification test holds the union of this
-    /// list and the supported one to exactly what the Pydantic models declare so a new
-    /// filter field cannot ship unclassified.
-    pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
-        table.schema().delegated.to_vec()
-    }
-
+impl Filter {
     /// Parse query pairs into a filter, refusing what cannot compile natively.
     ///
     /// Repeated keys collect into lists, matching how the Python layer folds ordered
     /// pairs before validating.
-    pub fn parse(table: RecordTable, pairs: &[(String, String)]) -> Result<Self, Refusal> {
+    fn parse(schema: Schema, pairs: &[(String, String)]) -> Result<Self, Refusal> {
         let mut parsed = Parsed::default();
         for (key, value) in pairs {
-            parsed.apply(table.schema(), key, &WireValue::Text(value))?;
+            parsed.apply(schema, key, &WireValue::Text(value))?;
         }
 
         let Parsed {
@@ -253,7 +238,7 @@ impl RecordFilter {
             ..
         } = parsed.finish()?;
         Ok(Self {
-            table,
+            schema,
             node,
             order,
             limit,
@@ -261,37 +246,11 @@ impl RecordFilter {
         })
     }
 
-    /// The table this filter queries.
-    pub fn table(&self) -> RecordTable {
-        self.table
-    }
-
-    /// The parsed limit, which callers cap before executing on the server.
-    pub fn limit(&self) -> Option<u64> {
-        self.limit
-    }
-
-    /// Cap the limit, defaulting an absent one, the way the route's `Limit` wrapper
-    /// does. A limit above the cap is a validation error.
-    pub fn with_limit_cap(mut self, cap: u64) -> Result<Self, Refusal> {
-        match self.limit {
-            None => self.limit = Some(cap),
-            Some(limit) if limit > cap => {
-                return Err(Refusal::invalid(format!(
-                    "limit must be less than or equal to {cap}"
-                )));
-            }
-            Some(_) => {}
-        }
-
-        Ok(self)
-    }
-
     /// Parse a filter from its serialized JSON form, the Python filter model's dump.
     ///
     /// JSON is a YAML subset, so this reads through the same parser the subfilter
     /// values use, one grammar for every front-end.
-    pub fn from_json(table: RecordTable, text: &str) -> Result<Self, Refusal> {
+    fn from_json(schema: Schema, text: &str) -> Result<Self, Refusal> {
         let value = parse_yaml(text)?;
         let Yaml::Mapping(mapping) = value else {
             return Err(Refusal::invalid("a filter must be a mapping"));
@@ -303,14 +262,30 @@ impl RecordFilter {
             limit,
             offset,
             ..
-        } = Parsed::from_yaml(table.schema(), &mapping)?;
+        } = Parsed::from_yaml(schema, &mapping)?;
         Ok(Self {
-            table,
+            schema,
             node,
             order,
             limit,
             offset,
         })
+    }
+
+    /// Cap the limit, defaulting an absent one, the way the route's `Limit` wrapper
+    /// does. A limit above the cap is a validation error.
+    fn with_limit_cap(mut self, cap: u64) -> Result<Self, Refusal> {
+        match self.limit {
+            None => self.limit = Some(cap),
+            Some(limit) if limit > cap => {
+                return Err(Refusal::invalid(format!(
+                    "limit must be less than or equal to {cap}"
+                )));
+            }
+            Some(_) => {}
+        }
+
+        Ok(self)
     }
 
     /// Compile to SQL and its bound parameters, in the dialect's placeholder style.
@@ -331,11 +306,6 @@ impl RecordFilter {
         build(self.exists_statement(dialect), dialect)
     }
 
-    /// The filter's offset, `None` when unset.
-    pub fn offset(&self) -> Option<u64> {
-        self.offset
-    }
-
     /// The combined `WHERE` conditions rendered as inline SQL, `None` when the filter
     /// is unconditional.
     ///
@@ -345,9 +315,7 @@ impl RecordFilter {
         let now = now
             .unwrap_or_else(|| Utc::now().naive_utc())
             .trunc_subsecs(6);
-        let conditions = self
-            .node
-            .combined_conditions(self.table.schema(), dialect, now);
+        let conditions = self.node.combined_conditions(self.schema, dialect, now);
         if conditions.is_empty() {
             return None;
         }
@@ -387,7 +355,7 @@ impl RecordFilter {
         let now = now
             .unwrap_or_else(|| Utc::now().naive_utc())
             .trunc_subsecs(6);
-        Ok(self.node.matches(self.table.schema(), &fields, now))
+        Ok(self.node.matches(self.schema, &fields, now))
     }
 
     /// Build the listing statement, mirroring the Python layer's `apply`.
@@ -398,11 +366,8 @@ impl RecordFilter {
         let mut statement = Query::select();
         statement
             .column(Asterisk)
-            .from(Alias::new(self.table.name()));
-        for condition in self
-            .node
-            .combined_conditions(self.table.schema(), dialect, now)
-        {
+            .from(Alias::new(self.schema.name()));
+        for condition in self.node.combined_conditions(self.schema, dialect, now) {
             statement.and_where(condition);
         }
 
@@ -435,11 +400,8 @@ impl RecordFilter {
             let mut statement = Query::select();
             statement
                 .expr(Expr::cust("COUNT(*)"))
-                .from(Alias::new(self.table.name()));
-            for condition in self
-                .node
-                .combined_conditions(self.table.schema(), dialect, now)
-            {
+                .from(Alias::new(self.schema.name()));
+            for condition in self.node.combined_conditions(self.schema, dialect, now) {
                 statement.and_where(condition);
             }
 
@@ -447,13 +409,12 @@ impl RecordFilter {
         }
 
         let mut inner = Query::select();
-        inner
-            .column(Alias::new("id"))
-            .from(Alias::new(self.table.name()));
-        for condition in self
-            .node
-            .combined_conditions(self.table.schema(), dialect, now)
-        {
+        inner.from(Alias::new(self.schema.name()));
+        for column in self.schema.key {
+            inner.column(Alias::new(*column));
+        }
+
+        for condition in self.node.combined_conditions(self.schema, dialect, now) {
             inner.and_where(condition);
         }
 
@@ -485,11 +446,8 @@ impl RecordFilter {
     pub fn exists_statement(&self, dialect: SqlDialect) -> SelectStatement {
         let now = Utc::now().naive_utc().trunc_subsecs(6);
         let mut inner = Query::select();
-        inner.column(Asterisk).from(Alias::new(self.table.name()));
-        for condition in self
-            .node
-            .combined_conditions(self.table.schema(), dialect, now)
-        {
+        inner.column(Asterisk).from(Alias::new(self.schema.name()));
+        for condition in self.node.combined_conditions(self.schema, dialect, now) {
             inner.and_where(condition);
         }
 
@@ -510,9 +468,6 @@ impl RecordFilter {
 
     /// The primary keys the filter's page selects, `None` when the filter names no
     /// page and the caller can therefore match rows in place.
-    ///
-    /// A record's key is its single `id` column, so the outer statement tests plain
-    /// membership rather than the row-value tuple a composite key would need.
     fn paged_keys(&self, dialect: SqlDialect) -> Option<SelectStatement> {
         if self.limit.is_none() && self.offset.is_none() {
             return None;
@@ -520,12 +475,12 @@ impl RecordFilter {
 
         let now = Utc::now().naive_utc().trunc_subsecs(6);
         let mut keys = Query::select();
-        keys.column(Alias::new("id"))
-            .from(Alias::new(self.table.name()));
-        for condition in self
-            .node
-            .combined_conditions(self.table.schema(), dialect, now)
-        {
+        keys.from(Alias::new(self.schema.name()));
+        for column in self.schema.key {
+            keys.column(Alias::new(*column));
+        }
+
+        for condition in self.node.combined_conditions(self.schema, dialect, now) {
             keys.and_where(condition);
         }
 
@@ -546,24 +501,38 @@ impl RecordFilter {
         Some(keys)
     }
 
+    /// The primary key as one expression, a bare column for a single key and a row
+    /// value for a composite one.
+    ///
+    /// This is what a paged write narrows on, and the Python layer builds the same two
+    /// forms from the row's primary key constraint.
+    fn key_expression(&self) -> SimpleExpr {
+        match self.schema.key {
+            [column] => Expr::col(Alias::new(*column)).into(),
+            columns => Expr::tuple(
+                columns
+                    .iter()
+                    .map(|column| Expr::col(Alias::new(*column)).into()),
+            )
+            .into(),
+        }
+    }
+
     /// Build the delete statement, mirroring the Python layer's `apply`.
     ///
     /// Without a page the conditions apply in place. With one the statement deletes the
     /// keys its ordered page names, because a `DELETE` carries neither ordering nor
     /// pagination of its own.
-    pub fn delete_statement(&self, dialect: SqlDialect) -> DeleteStatement {
+    fn delete_statement(&self, dialect: SqlDialect) -> DeleteStatement {
         let now = Utc::now().naive_utc().trunc_subsecs(6);
         let mut statement = Query::delete();
-        statement.from_table(Alias::new(self.table.name()));
+        statement.from_table(Alias::new(self.schema.name()));
         match self.paged_keys(dialect) {
             Some(keys) => {
-                statement.and_where(Expr::col(Alias::new("id")).in_subquery(keys));
+                statement.and_where(self.key_expression().in_subquery(keys));
             }
             None => {
-                for condition in self
-                    .node
-                    .combined_conditions(self.table.schema(), dialect, now)
-                {
+                for condition in self.node.combined_conditions(self.schema, dialect, now) {
                     statement.and_where(condition);
                 }
             }
@@ -573,27 +542,24 @@ impl RecordFilter {
     }
 
     /// Build the update statement for a set of encoded assignments.
-    pub(crate) fn update_statement(
+    fn update_statement(
         &self,
         dialect: SqlDialect,
         assignments: &[crate::assign::Assignment],
     ) -> UpdateStatement {
         let now = Utc::now().naive_utc().trunc_subsecs(6);
         let mut statement = Query::update();
-        statement.table(Alias::new(self.table.name()));
+        statement.table(Alias::new(self.schema.name()));
         for assignment in assignments {
             statement.value(Alias::new(assignment.column), assignment.value.clone());
         }
 
         match self.paged_keys(dialect) {
             Some(keys) => {
-                statement.and_where(Expr::col(Alias::new("id")).in_subquery(keys));
+                statement.and_where(self.key_expression().in_subquery(keys));
             }
             None => {
-                for condition in self
-                    .node
-                    .combined_conditions(self.table.schema(), dialect, now)
-                {
+                for condition in self.node.combined_conditions(self.schema, dialect, now) {
                     statement.and_where(condition);
                 }
             }
@@ -602,25 +568,185 @@ impl RecordFilter {
         statement
     }
 
-    /// The order terms, the record default of ascending timestamp when none given.
+    /// The order terms, the table's own default columns when the filter names none.
+    ///
+    /// Every default order column is a filterable field, which the schema tests hold
+    /// each table to, because an unresolved one would silently list unordered.
     fn order_terms(&self) -> Vec<OrderTerm> {
         if !self.order.is_empty() {
             return self.order.clone();
         }
 
-        self.table
-            .fields()
+        self.schema
+            .order
             .iter()
-            .find(|field| field.family == FieldFamily::Timestamp)
-            .map(|field| {
-                vec![OrderTerm {
-                    field,
-                    ascending: true,
-                }]
+            .filter_map(|column| {
+                self.schema
+                    .fields()
+                    .iter()
+                    .find(|field| field.key == *column)
+                    .map(|field| OrderTerm {
+                        field,
+                        ascending: true,
+                    })
             })
-            .unwrap_or_default()
+            .collect()
     }
 }
+
+/// Give a filter wrapper the statement surface its core already builds.
+///
+/// The wrappers differ only in the table enum they carry and what a caller may ask of
+/// them, so the shared surface is generated rather than written twice.
+macro_rules! filter_surface {
+    ($name:ident, $table:ty) => {
+        impl $name {
+            /// The field and query filter keys the native compiler serves for a table.
+            ///
+            /// Generated from the entity's field families, never written out. Equality
+            /// for every native family, each field's operation filters, the operators a
+            /// family brings, the table's computed predicates, and the query keys.
+            pub fn supported_keys(table: $table) -> Vec<&'static str> {
+                schema_keys(table.schema())
+            }
+
+            /// The filter keys the compiler knowingly delegates for a table.
+            ///
+            /// What remains is Python's structural query filters, shared by every table,
+            /// plus its Python-only constructs, and the classification test holds the
+            /// union of this list and the supported one to exactly what the Pydantic
+            /// models declare so a new filter field cannot ship unclassified.
+            pub fn delegated_keys(table: $table) -> Vec<&'static str> {
+                table.schema().delegated.to_vec()
+            }
+
+            /// Parse query pairs into a filter, refusing what cannot compile natively.
+            pub fn parse(table: $table, pairs: &[(String, String)]) -> Result<Self, Refusal> {
+                Ok(Self {
+                    table,
+                    filter: Filter::parse(table.schema(), pairs)?,
+                })
+            }
+
+            /// Parse a filter from its serialized JSON form, the Python filter model's
+            /// dump.
+            pub fn from_json(table: $table, text: &str) -> Result<Self, Refusal> {
+                Ok(Self {
+                    table,
+                    filter: Filter::from_json(table.schema(), text)?,
+                })
+            }
+
+            /// The table this filter queries.
+            pub fn table(&self) -> $table {
+                self.table
+            }
+
+            /// The parsed limit, which callers cap before executing on the server.
+            pub fn limit(&self) -> Option<u64> {
+                self.filter.limit
+            }
+
+            /// The filter's offset, `None` when unset.
+            pub fn offset(&self) -> Option<u64> {
+                self.filter.offset
+            }
+
+            /// Cap the limit, defaulting an absent one, the way the route's `Limit`
+            /// wrapper does. A limit above the cap is a validation error.
+            pub fn with_limit_cap(self, cap: u64) -> Result<Self, Refusal> {
+                Ok(Self {
+                    table: self.table,
+                    filter: self.filter.with_limit_cap(cap)?,
+                })
+            }
+
+            /// Build the listing statement, mirroring the Python layer's `apply`.
+            pub fn statement(&self, dialect: SqlDialect) -> SelectStatement {
+                self.filter.statement(dialect)
+            }
+
+            /// Build the count statement.
+            pub fn count_statement(&self, dialect: SqlDialect) -> SelectStatement {
+                self.filter.count_statement(dialect)
+            }
+
+            /// Build the existence statement, `SELECT EXISTS (...)`.
+            pub fn exists_statement(&self, dialect: SqlDialect) -> SelectStatement {
+                self.filter.exists_statement(dialect)
+            }
+
+            /// Build the delete statement, mirroring the Python layer's `apply`.
+            pub fn delete_statement(&self, dialect: SqlDialect) -> DeleteStatement {
+                self.filter.delete_statement(dialect)
+            }
+        }
+    };
+}
+
+/// A parsed record filter, the compiled core plus the record table it names.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordFilter {
+    table: RecordTable,
+    filter: Filter,
+}
+
+filter_surface!(RecordFilter, RecordTable);
+
+impl RecordFilter {
+    /// Compile to SQL and its bound parameters, in the dialect's placeholder style.
+    ///
+    /// The parameters arrive in placeholder order, ready for a driver-level execute,
+    /// `?` for the SQLite family and `$n` for PostgreSQL.
+    pub fn compiled(&self, dialect: SqlDialect, count: bool) -> (String, Vec<Value>) {
+        self.filter.compiled(dialect, count)
+    }
+
+    /// Compile the existence check to SQL and its bound parameters.
+    pub fn exists_compiled(&self, dialect: SqlDialect) -> (String, Vec<Value>) {
+        self.filter.exists_compiled(dialect)
+    }
+
+    /// The combined `WHERE` conditions rendered as inline SQL, `None` when the filter
+    /// is unconditional.
+    pub fn where_sql(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> Option<String> {
+        self.filter.where_sql(dialect, now)
+    }
+
+    /// The `ORDER BY` terms rendered as inline SQL, `None` when the table brings no
+    /// default ordering.
+    pub fn order_sql(&self, dialect: SqlDialect) -> Option<String> {
+        self.filter.order_sql(dialect)
+    }
+
+    /// Whether one serialized record matches this filter, like the Python filter's
+    /// `matches`.
+    pub fn matches(&self, record_json: &str, now: Option<NaiveDateTime>) -> Result<bool, String> {
+        self.filter.matches(record_json, now)
+    }
+
+    /// Build the update statement for a set of encoded assignments.
+    pub(crate) fn update_statement(
+        &self,
+        dialect: SqlDialect,
+        assignments: &[crate::assign::Assignment],
+    ) -> UpdateStatement {
+        self.filter.update_statement(dialect, assignments)
+    }
+}
+
+/// A parsed entity filter, the compiled core plus the entity table it names.
+///
+/// The non-record filter language is a strict subset of the record one, the entity
+/// filters descending from the same Pydantic base, so this is the same core over a
+/// schema that simply carries fewer families.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityFilter {
+    table: EntityTable,
+    filter: Filter,
+}
+
+filter_surface!(EntityFilter, EntityTable);
 
 /// One wire value mid-parse, plain text from query pairs or YAML from a subfilter.
 enum WireValue<'a> {
@@ -1055,6 +1181,11 @@ impl FilterNode {
                 (Values::Texts(existing), Values::Texts(mut more)) => existing.append(&mut more),
                 (Values::Stamps(existing), Values::Stamps(more)) => existing.extend(more),
                 (Values::Bytes(existing), Values::Bytes(more)) => existing.extend(more),
+                // A scalar field takes one value, so a second is a validation error
+                // rather than the set a repeated key builds elsewhere.
+                (Values::Boolean(_), _) => {
+                    return Err(Refusal::invalid(format!("{} takes one value", field.key)));
+                }
                 _ => return Err(Refusal::Delegated),
             },
         }
@@ -1189,9 +1320,16 @@ impl FilterNode {
                             text.clone()
                         };
                         subject.as_deref().is_some_and(|subject| {
-                            patterns
-                                .iter()
-                                .any(|pattern| text_matches(subject, held_values.kind, pattern))
+                            // A case-folding operation lowers both sides, the way the
+                            // Python matcher does before comparing.
+                            let subject = fold(subject, operation.insensitive);
+                            patterns.iter().any(|pattern| {
+                                text_matches(
+                                    &subject,
+                                    held_values.kind,
+                                    &fold(pattern, operation.insensitive),
+                                )
+                            })
                         })
                     }
                     Values::Bytes(patterns) => text.as_deref().is_some_and(|text| {
@@ -1641,7 +1779,13 @@ impl FilterNode {
                     } else {
                         column.into()
                     };
-                    match_text_patterns(subject, held.kind, patterns, dialect)
+                    match_text_patterns(
+                        subject,
+                        held.kind,
+                        patterns,
+                        dialect,
+                        operation.insensitive,
+                    )
                 }
                 Values::Bytes(patterns) => {
                     match_bytes_patterns(field.key, held.kind, patterns, dialect)
@@ -1666,7 +1810,9 @@ pub(crate) fn schema_keys(table: Schema) -> Vec<&'static str> {
             keys.push(operation.key);
         }
 
-        if !field.family.native() {
+        // A field whose own key is delegated still brings its operations, which is how
+        // an email address filters on its parts without comparing whole.
+        if !field.family.native() || table.delegated.contains(&field.key) {
             continue;
         }
 
@@ -1701,6 +1847,13 @@ fn resolve(table: Schema, key: &str) -> Result<KeyRole, Refusal> {
         "or" => return Ok(KeyRole::Group(GroupOp::Or)),
         "and" => return Ok(KeyRole::Group(GroupOp::And)),
         _ => {}
+    }
+
+    // The delegated list wins over the field families, because a key can name a field
+    // the compiler would otherwise serve and still belong to Python, an email address's
+    // equality being the one that does.
+    if table.delegated.contains(&key) {
+        return Err(Refusal::Delegated);
     }
 
     for predicate in table.computed {
@@ -1770,10 +1923,6 @@ fn resolve(table: Schema, key: &str) -> Result<KeyRole, Refusal> {
             }
             _ => {}
         }
-    }
-
-    if table.delegated.contains(&key) {
-        return Err(Refusal::Delegated);
     }
 
     // The Python filter models forbid extra fields, so an unrecognized key is a
@@ -2129,8 +2278,8 @@ fn shape_condition(predicate: Computed, dialect: SqlDialect) -> SimpleExpr {
         // pattern matches rather than one, each escaped by its backend's own rules.
         Shape::Internal => {
             let marker = ["__".to_string()];
-            match_text_patterns(column(), OperationKind::Prefix, &marker, dialect).and(
-                match_text_patterns(column(), OperationKind::Suffix, &marker, dialect),
+            match_text_patterns(column(), OperationKind::Prefix, &marker, dialect, false).and(
+                match_text_patterns(column(), OperationKind::Suffix, &marker, dialect, false),
             )
         }
         Shape::Literal(wanted) => Expr::col(Alias::new(predicate.column)).eq(wanted),
@@ -2143,6 +2292,7 @@ fn match_text_patterns(
     kind: OperationKind,
     patterns: &[String],
     dialect: SqlDialect,
+    insensitive: bool,
 ) -> SimpleExpr {
     if patterns.iter().all(|pattern| pattern.is_empty()) {
         return Expr::value(true);
@@ -2150,16 +2300,34 @@ fn match_text_patterns(
 
     patterns
         .iter()
-        .map(|pattern| match dialect {
-            SqlDialect::SqliteText => {
-                let pattern = with_wildcards(glob_escape(pattern), kind, '*');
-                subject
-                    .clone()
-                    .binary(BinOper::Custom("GLOB"), Expr::val(pattern))
-            }
-            SqlDialect::Postgres => {
-                let pattern = with_wildcards(like_escape(pattern), kind, '%');
-                subject.clone().like(LikeExpr::new(pattern).escape('^'))
+        .map(|pattern| {
+            let escaped = with_wildcards(like_escape(pattern), kind, '%');
+            match (dialect, insensitive) {
+                // Case folding is `ILIKE` on PostgreSQL and a pair of `lower` calls on
+                // the SQLite family, which is what SQLAlchemy renders `ilike` as there.
+                // Lowering the pattern in SQL rather than in Rust keeps the fold the
+                // backend's own, ASCII-only, instead of Rust's Unicode one.
+                // The placeholder in a custom expression is the dialect's own, `?` on
+                // the SQLite family and a numbered `$` on PostgreSQL.
+                (SqlDialect::SqliteText, true) => Expr::cust_with_exprs(
+                    "lower(?) LIKE lower(?) ESCAPE '^'",
+                    [subject.clone(), Expr::val(escaped).into()],
+                ),
+                (SqlDialect::Postgres, true) => Expr::cust_with_exprs(
+                    "$1 ILIKE $2 ESCAPE '^'",
+                    [subject.clone(), Expr::val(escaped).into()],
+                ),
+                // A case-sensitive match on the SQLite family is `GLOB`, because `LIKE`
+                // there folds ASCII case whether or not it was asked to.
+                (SqlDialect::SqliteText, false) => {
+                    let pattern = with_wildcards(glob_escape(pattern), kind, '*');
+                    subject
+                        .clone()
+                        .binary(BinOper::Custom("GLOB"), Expr::val(pattern))
+                }
+                (SqlDialect::Postgres, false) => {
+                    subject.clone().like(LikeExpr::new(escaped).escape('^'))
+                }
             }
         })
         .reduce(|combined, condition| combined.or(condition))
@@ -2216,6 +2384,18 @@ fn match_bytes_patterns(
         })
         .reduce(|combined, condition| combined.or(condition))
         .unwrap_or_else(|| Expr::value(false))
+}
+
+/// Lower a value for a case-folding comparison, leaving it alone for a plain one.
+///
+/// Python's `str.lower` folds by Unicode, so the in-memory comparison does too, which
+/// is deliberately not the ASCII fold the backends apply in SQL.
+fn fold(text: &str, insensitive: bool) -> std::borrow::Cow<'_, str> {
+    if insensitive {
+        std::borrow::Cow::Owned(text.to_lowercase())
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
 }
 
 /// Whether a text value matches one pattern by an operation's kind.
@@ -2320,7 +2500,11 @@ fn order_by(statement: &mut SelectStatement, term: OrderTerm, dialect: SqlDialec
 
     let text = matches!(
         term.field.family,
-        FieldFamily::Address | FieldFamily::Text | FieldFamily::Values(_) | FieldFamily::Level
+        FieldFamily::Address
+            | FieldFamily::PlainAddress
+            | FieldFamily::Text
+            | FieldFamily::Values(_)
+            | FieldFamily::Level
     );
     if dialect == SqlDialect::Postgres && text {
         let collated = format!("\"{}\" COLLATE \"C\"", term.field.key);
@@ -2341,6 +2525,175 @@ mod tests {
             .iter()
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect()
+    }
+
+    /// One entity filter's listing SQL in the SQLite dialect.
+    fn entity_sql(table: EntityTable, entries: &[(&str, &str)]) -> String {
+        EntityFilter::parse(table, &pairs(entries))
+            .expect("the filter parses")
+            .statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder)
+    }
+
+    #[test]
+    fn every_entity_lists_in_its_own_default_order() {
+        // An unresolved default order column would list unordered, which the Python
+        // path never does, so each table's rendering is pinned here.
+        let ordering = |table| {
+            entity_sql(table, &[])
+                .split_once(" ORDER BY ")
+                .map(|(_, tail)| tail.to_string())
+                .unwrap_or_default()
+        };
+
+        assert_eq!(ordering(EntityTable::Users), "\"username\" ASC");
+        assert_eq!(
+            ordering(EntityTable::Variables),
+            "\"address\" ASC, \"name\" ASC"
+        );
+        // A setting sorts by name alone, though its key is the owner and the name.
+        assert_eq!(ordering(EntityTable::Settings), "\"name\" ASC");
+        assert_eq!(ordering(EntityTable::Workspaces), "\"name\" ASC");
+    }
+
+    #[test]
+    fn a_composite_key_narrows_a_paged_write_by_row_value() {
+        // Without a page the conditions apply in place, whatever the key looks like.
+        let plain = EntityFilter::parse(EntityTable::Variables, &pairs(&[("name", "x")]))
+            .unwrap()
+            .delete_statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert_eq!(
+            plain, "DELETE FROM \"variables\" WHERE \"name\" = 'x'",
+            "{plain}"
+        );
+
+        // With one, the whole key tuple has to name the page, the way the Python layer
+        // builds `tuple_(*pk).in_(...)` for a composite primary key.
+        let paged = EntityFilter::parse(EntityTable::Variables, &pairs(&[("limit", "2")]))
+            .unwrap()
+            .delete_statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            paged.starts_with(
+                "DELETE FROM \"variables\" WHERE (\"address\", \"name\") IN \
+                 (SELECT \"address\", \"name\" FROM \"variables\""
+            ),
+            "{paged}"
+        );
+
+        // A single key column stays a plain membership test.
+        let single = EntityFilter::parse(EntityTable::Users, &pairs(&[("limit", "2")]))
+            .unwrap()
+            .delete_statement(SqlDialect::SqliteText)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            single.starts_with("DELETE FROM \"users\" WHERE \"id\" IN (SELECT \"id\""),
+            "{single}"
+        );
+    }
+
+    #[test]
+    fn an_email_filters_by_its_parts_and_delegates_whole() {
+        // Equality delegates, because the Python model normalizes an address before
+        // comparing it and that normalization is the validator library's.
+        assert_eq!(
+            EntityFilter::parse(EntityTable::Users, &pairs(&[("email", "a@b.com")])),
+            Err(Refusal::Delegated)
+        );
+        assert!(!EntityFilter::supported_keys(EntityTable::Users).contains(&"email"));
+        assert!(EntityFilter::supported_keys(EntityTable::Users).contains(&"email_contains"));
+
+        // The operations fold case, which on the SQLite family is a pair of `lower`
+        // calls and on PostgreSQL is `ILIKE`, matching what SQLAlchemy renders.
+        let sql = entity_sql(EntityTable::Users, &[("email_prefix", "Ada")]);
+        assert!(
+            sql.contains("lower(\"email\") LIKE lower('Ada%') ESCAPE '^'"),
+            "{sql}"
+        );
+
+        let postgres = EntityFilter::parse(EntityTable::Users, &pairs(&[("email_prefix", "Ada")]))
+            .unwrap()
+            .statement(SqlDialect::Postgres)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(
+            postgres.contains("\"email\" ILIKE 'Ada%' ESCAPE '^'"),
+            "{postgres}"
+        );
+
+        // A username does not fold, so it keeps the case-sensitive rendering every
+        // record text field has.
+        let sql = entity_sql(EntityTable::Users, &[("username_prefix", "Ada")]);
+        assert!(sql.contains("\"username\" GLOB 'Ada*'"), "{sql}");
+    }
+
+    #[test]
+    fn the_entity_grammar_is_the_record_one_without_the_record_families() {
+        // A variable's address takes the selector grammar and its root, and its name
+        // takes the text operations.
+        let keys = EntityFilter::supported_keys(EntityTable::Variables);
+        for key in [
+            "address",
+            "root",
+            "name",
+            "name_contains",
+            "value",
+            "internal",
+        ] {
+            assert!(keys.contains(&key), "{key} missing from {keys:?}");
+        }
+
+        // No entity carries a timestamp or a level, so the window, clock, subsample,
+        // and bound operators never reach their surface.
+        for key in ["after", "before_hour", "subsample_every", "min_level"] {
+            assert!(!keys.contains(&key), "{key} present in {keys:?}");
+            assert!(matches!(
+                EntityFilter::parse(EntityTable::Variables, &pairs(&[(key, "1")])),
+                Err(Refusal::Invalid(_))
+            ));
+        }
+
+        // The query keys every table shares are here, subfilter groups included.
+        for key in ["order", "limit", "offset", "or", "and"] {
+            assert!(keys.contains(&key), "{key} missing from {keys:?}");
+        }
+    }
+
+    #[test]
+    fn computed_predicates_match_a_shape_of_a_column() {
+        // An internal variable's name both opens and closes with a double underscore.
+        let sql = entity_sql(EntityTable::Variables, &[("internal", "true")]);
+        assert!(
+            sql.contains("\"name\" GLOB '__*'") && sql.contains("\"name\" GLOB '*__'"),
+            "{sql}"
+        );
+
+        // A workspace is placed on the engine when its scope is the engine's address,
+        // and owned when it names an owner at all.
+        let sql = entity_sql(EntityTable::Workspaces, &[("placed_on_engine", "false")]);
+        assert!(sql.contains("\"scope\" = '~'"), "{sql}");
+        let sql = entity_sql(EntityTable::Workspaces, &[("owned", "true")]);
+        assert!(sql.contains("\"owner_id\" IS NOT NULL"), "{sql}");
+    }
+
+    #[test]
+    fn a_boolean_takes_one_value_and_a_json_value_compares_as_text() {
+        // The Python models type these as scalars, so a list is a validation error
+        // rather than a set membership test.
+        assert!(matches!(
+            EntityFilter::parse(
+                EntityTable::Users,
+                &pairs(&[("admin", "true"), ("admin", "false")])
+            ),
+            Err(Refusal::Invalid(_))
+        ));
+        let sql = entity_sql(EntityTable::Users, &[("admin", "true")]);
+        assert!(sql.contains("\"admin\" = TRUE"), "{sql}");
+
+        // A variable's value compares on the column's text, so a number compares as a
+        // number rather than as its quoted form.
+        let sql = entity_sql(EntityTable::Variables, &[("value", "5")]);
+        assert!(sql.contains("CAST(\"value\" AS TEXT) = '5'"), "{sql}");
     }
 
     #[test]

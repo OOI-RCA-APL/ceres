@@ -13,7 +13,13 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from ceres_core import RecordTable, parse_record_filter, record_filter_keys
+from ceres_core import (
+    EntityTable,
+    RecordTable,
+    entity_filter_keys,
+    parse_record_filter,
+    record_filter_keys,
+)
 
 from ceres import Engine
 from ceres.address import Address
@@ -24,6 +30,10 @@ from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
 from ceres.particle import Particle
+from ceres.setting import Setting
+from ceres.user import User
+from ceres.variable import Variable
+from ceres.workspace import Workspace
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,6 +47,14 @@ RECORD_TABLES = {
     Alert: RecordTable.ALERTS,
     LogEntry: RecordTable.LOGS,
 }
+
+ENTITY_TABLES = {
+    User: EntityTable.USERS,
+    Variable: EntityTable.VARIABLES,
+    Setting: EntityTable.SETTINGS,
+    Workspace: EntityTable.WORKSPACES,
+}
+"""The non-record entities the CLI manages, whose filter language is a strict subset."""
 
 NOW = datetime.now(UTC).replace(microsecond=83155)
 """The anchor seeded timestamps offset from.
@@ -377,6 +395,11 @@ async def test_constructs_outside_the_subset_decline(tmp_path: Path) -> None:
         await engine.database.dispose()
 
 
+def _declared_keys(Entity: Any) -> set[str]:
+    """The wire keys an entity's Pydantic filter declares."""
+    return {field.serialization_alias or name for name, field in Entity.Filter.model_fields.items()}
+
+
 def test_every_filter_field_is_classified() -> None:
     """The native key lists cover the Pydantic filters exactly, so new fields cannot
     ship unclassified.
@@ -384,9 +407,40 @@ def test_every_filter_field_is_classified() -> None:
     for Record, table in RECORD_TABLES.items():
         supported, delegated = record_filter_keys(table)
         assert not set(supported) & set(delegated)
+        assert set(supported) | set(delegated) == _declared_keys(Record), Record.__name__
 
-        declared = set()
-        for name, field in Record.Filter.model_fields.items():
-            declared.add(field.serialization_alias or name)
+    for Entity, entity_table in ENTITY_TABLES.items():
+        supported, delegated = entity_filter_keys(entity_table)
+        assert not set(supported) & set(delegated)
+        assert set(supported) | set(delegated) == _declared_keys(Entity), Entity.__name__
 
-        assert set(supported) | set(delegated) == declared, Record.__name__
+
+def test_the_entity_grammar_is_a_subset_of_the_record_one() -> None:
+    """No entity filter key exists that the record grammar has no notion of.
+
+    The Python entity filters descend from the same base the record ones extend, so a
+    key appearing here that no record table declares would mean a second grammar had
+    grown, which is the thing the shared compiler exists to prevent.
+    """
+    record_keys: set[str] = set()
+    for record_table in RECORD_TABLES.values():
+        supported, delegated = record_filter_keys(record_table)
+        record_keys |= set(supported) | set(delegated)
+
+    # Every key an entity brings is either shared with a record table or names one of
+    # that entity's own columns, never a construct the record grammar lacks.
+    constructs = {"order", "limit", "offset", "or", "and", "root", "address"}
+    for Entity, table in ENTITY_TABLES.items():
+        supported, delegated = entity_filter_keys(table)
+        columns = set(Entity.__entity_columns__)
+        for key in set(supported) | set(delegated):
+            base = key.rsplit("_", 1)[0]
+            assert (
+                key in record_keys
+                or key in constructs
+                or key in columns
+                or base in columns
+                # A computed predicate has no column of its own, matching a shape of
+                # one instead.
+                or key in {"internal", "placed_on_engine", "owned"}
+            ), f"{Entity.__name__} brings {key!r}, which the record grammar has no form of"
