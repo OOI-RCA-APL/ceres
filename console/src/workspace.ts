@@ -1805,6 +1805,11 @@ looking by name takes whichever it finds first, which is the other one about hal
 export function withFreshIds(widget: Widget): Widget {
   const copy: Widget = { ...widget, id: v7() }
 
+  // The buttons on a bar answer to names of their own, for the same reason a page does.
+  if (copy.type === 'button') {
+    copy.buttons = copy.buttons.map((button) => ({ ...button, id: v7() }))
+  }
+
   return withPages(copy, pagesOf(copy).map(withFreshPage))
 }
 

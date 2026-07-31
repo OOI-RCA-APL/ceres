@@ -203,6 +203,13 @@ describe('withFreshIds', () => {
     expect(copy.tabs[0].layout[0].widgets[0].id).not.toBe('a')
   })
 
+  it('renames the buttons on a bar, which answer to names of their own', () => {
+    const original = { ...widget('bar'), type: 'button', buttons: [{ id: 'b1' }] } as Widget
+    const copy = withFreshIds(original) as ButtonWidget
+
+    expect(copy.buttons[0].id).not.toBe('b1')
+  })
+
   it('leaves the widget it copied untouched', () => {
     const original = carousel('outer', [{ id: 'outer-1', layout: [row('r1', widget('a'))] }])
     withFreshIds(original)
