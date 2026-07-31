@@ -31,6 +31,13 @@ pub fn try_run(
         return Ok(false);
     }
 
+    // `--collect` streams the rows a write touched rather than counting them, which the
+    // native writers do not produce yet. Serving the command while quietly dropping the
+    // flag would answer a different question than the one asked, so it hands over.
+    if invocation.collect {
+        return Ok(false);
+    }
+
     let format = invocation.dump_format();
     // A follow reads a running engine rather than the database, so it opens no store and
     // takes its own path from here.
@@ -104,7 +111,7 @@ pub fn try_run(
             match crate::commands::dump::confirmed(invocation.verb, affected, table.name()) {
                 Ok(true) => {}
                 Ok(false) => return Ok(Rendered::Declined),
-                Err(error) => return Err(ceres_database::Error::Decode(error.to_string())),
+                Err(message) => return Ok(Rendered::Failed(message)),
             }
         }
 
@@ -290,6 +297,38 @@ mod tests {
         assert!(!read(RecordTable::Messages, &["select", "--no-header"]).header);
         // The two spellings override each other, so the last one written wins.
         assert!(read(RecordTable::Messages, &["select", "--no-header", "--header"]).header);
+    }
+
+    #[test]
+    fn a_filtered_write_asks_unless_it_was_told_not_to() {
+        // Nothing about the environment turns the question off. A script that would have
+        // been stopped by the prompt has to keep being stopped by it, because the
+        // alternative is a filter matching more than its author meant and the rows going
+        // away with nobody watching.
+        assert!(read(RecordTable::Messages, &["delete"]).confirm);
+        assert!(read(RecordTable::Messages, &["update", "--assign", "{}"]).confirm);
+        assert!(!read(RecordTable::Messages, &["delete", "--no-confirm"]).confirm);
+        // The short spelling is the one that gets typed at a terminal.
+        assert!(!read(RecordTable::Messages, &["delete", "-y"]).confirm);
+        // The two spellings override each other, so the last one written wins.
+        assert!(read(RecordTable::Messages, &["delete", "--no-confirm", "--confirm"]).confirm);
+    }
+
+    #[test]
+    fn an_unattended_write_is_refused_rather_than_assumed() {
+        // Tests do not run at a terminal, which is the case this is about. Asking with
+        // nobody there cannot be read as a yes.
+        let refused = crate::commands::dump::confirmed(Verb::Delete, 400, "messages")
+            .expect_err("there is no terminal to answer at");
+
+        assert!(refused.contains("400 messages"), "{refused}");
+        assert!(refused.contains("--no-confirm"), "{refused}");
+
+        // A verb with no prompt is unaffected, whatever the terminal is doing.
+        assert_eq!(
+            crate::commands::dump::confirmed(Verb::Select, 400, "messages"),
+            Ok(true)
+        );
     }
 
     #[test]

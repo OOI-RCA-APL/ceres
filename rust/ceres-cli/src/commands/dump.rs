@@ -147,14 +147,13 @@ impl Invocation {
         let text = |id: &str| matches.try_get_one::<String>(id).ok().flatten().cloned();
         let flag = |id: &str| matches.try_get_one::<bool>(id).ok().flatten().copied();
 
-        // A filtered verb reads the table's filter keys, and a create reads its columns,
-        // which are different surfaces over the same table.
-        let keys = if verb.filters() {
-            table.keys()
-        } else if verb == Verb::Create {
-            table.columns()
-        } else {
-            Vec::new()
+        // A filtered verb reads the table's filter keys and a create reads its columns,
+        // which are different surfaces over the same table. A load names a file rather
+        // than either.
+        let keys = match verb {
+            Verb::Create => table.columns(),
+            Verb::Load => Vec::new(),
+            _ => table.keys(),
         };
 
         Self {
@@ -165,12 +164,10 @@ impl Invocation {
             // A header is written unless it was turned off, which is what makes a CSV
             // dump readable by default and pipeable on request.
             header: !flag("no-header").unwrap_or(false),
-            // A write asks first unless told not to, and a run with no terminal to ask
-            // at cannot be waiting for an answer, so it proceeds.
-            confirm: match flag("no-confirm") {
-                Some(true) => false,
-                _ => flag("confirm").unwrap_or(false) || std::io::IsTerminal::is_terminal(&std::io::stdin()),
-            },
+            // A filtered write asks first unless it was told not to. Nothing about the
+            // environment turns the question off, because a script that would have been
+            // stopped by the prompt has to keep being stopped by it.
+            confirm: !flag("no-confirm").unwrap_or(false),
             collect: flag("collect").unwrap_or(false),
             assign: text("assign"),
             on_conflict: text("on_conflict"),
@@ -451,10 +448,19 @@ pub(crate) fn finish(
 
 /// Ask before a filtered write goes through, `false` meaning the reader declined.
 ///
-/// The count is taken first, because "delete 400 variables?" is a question a reader can
-/// answer and "delete the matching variables?" is not. Anything but a `y` is a no, so a
-/// stray keypress cancels rather than proceeds.
-pub(crate) fn confirmed(verb: Verb, affected: u64, plural: &str) -> std::io::Result<bool> {
+/// The count is taken first, because "Delete 400 variables?" is a question that can be
+/// answered and "Delete the matching variables?" is not. Anything but a yes is a no, so
+/// a stray keypress cancels rather than proceeds.
+///
+/// With no terminal to ask at, the write is refused rather than assumed. A prompt is the
+/// thing standing between a filter that matched more than its author expected and the
+/// rows going away, and inferring consent from the absence of anyone to ask removes it
+/// exactly where nobody is watching.
+pub(crate) fn confirmed(
+    verb: Verb,
+    affected: u64,
+    plural: &str,
+) -> std::result::Result<bool, String> {
     use std::io::BufRead;
 
     let doing = match verb {
@@ -463,13 +469,27 @@ pub(crate) fn confirmed(verb: Verb, affected: u64, plural: &str) -> std::io::Res
         _ => return Ok(true),
     };
 
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return Err(format!(
+            "This would {} {affected} {plural}, and there is no terminal to confirm at. \
+             Pass --no-confirm to go ahead without asking.",
+            doing.to_lowercase()
+        ));
+    }
+
     let mut error = std::io::stderr();
-    write!(error, "{doing} {affected} {plural}? [y/N] ")?;
-    error.flush()?;
+    let asked = write!(error, "{doing} {affected} {plural}? [y/N] ").and_then(|()| error.flush());
+    asked.map_err(|error| format!("Cannot ask for confirmation. {error}"))?;
 
     let mut answer = String::new();
-    std::io::stdin().lock().read_line(&mut answer)?;
-    Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes"))
+    std::io::stdin()
+        .lock()
+        .read_line(&mut answer)
+        .map_err(|error| format!("Cannot read an answer. {error}"))?;
+    Ok(matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
 }
 
 /// Write what a pass produced, and answer whether the command was served.
@@ -486,9 +506,9 @@ pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<boo
     match rendered {
         // A stream placed its own output, so there is nothing left to write.
         Rendered::Written => return Ok(true),
-        // Declining is an answer, not a failure, so the command ends having done what
-        // the reader asked, which was nothing.
-        Rendered::Declined => return Ok(true),
+        // Declining changed nothing, and a command chained behind this one with `&&`
+        // must not run as though the write had gone through.
+        Rendered::Declined => return Err(crate::error::Exit::failed("Cancelled.")),
         Rendered::Failed(message) => return Err(crate::error::Exit::failed(message)),
         _ => {}
     }

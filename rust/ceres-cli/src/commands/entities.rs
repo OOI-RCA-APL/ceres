@@ -38,6 +38,13 @@ pub fn try_run(
         return Ok(false);
     }
 
+    // `--collect` streams the rows a write touched rather than counting them, which the
+    // native writers do not produce yet. Serving the command while quietly dropping the
+    // flag would answer a different question than the one asked, so it hands over.
+    if invocation.collect {
+        return Ok(false);
+    }
+
     let format = invocation.dump_format();
 
     // The configuration is read before anything is built, because a user's own columns
@@ -116,7 +123,7 @@ pub fn try_run(
             match crate::commands::dump::confirmed(invocation.verb, affected, table.name()) {
                 Ok(true) => {}
                 Ok(false) => return Ok(Rendered::Declined),
-                Err(error) => return Err(ceres_database::Error::Decode(error.to_string())),
+                Err(message) => return Ok(Rendered::Failed(message)),
             }
         }
 
@@ -163,7 +170,9 @@ pub fn try_run(
                     })
                 })
             }
-            Verb::Follow => unreachable!("an entity group has no follow subcommand"),
+            // An entity group declares no `follow`, so the surface refuses the verb
+            // before anything reaches here.
+            Verb::Follow => unreachable!("an entity group declares no follow"),
             Verb::Create => {
                 store
                     .load_entities(
