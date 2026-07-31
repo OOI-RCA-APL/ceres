@@ -672,28 +672,14 @@ class CLICommand(DataModel):
                 model_config = config
 
         # If only we could pass `extra = "ignore"` to the validation method itself, but we can't.
-        intermediate = validate_json(IgnoreExtra, to_json(self._specified()))
+        #
+        # Set-ness has to survive both hops. A command names only the fields its invocation
+        # mentioned, and models that read set-ness as a sentinel, a variable filter's `value`
+        # among them, distinguish a field given a null from one left out entirely. Dumping
+        # the whole command would mark every field of the result set and erase that.
+        intermediate = validate_json(IgnoreExtra, to_json(self, exclude_unset=True))
         # Convert the `IgnoreExtra` instance with exactly matching fields into `model_cls`.
-        # The intermediate carries honest set-ness, having been built from named fields
-        # alone, so carrying only those forward keeps it honest on the result too.
         return validate_json(data_object_class, to_json(intermediate, exclude_unset=True))
-
-    def _specified(self) -> Mapping[str, object]:
-        """Return the fields this command was actually given, in their serialized form.
-
-        The settings layer builds every command with a value for every field, so a
-        command's own `model_fields_set` names all of them whether or not the invocation
-        did. A field still holding the command's default is therefore the only signal
-        that it went unmentioned, and models that read set-ness as a sentinel, a
-        variable filter's `value` among them, depend on that signal surviving the
-        conversion.
-
-        Only the top level is filtered. Nested values pass through whole, because a
-        subfilter parsed from one argument does carry honest set-ness.
-        """
-        whole: Mapping[str, object] = from_json(to_json(self))
-        specified = from_json(to_json(self, exclude_defaults=True))
-        return {key: whole[key] for key in specified if key in whole}
 
     def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         """Collect and return all nested `CLICommand` instances from this command's fields.

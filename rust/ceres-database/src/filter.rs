@@ -1183,17 +1183,7 @@ impl FilterNode {
             }
             // A value compares on the serialized text the column stores, so the wire
             // text parses as YAML and re-serializes into that form.
-            FieldFamily::JsonValue => {
-                let text = json_text(value)?;
-                // A null is the filter field's own default, which the command layer
-                // reads as the field never having been named, so it filters nothing.
-                // Reproducing that here would bake the quirk into two places.
-                if text == "null" {
-                    return Err(Refusal::Delegated);
-                }
-
-                Values::Texts(vec![text])
-            }
+            FieldFamily::JsonValue => Values::Texts(vec![json_text(value)?]),
             // A plain address compares whole, outside the selector grammar.
             FieldFamily::PlainAddress => {
                 Address::parse(value).map_err(Refusal::Invalid)?;
@@ -2772,6 +2762,10 @@ mod tests {
         // number rather than as its quoted form.
         let sql = entity_sql(EntityTable::Variables, &[("value", "5")]);
         assert!(sql.contains("CAST(\"value\" AS TEXT) = '5'"), "{sql}");
+
+        // A null is a value like any other, selecting the rows that hold one.
+        let sql = entity_sql(EntityTable::Variables, &[("value", "null")]);
+        assert!(sql.contains("CAST(\"value\" AS TEXT) = 'null'"), "{sql}");
     }
 
     #[test]
