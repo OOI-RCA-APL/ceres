@@ -2117,6 +2117,9 @@ export function widgetTargetSignature(widget: Widget): string {
   if ('particles' in widget) {
     values.push(widget.particles.map((particle) => particle.address?.toString() ?? null))
   }
+  if ('buttons' in widget) {
+    values.push(widget.buttons.map((button) => button.address?.toString() ?? null))
+  }
 
   return JSON.stringify(values.map((value) => value?.toString() ?? null))
 }

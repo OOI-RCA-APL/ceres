@@ -378,11 +378,35 @@ describe('a stored button widget', () => {
     expect(upgraded).not.toHaveProperty('arguments')
   })
 
-  it('asks for the action arguments and runs unasked once locked', () => {
+  it('comes back asking for its arguments and asking nothing else', () => {
     const [upgraded] = loaded({ id: 'w1', type: 'button', name: '', action: 'restart' })
 
     expect(buttonsOf(upgraded)[0].locked).toBe(false)
     expect(buttonsOf(upgraded)[0].confirm).toBe(false)
+  })
+
+  it('is written back and read again as exactly what it was', () => {
+    const [first] = loaded({
+      id: 'w1',
+      type: 'button',
+      name: '',
+      address: '@engine.thing',
+      action: 'restart',
+      arguments: { force: true },
+    })
+    buttonsOf(first)[0].confirm = true
+
+    // The trip a workspace makes every time it is saved and opened again.
+    const [second] = loaded(JSON.parse(JSON.stringify(first)))
+    const button = buttonsOf(second)[0]
+
+    expect(buttonsOf(second)).toHaveLength(1)
+    expect(button.id).toBe(buttonsOf(first)[0].id)
+    expect(button.address?.toString()).toBe('@engine.thing')
+    expect(button.action).toBe('restart')
+    expect(button.arguments).toEqual({ force: true })
+    expect(button.confirm).toBe(true)
+    expect(button.locked).toBe(false)
   })
 
   it('is left alone once it holds buttons of its own', () => {

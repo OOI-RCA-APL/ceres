@@ -171,3 +171,145 @@ def test_merge_redacted_widgets_leaves_unmatched_stub_untouched() -> None:
 
 def test_merge_redacted_widgets_handles_missing_layout() -> None:
     assert merge_redacted_widgets({}, {}) == {}
+
+
+def test_iter_widget_targets_reads_every_button_on_a_bar() -> None:
+    widget = {
+        "id": "w1",
+        "type": "button",
+        "width": 60,
+        "buttons": [
+            {"id": "b1", "address": "@rig.pump", "action": "stop"},
+            {"id": "b2", "address": "sensor", "action": "start"},
+        ],
+    }
+    assert list(iter_widget_targets(widget, Address("@rig"))) == [
+        Address("@rig.pump"),
+        Address("@rig.sensor"),
+    ]
+
+
+def test_redact_reaches_a_widget_on_a_carousel_slide() -> None:
+    data = {
+        "layout": [
+            {
+                "widgets": [
+                    {
+                        "id": "w1",
+                        "type": "carousel",
+                        "width": 120,
+                        "slides": [
+                            {
+                                "id": "s1",
+                                "name": "",
+                                "layout": [
+                                    {
+                                        "widgets": [
+                                            {
+                                                "id": "w2",
+                                                "type": "value",
+                                                "name": "Pressure",
+                                                "particleAddress": "@secret.pump",
+                                                "width": 120,
+                                            }
+                                        ]
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        ]
+    }
+
+    redacted = redact_workspace_data(
+        data,
+        scope=None,
+        can_view=lambda address: not str(address).startswith("@secret"),
+    )
+
+    inside = redacted["layout"][0]["widgets"][0]["slides"][0]["layout"][0]["widgets"][0]
+    assert inside == {"id": "w2", "type": "value", "name": "", "width": 120, "restricted": True}
+
+
+def test_redact_reaches_a_widget_on_a_tab_page() -> None:
+    data = {
+        "layout": [
+            {
+                "widgets": [
+                    {
+                        "id": "w1",
+                        "type": "tabs",
+                        "width": 120,
+                        "tabs": [
+                            {
+                                "id": "t1",
+                                "name": "",
+                                "layout": [
+                                    {
+                                        "widgets": [
+                                            {
+                                                "id": "w2",
+                                                "type": "button",
+                                                "name": "Stop",
+                                                "width": 120,
+                                                "buttons": [
+                                                    {"id": "b1", "address": "@secret.pump"}
+                                                ],
+                                            }
+                                        ]
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        ]
+    }
+
+    redacted = redact_workspace_data(
+        data,
+        scope=None,
+        can_view=lambda address: not str(address).startswith("@secret"),
+    )
+
+    inside = redacted["layout"][0]["widgets"][0]["tabs"][0]["layout"][0]["widgets"][0]
+    assert inside == {"id": "w2", "type": "button", "name": "", "width": 120, "restricted": True}
+
+
+def test_merge_restores_a_stub_held_on_a_carousel_slide() -> None:
+    def workspace(inner: dict[str, object]) -> dict[str, object]:
+        return {
+            "layout": [
+                {
+                    "widgets": [
+                        {
+                            "id": "w1",
+                            "type": "carousel",
+                            "width": 120,
+                            "slides": [{"id": "s1", "name": "", "layout": [{"widgets": [inner]}]}],
+                        }
+                    ]
+                }
+            ]
+        }
+
+    stored = workspace(
+        {
+            "id": "w2",
+            "type": "button",
+            "name": "Stop",
+            "width": 120,
+            "buttons": [{"id": "b1", "address": "@secret.pump", "action": "stop"}],
+        }
+    )
+    incoming = workspace(
+        {"id": "w2", "type": "button", "name": "", "width": 120, "restricted": True}
+    )
+
+    merged = merge_redacted_widgets(stored, incoming)
+
+    inside = merged["layout"][0]["widgets"][0]["slides"][0]["layout"][0]["widgets"][0]
+    assert inside["buttons"] == [{"id": "b1", "address": "@secret.pump", "action": "stop"}]

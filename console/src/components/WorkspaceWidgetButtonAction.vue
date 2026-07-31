@@ -184,11 +184,20 @@ function onPress() {
   void run(deepClone(button.arguments))
 }
 
-/** Keep the arguments as they stand and stop asking for them, which is what locking is. */
-function lock() {
+/** Keep the arguments as they stand and stop asking for them, or start asking again.
+
+Locking keeps what the popup is holding, since those are the arguments the button will go on
+running with and there is nowhere left to say so once it stops asking. Unlocking keeps them too,
+as the ones it will offer next time.
+*/
+function toggleLock() {
   button.arguments = deepClone(draft) as Record<string, unknown>
-  button.locked = true
-  isShowingArguments = false
+  button.locked = !button.locked
+
+  // Locked, the popup has said everything it had to say, so it closes on the answer.
+  if (button.locked) {
+    isShowingArguments = false
+  }
 }
 </script>
 
@@ -225,9 +234,21 @@ function lock() {
           <div class="items-center no-wrap q-mb-sm row">
             <common-text variant="th">{{ button.action }}</common-text>
             <q-space />
-            <q-btn dense flat :icon="icons.locked" round size="sm" @click="lock">
+            <q-btn
+              :color="button.locked ? 'primary' : undefined"
+              dense
+              flat
+              :icon="button.locked ? icons.locked : icons.unlocked"
+              round
+              size="sm"
+              @click="toggleLock"
+            >
               <q-tooltip class="bg-primary text-white">
-                Lock these arguments and stop asking
+                {{
+                  button.locked
+                    ? 'Ask for these arguments each time'
+                    : 'Keep these arguments and stop asking'
+                }}
               </q-tooltip>
             </q-btn>
           </div>

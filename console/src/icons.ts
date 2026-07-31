@@ -53,6 +53,7 @@ const icons = {
   leave: 'mdi-exit-run',
   lightMode: 'light_mode', // Material Icons
   locked: 'mdi-lock-outline',
+  unlocked: 'mdi-lock-open-variant-outline',
   logout: 'mdi-logout', // Material Icons
   manage: 'mdi-cog',
   manager: 'mdi-account-star',

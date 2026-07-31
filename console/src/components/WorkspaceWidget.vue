@@ -9,6 +9,7 @@ import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vu
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
 import {
+  createWidget,
   getWidgetInfo,
   useWorkspace,
   widgetTargetSelector,
@@ -55,6 +56,12 @@ function onReloadRequested() {
 
 function onSettingsRequested() {
   isShowingSettingsDialog = true
+}
+
+// Hand the widget back as one of its kind with nothing set on it, which is what a stub already is
+// once it stops standing in for what it was hiding.
+function onResetRequested() {
+  workspace.replaceWidget(widget.id, createWidget(widget.type))
 }
 
 const key = $computed(() => {
@@ -268,6 +275,17 @@ watch(
             <q-item-label>Rename</q-item-label>
           </q-item-section>
         </q-item>
+        <!-- A widget the viewer may not see loads with its configuration stripped, and most kinds
+        of widget are configured on the widget itself, which is exactly what is hidden. This is the
+        way back to one, and it gives up what it could not show in the first place. -->
+        <q-item v-if="widget.restricted" v-close-popup clickable dense @click="onResetRequested">
+          <q-item-section avatar>
+            <q-icon :name="icons.discard" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Reset Widget</q-item-label>
+          </q-item-section>
+        </q-item>
         <q-item
           v-if="settingsComponent != null"
           v-close-popup
@@ -406,10 +424,15 @@ watch(
   opacity: 0;
   touch-action: none;
   transition: opacity 0.15s;
+
+  // Out of reach while it is out of sight, so a tap on a widget's top-right corner reaches the
+  // widget rather than a handle nothing on a touchscreen ever showed.
+  pointer-events: none;
 }
 
 .frameless:hover .handle {
   opacity: 0.85;
+  pointer-events: auto;
 }
 
 .handle:hover {
