@@ -177,6 +177,22 @@ mod tests {
     }
 
     #[test]
+    fn no_record_field_is_a_bare_boolean_flag() {
+        // The shared lexer consumes the token after a flag unless the flag is a boolean,
+        // which the Python CLI declares as a `--key` and `--no-key` pair. No record field
+        // is one, so record lexing is exactly what it was before the entity tables
+        // brought the first booleans, and a new boolean record field would land here.
+        for table in [
+            RecordTable::Messages,
+            RecordTable::Particles,
+            RecordTable::Alerts,
+            RecordTable::Logs,
+        ] {
+            assert!(RecordFilter::boolean_keys(table).is_empty());
+        }
+    }
+
+    #[test]
     fn the_filter_is_what_refuses_an_unknown_key() {
         let invocation = Invocation::lex(
             &raw(&[
