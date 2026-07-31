@@ -1382,10 +1382,13 @@ def create_entity_load_command(Entity: type[Entity]):
                             cls.Row.__table__.primary_key,
                         )
                     case CLIDataConflict.UPDATE:
+                        # Every non-key column takes the incoming row's value. The
+                        # excluded row is the one the insert proposed, so naming the
+                        # table's own column here would assign each column to itself.
                         statement = statement.on_conflict_do_update(
                             cls.Row.__table__.primary_key,
                             set_={
-                                column: column
+                                column.name: statement.excluded[column.name]
                                 for column in cls.Row.__table__.columns
                                 if column.name not in cls.Row.__table__.primary_key.columns
                             },
