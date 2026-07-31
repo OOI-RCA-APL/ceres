@@ -126,10 +126,7 @@ class Server(Tasklet):
         )
 
         try:
-            await concurrently(
-                self._native_cli.serve() if self._native_cli is not None else None,
-                self._native_web.serve() if self._native_web is not None else None,
-            )
+            await concurrently(_serve(self._native_cli), _serve(self._native_web))
         finally:
             self._native_cli = None
             self._native_web = None
@@ -143,6 +140,16 @@ class Server(Tasklet):
         for server in (self._native_cli, self._native_web):
             if server is not None:
                 server.stop()
+
+
+async def _serve(server: Native | None) -> None:
+    """Run one native server to completion, doing nothing when there is none.
+
+    A native server's `serve` answers a future rather than a coroutine, and a task group
+    schedules coroutines, so awaiting it inside one is what makes it schedulable.
+    """
+    if server is not None:
+        await server.serve()
 
 
 def _favicon(engine: Engine, suffix: str, console: Path) -> Path:
