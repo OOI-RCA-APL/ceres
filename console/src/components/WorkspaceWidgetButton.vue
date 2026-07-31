@@ -1,114 +1,105 @@
 <script lang="ts" setup>
-import { useAccess } from '@/api/access'
-import { Address } from '@/api/address'
-import { useEngine } from '@/api/engine'
-import { isError } from '@/api/shared'
-import { useNotify } from '@/notify'
-import { usePreferences } from '@/preferences'
-import { ButtonWidget, useWorkspace } from '@/workspace'
+import CommonText from '@/components/CommonText.vue'
+import WorkspaceWidgetButtonAction from '@/components/WorkspaceWidgetButtonAction.vue'
+import icons from '@/icons'
+import { moved } from '@/reorder'
+import { ButtonActionModel, ButtonWidget } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ButtonWidget
 }>()
 
-const access = useAccess()
-const engine = useEngine()
-const notify = useNotify()
-const preferences = usePreferences()
-const workspace = useWorkspace()
+// Buttons are added, arranged and taken away on the bar itself, in the place they will be pressed,
+// rather than described in a dialog somewhere away from it.
+function addButton() {
+  widget.buttons = [...widget.buttons, ButtonActionModel.parse({})]
+}
 
-const resolvedAddress = $computed(() => {
-  const resolved = workspace.resolveAddress(widget.address)
-  return resolved == null ? null : Address.parse(resolved)
-})
+function removeButton(at: number) {
+  widget.buttons = widget.buttons.filter((_, position) => position !== at)
+}
 
-const canOperate = $computed(
-  () => resolvedAddress != null && access.canOperate(resolvedAddress.toString())
-)
-
-const color = $computed(() => {
-  if (widget.color == null) {
-    return preferences.isDarkModeEnabled ? 'grey-4' : 'grey-9'
-  }
-
-  return widget.color
-})
-
-const textColor = $computed(() => {
-  if (widget.color == null && preferences.isDarkModeEnabled && widget.styling == null) {
-    return 'grey-10'
-  }
-
-  return undefined
-})
-
-let isRunning = $ref(false)
-
-const action = $computed(() => {
-  if (resolvedAddress == null || widget.action == null) {
-    return null
-  }
-
-  return engine.components.getAction(resolvedAddress, widget.action)
-})
-
-const label = $computed(() => {
-  if (widget.label) {
-    return widget.label
-  }
-
-  if (widget.action) {
-    return widget.action.replace(/[\-_]+/g, ' ').toUpperCase()
-  }
-
-  return widget.name
-})
-
-async function onClick() {
-  if (!canOperate) {
+function duplicateButton(at: number) {
+  const source = widget.buttons[at]
+  if (source == null) {
     return
   }
 
-  try {
-    isRunning = true
-    const result = await engine.components.call(resolvedAddress, widget.action, widget.arguments)
-    if (isError(result)) {
-      notify.error(`Action "${widget.action}" failed. ${JSON.stringify(result)}`, {
-        timeout: 10000,
-      })
-    } else {
-      notify.success(`Action "${widget.action}" was executed successfully.`)
-    }
-  } finally {
-    isRunning = false
+  const buttons = [...widget.buttons]
+  buttons.splice(at + 1, 0, ButtonActionModel.parse({ ...source, id: undefined }))
+  widget.buttons = buttons
+}
+
+function moveButton(at: number, by: number) {
+  const to = at + by
+  if (to < 0 || to >= widget.buttons.length) {
+    return
   }
+
+  widget.buttons = moved([...widget.buttons], at, to)
 }
 </script>
 
 <template>
-  <div class="text-center">
+  <div :class="[$style.bar, 'items-center']">
+    <workspace-widget-button-action
+      v-for="(button, at) in widget.buttons"
+      :key="button.id"
+      :button
+      :first="at === 0"
+      :last="at === widget.buttons.length - 1"
+      @duplicate="duplicateButton(at)"
+      @move="(by: number) => moveButton(at, by)"
+      @remove="removeButton(at)"
+    />
     <q-btn
-      :color="color"
+      v-if="widget.buttons.length > 0"
+      class="faded-hover"
+      :class="$style.add"
       dense
-      :disabled="!canOperate || action == null"
-      :flat="widget.styling === 'flat'"
-      :label="label"
-      :loading="isRunning"
-      no-caps
-      :outline="widget.styling === 'outlined'"
-      :text-color="textColor"
-      unelevated
-      @click="onClick"
+      flat
+      :icon="icons.add"
+      round
+      size="sm"
+      @click="addButton"
     >
-      <q-tooltip v-if="widget.address == null || widget.action == null">
-        Button action is not configured.
-      </q-tooltip>
-      <q-tooltip v-else-if="action == null" class="bg-negative text-white">
-        Button action {{ resolvedAddress }}::action::{{ widget.action }} not found.
-      </q-tooltip>
-      <q-tooltip v-else-if="widget.tooltip" :class="`bg-${color} text-white`">
-        {{ widget.tooltip }}
-      </q-tooltip>
+      <q-tooltip class="bg-primary text-white">Add Button</q-tooltip>
     </q-btn>
+    <div v-else :class="[$style.empty, 'items-center', 'row']">
+      <common-text variant="description">No buttons yet.</common-text>
+      <q-btn
+        class="q-ml-sm"
+        color="primary"
+        dense
+        flat
+        :icon="icons.add"
+        label="Add Button"
+        no-caps
+        size="sm"
+        @click="addButton"
+      />
+    </div>
   </div>
 </template>
+
+<style module>
+/* Buttons run along the bar and wrap onto another line once they outgrow it, so a widget holds as
+many as are put on it whatever width it happens to have. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.empty {
+  opacity: 0.7;
+}
+
+.add {
+  opacity: 0.5;
+}
+
+.bar:hover .add {
+  opacity: 1;
+}
+</style>

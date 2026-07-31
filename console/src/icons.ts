@@ -41,6 +41,8 @@ const icons = {
   enable: 'mdi-check-circle-outline',
   export: 'mdi-download',
   filter: 'mdi-filter',
+  frame: 'mdi-border-all-variant',
+  frameless: 'mdi-border-none-variant',
   grab: 'mdi-grab',
   help: 'mdi-help',
   home: 'mdi-home',

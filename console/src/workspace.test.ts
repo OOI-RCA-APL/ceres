@@ -11,10 +11,12 @@ import {
   pagesOf,
   withFreshIds,
   withFreshPage,
+  ButtonWidget,
   CarouselWidget,
   TabsWidget,
   Widget,
   WidgetRow,
+  WorkspaceDataModel,
 } from '@/workspace'
 
 /** A widget of no particular kind, named after its ID so a layout reads as what it holds. */
@@ -33,6 +35,7 @@ function carousel(id: string, slides: { id: string; layout: WidgetRow[] }[]): Ca
     name: id,
     width: widgetWidthSubdivisions,
     restricted: false,
+    frameless: false,
     interval: 15,
     autoplay: false,
     slides: slides.map((slide) => ({ id: slide.id, name: '', layout: slide.layout })),
@@ -46,6 +49,7 @@ function tabs(id: string, pages: { id: string; layout: WidgetRow[] }[]): TabsWid
     name: id,
     width: widgetWidthSubdivisions,
     restricted: false,
+    frameless: false,
     tabs: pages.map((page) => ({ id: page.id, name: '', layout: page.layout })),
   }
 }
@@ -321,5 +325,135 @@ describe('planWidgetsMove', () => {
     const layouts = layoutsOf([row('r1', widget('a'), widget('b'))])
 
     expect(planWidgetsMove(layouts, ['a'], { layout: rootLayoutId, row: 9, column: 0 })).toBeNull()
+  })
+})
+
+describe('a stored button widget', () => {
+  /** The widgets a stored workspace holds, once it has been read the way the app reads one. */
+  function loaded(...widgets: unknown[]): Widget[] {
+    const data = WorkspaceDataModel.parse({
+      layout: [{ id: 'r1', height: 250, collapsed: false, widgets }],
+    })
+
+    return data.layout[0].widgets
+  }
+
+  function buttonsOf(widget: Widget): ButtonWidget['buttons'] {
+    return (widget as ButtonWidget).buttons
+  }
+
+  it('becomes a widget holding the single button it always was', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'button',
+      name: '',
+      address: '@engine.thing',
+      action: 'restart',
+      label: 'Restart',
+      arguments: { force: true },
+    })
+
+    expect(buttonsOf(upgraded)).toHaveLength(1)
+    expect(buttonsOf(upgraded)[0].action).toBe('restart')
+    expect(buttonsOf(upgraded)[0].label).toBe('Restart')
+    expect(buttonsOf(upgraded)[0].arguments).toEqual({ force: true })
+  })
+
+  it('holds no buttons when nothing was ever made of it', () => {
+    const [upgraded] = loaded({ id: 'w1', type: 'button', name: '', arguments: {} })
+
+    expect(buttonsOf(upgraded)).toEqual([])
+  })
+
+  it('leaves the fields it was stored with behind', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'button',
+      name: '',
+      action: 'restart',
+      arguments: { force: true },
+    })
+
+    expect(upgraded).not.toHaveProperty('action')
+    expect(upgraded).not.toHaveProperty('arguments')
+  })
+
+  it('asks for the action arguments and runs unasked once locked', () => {
+    const [upgraded] = loaded({ id: 'w1', type: 'button', name: '', action: 'restart' })
+
+    expect(buttonsOf(upgraded)[0].locked).toBe(false)
+    expect(buttonsOf(upgraded)[0].confirm).toBe(false)
+  })
+
+  it('is left alone once it holds buttons of its own', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'button',
+      name: '',
+      buttons: [{ id: 'b1', action: 'one' }, { id: 'b2', action: 'two' }],
+      action: 'legacy',
+    })
+
+    expect(buttonsOf(upgraded).map((button) => button.action)).toEqual(['one', 'two'])
+  })
+
+  it('is reached inside a carousel slide', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'carousel',
+      name: 'Carousel',
+      slides: [
+        {
+          id: 's1',
+          name: '',
+          layout: [
+            {
+              id: 'r2',
+              height: 250,
+              collapsed: false,
+              widgets: [{ id: 'w2', type: 'button', name: '', action: 'restart' }],
+            },
+          ],
+        },
+      ],
+    })
+
+    const inside = pagesOf(upgraded)[0].layout[0].widgets[0]
+    expect(buttonsOf(inside).map((button) => button.action)).toEqual(['restart'])
+  })
+
+  it('is reached inside a tab strip page', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'tabs',
+      name: 'Tabs',
+      tabs: [
+        {
+          id: 't1',
+          name: '',
+          layout: [
+            {
+              id: 'r2',
+              height: 250,
+              collapsed: false,
+              widgets: [{ id: 'w2', type: 'button', name: '', action: 'restart' }],
+            },
+          ],
+        },
+      ],
+    })
+
+    const inside = pagesOf(upgraded)[0].layout[0].widgets[0]
+    expect(buttonsOf(inside).map((button) => button.action)).toEqual(['restart'])
+  })
+
+  it('wears no frame of its own, unlike a widget that is a view of something', () => {
+    const [button, chart] = loaded(
+      { id: 'w1', type: 'button', name: '' },
+      { id: 'w2', type: 'chart', name: 'Chart' }
+    )
+
+    expect(button.frameless).toBe(true)
+    expect(chart.frameless).toBe(false)
   })
 })

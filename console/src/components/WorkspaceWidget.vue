@@ -8,7 +8,14 @@ import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
-import { getWidgetInfo, useWorkspace, widgetTargetSignature, Widget, WidgetRow } from '@/workspace'
+import {
+  getWidgetInfo,
+  useWorkspace,
+  widgetTargetSelector,
+  widgetTargetSignature,
+  Widget,
+  WidgetRow,
+} from '@/workspace'
 
 const { widget, layoutId } = defineProps<{
   widget: Widget
@@ -58,17 +65,10 @@ const key = $computed(() => {
   return String(reloads)
 })
 
-// The first address-like field on the widget resolved through the scope, or null when the
-// widget has no single target.
+// The address of the one component the widget is a view of, resolved through the scope, or null
+// when it is a view of none.
 const targetAddress = $computed(() => {
-  if (widget.restricted) {
-    return null
-  }
-
-  const raw =
-    ('address' in widget ? widget.address : null) ??
-    ('procedureAddress' in widget ? widget.procedureAddress : null) ??
-    ('particleAddress' in widget ? widget.particleAddress : null)
+  const raw = widgetTargetSelector(widget)
   if (raw == null) {
     return null
   }
@@ -121,12 +121,39 @@ watch(
 <template>
   <q-card
     v-if="workspace != null"
-    bordered
+    :bordered="!widget.frameless"
     class="col column full-height"
-    :class="workspace.isSelected(widget.id) && $style.selected"
+    :class="[
+      workspace.isSelected(widget.id) && $style.selected,
+      widget.frameless && $style.frameless,
+    ]"
     flat
   >
+    <!-- A widget wearing no frame is still taken hold of and still answers to a menu, so what the
+    header carried comes up over its own corner while the pointer is on it. -->
     <div
+      v-if="widget.frameless"
+      :class="$style.handle"
+      data-widget-header
+      :style="{ cursor: workspace.drag != null ? 'grabbing' : 'grab' }"
+      @mousedown.prevent="onPress"
+      @mousemove.prevent
+      @touchmove.prevent
+      @touchstart.prevent="onPress"
+    >
+      <q-icon :name="icons.dragVertical" size="14px" />
+      <q-btn
+        flat
+        :icon="icons.more"
+        round
+        size="7px"
+        @click.stop="menu?.show($event)"
+        @mousedown.stop
+        @touchstart.stop
+      />
+    </div>
+    <div
+      v-else
       :class="[$style.header, 'q-px-sm', 'q-py-xs']"
       data-widget-header
       :style="{ cursor: workspace.drag != null ? 'grabbing' : 'grab' }"
@@ -160,22 +187,7 @@ watch(
             @click.stop="isShowingSettingsDialog = true"
             @mousedown.stop
             @touchstart.stop
-          >
-            <q-dialog v-model="isShowingSettingsDialog">
-              <q-card bordered :class="$style.editDialog" flat outline>
-                <component :is="settingsComponent as any" :widget="widget" />
-                <q-separator />
-                <q-btn
-                  class="full-width"
-                  color="primary"
-                  dense
-                  flat
-                  label="Done"
-                  @click="isShowingSettingsDialog = false"
-                />
-              </q-card>
-            </q-dialog>
-          </q-btn>
+          />
         </div>
         <div>
           <q-btn
@@ -228,7 +240,7 @@ watch(
       </div>
     </div>
     <template v-if="!container.collapsed">
-      <q-separator />
+      <q-separator v-if="!widget.frameless" />
       <div
         :key="key"
         :class="[$style.content, 'col-grow overflow-auto', info.options.paddingClass]"
@@ -254,6 +266,20 @@ watch(
           </q-item-section>
           <q-item-section>
             <q-item-label>Rename</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item
+          v-if="settingsComponent != null"
+          v-close-popup
+          clickable
+          dense
+          @click="isShowingSettingsDialog = true"
+        >
+          <q-item-section avatar>
+            <q-icon :name="icons.settings" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Settings...</q-item-label>
           </q-item-section>
         </q-item>
         <q-item
@@ -289,6 +315,38 @@ watch(
           <workspace-add-widget-menu :column="column + 1" :layout-id="layoutId" :row="row" />
         </q-item>
         <q-separator />
+        <!-- Held here as well as on the header, since a widget wearing no frame has no header to
+        reach either of them from. -->
+        <q-item v-close-popup clickable dense @click="widget.frameless = !widget.frameless">
+          <q-item-section avatar>
+            <q-icon :name="widget.frameless ? icons.frame : icons.frameless" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>{{ widget.frameless ? 'Show Frame' : 'Hide Frame' }}</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item
+          v-close-popup
+          clickable
+          dense
+          @click="container.collapsed = !container.collapsed"
+        >
+          <q-item-section avatar>
+            <q-icon :name="container.collapsed ? icons.menuDown : icons.menuUp" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>{{ container.collapsed ? 'Expand Row' : 'Collapse Row' }}</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item v-close-popup clickable dense @click="onReloadRequested">
+          <q-item-section avatar>
+            <q-icon :name="icons.refresh" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Reload</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-separator />
         <q-item v-close-popup clickable dense @click="workspace.deleteWidget(widget.id)">
           <q-item-section avatar>
             <q-icon :name="icons.delete" />
@@ -299,6 +357,22 @@ watch(
         </q-item>
       </q-list>
     </q-menu>
+    <!-- Hung off the card rather than off the button that opens it, so the menu can open it too on
+    a widget that is wearing no header. -->
+    <q-dialog v-if="settingsComponent != null" v-model="isShowingSettingsDialog">
+      <q-card bordered :class="$style.editDialog" flat outline>
+        <component :is="settingsComponent as any" :widget="widget" />
+        <q-separator />
+        <q-btn
+          class="full-width"
+          color="primary"
+          dense
+          flat
+          label="Done"
+          @click="isShowingSettingsDialog = false"
+        />
+      </q-card>
+    </q-dialog>
   </q-card>
 </template>
 
@@ -309,6 +383,45 @@ watch(
 // the page being scrolled.
 .header {
   touch-action: none;
+}
+
+// Nothing of the card is drawn, so what the widget shows is all there is of it and it sits on the
+// layout rather than in a box on it.
+.frameless {
+  background-color: transparent;
+}
+
+// The handle stands in for the header on a widget that wears none, over the widget's own corner so
+// it costs no room, and only while the pointer is on the widget.
+.handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px;
+  border-radius: 0 0 0 4px;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity 0.15s;
+}
+
+.frameless:hover .handle {
+  opacity: 0.85;
+}
+
+.handle:hover {
+  opacity: 1 !important;
+}
+
+:global(.light) .handle {
+  background-color: color.adjust(white, $lightness: -4%);
+}
+
+:global(.dark) .handle {
+  background-color: $dark;
 }
 
 // Drawn outside the card's own border rather than in place of it, so picking a widget out does not
@@ -342,6 +455,10 @@ watch(
 
 :global(.dark) .content {
   background-color: $darker;
+}
+
+:global(.dark) .frameless .content {
+  background-color: transparent;
 }
 
 .editDialog {

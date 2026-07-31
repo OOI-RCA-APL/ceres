@@ -47,6 +47,10 @@ const BaseWidgetModel = Zod.object({
   // Fraction of row width out of 120, not pixels.
   width: Zod.number().catch(() => widgetWidthSubdivisions),
   restricted: Zod.boolean().catch(false),
+
+  // Whether the widget stands on the layout without a card and a header around it. What it shows
+  // is then all there is of it, and the handle it is arranged by comes up over it on hover.
+  frameless: Zod.boolean().catch(false),
 })
 
 export type MessageDataDisplay = Zod.infer<typeof MessageDataDisplayModel>
@@ -158,14 +162,56 @@ export const ColorModel = Zod.enum(['primary', 'positive', 'warning', 'negative'
 export type ButtonStyling = Zod.infer<typeof ButtonStylingModel>
 export const ButtonStylingModel = Zod.enum(['flat', 'outlined'])
 
-export type ButtonWidget = Zod.infer<typeof ButtonWidgetModel>
-export const ButtonWidgetModel = BaseWidgetModel.extend({
-  type: Zod.literal('button'),
-  name: Zod.string().catch(''),
+/** One action a button widget offers, and how pressing it behaves. */
+export type ButtonAction = Zod.infer<typeof ButtonActionModel>
+export const ButtonActionModel = Zod.object({
+  id: Zod.string().catch(() => v7()),
   label: Zod.string().nullish(),
   address: AddressModel.nullish(),
   action: Zod.string().nullish(),
   arguments: Zod.record(Zod.string(), Zod.any()).catch(() => ({})),
+  color: ColorModel.nullish().catch(undefined),
+  styling: ButtonStylingModel.nullish().catch(undefined),
+  tooltip: Zod.string().nullish().catch(undefined),
+
+  // Pressing a button asks for the action's arguments before running it, since an action worth
+  // putting on a workspace is usually one that takes some. Locked, the arguments it was left with
+  // are the arguments it runs with, and pressing it runs it.
+  locked: Zod.boolean().catch(false),
+
+  /** Whether running it asks first, for an action that would be unwelcome by accident. */
+  confirm: Zod.boolean().catch(false),
+})
+
+/** Actions offered side by side, laid out as a bar rather than one to a widget. */
+export type ButtonWidget = BaseWidget & {
+  type: 'button'
+  buttons: ButtonAction[]
+}
+
+/** A button widget as one may still be stored, from when it offered a single action.
+
+The fields it held are named here rather than on `ButtonWidget`, so that the rest of the app can
+only reach a button's action through `buttons` and cannot pick up a shape `upgradedWidget` has
+already put behind it.
+*/
+type StoredButtonWidget = ButtonWidget & Partial<Omit<ButtonAction, 'id' | 'locked' | 'confirm'>>
+
+export const ButtonWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('button'),
+  name: Zod.string().catch(''),
+  buttons: safeArrayOf(ButtonActionModel),
+
+  // A button widget wears no frame of its own by default, being a bar of controls rather than a
+  // view of something.
+  frameless: Zod.boolean().catch(true),
+
+  // What a button widget held when it offered one action and held its fields itself. Kept so that
+  // a stored workspace still parses, and folded into `buttons` by `upgradedWidget` as it loads.
+  label: Zod.string().nullish(),
+  address: AddressModel.nullish(),
+  action: Zod.string().nullish(),
+  arguments: Zod.record(Zod.string(), Zod.any()).nullish(),
   color: ColorModel.nullish().catch(undefined),
   styling: ButtonStylingModel.nullish().catch(undefined),
   tooltip: Zod.string().nullish().catch(undefined),
@@ -406,9 +452,8 @@ export const widgetInfos = {
     name: 'Button',
     model: ButtonWidgetModel,
     component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetButton.vue')),
-    settingsComponent: defineAsyncComponent(
-      () => import('@/components/WorkspaceWidgetButtonSettings.vue')
-    ),
+    // No settings of its own. Each button is configured from the button itself, since a widget
+    // holding several has nothing left to say about all of them at once.
     options: widgetOptions({
       minHeight: 50,
       fullHeight: false,
@@ -440,7 +485,9 @@ from a paste of any other text.
 export type WidgetClipboard = Zod.infer<typeof WidgetClipboardModel>
 export const WidgetClipboardModel = Zod.object({
   ceres: Zod.literal('widgets'),
-  rows: safeArrayOf(WidgetRowModel),
+  // Upgraded on the way in, since a copy may have been taken before the workspace it came from
+  // was, or taken from a workspace nobody has opened since.
+  rows: safeArrayOf(WidgetRowModel).transform(upgradedRows),
 })
 
 export type WorkspaceMeta = Zod.infer<typeof WorkspaceMetaModel>
@@ -456,10 +503,57 @@ export const WorkspaceMetaModel = Zod.object({
   order: Zod.number().nullish().catch(undefined),
 })
 
+/** A widget as the app understands it now, whatever shape it was stored in.
+
+A button widget once offered one action and held that action's fields itself. It now offers as many
+as are put on it, so a stored one becomes a widget holding the single button it always was. The old
+fields are left behind rather than carried, so the next write puts the new shape back.
+*/
+export function upgradedWidget(widget: Widget): Widget {
+  const upgraded = withPages(
+    widget,
+    pagesOf(widget).map((page) => ({
+      ...page,
+      layout: upgradedRows(page.layout),
+    }))
+  )
+
+  if (upgraded.type !== 'button') {
+    return upgraded
+  }
+
+  const {
+    label,
+    address,
+    action,
+    color,
+    styling,
+    tooltip,
+    arguments: values,
+    ...rest
+  } = upgraded as StoredButtonWidget
+  const held = { label, address, action, color, styling, tooltip }
+
+  // A button widget was stored with empty arguments whether or not anything was ever made of it,
+  // so the fields a user could have set are what say there is a button here to carry over.
+  const wasConfigured = Object.values(held).some((value) => value != null)
+  if (upgraded.buttons.length > 0 || !wasConfigured) {
+    return { ...rest, buttons: upgraded.buttons }
+  }
+
+  return { ...rest, buttons: [ButtonActionModel.parse({ ...held, arguments: values ?? {} })] }
+}
+
+export function upgradedRows(rows: WidgetRow[]): WidgetRow[] {
+  return rows.map((row) => ({ ...row, widgets: row.widgets.map(upgradedWidget) }))
+}
+
 export type WorkspaceDataInput = Zod.input<typeof WorkspaceDataModel>
 export type WorkspaceData = Zod.infer<typeof WorkspaceDataModel>
 export const WorkspaceDataModel = Zod.object({
-  layout: WidgetRowModel.array().catch(() => []),
+  layout: WidgetRowModel.array()
+    .catch(() => [])
+    .transform(upgradedRows),
   meta: WorkspaceMetaModel.catch(() => ({ order: undefined })),
 })
 
@@ -801,6 +895,18 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return layoutRefs().find((layout) => layout.id === id) ?? null
   }
 
+  /** A row opened to hold `widget`, as tall as that widget asks to be and no taller.
+
+  A row is otherwise opened at the height a row of charts wants, which leaves a button or a value
+  sitting at the top of a band of nothing that has to be dragged shut by hand every time.
+  */
+  function openedRow(widgets: Widget[], opening: Widget): WidgetRow {
+    return WidgetRowModel.parse({
+      widgets,
+      height: widgetInfos[opening.type].options.minHeight,
+    })
+  }
+
   function insertWidget(
     widget: Widget,
     row: number,
@@ -820,9 +926,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     resolveWidgetWidths(widgets, widgets.indexOf(widget))
 
     if (row < 0) {
-      layout.set([WidgetRowModel.parse({ widgets }), ...rows])
+      layout.set([openedRow(widgets, widget), ...rows])
     } else if (rows[row] == null) {
-      layout.set([...rows, WidgetRowModel.parse({ widgets })])
+      layout.set([...rows, openedRow(widgets, widget)])
     } else {
       const rowObject = rows[row]
       const minHeight = widgetInfos[widget.type].options.minHeight
@@ -1962,6 +2068,26 @@ export function planWidgetsMove(
   }
 
   return { layouts: planned(), widths }
+}
+
+/** The one component a widget is pointed at, or null when it is pointed at none.
+
+A button widget is pointed at as many components as it holds buttons, so it answers with none. The
+header's shortcut is for a widget that is a view of one thing.
+*/
+export function widgetTargetSelector(widget: Widget): Address | AddressSelector | null {
+  if (widget.restricted) {
+    return null
+  }
+
+  switch (widget.type) {
+    case 'procedures':
+      return widget.procedureAddress ?? null
+    case 'value':
+      return widget.particleAddress ?? null
+    default:
+      return null
+  }
 }
 
 // Build a value that changes whenever any of a widget's address-bearing fields change. Used to
