@@ -931,7 +931,105 @@ class CLIClientError(CLICommandFailed, ClientError):
     pass
 
 
-class CLIDataOutputCommand(CLICommand):
+class CLIOutputCommand(CLICommand):
+    """CLI command that writes its result to a file or stdout.
+
+    A result that is a single value, a count or an existence check, takes a destination and
+    nothing else. Selecting fields or a data format has no meaning for one.
+    """
+
+    output: FilePath | NewPath | None = None
+    """
+    Output file to write to. If unspecified, output is written to stdout.
+    """
+
+    @contextmanager
+    def _open_destination(self) -> Iterator[IO[str] | None]:
+        """Open the configured output file, `None` when output goes to stdout.
+
+        A file this opens closes with it, or its final buffer never reaches disk.
+        """
+        if self.output is None:
+            yield None
+            return
+
+        with self._open_file() as opened:
+            yield opened
+
+    def _open_file(self) -> IO[str]:
+        """Open the configured output file, reporting a failure the way the CLI does."""
+        destination = self.output
+        assert destination is not None, "the caller checked for a destination"
+        try:
+            return open(destination, "w")
+        except FileNotFoundError:
+            raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
+        except OSError:
+            raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
+
+    @contextmanager
+    def open_output(self) -> Iterator[Callable[[str], object]]:
+        """Open the command's destination, yielding one write for a whole dump.
+
+        A streamed dump writes many times, so the file opens once and stays open for the
+        length of it. Opening per write would truncate everything written before it. It
+        also opens on the first write rather than up front, so a dump that turns out not
+        to run leaves the file as it found it.
+        """
+        if self.output is None:
+            yield sys.stdout.write
+            return
+
+        opened: IO[str] | None = None
+
+        def write(text: str) -> object:
+            nonlocal opened
+            if opened is None:
+                opened = self._open_file()
+
+            return opened.write(text)
+
+        try:
+            yield write
+        finally:
+            # A file this call opened must close with it, or its final buffer never
+            # reaches disk.
+            if opened is not None:
+                opened.close()
+
+    def put_text(self, text: str) -> None:
+        """Write already-rendered output through the command's configured destination."""
+        with self.open_output() as write:
+            write(text)
+
+    @override
+    async def put(
+        self,
+        data: object,
+        file: IO[str] | None = None,
+        *,
+        end: str = "\n",
+        flush: bool = False,
+        color: bool | None = None,
+        data_format: CLIDataFormat | None = None,
+        fields: Sequence[str] | Mapping[str, str] | None = None,
+        header: bool | None = None,
+    ) -> None:
+        """Write through the command's own destination unless a stream was named."""
+        with self._open_destination() as opened:
+            await super().put(
+                data,
+                file or opened or sys.stdout,
+                end=end,
+                flush=flush,
+                color=color,
+                data_format=data_format,
+                fields=fields,
+                header=header,
+            )
+
+
+class CLIDataOutputCommand(CLIOutputCommand):
     """CLI command that writes structured output to a file or stdout."""
 
     output: FilePath | NewPath | None = None
@@ -972,35 +1070,19 @@ class CLIDataOutputCommand(CLICommand):
         header: bool | None = None,
     ) -> None:
         """Write data using the command's configured output file, format, and field selection."""
-        # A file this call opens must close with it, or its final buffer never
-        # reaches disk.
-        opened: IO[str] | None = None
-        if file is None:
-            if self.output is not None:
-                try:
-                    opened = open(self.output, "w")
-                except FileNotFoundError:
-                    raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
-                except OSError:
-                    raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
-
-                file = opened
-
-        if file is None:
-            file = sys.stdout
-
-        assert file is not None
-
         data_format = data_format or self.data_format
         if self.output is not None:
             data_format = _resolve_data_format(self.output, data_format)
 
         fields = _resolve_fields(fields) if fields is not None else self.resolved_fields()
 
-        try:
-            await super().put(
+        with self._open_destination() as opened:
+            # The base class writes to whichever stream it is handed, so the destination
+            # resolves here and the format and projection travel with it.
+            await CLICommand.put(
+                self,
                 data,
-                file,
+                file or opened or sys.stdout,
                 end=end,
                 flush=flush,
                 color=color,
@@ -1008,9 +1090,6 @@ class CLIDataOutputCommand(CLICommand):
                 fields=fields,
                 header=header if header is not None else self.header,
             )
-        finally:
-            if opened is not None:
-                opened.close()
 
     def resolved_fields(self) -> Mapping[str, str] | None:
         """The command's field projection as a name-to-alias mapping, `None` when
@@ -1049,47 +1128,6 @@ class CLIDataOutputCommand(CLICommand):
     def plain_json_output(self) -> bool:
         """Whether output is plain JSON lines, with no color."""
         return self.native_dump_format() is CLIDataFormat.JSON
-
-    @contextmanager
-    def open_output(self) -> Iterator[Callable[[str], object]]:
-        """Open the command's destination, yielding one write for a whole dump.
-
-        A streamed dump writes many times, so the file opens once and stays open for the
-        length of it. Opening per write would truncate everything written before it. It
-        also opens on the first write rather than up front, so a dump that turns out not
-        to run leaves the file as it found it.
-        """
-        destination = self.output
-        if destination is None:
-            yield sys.stdout.write
-            return
-
-        opened: IO[str] | None = None
-
-        def write(text: str) -> object:
-            nonlocal opened
-            if opened is None:
-                try:
-                    opened = open(destination, "w")
-                except FileNotFoundError:
-                    raise CLICommandFailed(f"Output file '{str(destination)!r}' not found.")
-                except OSError:
-                    raise CLICommandFailed(f"Failed to open output file '{str(destination)!r}'.")
-
-            return opened.write(text)
-
-        try:
-            yield write
-        finally:
-            # A file this call opened must close with it, or its final buffer never
-            # reaches disk.
-            if opened is not None:
-                opened.close()
-
-    def put_text(self, text: str) -> None:
-        """Write already-rendered output through the command's configured destination."""
-        with self.open_output() as write:
-            write(text)
 
 
 class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
@@ -1232,7 +1270,7 @@ def create_entity_count_command(Entity: type[Entity]):
     """Create a CLI subcommand class that counts entities matching a filter."""
     naming = Entity.__entity_naming__
 
-    class CountCommand(CLICommand, cast("type", Entity.Filter)):
+    class CountCommand(CLIOutputCommand, cast("type", Entity.Filter)):
         f"""
         Count {naming.plural}.
         """
@@ -1250,7 +1288,7 @@ def create_entity_any_command(Entity: type[Entity]):
     """Create a CLI subcommand class that checks if any entities match a filter."""
     naming = Entity.__entity_naming__
 
-    class AnyCommand(CLICommand, cast("type", Entity.Filter)):
+    class AnyCommand(CLIOutputCommand, cast("type", Entity.Filter)):
         f"""
         Check if one or more {naming.plural} match the provided filter.
         """

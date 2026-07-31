@@ -48,6 +48,15 @@ impl Verb {
         matches!(self, Self::Select | Self::Create | Self::Follow)
     }
 
+    /// Whether the verb's result is one value rather than rows.
+    ///
+    /// A scalar takes a destination and nothing else. Selecting fields, naming a data
+    /// format, or asking for a header row means nothing for a count or an existence
+    /// check, and the commands declare no such flags.
+    pub(crate) fn renders_scalar(self) -> bool {
+        matches!(self, Self::Count | Self::Any)
+    }
+
     /// Whether the verb reads a live stream from a running engine rather than the
     /// database, which only `follow` does.
     pub(crate) fn streams(self) -> bool {
@@ -278,16 +287,16 @@ impl Invocation {
             return None;
         }
 
-        // `select` and `create` render rows. Every other verb prints one scalar, so a
-        // field selection, an output file, a format, or a header choice on one either is
-        // an argument error Python owns or is a rendering the native path has no reason
-        // to reproduce. A load is the exception, its `--data-format` names the shape of
-        // the file it reads rather than the shape of its output.
+        // `select` and `create` render rows, and `count` and `any` render one value,
+        // which takes a destination and nothing else. Everything left prints a scalar it
+        // gives no control over, so any output flag on one is an argument error Python
+        // owns. A load is the exception among those, its `--data-format` naming the shape
+        // of the file it reads rather than the shape of its output.
         if !self.verb.renders_rows()
             && (self.flag_field.is_some()
-                || self.output.is_some()
                 || self.header.is_some()
-                || (self.data_format.is_some() && self.verb != Verb::Load))
+                || (self.data_format.is_some() && self.verb != Verb::Load)
+                || (self.output.is_some() && !self.verb.renders_scalar()))
         {
             return None;
         }
@@ -1062,15 +1071,19 @@ mod tests {
         assert!(Invocation::lex(&raw(&["select", "id,content"]), &[]).is_none());
         assert!(Invocation::lex(&raw(&["select", "[\"id\"]"]), &[]).is_none());
 
-        // Neither `count` nor `any` has an output surface, so fields, an output file, a
-        // format, or a header choice on one delegates.
+        // A count and an existence check render one value, so they take a destination
+        // and nothing else. Fields, a format, or a header choice on one delegates.
         for verb in ["count", "any"] {
             assert_eq!(
                 lex(&[verb, "--field", "id", "--no-color"]).dump_format(),
                 None
             );
             assert_eq!(lex(&[verb, "id", "--no-color"]).dump_format(), None);
-            assert_eq!(lex(&[verb, "--output", "rows.json"]).dump_format(), None);
+            assert!(
+                lex(&[verb, "--output", "count.txt"])
+                    .dump_format()
+                    .is_some()
+            );
             assert_eq!(
                 lex(&[verb, "--data-format", "csv", "--no-color"]).dump_format(),
                 None
