@@ -41,6 +41,7 @@ class Server(Tasklet):
         "_cli_token",
         "_native_cli",
         "_native_web",
+        "_web_port",
     )
 
     def __init__(self, engine: Engine, project: LoadedProject, config: ServerConfig) -> None:
@@ -48,6 +49,7 @@ class Server(Tasklet):
         self._project: Final = project
         self._config: Final = config
         self._cli_port: int | None = None
+        self._web_port: int | None = None
         self._cli_token: str | None = None
         self._native_cli: Native | None = None
         self._native_web: Native | None = None
@@ -62,6 +64,14 @@ class Server(Tasklet):
 
     @property
     def port(self) -> int | None:
+        """The port the web server bound, falling back to the configured one.
+
+        A configured `0` asks the operating system for a free port, so the bound one is
+        the only answer that means anything to a caller.
+        """
+        if self._web_port is not None:
+            return self._web_port
+
         return self._config.port
 
     @property
@@ -119,6 +129,7 @@ class Server(Tasklet):
                 _favicon(self._engine, ".svg", console),
                 records,
             )
+            self._web_port = self._native_web.port
 
         # The info file records the port the control server actually bound.
         self._project.write_cli_server_info(

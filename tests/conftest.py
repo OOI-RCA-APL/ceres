@@ -1,6 +1,8 @@
+import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from functools import cache
+from pathlib import Path
 
 import pytest
 
@@ -166,6 +168,26 @@ def _unavailable(name: str) -> str | None:
             return str(error)
 
     return None
+
+
+@pytest.fixture(autouse=True)
+def working_directory() -> Iterator[None]:
+    """Put back what a command that resolves its config path moves.
+
+    Resolving one changes the working directory to the project's and then replaces
+    `os.chdir` with a no-op, which is what a CLI process wants and what a session running
+    on afterwards does not. Left alone, every later test and pytest's own reports land
+    wherever the last CLI test happened to be.
+    """
+    original = Path.cwd()
+    moved = os.chdir
+    try:
+        yield
+    finally:
+        from ceres.__internal__.cli import shared
+
+        shared.chdir(original)
+        os.chdir = moved
 
 
 # Use `uvloop` and eager tasks for all tests, if possible.

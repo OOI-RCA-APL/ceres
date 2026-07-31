@@ -1,4 +1,5 @@
 import asyncio
+import os
 import signal
 import sys
 from asyncio import CancelledError
@@ -407,6 +408,13 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
             return exception.status
         except KeyboardInterrupt, CancelledError:
             self.write("Interrupted. Exiting...")
+            return 0
+        except BrokenPipeError:
+            # A dump piped into something that stops reading, `head` being the usual one,
+            # ends where the reader stopped. Standard output is redirected first, because
+            # the interpreter flushes it again on the way out and would raise a second
+            # time against the same closed pipe.
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
             return 0
 
     @override

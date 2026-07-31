@@ -77,6 +77,11 @@ pub fn run(
         };
 
         if let Err(error) = sink.push(rendered) {
+            // A reader that closed the pipe is where the follow was asked to stop.
+            if sink.broke() {
+                return Ok(true);
+            }
+
             if !sink.wrote() {
                 return Ok(false);
             }
@@ -85,10 +90,13 @@ pub fn run(
         }
     }
 
+    let wrote = sink.wrote();
     match sink.finish() {
         Ok(Some(held)) => deliver(invocation, Rendered::Bytes(held)),
         Ok(None) => Ok(true),
-        Err(_) => Ok(false),
+        // A final write that failed having already put frames out cannot be handed back,
+        // so the command ends here rather than replaying in Python.
+        Err(_) => Ok(wrote),
     }
 }
 

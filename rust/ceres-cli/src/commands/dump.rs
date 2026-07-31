@@ -419,6 +419,8 @@ pub(crate) struct Sink<'a> {
     destination: Option<Box<dyn Write>>,
     /// Whether a header row still has to be written, which only the first chunk does.
     heading: bool,
+    /// Whether the reader went away, which ends the dump rather than failing it.
+    broke: bool,
 }
 
 impl<'a> Sink<'a> {
@@ -429,6 +431,7 @@ impl<'a> Sink<'a> {
             held: None,
             destination: None,
             heading: header,
+            broke: false,
         }
     }
 
@@ -448,6 +451,14 @@ impl<'a> Sink<'a> {
     /// Whether anything has reached the output, past which a failure cannot delegate.
     pub(crate) fn wrote(&self) -> bool {
         self.destination.is_some()
+    }
+
+    /// Whether writing failed because the reader closed the pipe.
+    ///
+    /// A dump piped into something that stops reading, `head` being the usual one, ends
+    /// where the reader stopped. That is the pipeline working, not the dump failing.
+    pub(crate) fn broke(&self) -> bool {
+        self.broke
     }
 
     /// Take one rendered chunk, writing the previous one out if there was one.
@@ -494,10 +505,18 @@ impl<'a> Sink<'a> {
             .destination
             .as_mut()
             .expect("the destination opened above");
-        destination.write_all(bytes)?;
         // A stream is read as it arrives, so each chunk leaves rather than waiting for
         // whatever the buffer would have collected behind it.
-        destination.flush()
+        let written = destination
+            .write_all(bytes)
+            .and_then(|()| destination.flush());
+        if let Err(error) = &written
+            && error.kind() == std::io::ErrorKind::BrokenPipe
+        {
+            self.broke = true;
+        }
+
+        written
     }
 }
 
@@ -509,7 +528,8 @@ pub(crate) fn written(error: std::io::Error) -> ceres_database::Error {
 /// Resolve a finished stream into what the caller should deliver.
 ///
 /// A stream that failed having written nothing is a refusal like any other and hands the
-/// whole command to Python. One that failed after writing cannot, so it reports.
+/// whole command to Python. One that failed after writing cannot, so it reports, unless
+/// what failed was the reader closing the pipe, which is where the dump was asked to end.
 pub(crate) fn finish(
     sink: Sink<'_>,
     outcome: std::result::Result<(), ceres_database::Error>,
@@ -520,8 +540,10 @@ pub(crate) fn finish(
             // way an unstreamed dump does, delegation included.
             Ok(Some(held)) => Ok(Rendered::Bytes(held)),
             Ok(None) => Ok(Rendered::Written),
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(Rendered::Written),
             Err(error) => Err(written(error)),
         },
+        Err(_) if sink.broke() => Ok(Rendered::Written),
         Err(error) if sink.wrote() => Ok(Rendered::Failed(error.to_string())),
         Err(error) => Err(error),
     }
