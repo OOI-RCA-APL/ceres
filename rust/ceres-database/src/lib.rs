@@ -8,6 +8,7 @@
 //! here has to select and order exactly like the Python side does for the same filter.
 
 mod assign;
+mod entities;
 mod filter;
 mod load;
 mod records;
@@ -16,6 +17,7 @@ mod store;
 mod turso;
 mod writer;
 
+pub use entities::EntityTable;
 pub use filter::{RecordFilter, Refusal, SqlDialect};
 pub use load::{Conflict, LoadFormat, build, read};
 pub use records::RecordTable;

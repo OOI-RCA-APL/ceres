@@ -1,12 +1,13 @@
 //! Connection pools and query execution.
 
-use ceres_entities::Records;
+use ceres_entities::{Entities, Records};
 use sea_query::{Alias, OnConflict, PostgresQueryBuilder, SelectStatement, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
 use sqlx::Row;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
+use crate::entities::{DecodeEntities, EntityTable};
 use crate::filter::{RecordFilter, SqlDialect};
 use crate::load::Conflict;
 use crate::records::{DecodeRecords, RecordTable};
@@ -369,6 +370,36 @@ impl RecordStore {
                     .rows_affected();
                 transaction.commit().await?;
                 Ok(Some(affected))
+            }
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
+    /// Fetch an entity listing, ordered by the entity's own default.
+    ///
+    /// Turso shares the SQLite dialect but not its driver, and the entity decoders are
+    /// written against the two `sqlx` row types, so it keeps the Python path.
+    pub async fn fetch_entities(
+        &self,
+        table: EntityTable,
+        limit: Option<u64>,
+        offset: Option<u64>,
+    ) -> Result<Entities, Error> {
+        if limit == Some(0) {
+            return Ok(table.empty());
+        }
+
+        let statement = table.listing(limit, offset);
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
+                DecodeEntities::decode(table, rows)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
+                DecodeEntities::decode(table, rows)
             }
             Backend::Turso(_) => Err(Error::Unsupported),
         }

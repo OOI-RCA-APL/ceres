@@ -33,7 +33,7 @@ use serde_norway::Value as Yaml;
 
 use ceres_entities::Address;
 
-use crate::records::{RecordTable, Schema};
+use crate::records::{Computed, RecordTable, Schema, Shape};
 use crate::selector::{AddressSelector, valid_address};
 use crate::store::Parameter;
 
@@ -84,6 +84,8 @@ enum KeyRole {
     Clock(ClockOp),
     /// One of the ordered bounds a level field brings.
     Bound(BoundOp),
+    /// A key matching a shape of a column rather than its value.
+    Computed(Computed),
     Order,
     Limit,
     Offset,
@@ -192,6 +194,8 @@ struct FilterNode {
     /// Level bounds as indexes into the level family's ordered values.
     min_level: Option<usize>,
     max_level: Option<usize>,
+    /// Computed predicates, each with whether the shape must hold or must not.
+    computed: Vec<(Computed, bool)>,
     /// Whether the node can match at all, an explicitly empty value list matching
     /// nothing the way the Python layer's empty `IN` does.
     impossible: bool,
@@ -218,35 +222,7 @@ impl RecordFilter {
     /// every native family, each field's operation filters, the window operators a
     /// timestamp brings, the ordered bounds a level brings, and the query keys.
     pub fn supported_keys(table: RecordTable) -> Vec<&'static str> {
-        let mut keys = Vec::new();
-        for field in table.schema().fields() {
-            for operation in field.operations {
-                keys.push(operation.key);
-            }
-
-            if !field.family.native() {
-                continue;
-            }
-
-            keys.push(field.key);
-            match field.family {
-                FieldFamily::Address => {
-                    keys.push("root");
-                }
-                FieldFamily::Timestamp => {
-                    keys.extend(["after", "before", "timespan", "max_age", "min_age"]);
-                    keys.extend(["after_hour", "before_hour", "after_minute", "before_minute"]);
-                    keys.extend(["subsample_every", "subsample", "subsample_select"]);
-                }
-                FieldFamily::Level => {
-                    keys.extend(bound_keys(field));
-                }
-                _ => {}
-            }
-        }
-
-        keys.extend(["order", "limit", "offset", "or", "and"]);
-        keys
+        schema_keys(table.schema())
     }
 
     /// The filter keys the compiler knowingly delegates for a table.
@@ -723,7 +699,13 @@ impl Parsed {
     fn apply(&mut self, table: Schema, key: &str, value: &WireValue) -> Result<(), Refusal> {
         match resolve(table, key)? {
             KeyRole::Equality(field) => {
+                // A boolean field takes one value rather than a set, so a list of them
+                // is a validation error the Python model owns.
                 let scalars = value.scalars(key)?;
+                if field.family.scalar() && scalars.len() != 1 {
+                    return Err(Refusal::invalid(format!("{key} takes one value")));
+                }
+
                 if scalars.is_empty() {
                     self.node.impossible = true;
                 }
@@ -731,6 +713,18 @@ impl Parsed {
                 for scalar in scalars {
                     self.node.push_equality(field, &scalar)?;
                 }
+            }
+            // A computed key takes one boolean, holding the shape or its opposite.
+            KeyRole::Computed(predicate) => {
+                let scalar = value.scalar(key)?;
+                let sense = match scalar.as_str() {
+                    "true" | "True" => true,
+                    "false" | "False" => false,
+                    other => {
+                        return Err(Refusal::invalid(format!("invalid boolean {other:?}")));
+                    }
+                };
+                self.node.computed.push((predicate, sense));
             }
             KeyRole::Operation(field, kind) => {
                 let scalars = value.scalars(key)?;
@@ -1124,6 +1118,16 @@ impl FilterNode {
             return false;
         }
 
+        for (predicate, sense) in &self.computed {
+            let held = fields
+                .get(predicate.column)
+                .copied()
+                .is_some_and(|raw| holds(predicate.shape, raw));
+            if held != *sense {
+                return false;
+            }
+        }
+
         for field in table.fields() {
             let raw = fields.get(field.key).copied();
             let text = raw.and_then(|raw| serde_json::from_str::<String>(raw.get()).ok());
@@ -1371,6 +1375,11 @@ impl FilterNode {
         let mut conditions = Vec::new();
         if self.impossible {
             conditions.push(Expr::value(false));
+        }
+
+        for (predicate, sense) in &self.computed {
+            let condition = shape_condition(*predicate, dialect);
+            conditions.push(if *sense { condition } else { condition.not() });
         }
 
         for field in table.fields() {
@@ -1644,6 +1653,45 @@ impl FilterNode {
     }
 }
 
+/// The field and query filter keys the native compiler serves for a table.
+///
+/// Generated from the entity's field families, never written out. Equality for every
+/// native family, each field's operation filters, the window operators a timestamp
+/// brings, the ordered bounds a level brings, the table's computed predicates, and the
+/// query keys every table shares.
+pub(crate) fn schema_keys(table: Schema) -> Vec<&'static str> {
+    let mut keys = Vec::new();
+    for field in table.fields() {
+        for operation in field.operations {
+            keys.push(operation.key);
+        }
+
+        if !field.family.native() {
+            continue;
+        }
+
+        keys.push(field.key);
+        match field.family {
+            FieldFamily::Address => {
+                keys.push("root");
+            }
+            FieldFamily::Timestamp => {
+                keys.extend(["after", "before", "timespan", "max_age", "min_age"]);
+                keys.extend(["after_hour", "before_hour", "after_minute", "before_minute"]);
+                keys.extend(["subsample_every", "subsample", "subsample_select"]);
+            }
+            FieldFamily::Level => {
+                keys.extend(bound_keys(field));
+            }
+            _ => {}
+        }
+    }
+
+    keys.extend(table.computed.iter().map(|predicate| predicate.key));
+    keys.extend(["order", "limit", "offset", "or", "and"]);
+    keys
+}
+
 /// Resolve what one wire key means for a table, from the entity's field families.
 fn resolve(table: Schema, key: &str) -> Result<KeyRole, Refusal> {
     match key {
@@ -1653,6 +1701,12 @@ fn resolve(table: Schema, key: &str) -> Result<KeyRole, Refusal> {
         "or" => return Ok(KeyRole::Group(GroupOp::Or)),
         "and" => return Ok(KeyRole::Group(GroupOp::And)),
         _ => {}
+    }
+
+    for predicate in table.computed {
+        if predicate.key == key {
+            return Ok(KeyRole::Computed(*predicate));
+        }
     }
 
     for field in table.fields() {
@@ -2055,6 +2109,35 @@ fn tokenize_bytes(value: &[u8]) -> String {
 /// When every pattern is empty the whole match is true, even for a null subject,
 /// which is the one place the Python layer answers with a bare `true` rather than a
 /// comparison.
+/// Whether one record's wire value holds a computed predicate's shape.
+fn holds(shape: Shape, raw: &serde_json::value::RawValue) -> bool {
+    match shape {
+        Shape::Internal => serde_json::from_str::<String>(raw.get())
+            .is_ok_and(|name| name.starts_with("__") && name.ends_with("__")),
+        Shape::Literal(wanted) => {
+            serde_json::from_str::<String>(raw.get()).is_ok_and(|held| held == wanted)
+        }
+        Shape::Present => raw.get() != "null",
+    }
+}
+
+/// Compile a computed predicate's shape into the condition that holds it.
+fn shape_condition(predicate: Computed, dialect: SqlDialect) -> SimpleExpr {
+    let column = || SimpleExpr::from(Expr::col(Alias::new(predicate.column)));
+    match predicate.shape {
+        // An internal name both opens and closes with a double underscore, which is two
+        // pattern matches rather than one, each escaped by its backend's own rules.
+        Shape::Internal => {
+            let marker = ["__".to_string()];
+            match_text_patterns(column(), OperationKind::Prefix, &marker, dialect).and(
+                match_text_patterns(column(), OperationKind::Suffix, &marker, dialect),
+            )
+        }
+        Shape::Literal(wanted) => Expr::col(Alias::new(predicate.column)).eq(wanted),
+        Shape::Present => Expr::col(Alias::new(predicate.column)).is_not_null(),
+    }
+}
+
 fn match_text_patterns(
     subject: SimpleExpr,
     kind: OperationKind,

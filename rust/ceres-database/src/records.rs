@@ -78,6 +78,7 @@ impl RecordTable {
             },
             key: &["id"],
             order: &["timestamp"],
+            computed: &[],
         }
     }
 
@@ -127,6 +128,35 @@ pub struct Schema {
     pub key: &'static [&'static str],
     /// The columns a filter naming no order sorts by, ascending.
     pub order: &'static [&'static str],
+    /// Filter keys that match a shape of a column rather than its value.
+    pub computed: &'static [Computed],
+}
+
+/// One filter key with no column of its own, matching a shape of one instead.
+///
+/// The Python filters spell these out per entity, and each takes a boolean that reads
+/// as "hold this shape" when true and "hold its opposite" when false.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Computed {
+    /// The wire key.
+    pub key: &'static str,
+    /// The column the shape is read from.
+    pub column: &'static str,
+    pub shape: Shape,
+}
+
+/// The shape a computed predicate matches.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Shape {
+    /// A name both opening and closing with a double underscore, which is how an
+    /// internal variable is named.
+    Internal,
+    /// A column holding one literal value, a workspace's scope being the engine's own
+    /// address when it is placed on the engine.
+    Literal(&'static str),
+    /// A column holding anything at all, a workspace being owned when it names an
+    /// owner.
+    Present,
 }
 
 impl Schema {
