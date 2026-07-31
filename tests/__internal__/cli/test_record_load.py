@@ -19,6 +19,7 @@ from ceres.config import Config
 from ceres.data import to_json, validate
 from ceres.entity import EntityType
 from ceres.logs import LogEntry
+from ceres.particle import Particle
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -124,6 +125,28 @@ async def test_a_conflict_rolls_the_whole_load_back(tmp_path: Path) -> None:
             await _load(tmp_path, f"{fresh}\n{SECOND}\n", CLIDataConflict.ERROR)
 
         assert [entry["content"] for entry in await _contents(engine)] == ["before"]
+    finally:
+        await engine.database.dispose()
+
+
+async def test_fields_outside_the_row_do_not_reach_the_insert(tmp_path: Path) -> None:
+    """A particle's span is a field but not a column, so it never reaches the statement."""
+    engine = await _build_project(tmp_path)
+    path = tmp_path / "particles.jsonl"
+    path.write_text(
+        '{"address": "@a", "type": "sample", "data": {"k": 1}, "span": [0, 3]}\n'
+        '{"address": "@a", "type": "sample", "data": {"k": 2}}\n'
+    )
+    Command = create_entity_load_command(Particle)
+    command = Command(path=path, config=tmp_path / "ceres.yaml")
+
+    try:
+        loaded = await command._load(path, EntityType.from_class(Particle), None)
+        assert loaded == 2
+        assert [particle.data for particle in await engine.particles.where()] == [
+            {"k": 1},
+            {"k": 2},
+        ]
     finally:
         await engine.database.dispose()
 

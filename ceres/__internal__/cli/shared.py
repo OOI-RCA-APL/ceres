@@ -1373,7 +1373,12 @@ def create_entity_load_command(Entity: type[Entity]):
                     case DatabaseType.SQLITE | DatabaseType.TURSO:
                         from sqlalchemy.dialects.sqlite import insert
 
-                statement = insert(cls.Row).values([dict(entity) for entity in batch])
+                # An entity carries fields that are not columns, a particle's span among
+                # them, so the insert takes the column values rather than the whole
+                # entity.
+                statement = insert(cls.Row).values(
+                    [entity.__entity_to_column_values__() for entity in batch]
+                )
                 match on_conflict:
                     case CLIDataConflict.ERROR:
                         pass
