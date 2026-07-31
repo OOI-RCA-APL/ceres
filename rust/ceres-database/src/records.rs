@@ -92,6 +92,16 @@ impl RecordTable {
     }
 }
 
+/// The table a batch of records belongs to.
+pub(crate) fn table_of(records: &Records) -> RecordTable {
+    match records {
+        Records::Messages(_) => RecordTable::Messages,
+        Records::Particles(_) => RecordTable::Particles,
+        Records::Alerts(_) => RecordTable::Alerts,
+        Records::LogEntries(_) => RecordTable::Logs,
+    }
+}
+
 /// Decode rows for a record table into natively-held records.
 pub(crate) trait DecodeRecords: Row + Sized {
     fn decode(table: RecordTable, rows: Vec<Self>) -> Result<Records, Error>;

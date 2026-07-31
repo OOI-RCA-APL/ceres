@@ -1,0 +1,437 @@
+//! Native bulk record loads.
+//!
+//! A load reads a whole file of records, validates every row, and writes them in one
+//! transaction. Both input shapes reduce to the same intermediate, a wire object per
+//! row, which then deserializes into the record struct. That keeps the two readers to
+//! the shape of their format and leaves one place deciding what a row means.
+//!
+//! Rows the native types cannot represent return `None`, which rolls the load back
+//! before it starts and delegates, so Pydantic renders the validation error the way the
+//! filter port established.
+
+use ceres_entities::{Alert, LogEntry, Message, Particle, Records, Timestamp};
+use serde_json::{Map, Value};
+
+use crate::records::RecordTable;
+
+/// How a load resolves a primary key collision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Conflict {
+    /// Let the collision abort the transaction.
+    Error,
+    /// Leave the stored row alone.
+    Ignore,
+    /// Take every non-key column from the incoming row.
+    Update,
+}
+
+impl Conflict {
+    /// Select a conflict mode by its wire name.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "error" => Some(Self::Error),
+            "ignore" => Some(Self::Ignore),
+            "update" => Some(Self::Update),
+            _ => None,
+        }
+    }
+}
+
+/// The input shapes a load reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoadFormat {
+    /// One JSON object per line.
+    Json,
+    /// A header row naming the fields, then one row per record.
+    Csv,
+}
+
+impl LoadFormat {
+    /// Select a format by its wire name.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "json" => Some(Self::Json),
+            "csv" => Some(Self::Csv),
+            _ => None,
+        }
+    }
+
+    /// Infer a format from a file extension, the way the Python command does, `None`
+    /// for an extension it names no format for.
+    pub fn infer(extension: &str) -> Option<Self> {
+        match extension {
+            "json" | "jsonl" | "ndjson" | "txt" => Some(Self::Json),
+            "csv" => Some(Self::Csv),
+            _ => None,
+        }
+    }
+}
+
+/// How many rows one insert carries, matching the Python command's batch.
+pub(crate) const BATCH: usize = 1000;
+
+/// Read a whole input into batches of records, `None` when any row falls outside what
+/// the native types represent faithfully.
+///
+/// The batches are the statements the load will issue, so an empty input reads as no
+/// batches and writes nothing.
+pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Records>> {
+    let objects = match format {
+        LoadFormat::Json => read_json(text)?,
+        LoadFormat::Csv => read_csv(text)?,
+    };
+
+    let mut batches = Vec::new();
+    for chunk in objects.chunks(BATCH) {
+        batches.push(records(table, chunk)?);
+    }
+
+    Some(batches)
+}
+
+/// Build the one record a create names from its field values, `None` when a field or a
+/// value falls outside what the native types represent faithfully.
+///
+/// Values arrive as the raw argument text. A payload field reads as YAML, the form the
+/// create model takes it in, and every other field is the text itself. A field named
+/// twice keeps its last value, the way a repeated flag does.
+pub fn build(table: RecordTable, values: &[(String, String)]) -> Option<Records> {
+    let mut object = Map::new();
+    for (key, text) in values {
+        let field = table.fields().iter().find(|field| field.key == key)?;
+        let value = match field.family {
+            ceres_entities::FieldFamily::Json => serde_norway::from_str(text).ok()?,
+            _ => text.clone().into(),
+        };
+        object.insert(key.clone(), value);
+    }
+
+    records(table, &[object])
+}
+
+/// Read one JSON object per line.
+///
+/// Every line has to carry an object, a blank one included, which is what the Python
+/// command's line-by-line validation does.
+fn read_json(text: &str) -> Option<Vec<Map<String, Value>>> {
+    text.lines()
+        .map(|line| match serde_json::from_str(line) {
+            Ok(Value::Object(object)) => Some(object),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Read a header row and one row of cells per record.
+///
+/// Cells arrive as text, exactly as Python's `DictReader` hands them to validation, so a
+/// column holding anything but text refuses here the same way it fails there. A row
+/// shorter than the header leaves its trailing fields null rather than absent, matching
+/// the reader's own fill value, and a longer one refuses.
+fn read_csv(text: &str) -> Option<Vec<Map<String, Value>>> {
+    let mut reader = csv::ReaderBuilder::new()
+        .flexible(true)
+        .from_reader(text.as_bytes());
+    let headers = reader.headers().ok()?.clone();
+
+    let mut objects = Vec::new();
+    for row in reader.records() {
+        let row = row.ok()?;
+        if row.len() > headers.len() {
+            return None;
+        }
+
+        let mut object = Map::new();
+        for (index, name) in headers.iter().enumerate() {
+            let cell = row.get(index).map_or(Value::Null, |cell| cell.into());
+            // A header naming one field twice would silently drop a column, which the
+            // dict reader also does, so the last cell wins here as it does there.
+            object.insert(name.to_string(), cell);
+        }
+
+        objects.push(object);
+    }
+
+    Some(objects)
+}
+
+/// Deserialize one batch of wire objects into records.
+fn records(table: RecordTable, objects: &[Map<String, Value>]) -> Option<Records> {
+    let rows = objects
+        .iter()
+        .map(|object| complete(table, object))
+        .collect::<Option<Vec<_>>>()?;
+
+    fn convert<T: serde::de::DeserializeOwned>(rows: Vec<Map<String, Value>>) -> Option<Vec<T>> {
+        rows.into_iter()
+            .map(|row| serde_json::from_value(Value::Object(row)).ok())
+            .collect()
+    }
+
+    Some(match table {
+        RecordTable::Messages => Records::Messages(convert::<Message>(rows)?),
+        RecordTable::Particles => Records::Particles(convert::<Particle>(rows)?),
+        RecordTable::Alerts => Records::Alerts(convert::<Alert>(rows)?),
+        RecordTable::Logs => Records::LogEntries(convert::<LogEntry>(rows)?),
+    })
+}
+
+/// Fill in a row's absent fields and refuse one carrying a field the entity has no place
+/// for, which the Python models reject rather than ignore.
+fn complete(table: RecordTable, object: &Map<String, Value>) -> Option<Map<String, Value>> {
+    let mut remaining = object.len();
+    let mut completed = Map::new();
+    for &key in accepted(table) {
+        let value = match object.get(key) {
+            Some(value) => {
+                remaining -= 1;
+                value.clone()
+            }
+            None => default(key),
+        };
+        completed.insert(key.to_string(), value);
+    }
+
+    (remaining == 0).then_some(completed)
+}
+
+/// The wire keys a record accepts, its stored columns plus the fields it carries without
+/// storing.
+pub(crate) fn accepted(table: RecordTable) -> &'static [&'static str] {
+    match table {
+        // A particle's span locates it within the message bytes it was parsed from. It
+        // travels with the entity but has no column, so a row may carry it and the
+        // insert never binds it.
+        RecordTable::Particles => &["id", "address", "timestamp", "type", "data", "span"],
+        other => crate::writer::columns(other),
+    }
+}
+
+/// The value an absent field takes, matching the entity models' own defaults.
+fn default(key: &str) -> Value {
+    match key {
+        "id" => uuid::Uuid::now_v7().to_string().into(),
+        "timestamp" => Timestamp(chrono::Utc::now()).to_wire().into(),
+        // Everything else is either optional, which reads a null as absent, or required,
+        // which refuses one.
+        _ => Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rows(records: &Records) -> usize {
+        match records {
+            Records::Messages(rows) => rows.len(),
+            Records::Particles(rows) => rows.len(),
+            Records::Alerts(rows) => rows.len(),
+            Records::LogEntries(rows) => rows.len(),
+        }
+    }
+
+    #[test]
+    fn absent_keys_take_the_model_defaults() {
+        let batches = read(
+            RecordTable::Logs,
+            "{\"address\": \"@a\", \"level\": \"info\", \"content\": \"x\"}\n",
+            LoadFormat::Json,
+        )
+        .unwrap();
+        let Records::LogEntries(entries) = &batches[0] else {
+            panic!("expected log entries");
+        };
+
+        assert_eq!(entries.len(), 1);
+        // A generated ID is a version 7 UUID, the same form the entity model generates.
+        assert_eq!(entries[0].id.get_version_num(), 7);
+        assert!(entries[0].timestamp.0 > chrono::DateTime::UNIX_EPOCH);
+    }
+
+    #[test]
+    fn a_field_the_entity_has_no_place_for_refuses() {
+        assert!(
+            read(
+                RecordTable::Logs,
+                "{\"address\": \"@a\", \"level\": \"info\", \"content\": \"x\", \"nope\": 1}\n",
+                LoadFormat::Json,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_particle_span_reads_without_a_column_to_store_it() {
+        let batches = read(
+            RecordTable::Particles,
+            "{\"address\": \"@a\", \"type\": \"s\", \"data\": {\"k\": 1}, \"span\": [0, 3]}\n",
+            LoadFormat::Json,
+        )
+        .unwrap();
+        let Records::Particles(particles) = &batches[0] else {
+            panic!("expected particles");
+        };
+
+        assert_eq!(particles[0].span, Some((0, 3)));
+    }
+
+    #[test]
+    fn a_blank_or_malformed_line_refuses() {
+        let line = "{\"address\": \"@a\", \"level\": \"info\", \"content\": \"x\"}";
+        assert!(
+            read(
+                RecordTable::Logs,
+                &format!("{line}\n\n{line}\n"),
+                LoadFormat::Json
+            )
+            .is_none()
+        );
+        assert!(read(RecordTable::Logs, "[1]\n", LoadFormat::Json).is_none());
+        // An empty input is a load of nothing, not a refusal.
+        assert_eq!(
+            read(RecordTable::Logs, "", LoadFormat::Json).unwrap().len(),
+            0
+        );
+    }
+
+    #[test]
+    fn rows_batch_at_the_python_batch_size() {
+        let line = "{\"address\": \"@a\", \"level\": \"info\", \"content\": \"x\"}\n";
+        let batches = read(RecordTable::Logs, &line.repeat(BATCH + 1), LoadFormat::Json).unwrap();
+
+        assert_eq!(batches.len(), 2);
+        assert_eq!(rows(&batches[0]), BATCH);
+        assert_eq!(rows(&batches[1]), 1);
+    }
+
+    #[test]
+    fn csv_cells_read_as_the_text_they_are() {
+        let batches = read(
+            RecordTable::Messages,
+            "id,address,timestamp,connection,direction,data\n\
+             0198c0de-0000-7000-8000-000000000001,@a,2026-07-29T00:00:00Z,,receive,\"a,b\"\n",
+            LoadFormat::Csv,
+        )
+        .unwrap();
+        let Records::Messages(messages) = &batches[0] else {
+            panic!("expected messages");
+        };
+
+        // An empty cell is the empty string, which is what the dict reader yields and
+        // what the Python model then stores.
+        assert_eq!(messages[0].connection.as_deref(), Some(""));
+        assert_eq!(messages[0].data, b"a,b");
+    }
+
+    #[test]
+    fn a_csv_column_holding_anything_but_text_refuses() {
+        // A particle's payload crosses a CSV cell as JSON text, which the entity model
+        // will not read back, so the load delegates rather than reading it differently.
+        assert!(
+            read(
+                RecordTable::Particles,
+                "id,address,timestamp,type,data\n\
+                 0198c0de-0000-7000-8000-000000000001,@a,2026-07-29T00:00:00Z,s,\"{\"\"k\"\": 1}\"\n",
+                LoadFormat::Csv,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_short_csv_row_leaves_its_trailing_fields_null() {
+        // A missing optional column reads as null, which is the reader's fill value.
+        let batches = read(
+            RecordTable::Messages,
+            "id,address,timestamp,direction,data,connection\n\
+             0198c0de-0000-7000-8000-000000000001,@a,2026-07-29T00:00:00Z,receive,hi\n",
+            LoadFormat::Csv,
+        )
+        .unwrap();
+        let Records::Messages(messages) = &batches[0] else {
+            panic!("expected messages");
+        };
+
+        assert_eq!(messages[0].connection, None);
+
+        // A row longer than the header has cells with no field to land in.
+        assert!(
+            read(
+                RecordTable::Logs,
+                "address,level,content\n@a,info,x,extra\n",
+                LoadFormat::Csv,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_created_record_fills_in_the_fields_it_was_not_given() {
+        let pairs = |values: &[(&str, &str)]| {
+            values
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect::<Vec<_>>()
+        };
+
+        let Some(Records::Messages(messages)) = build(
+            RecordTable::Messages,
+            &pairs(&[("address", "@a"), ("direction", "receive"), ("data", "hi")]),
+        ) else {
+            panic!("expected one message");
+        };
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id.get_version_num(), 7);
+        assert_eq!(messages[0].connection, None);
+        assert_eq!(messages[0].data, b"hi");
+
+        // A payload reads as YAML, which is the grammar the create model takes.
+        let Some(Records::Alerts(alerts)) = build(
+            RecordTable::Alerts,
+            &pairs(&[
+                ("address", "@a"),
+                ("level", "warning"),
+                ("type", "t"),
+                ("data", "{k: 1}"),
+            ]),
+        ) else {
+            panic!("expected one alert");
+        };
+
+        assert_eq!(alerts[0].data["k"], 1);
+
+        // A field the entity does not carry, a value outside a closed set, and a payload
+        // that is not an object all refuse.
+        assert!(build(RecordTable::Logs, &pairs(&[("nope", "1")])).is_none());
+        assert!(
+            build(
+                RecordTable::Messages,
+                &pairs(&[("address", "@a"), ("direction", "sideways"), ("data", "")]),
+            )
+            .is_none()
+        );
+        assert!(
+            build(
+                RecordTable::Alerts,
+                &pairs(&[
+                    ("address", "@a"),
+                    ("level", "warning"),
+                    ("type", "t"),
+                    ("data", "3"),
+                ]),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn formats_resolve_by_name_and_by_extension() {
+        assert_eq!(LoadFormat::parse("csv"), Some(LoadFormat::Csv));
+        assert_eq!(LoadFormat::parse("CSV"), None);
+        assert_eq!(LoadFormat::infer("ndjson"), Some(LoadFormat::Json));
+        assert_eq!(LoadFormat::infer("txt"), Some(LoadFormat::Json));
+        assert_eq!(LoadFormat::infer("yaml"), None);
+    }
+}

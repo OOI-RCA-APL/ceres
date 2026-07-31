@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use ceres_entities::Records;
+use ceres_entities::{Alert, LogEntry, Message, MessageDirection, Particle, Records};
 use sea_query::{
     Alias, InsertStatement, OnConflict, PostgresQueryBuilder, Query, SimpleExpr, SqliteQueryBuilder,
 };
@@ -14,6 +14,7 @@ use sea_query_binder::SqlxBinder;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
+use crate::records::RecordTable;
 use crate::store::{Error, Parameter};
 use crate::turso::{TursoBackend, sea_value};
 
@@ -163,98 +164,29 @@ impl RecordWriter {
 
 /// Build the multi-row upsert for one batch, or `None` when the batch is empty.
 fn upsert_statement(records: &Records, dialect: Dialect) -> Option<InsertStatement> {
-    let (table, columns, rows) = match records {
-        Records::Messages(messages) => (
-            "messages",
-            vec![
-                "id",
-                "address",
-                "timestamp",
-                "connection",
-                "direction",
-                "data",
-            ],
-            dedupe_last(messages, |message| message.id)
-                .map(|message| {
-                    vec![
-                        id_value(message.id, dialect),
-                        message.address.as_str().into(),
-                        timestamp_value(&message.timestamp, dialect),
-                        message.connection.clone().into(),
-                        match message.direction {
-                            ceres_entities::MessageDirection::Send => "send".into(),
-                            ceres_entities::MessageDirection::Receive => "receive".into(),
-                        },
-                        message.data.clone().into(),
-                    ]
-                })
-                .collect::<Vec<_>>(),
-        ),
-        Records::Particles(particles) => (
-            "particles",
-            vec!["id", "address", "timestamp", "type", "data"],
-            dedupe_last(particles, |particle| particle.id)
-                .map(|particle| {
-                    vec![
-                        id_value(particle.id, dialect),
-                        particle.address.as_str().into(),
-                        timestamp_value(&particle.timestamp, dialect),
-                        particle.kind.clone().into(),
-                        json_value(&particle.data, dialect),
-                    ]
-                })
-                .collect(),
-        ),
-        Records::Alerts(alerts) => (
-            "alerts",
-            vec!["id", "address", "timestamp", "level", "type", "data"],
-            dedupe_last(alerts, |alert| alert.id)
-                .map(|alert| {
-                    vec![
-                        id_value(alert.id, dialect),
-                        alert.address.as_str().into(),
-                        timestamp_value(&alert.timestamp, dialect),
-                        alert.level.as_str().into(),
-                        alert.kind.clone().into(),
-                        json_value(&alert.data, dialect),
-                    ]
-                })
-                .collect(),
-        ),
-        Records::LogEntries(entries) => (
-            "logs",
-            vec!["id", "address", "timestamp", "level", "content"],
-            dedupe_last(entries, |entry| entry.id)
-                .map(|entry| {
-                    vec![
-                        id_value(entry.id, dialect),
-                        entry.address.as_str().into(),
-                        timestamp_value(&entry.timestamp, dialect),
-                        entry.level.as_str().into(),
-                        entry.content.clone().into(),
-                    ]
-                })
-                .collect(),
-        ),
+    let rows = match records {
+        Records::Messages(messages) => dedupe_last(messages, |message| message.id)
+            .map(|message| message_values(message, dialect))
+            .collect::<Vec<_>>(),
+        Records::Particles(particles) => dedupe_last(particles, |particle| particle.id)
+            .map(|particle| particle_values(particle, dialect))
+            .collect(),
+        Records::Alerts(alerts) => dedupe_last(alerts, |alert| alert.id)
+            .map(|alert| alert_values(alert, dialect))
+            .collect(),
+        Records::LogEntries(entries) => dedupe_last(entries, |entry| entry.id)
+            .map(|entry| entry_values(entry, dialect))
+            .collect(),
     };
 
-    if rows.is_empty() {
-        return None;
-    }
-
-    let mut statement = Query::insert();
-    statement
-        .into_table(Alias::new(table))
-        .columns(columns.iter().map(|&column| Alias::new(column)));
-    for row in rows {
-        statement.values_panic(row);
-    }
+    let table = crate::records::table_of(records);
+    let mut statement = insert_into(table, rows)?;
 
     // Every non-key column updates from the excluded row, mirroring the query layer's
     // upsert so a rewritten record replaces its earlier form.
     let mut conflict = OnConflict::column(Alias::new("id"));
     conflict.update_columns(
-        columns
+        columns(table)
             .iter()
             .filter(|&&column| column != "id")
             .map(|&column| Alias::new(column)),
@@ -262,6 +194,113 @@ fn upsert_statement(records: &Records, dialect: Dialect) -> Option<InsertStateme
     statement.on_conflict(conflict);
 
     Some(statement)
+}
+
+/// Bind every record in a batch, in file order, for a bulk load.
+///
+/// Unlike a flush, a load never collapses duplicate keys. The Python command binds each
+/// row it read, so a file naming one key twice reaches the database twice and the
+/// conflict mode decides what happens.
+pub(crate) fn load_statement(records: &Records, dialect: Dialect) -> Option<InsertStatement> {
+    let rows = match records {
+        Records::Messages(messages) => messages
+            .iter()
+            .map(|message| message_values(message, dialect))
+            .collect::<Vec<_>>(),
+        Records::Particles(particles) => particles
+            .iter()
+            .map(|particle| particle_values(particle, dialect))
+            .collect(),
+        Records::Alerts(alerts) => alerts
+            .iter()
+            .map(|alert| alert_values(alert, dialect))
+            .collect(),
+        Records::LogEntries(entries) => entries
+            .iter()
+            .map(|entry| entry_values(entry, dialect))
+            .collect(),
+    };
+
+    insert_into(crate::records::table_of(records), rows)
+}
+
+/// Open an insert over a table's columns, `None` when there is nothing to bind.
+fn insert_into(table: RecordTable, rows: Vec<Vec<SimpleExpr>>) -> Option<InsertStatement> {
+    if rows.is_empty() {
+        return None;
+    }
+
+    let mut statement = Query::insert();
+    statement
+        .into_table(Alias::new(table.name()))
+        .columns(columns(table).iter().map(|&column| Alias::new(column)));
+    for row in rows {
+        statement.values_panic(row);
+    }
+
+    Some(statement)
+}
+
+/// A table's stored columns, in the order rows bind them.
+pub(crate) fn columns(table: RecordTable) -> &'static [&'static str] {
+    match table {
+        RecordTable::Messages => &[
+            "id",
+            "address",
+            "timestamp",
+            "connection",
+            "direction",
+            "data",
+        ],
+        RecordTable::Particles => &["id", "address", "timestamp", "type", "data"],
+        RecordTable::Alerts => &["id", "address", "timestamp", "level", "type", "data"],
+        RecordTable::Logs => &["id", "address", "timestamp", "level", "content"],
+    }
+}
+
+fn message_values(message: &Message, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(message.id, dialect),
+        message.address.as_str().into(),
+        timestamp_value(&message.timestamp, dialect),
+        message.connection.clone().into(),
+        match message.direction {
+            MessageDirection::Send => "send".into(),
+            MessageDirection::Receive => "receive".into(),
+        },
+        message.data.clone().into(),
+    ]
+}
+
+fn particle_values(particle: &Particle, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(particle.id, dialect),
+        particle.address.as_str().into(),
+        timestamp_value(&particle.timestamp, dialect),
+        particle.kind.clone().into(),
+        json_value(&particle.data, dialect),
+    ]
+}
+
+fn alert_values(alert: &Alert, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(alert.id, dialect),
+        alert.address.as_str().into(),
+        timestamp_value(&alert.timestamp, dialect),
+        alert.level.as_str().into(),
+        alert.kind.clone().into(),
+        json_value(&alert.data, dialect),
+    ]
+}
+
+fn entry_values(entry: &LogEntry, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(entry.id, dialect),
+        entry.address.as_str().into(),
+        timestamp_value(&entry.timestamp, dialect),
+        entry.level.as_str().into(),
+        entry.content.clone().into(),
+    ]
 }
 
 /// Iterate a batch keeping only the last record per key.

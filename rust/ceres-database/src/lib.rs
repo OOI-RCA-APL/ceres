@@ -9,6 +9,7 @@
 
 mod assign;
 mod filter;
+mod load;
 mod records;
 mod selector;
 mod store;
@@ -16,6 +17,7 @@ mod turso;
 mod writer;
 
 pub use filter::{RecordFilter, Refusal, SqlDialect};
+pub use load::{Conflict, LoadFormat, build, read};
 pub use records::RecordTable;
 pub use sea_query::Value as BindValue;
 pub use store::{Error, GateUser, Parameter, RecordStore};

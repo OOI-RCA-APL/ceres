@@ -1,13 +1,14 @@
 //! Connection pools and query execution.
 
 use ceres_entities::Records;
-use sea_query::{PostgresQueryBuilder, SelectStatement, SqliteQueryBuilder};
+use sea_query::{Alias, OnConflict, PostgresQueryBuilder, SelectStatement, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
 use sqlx::Row;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use crate::filter::{RecordFilter, SqlDialect};
+use crate::load::Conflict;
 use crate::records::{DecodeRecords, RecordTable};
 use crate::turso::{TursoBackend, parameter_value, sea_value};
 
@@ -373,6 +374,74 @@ impl RecordStore {
         }
     }
 
+    /// Write every batch of a bulk load in one transaction.
+    ///
+    /// Nothing lands unless the whole load succeeds, so a collision under `Conflict::Error`
+    /// leaves the table exactly as it was and the command is free to delegate.
+    pub async fn load_records(&self, batches: &[Records], conflict: Conflict) -> Result<(), Error> {
+        let dialect = match self.dialect() {
+            SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
+            SqlDialect::Postgres => crate::writer::Dialect::Postgres,
+        };
+        let statements = batches
+            .iter()
+            .filter_map(|batch| {
+                crate::writer::load_statement(batch, dialect).map(|mut statement| {
+                    match conflict {
+                        // Without a conflict clause a collision aborts the transaction,
+                        // which is exactly what this mode promises.
+                        Conflict::Error => {}
+                        Conflict::Ignore => {
+                            statement.on_conflict(
+                                OnConflict::column(Alias::new("id")).do_nothing().to_owned(),
+                            );
+                        }
+                        Conflict::Update => {
+                            let mut on_conflict = OnConflict::column(Alias::new("id"));
+                            on_conflict.update_columns(
+                                crate::writer::columns(crate::records::table_of(batch))
+                                    .iter()
+                                    .filter(|&&column| column != "id")
+                                    .map(|&column| Alias::new(column)),
+                            );
+                            statement.on_conflict(on_conflict);
+                        }
+                    }
+
+                    statement
+                })
+            })
+            .collect::<Vec<_>>();
+
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let mut transaction = pool.begin().await?;
+                for statement in statements {
+                    let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                    sqlx::query_with(&sql, values)
+                        .execute(&mut *transaction)
+                        .await?;
+                }
+
+                transaction.commit().await?;
+                Ok(())
+            }
+            Backend::Postgres(pool) => {
+                let mut transaction = pool.begin().await?;
+                for statement in statements {
+                    let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                    sqlx::query_with(&sql, values)
+                        .execute(&mut *transaction)
+                        .await?;
+                }
+
+                transaction.commit().await?;
+                Ok(())
+            }
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
     /// Read the columns an authentication gate needs for one user, `None` when no user
     /// carries the ID.
     ///
@@ -494,6 +563,88 @@ mod tests {
     use sea_query::SqliteQueryBuilder;
 
     use super::*;
+    use crate::load::LoadFormat;
+
+    /// Open a store over a fresh database holding the log table.
+    async fn logs_store(directory: &std::path::Path) -> RecordStore {
+        let path = directory.join("records.sqlite");
+        let path = path.to_str().unwrap();
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE logs (id TEXT PRIMARY KEY, address TEXT, timestamp TEXT, \
+             level TEXT, content TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        RecordStore::sqlite_writable(path).unwrap()
+    }
+
+    /// The stored entries, ordered by content so a comparison is stable.
+    async fn contents(store: &RecordStore) -> Vec<String> {
+        let Records::LogEntries(entries) = store
+            .fetch(RecordTable::Logs, None, None)
+            .await
+            .expect("the listing reads")
+        else {
+            panic!("expected log entries");
+        };
+
+        let mut contents: Vec<String> = entries.into_iter().map(|entry| entry.content).collect();
+        contents.sort();
+        contents
+    }
+
+    const FIRST: &str = "{\"id\": \"0198c0de-0000-7000-8000-000000000001\", \"address\": \"@a\", \
+         \"timestamp\": \"2026-07-29T00:00:00Z\", \"level\": \"info\", \"content\": \"before\"}\n";
+    const SECOND: &str = "{\"id\": \"0198c0de-0000-7000-8000-000000000001\", \"address\": \"@a\", \
+         \"timestamp\": \"2026-07-29T00:00:00Z\", \"level\": \"info\", \"content\": \"after\"}\n";
+
+    #[tokio::test]
+    async fn conflict_modes_decide_what_a_collision_does() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = logs_store(directory.path()).await;
+        async fn load(store: &RecordStore, text: &str, conflict: Conflict) -> Result<(), Error> {
+            let batches = crate::load::read(RecordTable::Logs, text, LoadFormat::Json).unwrap();
+            store.load_records(&batches, conflict).await
+        }
+
+        load(&store, FIRST, Conflict::Error).await.unwrap();
+        assert_eq!(contents(&store).await, vec!["before"]);
+
+        // A collision aborts the transaction under the error mode, leaves the row alone
+        // under ignore, and takes the incoming values under update.
+        assert!(load(&store, SECOND, Conflict::Error).await.is_err());
+        assert_eq!(contents(&store).await, vec!["before"]);
+
+        load(&store, SECOND, Conflict::Ignore).await.unwrap();
+        assert_eq!(contents(&store).await, vec!["before"]);
+
+        load(&store, SECOND, Conflict::Update).await.unwrap();
+        assert_eq!(contents(&store).await, vec!["after"]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_batch_rolls_every_earlier_one_back() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = logs_store(directory.path()).await;
+
+        let fresh = "{\"id\": \"0198c0de-0000-7000-8000-000000000009\", \"address\": \"@b\", \
+             \"timestamp\": \"2026-07-29T00:00:00Z\", \"level\": \"info\", \"content\": \"fresh\"}\n";
+        let text = format!("{FIRST}{fresh}{SECOND}");
+        let batches = crate::load::read(RecordTable::Logs, &text, LoadFormat::Json).unwrap();
+
+        assert!(store.load_records(&batches, Conflict::Error).await.is_err());
+        assert!(contents(&store).await.is_empty());
+    }
 
     #[test]
     fn listings_order_and_bound_like_the_python_layer() {
