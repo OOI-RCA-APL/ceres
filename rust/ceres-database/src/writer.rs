@@ -6,7 +6,10 @@
 
 use std::time::Duration;
 
-use ceres_entities::{Alert, LogEntry, Message, MessageDirection, Particle, Records};
+use ceres_entities::{
+    Alert, Entities, LogEntry, Message, MessageDirection, Particle, Records, Setting, User,
+    Variable, Workspace,
+};
 use sea_query::{
     Alias, InsertStatement, OnConflict, PostgresQueryBuilder, Query, SimpleExpr, SqliteQueryBuilder,
 };
@@ -224,16 +227,122 @@ pub(crate) fn load_statement(records: &Records, dialect: Dialect) -> Option<Inse
     insert_into(crate::records::table_of(records), rows)
 }
 
+/// Bind every entity in a batch, in file order, for a bulk load or a create.
+pub(crate) fn entity_load_statement(
+    entities: &Entities,
+    dialect: Dialect,
+) -> Option<InsertStatement> {
+    let rows = match entities {
+        Entities::Users(users) => users
+            .iter()
+            .map(|user| user_values(user, dialect))
+            .collect::<Vec<_>>(),
+        Entities::Variables(variables) => variables
+            .iter()
+            .map(|variable| variable_values(variable, dialect))
+            .collect(),
+        Entities::Settings(settings) => settings
+            .iter()
+            .map(|setting| setting_values(setting, dialect))
+            .collect(),
+        Entities::Workspaces(workspaces) => workspaces
+            .iter()
+            .map(|workspace| workspace_values(workspace, dialect))
+            .collect(),
+    };
+
+    open_insert(
+        crate::entities::table_of(entities).schema().name,
+        entity_columns(entities),
+        rows,
+    )
+}
+
+/// The columns an entity batch binds, in the order its value builder writes them.
+pub(crate) fn entity_columns(entities: &Entities) -> &'static [&'static str] {
+    match entities {
+        Entities::Users(_) => &["id", "username", "email", "password", "admin", "disabled"],
+        Entities::Variables(_) => &["address", "name", "value"],
+        Entities::Settings(_) => &["user_id", "name", "value"],
+        Entities::Workspaces(_) => &[
+            "id",
+            "name",
+            "scope",
+            "owner_id",
+            "show_when_logged_out",
+            "data",
+        ],
+    }
+}
+
+fn user_values(user: &User, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(user.id, dialect),
+        user.username.clone().into(),
+        user.email.clone().into(),
+        user.password.clone().into(),
+        user.admin.into(),
+        user.disabled.into(),
+    ]
+}
+
+fn variable_values(variable: &Variable, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        variable.address.as_str().into(),
+        variable.name.clone().into(),
+        bare_json_value(&variable.value, dialect),
+    ]
+}
+
+fn setting_values(setting: &Setting, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(setting.user_id, dialect),
+        setting.name.clone().into(),
+        bare_json_value(&setting.value, dialect),
+    ]
+}
+
+fn workspace_values(workspace: &Workspace, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(workspace.id, dialect),
+        workspace.name.clone().into(),
+        workspace.scope.as_str().into(),
+        match workspace.owner_id {
+            Some(owner) => id_value(owner, dialect),
+            None => SimpleExpr::Keyword(sea_query::Keyword::Null),
+        },
+        workspace.show_when_logged_out.into(),
+        json_value(&workspace.data, dialect),
+    ]
+}
+
+/// Bind a bare JSON value, stored as its text on the SQLite family.
+fn bare_json_value(value: &serde_json::Value, dialect: Dialect) -> SimpleExpr {
+    match dialect {
+        Dialect::Sqlite => value.to_string().into(),
+        Dialect::Postgres => value.clone().into(),
+    }
+}
+
 /// Open an insert over a table's columns, `None` when there is nothing to bind.
 fn insert_into(table: RecordTable, rows: Vec<Vec<SimpleExpr>>) -> Option<InsertStatement> {
+    open_insert(table.name(), columns(table), rows)
+}
+
+/// Open an insert over named columns, `None` when there is nothing to bind.
+fn open_insert(
+    table: &str,
+    columns: &[&str],
+    rows: Vec<Vec<SimpleExpr>>,
+) -> Option<InsertStatement> {
     if rows.is_empty() {
         return None;
     }
 
     let mut statement = Query::insert();
     statement
-        .into_table(Alias::new(table.name()))
-        .columns(columns(table).iter().map(|&column| Alias::new(column)));
+        .into_table(Alias::new(table))
+        .columns(columns.iter().map(|&column| Alias::new(column)));
     for row in rows {
         statement.values_panic(row);
     }

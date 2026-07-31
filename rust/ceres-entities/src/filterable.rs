@@ -103,9 +103,16 @@ impl FieldFamily {
     }
 }
 
-/// An entity whose filterable fields are known at compile time.
+/// An entity whose fields are known at compile time.
 pub trait Filterable {
+    /// The fields a filter may name, which `#[filterable(skip)]` keeps a column out of.
     const FIELDS: &'static [FilterField];
+    /// Every column the entity stores, the skipped ones included.
+    ///
+    /// A column a filter cannot name is still one an update may assign and a create may
+    /// carry, a setting's value among them, so the write path reads this rather than the
+    /// filter surface.
+    const COLUMNS: &'static [FilterField];
 }
 
 /// A type with a closed set of admissible wire values.

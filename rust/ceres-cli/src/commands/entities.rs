@@ -1,0 +1,337 @@
+//! Native dumps for the non-record entities.
+//!
+//! Users, variables, settings, and workspaces take the same seven verbs the record
+//! tables do, over the shared surface in [`dump`], so this module holds only what an
+//! entity means. They are small tables an operator reads and edits, which makes the win
+//! here the interpreter that never starts rather than the throughput of a large scan.
+//!
+//! Users are the one table whose writes stay in Python. A user's password hashes with
+//! the database's configured Argon2 parameters, and an email address validates and
+//! normalizes through the `email_validator` library, so reproducing either natively
+//! would mean storing a value the Python model would have written differently.
+
+use std::ffi::OsString;
+use std::path::Path;
+
+use ceres_database::{EntityFilter, EntityTable};
+use ceres_entities::Entities;
+
+use crate::commands::dump::{DumpFormat, Invocation, Rendered, Verb, deliver, open_store};
+use crate::error::Result;
+use crate::project::Project;
+
+/// Attempt one entity command natively, `false` meaning the caller delegates.
+pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> Result<bool> {
+    let Some(invocation) = Invocation::lex(raw, &EntityFilter::boolean_keys(table)) else {
+        return Ok(false);
+    };
+    let Some(format) = invocation.dump_format() else {
+        return Ok(false);
+    };
+    if !serves(table, &invocation) {
+        return Ok(false);
+    }
+
+    // A filtered verb parses its wire pairs, while `create` reads them as the new
+    // entity's field values and `load` reads a file instead. Both write forms build
+    // their rows here, before anything opens, so a refusal costs nothing.
+    let mut filter = None;
+    let mut incoming = Vec::new();
+    if invocation.verb.filters() {
+        let Ok(parsed) = EntityFilter::parse(table, &invocation.pairs) else {
+            return Ok(false);
+        };
+
+        filter = Some(parsed);
+    } else if invocation.verb == Verb::Create {
+        let Some(entities) = ceres_database::build_entity(table, &invocation.pairs) else {
+            return Ok(false);
+        };
+
+        incoming.push(entities);
+    } else {
+        let Some((text, load_format)) = invocation.load_source() else {
+            return Ok(false);
+        };
+        let Some(batches) = ceres_database::read_entities(table, &text, load_format) else {
+            return Ok(false);
+        };
+
+        incoming = batches;
+    }
+
+    let config = invocation.config.as_deref().or(config);
+    let Ok(project) = Project::discover(config) else {
+        return Ok(false);
+    };
+    let Ok(meta) = project.load_meta() else {
+        return Ok(false);
+    };
+    // Pool construction spawns maintenance tasks, so the runtime has to exist first.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("the runtime always builds");
+    let guard = runtime.enter();
+    let Some(store) = open_store(&meta.database, invocation.verb.writes()) else {
+        return Ok(false);
+    };
+
+    drop(guard);
+
+    // The whole result renders before anything writes, so a failure here can still
+    // delegate without having produced partial output.
+    let projection = invocation.projection();
+    let header = invocation.header.unwrap_or(true);
+    let rendered = runtime.block_on(async {
+        let filter = || {
+            filter
+                .as_ref()
+                .expect("a filtered verb parsed its filter above")
+        };
+        match invocation.verb {
+            Verb::Count => store
+                .count_entity_filter(filter())
+                .await
+                .map(|count| Rendered::Text(format!("{count}\n"))),
+            Verb::Any => store
+                .any_entity_filter(filter())
+                .await
+                .map(Rendered::Exists),
+            Verb::Delete => store
+                .delete_entity_filter(filter())
+                .await
+                .map(|affected| Rendered::Text(format!("{affected}\n"))),
+            Verb::Update => {
+                let assign = invocation
+                    .assign
+                    .as_deref()
+                    .expect("an update carries its assignments");
+                store
+                    .update_entity_filter(filter(), assign)
+                    .await
+                    .map(|affected| {
+                        // Assignments the encoder refuses leave the table untouched, so
+                        // the command delegates and Python owns the outcome.
+                        affected.map_or(Rendered::Delegate, |affected| {
+                            Rendered::Text(format!("{affected}\n"))
+                        })
+                    })
+            }
+            // A load reports how many rows it read, which is the file's row count
+            // whatever the conflict mode then did with them.
+            Verb::Load => {
+                let conflict = invocation
+                    .conflict()
+                    .expect("a load resolved its conflict mode above");
+                let read: usize = incoming.iter().map(Entities::len).sum();
+                store
+                    .load_entities(&incoming, conflict)
+                    .await
+                    .map(|()| Rendered::Text(format!("{read}\n")))
+            }
+            Verb::Create => {
+                store
+                    .load_entities(&incoming, ceres_database::Conflict::Error)
+                    .await?;
+                render(&incoming[0], format, &projection, header)
+            }
+            Verb::Select => {
+                let entities = store.fetch_entity_filter(filter()).await?;
+                render(&entities, format, &projection, header)
+            }
+        }
+    });
+    let Ok(rendered) = rendered else {
+        return Ok(false);
+    };
+
+    deliver(&invocation, rendered)
+}
+
+/// Whether the native path serves this verb on this table.
+///
+/// A user's writes stay in Python. Creating or loading one hashes its password and
+/// normalizes its email address, and an update assigning either does the same, so those
+/// values have to be written by the code that produces them. A user's reads, and every
+/// update that touches neither, run natively.
+fn serves(table: EntityTable, invocation: &Invocation) -> bool {
+    if table != EntityTable::Users {
+        return true;
+    }
+
+    match invocation.verb {
+        Verb::Create | Verb::Load => false,
+        Verb::Update => {
+            let assign = invocation
+                .assign
+                .as_deref()
+                .expect("an update carries its assignments");
+            // The object is read here only to see which columns it names. A YAML one
+            // that is not JSON delegates, since the encoder would have to agree with
+            // this reading for the exclusion to hold.
+            match serde_json::from_str::<serde_json::Value>(assign) {
+                Ok(serde_json::Value::Object(values)) => {
+                    !values.contains_key("password") && !values.contains_key("email")
+                }
+                _ => false,
+            }
+        }
+        _ => true,
+    }
+}
+
+/// Render a set of entities in the shape the invocation asked for.
+fn render(
+    entities: &Entities,
+    format: DumpFormat,
+    projection: &[(String, String)],
+    header: bool,
+) -> std::result::Result<Rendered, ceres_database::Error> {
+    let rendered = match (format, projection.is_empty()) {
+        (DumpFormat::Json, true) => entities.to_json_lines(),
+        (DumpFormat::Json, false) => entities.to_json_lines_projected(projection),
+        (DumpFormat::Csv, true) => Ok(entities.to_csv_lines(header).into_bytes()),
+        (DumpFormat::Csv, false) => entities
+            .to_csv_lines_projected(projection, header)
+            .map(String::into_bytes),
+    };
+    rendered
+        .map(Rendered::Bytes)
+        .map_err(|error| ceres_database::Error::Decode(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(arguments: &[&str]) -> Vec<OsString> {
+        arguments.iter().map(OsString::from).collect()
+    }
+
+    /// Lex against the table's boolean keys, the way the command dispatch does.
+    fn lex(table: EntityTable, arguments: &[&str]) -> Invocation {
+        Invocation::lex(&raw(arguments), &EntityFilter::boolean_keys(table)).unwrap()
+    }
+
+    #[test]
+    fn a_user_write_that_touches_a_hashed_or_normalized_column_delegates() {
+        let update = |assign: &str| {
+            serves(
+                EntityTable::Users,
+                &lex(
+                    EntityTable::Users,
+                    &["update", "--no-confirm", "--assign", assign, "--no-color"],
+                ),
+            )
+        };
+
+        // A password hashes with the database's own parameters and an email normalizes
+        // through the validator library, so assigning either stays in Python.
+        assert!(!update("{\"password\": \"secret\"}"));
+        assert!(!update("{\"email\": \"a@b.com\"}"));
+        assert!(!update("{\"admin\": true, \"password\": \"secret\"}"));
+        // Everything else on a user assigns natively.
+        assert!(update("{\"admin\": true}"));
+        assert!(update("{\"username\": \"ada\", \"disabled\": false}"));
+
+        // Creating or loading a user always carries a password, so both delegate.
+        assert!(!serves(
+            EntityTable::Users,
+            &lex(
+                EntityTable::Users,
+                &["create", "--username", "ada", "--no-color"]
+            )
+        ));
+        assert!(!serves(
+            EntityTable::Users,
+            &lex(EntityTable::Users, &["load", "users.jsonl", "--no-color"])
+        ));
+
+        // A user's reads run natively, and no other table has a column to protect.
+        assert!(serves(
+            EntityTable::Users,
+            &lex(EntityTable::Users, &["select", "--no-color"])
+        ));
+        assert!(serves(
+            EntityTable::Users,
+            &lex(EntityTable::Users, &["count", "--no-color"])
+        ));
+        for table in [
+            EntityTable::Variables,
+            EntityTable::Settings,
+            EntityTable::Workspaces,
+        ] {
+            assert!(serves(
+                table,
+                &lex(table, &["create", "--name", "x", "--no-color"])
+            ));
+            assert!(serves(
+                table,
+                &lex(table, &["load", "rows.jsonl", "--no-color"])
+            ));
+        }
+    }
+
+    #[test]
+    fn a_boolean_key_is_its_own_value_and_never_takes_the_next_argument() {
+        // The Python CLI declares every boolean as a `--key` and `--no-key` pair, so a
+        // token following one is a positional field rather than the boolean's value.
+        let invocation = lex(
+            EntityTable::Workspaces,
+            &["select", "--owned", "name", "--no-color"],
+        );
+        assert_eq!(
+            invocation.pairs,
+            vec![("owned".to_string(), "true".to_string())]
+        );
+        assert_eq!(
+            invocation.projection(),
+            vec![("name".to_string(), "name".to_string())]
+        );
+
+        let invocation = lex(
+            EntityTable::Workspaces,
+            &["select", "--no-show-when-logged-out", "--no-color"],
+        );
+        assert_eq!(
+            invocation.pairs,
+            vec![("show_when_logged_out".to_string(), "false".to_string())]
+        );
+
+        // A computed predicate is a boolean too, and a non-boolean key still takes the
+        // argument that follows it.
+        let invocation = lex(
+            EntityTable::Variables,
+            &["select", "--no-internal", "--name", "x", "--no-color"],
+        );
+        assert_eq!(
+            invocation.pairs,
+            vec![
+                ("internal".to_string(), "false".to_string()),
+                ("name".to_string(), "x".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_filter_is_what_refuses_an_unknown_key() {
+        let invocation = lex(
+            EntityTable::Variables,
+            &[
+                "select",
+                "--name",
+                "x",
+                "--name-prefix",
+                "y",
+                "--limit",
+                "3",
+            ],
+        );
+        assert!(EntityFilter::parse(EntityTable::Variables, &invocation.pairs).is_ok());
+
+        // A record-only construct is not part of the entity grammar.
+        let windowed = lex(EntityTable::Variables, &["select", "--max-age", "2h"]);
+        assert!(EntityFilter::parse(EntityTable::Variables, &windowed.pairs).is_err());
+    }
+}

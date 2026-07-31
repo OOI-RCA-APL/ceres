@@ -273,7 +273,58 @@ impl RecordStore {
             return Ok(0);
         }
 
-        let statement = filter.delete_statement(self.dialect());
+        self.write(filter.delete_statement(self.dialect())).await
+    }
+
+    /// Assign values to the records a parsed native filter matches, returning how many
+    /// changed. `None` when the assignments fall outside what the native path encodes.
+    ///
+    /// Like a delete, this runs in its own transaction and commits only on success.
+    pub async fn update_filter(
+        &self,
+        filter: &RecordFilter,
+        assign: &str,
+    ) -> Result<Option<u64>, Error> {
+        let Some(assignments) = self.encode_assignments(filter.table().schema(), assign) else {
+            return Ok(None);
+        };
+        if filter.limit() == Some(0) {
+            return Ok(Some(0));
+        }
+
+        self.write(filter.update_statement(self.dialect(), &assignments))
+            .await
+            .map(Some)
+    }
+
+    /// Encode an update's assignments for this backend, `None` when the object itself
+    /// or any value in it falls outside what the native path represents faithfully.
+    fn encode_assignments(
+        &self,
+        schema: crate::records::Schema,
+        assign: &str,
+    ) -> Option<Vec<crate::assign::Assignment>> {
+        // The assignments are one YAML or JSON object, the form the Python command
+        // takes, and anything else leaves the table untouched.
+        let Ok(serde_json::Value::Object(values)) = serde_norway::from_str(assign) else {
+            return None;
+        };
+
+        crate::assign::assignments(
+            schema,
+            &values,
+            match self.dialect() {
+                SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
+                SqlDialect::Postgres => crate::writer::Dialect::Postgres,
+            },
+        )
+    }
+
+    /// Run one write statement in its own transaction, returning how many rows changed.
+    ///
+    /// Nothing lands unless the statement succeeds, so a failure leaves the table
+    /// exactly as it was and the command is free to delegate.
+    async fn write<S: SqlxBinder>(&self, statement: S) -> Result<u64, Error> {
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
@@ -296,60 +347,6 @@ impl RecordStore {
                 Ok(affected)
             }
             // Turso keeps the Python write path until its native writer is wired.
-            Backend::Turso(_) => Err(Error::Unsupported),
-        }
-    }
-
-    /// Assign values to the records a parsed native filter matches, returning how many
-    /// changed. `None` when the assignments fall outside what the native path encodes.
-    ///
-    /// Like a delete, this runs in its own transaction and commits only on success.
-    pub async fn update_filter(
-        &self,
-        filter: &RecordFilter,
-        assign: &str,
-    ) -> Result<Option<u64>, Error> {
-        // The assignments are one YAML or JSON object, the form the Python command
-        // takes, and anything else leaves the table untouched.
-        let Ok(serde_json::Value::Object(values)) = serde_norway::from_str(assign) else {
-            return Ok(None);
-        };
-        let Some(assignments) = crate::assign::assignments(
-            filter.table(),
-            &values,
-            match self.dialect() {
-                SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
-                SqlDialect::Postgres => crate::writer::Dialect::Postgres,
-            },
-        ) else {
-            return Ok(None);
-        };
-        if filter.limit() == Some(0) {
-            return Ok(Some(0));
-        }
-
-        let statement = filter.update_statement(self.dialect(), &assignments);
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let affected = sqlx::query_with(&sql, values)
-                    .execute(&mut *transaction)
-                    .await?
-                    .rows_affected();
-                transaction.commit().await?;
-                Ok(Some(affected))
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let affected = sqlx::query_with(&sql, values)
-                    .execute(&mut *transaction)
-                    .await?
-                    .rows_affected();
-                transaction.commit().await?;
-                Ok(Some(affected))
-            }
             Backend::Turso(_) => Err(Error::Unsupported),
         }
     }
@@ -447,30 +444,26 @@ impl RecordStore {
             return Ok(0);
         }
 
-        let statement = filter.delete_statement(self.dialect());
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let affected = sqlx::query_with(&sql, values)
-                    .execute(&mut *transaction)
-                    .await?
-                    .rows_affected();
-                transaction.commit().await?;
-                Ok(affected)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let affected = sqlx::query_with(&sql, values)
-                    .execute(&mut *transaction)
-                    .await?
-                    .rows_affected();
-                transaction.commit().await?;
-                Ok(affected)
-            }
-            Backend::Turso(_) => Err(Error::Unsupported),
+        self.write(filter.delete_statement(self.dialect())).await
+    }
+
+    /// Assign values to the entities a parsed native filter matches, returning how many
+    /// changed. `None` when the assignments fall outside what the native path encodes.
+    pub async fn update_entity_filter(
+        &self,
+        filter: &EntityFilter,
+        assign: &str,
+    ) -> Result<Option<u64>, Error> {
+        let Some(assignments) = self.encode_assignments(filter.table().schema(), assign) else {
+            return Ok(None);
+        };
+        if filter.limit() == Some(0) {
+            return Ok(Some(0));
         }
+
+        self.write(filter.update_statement(self.dialect(), &assignments))
+            .await
+            .map(Some)
     }
 
     /// Run one count statement, whichever backend serves it.
@@ -538,6 +531,11 @@ impl RecordStore {
             })
             .collect::<Vec<_>>();
 
+        self.transaction(statements).await
+    }
+
+    /// Run every statement in one transaction, committing only when all of them land.
+    async fn transaction<S: SqlxBinder>(&self, statements: Vec<S>) -> Result<(), Error> {
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let mut transaction = pool.begin().await?;
@@ -565,6 +563,53 @@ impl RecordStore {
             }
             Backend::Turso(_) => Err(Error::Unsupported),
         }
+    }
+
+    /// Write every batch of a bulk entity load in one transaction.
+    ///
+    /// The conflict target is the table's whole primary key, which for a variable or a
+    /// setting is a pair of columns rather than an ID.
+    pub async fn load_entities(
+        &self,
+        batches: &[Entities],
+        conflict: Conflict,
+    ) -> Result<(), Error> {
+        let dialect = match self.dialect() {
+            SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
+            SqlDialect::Postgres => crate::writer::Dialect::Postgres,
+        };
+        let statements = batches
+            .iter()
+            .filter_map(|batch| {
+                let schema = crate::entities::table_of(batch).schema();
+                crate::writer::entity_load_statement(batch, dialect).map(|mut statement| {
+                    let key = || schema.key.iter().map(|&column| Alias::new(column));
+                    match conflict {
+                        // Without a conflict clause a collision aborts the transaction,
+                        // which is exactly what this mode promises.
+                        Conflict::Error => {}
+                        Conflict::Ignore => {
+                            statement
+                                .on_conflict(OnConflict::columns(key()).do_nothing().to_owned());
+                        }
+                        Conflict::Update => {
+                            let mut on_conflict = OnConflict::columns(key());
+                            on_conflict.update_columns(
+                                crate::writer::entity_columns(batch)
+                                    .iter()
+                                    .filter(|column| !schema.key.contains(column))
+                                    .map(|&column| Alias::new(column)),
+                            );
+                            statement.on_conflict(on_conflict);
+                        }
+                    }
+
+                    statement
+                })
+            })
+            .collect::<Vec<_>>();
+
+        self.transaction(statements).await
     }
 
     /// Read the columns an authentication gate needs for one user, `None` when no user

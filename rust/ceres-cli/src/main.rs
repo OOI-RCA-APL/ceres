@@ -14,7 +14,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::process::ExitCode;
 
-use ceres_database::RecordTable;
+use ceres_database::{EntityTable, RecordTable};
 use clap::{CommandFactory, Parser};
 
 use crate::cli::{Cli, Command, ConsoleCommand, ServiceCommand};
@@ -58,17 +58,13 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
 
     match command {
         // Commands that load the engine or operate on the database run in the Python runtime.
-        Command::Run(_)
-        | Command::Check(_)
-        | Command::Database(_)
-        | Command::Generate(_)
-        | Command::Settings(_)
-        | Command::Users(_)
-        | Command::Variables(_)
-        | Command::Workspaces(_) => match runtime::delegate(arguments)? {},
+        Command::Run(_) | Command::Check(_) | Command::Database(_) | Command::Generate(_) => {
+            match runtime::delegate(arguments)? {}
+        }
 
-        // A plain JSON select or count over a record table runs natively, everything
-        // else delegates to the Python runtime.
+        // An uncolored command over a table runs natively when its filter, its output,
+        // and its database all fall inside the native subset, everything else delegates
+        // to the Python runtime.
         Command::Messages(args) => {
             records_or_delegate(RecordTable::Messages, config, &args.arguments, arguments)
         }
@@ -80,6 +76,19 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
         }
         Command::Logs(args) => {
             records_or_delegate(RecordTable::Logs, config, &args.arguments, arguments)
+        }
+
+        Command::Users(args) => {
+            entities_or_delegate(EntityTable::Users, config, &args.arguments, arguments)
+        }
+        Command::Variables(args) => {
+            entities_or_delegate(EntityTable::Variables, config, &args.arguments, arguments)
+        }
+        Command::Settings(args) => {
+            entities_or_delegate(EntityTable::Settings, config, &args.arguments, arguments)
+        }
+        Command::Workspaces(args) => {
+            entities_or_delegate(EntityTable::Workspaces, config, &args.arguments, arguments)
         }
 
         Command::Reload => {
@@ -151,6 +160,20 @@ fn records_or_delegate(
     arguments: Vec<OsString>,
 ) -> Result<()> {
     if commands::records::try_run(table, config, raw)? {
+        return Ok(());
+    }
+
+    match runtime::delegate(arguments)? {}
+}
+
+/// Serve an entity command natively when it fits the native subset, or delegate.
+fn entities_or_delegate(
+    table: EntityTable,
+    config: Option<&Path>,
+    raw: &[OsString],
+    arguments: Vec<OsString>,
+) -> Result<()> {
+    if commands::entities::try_run(table, config, raw)? {
         return Ok(());
     }
 

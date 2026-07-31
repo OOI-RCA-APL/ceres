@@ -9,10 +9,14 @@
 //! before it starts and delegates, so Pydantic renders the validation error the way the
 //! filter port established.
 
-use ceres_entities::{Alert, LogEntry, Message, Particle, Records, Timestamp};
+use ceres_entities::{
+    Alert, Entities, FieldFamily, LogEntry, Message, Particle, Records, Setting, Timestamp, User,
+    Variable, Workspace,
+};
 use serde_json::{Map, Value};
 
-use crate::records::RecordTable;
+use crate::entities::EntityTable;
+use crate::records::{RecordTable, Schema};
 
 /// How a load resolves a primary key collision.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,10 +80,7 @@ pub(crate) const BATCH: usize = 1000;
 /// The batches are the statements the load will issue, so an empty input reads as no
 /// batches and writes nothing.
 pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Records>> {
-    let objects = match format {
-        LoadFormat::Json => read_json(text)?,
-        LoadFormat::Csv => read_csv(text)?,
-    };
+    let objects = read_objects(text, format)?;
 
     let mut batches = Vec::new();
     for chunk in objects.chunks(BATCH) {
@@ -89,6 +90,26 @@ pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Re
     Some(batches)
 }
 
+/// Read a whole entity input into batches, like the record `read`.
+pub fn read_entities(table: EntityTable, text: &str, format: LoadFormat) -> Option<Vec<Entities>> {
+    let objects = read_objects(text, format)?;
+
+    let mut batches = Vec::new();
+    for chunk in objects.chunks(BATCH) {
+        batches.push(entities(table, chunk)?);
+    }
+
+    Some(batches)
+}
+
+/// Read an input into one wire object per row.
+fn read_objects(text: &str, format: LoadFormat) -> Option<Vec<Map<String, Value>>> {
+    match format {
+        LoadFormat::Json => read_json(text),
+        LoadFormat::Csv => read_csv(text),
+    }
+}
+
 /// Build the one record a create names from its field values, `None` when a field or a
 /// value falls outside what the native types represent faithfully.
 ///
@@ -96,17 +117,31 @@ pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Re
 /// create model takes it in, and every other field is the text itself. A field named
 /// twice keeps its last value, the way a repeated flag does.
 pub fn build(table: RecordTable, values: &[(String, String)]) -> Option<Records> {
+    records(table, &[wire_object(table.schema(), values)?])
+}
+
+/// Build the one entity a create names from its field values, like the record `build`.
+pub fn build_entity(table: EntityTable, values: &[(String, String)]) -> Option<Entities> {
+    entities(table, &[wire_object(table.schema(), values)?])
+}
+
+/// Read a create's raw argument text into one wire object.
+///
+/// A payload or value column reads as YAML, the form its create model takes it in, and
+/// every other column is the text itself. A column named twice keeps its last value,
+/// the way a repeated flag does.
+fn wire_object(schema: Schema, values: &[(String, String)]) -> Option<Map<String, Value>> {
     let mut object = Map::new();
     for (key, text) in values {
-        let field = table.fields().iter().find(|field| field.key == key)?;
+        let field = schema.columns.iter().find(|field| field.key == key)?;
         let value = match field.family {
-            ceres_entities::FieldFamily::Json => serde_norway::from_str(text).ok()?,
+            FieldFamily::Json | FieldFamily::JsonValue => serde_norway::from_str(text).ok()?,
             _ => text.clone().into(),
         };
         object.insert(key.clone(), value);
     }
 
-    records(table, &[object])
+    Some(object)
 }
 
 /// Read one JSON object per line.
@@ -159,14 +194,8 @@ fn read_csv(text: &str) -> Option<Vec<Map<String, Value>>> {
 fn records(table: RecordTable, objects: &[Map<String, Value>]) -> Option<Records> {
     let rows = objects
         .iter()
-        .map(|object| complete(table, object))
+        .map(|object| complete(accepted(table), object, record_default))
         .collect::<Option<Vec<_>>>()?;
-
-    fn convert<T: serde::de::DeserializeOwned>(rows: Vec<Map<String, Value>>) -> Option<Vec<T>> {
-        rows.into_iter()
-            .map(|row| serde_json::from_value(Value::Object(row)).ok())
-            .collect()
-    }
 
     Some(match table {
         RecordTable::Messages => Records::Messages(convert::<Message>(rows)?),
@@ -176,20 +205,75 @@ fn records(table: RecordTable, objects: &[Map<String, Value>]) -> Option<Records
     })
 }
 
+/// Deserialize one batch of wire objects into entities.
+fn entities(table: EntityTable, objects: &[Map<String, Value>]) -> Option<Entities> {
+    let accepted: Vec<&'static str> = table
+        .schema()
+        .columns
+        .iter()
+        .map(|column| column.key)
+        .collect();
+    let rows = objects
+        .iter()
+        .map(|object| {
+            let mut row = complete(&accepted, object, |key| entity_default(table, key))?;
+            // A JSON column on an entity is declared `FromYAML`, so a value arriving as
+            // text parses as YAML rather than staying a string. That is how a CSV cell
+            // holding `1` becomes a number, and it applies to a JSON input naming a
+            // string too, because the model's validator sees no difference.
+            for field in table.schema().columns {
+                if !matches!(field.family, FieldFamily::Json | FieldFamily::JsonValue) {
+                    continue;
+                }
+
+                if let Some(Value::String(text)) = row.get(field.key) {
+                    let parsed = serde_norway::from_str(text).ok()?;
+                    row.insert(field.key.to_string(), parsed);
+                }
+            }
+
+            Some(row)
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    Some(match table {
+        EntityTable::Users => Entities::Users(convert::<User>(rows)?),
+        EntityTable::Variables => Entities::Variables(convert::<Variable>(rows)?),
+        EntityTable::Settings => Entities::Settings(convert::<Setting>(rows)?),
+        EntityTable::Workspaces => Entities::Workspaces(convert::<Workspace>(rows)?),
+    })
+}
+
+fn convert<T: serde::de::DeserializeOwned>(rows: Vec<Map<String, Value>>) -> Option<Vec<T>> {
+    rows.into_iter()
+        .map(|row| serde_json::from_value(Value::Object(row)).ok())
+        .collect()
+}
+
 /// Fill in a row's absent fields and refuse one carrying a field the entity has no place
 /// for, which the Python models reject rather than ignore.
-fn complete(table: RecordTable, object: &Map<String, Value>) -> Option<Map<String, Value>> {
+///
+/// A key the create model gives no default stays absent, so deserializing reports it
+/// missing rather than reading a null the model would have refused.
+fn complete(
+    accepted: &[&str],
+    object: &Map<String, Value>,
+    default: impl Fn(&str) -> Option<Value>,
+) -> Option<Map<String, Value>> {
     let mut remaining = object.len();
     let mut completed = Map::new();
-    for &key in accepted(table) {
-        let value = match object.get(key) {
+    for &key in accepted {
+        match object.get(key) {
             Some(value) => {
                 remaining -= 1;
-                value.clone()
+                completed.insert(key.to_string(), value.clone());
             }
-            None => default(key),
-        };
-        completed.insert(key.to_string(), value);
+            None => {
+                if let Some(value) = default(key) {
+                    completed.insert(key.to_string(), value);
+                }
+            }
+        }
     }
 
     (remaining == 0).then_some(completed)
@@ -207,14 +291,31 @@ pub(crate) fn accepted(table: RecordTable) -> &'static [&'static str] {
     }
 }
 
-/// The value an absent field takes, matching the entity models' own defaults.
-fn default(key: &str) -> Value {
-    match key {
+/// The value an absent record field takes, matching the record models' own defaults.
+fn record_default(key: &str) -> Option<Value> {
+    Some(match key {
         "id" => uuid::Uuid::now_v7().to_string().into(),
         "timestamp" => Timestamp(chrono::Utc::now()).to_wire().into(),
-        // Everything else is either optional, which reads a null as absent, or required,
-        // which refuses one.
+        // Everything else on a record is either optional, which reads a null as absent,
+        // or required, which refuses one.
         _ => Value::Null,
+    })
+}
+
+/// The value an absent entity field takes, `None` for one its create model requires.
+///
+/// A variable's value is required and may still be null, so an absent one cannot read
+/// as a null the way a record's optional column does.
+fn entity_default(table: EntityTable, key: &str) -> Option<Value> {
+    match (table, key) {
+        (EntityTable::Workspaces, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
+        (EntityTable::Workspaces, "scope") => Some("~".into()),
+        (EntityTable::Workspaces, "owner_id") => Some(Value::Null),
+        (EntityTable::Workspaces, "show_when_logged_out") => Some(false.into()),
+        (EntityTable::Workspaces, "data") => Some(Value::Object(Map::new())),
+        (EntityTable::Users, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
+        (EntityTable::Users, "admin" | "disabled") => Some(false.into()),
+        _ => None,
     }
 }
 

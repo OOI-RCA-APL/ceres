@@ -27,11 +27,8 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
     };
 
     let mut entries = Vec::new();
+    let mut columns = Vec::new();
     for field in &fields.named {
-        if marked(field, "skip") {
-            continue;
-        }
-
         let identifier = field.ident.as_ref().expect("named fields carry names");
         let key = wire_name(field)?.unwrap_or_else(|| identifier.to_string());
         let family = match family_of(&field.ty) {
@@ -64,18 +61,24 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             bare_operations(field),
             marked(field, "insensitive"),
         );
-        entries.push(quote! {
+        let column = quote! {
             ceres_entities::FilterField {
                 key: #key,
                 family: #entry,
                 operations: &[#(#operations),*],
             }
-        });
+        };
+        columns.push(column.clone());
+        // A skipped field is still a column, it simply carries no filter surface.
+        if !marked(field, "skip") {
+            entries.push(column);
+        }
     }
 
     Ok(quote! {
         impl ceres_entities::Filterable for #name {
             const FIELDS: &'static [ceres_entities::FilterField] = &[#(#entries),*];
+            const COLUMNS: &'static [ceres_entities::FilterField] = &[#(#columns),*];
         }
     })
 }

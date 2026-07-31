@@ -19,7 +19,7 @@ mod writer;
 
 pub use entities::EntityTable;
 pub use filter::{EntityFilter, RecordFilter, Refusal, SqlDialect};
-pub use load::{Conflict, LoadFormat, build, read};
+pub use load::{Conflict, LoadFormat, build, build_entity, read, read_entities};
 pub use records::RecordTable;
 pub use sea_query::Value as BindValue;
 pub use store::{Error, GateUser, Parameter, RecordStore};

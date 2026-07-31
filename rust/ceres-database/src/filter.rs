@@ -620,6 +620,22 @@ macro_rules! filter_surface {
                 table.schema().delegated.to_vec()
             }
 
+            /// The wire keys that are bare flags rather than flags taking a value.
+            ///
+            /// A boolean is a scalar in the Python models, which the CLI renders as a
+            /// `--key` and `--no-key` pair, so a lexer has to know these by name or it
+            /// would swallow the following argument as their value.
+            pub fn boolean_keys(table: $table) -> Vec<&'static str> {
+                let schema = table.schema();
+                schema
+                    .columns
+                    .iter()
+                    .filter(|field| field.family == ceres_entities::FieldFamily::Boolean)
+                    .map(|field| field.key)
+                    .chain(schema.computed.iter().map(|predicate| predicate.key))
+                    .collect()
+            }
+
             /// Parse query pairs into a filter, refusing what cannot compile natively.
             pub fn parse(table: $table, pairs: &[(String, String)]) -> Result<Self, Refusal> {
                 Ok(Self {
@@ -747,6 +763,17 @@ pub struct EntityFilter {
 }
 
 filter_surface!(EntityFilter, EntityTable);
+
+impl EntityFilter {
+    /// Build the update statement for a set of encoded assignments.
+    pub(crate) fn update_statement(
+        &self,
+        dialect: SqlDialect,
+        assignments: &[crate::assign::Assignment],
+    ) -> UpdateStatement {
+        self.filter.update_statement(dialect, assignments)
+    }
+}
 
 /// One wire value mid-parse, plain text from query pairs or YAML from a subfilter.
 enum WireValue<'a> {
@@ -1162,7 +1189,17 @@ impl FilterNode {
             }
             // A value compares on the serialized text the column stores, so the wire
             // text parses as YAML and re-serializes into that form.
-            FieldFamily::JsonValue => Values::Texts(vec![json_text(value)?]),
+            FieldFamily::JsonValue => {
+                let text = json_text(value)?;
+                // A null is the filter field's own default, which the command layer
+                // reads as the field never having been named, so it filters nothing.
+                // Reproducing that here would bake the quirk into two places.
+                if text == "null" {
+                    return Err(Refusal::Delegated);
+                }
+
+                Values::Texts(vec![text])
+            }
             // A plain address compares whole, outside the selector grammar.
             FieldFamily::PlainAddress => {
                 Address::parse(value).map_err(Refusal::Invalid)?;

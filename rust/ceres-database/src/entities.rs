@@ -60,19 +60,25 @@ impl EntityTable {
             Self::Users => Schema {
                 name: self.name(),
                 fields: User::FIELDS,
+                columns: User::COLUMNS,
                 // An email compares after the Python model has normalized it, which is
                 // the `email_validator` library's own normalization, so equality on one
                 // stays where that library is.
                 delegated: &["email"],
                 key: &["id"],
+                fixed: &["id"],
                 order: &["username"],
                 computed: &[],
             },
             Self::Variables => Schema {
                 name: self.name(),
                 fields: Variable::FIELDS,
+                columns: Variable::COLUMNS,
                 delegated: &[],
                 key: &["address", "name"],
+                // A variable's name is assignable though it is half the key, its
+                // address is not, which is what `VariableUpdate` declares.
+                fixed: &["address"],
                 order: &["address", "name"],
                 computed: &[Computed {
                     key: "internal",
@@ -83,16 +89,20 @@ impl EntityTable {
             Self::Settings => Schema {
                 name: self.name(),
                 fields: Setting::FIELDS,
+                columns: Setting::COLUMNS,
                 delegated: &[],
                 key: &["user_id", "name"],
+                fixed: &["user_id"],
                 order: &["name"],
                 computed: &[],
             },
             Self::Workspaces => Schema {
                 name: self.name(),
                 fields: Workspace::FIELDS,
+                columns: Workspace::COLUMNS,
                 delegated: &[],
                 key: &["id"],
+                fixed: &["id"],
                 order: &["name"],
                 computed: &[
                     Computed {
@@ -136,6 +146,16 @@ impl EntityTable {
             Self::Settings => Entities::Settings(Vec::new()),
             Self::Workspaces => Entities::Workspaces(Vec::new()),
         }
+    }
+}
+
+/// The table a batch of entities belongs to.
+pub(crate) fn table_of(entities: &Entities) -> EntityTable {
+    match entities {
+        Entities::Users(_) => EntityTable::Users,
+        Entities::Variables(_) => EntityTable::Variables,
+        Entities::Settings(_) => EntityTable::Settings,
+        Entities::Workspaces(_) => EntityTable::Workspaces,
     }
 }
 
