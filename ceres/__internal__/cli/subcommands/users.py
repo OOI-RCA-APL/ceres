@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, override
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from ceres.__internal__.cli.shared import CLICommand, create_entity_command, get_input
 from ceres.data import Password, PasswordHash
@@ -11,7 +11,9 @@ class PromptedUserCreate(UserCreate):
     """Variant of `UserCreate` that interactively prompts for the password when not provided."""
 
     if not TYPE_CHECKING:
-        password: Password | PasswordHash | None = None
+        # The default validates so the prompt runs for an invocation that named no
+        # password at all, not only for one that named an empty one.
+        password: Password | PasswordHash | None = Field(default=None, validate_default=True)
 
     @field_validator("password", mode="before")
     @classmethod

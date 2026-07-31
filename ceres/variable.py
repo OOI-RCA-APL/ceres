@@ -109,8 +109,13 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
     start with an end with two underscores. For example, `__enabled__`. If `None`, both internal and
     non-internal variables will be matched.
     """
-    value: JSONSerializable | None = None
-    """Filter by `value` being exactly equal to the given JSON-serializable value."""
+    value: FromYAML[JSONSerializable] | None = None
+    """Filter by `value` being exactly equal to the given JSON-serializable value.
+
+    The value reads as YAML, matching how the create and update models take it, so a
+    command line comparing against a number or a boolean compares against that rather
+    than against its text.
+    """
 
     @override
     def _matches(self, obj: Variable) -> bool:
