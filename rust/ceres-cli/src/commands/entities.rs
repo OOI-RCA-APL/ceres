@@ -5,15 +5,17 @@
 //! entity means. They are small tables an operator reads and edits, which makes the win
 //! here the interpreter that never starts rather than the throughput of a large scan.
 //!
-//! Users are the one table whose writes stay in Python. A user's password hashes with
-//! the database's configured Argon2 parameters, and an email address validates and
-//! normalizes through the `email_validator` library, so reproducing either natively
-//! would mean storing a value the Python model would have written differently.
+//! Users are the one table whose writes carry rules of their own. A password hashes with
+//! the database's configured Argon2 parameters and an email address normalizes, both
+//! before the transaction opens, so a row written here is one the Python model would have
+//! written identically. A database configured for bcrypt, or an address outside the subset
+//! the normalizer understands, delegates rather than storing something else.
 
 use std::ffi::OsString;
 use std::path::Path;
 
-use ceres_database::{EntityFilter, EntityTable};
+use ceres_config::{DatabaseConfig, HashingConfig};
+use ceres_database::{Argon2Params, Credentials, EntityFilter, EntityTable};
 use ceres_entities::Entities;
 
 use crate::commands::dump::{
@@ -32,7 +34,22 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
     };
     // Only the record tables declare a `follow`, so on an entity it is an argument
     // error the Python command owns.
-    if invocation.verb.streams() || !serves(table, &invocation) {
+    if invocation.verb.streams() {
+        return Ok(false);
+    }
+
+    // The configuration is read before anything is built, because a user's own columns
+    // are written under rules the database's own hashing configuration decides.
+    let config = invocation.config.as_deref().or(config);
+    let Ok(project) = Project::discover(config) else {
+        return Ok(false);
+    };
+    let Ok(meta) = project.load_meta() else {
+        return Ok(false);
+    };
+
+    let credentials = credentials(&meta.database);
+    if !serves(table, &invocation, credentials) {
         return Ok(false);
     }
 
@@ -48,7 +65,8 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
 
         filter = Some(parsed);
     } else if invocation.verb == Verb::Create {
-        let Some(entities) = ceres_database::build_entity(table, &invocation.pairs) else {
+        let Some(entities) = ceres_database::build_entity(table, &invocation.pairs, credentials)
+        else {
             return Ok(false);
         };
 
@@ -57,20 +75,14 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
         let Some((file, load_format)) = invocation.load_source() else {
             return Ok(false);
         };
-        let Some(batches) = ceres_database::entity_batches(table, file, load_format) else {
+        let Some(batches) = ceres_database::entity_batches(table, file, load_format, credentials)
+        else {
             return Ok(false);
         };
 
         source = Some(batches);
     }
 
-    let config = invocation.config.as_deref().or(config);
-    let Ok(project) = Project::discover(config) else {
-        return Ok(false);
-    };
-    let Ok(meta) = project.load_meta() else {
-        return Ok(false);
-    };
     // Pool construction spawns maintenance tasks, so the runtime has to exist first.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -112,7 +124,7 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
                     .as_deref()
                     .expect("an update carries its assignments");
                 store
-                    .update_entity_filter(filter(), assign)
+                    .update_entity_filter(filter(), assign, credentials)
                     .await
                     .map(|affected| {
                         // Assignments the encoder refuses leave the table untouched, so
@@ -169,36 +181,37 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
     deliver(&invocation, rendered)
 }
 
+/// The credential rules this database's writes follow, `None` when the native path
+/// cannot produce them.
+///
+/// Argon2id is what a database configures unless it says otherwise, and it is the one
+/// algorithm produced here. A configuration naming bcrypt leaves every user write to
+/// Python rather than storing a hash of the wrong shape.
+fn credentials(database: &DatabaseConfig) -> Option<Credentials> {
+    let HashingConfig::Argon2(hashing) = &database.shared().hashing else {
+        return None;
+    };
+
+    Some(Credentials::new(Argon2Params {
+        time_cost: hashing.time_cost.try_into().ok()?,
+        memory_cost: hashing.memory_cost.try_into().ok()?,
+        parallelism: hashing.parallelism.try_into().ok()?,
+        hash_length: hashing.hash_length.try_into().ok()?,
+        salt_length: hashing.salt_length.try_into().ok()?,
+    }))
+}
+
 /// Whether the native path serves this verb on this table.
 ///
-/// A user's writes stay in Python. Creating or loading one hashes its password and
-/// normalizes its email address, and an update assigning either does the same, so those
-/// values have to be written by the code that produces them. A user's reads, and every
-/// update that touches neither, run natively.
-fn serves(table: EntityTable, invocation: &Invocation) -> bool {
+/// Every table but users serves whatever it is given. A user's writes hash a password
+/// and normalize an email address with the database's own parameters, so without rules
+/// to do that they stay in Python. A user's reads never need them.
+fn serves(table: EntityTable, invocation: &Invocation, credentials: Option<Credentials>) -> bool {
     if table != EntityTable::Users {
         return true;
     }
 
-    match invocation.verb {
-        Verb::Create | Verb::Load => false,
-        Verb::Update => {
-            let assign = invocation
-                .assign
-                .as_deref()
-                .expect("an update carries its assignments");
-            // The object is read here only to see which columns it names. A YAML one
-            // that is not JSON delegates, since the encoder would have to agree with
-            // this reading for the exclusion to hold.
-            match serde_json::from_str::<serde_json::Value>(assign) {
-                Ok(serde_json::Value::Object(values)) => {
-                    !values.contains_key("password") && !values.contains_key("email")
-                }
-                _ => false,
-            }
-        }
-        _ => true,
-    }
+    !invocation.verb.writes() || credentials.is_some()
 }
 
 /// Render a set of entities in the shape the invocation asked for.
@@ -232,49 +245,56 @@ mod tests {
         Invocation::lex(&raw(arguments), &EntityFilter::keys(table)).unwrap()
     }
 
+    /// The rules a database configured the ordinary way hands out.
+    fn rules() -> Option<Credentials> {
+        credentials(&DatabaseConfig::default())
+    }
+
     #[test]
-    fn a_user_write_that_touches_a_hashed_or_normalized_column_delegates() {
-        let update = |assign: &str| {
-            serves(
-                EntityTable::Users,
-                &lex(
+    fn a_user_write_needs_rules_for_the_columns_it_cannot_store_as_given() {
+        // Argon2id is what a database configures unless it says otherwise, so the
+        // ordinary case carries rules and every verb serves.
+        assert!(rules().is_some());
+        for arguments in [
+            &["create", "--username", "ada", "--no-color"][..],
+            &["load", "users.jsonl", "--no-color"][..],
+            &["update", "--no-confirm", "--assign", "{}", "--no-color"][..],
+            &["select", "--no-color"][..],
+            &["count", "--no-color"][..],
+        ] {
+            assert!(
+                serves(
                     EntityTable::Users,
-                    &["update", "--no-confirm", "--assign", assign, "--no-color"],
+                    &lex(EntityTable::Users, arguments),
+                    rules()
                 ),
-            )
-        };
+                "{arguments:?}"
+            );
+        }
 
-        // A password hashes with the database's own parameters and an email normalizes
-        // through the validator library, so assigning either stays in Python.
-        assert!(!update("{\"password\": \"secret\"}"));
-        assert!(!update("{\"email\": \"a@b.com\"}"));
-        assert!(!update("{\"admin\": true, \"password\": \"secret\"}"));
-        // Everything else on a user assigns natively.
-        assert!(update("{\"admin\": true}"));
-        assert!(update("{\"username\": \"ada\", \"disabled\": false}"));
-
-        // Creating or loading a user always carries a password, so both delegate.
-        assert!(!serves(
-            EntityTable::Users,
-            &lex(
-                EntityTable::Users,
-                &["create", "--username", "ada", "--no-color"]
-            )
-        ));
-        assert!(!serves(
-            EntityTable::Users,
-            &lex(EntityTable::Users, &["load", "users.jsonl", "--no-color"])
-        ));
-
-        // A user's reads run natively, and no other table has a column to protect.
+        // Without them, a user's writes stay in Python rather than storing a password
+        // hashed some other way, while its reads carry on natively.
+        for arguments in [
+            &["create", "--username", "ada", "--no-color"][..],
+            &["load", "users.jsonl", "--no-color"][..],
+            &["update", "--no-confirm", "--assign", "{}", "--no-color"][..],
+        ] {
+            assert!(
+                !serves(
+                    EntityTable::Users,
+                    &lex(EntityTable::Users, arguments),
+                    None
+                ),
+                "{arguments:?}"
+            );
+        }
         assert!(serves(
             EntityTable::Users,
-            &lex(EntityTable::Users, &["select", "--no-color"])
+            &lex(EntityTable::Users, &["select", "--no-color"]),
+            None
         ));
-        assert!(serves(
-            EntityTable::Users,
-            &lex(EntityTable::Users, &["count", "--no-color"])
-        ));
+
+        // No other table has a column these rules touch, so none of them ever needs one.
         for table in [
             EntityTable::Variables,
             EntityTable::Settings,
@@ -282,13 +302,29 @@ mod tests {
         ] {
             assert!(serves(
                 table,
-                &lex(table, &["create", "--name", "x", "--no-color"])
+                &lex(table, &["create", "--name", "x", "--no-color"]),
+                None
             ));
             assert!(serves(
                 table,
-                &lex(table, &["load", "rows.jsonl", "--no-color"])
+                &lex(table, &["load", "rows.jsonl", "--no-color"]),
+                None
             ));
         }
+    }
+
+    #[test]
+    fn a_bcrypt_database_hands_its_user_writes_back() {
+        // bcrypt is the one other algorithm a configuration can name, and it is not
+        // produced here, so a database on it writes its users through Python.
+        let config = DatabaseConfig::Sqlite(ceres_config::SqliteDatabaseConfig {
+            path: Some("records.sqlite".into()),
+            shared: ceres_config::SharedDatabaseConfig {
+                hashing: HashingConfig::Bcrypt(ceres_config::BcryptHashingConfig { rounds: 12 }),
+                ..Default::default()
+            },
+        });
+        assert_eq!(credentials(&config), None);
     }
 
     #[test]

@@ -321,6 +321,55 @@ impl RecordChunks {
     }
 }
 
+/// Normalize an email address the way a native user write stores it, `None` for one
+/// outside the subset the native path understands.
+///
+/// Exposed so the parity suite can hold the native subset against `email_validator`
+/// itself, which is the direction that matters. An address this accepts and that library
+/// rejects would be a row written natively that Python would have refused.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn normalize_email(value: &str) -> Option<String> {
+    ceres_database::normalize_email(value)
+}
+
+/// The reserved domain names the native email subset refuses.
+///
+/// Exposed so the parity suite can hold it against the validator library's own list. A
+/// name added there and not here would be an address written natively that Python
+/// refuses.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn special_use_domains() -> Vec<&'static str> {
+    ceres_database::SPECIAL_USE_DOMAINS.to_vec()
+}
+
+/// Hash a password with the given Argon2id parameters, `None` when they are out of range.
+///
+/// A value that already reads as a stored hash passes through, which is the user
+/// manager's own rule. Exposed so the parity suite can hand a natively-produced hash to
+/// Python's own verifier, the only check that proves the two agree.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (password, time_cost, memory_cost, parallelism, hash_length, salt_length))]
+pub fn hash_password(
+    password: &str,
+    time_cost: u32,
+    memory_cost: u32,
+    parallelism: u32,
+    hash_length: usize,
+    salt_length: usize,
+) -> Option<String> {
+    ceres_database::Credentials::new(ceres_database::Argon2Params {
+        time_cost,
+        memory_cost,
+        parallelism,
+        hash_length,
+        salt_length,
+    })
+    .password(password)
+}
+
 fn to_value_error(error: ceres_database::Error) -> PyErr {
     PyValueError::new_err(error.to_string())
 }

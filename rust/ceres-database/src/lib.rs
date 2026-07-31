@@ -8,6 +8,7 @@
 //! here has to select and order exactly like the Python side does for the same filter.
 
 mod assign;
+mod credentials;
 mod entities;
 mod filter;
 mod load;
@@ -17,6 +18,9 @@ mod store;
 mod turso;
 mod writer;
 
+pub use credentials::{
+    Argon2Params, Credentials, SPECIAL_USE_DOMAINS, is_password_hash, normalize_email,
+};
 pub use entities::EntityTable;
 pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, SqlDialect};
 pub use load::{

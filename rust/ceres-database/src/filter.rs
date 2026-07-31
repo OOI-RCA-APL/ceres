@@ -33,6 +33,7 @@ use serde_norway::Value as Yaml;
 
 use ceres_entities::Address;
 
+use crate::credentials::normalize_email;
 use crate::entities::EntityTable;
 use crate::records::{Computed, RecordTable, Schema, Shape};
 use crate::selector::{AddressSelector, valid_address};
@@ -1155,6 +1156,14 @@ impl FilterNode {
             }
             FieldFamily::Timestamp => Values::Stamps(vec![parse_timestamp(value)?]),
             FieldFamily::Text => Values::Texts(vec![value.to_string()]),
+            // The filter model types this field as a validated address, so the value
+            // compares in the same normalized form the stored one was written in. One
+            // outside the subset the normalizer understands delegates, because comparing
+            // it unnormalized would silently miss the row it names.
+            FieldFamily::Email => match normalize_email(value) {
+                Some(normalized) => Values::Texts(vec![normalized]),
+                None => return Err(Refusal::Delegated),
+            },
             FieldFamily::Values(admissible) => {
                 if !admissible.contains(&value) {
                     return Err(Refusal::invalid(format!("invalid {} {value:?}", field.key)));
@@ -2663,14 +2672,19 @@ mod tests {
 
     #[test]
     fn an_email_filters_by_its_parts_and_delegates_whole() {
-        // Equality delegates, because the Python model normalizes an address before
-        // comparing it and that normalization is the validator library's.
+        // Equality normalizes the value first, because the filter model types the field
+        // as a validated address and so compares a normalized one against the column.
+        let sql = entity_sql(EntityTable::Users, &[("email", "Ada@Example.COM")]);
+        assert!(sql.contains("\"email\" = 'ada@example.com'"), "{sql}");
+        assert!(EntityFilter::supported_keys(EntityTable::Users).contains(&"email"));
+        assert!(EntityFilter::supported_keys(EntityTable::Users).contains(&"email_contains"));
+
+        // An address the normalizer does not understand delegates, rather than comparing
+        // unnormalized and quietly missing the row it names.
         assert_eq!(
-            EntityFilter::parse(EntityTable::Users, &pairs(&[("email", "a@b.com")])),
+            EntityFilter::parse(EntityTable::Users, &pairs(&[("email", "a@localhost")])),
             Err(Refusal::Delegated)
         );
-        assert!(!EntityFilter::supported_keys(EntityTable::Users).contains(&"email"));
-        assert!(EntityFilter::supported_keys(EntityTable::Users).contains(&"email_contains"));
 
         // The operations fold case, which on the SQLite family is a pair of `lower`
         // calls and on PostgreSQL is `ILIKE`, matching what SQLAlchemy renders.

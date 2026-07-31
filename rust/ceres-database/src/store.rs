@@ -7,6 +7,8 @@ use sqlx::Row;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
+use crate::assign::assignments;
+use crate::credentials::Credentials;
 use crate::entities::{DecodeEntities, EntityTable};
 use crate::filter::{EntityFilter, RecordFilter, SqlDialect};
 use crate::load::Conflict;
@@ -530,8 +532,30 @@ impl RecordStore {
         &self,
         filter: &EntityFilter,
         assign: &str,
+        credentials: Option<Credentials>,
     ) -> Result<Option<u64>, Error> {
-        let Some(assignments) = self.encode_assignments(filter.table().schema(), assign) else {
+        // The assignments are one YAML or JSON object, the form the Python command
+        // takes, and anything else leaves the table untouched.
+        let Ok(serde_json::Value::Object(mut values)) =
+            serde_norway::from_str::<serde_json::Value>(assign)
+        else {
+            return Ok(None);
+        };
+
+        // A password hashes and an email address normalizes on their way into the
+        // assignment, the same rules a create follows.
+        if filter.table() == EntityTable::Users {
+            let Some(credentials) = credentials else {
+                return Ok(None);
+            };
+            if !credentials.apply(filter.table(), &mut values) {
+                return Ok(None);
+            }
+        }
+
+        let Some(assignments) =
+            assignments(filter.table().schema(), &values, self.writer_dialect())
+        else {
             return Ok(None);
         };
         if filter.limit() == Some(0) {

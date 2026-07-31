@@ -17,6 +17,7 @@ use serde_json::{Map, Value};
 
 use std::io::BufRead;
 
+use crate::credentials::Credentials;
 use crate::entities::EntityTable;
 use crate::records::{RecordTable, Schema};
 
@@ -139,16 +140,44 @@ pub fn batches<R: BufRead>(
 }
 
 /// Walk an entity input's rows in batches, like the record `batches`.
+///
+/// `credentials` carries the rules a user's own columns follow, so a row naming a
+/// password or an email address is hashed and normalized as it is read. A row either
+/// rule refuses ends the walk, which rolls the load back and delegates.
 pub fn entity_batches<R: BufRead>(
     table: EntityTable,
     source: R,
     format: LoadFormat,
+    credentials: Option<Credentials>,
 ) -> Option<Batches<R, Entities>> {
     Some(Batches {
         rows: Rows::open(source, format)?,
-        convert: Box::new(move |objects| entities(table, objects)),
+        convert: Box::new(move |objects| {
+            entities(table, &credentialed(table, objects, credentials)?)
+        }),
         spent: false,
     })
+}
+
+/// Apply the credential rules to a batch of wire objects, `None` when one is refused.
+fn credentialed(
+    table: EntityTable,
+    objects: &[Map<String, Value>],
+    credentials: Option<Credentials>,
+) -> Option<Vec<Map<String, Value>>> {
+    let mut applied = objects.to_vec();
+    if table == EntityTable::Users {
+        // A user's columns cannot be written without the rules, so a caller that has
+        // none refuses rather than storing a password as it arrived.
+        let credentials = credentials?;
+        for object in &mut applied {
+            if !credentials.apply(table, object) {
+                return None;
+            }
+        }
+    }
+
+    Some(applied)
 }
 
 /// One input's rows, read lazily in whichever shape the format names.
@@ -198,8 +227,13 @@ pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Re
 }
 
 /// Read a whole entity input into batches, like the record `read`.
-pub fn read_entities(table: EntityTable, text: &str, format: LoadFormat) -> Option<Vec<Entities>> {
-    entity_batches(table, text.as_bytes(), format)?.collect()
+pub fn read_entities(
+    table: EntityTable,
+    text: &str,
+    format: LoadFormat,
+    credentials: Option<Credentials>,
+) -> Option<Vec<Entities>> {
+    entity_batches(table, text.as_bytes(), format, credentials)?.collect()
 }
 
 /// Build the one record a create names from its field values, `None` when a field or a
@@ -213,8 +247,13 @@ pub fn build(table: RecordTable, values: &[(String, String)]) -> Option<Records>
 }
 
 /// Build the one entity a create names from its field values, like the record `build`.
-pub fn build_entity(table: EntityTable, values: &[(String, String)]) -> Option<Entities> {
-    entities(table, &[wire_object(table.schema(), values)?])
+pub fn build_entity(
+    table: EntityTable,
+    values: &[(String, String)],
+    credentials: Option<Credentials>,
+) -> Option<Entities> {
+    let object = wire_object(table.schema(), values)?;
+    entities(table, &credentialed(table, &[object], credentials)?)
 }
 
 /// Read a create's raw argument text into one wire object.

@@ -33,6 +33,7 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
         let key = wire_name(field)?.unwrap_or_else(|| identifier.to_string());
         let family = match family_of(&field.ty) {
             Family::Address if marked(field, "plain") => Family::PlainAddress,
+            Family::Text if marked(field, "email") => Family::Email,
             family => family,
         };
 
@@ -41,6 +42,7 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             Family::Address => quote! { ceres_entities::FieldFamily::Address },
             Family::Timestamp => quote! { ceres_entities::FieldFamily::Timestamp },
             Family::Text => quote! { ceres_entities::FieldFamily::Text },
+            Family::Email => quote! { ceres_entities::FieldFamily::Email },
             Family::Values(ty) => quote! {
                 ceres_entities::FieldFamily::Values(
                     <#ty as ceres_entities::FilterValues>::VALUES,
@@ -115,6 +117,7 @@ enum Family {
     Address,
     Timestamp,
     Text,
+    Email,
     Level,
     Values(Box<syn::Type>),
     Bytes,
@@ -142,7 +145,7 @@ fn operation_entries(
         ("suffix", quote! { ceres_entities::OperationKind::Suffix }),
     ];
     match family {
-        Family::Text | Family::Bytes | Family::Json => variants
+        Family::Text | Family::Email | Family::Bytes | Family::Json => variants
             .iter()
             .map(|(variant, kind)| {
                 let operation_key = if bare {

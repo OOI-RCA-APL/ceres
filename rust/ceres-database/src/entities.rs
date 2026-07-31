@@ -61,10 +61,7 @@ impl EntityTable {
                 name: self.name(),
                 fields: User::FIELDS,
                 columns: User::COLUMNS,
-                // An email compares after the Python model has normalized it, which is
-                // the `email_validator` library's own normalization, so equality on one
-                // stays where that library is.
-                delegated: &["email"],
+                delegated: &[],
                 key: &["id"],
                 fixed: &["id"],
                 order: &["username"],

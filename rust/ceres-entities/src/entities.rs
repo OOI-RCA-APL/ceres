@@ -26,10 +26,11 @@ pub struct User {
     /// The account's email address, whose operations fold case the way the Python
     /// filter's do.
     ///
-    /// Its equality key is not served here. The Python model validates and normalizes
-    /// an email before comparing it, lowercasing it and resolving its domain, which is
-    /// the `email_validator` library's own behavior rather than something to reproduce.
-    #[filterable(insensitive)]
+    /// Equality normalizes first, because the Python model types the field as a
+    /// validated address and so compares a normalized value against a normalized column.
+    /// An address outside the subset the normalizer understands delegates rather than
+    /// comparing unnormalized.
+    #[filterable(email, insensitive)]
     pub email: String,
     /// The Argon2 hash of the account's password.
     ///

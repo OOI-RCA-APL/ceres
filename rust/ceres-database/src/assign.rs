@@ -12,6 +12,7 @@ use ceres_entities::{Address, FieldFamily, latin1};
 use sea_query::SimpleExpr;
 use serde_json::Value;
 
+use crate::credentials::normalize_email;
 use crate::records::Schema;
 use crate::store::Parameter;
 use crate::writer::Dialect;
@@ -82,6 +83,9 @@ fn encode(family: &FieldFamily, value: &Value, dialect: Dialect) -> Option<Simpl
             }
         }
         FieldFamily::Text => value.as_str()?.to_string().into(),
+        // An address stores normalized, and normalizing one that already is changes
+        // nothing, so this holds whether or not the credential rules ran first.
+        FieldFamily::Email => normalize_email(value.as_str()?)?.into(),
         FieldFamily::Values(allowed) => {
             let text = value.as_str()?;
             if !allowed.contains(&text) {

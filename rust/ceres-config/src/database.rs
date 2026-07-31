@@ -469,6 +469,17 @@ pub enum DatabaseConfig {
     Postgres(PostgresDatabaseConfig),
 }
 
+impl DatabaseConfig {
+    /// The settings every backend carries, whichever one this is.
+    pub fn shared(&self) -> &SharedDatabaseConfig {
+        match self {
+            Self::Sqlite(config) => &config.shared,
+            Self::Turso(config) => &config.shared,
+            Self::Postgres(config) => &config.shared,
+        }
+    }
+}
+
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self::Sqlite(SqliteDatabaseConfig::default())

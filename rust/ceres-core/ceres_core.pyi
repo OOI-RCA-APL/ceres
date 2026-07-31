@@ -34,10 +34,13 @@ __all__ = [
     "ServiceConfig",
     "TursoDatabaseConfig",
     "entity_filter_keys",
+    "hash_password",
+    "normalize_email",
     "openapi_schema",
     "parse_record_filter",
     "record_filter_from_json",
     "record_filter_keys",
+    "special_use_domains",
 ]
 
 class Argon2HashingConfig:
@@ -1175,6 +1178,32 @@ def entity_filter_keys(table: EntityTable) -> tuple[list[str], list[str]]:
     holds their union to exactly the fields the Python filter models declare.
     """
 
+def hash_password(
+    password: str,
+    time_cost: int,
+    memory_cost: int,
+    parallelism: int,
+    hash_length: int,
+    salt_length: int,
+) -> str | None:
+    r"""
+    Hash a password with the given Argon2id parameters, `None` when they are out of range.
+
+    A value that already reads as a stored hash passes through, which is the user
+    manager's own rule. Exposed so the parity suite can hand a natively-produced hash to
+    Python's own verifier, the only check that proves the two agree.
+    """
+
+def normalize_email(value: str) -> str | None:
+    r"""
+    Normalize an email address the way a native user write stores it, `None` for one
+    outside the subset the native path understands.
+
+    Exposed so the parity suite can hold the native subset against `email_validator`
+    itself, which is the direction that matters. An address this accepts and that library
+    rejects would be a row written natively that Python would have refused.
+    """
+
 def openapi_schema(version: str) -> str:
     r"""
     Serve the OpenAPI document describing the API, as JSON text.
@@ -1196,4 +1225,13 @@ def record_filter_keys(table: RecordTable) -> tuple[list[str], list[str]]:
 
     Answers `(supported, delegated)`, and the classification test holds their union to
     exactly the fields the Python filter models declare.
+    """
+
+def special_use_domains() -> list[str]:
+    r"""
+    The reserved domain names the native email subset refuses.
+
+    Exposed so the parity suite can hold it against the validator library's own list. A
+    name added there and not here would be an address written natively that Python
+    refuses.
     """

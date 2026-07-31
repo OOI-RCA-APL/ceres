@@ -61,6 +61,12 @@ pub enum FieldFamily {
     Timestamp,
     /// Equality on text.
     Text,
+    /// Equality on an email address, which normalizes before it compares.
+    ///
+    /// The Python filter model types the field as a validated address, so a value it is
+    /// given is normalized before the comparison the same way a stored one was. Equality
+    /// that skipped that step would miss the row it was looking for.
+    Email,
     /// Equality over a closed set of values, a plain enum's variants.
     Values(&'static [&'static str]),
     /// Equality plus ordered bounds, `min_` and `max_` prefixed on the field's key.
