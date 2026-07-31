@@ -278,9 +278,28 @@ fn sqlite_optional_id(row: &SqliteRow, column: &str) -> Result<Option<Uuid>, Err
         .map_err(|_| Error::Decode(format!("{text:?} is not a UUID")))
 }
 
-/// Decode a SQLite value column, which holds arbitrary JSON as text.
+/// Decode a SQLite value column, which holds arbitrary JSON.
+///
+/// The column is declared `JSON`, which carries none of SQLite's affinity keywords and
+/// therefore takes NUMERIC affinity. The driver writes the JSON text, and the backend
+/// converts whatever looks like a number back into one, so a variable holding `5` is
+/// stored as an integer while one holding `true` stays text. Both decode here.
 fn sqlite_value(row: &SqliteRow) -> Result<Value, Error> {
-    let text: String = row.try_get("value")?;
+    let text = match row.try_get::<String, _>("value") {
+        Ok(text) => text,
+        Err(_) => match row.try_get::<Option<i64>, _>("value") {
+            Ok(Some(number)) => return Ok(number.into()),
+            // A null column is a null value, which a variable may hold.
+            Ok(None) => return Ok(Value::Null),
+            Err(_) => {
+                let number: f64 = row.try_get("value")?;
+                return serde_json::Number::from_f64(number)
+                    .map(Value::Number)
+                    .ok_or_else(|| Error::Decode(format!("{number} is not a JSON number")));
+            }
+        },
+    };
+
     serde_json::from_str(&text).map_err(|error| Error::Decode(error.to_string()))
 }
 

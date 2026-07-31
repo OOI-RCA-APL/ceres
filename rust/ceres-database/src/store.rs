@@ -677,6 +677,85 @@ mod tests {
         assert!(contents(&store).await.is_empty());
     }
 
+    #[tokio::test]
+    async fn entity_rows_decode_whatever_storage_class_they_landed_in() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("records.sqlite");
+        let path = path.to_str().unwrap();
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .unwrap();
+
+        // The column types are the migration's own. A `JSON` column carries none of
+        // SQLite's affinity keywords, so it takes NUMERIC affinity and converts a
+        // numeric-looking value out of the text the driver bound.
+        sqlx::query(
+            "CREATE TABLE variables (address TEXT, name TEXT, value JSON, \
+             PRIMARY KEY (address, name))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        for (name, value) in [
+            ("number", "5"),
+            ("float", "1.5"),
+            ("flag", "true"),
+            ("text", "\"hello\""),
+            ("structure", "{\"k\":1}"),
+        ] {
+            sqlx::query("INSERT INTO variables VALUES ('@a', ?, ?)")
+                .bind(name)
+                .bind(value)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        // The affinity really does split the rows across storage classes, which is what
+        // makes reading them all as text wrong.
+        let classes: Vec<String> =
+            sqlx::query_scalar("SELECT typeof(value) FROM variables ORDER BY name")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            classes,
+            vec!["text", "real", "integer", "text", "text"],
+            "the value column takes NUMERIC affinity"
+        );
+
+        pool.close().await;
+
+        let store = RecordStore::sqlite(path).unwrap();
+        let Entities::Variables(variables) = store
+            .fetch_entities(EntityTable::Variables, None, None)
+            .await
+            .expect("the listing reads")
+        else {
+            panic!("expected variables");
+        };
+
+        // Ordered by the entity's own default, which is the key tuple.
+        let held: Vec<(&str, serde_json::Value)> = variables
+            .iter()
+            .map(|variable| (variable.name.as_str(), variable.value.clone()))
+            .collect();
+        assert_eq!(
+            held,
+            vec![
+                ("flag", serde_json::json!(true)),
+                ("float", serde_json::json!(1.5)),
+                ("number", serde_json::json!(5)),
+                ("structure", serde_json::json!({"k": 1})),
+                ("text", serde_json::json!("hello")),
+            ]
+        );
+    }
+
     #[test]
     fn listings_order_and_bound_like_the_python_layer() {
         let statement = RecordTable::Particles.listing(Some(100), Some(20));
