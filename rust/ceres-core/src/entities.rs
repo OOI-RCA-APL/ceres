@@ -101,20 +101,25 @@ impl RecordBatch {
         Ok(PyBytes::new(py, &serialized))
     }
 
-    /// Render the batch as CSV lines under a header row, in the wire cell forms.
+    /// Render the batch as CSV lines in the wire cell forms, under a header row
+    /// unless suppressed.
     ///
     /// The shape a CSV record dump writes, quoted the way the Python `csv` writer
     /// quotes, so a select can produce its whole output in one native pass. A field
     /// projection, ordered `(field, alias)` pairs, selects the columns, with the
     /// aliases as the header row.
-    #[pyo3(signature = (fields=None))]
-    fn to_csv_lines(&self, fields: Option<Vec<(String, String)>>) -> PyResult<String> {
+    #[pyo3(signature = (fields=None, *, header=true))]
+    fn to_csv_lines(
+        &self,
+        fields: Option<Vec<(String, String)>>,
+        header: bool,
+    ) -> PyResult<String> {
         match &fields {
             Some(fields) => self
                 .records
-                .to_csv_lines_projected(fields)
+                .to_csv_lines_projected(fields, header)
                 .map_err(|error| PyValueError::new_err(error.to_string())),
-            None => Ok(self.records.to_csv_lines()),
+            None => Ok(self.records.to_csv_lines(header)),
         }
     }
 }

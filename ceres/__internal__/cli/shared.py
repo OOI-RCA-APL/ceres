@@ -509,12 +509,13 @@ class CLICommand(DataModel):
         color: bool | None = None,
         data_format: CLIDataFormat | None = None,
         fields: Sequence[str] | Mapping[str, str] | None = None,
+        header: bool | None = None,
     ) -> None:
         """Write structured data to the output stream in the specified format.
 
         Handle scalars, async iterables, and async context managers that yield iterables. When
         `data_format` is CSV and the value is not atomic, extract fields and write a header row
-        before data rows.
+        before data rows. A known field projection writes its header even when no rows follow.
 
         Args:
             data: The data to output. May be a scalar, async iterable, or async context manager.
@@ -524,9 +525,12 @@ class CLICommand(DataModel):
             color: Override for color output.
             data_format: The serialization format. Defaults to JSON.
             fields: Optional field names (or name-to-alias mappings) to include in output.
+            header: Whether to include the header row in CSV output. Defaults to including it.
         """
         if data_format is None:
             data_format = CLIDataFormat.JSON
+        if header is None:
+            header = True
         if fields is not None and not isinstance(fields, Mapping):
             fields = {field: field for field in fields}
 
@@ -548,7 +552,12 @@ class CLICommand(DataModel):
                 import csv
 
                 writer = csv.writer(_CallbackWriter(write), lineterminator="")
-                started = False
+                if fields is not None and header:
+                    # The projection's aliases are the header, so it writes even when
+                    # no rows follow, and the output always carries its schema.
+                    writer.writerow(dict.fromkeys(fields.values()))
+
+                started = fields is not None or not header
 
                 def output(value: object) -> None:
                     nonlocal started
@@ -939,6 +948,11 @@ class CLIDataOutputCommand(CLICommand):
     field in the output data to the provided alias.
     """
 
+    header: bool = True
+    """
+    Include a header row in CSV output. Pass `--no-header` to output data rows only.
+    """
+
     @override
     async def put(
         self,
@@ -950,6 +964,7 @@ class CLIDataOutputCommand(CLICommand):
         color: bool | None = None,
         data_format: CLIDataFormat | None = None,
         fields: Sequence[str] | Mapping[str, str] | None = None,
+        header: bool | None = None,
     ) -> None:
         """Write data using the command's configured output file, format, and field selection."""
         # A file this call opens must close with it, or its final buffer never
@@ -986,6 +1001,7 @@ class CLIDataOutputCommand(CLICommand):
                 color=color,
                 data_format=data_format,
                 fields=fields,
+                header=header if header is not None else self.header,
             )
         finally:
             if opened is not None:
@@ -1073,15 +1089,18 @@ async def dump_records_natively(
     query: Any,
     data_format: CLIDataFormat = CLIDataFormat.JSON,
     fields: Mapping[str, str] | None = None,
+    *,
+    header: bool = True,
 ) -> str | None:
     """Render a record query as JSON or CSV lines in one native pass, `None` when it
     cannot.
 
     The query compiles here and executes through the native fetcher, so rows never
     become Python objects and records render once, in Rust. A field projection, a
-    name-to-alias mapping, selects and renames the output fields. Only the record
-    tables on a native backend qualify, and a query carrying a transform needs Python
-    objects and takes the materializing path instead.
+    name-to-alias mapping, selects and renames the output fields, and `header` gates
+    the CSV header row. Only the record tables on a native backend qualify, and a
+    query carrying a transform needs Python objects and takes the materializing path
+    instead.
     """
     from ceres.__internal__.app.shared import RECORD_TABLES
 
@@ -1103,7 +1122,7 @@ async def dump_records_natively(
         return None
 
     if data_format is CLIDataFormat.CSV:
-        return batch.to_csv_lines(projection)
+        return batch.to_csv_lines(projection, header=header)
 
     return batch.to_json_lines(projection).decode()
 
@@ -1130,13 +1149,28 @@ def create_entity_select_command(Entity: type[Entity]):
                 data_format = self.native_dump_format()
                 if data_format is not None:
                     dumped = await dump_records_natively(
-                        database, Entity, query, data_format, self.resolved_fields()
+                        database,
+                        Entity,
+                        query,
+                        data_format,
+                        self.resolved_fields(),
+                        header=self.header,
                     )
                     if dumped is not None:
                         self.put_text(dumped)
                         return
 
-                await self.put(query.select())
+                fields = self.resolved_fields()
+                data_format = self.data_format
+                if self.output is not None:
+                    data_format = _resolve_data_format(self.output, data_format)
+
+                if fields is None and data_format is CLIDataFormat.CSV:
+                    # An entity's columns are its model fields, so a CSV select still
+                    # writes its header when no rows match.
+                    fields = {name: name for name in Entity.__pydantic_fields__}
+
+                await self.put(query.select(), fields=fields)
 
     return SelectCommand
 

@@ -210,11 +210,17 @@ impl CsvRecord for LogEntry {
     }
 }
 
-/// Render a sequence of records as CSV lines under a header row.
-pub fn to_csv_lines<T: CsvRecord>(records: &[T]) -> String {
+/// Render a sequence of records as CSV lines, under a header row unless suppressed.
+///
+/// An empty sequence still renders the header, so the output always carries its
+/// schema.
+pub fn to_csv_lines<T: CsvRecord>(records: &[T], header: bool) -> String {
     let mut lines = String::new();
-    lines.push_str(T::CSV_HEADER);
-    lines.push('\n');
+    if header {
+        lines.push_str(T::CSV_HEADER);
+        lines.push('\n');
+    }
+
     for record in records {
         csv_row(&record.csv_cells(), &mut lines);
     }
@@ -304,17 +310,24 @@ pub fn to_json_lines_projected<T: Serialize>(
     Ok(lines)
 }
 
-/// Render projected records as CSV lines, the header row holding the aliases.
+/// Render projected records as CSV lines, an alias header row unless suppressed.
+///
+/// An empty sequence still renders the header, so the output always carries its
+/// schema.
 pub fn to_csv_lines_projected<T: Serialize>(
     records: &[T],
     fields: &[(String, String)],
+    header: bool,
 ) -> serde_json::Result<String> {
     let mut lines = String::new();
-    let header: Vec<Option<String>> = projected_aliases(fields)
-        .into_iter()
-        .map(|alias| Some(alias.to_string()))
-        .collect();
-    csv_row(&header, &mut lines);
+    if header {
+        let aliases: Vec<Option<String>> = projected_aliases(fields)
+            .into_iter()
+            .map(|alias| Some(alias.to_string()))
+            .collect();
+        csv_row(&aliases, &mut lines);
+    }
+
     for record in records {
         let cells: Vec<Option<String>> = project(record, fields)?
             .into_iter()
@@ -381,13 +394,14 @@ impl Records {
         }
     }
 
-    /// Render the records as CSV lines under a header row, in the wire cell forms.
-    pub fn to_csv_lines(&self) -> String {
+    /// Render the records as CSV lines in the wire cell forms, under a header row
+    /// unless suppressed.
+    pub fn to_csv_lines(&self, header: bool) -> String {
         match self {
-            Self::Messages(records) => to_csv_lines(records),
-            Self::Particles(records) => to_csv_lines(records),
-            Self::Alerts(records) => to_csv_lines(records),
-            Self::LogEntries(records) => to_csv_lines(records),
+            Self::Messages(records) => to_csv_lines(records, header),
+            Self::Particles(records) => to_csv_lines(records, header),
+            Self::Alerts(records) => to_csv_lines(records, header),
+            Self::LogEntries(records) => to_csv_lines(records, header),
         }
     }
 
@@ -404,16 +418,18 @@ impl Records {
         }
     }
 
-    /// Render a field projection of the records as CSV lines under an alias header.
+    /// Render a field projection of the records as CSV lines, an alias header row
+    /// unless suppressed.
     pub fn to_csv_lines_projected(
         &self,
         fields: &[(String, String)],
+        header: bool,
     ) -> serde_json::Result<String> {
         match self {
-            Self::Messages(records) => to_csv_lines_projected(records, fields),
-            Self::Particles(records) => to_csv_lines_projected(records, fields),
-            Self::Alerts(records) => to_csv_lines_projected(records, fields),
-            Self::LogEntries(records) => to_csv_lines_projected(records, fields),
+            Self::Messages(records) => to_csv_lines_projected(records, fields, header),
+            Self::Particles(records) => to_csv_lines_projected(records, fields, header),
+            Self::Alerts(records) => to_csv_lines_projected(records, fields, header),
+            Self::LogEntries(records) => to_csv_lines_projected(records, fields, header),
         }
     }
 }
@@ -527,7 +543,7 @@ mod tests {
                 data: b"a,b \"c\"\nd".to_vec(),
             },
         ];
-        let rendered = to_csv_lines(&messages);
+        let rendered = to_csv_lines(&messages, true);
         let mut lines = rendered.split_inclusive('\n');
         assert_eq!(
             lines.next().unwrap(),
@@ -565,7 +581,7 @@ mod tests {
             data,
             span: None,
         }];
-        let rendered = to_csv_lines(&particles);
+        let rendered = to_csv_lines(&particles, true);
         assert!(rendered.starts_with("id,address,timestamp,type,data,span\n"));
         // JSON cells quote for their commas, keys staying in insertion order, and an
         // absent span renders as an empty cell.
@@ -619,7 +635,7 @@ mod tests {
              \"nonexistent\":null,\"span\":null}\n"
         );
 
-        let rendered = to_csv_lines_projected(&particles, &fields).unwrap();
+        let rendered = to_csv_lines_projected(&particles, &fields, true).unwrap();
         assert_eq!(
             rendered,
             "kind,id,nonexistent,span\n\
@@ -649,10 +665,50 @@ mod tests {
             "{\"data\":{\"b\":2.5,\"a\":1},\"span\":[3,17]}\n"
         );
 
-        let rendered = to_csv_lines_projected(&particles, &fields).unwrap();
+        let rendered = to_csv_lines_projected(&particles, &fields, true).unwrap();
         assert_eq!(
             rendered,
             "data,span\n\"{\"\"b\"\":2.5,\"\"a\"\":1}\",\"[3,17]\"\n"
+        );
+    }
+
+    #[test]
+    fn empty_sequences_still_render_the_csv_header() {
+        let none: Vec<Message> = Vec::new();
+        assert_eq!(
+            to_csv_lines(&none, true),
+            "id,address,timestamp,connection,direction,data\n"
+        );
+        assert_eq!(
+            to_csv_lines_projected(&none, &pairs(&[("id", "id"), ("data", "raw")]), true).unwrap(),
+            "id,raw\n"
+        );
+    }
+
+    #[test]
+    fn suppressed_headers_leave_only_the_rows() {
+        let entries = vec![LogEntry {
+            id: id(),
+            address: address(),
+            timestamp: timestamp(),
+            level: Level::Info,
+            content: "hello".to_string(),
+        }];
+        assert_eq!(
+            to_csv_lines(&entries, false),
+            "0198c0de-0000-7000-8000-000000000001,@sensor.temp,\
+             2026-07-29T12:30:45.123456Z,info,hello\n"
+        );
+        assert_eq!(
+            to_csv_lines_projected(&entries, &pairs(&[("content", "text")]), false).unwrap(),
+            "hello\n"
+        );
+
+        let none: Vec<LogEntry> = Vec::new();
+        assert_eq!(to_csv_lines(&none, false), "");
+        assert_eq!(
+            to_csv_lines_projected(&none, &pairs(&[("id", "id")]), false).unwrap(),
+            ""
         );
     }
 
@@ -673,7 +729,7 @@ mod tests {
             "{\"value\":\"hello\",\"id\":\"0198c0de-0000-7000-8000-000000000001\"}\n"
         );
 
-        let rendered = to_csv_lines_projected(&entries, &fields).unwrap();
+        let rendered = to_csv_lines_projected(&entries, &fields, true).unwrap();
         assert_eq!(
             rendered,
             "value,id\nhello,0198c0de-0000-7000-8000-000000000001\n"

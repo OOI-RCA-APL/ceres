@@ -470,9 +470,12 @@ class RecordBatch:
         each line as an object of the aliased wire values, unknown or absent fields
         serializing as null.
         """
-    def to_csv_lines(self, fields: Sequence[tuple[str, str]] | None = None) -> str:
+    def to_csv_lines(
+        self, fields: Sequence[tuple[str, str]] | None = None, *, header: bool = True
+    ) -> str:
         r"""
-        Render the batch as CSV lines under a header row, in the wire cell forms.
+        Render the batch as CSV lines in the wire cell forms, under a header row
+        unless suppressed.
 
         The shape a CSV record dump writes, quoted the way the Python `csv` writer
         quotes, so a select can produce its whole output in one native pass. A field

@@ -243,6 +243,83 @@ async def test_the_native_projected_dumps_match_the_materializing_path(tmp_path:
         await engine.database.dispose()
 
 
+async def test_an_empty_table_still_writes_the_csv_header(tmp_path: Path) -> None:
+    """A CSV select matching no records still writes its header row, in both the
+    native and the materializing paths, so the output always carries its schema."""
+    from ceres.__internal__.cli.shared import CLIDataFormat
+
+    engine = await _build_engine_on_disk(tmp_path)
+    all_fields = {name: name for name in Alert.__pydantic_fields__}
+
+    try:
+        query = engine.__manager__(Alert).where()
+        header = "id,address,timestamp,level,type,data\n"
+        assert (
+            await dump_records_natively(engine.database, Alert, query, CLIDataFormat.CSV) == header
+        )
+        assert (
+            await dump_records_natively(
+                engine.database, Alert, query, CLIDataFormat.CSV, {"id": "id", "level": "severity"}
+            )
+            == "id,severity\n"
+        )
+        assert await dump_records_natively(engine.database, Alert, query) == ""
+
+        # The materializing path writes the same header through the select command's
+        # all-fields projection.
+        Command = create_entity_select_command(Alert)
+        path = tmp_path / "empty.csv"
+        command = Command(output=path)
+        await command.put(query.select(), fields=all_fields)
+        assert path.read_text() == header
+
+        # `--no-header` leaves an empty result completely empty.
+        bare_path = tmp_path / "empty-bare.csv"
+        command = Command(output=bare_path, header=False)
+        await command.put(query.select(), fields=all_fields)
+        assert bare_path.read_text() == ""
+        assert (
+            await dump_records_natively(
+                engine.database, Alert, query, CLIDataFormat.CSV, header=False
+            )
+            == ""
+        )
+    finally:
+        await engine.database.dispose()
+
+
+async def test_no_header_dumps_carry_only_data_rows(tmp_path: Path) -> None:
+    """`--no-header` suppresses the CSV header row in both paths, projected or not,
+    and the rows still match byte for byte."""
+    from ceres.__internal__.cli.shared import CLIDataFormat
+
+    engine = await _build_engine_on_disk(tmp_path)
+    await _write_records(engine)
+
+    try:
+        for fields in (None, ["id", "timestamp:when"]):
+            query = engine.__manager__(Message).where()
+            Command = create_entity_select_command(Message)
+            suffix = "projected" if fields else "full"
+            path = tmp_path / f"bare-{suffix}.csv"
+            command = Command(output=path, header=False, field=fields)
+            await command.put(query.select())
+
+            dumped = await dump_records_natively(
+                engine.database,
+                Message,
+                query,
+                CLIDataFormat.CSV,
+                command.resolved_fields(),
+                header=False,
+            )
+            assert dumped is not None
+            assert dumped == path.read_bytes().decode()
+            assert not dumped.startswith("id,")
+    finally:
+        await engine.database.dispose()
+
+
 async def test_projected_message_data_renders_the_wire_text(tmp_path: Path) -> None:
     """A projected `data` field carries the record's latin-1 wire text, so a payload
     that is not valid UTF-8 still dumps."""

@@ -36,6 +36,8 @@ struct Invocation {
     config: Option<PathBuf>,
     /// The explicit color choice, `--color` or `--no-color`.
     color: Option<bool>,
+    /// The explicit header choice, `--header` or `--no-header`.
+    header: Option<bool>,
     /// Positional field specs, `field` or `field:alias`, in argument order.
     positional_fields: Vec<String>,
     /// The `--field` spec, a repeated flag keeping only its last value.
@@ -80,6 +82,8 @@ impl Invocation {
             match flag {
                 "color" => invocation.color = Some(true),
                 "no-color" => invocation.color = Some(false),
+                "header" => invocation.header = Some(true),
+                "no-header" => invocation.header = Some(false),
                 _ => {
                     if value.is_none() {
                         let next = tokens.peek()?.as_ref()?;
@@ -137,9 +141,16 @@ impl Invocation {
     /// delegate, for an unknown format or colorized output. Mirrors the Python
     /// command's color resolution.
     fn dump_format(&self) -> Option<DumpFormat> {
-        // A count carries no field surface, so a projection on one is an argument
-        // error the Python command owns.
-        if self.counting && (!self.positional_fields.is_empty() || self.flag_field.is_some()) {
+        // A count carries no output surface at all, no fields, no output file, no
+        // format, and no header choice, so any of them on one is an argument error
+        // the Python command owns.
+        if self.counting
+            && (!self.positional_fields.is_empty()
+                || self.flag_field.is_some()
+                || self.output.is_some()
+                || self.data_format.is_some()
+                || self.header.is_some())
+        {
             return None;
         }
 
@@ -214,6 +225,7 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
     // The whole result renders before anything writes, so a failure here can still
     // delegate without having produced partial output.
     let projection = invocation.projection();
+    let header = invocation.header.unwrap_or(true);
     let rendered = runtime.block_on(async {
         if invocation.counting {
             store
@@ -225,9 +237,9 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
             let rendered = match (format, projection.is_empty()) {
                 (DumpFormat::Json, true) => records.to_json_lines(),
                 (DumpFormat::Json, false) => records.to_json_lines_projected(&projection),
-                (DumpFormat::Csv, true) => Ok(records.to_csv_lines().into_bytes()),
+                (DumpFormat::Csv, true) => Ok(records.to_csv_lines(header).into_bytes()),
                 (DumpFormat::Csv, false) => records
-                    .to_csv_lines_projected(&projection)
+                    .to_csv_lines_projected(&projection, header)
                     .map(String::into_bytes),
             };
             rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
@@ -416,12 +428,31 @@ mod tests {
         assert!(Invocation::lex(&raw(&["select", "id,content"])).is_none());
         assert!(Invocation::lex(&raw(&["select", "[\"id\"]"])).is_none());
 
-        // A count has no field surface, so projecting one delegates.
+        // A count has no output surface, so fields, an output file, or a format on
+        // one delegates.
         assert_eq!(
             lex(&["count", "--field", "id", "--no-color"]).dump_format(),
             None
         );
         assert_eq!(lex(&["count", "id", "--no-color"]).dump_format(), None);
+        assert_eq!(lex(&["count", "--output", "rows.json"]).dump_format(), None);
+        assert_eq!(
+            lex(&["count", "--data-format", "csv", "--no-color"]).dump_format(),
+            None
+        );
+        assert_eq!(
+            lex(&["count", "--no-header", "--no-color"]).dump_format(),
+            None
+        );
+        assert_eq!(
+            lex(&["count", "--limit", "5", "--no-color"]).dump_format(),
+            Some(DumpFormat::Json)
+        );
+
+        // The header choice lexes as a bare boolean flag and stays native on select.
+        let invocation = lex(&["select", "--no-header", "--output", "rows.csv"]);
+        assert_eq!(invocation.header, Some(false));
+        assert_eq!(invocation.dump_format(), Some(DumpFormat::Csv));
     }
 
     #[test]
