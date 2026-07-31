@@ -217,35 +217,42 @@ impl Invocation {
         Ok((std::io::BufReader::new(file), format))
     }
 
-    /// Whether a native pass can render this invocation's output.
+    /// The shape a dump renders in.
     ///
-    /// Colorized output is the one shape the native renderers do not produce yet, so an
-    /// invocation asking for it hands the whole command over. Everything else about the
-    /// output is native, whatever its size.
-    pub(crate) fn renders_natively(&self, color: Option<bool>) -> bool {
-        match color {
-            Some(color) => !color,
-            None => {
-                std::env::var_os("FORCE_COLOR").is_none()
-                    && (std::env::var_os("NO_COLOR").is_some()
-                        || self.output.is_some()
-                        || !std::io::IsTerminal::is_terminal(&std::io::stdout()))
-            }
+    /// A named format is taken as given, and a destination's suffix decides when none was
+    /// named. What is left is a dump nobody said anything about, which becomes a table
+    /// when there is someone there to read it and JSON lines otherwise. A person at a
+    /// terminal wants columns and a pipe wants one object per line, so neither has to ask
+    /// for what they were going to want anyway.
+    pub(crate) fn dump_format(&self, color: Option<bool>) -> DumpFormat {
+        match self.data_format.as_deref() {
+            Some("csv") => return DumpFormat::Csv,
+            Some(_) => return DumpFormat::Json,
+            None => {}
+        }
+
+        if let Some(output) = &self.output {
+            return match output.extension() {
+                Some(suffix) if suffix == "csv" => DumpFormat::Csv,
+                _ => DumpFormat::Json,
+            };
+        }
+
+        if watched(color) {
+            DumpFormat::Table
+        } else {
+            DumpFormat::Json
         }
     }
+}
 
-    /// The shape a dump renders in, from the named format or the destination's suffix.
-    pub(crate) fn dump_format(&self) -> DumpFormat {
-        match self.data_format.as_deref() {
-            Some("csv") => DumpFormat::Csv,
-            Some(_) => DumpFormat::Json,
-            None => match &self.output {
-                Some(output) if output.extension().is_some_and(|suffix| suffix == "csv") => {
-                    DumpFormat::Csv
-                }
-                _ => DumpFormat::Json,
-            },
-        }
+/// Whether output is going somewhere a person is reading it right now.
+pub(crate) fn watched(color: Option<bool>) -> bool {
+    match color {
+        Some(color) => color,
+        None if std::env::var_os("NO_COLOR").is_some() => false,
+        None if std::env::var_os("FORCE_COLOR").is_some() => true,
+        None => std::io::IsTerminal::is_terminal(&std::io::stdout()),
     }
 }
 
@@ -254,6 +261,11 @@ impl Invocation {
 pub(crate) enum DumpFormat {
     Json,
     Csv,
+    /// Columns drawn in a box, for a dump someone is reading rather than piping.
+    ///
+    /// Every row has to be in hand before the first line can be drawn, because a column
+    /// is only as wide as its widest cell, so this is the one shape that does not stream.
+    Table,
 }
 
 /// What a native pass produced, ahead of writing it.
@@ -322,6 +334,8 @@ pub(crate) struct Sink<'a> {
     heading: bool,
     /// Whether the reader went away, which ends the dump rather than failing it.
     broke: bool,
+    /// Whether every chunk is held rather than only the most recent one.
+    accumulate: bool,
 }
 
 impl<'a> Sink<'a> {
@@ -333,6 +347,7 @@ impl<'a> Sink<'a> {
             destination: None,
             heading: header,
             broke: false,
+            accumulate: false,
         }
     }
 
@@ -341,6 +356,18 @@ impl<'a> Sink<'a> {
         Self {
             hold: false,
             ..Self::new(output, header)
+        }
+    }
+
+    /// A sink that holds every chunk and writes none of them.
+    ///
+    /// A table cannot be drawn until its widest cell is known, so the shape that draws
+    /// one has to have the whole result before it writes a byte. Holding it here keeps
+    /// the driver and the renderers the same as for the shapes that do stream.
+    pub(crate) fn collecting() -> Self {
+        Self {
+            accumulate: true,
+            ..Self::new(None, false)
         }
     }
 
@@ -364,6 +391,13 @@ impl<'a> Sink<'a> {
 
     /// Take one rendered chunk, writing the previous one out if there was one.
     pub(crate) fn push(&mut self, rendered: Vec<u8>) -> std::io::Result<()> {
+        if self.accumulate {
+            self.held
+                .get_or_insert_default()
+                .extend_from_slice(&rendered);
+            return Ok(());
+        }
+
         if !self.hold {
             return self.write(&rendered);
         }
@@ -447,6 +481,70 @@ pub(crate) fn finish(
         Err(_) if sink.broke() => Ok(Rendered::Written),
         Err(error) if sink.wrote() => Ok(Rendered::Failed(error.to_string())),
         Err(error) => Err(error),
+    }
+}
+
+/// Draw rendered JSON lines as a table.
+///
+/// The rows arrive already rendered and already projected, so the columns are whatever
+/// the rows carry, in the order the first one lists them. A row missing a column leaves
+/// its cell empty rather than shifting the rest along.
+pub(crate) fn tabulate(rendered: &[u8], color: bool) -> String {
+    use serde_json::{Map, Value};
+
+    let rows: Vec<Map<String, Value>> = rendered
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| serde_json::from_slice(line).ok())
+        .collect();
+
+    let mut columns: Vec<String> = Vec::new();
+    for row in &rows {
+        for name in row.keys() {
+            if !columns.iter().any(|column| column == name) {
+                columns.push(name.clone());
+            }
+        }
+    }
+
+    // An empty result still says so, which is the difference between "nothing matched"
+    // and "something went wrong".
+    if columns.is_empty() {
+        return "No rows.\n".to_string();
+    }
+
+    let mut table = crate::output::Table::new(None);
+    for column in &columns {
+        table.column(column.clone());
+    }
+
+    for row in &rows {
+        table.row(columns.iter().map(|column| match row.get(column) {
+            Some(Value::String(text)) => text.clone(),
+            Some(Value::Null) | None => String::new(),
+            Some(value) => value.to_string(),
+        }));
+    }
+
+    // The renderer draws the box without a trailing newline, which a table written to a
+    // terminal needs so the next prompt starts on its own line.
+    format!("{}\n", table.render(color))
+}
+
+/// Draw a rendered result as a table, when a table is the shape asked for.
+///
+/// Every shape but a table is already the bytes it will be written as, so this is where
+/// the one that is not becomes them.
+pub(crate) fn drawn(rendered: Rendered, format: DumpFormat, color: Option<bool>) -> Rendered {
+    if format != DumpFormat::Table {
+        return rendered;
+    }
+
+    match rendered {
+        Rendered::Bytes(bytes) => Rendered::Text(tabulate(&bytes, watched(color))),
+        // A result that reached the output already, or never produced one, has nothing
+        // left to draw.
+        other => other,
     }
 }
 
@@ -772,7 +870,8 @@ mod tests {
                 output: output.map(PathBuf::from),
                 ..Invocation::default()
             }
-            .dump_format()
+            // Nobody is reading, which is what a pipe or a redirect looks like.
+            .dump_format(Some(false))
         };
 
         assert_eq!(shape(None, None), DumpFormat::Json);
@@ -784,15 +883,54 @@ mod tests {
     }
 
     #[test]
-    fn colorized_output_is_the_one_shape_that_is_not_rendered_here_yet() {
-        let dump = Invocation {
-            output: Some(PathBuf::from("rows.json")),
-            ..Invocation::default()
+    fn a_dump_nobody_named_a_shape_for_follows_who_is_reading_it() {
+        let dump = |output: Option<&str>, color| {
+            Invocation {
+                output: output.map(PathBuf::from),
+                ..Invocation::default()
+            }
+            .dump_format(color)
         };
 
-        // Writing to a file is never colorized, whatever the terminal is doing.
-        assert!(dump.renders_natively(None));
-        assert!(dump.renders_natively(Some(false)));
-        assert!(!dump.renders_natively(Some(true)));
+        // Someone at a terminal gets columns, and a pipe gets one object per line, so
+        // neither has to ask for what they were going to want anyway.
+        assert_eq!(dump(None, Some(true)), DumpFormat::Table);
+        assert_eq!(dump(None, Some(false)), DumpFormat::Json);
+
+        // A file is never a table, whatever the terminal is doing, because the point of
+        // naming a destination is feeding it to something else later.
+        assert_eq!(dump(Some("rows.json"), Some(true)), DumpFormat::Json);
+        assert_eq!(dump(Some("rows.csv"), Some(true)), DumpFormat::Csv);
+    }
+
+    #[test]
+    fn a_table_draws_the_columns_its_rows_carry() {
+        let rendered = br#"{"name":"speed","value":5}
+{"name":"label","value":"drive"}
+"#;
+        let drawn = tabulate(rendered, false);
+        let expected = concat!(
+            "\u{256d}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+            "\u{252c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{256e}\n",
+            "\u{2502} name  \u{2502} value \u{2502}\n",
+            "\u{251c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+            "\u{253c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2524}\n",
+            "\u{2502} speed \u{2502} 5     \u{2502}\n",
+            "\u{2502} label \u{2502} drive \u{2502}\n",
+            "\u{2570}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+            "\u{2534}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{256f}\n",
+        );
+        assert_eq!(drawn, expected);
+
+        // A string cell prints as its text rather than as quoted JSON, which is what
+        // makes a table readable where JSON lines are exact.
+        assert!(!drawn.contains('"'), "{drawn}");
+    }
+
+    #[test]
+    fn a_table_of_nothing_says_so() {
+        // An empty box would read as a rendering failure and a silent exit as a lost
+        // result. Neither is what happened.
+        assert_eq!(tabulate(b"", false), "No rows.\n");
     }
 }

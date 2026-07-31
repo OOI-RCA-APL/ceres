@@ -12,7 +12,7 @@ use ceres_entities::Records;
 use clap::ArgMatches;
 
 use crate::commands::dump::{
-    DumpFormat, Invocation, Rendered, Sink, Verb, deliver, finish, open_store, written,
+    DumpFormat, Invocation, Rendered, Sink, Verb, deliver, drawn, finish, open_store, written,
 };
 use crate::commands::surface::Table;
 use crate::error::Result;
@@ -27,9 +27,6 @@ pub fn try_run(
     matches: &ArgMatches,
 ) -> Result<bool> {
     let invocation = Invocation::read(Table::Record(table), verb, matches);
-    if !invocation.renders_natively(color) {
-        return Ok(false);
-    }
 
     // `--collect` streams the rows a write touched rather than counting them, which the
     // native writers do not produce yet. Serving the command while quietly dropping the
@@ -38,7 +35,7 @@ pub fn try_run(
         return Ok(false);
     }
 
-    let format = invocation.dump_format();
+    let format = invocation.dump_format(color);
     // A follow reads a running engine rather than the database, so it opens no store and
     // takes its own path from here.
     if invocation.verb.streams() {
@@ -162,12 +159,20 @@ pub fn try_run(
                         ceres_database::Conflict::Error,
                     )
                     .await?;
-                render(&incoming[0], format, &projection, header).map(Rendered::Bytes)
+                render(&incoming[0], format, &projection, header)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
             }
             // A select streams, rendering and writing each chunk as the driver yields
             // it, so the dump never holds more than one chunk however large the table.
             Verb::Select => {
-                let mut sink = Sink::new(invocation.output.as_deref(), header);
+                // A table holds every chunk, because a column is only as wide as its
+                // widest cell. Every other shape streams, so a dump of any size holds
+                // one chunk however large the table.
+                let mut sink = if format == DumpFormat::Table {
+                    Sink::collecting()
+                } else {
+                    Sink::new(invocation.output.as_deref(), header)
+                };
                 let outcome = store
                     .stream_filter(filter(), &mut |records| {
                         let heading = sink.heading();
@@ -176,7 +181,7 @@ pub fn try_run(
                     })
                     .await;
 
-                finish(sink, outcome)
+                finish(sink, outcome).map(|rendered| drawn(rendered, format, color))
             }
         }
     });
@@ -195,6 +200,10 @@ fn render(
     header: bool,
 ) -> std::result::Result<Vec<u8>, ceres_database::Error> {
     let rendered = match (format, projection.is_empty()) {
+        // A table is drawn once the whole result is in hand, so each chunk
+        // renders as JSON lines here and the drawing happens at the end.
+        (DumpFormat::Table, true) => records.to_json_lines(),
+        (DumpFormat::Table, false) => records.to_json_lines_projected(projection),
         (DumpFormat::Json, true) => records.to_json_lines(),
         (DumpFormat::Json, false) => records.to_json_lines_projected(projection),
         (DumpFormat::Csv, true) => Ok(records.to_csv_lines(header).into_bytes()),
@@ -346,17 +355,19 @@ mod tests {
 
     #[test]
     fn the_destination_decides_the_shape_when_no_format_is_named() {
-        let csv = read(RecordTable::Messages, &["select", "--output", "rows.csv"]);
-        assert_eq!(csv.dump_format(), DumpFormat::Csv);
+        // Nobody is reading, which is what a pipe or a redirect looks like.
+        let shape =
+            |arguments: &[&str]| read(RecordTable::Messages, arguments).dump_format(Some(false));
 
-        let json = read(RecordTable::Messages, &["select", "--output", "rows.json"]);
-        assert_eq!(json.dump_format(), DumpFormat::Json);
-
-        // A named format wins over the suffix, which is the point of naming one.
-        let named = read(
-            RecordTable::Messages,
-            &["select", "--output", "rows.csv", "--data-format", "json"],
+        assert_eq!(shape(&["select", "--output", "rows.csv"]), DumpFormat::Csv);
+        assert_eq!(
+            shape(&["select", "--output", "rows.json"]),
+            DumpFormat::Json
         );
-        assert_eq!(named.dump_format(), DumpFormat::Json);
+        // A named format wins over the suffix, which is the point of naming one.
+        assert_eq!(
+            shape(&["select", "--output", "rows.csv", "--data-format", "json"]),
+            DumpFormat::Json
+        );
     }
 }

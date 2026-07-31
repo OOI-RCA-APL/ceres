@@ -80,7 +80,7 @@ impl Table {
     }
 
     /// Render the table as a string, without a trailing newline.
-    fn render(&self, color: bool) -> String {
+    pub fn render(&self, color: bool) -> String {
         let mut widths: Vec<usize> = self
             .columns
             .iter()

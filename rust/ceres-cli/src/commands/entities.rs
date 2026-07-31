@@ -19,7 +19,7 @@ use ceres_entities::Entities;
 use clap::ArgMatches;
 
 use crate::commands::dump::{
-    DumpFormat, Invocation, Rendered, Sink, Verb, deliver, finish, open_store, written,
+    DumpFormat, Invocation, Rendered, Sink, Verb, deliver, drawn, finish, open_store, written,
 };
 use crate::commands::surface::Table;
 use crate::error::Result;
@@ -34,9 +34,6 @@ pub fn try_run(
     matches: &ArgMatches,
 ) -> Result<bool> {
     let invocation = Invocation::read(Table::Entity(table), verb, matches);
-    if !invocation.renders_natively(color) {
-        return Ok(false);
-    }
 
     // `--collect` streams the rows a write touched rather than counting them, which the
     // native writers do not produce yet. Serving the command while quietly dropping the
@@ -45,7 +42,7 @@ pub fn try_run(
         return Ok(false);
     }
 
-    let format = invocation.dump_format();
+    let format = invocation.dump_format(color);
 
     // The configuration is read before anything is built, because a user's own columns
     // are written under rules the database's own hashing configuration decides.
@@ -181,12 +178,20 @@ pub fn try_run(
                         ceres_database::Conflict::Error,
                     )
                     .await?;
-                render(&incoming[0], format, &projection, header).map(Rendered::Bytes)
+                render(&incoming[0], format, &projection, header)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
             }
             // A select streams, rendering and writing each chunk as the driver yields
             // it, so the dump never holds more than one chunk however large the table.
             Verb::Select => {
-                let mut sink = Sink::new(invocation.output.as_deref(), header);
+                // A table holds every chunk, because a column is only as wide as its
+                // widest cell. Every other shape streams, so a dump of any size holds
+                // one chunk however large the table.
+                let mut sink = if format == DumpFormat::Table {
+                    Sink::collecting()
+                } else {
+                    Sink::new(invocation.output.as_deref(), header)
+                };
                 let outcome = store
                     .stream_entity_filter(filter(), &mut |entities| {
                         let heading = sink.heading();
@@ -195,7 +200,7 @@ pub fn try_run(
                     })
                     .await;
 
-                finish(sink, outcome)
+                finish(sink, outcome).map(|rendered| drawn(rendered, format, color))
             }
         }
     });
@@ -248,6 +253,10 @@ fn render(
     header: bool,
 ) -> std::result::Result<Vec<u8>, ceres_database::Error> {
     let rendered = match (format, projection.is_empty()) {
+        // A table is drawn once the whole result is in hand, so each chunk
+        // renders as JSON lines here and the drawing happens at the end.
+        (DumpFormat::Table, true) => entities.to_json_lines(),
+        (DumpFormat::Table, false) => entities.to_json_lines_projected(projection),
         (DumpFormat::Json, true) => entities.to_json_lines(),
         (DumpFormat::Json, false) => entities.to_json_lines_projected(projection),
         (DumpFormat::Csv, true) => Ok(entities.to_csv_lines(header).into_bytes()),

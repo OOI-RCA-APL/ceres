@@ -118,6 +118,9 @@ fn render(
 
     let heading = sink.heading();
     let rendered = match (format, projection.is_empty()) {
+        // A stream has no end to draw a table at, so it renders as JSON lines.
+        (DumpFormat::Table, true) => records.to_json_lines(),
+        (DumpFormat::Table, false) => records.to_json_lines_projected(projection),
         (DumpFormat::Json, true) => records.to_json_lines(),
         (DumpFormat::Json, false) => records.to_json_lines_projected(projection),
         (DumpFormat::Csv, true) => Ok(records.to_csv_lines(heading).into_bytes()),

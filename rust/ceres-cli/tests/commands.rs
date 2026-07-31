@@ -77,14 +77,30 @@ impl Project {
 
     /// Run the binary against this project.
     fn run(&self, arguments: &[&str]) -> Output {
+        self.run_with(&["--no-color"], arguments, &[])
+    }
+
+    /// Run the binary as though someone were reading its output at a terminal.
+    fn watched(&self, arguments: &[&str]) -> Output {
+        self.run_with(&[], arguments, &[("FORCE_COLOR", "1")])
+    }
+
+    /// Run the binary with explicit global flags and environment.
+    fn run_with(
+        &self,
+        globals: &[&str],
+        arguments: &[&str],
+        environment: &[(&str, &str)],
+    ) -> Output {
         Command::new(env!("CARGO_BIN_EXE_ceres"))
             .arg("--config")
             .arg(self.config())
-            .arg("--no-color")
+            .args(globals)
             .args(arguments)
             // A command that hands off to Python cannot find an interpreter here, so
             // delegation shows up as a failure rather than as a quiet pass.
             .env("CERES_PYTHON", self.path().join("no-such-interpreter"))
+            .envs(environment.iter().copied())
             .output()
             .expect("the binary runs")
     }
@@ -305,4 +321,29 @@ async fn help_is_answered_without_starting_an_interpreter() {
         help.contains("ceres variables select --address @motor"),
         "{help}"
     );
+}
+
+#[tokio::test]
+async fn a_dump_someone_is_reading_is_drawn_as_a_table() {
+    let project = Project::seed().await;
+
+    let table = succeeded(&project.watched(&["variables", "select", "--address", "@motor"]));
+    assert!(table.contains('\u{256d}'), "{table}");
+    assert!(table.contains("speed"), "{table}");
+    assert!(table.contains("torque"), "{table}");
+    // A table is columns, not one object per line.
+    assert!(!table.contains('{'), "{table}");
+
+    // The same command with nothing reading it stays machine-readable, so a script that
+    // pipes this is unaffected by any of it.
+    let piped = succeeded(&project.run(&["variables", "select", "--address", "@motor"]));
+    assert!(piped.starts_with('{'), "{piped}");
+}
+
+#[tokio::test]
+async fn a_dump_of_nothing_says_so_rather_than_printing_an_empty_box() {
+    let project = Project::seed().await;
+
+    let drawn = project.watched(&["variables", "select", "--name", "nothing-matches-this"]);
+    assert_eq!(succeeded(&drawn).trim(), "No rows.");
 }
