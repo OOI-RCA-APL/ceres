@@ -15,7 +15,6 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "anyio>=4.13,<5",
     "apscheduler>=3.11.2,<4",
-    "argon2-cffi>=25.1",
     "asgiref>=3.11.1,<4",
     "asyncpg>=0.31",
     "bcrypt>=5,<6",

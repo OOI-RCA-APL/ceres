@@ -51,6 +51,33 @@ def test_python_verifies_a_natively_produced_hash() -> None:
     assert not verify_password("wrong horse", hashed)
 
 
+ARGON2_CFFI_HASHES = [
+    "$argon2id$v=19$m=65536,t=3,p=4$ZzRD0u38GKAGWzmasM/n2g$+HCdivS/yFZTh9vHznxtVwp0rOtMa7Pza/OyNfmaG0Y",
+    "$argon2id$v=19$m=8192,t=2,p=1$nA4m0B7oRXRMYDstCnsEngX2tUs$CM/xugrNXgu1xIiaOFTMCwoihF99Nylp",
+    "$argon2id$v=19$m=1024,t=1,p=1$l4CiMWHb5Rw$7NHtsbhY+bBtJ1NmacpGKg",
+]
+"""Hashes of `STORED_PASSWORD` produced by `argon2-cffi`, which used to do the hashing.
+
+Written out rather than generated, because the library is no longer a dependency. They
+cover the configured defaults and two other parameter sets, including salt and hash
+lengths that differ from them.
+"""
+
+STORED_PASSWORD = "correct horse battery staple"
+
+
+@pytest.mark.parametrize("hashed", ARGON2_CFFI_HASHES)
+def test_a_hash_written_by_the_old_library_still_verifies(hashed: str) -> None:
+    """A password stored before the switch verifies against the implementation after it.
+
+    These are real rows in real databases. A verifier that rejected them would lock every
+    existing account out, and no other test would notice, because everything else here
+    hashes and verifies with the same implementation.
+    """
+    assert verify_password(STORED_PASSWORD, validate(Argon2Hash, hashed))
+    assert not verify_password("wrong password", validate(Argon2Hash, hashed))
+
+
 def test_a_hash_carries_the_parameters_it_was_configured_with() -> None:
     """The encoded string names the configuration's own costs and lengths.
 

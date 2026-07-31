@@ -10,7 +10,7 @@
 //! than reporting, so Python produces the message and writes the row itself.
 
 use argon2::password_hash::rand_core::{OsRng, RngCore};
-use argon2::password_hash::{PasswordHasher, SaltString};
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::{Algorithm, Argon2, Params, Version};
 use email_address::EmailAddress;
 use serde_json::{Map, Value};
@@ -107,6 +107,24 @@ impl Credentials {
     fn hash_length(&self) -> usize {
         self.hashing.hash_length
     }
+}
+
+/// Whether a password matches a stored Argon2 hash.
+///
+/// The parameters come out of the encoded string rather than from a configuration, which
+/// is what lets a hash written under one configuration still verify after the parameters
+/// are changed. A hash of any other algorithm answers `None`, leaving it to the caller.
+pub fn verify_argon2(password: &str, hash: &str) -> Option<bool> {
+    if !argon2_hash(hash) {
+        return None;
+    }
+
+    let parsed = PasswordHash::new(hash).ok()?;
+    Some(
+        Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok(),
+    )
 }
 
 /// Whether a value already reads as a stored password hash.

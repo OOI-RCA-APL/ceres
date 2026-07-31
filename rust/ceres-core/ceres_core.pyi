@@ -41,6 +41,7 @@ __all__ = [
     "record_filter_from_json",
     "record_filter_keys",
     "special_use_domains",
+    "verify_password",
 ]
 
 class Argon2HashingConfig:
@@ -1192,11 +1193,13 @@ def hash_password(
     A value that already reads as a stored hash passes through, which is the user
     manager's own rule.
 
-    This exists for the parity suite alone, which hands a natively-produced hash to
-    Python's own verifier, the only check that proves the two agree. Nothing in the
-    running system calls it, and nothing should. Hashing on the Python side belongs to
-    `ceres.__internal__.auth`, and a second caller here would make two hashers where the
-    point was to have one per side, each verifiable against the other.
+    This is the one Argon2 implementation the system has. The Python side calls it rather
+    than carrying a second one, so a hash written by a native command and a hash written
+    through the entity manager cannot drift apart.
+
+    The interpreter lock is released for the duration. Argon2 is deliberately expensive,
+    tens of milliseconds against the default memory cost, and holding the lock through it
+    would stall every other Python thread, the event loop included.
     """
 
 def normalize_email(value: str) -> str | None:
@@ -1239,4 +1242,13 @@ def special_use_domains() -> list[str]:
     Exposed so the parity suite can hold it against the validator library's own list. A
     name added there and not here would be an address written natively that Python
     refuses.
+    """
+
+def verify_password(password: str, hash: str) -> bool | None:
+    r"""
+    Whether a password matches a stored Argon2 hash, `None` for any other algorithm.
+
+    The parameters come out of the encoded hash, so a stored one still verifies after the
+    configuration's parameters change. Releases the interpreter lock like `hash_password`,
+    and for the same reason, verifying costs what hashing costs.
     """

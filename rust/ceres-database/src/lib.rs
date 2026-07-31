@@ -20,6 +20,7 @@ mod writer;
 
 pub use credentials::{
     Argon2Params, Credentials, SPECIAL_USE_DOMAINS, is_password_hash, normalize_email,
+    verify_argon2,
 };
 pub use entities::EntityTable;
 pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, SqlDialect};

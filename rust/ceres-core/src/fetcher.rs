@@ -349,15 +349,18 @@ pub fn special_use_domains() -> Vec<&'static str> {
 /// A value that already reads as a stored hash passes through, which is the user
 /// manager's own rule.
 ///
-/// This exists for the parity suite alone, which hands a natively-produced hash to
-/// Python's own verifier, the only check that proves the two agree. Nothing in the
-/// running system calls it, and nothing should. Hashing on the Python side belongs to
-/// `ceres.__internal__.auth`, and a second caller here would make two hashers where the
-/// point was to have one per side, each verifiable against the other.
+/// This is the one Argon2 implementation the system has. The Python side calls it rather
+/// than carrying a second one, so a hash written by a native command and a hash written
+/// through the entity manager cannot drift apart.
+///
+/// The interpreter lock is released for the duration. Argon2 is deliberately expensive,
+/// tens of milliseconds against the default memory cost, and holding the lock through it
+/// would stall every other Python thread, the event loop included.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (password, time_cost, memory_cost, parallelism, hash_length, salt_length))]
 pub fn hash_password(
+    py: Python<'_>,
     password: &str,
     time_cost: u32,
     memory_cost: u32,
@@ -365,14 +368,25 @@ pub fn hash_password(
     hash_length: usize,
     salt_length: usize,
 ) -> Option<String> {
-    ceres_database::Credentials::new(ceres_database::Argon2Params {
+    let credentials = ceres_database::Credentials::new(ceres_database::Argon2Params {
         time_cost,
         memory_cost,
         parallelism,
         hash_length,
         salt_length,
-    })
-    .password(password)
+    });
+    py.detach(|| credentials.password(password))
+}
+
+/// Whether a password matches a stored Argon2 hash, `None` for any other algorithm.
+///
+/// The parameters come out of the encoded hash, so a stored one still verifies after the
+/// configuration's parameters change. Releases the interpreter lock like `hash_password`,
+/// and for the same reason, verifying costs what hashing costs.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn verify_password(py: Python<'_>, password: &str, hash: &str) -> Option<bool> {
+    py.detach(|| ceres_database::verify_argon2(password, hash))
 }
 
 fn to_value_error(error: ceres_database::Error) -> PyErr {
