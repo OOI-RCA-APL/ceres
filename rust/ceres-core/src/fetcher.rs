@@ -347,8 +347,13 @@ pub fn special_use_domains() -> Vec<&'static str> {
 /// Hash a password with the given Argon2id parameters, `None` when they are out of range.
 ///
 /// A value that already reads as a stored hash passes through, which is the user
-/// manager's own rule. Exposed so the parity suite can hand a natively-produced hash to
-/// Python's own verifier, the only check that proves the two agree.
+/// manager's own rule.
+///
+/// This exists for the parity suite alone, which hands a natively-produced hash to
+/// Python's own verifier, the only check that proves the two agree. Nothing in the
+/// running system calls it, and nothing should. Hashing on the Python side belongs to
+/// `ceres.__internal__.auth`, and a second caller here would make two hashers where the
+/// point was to have one per side, each verifiable against the other.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (password, time_cost, memory_cost, parallelism, hash_length, salt_length))]
