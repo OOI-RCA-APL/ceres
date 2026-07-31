@@ -15,6 +15,8 @@ use ceres_entities::{
 };
 use serde_json::{Map, Value};
 
+use std::io::BufRead;
+
 use crate::entities::EntityTable;
 use crate::records::{RecordTable, Schema};
 
@@ -74,40 +76,130 @@ impl LoadFormat {
 /// How many rows one insert carries, matching the Python command's batch.
 pub(crate) const BATCH: usize = 1000;
 
+/// How a batch of wire objects becomes the rows it will write.
+type Convert<T> = Box<dyn Fn(&[Map<String, Value>]) -> Option<T>>;
+
+/// Walk an input's rows, decoding one batch at a time.
+///
+/// A load of any size holds one batch rather than the whole file, matching the Python
+/// command, which reads its source lazily and flushes every `BATCH` rows inside a single
+/// transaction. An item of `None` is a row the native types cannot represent, which
+/// rolls the whole load back and delegates.
+pub struct Batches<R, T> {
+    rows: Rows<R>,
+    convert: Convert<T>,
+    /// Whether a refusal already ended the walk, past which there is nothing to read.
+    spent: bool,
+}
+
+impl<R: BufRead, T> Iterator for Batches<R, T> {
+    type Item = Option<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.spent {
+            return None;
+        }
+
+        let mut objects = Vec::with_capacity(BATCH);
+        while objects.len() < BATCH {
+            match self.rows.next() {
+                None => break,
+                Some(None) => {
+                    self.spent = true;
+                    return Some(None);
+                }
+                Some(Some(object)) => objects.push(object),
+            }
+        }
+
+        if objects.is_empty() {
+            return None;
+        }
+
+        let batch = (self.convert)(&objects);
+        self.spent = batch.is_none();
+        Some(batch)
+    }
+}
+
+/// Walk an input's rows in batches of records.
+///
+/// `None` when the source cannot be opened as the format claims, which for CSV means a
+/// header row that will not read.
+pub fn batches<R: BufRead>(
+    table: RecordTable,
+    source: R,
+    format: LoadFormat,
+) -> Option<Batches<R, Records>> {
+    Some(Batches {
+        rows: Rows::open(source, format)?,
+        convert: Box::new(move |objects| records(table, objects)),
+        spent: false,
+    })
+}
+
+/// Walk an entity input's rows in batches, like the record `batches`.
+pub fn entity_batches<R: BufRead>(
+    table: EntityTable,
+    source: R,
+    format: LoadFormat,
+) -> Option<Batches<R, Entities>> {
+    Some(Batches {
+        rows: Rows::open(source, format)?,
+        convert: Box::new(move |objects| entities(table, objects)),
+        spent: false,
+    })
+}
+
+/// One input's rows, read lazily in whichever shape the format names.
+enum Rows<R> {
+    /// One JSON object per line.
+    Json(std::io::Lines<R>),
+    /// A header row naming the fields, then one row of cells per record.
+    Csv(Box<csv::StringRecordsIntoIter<R>>, csv::StringRecord),
+}
+
+impl<R: BufRead> Rows<R> {
+    fn open(source: R, format: LoadFormat) -> Option<Self> {
+        match format {
+            LoadFormat::Json => Some(Self::Json(source.lines())),
+            LoadFormat::Csv => {
+                let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(source);
+                let headers = reader.headers().ok()?.clone();
+                Some(Self::Csv(Box::new(reader.into_records()), headers))
+            }
+        }
+    }
+
+    /// The next row's wire object, `None` at the end of the input and `Some(None)` for a
+    /// row the reader cannot represent.
+    fn next(&mut self) -> Option<Option<Map<String, Value>>> {
+        match self {
+            Self::Json(lines) => {
+                let line = lines.next()?;
+                Some(json_object(line.ok()?.as_str()))
+            }
+            Self::Csv(records, headers) => {
+                let row = records.next()?;
+                Some(row.ok().and_then(|row| csv_object(&row, headers)))
+            }
+        }
+    }
+}
+
 /// Read a whole input into batches of records, `None` when any row falls outside what
 /// the native types represent faithfully.
 ///
 /// The batches are the statements the load will issue, so an empty input reads as no
-/// batches and writes nothing.
+/// batches and writes nothing. Executing a load walks its source rather than collecting
+/// it, so this is for callers that genuinely want the whole file at once.
 pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Records>> {
-    let objects = read_objects(text, format)?;
-
-    let mut batches = Vec::new();
-    for chunk in objects.chunks(BATCH) {
-        batches.push(records(table, chunk)?);
-    }
-
-    Some(batches)
+    batches(table, text.as_bytes(), format)?.collect()
 }
 
 /// Read a whole entity input into batches, like the record `read`.
 pub fn read_entities(table: EntityTable, text: &str, format: LoadFormat) -> Option<Vec<Entities>> {
-    let objects = read_objects(text, format)?;
-
-    let mut batches = Vec::new();
-    for chunk in objects.chunks(BATCH) {
-        batches.push(entities(table, chunk)?);
-    }
-
-    Some(batches)
-}
-
-/// Read an input into one wire object per row.
-fn read_objects(text: &str, format: LoadFormat) -> Option<Vec<Map<String, Value>>> {
-    match format {
-        LoadFormat::Json => read_json(text),
-        LoadFormat::Csv => read_csv(text),
-    }
+    entity_batches(table, text.as_bytes(), format)?.collect()
 }
 
 /// Build the one record a create names from its field values, `None` when a field or a
@@ -144,50 +236,37 @@ fn wire_object(schema: Schema, values: &[(String, String)]) -> Option<Map<String
     Some(object)
 }
 
-/// Read one JSON object per line.
+/// Read one line as a JSON object.
 ///
 /// Every line has to carry an object, a blank one included, which is what the Python
 /// command's line-by-line validation does.
-fn read_json(text: &str) -> Option<Vec<Map<String, Value>>> {
-    text.lines()
-        .map(|line| match serde_json::from_str(line) {
-            Ok(Value::Object(object)) => Some(object),
-            _ => None,
-        })
-        .collect()
+fn json_object(line: &str) -> Option<Map<String, Value>> {
+    match serde_json::from_str(line) {
+        Ok(Value::Object(object)) => Some(object),
+        _ => None,
+    }
 }
 
-/// Read a header row and one row of cells per record.
+/// Read one row of cells against the header that names them.
 ///
 /// Cells arrive as text, exactly as Python's `DictReader` hands them to validation, so a
 /// column holding anything but text refuses here the same way it fails there. A row
 /// shorter than the header leaves its trailing fields null rather than absent, matching
 /// the reader's own fill value, and a longer one refuses.
-fn read_csv(text: &str) -> Option<Vec<Map<String, Value>>> {
-    let mut reader = csv::ReaderBuilder::new()
-        .flexible(true)
-        .from_reader(text.as_bytes());
-    let headers = reader.headers().ok()?.clone();
-
-    let mut objects = Vec::new();
-    for row in reader.records() {
-        let row = row.ok()?;
-        if row.len() > headers.len() {
-            return None;
-        }
-
-        let mut object = Map::new();
-        for (index, name) in headers.iter().enumerate() {
-            let cell = row.get(index).map_or(Value::Null, |cell| cell.into());
-            // A header naming one field twice would silently drop a column, which the
-            // dict reader also does, so the last cell wins here as it does there.
-            object.insert(name.to_string(), cell);
-        }
-
-        objects.push(object);
+fn csv_object(row: &csv::StringRecord, headers: &csv::StringRecord) -> Option<Map<String, Value>> {
+    if row.len() > headers.len() {
+        return None;
     }
 
-    Some(objects)
+    let mut object = Map::new();
+    for (index, name) in headers.iter().enumerate() {
+        let cell = row.get(index).map_or(Value::Null, |cell| cell.into());
+        // A header naming one field twice would silently drop a column, which the dict
+        // reader also does, so the last cell wins here as it does there.
+        object.insert(name.to_string(), cell);
+    }
+
+    Some(object)
 }
 
 /// Deserialize one batch of wire objects into records.

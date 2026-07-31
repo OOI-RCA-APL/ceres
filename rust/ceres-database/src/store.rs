@@ -217,6 +217,83 @@ impl RecordStore {
             .await
     }
 
+    /// Fetch the records a parsed native filter matches, a chunk at a time.
+    ///
+    /// Rows decode and reach `sink` as the driver yields them, so a dump of any size
+    /// holds one chunk rather than the whole table. The sink decides what a chunk means,
+    /// which for the CLI is rendering it and writing it out.
+    pub async fn stream_filter(
+        &self,
+        filter: &RecordFilter,
+        sink: &mut impl FnMut(Records) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if filter.limit() == Some(0) {
+            return sink(filter.table().empty());
+        }
+
+        let table = filter.table();
+        let statement = filter.statement(self.dialect());
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let mut cursor = sqlx::query_with(&sql, values).fetch(pool);
+                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let mut cursor = sqlx::query_with(&sql, values).fetch(pool);
+                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
+            }
+            // Turso holds its result set behind its own cursor, which the backend walks
+            // in chunks of its own.
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.stream(table, &sql, parameters, sink).await
+            }
+        }
+    }
+
+    /// Fetch the entities a parsed native filter matches, a chunk at a time.
+    pub async fn stream_entity_filter(
+        &self,
+        filter: &EntityFilter,
+        sink: &mut impl FnMut(Entities) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if filter.limit() == Some(0) {
+            return sink(filter.table().empty());
+        }
+
+        let table = filter.table();
+        let statement = filter.statement(self.dialect());
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let mut cursor = sqlx::query_with(&sql, values).fetch(pool);
+                drain(
+                    &mut cursor,
+                    |rows| DecodeEntities::decode(table, rows),
+                    sink,
+                )
+                .await
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let mut cursor = sqlx::query_with(&sql, values).fetch(pool);
+                drain(
+                    &mut cursor,
+                    |rows| DecodeEntities::decode(table, rows),
+                    sink,
+                )
+                .await
+            }
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
     /// Count the records a parsed native filter matches.
     ///
     /// A limit or offset bounds the count itself, matching the Python layer's paged
@@ -492,124 +569,108 @@ impl RecordStore {
         }
     }
 
-    /// Write every batch of a bulk load in one transaction.
+    /// Write a bulk load's batches in one transaction, reading as it writes.
     ///
-    /// Nothing lands unless the whole load succeeds, so a collision under `Conflict::Error`
-    /// leaves the table exactly as it was and the command is free to delegate.
-    pub async fn load_records(&self, batches: &[Records], conflict: Conflict) -> Result<(), Error> {
-        let dialect = match self.dialect() {
-            SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
-            SqlDialect::Postgres => crate::writer::Dialect::Postgres,
-        };
-        let statements = batches
-            .iter()
-            .filter_map(|batch| {
-                crate::writer::load_statement(batch, dialect).map(|mut statement| {
-                    match conflict {
-                        // Without a conflict clause a collision aborts the transaction,
-                        // which is exactly what this mode promises.
-                        Conflict::Error => {}
-                        Conflict::Ignore => {
-                            statement.on_conflict(
-                                OnConflict::column(Alias::new("id")).do_nothing().to_owned(),
-                            );
-                        }
-                        Conflict::Update => {
-                            let mut on_conflict = OnConflict::column(Alias::new("id"));
-                            on_conflict.update_columns(
-                                crate::writer::columns(crate::records::table_of(batch))
-                                    .iter()
-                                    .filter(|&&column| column != "id")
-                                    .map(|&column| Alias::new(column)),
-                            );
-                            statement.on_conflict(on_conflict);
-                        }
-                    }
-
-                    statement
-                })
-            })
-            .collect::<Vec<_>>();
-
-        self.transaction(statements).await
+    /// Batches arrive from a reader that walks its source, so a load of any size holds
+    /// one batch rather than the whole file, matching the Python command. Nothing lands
+    /// unless the whole load succeeds, so a collision under `Conflict::Error`, or a row
+    /// the reader refuses, leaves the table exactly as it was and the command is free to
+    /// delegate. Answers how many rows were written, `None` when a row was refused.
+    pub async fn load_records(
+        &self,
+        batches: impl Iterator<Item = Option<Records>>,
+        conflict: Conflict,
+    ) -> Result<Option<usize>, Error> {
+        let dialect = self.writer_dialect();
+        self.write_batches(batches.map(|batch| {
+            let batch = batch?;
+            let rows = batch.len();
+            let mut statement = crate::writer::load_statement(&batch, dialect)?;
+            let key = crate::records::table_of(&batch).schema().key;
+            on_conflict(
+                &mut statement,
+                conflict,
+                key,
+                crate::writer::columns(crate::records::table_of(&batch)),
+            );
+            Some((statement, rows))
+        }))
+        .await
     }
 
-    /// Run every statement in one transaction, committing only when all of them land.
-    async fn transaction<S: SqlxBinder>(&self, statements: Vec<S>) -> Result<(), Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let mut transaction = pool.begin().await?;
-                for statement in statements {
-                    let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                    sqlx::query_with(&sql, values)
-                        .execute(&mut *transaction)
-                        .await?;
-                }
-
-                transaction.commit().await?;
-                Ok(())
-            }
-            Backend::Postgres(pool) => {
-                let mut transaction = pool.begin().await?;
-                for statement in statements {
-                    let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                    sqlx::query_with(&sql, values)
-                        .execute(&mut *transaction)
-                        .await?;
-                }
-
-                transaction.commit().await?;
-                Ok(())
-            }
-            Backend::Turso(_) => Err(Error::Unsupported),
-        }
-    }
-
-    /// Write every batch of a bulk entity load in one transaction.
+    /// Write a bulk entity load's batches in one transaction, reading as it writes.
     ///
     /// The conflict target is the table's whole primary key, which for a variable or a
     /// setting is a pair of columns rather than an ID.
     pub async fn load_entities(
         &self,
-        batches: &[Entities],
+        batches: impl Iterator<Item = Option<Entities>>,
         conflict: Conflict,
-    ) -> Result<(), Error> {
-        let dialect = match self.dialect() {
+    ) -> Result<Option<usize>, Error> {
+        let dialect = self.writer_dialect();
+        self.write_batches(batches.map(|batch| {
+            let batch = batch?;
+            let rows = batch.len();
+            let mut statement = crate::writer::entity_load_statement(&batch, dialect)?;
+            let schema = crate::entities::table_of(&batch).schema();
+            on_conflict(
+                &mut statement,
+                conflict,
+                schema.key,
+                crate::writer::entity_columns(&batch),
+            );
+            Some((statement, rows))
+        }))
+        .await
+    }
+
+    /// The value forms this store's backend binds on the write path.
+    fn writer_dialect(&self) -> crate::writer::Dialect {
+        match self.dialect() {
             SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
             SqlDialect::Postgres => crate::writer::Dialect::Postgres,
-        };
-        let statements = batches
-            .iter()
-            .filter_map(|batch| {
-                let schema = crate::entities::table_of(batch).schema();
-                crate::writer::entity_load_statement(batch, dialect).map(|mut statement| {
-                    let key = || schema.key.iter().map(|&column| Alias::new(column));
-                    match conflict {
-                        // Without a conflict clause a collision aborts the transaction,
-                        // which is exactly what this mode promises.
-                        Conflict::Error => {}
-                        Conflict::Ignore => {
-                            statement
-                                .on_conflict(OnConflict::columns(key()).do_nothing().to_owned());
-                        }
-                        Conflict::Update => {
-                            let mut on_conflict = OnConflict::columns(key());
-                            on_conflict.update_columns(
-                                crate::writer::entity_columns(batch)
-                                    .iter()
-                                    .filter(|column| !schema.key.contains(column))
-                                    .map(|&column| Alias::new(column)),
-                            );
-                            statement.on_conflict(on_conflict);
-                        }
-                    }
+        }
+    }
 
-                    statement
-                })
-            })
-            .collect::<Vec<_>>();
+    /// Execute a load's batches in one transaction, committing only when all of them
+    /// land.
+    ///
+    /// The batches are pulled one at a time, so the reader behind them walks its source
+    /// as the writes go out rather than collecting it first. A batch of `None` is a row
+    /// the reader refused, which rolls everything back by returning before the commit.
+    async fn write_batches(
+        &self,
+        mut batches: impl Iterator<Item = Option<(sea_query::InsertStatement, usize)>>,
+    ) -> Result<Option<usize>, Error> {
+        macro_rules! run {
+            ($pool:expr, $builder:expr) => {{
+                let mut transaction = $pool.begin().await?;
+                let mut written = 0;
+                for batch in &mut batches {
+                    let Some((statement, rows)) = batch else {
+                        // Dropping the transaction rolls it back, so the table is
+                        // exactly as it was and the command delegates.
+                        return Ok(None);
+                    };
 
-        self.transaction(statements).await
+                    let (sql, values) = statement.build_sqlx($builder);
+                    sqlx::query_with(&sql, values)
+                        .execute(&mut *transaction)
+                        .await?;
+                    written += rows;
+                }
+
+                transaction.commit().await?;
+                Ok(Some(written))
+            }};
+        }
+
+        match &self.backend {
+            Backend::Sqlite(pool) => run!(pool, SqliteQueryBuilder),
+            Backend::Postgres(pool) => run!(pool, PostgresQueryBuilder),
+            // Turso keeps the Python write path until its native writer is wired.
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
     }
 
     /// Read the columns an authentication gate needs for one user, `None` when no user
@@ -723,6 +784,75 @@ impl RecordStore {
     }
 }
 
+/// Apply a load's conflict mode to one insert, over the table's whole primary key.
+fn on_conflict(
+    statement: &mut sea_query::InsertStatement,
+    conflict: Conflict,
+    key: &[&'static str],
+    columns: &[&'static str],
+) {
+    let target = || key.iter().map(|&column| Alias::new(column));
+    match conflict {
+        // Without a conflict clause a collision aborts the transaction, which is exactly
+        // what this mode promises.
+        Conflict::Error => {}
+        Conflict::Ignore => {
+            statement.on_conflict(OnConflict::columns(target()).do_nothing().to_owned());
+        }
+        Conflict::Update => {
+            let mut clause = OnConflict::columns(target());
+            clause.update_columns(
+                columns
+                    .iter()
+                    .filter(|column| !key.contains(column))
+                    .map(|&column| Alias::new(column)),
+            );
+            statement.on_conflict(clause);
+        }
+    }
+}
+
+/// How many rows one streamed chunk carries.
+///
+/// A dump decodes, renders, and writes per chunk rather than whole, so memory stays flat
+/// over a table of any size. The size also decides how much of a result a caller can
+/// hold back before writing, which is what keeps a late refusal able to delegate.
+pub const CHUNK: usize = 1000;
+
+/// Walk a row cursor, decoding and handing over one chunk at a time.
+///
+/// A chunk decodes only once it is full, so a decode failure surfaces having produced no
+/// partial batch, and the trailing rows go over even when they do not fill one.
+async fn drain<Row, Batch, Cursor>(
+    cursor: &mut Cursor,
+    decode: impl Fn(Vec<Row>) -> Result<Batch, Error>,
+    sink: &mut impl FnMut(Batch) -> Result<(), Error>,
+) -> Result<(), Error>
+where
+    Cursor: futures_util::Stream<Item = Result<Row, sqlx::Error>> + Unpin,
+{
+    use futures_util::StreamExt;
+
+    let mut buffer = Vec::with_capacity(CHUNK);
+    let mut sent = false;
+    while let Some(row) = cursor.next().await {
+        buffer.push(row?);
+        if buffer.len() == CHUNK {
+            sink(decode(std::mem::take(&mut buffer))?)?;
+            sent = true;
+            buffer.reserve(CHUNK);
+        }
+    }
+
+    // An empty result still reaches the sink once, because a CSV dump writes its header
+    // row whether or not any record follows it.
+    if !buffer.is_empty() || !sent {
+        sink(decode(buffer)?)?;
+    }
+
+    Ok(())
+}
+
 /// Check a case-insensitive keyword prefix.
 fn starts_with_keyword(text: &str, keyword: &str) -> bool {
     text.len() >= keyword.len() && text[..keyword.len()].eq_ignore_ascii_case(keyword)
@@ -783,8 +913,10 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = logs_store(directory.path()).await;
         async fn load(store: &RecordStore, text: &str, conflict: Conflict) -> Result<(), Error> {
-            let batches = crate::load::read(RecordTable::Logs, text, LoadFormat::Json).unwrap();
-            store.load_records(&batches, conflict).await
+            let batches =
+                crate::load::batches(RecordTable::Logs, text.as_bytes(), LoadFormat::Json)
+                    .expect("the reader opens");
+            store.load_records(batches, conflict).await.map(|_| ())
         }
 
         load(&store, FIRST, Conflict::Error).await.unwrap();
@@ -810,9 +942,10 @@ mod tests {
         let fresh = "{\"id\": \"0198c0de-0000-7000-8000-000000000009\", \"address\": \"@b\", \
              \"timestamp\": \"2026-07-29T00:00:00Z\", \"level\": \"info\", \"content\": \"fresh\"}\n";
         let text = format!("{FIRST}{fresh}{SECOND}");
-        let batches = crate::load::read(RecordTable::Logs, &text, LoadFormat::Json).unwrap();
+        let batches = crate::load::batches(RecordTable::Logs, text.as_bytes(), LoadFormat::Json)
+            .expect("the reader opens");
 
-        assert!(store.load_records(&batches, Conflict::Error).await.is_err());
+        assert!(store.load_records(batches, Conflict::Error).await.is_err());
         assert!(contents(&store).await.is_empty());
     }
 

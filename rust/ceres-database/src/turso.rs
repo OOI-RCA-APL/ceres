@@ -97,7 +97,32 @@ impl TursoBackend {
         let mut rows = connection
             .query(sql, turso::params_from_iter(parameters))
             .await?;
-        decode(table, &mut rows).await
+        decode(table, &mut rows, usize::MAX).await
+    }
+
+    /// Walk a result set, handing over one chunk of records at a time.
+    pub(crate) async fn stream(
+        &self,
+        table: RecordTable,
+        sql: &str,
+        parameters: Vec<Value>,
+        sink: &mut impl FnMut(Records) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let connection = self.connection().await?;
+        let mut rows = connection
+            .query(sql, turso::params_from_iter(parameters))
+            .await?;
+
+        // A batch shorter than the chunk means the cursor is spent, and an empty result
+        // still goes over once so a CSV dump writes its header row.
+        loop {
+            let records = decode(table, &mut rows, crate::store::CHUNK).await?;
+            let complete = records.len() == crate::store::CHUNK;
+            sink(records)?;
+            if !complete {
+                return Ok(());
+            }
+        }
     }
 
     /// Read a gate user row, `None` when no user carries the ID.
@@ -236,8 +261,15 @@ pub(crate) fn sea_value(value: sea_query::Value) -> Result<Value, Error> {
     })
 }
 
-/// Decode a result set into natively-held records.
-async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, Error> {
+/// Decode up to `limit` rows of a result set into natively-held records.
+///
+/// The cursor keeps its place, so calling this again resumes where it stopped, and a
+/// batch shorter than the limit means the result set is exhausted.
+async fn decode(
+    table: RecordTable,
+    rows: &mut turso::Rows,
+    limit: usize,
+) -> Result<Records, Error> {
     let columns = Columns {
         names: rows.column_names(),
     };
@@ -248,7 +280,9 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
             let direction_column = columns.index("direction")?;
             let data = columns.index("data")?;
             let mut records = Vec::new();
-            while let Some(row) = rows.next().await? {
+            while records.len() < limit
+                && let Some(row) = rows.next().await?
+            {
                 records.push(Message {
                     id: id(&row, &columns)?,
                     address: address(&row, &columns)?,
@@ -265,7 +299,9 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
             let kind = columns.index("type")?;
             let data = columns.index("data")?;
             let mut records = Vec::new();
-            while let Some(row) = rows.next().await? {
+            while records.len() < limit
+                && let Some(row) = rows.next().await?
+            {
                 records.push(Particle {
                     id: id(&row, &columns)?,
                     address: address(&row, &columns)?,
@@ -283,7 +319,9 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
             let kind = columns.index("type")?;
             let data = columns.index("data")?;
             let mut records = Vec::new();
-            while let Some(row) = rows.next().await? {
+            while records.len() < limit
+                && let Some(row) = rows.next().await?
+            {
                 records.push(Alert {
                     id: id(&row, &columns)?,
                     address: address(&row, &columns)?,
@@ -300,7 +338,9 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
             let level_column = columns.index("level")?;
             let content = columns.index("content")?;
             let mut records = Vec::new();
-            while let Some(row) = rows.next().await? {
+            while records.len() < limit
+                && let Some(row) = rows.next().await?
+            {
                 records.push(LogEntry {
                     id: id(&row, &columns)?,
                     address: address(&row, &columns)?,

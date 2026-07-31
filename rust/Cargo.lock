@@ -679,6 +679,7 @@ dependencies = [
  "ceres-entities",
  "chrono",
  "csv",
+ "futures-util",
  "sea-query",
  "sea-query-binder",
  "serde",

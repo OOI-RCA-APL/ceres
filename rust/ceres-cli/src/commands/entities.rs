@@ -16,7 +16,9 @@ use std::path::Path;
 use ceres_database::{EntityFilter, EntityTable};
 use ceres_entities::Entities;
 
-use crate::commands::dump::{DumpFormat, Invocation, Rendered, Verb, deliver, open_store};
+use crate::commands::dump::{
+    DumpFormat, Invocation, Rendered, Sink, Verb, deliver, finish, open_store, written,
+};
 use crate::error::Result;
 use crate::project::Project;
 
@@ -33,10 +35,10 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
     }
 
     // A filtered verb parses its wire pairs, while `create` reads them as the new
-    // entity's field values and `load` reads a file instead. Both write forms build
-    // their rows here, before anything opens, so a refusal costs nothing.
+    // entity's field values and `load` opens a file it will walk as it writes.
     let mut filter = None;
     let mut incoming = Vec::new();
+    let mut source = None;
     if invocation.verb.filters() {
         let Ok(parsed) = EntityFilter::parse(table, &invocation.pairs) else {
             return Ok(false);
@@ -50,14 +52,14 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
 
         incoming.push(entities);
     } else {
-        let Some((text, load_format)) = invocation.load_source() else {
+        let Some((file, load_format)) = invocation.load_source() else {
             return Ok(false);
         };
-        let Some(batches) = ceres_database::read_entities(table, &text, load_format) else {
+        let Some(batches) = ceres_database::entity_batches(table, file, load_format) else {
             return Ok(false);
         };
 
-        incoming = batches;
+        source = Some(batches);
     }
 
     let config = invocation.config.as_deref().or(config);
@@ -118,27 +120,42 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
                         })
                     })
             }
-            // A load reports how many rows it read, which is the file's row count
-            // whatever the conflict mode then did with them.
+            // A load reports how many rows it wrote, which the reader counts as it
+            // walks the file, whatever the conflict mode then did with them.
             Verb::Load => {
                 let conflict = invocation
                     .conflict()
                     .expect("a load resolved its conflict mode above");
-                let read: usize = incoming.iter().map(Entities::len).sum();
-                store
-                    .load_entities(&incoming, conflict)
-                    .await
-                    .map(|()| Rendered::Text(format!("{read}\n")))
+                let batches = source.take().expect("a load opened its file above");
+                store.load_entities(batches, conflict).await.map(|written| {
+                    // A row the reader refused rolled the load back, so Python owns it.
+                    written.map_or(Rendered::Delegate, |written| {
+                        Rendered::Text(format!("{written}\n"))
+                    })
+                })
             }
             Verb::Create => {
                 store
-                    .load_entities(&incoming, ceres_database::Conflict::Error)
+                    .load_entities(
+                        incoming.iter().cloned().map(Some),
+                        ceres_database::Conflict::Error,
+                    )
                     .await?;
-                render(&incoming[0], format, &projection, header)
+                render(&incoming[0], format, &projection, header).map(Rendered::Bytes)
             }
+            // A select streams, rendering and writing each chunk as the driver yields
+            // it, so the dump never holds more than one chunk however large the table.
             Verb::Select => {
-                let entities = store.fetch_entity_filter(filter()).await?;
-                render(&entities, format, &projection, header)
+                let mut sink = Sink::new(invocation.output.as_deref(), header);
+                let outcome = store
+                    .stream_entity_filter(filter(), &mut |entities| {
+                        let heading = sink.heading();
+                        let rendered = render(&entities, format, &projection, heading)?;
+                        sink.push(rendered).map_err(written)
+                    })
+                    .await;
+
+                finish(sink, outcome)
             }
         }
     });
@@ -187,7 +204,7 @@ fn render(
     format: DumpFormat,
     projection: &[(String, String)],
     header: bool,
-) -> std::result::Result<Rendered, ceres_database::Error> {
+) -> std::result::Result<Vec<u8>, ceres_database::Error> {
     let rendered = match (format, projection.is_empty()) {
         (DumpFormat::Json, true) => entities.to_json_lines(),
         (DumpFormat::Json, false) => entities.to_json_lines_projected(projection),
@@ -196,9 +213,7 @@ fn render(
             .to_csv_lines_projected(projection, header)
             .map(String::into_bytes),
     };
-    rendered
-        .map(Rendered::Bytes)
-        .map_err(|error| ceres_database::Error::Decode(error.to_string()))
+    rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
 }
 
 #[cfg(test)]

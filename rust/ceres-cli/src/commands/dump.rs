@@ -223,9 +223,12 @@ impl Invocation {
         }
     }
 
-    /// A load's input file and the shape to read it in, `None` when the file is
-    /// unreadable or names no format.
-    pub(crate) fn load_source(&self) -> Option<(String, LoadFormat)> {
+    /// A load's input file, opened for reading, and the shape to read it in.
+    ///
+    /// The file is handed over open rather than read, because a load walks its source as
+    /// it writes rather than holding the whole thing. `None` when the file will not open
+    /// or the invocation names no format.
+    pub(crate) fn load_source(&self) -> Option<(std::io::BufReader<std::fs::File>, LoadFormat)> {
         let path = Path::new(self.positional_fields.first()?);
         let format = match &self.data_format {
             Some(named) => LoadFormat::parse(named)?,
@@ -233,10 +236,10 @@ impl Invocation {
             // error the Python command owns.
             None => LoadFormat::infer(path.extension()?.to_str()?)?,
         };
-        // A file the native path cannot read is the Python command's error to report,
-        // whether it is missing, unreadable, or not text.
-        let text = std::fs::read_to_string(path).ok()?;
-        Some((text, format))
+        // A file the native path cannot open is the Python command's error to report,
+        // whether it is missing or unreadable.
+        let file = std::fs::File::open(path).ok()?;
+        Some((std::io::BufReader::new(file), format))
     }
 
     /// The format a native one-pass dump can render, `None` when the invocation must
@@ -340,6 +343,13 @@ pub(crate) enum Rendered {
     Text(String),
     /// An existence answer, which prints like Python's `bool` and sets the exit status.
     Exists(bool),
+    /// A stream that already reached the output, leaving nothing more to write.
+    Written,
+    /// A stream that failed after it had already written.
+    ///
+    /// This is the one place a native pass reports for itself, because delegating would
+    /// mean Python writing a second copy of a dump the caller has already seen part of.
+    Failed(String),
     /// The pass cannot serve the command after all, having changed nothing.
     Delegate,
 }
@@ -359,8 +369,122 @@ impl Rendered {
             Self::Text(text) => text.into_bytes(),
             Self::Exists(true) => b"true\n".to_vec(),
             Self::Exists(false) => b"false\n".to_vec(),
-            Self::Delegate => Vec::new(),
+            Self::Written | Self::Failed(_) | Self::Delegate => Vec::new(),
         }
+    }
+}
+
+/// A streaming output target that holds its first chunk back.
+///
+/// Chunks render and write as the driver yields them, so a dump of any size holds one
+/// chunk rather than the whole table. The first one is kept rather than written, which
+/// is what keeps the delegation rule intact. Everything that makes a native pass refuse
+/// is known before any row arrives, and a result small enough to fit one chunk, which is
+/// nearly every interactive dump, still reaches the end having written nothing, so it
+/// delegates exactly as it did before anything streamed.
+///
+/// Past the first chunk there is no taking it back, and a failure there is a genuine
+/// decode or write error rather than a refusal, which the caller reports as its own.
+pub(crate) struct Sink<'a> {
+    output: Option<&'a Path>,
+    /// The first chunk's bytes, until a second chunk forces them out.
+    held: Option<Vec<u8>>,
+    /// The destination, opened when the first write actually happens.
+    destination: Option<Box<dyn Write>>,
+    /// Whether a header row still has to be written, which only the first chunk does.
+    heading: bool,
+}
+
+impl<'a> Sink<'a> {
+    pub(crate) fn new(output: Option<&'a Path>, header: bool) -> Self {
+        Self {
+            output,
+            held: None,
+            destination: None,
+            heading: header,
+        }
+    }
+
+    /// Whether this chunk should carry a header row, which only the first one does.
+    pub(crate) fn heading(&mut self) -> bool {
+        std::mem::take(&mut self.heading)
+    }
+
+    /// Whether anything has reached the output, past which a failure cannot delegate.
+    pub(crate) fn wrote(&self) -> bool {
+        self.destination.is_some()
+    }
+
+    /// Take one rendered chunk, writing the previous one out if there was one.
+    pub(crate) fn push(&mut self, rendered: Vec<u8>) -> std::io::Result<()> {
+        let Some(previous) = self.held.replace(rendered) else {
+            return Ok(());
+        };
+
+        self.write(&previous)
+    }
+
+    /// Write the held chunk, if it was never forced out, and answer whether anything
+    /// was written at all.
+    ///
+    /// A pass that only ever held one chunk has written nothing yet, so its caller is
+    /// still free to delegate instead of finishing.
+    pub(crate) fn finish(mut self) -> std::io::Result<Option<Vec<u8>>> {
+        match self.destination {
+            // Nothing went out, so the whole result is still the caller's to place.
+            None => Ok(self.held),
+            Some(_) => {
+                if let Some(held) = self.held.take() {
+                    self.write(&held)?;
+                }
+
+                Ok(None)
+            }
+        }
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        if self.destination.is_none() {
+            self.destination = Some(match self.output {
+                Some(path) => Box::new(std::fs::File::create(path)?),
+                None => Box::new(std::io::stdout()),
+            });
+        }
+
+        let destination = self
+            .destination
+            .as_mut()
+            .expect("the destination opened above");
+        destination.write_all(bytes)?;
+        // A stream is read as it arrives, so each chunk leaves rather than waiting for
+        // whatever the buffer would have collected behind it.
+        destination.flush()
+    }
+}
+
+/// Wrap a write failure so it travels with the decode failures a stream can also hit.
+pub(crate) fn written(error: std::io::Error) -> ceres_database::Error {
+    ceres_database::Error::Decode(error.to_string())
+}
+
+/// Resolve a finished stream into what the caller should deliver.
+///
+/// A stream that failed having written nothing is a refusal like any other and hands the
+/// whole command to Python. One that failed after writing cannot, so it reports.
+pub(crate) fn finish(
+    sink: Sink<'_>,
+    outcome: std::result::Result<(), ceres_database::Error>,
+) -> std::result::Result<Rendered, ceres_database::Error> {
+    match outcome {
+        Ok(()) => match sink.finish() {
+            // The whole result fit one chunk and is still unwritten, so it goes out the
+            // way an unstreamed dump does, delegation included.
+            Ok(Some(held)) => Ok(Rendered::Bytes(held)),
+            Ok(None) => Ok(Rendered::Written),
+            Err(error) => Err(written(error)),
+        },
+        Err(error) if sink.wrote() => Ok(Rendered::Failed(error.to_string())),
+        Err(error) => Err(error),
     }
 }
 
@@ -373,6 +497,13 @@ pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<boo
     // changed nothing, so it delegates like any other refusal.
     if matches!(rendered, Rendered::Delegate) {
         return Ok(false);
+    }
+
+    match rendered {
+        // A stream placed its own output, so there is nothing left to write.
+        Rendered::Written => return Ok(true),
+        Rendered::Failed(message) => return Err(crate::error::Exit::failed(message)),
+        _ => {}
     }
 
     let exists = rendered.exists();
@@ -679,6 +810,70 @@ mod tests {
             lex(&["create", "--address", "@a", "--no-confirm", "--no-color"]).dump_format(),
             None
         );
+    }
+
+    #[test]
+    fn a_sink_holds_one_chunk_so_a_small_dump_can_still_delegate() {
+        // A result that fits one chunk never opens its destination, so the whole dump
+        // comes back to the caller and a late refusal delegates exactly as it did
+        // before anything streamed.
+        let mut sink = Sink::new(None, true);
+        sink.push(b"one\n".to_vec()).unwrap();
+        assert!(!sink.wrote());
+        assert_eq!(sink.finish().unwrap(), Some(b"one\n".to_vec()));
+
+        // An empty result is the same, its rendered form being a header row or nothing.
+        let sink = Sink::new(None, true);
+        assert_eq!(sink.finish().unwrap(), None);
+    }
+
+    #[test]
+    fn a_second_chunk_forces_the_first_one_out() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("rows.jsonl");
+
+        let mut sink = Sink::new(Some(&path), true);
+        sink.push(b"one\n".to_vec()).unwrap();
+        sink.push(b"two\n".to_vec()).unwrap();
+        // The first chunk went out to make room, so the pass is committed from here.
+        assert!(sink.wrote());
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\n");
+
+        // Finishing flushes whatever was still held, and leaves nothing for the caller.
+        assert_eq!(sink.finish().unwrap(), None);
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\ntwo\n");
+    }
+
+    #[test]
+    fn only_the_first_chunk_carries_a_header() {
+        let mut sink = Sink::new(None, true);
+        assert!(sink.heading());
+        assert!(!sink.heading());
+
+        // A dump that suppressed its header never asks for one.
+        let mut sink = Sink::new(None, false);
+        assert!(!sink.heading());
+    }
+
+    #[test]
+    fn a_stream_delegates_before_its_first_write_and_reports_after() {
+        let failure = || ceres_database::Error::Decode("unreadable row".to_string());
+
+        // Nothing has been written, so the whole command is still Python's to serve.
+        let sink = Sink::new(None, true);
+        assert!(finish(sink, Err(failure())).is_err());
+
+        // Past the first write there is no handing off, so the pass reports for itself
+        // rather than letting Python print a second copy of a partial dump.
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("rows.jsonl");
+        let mut sink = Sink::new(Some(&path), true);
+        sink.push(b"one\n".to_vec()).unwrap();
+        sink.push(b"two\n".to_vec()).unwrap();
+        assert!(matches!(
+            finish(sink, Err(failure())),
+            Ok(Rendered::Failed(_))
+        ));
     }
 
     #[test]
