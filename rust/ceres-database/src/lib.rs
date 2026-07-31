@@ -23,7 +23,8 @@ pub use credentials::{
     valid_password, verify_argon2, verify_bcrypt,
 };
 pub use entities::EntityTable;
-pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, SqlDialect};
+pub use ceres_entities::OperationKind;
+pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, Role, SqlDialect, Window};
 pub use load::{
     Conflict, LoadFormat, batches, build, build_entity, entity_batches, read, read_entities,
 };

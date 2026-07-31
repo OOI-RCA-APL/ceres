@@ -39,7 +39,7 @@ impl EntityTable {
         }
     }
 
-    pub(crate) fn name(&self) -> &'static str {
+    pub fn name(&self) -> &'static str {
         match self {
             Self::Users => "users",
             Self::Variables => "variables",

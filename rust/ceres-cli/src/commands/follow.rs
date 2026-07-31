@@ -37,7 +37,6 @@ pub fn run(
         return Ok(false);
     }
 
-    let config = invocation.config.as_deref().or(config);
     let Ok(project) = Project::discover(config) else {
         return Ok(false);
     };
@@ -51,9 +50,8 @@ pub fn run(
         return Ok(false);
     };
 
-    let projection = invocation.projection();
-    let header = invocation.header.unwrap_or(true);
-    let mut sink = Sink::live(invocation.output.as_deref(), header);
+    let projection = invocation.projection.clone();
+    let mut sink = Sink::live(invocation.output.as_deref(), invocation.header);
     loop {
         let frame = match socket.read() {
             Ok(tungstenite::Message::Text(text)) => text,

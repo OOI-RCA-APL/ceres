@@ -16,7 +16,9 @@ path = "src/main.rs"
 ceres-config = { path = "../ceres-config" }
 ceres-database = { path = "../ceres-database" }
 ceres-entities = { path = "../ceres-entities" }
-clap = { version = "4.5", features = ["derive", "wrap_help"] }
+# `string` lets an argument be named at runtime, which the table commands are, their
+# whole surface being generated from the entity definitions.
+clap = { version = "4.5", features = ["derive", "string", "suggestions", "wrap_help"] }
 tokio = { version = "1", default-features = false, features = ["rt"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

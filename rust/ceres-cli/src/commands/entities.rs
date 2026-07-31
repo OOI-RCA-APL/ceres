@@ -11,36 +11,37 @@
 //! written identically. A database configured for bcrypt, or an address outside the subset
 //! the normalizer understands, delegates rather than storing something else.
 
-use std::ffi::OsString;
 use std::path::Path;
 
 use ceres_config::{DatabaseConfig, HashingConfig};
 use ceres_database::{Argon2Params, Credentials, EntityFilter, EntityTable, Hashing};
 use ceres_entities::Entities;
+use clap::ArgMatches;
 
 use crate::commands::dump::{
     DumpFormat, Invocation, Rendered, Sink, Verb, deliver, finish, open_store, written,
 };
+use crate::commands::surface::Table;
 use crate::error::Result;
 use crate::project::Project;
 
 /// Attempt one entity command natively, `false` meaning the caller delegates.
-pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> Result<bool> {
-    let Some(invocation) = Invocation::lex(raw, &EntityFilter::keys(table)) else {
-        return Ok(false);
-    };
-    let Some(format) = invocation.dump_format() else {
-        return Ok(false);
-    };
-    // Only the record tables declare a `follow`, so on an entity it is an argument
-    // error the Python command owns.
-    if invocation.verb.streams() {
+pub fn try_run(
+    table: EntityTable,
+    config: Option<&Path>,
+    color: Option<bool>,
+    verb: Verb,
+    matches: &ArgMatches,
+) -> Result<bool> {
+    let invocation = Invocation::read(Table::Entity(table), verb, matches);
+    if !invocation.renders_natively(color) {
         return Ok(false);
     }
 
+    let format = invocation.dump_format();
+
     // The configuration is read before anything is built, because a user's own columns
     // are written under rules the database's own hashing configuration decides.
-    let config = invocation.config.as_deref().or(config);
     let Ok(project) = Project::discover(config) else {
         return Ok(false);
     };
@@ -72,9 +73,10 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
 
         incoming.push(entities);
     } else {
-        let Some((file, load_format)) = invocation.load_source() else {
-            return Ok(false);
-        };
+        // A file that will not open is this command's failure to report, not a reason
+        // to hand the whole load to another process.
+        let (file, load_format) =
+            invocation.load_source().map_err(crate::error::Exit::failed)?;
         let Some(batches) = ceres_database::entity_batches(table, file, load_format, credentials)
         else {
             return Ok(false);
@@ -97,14 +99,27 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
 
     // The whole result renders before anything writes, so a failure here can still
     // delegate without having produced partial output.
-    let projection = invocation.projection();
-    let header = invocation.header.unwrap_or(true);
+    let projection = invocation.projection.clone();
+    let header = invocation.header;
     let rendered = runtime.block_on(async {
         let filter = || {
             filter
                 .as_ref()
                 .expect("a filtered verb parsed its filter above")
         };
+
+        // A filtered write says how much it is about to change and waits for an answer.
+        // The count costs a round trip, which is why it is only taken when someone is
+        // actually going to be asked.
+        if invocation.verb.confirms() && invocation.confirm {
+            let affected = store.count_entity_filter(filter()).await?;
+            match crate::commands::dump::confirmed(invocation.verb, affected, table.name()) {
+                Ok(true) => {}
+                Ok(false) => return Ok(Rendered::Declined),
+                Err(error) => return Err(ceres_database::Error::Decode(error.to_string())),
+            }
+        }
+
         match invocation.verb {
             Verb::Count => store
                 .count_entity_filter(filter())
@@ -236,14 +251,16 @@ fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::surface;
 
-    fn raw(arguments: &[&str]) -> Vec<OsString> {
-        arguments.iter().map(OsString::from).collect()
-    }
-
-    /// Lex against the table's boolean keys, the way the command dispatch does.
-    fn lex(table: EntityTable, arguments: &[&str]) -> Invocation {
-        Invocation::lex(&raw(arguments), &EntityFilter::keys(table)).unwrap()
+    /// Parse one invocation the way the binary does.
+    fn read(table: EntityTable, arguments: &[&str]) -> Invocation {
+        let table = Table::Entity(table);
+        let matches = surface::group(table)
+            .try_get_matches_from(std::iter::once(table.group()).chain(arguments.iter().copied()))
+            .expect("the arguments parse");
+        let (verb, matches) = matches.subcommand().expect("a verb was named");
+        Invocation::read(table, Verb::parse(verb).expect("a declared verb"), matches)
     }
 
     /// The rules a database configured the ordinary way hands out.
@@ -257,41 +274,33 @@ mod tests {
         // ordinary case carries rules and every verb serves.
         assert!(rules().is_some());
         for arguments in [
-            &["create", "--username", "ada", "--no-color"][..],
-            &["load", "users.jsonl", "--no-color"][..],
-            &["update", "--no-confirm", "--assign", "{}", "--no-color"][..],
-            &["select", "--no-color"][..],
-            &["count", "--no-color"][..],
+            &["create", "--username", "ada"][..],
+            &["load", "users.jsonl"][..],
+            &["update", "--assign", "{}"][..],
+            &["select"][..],
+            &["count"][..],
         ] {
+            let invocation = read(EntityTable::Users, arguments);
             assert!(
-                serves(
-                    EntityTable::Users,
-                    &lex(EntityTable::Users, arguments),
-                    rules()
-                ),
+                serves(EntityTable::Users, &invocation, rules()),
                 "{arguments:?}"
             );
         }
 
-        // Without them, a user's writes stay in Python rather than storing a password
-        // hashed some other way, while its reads carry on natively.
+        // Without them a user's writes cannot go through here, because storing a
+        // password hashed some other way than the database asked for is worse than not
+        // storing it. Reads carry on natively.
         for arguments in [
-            &["create", "--username", "ada", "--no-color"][..],
-            &["load", "users.jsonl", "--no-color"][..],
-            &["update", "--no-confirm", "--assign", "{}", "--no-color"][..],
+            &["create", "--username", "ada"][..],
+            &["load", "users.jsonl"][..],
+            &["update", "--assign", "{}"][..],
         ] {
-            assert!(
-                !serves(
-                    EntityTable::Users,
-                    &lex(EntityTable::Users, arguments),
-                    None
-                ),
-                "{arguments:?}"
-            );
+            let invocation = read(EntityTable::Users, arguments);
+            assert!(!serves(EntityTable::Users, &invocation, None), "{arguments:?}");
         }
         assert!(serves(
             EntityTable::Users,
-            &lex(EntityTable::Users, &["select", "--no-color"]),
+            &read(EntityTable::Users, &["select"]),
             None
         ));
 
@@ -301,16 +310,8 @@ mod tests {
             EntityTable::Settings,
             EntityTable::Workspaces,
         ] {
-            assert!(serves(
-                table,
-                &lex(table, &["create", "--name", "x", "--no-color"]),
-                None
-            ));
-            assert!(serves(
-                table,
-                &lex(table, &["load", "rows.jsonl", "--no-color"]),
-                None
-            ));
+            assert!(serves(table, &read(table, &["create", "--name", "x"]), None));
+            assert!(serves(table, &read(table, &["load", "rows.jsonl"]), None));
         }
     }
 
@@ -333,10 +334,10 @@ mod tests {
 
     #[test]
     fn a_boolean_key_is_its_own_value_and_never_takes_the_next_argument() {
-        // The Python CLI declares every boolean as a `--key` and `--no-key` pair, so a
-        // token following one is a positional field rather than the boolean's value.
-        // The arity comes from the field's family, so the parser and the compiler
-        // cannot disagree about what `--owned` is.
+        // A boolean is a `--key` and `--no-key` pair, so a token following one is a
+        // positional field rather than the boolean's value. The form comes from the
+        // field's family, so the surface and the compiler cannot disagree about what
+        // `--owned` is.
         assert_eq!(
             EntityFilter::keys(EntityTable::Workspaces)
                 .iter()
@@ -345,22 +346,19 @@ mod tests {
             Some(ceres_database::Arity::Flag)
         );
 
-        let invocation = lex(
-            EntityTable::Workspaces,
-            &["select", "--owned", "name", "--no-color"],
-        );
+        let invocation = read(EntityTable::Workspaces, &["select", "--owned", "name"]);
         assert_eq!(
             invocation.pairs,
             vec![("owned".to_string(), "true".to_string())]
         );
         assert_eq!(
-            invocation.projection(),
+            invocation.projection,
             vec![("name".to_string(), "name".to_string())]
         );
 
-        let invocation = lex(
+        let invocation = read(
             EntityTable::Workspaces,
-            &["select", "--no-show-when-logged-out", "--no-color"],
+            &["select", "--no-show-when-logged-out"],
         );
         assert_eq!(
             invocation.pairs,
@@ -369,10 +367,7 @@ mod tests {
 
         // A computed predicate is a boolean too, and a non-boolean key still takes the
         // argument that follows it.
-        let invocation = lex(
-            EntityTable::Variables,
-            &["select", "--no-internal", "--name", "x", "--no-color"],
-        );
+        let invocation = read(EntityTable::Variables, &["select", "--no-internal", "--name", "x"]);
         assert_eq!(
             invocation.pairs,
             vec![
@@ -383,37 +378,37 @@ mod tests {
     }
 
     #[test]
-    fn an_entity_group_has_no_follow_to_serve() {
-        // Only the record tables pass `follow=True` to the command factory, so `follow`
-        // on an entity is an argument error the Python command owns.
+    fn an_entity_group_declares_no_follow() {
+        // Following reads a running engine's stream of new rows, which the tables an
+        // operator edits by hand do not have. The surface leaves the verb out rather
+        // than accepting it and failing later.
         for table in [
             EntityTable::Users,
             EntityTable::Variables,
             EntityTable::Settings,
             EntityTable::Workspaces,
         ] {
-            assert!(lex(table, &["follow", "--no-color"]).verb.streams());
+            let group = surface::group(Table::Entity(table));
+            assert!(group.find_subcommand("follow").is_none());
+            assert!(group.find_subcommand("select").is_some());
         }
     }
 
     #[test]
-    fn the_filter_is_what_refuses_an_unknown_key() {
-        let invocation = lex(
-            EntityTable::Variables,
-            &[
-                "select",
-                "--name",
-                "x",
-                "--name-prefix",
-                "y",
-                "--limit",
-                "3",
-            ],
+    fn a_create_takes_the_password_column_the_filter_does_not_expose() {
+        // A user's password is stored hashed and is not filterable, but a create has to
+        // be able to set one, so the two surfaces are built from different lists.
+        let invocation = read(
+            EntityTable::Users,
+            &["create", "--username", "ada", "--password", "secret"],
         );
-        assert!(EntityFilter::parse(EntityTable::Variables, &invocation.pairs).is_ok());
 
-        // A record-only construct is not part of the entity grammar.
-        let windowed = lex(EntityTable::Variables, &["select", "--max-age", "2h"]);
-        assert!(EntityFilter::parse(EntityTable::Variables, &windowed.pairs).is_err());
+        assert_eq!(
+            invocation.pairs,
+            vec![
+                ("username".to_string(), "ada".to_string()),
+                ("password".to_string(), "secret".to_string()),
+            ]
+        );
     }
 }

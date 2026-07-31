@@ -631,6 +631,16 @@ macro_rules! filter_surface {
                 filter_keys(table.schema())
             }
 
+            /// Every column a create may name, with the argument form its family gives
+            /// it.
+            ///
+            /// A write names columns rather than filter keys, which is a different
+            /// surface. A user's password hash is a column no filter exposes, and a
+            /// filter's operations and windows name no column at all.
+            pub fn columns(table: $table) -> Vec<FilterKey> {
+                column_keys(table.schema())
+            }
+
             /// Parse query pairs into a filter, refusing what cannot compile natively.
             pub fn parse(table: $table, pairs: &[(String, String)]) -> Result<Self, Refusal> {
                 Ok(Self {
@@ -1843,6 +1853,14 @@ pub struct FilterKey {
     pub key: &'static str,
     /// Whether the key is a bare flag or takes a value, which its family decides.
     pub arity: Arity,
+    /// What the key does, which a generated help text is written from.
+    pub role: Role,
+    /// The field the key filters on, for the keys that name one.
+    ///
+    /// An operation and a window belong to a field whose name their own key does not
+    /// always carry, a log's `contains` naming its content and a timestamp's `after`
+    /// naming nothing at all.
+    pub field: Option<&'static str>,
 }
 
 /// How a filter key arrives on the command line.
@@ -1855,6 +1873,46 @@ pub enum Arity {
     Value,
 }
 
+/// What a filter key does, which decides the help text generated for it.
+///
+/// Carried here rather than inferred from the key's spelling, because the role is known
+/// exactly where the key is generated and guessing it back from a name is how a help
+/// text comes to describe the wrong thing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Role {
+    /// Compare a field whole, several values matching any of them.
+    Equality,
+    /// Match within a field's content.
+    Operation(OperationKind),
+    /// The address that relative selector segments resolve against.
+    Root,
+    /// Bound a timestamp, absolutely or by age.
+    Window(Window),
+    /// Bound an ordered field, a log level being the one that has them.
+    Bound,
+    /// Hold a shape of a column rather than a value of it.
+    Computed,
+    /// Order, limit, or offset the result rather than narrow it.
+    Query,
+    /// Combine whole subfilters.
+    Group,
+}
+
+/// Which way a window bounds a timestamp.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Window {
+    /// An absolute bound, `after` and `before`.
+    Absolute,
+    /// A bound relative to now, `max_age` and `min_age`.
+    Age,
+    /// A span, `timespan`.
+    Span,
+    /// A bound on the time of day rather than the date.
+    Clock,
+    /// Thin the result to one row per interval.
+    Subsample,
+}
+
 /// Every filter key a table serves, with the argument form its family gives it.
 ///
 /// Generated from the entity's fields rather than written out, so a parser built from
@@ -1862,57 +1920,112 @@ pub enum Arity {
 /// list of names would drop exactly the information a parser needs, which is how a
 /// boolean came to be lexed as though it took a value.
 pub(crate) fn filter_keys(table: Schema) -> Vec<FilterKey> {
-    let value = |key| FilterKey {
+    let keyed = |key, arity, role, field| FilterKey {
         key,
-        arity: Arity::Value,
-    };
-    let flag = |key| FilterKey {
-        key,
-        arity: Arity::Flag,
+        arity,
+        role,
+        field,
     };
 
     let mut keys = Vec::new();
     for field in table.fields() {
-        // An operation matches within a field's content, so it always takes a value,
-        // whatever form the field's own key takes.
-        keys.extend(
-            field
-                .operations
-                .iter()
-                .map(|operation| value(operation.key)),
-        );
-
+        // A field's own key comes before the operations that search within it, because
+        // the order here is the order they are listed in, and a reader looking for a
+        // field wants the whole-value comparison first.
+        //
         // A field whose own key is delegated still brings its operations, which is how
         // an email address filters on its parts without comparing whole.
+        if field.family.native() && !table.delegated.contains(&field.key) {
+            let arity = if field.family.scalar() {
+                Arity::Flag
+            } else {
+                Arity::Value
+            };
+            keys.push(keyed(field.key, arity, Role::Equality, Some(field.key)));
+        }
+
+        // An operation matches within a field's content, so it always takes a value,
+        // whatever form the field's own key takes. It names the field it searches, which
+        // its own key does not always carry.
+        keys.extend(field.operations.iter().map(|operation| {
+            keyed(
+                operation.key,
+                Arity::Value,
+                Role::Operation(operation.kind),
+                Some(field.key),
+            )
+        }));
+
         if !field.family.native() || table.delegated.contains(&field.key) {
             continue;
         }
 
-        keys.push(if field.family.scalar() {
-            flag(field.key)
-        } else {
-            value(field.key)
-        });
-
+        let window = |key, kind| keyed(key, Arity::Value, Role::Window(kind), Some(field.key));
         match field.family {
-            FieldFamily::Address => keys.push(value("root")),
+            FieldFamily::Address => keys.push(keyed(
+                "root",
+                Arity::Value,
+                Role::Root,
+                Some(field.key),
+            )),
             FieldFamily::Timestamp => {
-                keys.extend(["after", "before", "timespan", "max_age", "min_age"].map(value));
+                keys.extend(["after", "before"].map(|key| window(key, Window::Absolute)));
+                keys.push(window("timespan", Window::Span));
+                keys.extend(["max_age", "min_age"].map(|key| window(key, Window::Age)));
                 keys.extend(
-                    ["after_hour", "before_hour", "after_minute", "before_minute"].map(value),
+                    ["after_hour", "before_hour", "after_minute", "before_minute"]
+                        .map(|key| window(key, Window::Clock)),
                 );
-                keys.extend(["subsample_every", "subsample", "subsample_select"].map(value));
+                keys.extend(
+                    ["subsample_every", "subsample", "subsample_select"]
+                        .map(|key| window(key, Window::Subsample)),
+                );
             }
-            FieldFamily::Level => keys.extend(bound_keys(field).map(value)),
+            FieldFamily::Level => keys.extend(
+                bound_keys(field).map(|key| keyed(key, Arity::Value, Role::Bound, Some(field.key))),
+            ),
             _ => {}
         }
     }
 
     // A computed predicate has no column and answers a yes or no, so it is a flag like
     // any other boolean.
-    keys.extend(table.computed.iter().map(|predicate| flag(predicate.key)));
-    keys.extend(["order", "limit", "offset", "or", "and"].map(value));
+    keys.extend(table.computed.iter().map(|predicate| {
+        keyed(
+            predicate.key,
+            Arity::Flag,
+            Role::Computed,
+            Some(predicate.column),
+        )
+    }));
+    keys.extend(
+        ["order", "limit", "offset"].map(|key| keyed(key, Arity::Value, Role::Query, None)),
+    );
+    keys.extend(["or", "and"].map(|key| keyed(key, Arity::Value, Role::Group, None)));
     keys
+}
+
+/// Every column a create may name, with the argument form its family gives it.
+///
+/// Generated from the entity's columns for the same reason the filter keys are, so the
+/// parser and the writer cannot disagree about what a create accepts.
+pub(crate) fn column_keys(table: Schema) -> Vec<FilterKey> {
+    table
+        .columns
+        .iter()
+        .map(|field| FilterKey {
+            key: field.key,
+            arity: if field.family.scalar() {
+                Arity::Flag
+            } else {
+                Arity::Value
+            },
+            // A column names itself, and a write assigns it whole rather than matching
+            // within it.
+            role: Role::Equality,
+            field: Some(field.key),
+        })
+        .collect()
 }
 
 /// Resolve what one wire key means for a table, from the entity's field families.

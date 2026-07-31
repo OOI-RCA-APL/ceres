@@ -5,26 +5,33 @@
 //! and the output renders in one pass, projected or not, so the interpreter never starts.
 //! This module holds only what a record means, its filter, its rows, and its renderers.
 
-use std::ffi::OsString;
 use std::path::Path;
 
 use ceres_database::{RecordFilter, RecordTable};
 use ceres_entities::Records;
+use clap::ArgMatches;
 
 use crate::commands::dump::{
     DumpFormat, Invocation, Rendered, Sink, Verb, deliver, finish, open_store, written,
 };
+use crate::commands::surface::Table;
 use crate::error::Result;
 use crate::project::Project;
 
 /// Attempt one record command natively, `false` meaning the caller delegates.
-pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> Result<bool> {
-    let Some(invocation) = Invocation::lex(raw, &RecordFilter::keys(table)) else {
+pub fn try_run(
+    table: RecordTable,
+    config: Option<&Path>,
+    color: Option<bool>,
+    verb: Verb,
+    matches: &ArgMatches,
+) -> Result<bool> {
+    let invocation = Invocation::read(Table::Record(table), verb, matches);
+    if !invocation.renders_natively(color) {
         return Ok(false);
-    };
-    let Some(format) = invocation.dump_format() else {
-        return Ok(false);
-    };
+    }
+
+    let format = invocation.dump_format();
     // A follow reads a running engine rather than the database, so it opens no store and
     // takes its own path from here.
     if invocation.verb.streams() {
@@ -49,9 +56,10 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
 
         incoming.push(records);
     } else {
-        let Some((file, load_format)) = invocation.load_source() else {
-            return Ok(false);
-        };
+        // A file that will not open is this command's failure to report, not a reason
+        // to hand the whole load to another process.
+        let (file, load_format) =
+            invocation.load_source().map_err(crate::error::Exit::failed)?;
         let Some(batches) = ceres_database::batches(table, file, load_format) else {
             return Ok(false);
         };
@@ -59,7 +67,6 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
         source = Some(batches);
     }
 
-    let config = invocation.config.as_deref().or(config);
     let Ok(project) = Project::discover(config) else {
         return Ok(false);
     };
@@ -80,14 +87,27 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
 
     // The whole result renders before anything writes, so a failure here can still
     // delegate without having produced partial output.
-    let projection = invocation.projection();
-    let header = invocation.header.unwrap_or(true);
+    let projection = invocation.projection.clone();
+    let header = invocation.header;
     let rendered = runtime.block_on(async {
         let filter = || {
             filter
                 .as_ref()
                 .expect("a filtered verb parsed its filter above")
         };
+
+        // A filtered write says how much it is about to change and waits for an answer.
+        // The count costs a round trip, which is why it is only taken when someone is
+        // actually going to be asked.
+        if invocation.verb.confirms() && invocation.confirm {
+            let affected = store.count_filter(filter()).await?;
+            match crate::commands::dump::confirmed(invocation.verb, affected, table.name()) {
+                Ok(true) => {}
+                Ok(false) => return Ok(Rendered::Declined),
+                Err(error) => return Err(ceres_database::Error::Decode(error.to_string())),
+            }
+        }
+
         match invocation.verb {
             Verb::Count => store
                 .count_filter(filter())
@@ -180,49 +200,111 @@ fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::surface;
 
-    fn raw(arguments: &[&str]) -> Vec<OsString> {
-        arguments.iter().map(OsString::from).collect()
+    /// Parse one invocation the way the binary does.
+    fn read(table: RecordTable, arguments: &[&str]) -> Invocation {
+        let table = Table::Record(table);
+        let matches = surface::group(table)
+            .try_get_matches_from(std::iter::once(table.group()).chain(arguments.iter().copied()))
+            .expect("the arguments parse");
+        let (verb, matches) = matches.subcommand().expect("a verb was named");
+        Invocation::read(table, Verb::parse(verb).expect("a declared verb"), matches)
     }
 
     #[test]
-    fn no_record_field_is_a_bare_boolean_flag() {
-        // The shared lexer consumes the token after a flag unless the flag is a boolean,
-        // which the Python CLI declares as a `--key` and `--no-key` pair. No record field
-        // is one, so record lexing is exactly what it was before the entity tables
-        // brought the first booleans, and a new boolean record field would land here.
-        for table in [
+    fn a_filter_reads_as_the_wire_pairs_the_compiler_takes() {
+        let invocation = read(
             RecordTable::Messages,
-            RecordTable::Particles,
-            RecordTable::Alerts,
-            RecordTable::Logs,
-        ] {
-            assert!(
-                RecordFilter::keys(table)
-                    .iter()
-                    .all(|key| key.arity == ceres_database::Arity::Value)
-            );
-        }
-    }
-
-    #[test]
-    fn the_filter_is_what_refuses_an_unknown_key() {
-        let invocation = Invocation::lex(
-            &raw(&[
+            &[
                 "select",
                 "--address",
                 "@sensor.temp",
                 "--max-age=2h",
                 "--order",
                 "timestamp:desc",
-            ]),
-            &[],
-        )
-        .unwrap();
-        assert!(RecordFilter::parse(RecordTable::Messages, &invocation.pairs).is_ok());
+            ],
+        );
 
-        // Unknown keys lex into pairs too, and the filter is what refuses them.
-        let unknown = Invocation::lex(&raw(&["select", "--nope", "x"]), &[]).unwrap();
-        assert!(RecordFilter::parse(RecordTable::Messages, &unknown.pairs).is_err());
+        assert_eq!(
+            invocation.pairs,
+            vec![
+                ("address".to_string(), "@sensor.temp".to_string()),
+                ("max_age".to_string(), "2h".to_string()),
+                ("order".to_string(), "timestamp:desc".to_string()),
+            ]
+        );
+        assert!(RecordFilter::parse(RecordTable::Messages, &invocation.pairs).is_ok());
+    }
+
+    #[test]
+    fn an_unknown_key_is_an_argument_error_rather_than_a_filter_one() {
+        // The surface is what refuses a key nobody declared, so it never reaches the
+        // compiler and the reader is told which flag was wrong rather than being handed
+        // a validation dump.
+        let table = Table::Record(RecordTable::Messages);
+        let refused = surface::group(table)
+            .try_get_matches_from(["messages", "select", "--nope", "x"])
+            .unwrap_err();
+
+        assert_eq!(refused.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn a_repeated_key_folds_into_a_set() {
+        let invocation = read(
+            RecordTable::Messages,
+            &["select", "--address", "@a", "--address", "@b"],
+        );
+
+        assert_eq!(
+            invocation.pairs,
+            vec![
+                ("address".to_string(), "@a".to_string()),
+                ("address".to_string(), "@b".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_projection_merges_its_positional_and_flagged_halves() {
+        // The last spelling of a field wins, and a comma-separated spec names several
+        // fields at once so a projection can be typed rather than repeated.
+        let invocation = read(
+            RecordTable::Messages,
+            &["select", "id:first,timestamp", "--field", "id:last"],
+        );
+
+        assert_eq!(
+            invocation.projection,
+            vec![
+                ("id".to_string(), "last".to_string()),
+                ("timestamp".to_string(), "timestamp".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_csv_dump_carries_its_header_unless_it_is_turned_off() {
+        assert!(read(RecordTable::Messages, &["select"]).header);
+        assert!(!read(RecordTable::Messages, &["select", "--no-header"]).header);
+        // The two spellings override each other, so the last one written wins.
+        assert!(read(RecordTable::Messages, &["select", "--no-header", "--header"]).header);
+    }
+
+    #[test]
+    fn the_destination_decides_the_shape_when_no_format_is_named() {
+        let csv = read(RecordTable::Messages, &["select", "--output", "rows.csv"]);
+        assert_eq!(csv.dump_format(), DumpFormat::Csv);
+
+        let json = read(RecordTable::Messages, &["select", "--output", "rows.json"]);
+        assert_eq!(json.dump_format(), DumpFormat::Json);
+
+        // A named format wins over the suffix, which is the point of naming one.
+        let named = read(
+            RecordTable::Messages,
+            &["select", "--output", "rows.csv", "--data-format", "json"],
+        );
+        assert_eq!(named.dump_format(), DumpFormat::Json);
     }
 }
