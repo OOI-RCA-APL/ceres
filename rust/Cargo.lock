@@ -689,6 +689,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "sha1 0.10.7",
+ "sqlx",
  "tempfile",
  "tokio",
  "tungstenite 0.30.0",

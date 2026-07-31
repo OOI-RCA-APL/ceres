@@ -258,9 +258,7 @@ fn filter_help(key: FilterKey, plural: &str) -> String {
             };
             format!("Only {plural} whose {field} {matching} this.")
         }
-        Role::Root => {
-            "Resolve relative address selectors against this address.".to_string()
-        }
+        Role::Root => "Resolve relative address selectors against this address.".to_string(),
         Role::Window(Window::Absolute) => {
             let side = if key.key.starts_with("after") {
                 "at or after"
@@ -304,7 +302,10 @@ fn filter_help(key: FilterKey, plural: &str) -> String {
             };
             format!("Only {plural} whose {field} is {side} this.")
         }
-        Role::Computed => format!("Only {plural} that are {}.", long(key.key).replace('-', " ")),
+        Role::Computed => format!(
+            "Only {plural} that are {}.",
+            long(key.key).replace('-', " ")
+        ),
         Role::Query => match key.key {
             "order" => "Sort by this field, `field:desc` to reverse. Repeatable.".to_string(),
             "limit" => format!("Return at most this many {plural}."),
@@ -433,9 +434,9 @@ fn write_arguments(verb: &str) -> Vec<Arg> {
 
 /// Add every table command group to the declared command tree.
 pub(crate) fn augment(command: Command) -> Command {
-    Table::all().into_iter().fold(command, |command, table| {
-        command.subcommand(group(table))
-    })
+    Table::all()
+        .into_iter()
+        .fold(command, |command, table| command.subcommand(group(table)))
 }
 
 /// The table one group name manages, `None` for a command that is not a table group.
@@ -630,7 +631,10 @@ mod tests {
         let workspaces = Table::Entity(EntityTable::Workspaces);
         let select = group(workspaces);
         let select = select.find_subcommand("select").unwrap();
-        let longs: Vec<_> = select.get_arguments().filter_map(|arg| arg.get_long()).collect();
+        let longs: Vec<_> = select
+            .get_arguments()
+            .filter_map(|arg| arg.get_long())
+            .collect();
 
         for key in workspaces.keys() {
             if key.arity != Arity::Flag {
@@ -659,7 +663,10 @@ mod tests {
         let users = Table::Entity(EntityTable::Users);
         let create = group(users);
         let create = create.find_subcommand("create").unwrap();
-        let longs: Vec<_> = create.get_arguments().filter_map(|arg| arg.get_long()).collect();
+        let longs: Vec<_> = create
+            .get_arguments()
+            .filter_map(|arg| arg.get_long())
+            .collect();
 
         assert!(longs.contains(&"password"));
         assert!(longs.contains(&"username"));

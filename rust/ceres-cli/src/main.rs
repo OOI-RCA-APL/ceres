@@ -36,7 +36,10 @@ fn main() -> ExitCode {
     {
         let color = color_override(&matches);
         let output = Output::new(color);
-        return report(table_command(table, &matches, color, verb, arguments), &output);
+        return report(
+            table_command(table, &matches, color, verb, arguments),
+            &output,
+        );
     }
 
     let cli = match Cli::from_arg_matches(&matches) {
@@ -81,7 +84,10 @@ fn table_command(
 ) -> Result<()> {
     use commands::surface::Table;
 
-    let config = matches.try_get_one::<std::path::PathBuf>("config").ok().flatten();
+    let config = matches
+        .try_get_one::<std::path::PathBuf>("config")
+        .ok()
+        .flatten();
     let config = config.map(PathBuf::as_path);
     let (name, verb) = verb.subcommand().expect("a group requires its verb");
     let named = commands::dump::Verb::parse(name).expect("a declared verb");

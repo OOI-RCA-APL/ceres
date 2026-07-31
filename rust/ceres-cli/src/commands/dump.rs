@@ -38,7 +38,11 @@ fn projection(matches: &ArgMatches) -> Vec<(String, String)> {
 
     let mut projection: Vec<(String, String)> = Vec::new();
     for spec in read("fields").chain(read("field")) {
-        for spec in spec.split(',').map(str::trim).filter(|spec| !spec.is_empty()) {
+        for spec in spec
+            .split(',')
+            .map(str::trim)
+            .filter(|spec| !spec.is_empty())
+        {
             let (field, alias) = match spec.split_once(':') {
                 Some((field, alias)) => (field, alias),
                 None => (spec, spec),

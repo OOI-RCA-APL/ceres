@@ -65,8 +65,9 @@ pub fn try_run(
     } else {
         // A file that will not open is this command's failure to report, not a reason
         // to hand the whole load to another process.
-        let (file, load_format) =
-            invocation.load_source().map_err(crate::error::Exit::failed)?;
+        let (file, load_format) = invocation
+            .load_source()
+            .map_err(crate::error::Exit::failed)?;
         let Some(batches) = ceres_database::batches(table, file, load_format) else {
             return Ok(false);
         };
@@ -296,7 +297,13 @@ mod tests {
         assert!(read(RecordTable::Messages, &["select"]).header);
         assert!(!read(RecordTable::Messages, &["select", "--no-header"]).header);
         // The two spellings override each other, so the last one written wins.
-        assert!(read(RecordTable::Messages, &["select", "--no-header", "--header"]).header);
+        assert!(
+            read(
+                RecordTable::Messages,
+                &["select", "--no-header", "--header"]
+            )
+            .header
+        );
     }
 
     #[test]
@@ -311,7 +318,13 @@ mod tests {
         // The short spelling is the one that gets typed at a terminal.
         assert!(!read(RecordTable::Messages, &["delete", "-y"]).confirm);
         // The two spellings override each other, so the last one written wins.
-        assert!(read(RecordTable::Messages, &["delete", "--no-confirm", "--confirm"]).confirm);
+        assert!(
+            read(
+                RecordTable::Messages,
+                &["delete", "--no-confirm", "--confirm"]
+            )
+            .confirm
+        );
     }
 
     #[test]

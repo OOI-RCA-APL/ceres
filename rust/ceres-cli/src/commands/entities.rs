@@ -82,8 +82,9 @@ pub fn try_run(
     } else {
         // A file that will not open is this command's failure to report, not a reason
         // to hand the whole load to another process.
-        let (file, load_format) =
-            invocation.load_source().map_err(crate::error::Exit::failed)?;
+        let (file, load_format) = invocation
+            .load_source()
+            .map_err(crate::error::Exit::failed)?;
         let Some(batches) = ceres_database::entity_batches(table, file, load_format, credentials)
         else {
             return Ok(false);
@@ -305,7 +306,10 @@ mod tests {
             &["update", "--assign", "{}"][..],
         ] {
             let invocation = read(EntityTable::Users, arguments);
-            assert!(!serves(EntityTable::Users, &invocation, None), "{arguments:?}");
+            assert!(
+                !serves(EntityTable::Users, &invocation, None),
+                "{arguments:?}"
+            );
         }
         assert!(serves(
             EntityTable::Users,
@@ -319,7 +323,11 @@ mod tests {
             EntityTable::Settings,
             EntityTable::Workspaces,
         ] {
-            assert!(serves(table, &read(table, &["create", "--name", "x"]), None));
+            assert!(serves(
+                table,
+                &read(table, &["create", "--name", "x"]),
+                None
+            ));
             assert!(serves(table, &read(table, &["load", "rows.jsonl"]), None));
         }
     }
@@ -376,7 +384,10 @@ mod tests {
 
         // A computed predicate is a boolean too, and a non-boolean key still takes the
         // argument that follows it.
-        let invocation = read(EntityTable::Variables, &["select", "--no-internal", "--name", "x"]);
+        let invocation = read(
+            EntityTable::Variables,
+            &["select", "--no-internal", "--name", "x"],
+        );
         assert_eq!(
             invocation.pairs,
             vec![
