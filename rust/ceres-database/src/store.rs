@@ -735,43 +735,15 @@ impl RecordStore {
 
         match &self.backend {
             Backend::Sqlite(pool) => {
-                let mut query = sqlx::query(sql);
-                for parameter in parameters {
-                    query = match parameter {
-                        Parameter::Null => query.bind(None::<String>),
-                        Parameter::Bool(value) => query.bind(value),
-                        Parameter::Integer(value) => query.bind(value),
-                        Parameter::Float(value) => query.bind(value),
-                        Parameter::Text(value) => query.bind(value),
-                        Parameter::Bytes(value) => query.bind(value),
-                        // SQLite stores timestamps and UUIDs as text, so parameters have
-                        // to compare against that form.
-                        Parameter::Timestamp(value) => {
-                            query.bind(Parameter::timestamp_text(&value))
-                        }
-                        Parameter::Uuid(value) => query.bind(value.to_string()),
-                    };
-                }
-
-                let rows = query.fetch_all(pool).await?;
+                let rows = bind_sqlite(sqlx::query(sql), parameters)
+                    .fetch_all(pool)
+                    .await?;
                 DecodeRecords::decode(table, rows)
             }
             Backend::Postgres(pool) => {
-                let mut query = sqlx::query(sql);
-                for parameter in parameters {
-                    query = match parameter {
-                        Parameter::Null => query.bind(None::<String>),
-                        Parameter::Bool(value) => query.bind(value),
-                        Parameter::Integer(value) => query.bind(value),
-                        Parameter::Float(value) => query.bind(value),
-                        Parameter::Text(value) => query.bind(value),
-                        Parameter::Bytes(value) => query.bind(value),
-                        Parameter::Timestamp(value) => query.bind(value),
-                        Parameter::Uuid(value) => query.bind(value),
-                    };
-                }
-
-                let rows = query.fetch_all(pool).await?;
+                let rows = bind_postgres(sqlx::query(sql), parameters)
+                    .fetch_all(pool)
+                    .await?;
                 DecodeRecords::decode(table, rows)
             }
             Backend::Turso(backend) => {
@@ -782,6 +754,84 @@ impl RecordStore {
             }
         }
     }
+
+    /// Execute a compiled record query, decoding its rows a chunk at a time.
+    ///
+    /// The chunked twin of [`fetch_sql`](Self::fetch_sql), so a dump of a table of any
+    /// size renders and writes as it reads rather than holding the whole result.
+    pub async fn stream_sql(
+        &self,
+        table: RecordTable,
+        sql: &str,
+        parameters: Vec<Parameter>,
+        sink: &mut impl FnMut(Records) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let head = sql.trim_start();
+        if !starts_with_keyword(head, "select") && !starts_with_keyword(head, "with") {
+            return Err(Error::Decode("only SELECT statements execute here".into()));
+        }
+
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let mut cursor = bind_sqlite(sqlx::query(sql), parameters).fetch(pool);
+                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
+            }
+            Backend::Postgres(pool) => {
+                let mut cursor = bind_postgres(sqlx::query(sql), parameters).fetch(pool);
+                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
+            }
+            Backend::Turso(backend) => {
+                let parameters = parameters.into_iter().map(parameter_value).collect();
+                backend.stream(table, sql, parameters, sink).await
+            }
+        }
+    }
+}
+
+/// Bind compiled parameters onto a SQLite statement.
+///
+/// SQLite stores timestamps and UUIDs as text, so those bind in the stored form rather
+/// than as their own types, or equality against a stored row misses.
+fn bind_sqlite<'q>(
+    mut query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
+    parameters: Vec<Parameter>,
+) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
+    for parameter in parameters {
+        query = match parameter {
+            Parameter::Null => query.bind(None::<String>),
+            Parameter::Bool(value) => query.bind(value),
+            Parameter::Integer(value) => query.bind(value),
+            Parameter::Float(value) => query.bind(value),
+            Parameter::Text(value) => query.bind(value),
+            Parameter::Bytes(value) => query.bind(value),
+            Parameter::Timestamp(value) => query.bind(Parameter::timestamp_text(&value)),
+            Parameter::Uuid(value) => query.bind(value.to_string()),
+        };
+    }
+
+    query
+}
+
+/// Bind compiled parameters onto a PostgreSQL statement, which takes timestamps and
+/// UUIDs as themselves.
+fn bind_postgres<'q>(
+    mut query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+    parameters: Vec<Parameter>,
+) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+    for parameter in parameters {
+        query = match parameter {
+            Parameter::Null => query.bind(None::<String>),
+            Parameter::Bool(value) => query.bind(value),
+            Parameter::Integer(value) => query.bind(value),
+            Parameter::Float(value) => query.bind(value),
+            Parameter::Text(value) => query.bind(value),
+            Parameter::Bytes(value) => query.bind(value),
+            Parameter::Timestamp(value) => query.bind(value),
+            Parameter::Uuid(value) => query.bind(value),
+        };
+    }
+
+    query
 }
 
 /// Apply a load's conflict mode to one insert, over the table's whole primary key.

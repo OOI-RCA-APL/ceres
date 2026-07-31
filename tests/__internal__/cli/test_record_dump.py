@@ -1,12 +1,12 @@
 """The CLI's native record dump.
 
-A plain JSON select over a record table renders its whole output in one native pass,
-so the dump must match what materializing every entity and serializing it through
-Pydantic would have produced, line for line.
+A plain JSON select over a record table renders natively, a chunk at a time, so the
+dump must match what materializing every entity and serializing it through Pydantic
+would have produced, line for line.
 """
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ceres import Engine
 from ceres.__internal__.cli.shared import create_entity_select_command, dump_records_natively
@@ -22,6 +22,16 @@ from ceres.user import User
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+async def _dump(*arguments: Any, **keywords: Any) -> str | None:
+    """Run a native dump into a collector, answering its text or `None` when it delegates.
+
+    The dump writes as it goes, so joining what it wrote is the whole output it produced.
+    """
+    written: list[str] = []
+    served = await dump_records_natively(*arguments, write=written.append, **keywords)
+    return "".join(written) if served else None
 
 
 async def _build_engine_on_disk(tmp_path: Path) -> Engine:
@@ -79,7 +89,7 @@ async def test_the_native_dump_matches_the_materializing_path(tmp_path: Path) ->
     try:
         for Record in (Message, Particle, Alert, LogEntry):
             query = engine.__manager__(Record).where()
-            dumped = await dump_records_natively(engine.database, Record, query)
+            dumped = await _dump(engine.database, Record, query)
             assert dumped is not None, f"expected a native dump for {Record.__name__}"
             assert dumped.endswith("\n")
 
@@ -96,7 +106,7 @@ async def test_non_record_entities_decline_the_native_dump(tmp_path: Path) -> No
 
     try:
         query = engine.users.where()
-        assert await dump_records_natively(engine.database, User, query) is None
+        assert await _dump(engine.database, User, query) is None
     finally:
         await engine.database.dispose()
 
@@ -108,7 +118,7 @@ async def test_in_memory_databases_decline_the_native_dump() -> None:
 
     database = Database(SQLiteDatabaseConfig.in_memory())
     query = database.messages.where()
-    assert await dump_records_natively(database, Message, query) is None
+    assert await _dump(database, Message, query) is None
 
 
 async def test_the_native_csv_dump_matches_the_materializing_path(tmp_path: Path) -> None:
@@ -123,7 +133,7 @@ async def test_the_native_csv_dump_matches_the_materializing_path(tmp_path: Path
     try:
         for Record in (Message, Particle, Alert, LogEntry):
             query = engine.__manager__(Record).where()
-            dumped = await dump_records_natively(engine.database, Record, query, CLIDataFormat.CSV)
+            dumped = await _dump(engine.database, Record, query, CLIDataFormat.CSV)
             assert dumped is not None, f"expected a native CSV dump for {Record.__name__}"
 
             expected_path = tmp_path / f"{Record.__name__}.csv"
@@ -232,13 +242,58 @@ async def test_the_native_projected_dumps_match_the_materializing_path(tmp_path:
                 command = Command(output=expected_path, field=list(fields))
                 await command.put(engine.__manager__(Record).where().select())
 
-                dumped = await dump_records_natively(
+                dumped = await _dump(
                     engine.database, Record, query, data_format, command.resolved_fields()
                 )
                 assert dumped is not None, f"expected a native dump for {Record.__name__}"
                 assert dumped == expected_path.read_bytes().decode(), (
                     f"{Record.__name__} {data_format}"
                 )
+    finally:
+        await engine.database.dispose()
+
+
+async def test_a_dump_crossing_the_chunk_boundary_matches_the_materializing_path(
+    tmp_path: Path,
+) -> None:
+    """A result larger than one chunk renders across several without seam or repeat.
+
+    The dump writes each chunk as the driver yields it, so a table larger than the chunk
+    size is where a header written twice, a row dropped at a boundary, or a chunk written
+    out of order would show.
+    """
+    from ceres.__internal__.app.shared import RECORD_TABLES
+    from ceres.__internal__.cli.shared import CLIDataFormat
+
+    engine = await _build_engine_on_disk(tmp_path)
+    address = Address("@sensor.temp")
+    manager = engine.database.logs
+    entries = [
+        await manager._create_transform(
+            LogEntry.Create(address=address, level=Level.INFO, content=f"line {index}")
+        )
+        for index in range(2500)
+    ]
+    writer = engine.database._record_writer()
+    assert writer is not None
+    await writer.write([(RECORD_TABLES["logs"], entries)])
+
+    try:
+        query = engine.__manager__(LogEntry).where()
+        expected = [json.loads(to_json(entity)) for entity in await query]
+        assert len(expected) == 2500
+
+        dumped = await _dump(engine.database, LogEntry, query)
+        assert dumped is not None
+        assert [json.loads(line) for line in dumped.splitlines()] == expected
+
+        # A CSV dump carries exactly one header, on the first chunk alone.
+        dumped = await _dump(engine.database, LogEntry, query, CLIDataFormat.CSV)
+        assert dumped is not None
+        lines = dumped.splitlines()
+        assert lines[0] == "id,address,timestamp,level,content"
+        assert len(lines) == len(expected) + 1
+        assert not any(line == lines[0] for line in lines[1:])
     finally:
         await engine.database.dispose()
 
@@ -254,16 +309,14 @@ async def test_an_empty_table_still_writes_the_csv_header(tmp_path: Path) -> Non
     try:
         query = engine.__manager__(Alert).where()
         header = "id,address,timestamp,level,type,data\n"
+        assert await _dump(engine.database, Alert, query, CLIDataFormat.CSV) == header
         assert (
-            await dump_records_natively(engine.database, Alert, query, CLIDataFormat.CSV) == header
-        )
-        assert (
-            await dump_records_natively(
+            await _dump(
                 engine.database, Alert, query, CLIDataFormat.CSV, {"id": "id", "level": "severity"}
             )
             == "id,severity\n"
         )
-        assert await dump_records_natively(engine.database, Alert, query) == ""
+        assert await _dump(engine.database, Alert, query) == ""
 
         # The materializing path writes the same header through the select command's
         # all-fields projection.
@@ -278,12 +331,7 @@ async def test_an_empty_table_still_writes_the_csv_header(tmp_path: Path) -> Non
         command = Command(output=bare_path, header=False)
         await command.put(query.select(), fields=all_fields)
         assert bare_path.read_text() == ""
-        assert (
-            await dump_records_natively(
-                engine.database, Alert, query, CLIDataFormat.CSV, header=False
-            )
-            == ""
-        )
+        assert await _dump(engine.database, Alert, query, CLIDataFormat.CSV, header=False) == ""
     finally:
         await engine.database.dispose()
 
@@ -305,7 +353,7 @@ async def test_no_header_dumps_carry_only_data_rows(tmp_path: Path) -> None:
             command = Command(output=path, header=False, field=fields)
             await command.put(query.select())
 
-            dumped = await dump_records_natively(
+            dumped = await _dump(
                 engine.database,
                 Message,
                 query,
@@ -328,7 +376,7 @@ async def test_projected_message_data_renders_the_wire_text(tmp_path: Path) -> N
 
     try:
         query = engine.__manager__(Message).where(Message.Filter(connection="serial"))
-        dumped = await dump_records_natively(
+        dumped = await _dump(
             engine.database, Message, query, fields={"data": "data", "span": "span"}
         )
         assert dumped == '{"data":"\\u0001\\u0002ABCÿ","span":null}\n'

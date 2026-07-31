@@ -20,6 +20,7 @@ __all__ = [
     "PackingProgram",
     "PostgresDatabaseConfig",
     "RecordBatch",
+    "RecordChunks",
     "RecordFetcher",
     "RecordFilter",
     "RecordTable",
@@ -486,6 +487,22 @@ class RecordBatch:
         """
 
 @final
+class RecordChunks:
+    r"""
+    A streamed record query's chunks, taken one await at a time.
+
+    Dropping this ends the query, because the next chunk it tries to hand over has
+    nowhere to go.
+    """
+    def next(self) -> Any:
+        r"""
+        The next chunk, as an awaitable `RecordBatch`, `None` once the query is spent.
+
+        Waiting for a chunk blocks a thread of its own rather than the event loop, so a
+        slow query leaves the caller's asyncio loop free.
+        """
+
+@final
 class RecordFetcher:
     r"""
     A natively-connected view of a Ceres database, serving record reads.
@@ -520,6 +537,14 @@ class RecordFetcher:
 
         The statement text and parameters come from the query layer's own compiler, so any
         filter it can express runs natively with identical semantics.
+        """
+    def stream_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> RecordChunks:
+        r"""
+        Execute a compiled record query, as chunks the caller walks one at a time.
+
+        The chunked twin of `fetch_sql`, for a dump that renders and writes as it reads.
+        The query runs on its own thread and hands each decoded chunk over, so the reader
+        sets the pace and neither side ever holds more than a chunk.
         """
     def fetch(self, table: RecordTable, limit: int | None = None, offset: int | None = None) -> Any:
         r"""

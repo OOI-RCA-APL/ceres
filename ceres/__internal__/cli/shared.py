@@ -1050,20 +1050,46 @@ class CLIDataOutputCommand(CLICommand):
         """Whether output is plain JSON lines, with no color."""
         return self.native_dump_format() is CLIDataFormat.JSON
 
+    @contextmanager
+    def open_output(self) -> Iterator[Callable[[str], object]]:
+        """Open the command's destination, yielding one write for a whole dump.
+
+        A streamed dump writes many times, so the file opens once and stays open for the
+        length of it. Opening per write would truncate everything written before it. It
+        also opens on the first write rather than up front, so a dump that turns out not
+        to run leaves the file as it found it.
+        """
+        destination = self.output
+        if destination is None:
+            yield sys.stdout.write
+            return
+
+        opened: IO[str] | None = None
+
+        def write(text: str) -> object:
+            nonlocal opened
+            if opened is None:
+                try:
+                    opened = open(destination, "w")
+                except FileNotFoundError:
+                    raise CLICommandFailed(f"Output file '{str(destination)!r}' not found.")
+                except OSError:
+                    raise CLICommandFailed(f"Failed to open output file '{str(destination)!r}'.")
+
+            return opened.write(text)
+
+        try:
+            yield write
+        finally:
+            # A file this call opened must close with it, or its final buffer never
+            # reaches disk.
+            if opened is not None:
+                opened.close()
+
     def put_text(self, text: str) -> None:
         """Write already-rendered output through the command's configured destination."""
-        if self.output is not None:
-            try:
-                file = open(self.output, "w")
-            except FileNotFoundError:
-                raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
-            except OSError:
-                raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
-
-            with file:
-                file.write(text)
-        else:
-            sys.stdout.write(text)
+        with self.open_output() as write:
+            write(text)
 
 
 class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
@@ -1096,40 +1122,62 @@ async def dump_records_natively(
     fields: Mapping[str, str] | None = None,
     *,
     header: bool = True,
-) -> str | None:
-    """Render a record query as JSON or CSV lines in one native pass, `None` when it
-    cannot.
+    write: Callable[[str], object],
+) -> bool:
+    """Render a record query as JSON or CSV lines natively, `False` when it cannot.
 
     The query compiles here and executes through the native fetcher, so rows never
-    become Python objects and records render once, in Rust. A field projection, a
-    name-to-alias mapping, selects and renames the output fields, and `header` gates
-    the CSV header row. Only the record tables on a native backend qualify, and a
-    query carrying a transform needs Python objects and takes the materializing path
-    instead.
+    become Python objects and records render once, in Rust. Chunks render and write as
+    the driver yields them, so a dump holds one chunk however large the table. A field
+    projection, a name-to-alias mapping, selects and renames the output fields, and
+    `header` gates the CSV header row, which only the first chunk carries. Only the
+    record tables on a native backend qualify, and a query carrying a transform needs
+    Python objects and takes the materializing path instead.
+
+    The first chunk renders before anything is written, so a query the native engine
+    turns out not to serve delegates having produced no partial output. Past that the
+    dump is committed and a failure raises rather than delegating.
     """
     from ceres.__internal__.app.shared import RECORD_TABLES
 
     table = RECORD_TABLES.get(Entity.__entity_naming__.table)
     if table is None or query._get_transform() is not None:
-        return None
+        return False
 
     fetcher = database._record_fetcher()
     if fetcher is None:
-        return None
+        return False
 
     projection = None if fields is None else list(fields.items())
+
+    def render(batch: Any, heading: bool) -> str:
+        if data_format is CLIDataFormat.CSV:
+            return batch.to_csv_lines(projection, header=heading)
+
+        return batch.to_json_lines(projection).decode()
+
     sql, parameters = await query.compiled()
     try:
-        batch = await fetcher.fetch_sql(table, sql, parameters)
+        chunks = fetcher.stream_sql(table, sql, parameters)
+        first = await chunks.next()
+        # The reader hands over an empty chunk rather than nothing, so a query that
+        # yields none of them is one the native path does not understand.
+        if first is None:
+            return False
+
+        held = render(first, header)
     except TypeError, ValueError:
         # The native engine can lag the Python one in corner cases. The dump stays
         # correct through the materializing path, just slower.
-        return None
+        return False
 
-    if data_format is CLIDataFormat.CSV:
-        return batch.to_csv_lines(projection, header=header)
+    write(held)
+    while True:
+        chunk = await chunks.next()
+        if chunk is None:
+            return True
 
-    return batch.to_json_lines(projection).decode()
+        write(render(chunk, False))
 
 
 def create_entity_select_command(Entity: type[Entity]):
@@ -1148,22 +1196,22 @@ def create_entity_select_command(Entity: type[Entity]):
             async with self.use_database() as database:
                 query = database.__manager__(Entity).where(filter)
 
-                # An uncolored JSON or CSV dump of a record table renders natively in
-                # one pass, projected or not, which is what makes a select over a
-                # large table fast.
+                # An uncolored JSON or CSV dump of a record table renders natively, a
+                # chunk at a time, projected or not, which is what makes a select over
+                # a large table both fast and flat in memory.
                 data_format = self.native_dump_format()
                 if data_format is not None:
-                    dumped = await dump_records_natively(
-                        database,
-                        Entity,
-                        query,
-                        data_format,
-                        self.resolved_fields(),
-                        header=self.header,
-                    )
-                    if dumped is not None:
-                        self.put_text(dumped)
-                        return
+                    with self.open_output() as write:
+                        if await dump_records_natively(
+                            database,
+                            Entity,
+                            query,
+                            data_format,
+                            self.resolved_fields(),
+                            header=self.header,
+                            write=write,
+                        ):
+                            return
 
                 fields = self.resolved_fields()
                 data_format = self.data_format
