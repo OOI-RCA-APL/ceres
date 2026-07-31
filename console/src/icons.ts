@@ -79,6 +79,7 @@ const icons = {
   start: 'mdi-play',
   stop: 'mdi-stop',
   submit: 'mdi-check',
+  carousel: 'mdi-view-carousel-outline',
   tab: 'mdi-tab',
   tabAdd: 'mdi-tab-plus',
   tabUnselected: 'mdi-tab-unselected',

@@ -7,8 +7,12 @@ import {
   resolveWidths,
   rootLayoutId,
   widgetWidthSubdivisions,
+  defaultWidgetName,
+  pagesOf,
   withFreshIds,
+  withFreshPage,
   CarouselWidget,
+  TabsWidget,
   Widget,
   WidgetRow,
 } from '@/workspace'
@@ -32,6 +36,17 @@ function carousel(id: string, slides: { id: string; layout: WidgetRow[] }[]): Ca
     interval: 15,
     autoplay: false,
     slides: slides.map((slide) => ({ id: slide.id, name: '', layout: slide.layout })),
+  }
+}
+
+function tabs(id: string, pages: { id: string; layout: WidgetRow[] }[]): TabsWidget {
+  return {
+    id,
+    type: 'tabs',
+    name: id,
+    width: widgetWidthSubdivisions,
+    restricted: false,
+    tabs: pages.map((page) => ({ id: page.id, name: '', layout: page.layout })),
   }
 }
 
@@ -72,6 +87,27 @@ describe('resolveWidths', () => {
   })
 })
 
+describe('pagesOf', () => {
+  it('finds none on a widget that holds no layouts', () => {
+    expect(pagesOf(widget('a'))).toEqual([])
+  })
+
+  it('finds the slides of a carousel', () => {
+    const holder = carousel('holder', [{ id: 's1', layout: [] }])
+
+    expect(pagesOf(holder).map((page) => page.id)).toEqual(['s1'])
+  })
+
+  it('finds the pages of a tab strip', () => {
+    const holder = tabs('holder', [
+      { id: 't1', layout: [] },
+      { id: 't2', layout: [] },
+    ])
+
+    expect(pagesOf(holder).map((page) => page.id)).toEqual(['t1', 't2'])
+  })
+})
+
 describe('collectLayouts', () => {
   it('names the workspace layout first', () => {
     const root = [row('r1', widget('a'))]
@@ -94,6 +130,19 @@ describe('collectLayouts', () => {
     ])
   })
 
+  it('finds the pages of a tab strip the same way it finds a slide', () => {
+    const holder = tabs('holder', [
+      { id: 't1', layout: [row('r2', widget('b'))] },
+      { id: 't2', layout: [] },
+    ])
+
+    expect(collectLayouts([row('r1', holder)], () => {}).map((layout) => layout.id)).toEqual([
+      rootLayoutId,
+      't1',
+      't2',
+    ])
+  })
+
   it('writes a slide back where it came from', () => {
     const holder = carousel('holder', [{ id: 's1', layout: [row('r2', widget('b'))] }])
 
@@ -109,6 +158,15 @@ describe('collectLayouts', () => {
 describe('layoutsWithin', () => {
   it('finds nothing inside a widget that holds no layouts', () => {
     expect([...layoutsWithin([widget('a')])]).toEqual([])
+  })
+
+  it('finds the layouts a tab strip carries', () => {
+    const holder = tabs('holder', [
+      { id: 't1', layout: [] },
+      { id: 't2', layout: [] },
+    ])
+
+    expect([...layoutsWithin([holder])].sort()).toEqual(['t1', 't2'])
   })
 
   it('finds every layout a carousel carries, including nested ones', () => {
@@ -133,12 +191,53 @@ describe('withFreshIds', () => {
     expect(copy.slides[0].layout[0].widgets[0].id).not.toBe('a')
   })
 
+  it('renames the pages of a tab strip and everything on them', () => {
+    const original = tabs('holder', [{ id: 't1', layout: [row('r1', widget('a'))] }])
+    const copy = withFreshIds(original) as TabsWidget
+
+    expect(copy.tabs[0].id).not.toBe('t1')
+    expect(copy.tabs[0].layout[0].widgets[0].id).not.toBe('a')
+  })
+
   it('leaves the widget it copied untouched', () => {
     const original = carousel('outer', [{ id: 'outer-1', layout: [row('r1', widget('a'))] }])
     withFreshIds(original)
 
     expect(original.slides[0].id).toBe('outer-1')
     expect(original.slides[0].layout[0].widgets[0].id).toBe('a')
+  })
+})
+
+describe('withFreshPage', () => {
+  it('renames the page and everything on it', () => {
+    const original = { id: 'p1', name: 'Overview', layout: [row('r1', widget('a'))] }
+    const copy = withFreshPage(original)
+
+    expect(copy.id).not.toBe('p1')
+    expect(copy.layout[0].id).not.toBe('r1')
+    expect(copy.layout[0].widgets[0].id).not.toBe('a')
+  })
+
+  it('keeps the name it was given, which is not a name anything answers to', () => {
+    expect(withFreshPage({ id: 'p1', name: 'Overview', layout: [] }).name).toBe('Overview')
+  })
+
+  it('leaves the page it copied untouched', () => {
+    const original = { id: 'p1', name: '', layout: [row('r1', widget('a'))] }
+    withFreshPage(original)
+
+    expect(original.layout[0].widgets[0].id).toBe('a')
+  })
+})
+
+describe('defaultWidgetName', () => {
+  it('says what each kind is called before anything is made of it', () => {
+    expect(defaultWidgetName('tabs')).toBe('Tabs')
+    expect(defaultWidgetName('carousel')).toBe('Carousel')
+  })
+
+  it('tells a chosen name from an inherited one', () => {
+    expect('Instrument Views').not.toBe(defaultWidgetName('tabs'))
   })
 })
 
@@ -201,6 +300,21 @@ describe('planWidgetsMove', () => {
     const layouts = layoutsOf([row('r1', holder)])
 
     expect(planWidgetsMove(layouts, ['holder'], { layout: 's1', row: 0, column: 1 })).toBeNull()
+  })
+
+  it('refuses to put a tab strip onto a page of its own', () => {
+    const holder = tabs('holder', [{ id: 't1', layout: [row('r2', widget('b'))] }])
+    const layouts = layoutsOf([row('r1', holder)])
+
+    expect(planWidgetsMove(layouts, ['holder'], { layout: 't1', row: 0, column: 1 })).toBeNull()
+  })
+
+  it('carries a widget into a tab strip page', () => {
+    const holder = tabs('holder', [{ id: 't1', layout: [row('r2', widget('b'))] }])
+    const layouts = layoutsOf([row('r1', holder), row('r3', widget('a'))])
+    const plan = planWidgetsMove(layouts, ['a'], { layout: 't1', row: 0, column: 1 })
+
+    expect(shapeOf(plan)).toEqual({ root: [['holder']], t1: [['b', 'a']] })
   })
 
   it('refuses a row that is not there to drop into', () => {

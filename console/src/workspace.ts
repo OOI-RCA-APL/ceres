@@ -171,26 +171,29 @@ export const ButtonWidgetModel = BaseWidgetModel.extend({
   tooltip: Zod.string().nullish().catch(undefined),
 })
 
-/** One face of a carousel, holding a layout of its own laid out exactly as a workspace is.
+/** A layout held under a name of its own, which is what a carousel slide and a tab both are.
 
-Written out rather than inferred, since a slide holds rows, a row holds widgets, and a widget may
-be another carousel. Naming the types breaks a circle the compiler cannot see the end of.
+Written out rather than inferred, since a page holds rows, a row holds widgets, and a widget may
+hold pages of its own. Naming the types breaks a circle the compiler cannot see the end of.
 */
-export type CarouselSlide = {
+export type WidgetPage = {
   id: string
   name: string
   layout: WidgetRow[]
 }
 
-export const CarouselSlideModel = Zod.object({
+export const WidgetPageModel = Zod.object({
   id: Zod.string().catch(() => v7()),
   name: Zod.string().catch(''),
   layout: safeArrayOf(Zod.lazy(() => WidgetRowModel)),
-}) as unknown as Zod.ZodType<CarouselSlide>
+}) as unknown as Zod.ZodType<WidgetPage>
+
+/** What a carousel calls its pages. */
+export type CarouselSlide = WidgetPage
 
 export type CarouselWidget = BaseWidget & {
   type: 'carousel'
-  slides: CarouselSlide[]
+  slides: WidgetPage[]
 
   /** How long each slide is shown, in seconds. */
   interval: number
@@ -202,11 +205,23 @@ export type CarouselWidget = BaseWidget & {
 export const CarouselWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('carousel'),
   name: Zod.string().catch('Carousel'),
-  slides: safeArrayOf(CarouselSlideModel),
+  slides: safeArrayOf(WidgetPageModel),
   interval: Zod.number().min(1).max(3600).catch(15),
   // Off to begin with. A panel that starts moving on its own the moment it is added takes the
   // page over before anyone has said what is meant to be on it.
   autoplay: Zod.boolean().catch(false),
+})
+
+/** Pages shown one at a time, reached by name rather than in turn. */
+export type TabsWidget = BaseWidget & {
+  type: 'tabs'
+  tabs: WidgetPage[]
+}
+
+export const TabsWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('tabs'),
+  name: Zod.string().catch('Tabs'),
+  tabs: safeArrayOf(WidgetPageModel),
 })
 
 export type Widget =
@@ -220,6 +235,7 @@ export type Widget =
   | VideoWidget
   | ButtonWidget
   | CarouselWidget
+  | TabsWidget
 
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
@@ -232,6 +248,7 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   VideoWidgetModel,
   ButtonWidgetModel,
   CarouselWidgetModel,
+  TabsWidgetModel,
 ])
 
 export type WidgetType = Widget['type']
@@ -243,6 +260,15 @@ const defaultPaddingClass = 'q-pa-sm'
 
 export function getWidgetInfo(type: WidgetType): WidgetInfo {
   return widgetInfos[type]
+}
+
+/** The name a widget of `type` carries when nothing has been made of it.
+
+A name nobody chose should not outlive the kind of widget it was the default for, so turning one
+kind into another compares against this to tell a chosen name from an inherited one.
+*/
+export function defaultWidgetName(type: WidgetType): string {
+  return createWidget(type).name
 }
 
 /** Build a widget of `type`, whose defaults are whatever its own model says they are.
@@ -353,6 +379,17 @@ export const widgetInfos = {
       paddingClass: [],
     }),
   },
+  tabs: {
+    type: 'tabs',
+    name: 'Tabs',
+    model: TabsWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetTabs.vue')),
+    // No settings of its own, for the same reason a carousel has none. Its pages are arranged on
+    // the strip that names them.
+    options: widgetOptions({
+      paddingClass: [],
+    }),
+  },
   carousel: {
     type: 'carousel',
     name: 'Carousel',
@@ -379,7 +416,7 @@ export const widgetInfos = {
   },
 } as const
 
-/** Written out for the same reason `CarouselSlide` is, being the other half of the same circle. */
+/** Written out for the same reason `WidgetPage` is, being the other half of the same circle. */
 export type WidgetRow = {
   id: string
   height: number
@@ -863,6 +900,33 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return null
   }
 
+  /** Put `replacement` where the widget named `id` stands, keeping its name and its width.
+
+  A widget turned into another kind is the same widget in the same place, so what the layout says
+  about it stays as it was and only what it is changes.
+  */
+  function replaceWidget(id: string, replacement: Widget) {
+    for (const layout of layoutRefs()) {
+      const existing = layout.rows.flatMap((row) => row.widgets).find((widget) => widget.id === id)
+      if (existing == null) {
+        continue
+      }
+
+      const kept: Widget = { ...replacement, id: existing.id, width: existing.width }
+      layout.set(
+        layout.rows.map((row) =>
+          row.widgets.some((widget) => widget.id === id)
+            ? { ...row, widgets: row.widgets.map((widget) => (widget.id === id ? kept : widget)) }
+            : row
+        )
+      )
+
+      return kept
+    }
+
+    return null
+  }
+
   function moveWidgets(ids: string[], placement: WidgetPlacement) {
     if (data == null) {
       return
@@ -1176,6 +1240,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     deleteWidgets,
     moveWidgets,
     duplicateWidget,
+    replaceWidget,
     drag: null as Drag | null,
     selection: computed(() => selection),
     selectionLayout: computed(() => selectionLayout),
@@ -1553,7 +1618,36 @@ export function resolveWidgetWidths(
   }
 }
 
-/** The name the workspace's own layout goes by, as against one belonging to a carousel slide. */
+/** The layouts a widget holds under names of its own, or none where it holds no layouts.
+
+The one way to reach them. Everything that walks the layouts of a workspace goes through here, so a
+widget that holds pages is understood by all of it the moment it is named here, rather than by
+however many places happened to remember to ask.
+*/
+export function pagesOf(widget: Widget): WidgetPage[] {
+  if (widget.type === 'carousel') {
+    return widget.slides
+  }
+  if (widget.type === 'tabs') {
+    return widget.tabs
+  }
+
+  return []
+}
+
+/** A copy of `widget` holding `pages` in place of the ones it held. */
+export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
+  if (widget.type === 'carousel') {
+    return { ...widget, slides: pages }
+  }
+  if (widget.type === 'tabs') {
+    return { ...widget, tabs: pages }
+  }
+
+  return widget
+}
+
+/** The name the workspace's own layout goes by, as against one belonging to a widget's page. */
 export const rootLayoutId = 'root'
 
 /** A layout a workspace holds, under the name a placement calls it by.
@@ -1579,17 +1673,13 @@ export function collectLayouts(
   function visit(rows: WidgetRow[]) {
     for (const row of rows) {
       for (const widget of row.widgets) {
-        if (widget.type !== 'carousel') {
-          continue
-        }
-
-        for (const slide of widget.slides) {
+        for (const page of pagesOf(widget)) {
           found.push({
-            id: slide.id,
-            rows: slide.layout,
-            set: (replacement) => (slide.layout = replacement),
+            id: page.id,
+            rows: page.layout,
+            set: (replacement) => (page.layout = replacement),
           })
-          visit(slide.layout)
+          visit(page.layout)
         }
       }
     }
@@ -1602,41 +1692,38 @@ export function collectLayouts(
 
 /** A copy of `widget` under fresh IDs, all the way down.
 
-A carousel carries slides that name layouts of their own, holding rows that hold further widgets,
-so a copy keeping any of those names would leave two things answering to one. Everything that goes
+A widget may carry pages that name layouts of their own, holding rows that hold further widgets, so
+a copy keeping any of those names would leave two things answering to one. Everything that goes
 looking by name takes whichever it finds first, which is the other one about half the time.
 */
 export function withFreshIds(widget: Widget): Widget {
   const copy: Widget = { ...widget, id: v7() }
 
-  if (copy.type === 'carousel') {
-    copy.slides = copy.slides.map((slide) => ({
-      ...slide,
-      id: v7(),
-      layout: slide.layout.map((row) => ({
-        ...row,
-        id: v7(),
-        widgets: row.widgets.map(withFreshIds),
-      })),
-    }))
-  }
-
-  return copy
+  return withPages(copy, pagesOf(copy).map(withFreshPage))
 }
 
-/** The layouts held inside `widgets`, which are the slides of whatever carousels are among them. */
+/** A copy of `page` under fresh IDs, all the way down, for the same reason. */
+export function withFreshPage(page: WidgetPage): WidgetPage {
+  return {
+    ...page,
+    id: v7(),
+    layout: page.layout.map((row) => ({
+      ...row,
+      id: v7(),
+      widgets: row.widgets.map(withFreshIds),
+    })),
+  }
+}
+
+/** Every layout held inside `widgets`, however deep, which no drop may land inside. */
 export function layoutsWithin(widgets: Widget[]): Set<string> {
   const found = new Set<string>()
 
   function visit(list: Widget[]) {
     for (const widget of list) {
-      if (widget.type !== 'carousel') {
-        continue
-      }
-
-      for (const slide of widget.slides) {
-        found.add(slide.id)
-        visit(slide.layout.flatMap((row) => row.widgets))
+      for (const page of pagesOf(widget)) {
+        found.add(page.id)
+        visit(page.layout.flatMap((row) => row.widgets))
       }
     }
   }

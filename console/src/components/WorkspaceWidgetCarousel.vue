@@ -9,7 +9,15 @@ import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
 import { useWidgetDrop } from '@/widget-drop'
-import { layoutsWithin, CarouselSlide, CarouselWidget, useWorkspace } from '@/workspace'
+import {
+  createWidget,
+  defaultWidgetName,
+  layoutsWithin,
+  useWorkspace,
+  CarouselSlide,
+  CarouselWidget,
+  TabsWidget,
+} from '@/workspace'
 
 const { widget } = defineProps<{
   widget: CarouselWidget
@@ -275,6 +283,24 @@ function deleteSlide() {
   show(index)
 }
 
+/** Turn this carousel into a tab strip holding the same pages, in the same place.
+
+The pages travel as they are, under the names they already had, so what is on them and what a drop
+into any of them means are untouched. Only how they are reached changes.
+*/
+function convertToTabs() {
+  const tabs = createWidget('tabs') as TabsWidget
+  // A name that was only ever the default for a tab strip or a carousel is not a name anybody
+  // chose, so it gives way to the new kind's own rather than following the pages across.
+  if (widget.name !== defaultWidgetName('carousel')) {
+    tabs.name = widget.name
+  }
+
+  tabs.tabs = widget.slides
+
+  workspace.replaceWidget(widget.id, tabs)
+}
+
 function moveSlide(by: number) {
   const to = index + by
   if (slide == null || to < 0 || to >= widget.slides.length) {
@@ -485,6 +511,15 @@ function moveSlide(by: number) {
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Delete Slide</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item v-close-popup clickable dense @click="convertToTabs">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.tab" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Convert To Tabs</q-item-label>
                   </q-item-section>
                 </q-item>
                 <q-separator />
