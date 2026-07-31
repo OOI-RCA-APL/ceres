@@ -80,6 +80,13 @@ class Node(Tasklet, NodeSource):
 
     @override
     def __get_filter_defaults__(self) -> dict[str, Any]:
+        # The engine's own address selects everything, so defaulting it would add
+        # nothing, and because `or` subfilters match independently of their filter's
+        # root conditions, a match-all default would turn any `or` query into one that
+        # matches every record.
+        if self.address.is_engine:
+            return {"root": self.address}
+
         return {
             "root": self.address,
             "address": self.address.all(),

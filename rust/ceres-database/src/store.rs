@@ -184,16 +184,12 @@ impl RecordStore {
     }
 
     /// Fetch the records a parsed native filter matches.
-    pub async fn fetch_filter(
-        &self,
-        table: RecordTable,
-        filter: &RecordFilter,
-    ) -> Result<Records, Error> {
+    pub async fn fetch_filter(&self, filter: &RecordFilter) -> Result<Records, Error> {
         if filter.limit() == Some(0) {
-            return Ok(table.empty());
+            return Ok(filter.table().empty());
         }
 
-        self.select(table, filter.statement(table, self.dialect()))
+        self.select(filter.table(), filter.statement(self.dialect()))
             .await
     }
 
@@ -201,16 +197,12 @@ impl RecordStore {
     ///
     /// A limit or offset bounds the count itself, matching the Python layer's paged
     /// counting.
-    pub async fn count_filter(
-        &self,
-        table: RecordTable,
-        filter: &RecordFilter,
-    ) -> Result<u64, Error> {
+    pub async fn count_filter(&self, filter: &RecordFilter) -> Result<u64, Error> {
         if filter.limit() == Some(0) {
             return Ok(0);
         }
 
-        let statement = filter.count_statement(table, self.dialect());
+        let statement = filter.count_statement(self.dialect());
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);

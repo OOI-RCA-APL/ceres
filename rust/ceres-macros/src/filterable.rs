@@ -8,10 +8,9 @@ use syn::{Data, DeriveInput, Fields, LitStr};
 ///
 /// Every named field whose type belongs to a filter family contributes one entry to
 /// the entity's `FIELDS` table, keyed by its wire name, the `#[serde(rename)]` value
-/// when one is present. The field's operation filter keys, the `contains`, `prefix`,
-/// and `suffix` variants where its family carries them, are generated here too, so
-/// even the delegated surface follows the struct. Fields of unfilterable types simply
-/// do not appear.
+/// when one is present. The field's operation filters, the `contains`, `prefix`, and
+/// `suffix` variants where its family carries them, are generated here too, each with
+/// the kind it matches by. Fields of unfilterable types simply do not appear.
 pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
     let name = &input.ident;
     let Data::Struct(data) = &input.data else {
@@ -49,7 +48,7 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             Family::Unfilterable => continue,
         };
 
-        let operations = operation_keys(&key, &family, bare_operations(field));
+        let operations = operation_entries(&key, &family, bare_operations(field));
         entries.push(quote! {
             ceres_entities::FilterField {
                 key: #key,
@@ -105,31 +104,33 @@ enum Family {
     Unfilterable,
 }
 
-/// The operation filter keys a family carries, generated as literals so the tables
+/// The operation filters a family carries, generated as literal entries so the tables
 /// stay `'static`.
-fn operation_keys(key: &str, family: &Family, bare: bool) -> Vec<String> {
-    let variants = ["contains", "prefix", "suffix"];
+fn operation_entries(key: &str, family: &Family, bare: bool) -> Vec<TokenStream> {
+    let variants = [
+        (
+            "contains",
+            quote! { ceres_entities::OperationKind::Contains },
+        ),
+        ("prefix", quote! { ceres_entities::OperationKind::Prefix }),
+        ("suffix", quote! { ceres_entities::OperationKind::Suffix }),
+    ];
     match family {
-        Family::Text | Family::Json => variants
+        Family::Text | Family::Bytes | Family::Json => variants
             .iter()
-            .map(|variant| {
-                if bare {
+            .map(|(variant, kind)| {
+                let operation_key = if bare {
                     (*variant).to_string()
                 } else {
                     format!("{key}_{variant}")
+                };
+                quote! {
+                    ceres_entities::FieldOperation {
+                        key: #operation_key,
+                        kind: #kind,
+                    }
                 }
             })
-            .collect(),
-        // A byte field's equality delegates with its operations, so its own key rides
-        // along here rather than in the native surface.
-        Family::Bytes => std::iter::once(key.to_string())
-            .chain(variants.iter().map(|variant| {
-                if bare {
-                    (*variant).to_string()
-                } else {
-                    format!("{key}_{variant}")
-                }
-            }))
             .collect(),
         _ => Vec::new(),
     }

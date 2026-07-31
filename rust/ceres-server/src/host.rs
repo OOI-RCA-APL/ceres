@@ -128,9 +128,9 @@ pub trait Host: Send + Sync + 'static {
 
     /// Serve a record listing natively from filter query pairs, as its response body.
     ///
-    /// `None` delegates to the host operation, for a filter outside the native subset,
-    /// a host without a native store, or any native failure, whose canonical answer or
-    /// error then comes from the operation.
+    /// `None` delegates to the host operation, for an invalid filter whose canonical
+    /// validation envelope the operation renders, a particle `class` filter, a host
+    /// without a native store, or any native failure.
     async fn native_records(&self, table: &str, pairs: &[(String, String)]) -> Option<String> {
         let _ = (table, pairs);
         None

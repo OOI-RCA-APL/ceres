@@ -9,11 +9,13 @@
 
 mod filter;
 mod records;
+mod selector;
 mod store;
 mod turso;
 mod writer;
 
-pub use filter::{RecordFilter, SqlDialect};
+pub use filter::{RecordFilter, Refusal, SqlDialect};
 pub use records::RecordTable;
+pub use sea_query::Value as BindValue;
 pub use store::{Error, GateUser, Parameter, RecordStore};
 pub use writer::RecordWriter;

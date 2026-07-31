@@ -267,6 +267,8 @@ class AddressSelector:
         """
         from sqlalchemy.sql import expression, or_
 
+        from ceres.__internal__.filter import _SelectorMatch
+
         self = self.as_absolute(root)
 
         conditions: list[ColumnElement[bool]] = []
@@ -296,12 +298,7 @@ class AddressSelector:
 
                 continue
 
-            if modifier == "all":
-                conditions.append((address == base) | address.startswith(f"{base}."))
-            elif modifier == "descendants":
-                conditions.append(address.startswith(f"{base}."))
-            elif modifier == "children":
-                conditions.append(address.startswith(f"{base}.") & address.not_like(f"{base}.%."))
+            conditions.append(_SelectorMatch(address, base, modifier))
 
         return or_(*conditions)
 

@@ -509,12 +509,13 @@ class CLICommand(DataModel):
         color: bool | None = None,
         data_format: CLIDataFormat | None = None,
         fields: Sequence[str] | Mapping[str, str] | None = None,
+        header: bool | None = None,
     ) -> None:
         """Write structured data to the output stream in the specified format.
 
         Handle scalars, async iterables, and async context managers that yield iterables. When
         `data_format` is CSV and the value is not atomic, extract fields and write a header row
-        before data rows.
+        before data rows. A known field projection writes its header even when no rows follow.
 
         Args:
             data: The data to output. May be a scalar, async iterable, or async context manager.
@@ -524,9 +525,12 @@ class CLICommand(DataModel):
             color: Override for color output.
             data_format: The serialization format. Defaults to JSON.
             fields: Optional field names (or name-to-alias mappings) to include in output.
+            header: Whether to include the header row in CSV output. Defaults to including it.
         """
         if data_format is None:
             data_format = CLIDataFormat.JSON
+        if header is None:
+            header = True
         if fields is not None and not isinstance(fields, Mapping):
             fields = {field: field for field in fields}
 
@@ -548,7 +552,12 @@ class CLICommand(DataModel):
                 import csv
 
                 writer = csv.writer(_CallbackWriter(write), lineterminator="")
-                started = False
+                if fields is not None and header:
+                    # The projection's aliases are the header, so it writes even when
+                    # no rows follow, and the output always carries its schema.
+                    writer.writerow(dict.fromkeys(fields.values()))
+
+                started = fields is not None or not header
 
                 def output(value: object) -> None:
                     nonlocal started
@@ -771,11 +780,12 @@ def _extract(obj: object, fields: Mapping[str, str] | None = None) -> Mapping[st
     Returns:
         A mapping of (possibly aliased) field names to their values.
     """
+    model_fields = getattr(type(obj), "__pydantic_fields__", None)
+
     if fields is None:
         # A data object declares its fields on the model, and its values can live in
         # native storage rather than instance attributes, so the model is the
         # authority on what a row holds.
-        model_fields = getattr(type(obj), "__pydantic_fields__", None)
         if model_fields:
             return {name: getattr(obj, name) for name in model_fields}
 
@@ -789,9 +799,17 @@ def _extract(obj: object, fields: Mapping[str, str] | None = None) -> Mapping[st
 
         return _EMPTY_DICT
 
+    # A model field projects its wire value, so field serializers apply and a
+    # projected value renders exactly as it does in a full dump of the object.
+    model_fields = model_fields or _EMPTY_DICT
+    included = {field for field in fields if field in model_fields}
+    dumped: Mapping[str, object] = from_json(to_json(obj, include=included)) if included else {}
+
     cls: dict[str, object] = getattr(obj.__class__, "__dict__")
     return {
-        alias: getattr(obj, field, None) if field not in cls else None
+        alias: dumped.get(field)
+        if field in model_fields
+        else (getattr(obj, field, None) if field not in cls else None)
         for field, alias in fields.items()
     }
 
@@ -930,6 +948,11 @@ class CLIDataOutputCommand(CLICommand):
     field in the output data to the provided alias.
     """
 
+    header: bool = True
+    """
+    Include a header row in CSV output. Pass `--no-header` to output data rows only.
+    """
+
     @override
     async def put(
         self,
@@ -941,6 +964,7 @@ class CLIDataOutputCommand(CLICommand):
         color: bool | None = None,
         data_format: CLIDataFormat | None = None,
         fields: Sequence[str] | Mapping[str, str] | None = None,
+        header: bool | None = None,
     ) -> None:
         """Write data using the command's configured output file, format, and field selection."""
         # A file this call opens must close with it, or its final buffer never
@@ -966,10 +990,7 @@ class CLIDataOutputCommand(CLICommand):
         if self.output is not None:
             data_format = _resolve_data_format(self.output, data_format)
 
-        if fields is None and self.field is not None:
-            fields = seq(self.field)
-
-        fields = _resolve_fields(fields)
+        fields = _resolve_fields(fields) if fields is not None else self.resolved_fields()
 
         try:
             await super().put(
@@ -980,26 +1001,33 @@ class CLIDataOutputCommand(CLICommand):
                 color=color,
                 data_format=data_format,
                 fields=fields,
+                header=header if header is not None else self.header,
             )
         finally:
             if opened is not None:
                 opened.close()
 
-    def plain_json_output(self) -> bool:
-        """Whether output is plain JSON lines, with no field selection and no color.
+    def resolved_fields(self) -> Mapping[str, str] | None:
+        """The command's field projection as a name-to-alias mapping, `None` when
+        every field is output.
 
-        The shape a native dump can produce in one pass, so a select checks this before
-        deciding whether it can skip materializing entities.
+        A lone `--field` value is a single spec, never a character sequence.
         """
-        if self.field is not None or getattr(self, "fields", None) is not None:
-            return False
+        if self.field is None:
+            return None
 
+        return _resolve_fields(seq(self.field))
+
+    def native_dump_format(self) -> CLIDataFormat | None:
+        """The format a native one-pass dump can render, `None` when entities must
+        materialize.
+
+        Colorized output routes through Rich, so only an uncolored dump can ship as
+        one pre-rendered pass.
+        """
         data_format = self.data_format
         if self.output is not None:
             data_format = _resolve_data_format(self.output, data_format)
-
-        if (data_format or CLIDataFormat.JSON) is not CLIDataFormat.JSON:
-            return False
 
         color = self.color
         if color is None:
@@ -1008,7 +1036,14 @@ class CLIDataOutputCommand(CLICommand):
         if color is None:
             color = self.output is None and sys.stdout.isatty()
 
-        return not color
+        if color:
+            return None
+
+        return data_format or CLIDataFormat.JSON
+
+    def plain_json_output(self) -> bool:
+        """Whether output is plain JSON lines, with no color."""
+        return self.native_dump_format() is CLIDataFormat.JSON
 
     def put_text(self, text: str) -> None:
         """Write already-rendered output through the command's configured destination."""
@@ -1038,42 +1073,34 @@ class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
     """
 
     @override
-    async def put(
-        self,
-        data: object,
-        file: IO[str] | None = None,
-        *,
-        end: str = "\n",
-        flush: bool = False,
-        color: bool | None = None,
-        data_format: CLIDataFormat | None = None,
-        fields: Sequence[str] | Mapping[str, str] | None = None,
-    ) -> None:
-        """Write data, merging positional field selections with `--field` options."""
-        if fields is None:
-            fields = {
-                **(_resolve_fields(self.fields) or {}),
-                **(_resolve_fields(self.field) or {}),
-            } or None
-
-        await super().put(
-            data,
-            file,
-            end=end,
-            flush=flush,
-            color=color,
-            data_format=data_format,
-            fields=fields,
-        )
+    def resolved_fields(self) -> Mapping[str, str] | None:
+        """Merge positional field selections with `--field` options, the options
+        taking precedence by field name."""
+        flagged = None if self.field is None else _resolve_fields(seq(self.field))
+        return {
+            **(_resolve_fields(self.fields) or {}),
+            **(flagged or {}),
+        } or None
 
 
-async def dump_records_natively(database: Any, Entity: type[Any], query: Any) -> str | None:
-    """Render a record query as JSON lines in one native pass, `None` when it cannot.
+async def dump_records_natively(
+    database: Any,
+    Entity: type[Any],
+    query: Any,
+    data_format: CLIDataFormat = CLIDataFormat.JSON,
+    fields: Mapping[str, str] | None = None,
+    *,
+    header: bool = True,
+) -> str | None:
+    """Render a record query as JSON or CSV lines in one native pass, `None` when it
+    cannot.
 
     The query compiles here and executes through the native fetcher, so rows never
-    become Python objects and records serialize once, in Rust. Only the record tables
-    on a native backend qualify, and a query carrying a transform needs Python objects
-    and takes the materializing path instead.
+    become Python objects and records render once, in Rust. A field projection, a
+    name-to-alias mapping, selects and renames the output fields, and `header` gates
+    the CSV header row. Only the record tables on a native backend qualify, and a
+    query carrying a transform needs Python objects and takes the materializing path
+    instead.
     """
     from ceres.__internal__.app.shared import RECORD_TABLES
 
@@ -1085,6 +1112,7 @@ async def dump_records_natively(database: Any, Entity: type[Any], query: Any) ->
     if fetcher is None:
         return None
 
+    projection = None if fields is None else list(fields.items())
     sql, parameters = await query.compiled()
     try:
         batch = await fetcher.fetch_sql(table, sql, parameters)
@@ -1093,7 +1121,10 @@ async def dump_records_natively(database: Any, Entity: type[Any], query: Any) ->
         # correct through the materializing path, just slower.
         return None
 
-    return batch.to_json_lines().decode()
+    if data_format is CLIDataFormat.CSV:
+        return batch.to_csv_lines(projection, header=header)
+
+    return batch.to_json_lines(projection).decode()
 
 
 def create_entity_select_command(Entity: type[Entity]):
@@ -1112,15 +1143,34 @@ def create_entity_select_command(Entity: type[Entity]):
             async with self.use_database() as database:
                 query = database.__manager__(Entity).where(filter)
 
-                # A plain JSON dump of a record table renders natively in one pass,
-                # which is what makes a select over a large table fast.
-                if self.plain_json_output():
-                    dumped = await dump_records_natively(database, Entity, query)
+                # An uncolored JSON or CSV dump of a record table renders natively in
+                # one pass, projected or not, which is what makes a select over a
+                # large table fast.
+                data_format = self.native_dump_format()
+                if data_format is not None:
+                    dumped = await dump_records_natively(
+                        database,
+                        Entity,
+                        query,
+                        data_format,
+                        self.resolved_fields(),
+                        header=self.header,
+                    )
                     if dumped is not None:
                         self.put_text(dumped)
                         return
 
-                await self.put(query.select())
+                fields = self.resolved_fields()
+                data_format = self.data_format
+                if self.output is not None:
+                    data_format = _resolve_data_format(self.output, data_format)
+
+                if fields is None and data_format is CLIDataFormat.CSV:
+                    # An entity's columns are its model fields, so a CSV select still
+                    # writes its header when no rows match.
+                    fields = {name: name for name in Entity.__pydantic_fields__}
+
+                await self.put(query.select(), fields=fields)
 
     return SelectCommand
 

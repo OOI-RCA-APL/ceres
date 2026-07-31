@@ -15,7 +15,9 @@ mod timestamp;
 
 pub use address::Address;
 pub use ceres_config::Level;
-pub use filterable::{FieldFamily, FilterField, FilterValues, Filterable};
+pub use filterable::{
+    FieldFamily, FieldOperation, FilterField, FilterValues, Filterable, OperationKind,
+};
 pub use records::{
     Alert, LogEntry, Message, MessageDirection, Particle, Records, latin1, to_json_array,
 };

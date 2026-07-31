@@ -6,14 +6,13 @@
 //!
 //! - **Field filters** match a field's value, equality for every family plus what the
 //!   family brings, the window operators for a timestamp and ordered bounds for a
-//!   level. These compile natively.
+//!   level.
 //! - **Field operation filters** match within a field's content, the `contains`,
-//!   `prefix`, and `suffix` variants on text, byte, and JSON fields. Their key names
-//!   generate here too, but they compile through the Python query layer, whose
-//!   per-backend matching semantics they carry.
+//!   `prefix`, and `suffix` variants on text, byte, and JSON fields, each compiling to
+//!   the backend's own matching expression.
 //! - **Query filters** shape the query rather than match fields, `order`, `limit`, and
-//!   `offset` natively, plus Python's structural constructs, subfilter combinators and
-//!   subsampling, which always delegate.
+//!   `offset`, plus the structural constructs, subfilter combinators and subsampling,
+//!   which compile from their own wire keys rather than from a field.
 
 use ceres_config::Level;
 
@@ -23,12 +22,28 @@ pub struct FilterField {
     /// The field's wire name, the `#[serde(rename)]` value when one is present.
     pub key: &'static str,
     pub family: FieldFamily,
-    /// The field's operation filter keys, generated from the key at derive time.
+    /// The field's operation filters, their keys generated from the key at derive
+    /// time.
     ///
     /// Prefixed on the key by default (`type_contains`), bare where the Python filter
     /// names them bare (`contains` on a log's content and a message's data), which the
     /// entity marks with `#[filterable(bare_operations)]`.
-    pub operations: &'static [&'static str],
+    pub operations: &'static [FieldOperation],
+}
+
+/// One operation filter on a field, its wire key and what it matches.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FieldOperation {
+    pub key: &'static str,
+    pub kind: OperationKind,
+}
+
+/// How an operation filter matches within a field's content.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum OperationKind {
+    Contains,
+    Prefix,
+    Suffix,
 }
 
 /// The filter family a field's type belongs to, which decides its operators.
@@ -47,17 +62,20 @@ pub enum FieldFamily {
     Values(&'static [&'static str]),
     /// Equality plus ordered bounds, `min_` and `max_` prefixed on the field's key.
     Level,
-    /// Raw bytes, whose equality and operations carry per-backend matching semantics
-    /// and so always delegate.
+    /// Raw bytes, equality on the stored blob plus whole-byte operations.
     Bytes,
-    /// A JSON payload, whose operations match its serialized text and always delegate.
+    /// A JSON payload, whose operations match its serialized text and which carries
+    /// no equality key of its own.
     Json,
 }
 
 impl FieldFamily {
-    /// Whether the family's field filters compile natively.
+    /// Whether the family's own key filters by equality and orders natively.
+    ///
+    /// JSON payloads are the exception, the Python filters give them operation keys
+    /// only, so their own key is not part of the wire surface.
     pub fn native(&self) -> bool {
-        !matches!(self, Self::Bytes | Self::Json)
+        !matches!(self, Self::Json)
     }
 }
 

@@ -12,6 +12,7 @@ pub mod binary;
 pub mod database;
 pub mod entities;
 pub mod fetcher;
+mod filters;
 pub mod interop;
 pub mod logging;
 pub mod server;
@@ -159,10 +160,19 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<entities::RecordBatch>()?;
     module.add_class::<entities::RecordTable>()?;
     module.add_class::<fetcher::RecordFetcher>()?;
+    module.add_class::<filters::RecordFilter>()?;
     module.add_class::<fetcher::RecordWriter>()?;
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::record_filter_keys, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(
+        filters::parse_record_filter,
+        module
+    )?)?;
+    module.add_function(pyo3::wrap_pyfunction!(
+        filters::record_filter_from_json,
+        module
+    )?)?;
     Ok(())
 }
 

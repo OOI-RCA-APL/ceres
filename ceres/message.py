@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Unpack, override
 
 from sqlalchemy import Index, LargeBinary, func
@@ -27,17 +27,13 @@ from ceres.__internal__.record import (
     BaseRecordUpdate,
 )
 from ceres.data import BytesFromString, BytesToString, MaybeSequence, StrEnum
-from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from uuid import UUID
 
-    from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
-    from ceres.database import DatabaseType
 
 __all__ = [
     "Message",
@@ -159,76 +155,10 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     suffix: MaybeSequence[MessageData] | None = None
     """Filter by `data` ending with one or more given byte suffixes."""
 
-    @override
-    def _matches(self, obj: Message, *, now: datetime | None = None) -> bool:
-        now = utc(now)
-        if not super()._matches(obj, now=now):
-            return False
-
-        if self.connection is not None:
-            if obj.connection is None or not self._match_value(obj.connection, self.connection):
-                return False
-        if not self._match_string_contains(obj.connection, self.connection_contains):
-            return False
-        if not self._match_string_prefix(obj.connection, self.connection_prefix):
-            return False
-        if not self._match_string_suffix(obj.connection, self.connection_suffix):
-            return False
-
-        if not self._match_value(obj.direction, self.direction):
-            return False
-
-        if not self._match_value(obj.data, self.data):
-            return False
-        if not self._match_string_contains(obj.data, self.contains):
-            return False
-        if not self._match_string_prefix(obj.data, self.prefix):
-            return False
-        if not self._match_string_suffix(obj.data, self.suffix):
-            return False
-
-        return True
-
     @classmethod
     @override
     def _get_row_cls(cls) -> type[MessageRow]:
         return MessageRow
-
-    @override
-    def _get_where(
-        self,
-        dialect: DatabaseType,
-        *,
-        now: datetime | None = None,
-    ) -> Iterable[SQLColumnExpression[bool]]:
-        now = utc(now)
-        yield from super()._get_where(dialect, now=now)
-        columns = self._get_row_cls()
-
-        if self.connection is not None:
-            yield self._sql_match_value(columns.connection, self.connection)
-        if self.connection_contains is not None:
-            yield self._sql_match_string_contains(columns.connection, self.connection_contains)
-        if self.connection_prefix is not None:
-            yield self._sql_match_string_prefix(columns.connection, self.connection_prefix)
-        if self.connection_suffix is not None:
-            yield self._sql_match_string_suffix(columns.connection, self.connection_suffix)
-
-        if self.direction is not None:
-            yield self._sql_match_value(columns.direction, self.direction)
-
-        if self.data is not None:
-            yield self._sql_match_value(columns.data, self.data)
-
-        # How these are written depends on the backend, so they are left to compile time. Postgres
-        # searches the tokenized hex its trigram index is built over, while the SQLite family
-        # compares the bytes directly.
-        if self.contains is not None:
-            yield self._sql_match_bytes_contains(columns.data, self.contains)
-        if self.prefix is not None:
-            yield self._sql_match_bytes_prefix(columns.data, self.prefix)
-        if self.suffix is not None:
-            yield self._sql_match_bytes_suffix(columns.data, self.suffix)
 
 
 class MessageCreate(BaseRecordCreate, slots=True):

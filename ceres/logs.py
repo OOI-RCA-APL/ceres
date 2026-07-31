@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import (
     TYPE_CHECKING,
     ClassVar,
@@ -35,18 +35,14 @@ from ceres.__internal__.record import (
 )
 from ceres.data import MaybeSequence, to_json
 from ceres.level import Level
-from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from uuid import UUID
 
-    from sqlalchemy import SQLColumnExpression
     from sqlalchemy.schema import SchemaItem
 
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
-    from ceres.database import DatabaseType
 
 __all__ = [
     "LogEntry",
@@ -137,63 +133,10 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
     suffix: MaybeSequence[str] | None = None
     """Filter by `content` ending with one or more given suffixes."""
 
-    @override
-    def _matches(self, obj: LogEntry, *, now: datetime | None = None) -> bool:
-        now = utc(now)
-        if not super()._matches(obj, now=now):
-            return False
-
-        if not self._match_value(obj.level, self.level):
-            return False
-
-        if self.min_level is not None:
-            if obj.level < self.min_level:
-                return False
-        if self.max_level is not None:
-            if obj.level > self.max_level:
-                return False
-
-        if not self._match_value(obj.content, self.content):
-            return False
-        if not self._match_string_contains(obj.content, self.contains):
-            return False
-        if not self._match_string_prefix(obj.content, self.prefix):
-            return False
-        if not self._match_string_suffix(obj.content, self.suffix):
-            return False
-
-        return True
-
     @classmethod
     @override
     def _get_row_cls(cls) -> type[LogEntryRow]:
         return LogEntryRow
-
-    @override
-    def _get_where(
-        self,
-        dialect: DatabaseType,
-        *,
-        now: datetime | None = None,
-    ) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect, now=now)
-        columns = self._get_row_cls()
-
-        if self.level is not None:
-            yield self._sql_match_value(columns.level, self.level)
-        if self.min_level is not None:
-            yield columns.level.in_(current for current in Level if current >= self.min_level)
-        if self.max_level is not None:
-            yield columns.level.in_(current for current in Level if current <= self.max_level)
-
-        if self.content is not None:
-            yield self._sql_match_value(columns.content, self.content)
-        if self.contains is not None:
-            yield self._sql_match_string_contains(columns.content, self.contains)
-        if self.prefix is not None:
-            yield self._sql_match_string_prefix(columns.content, self.prefix)
-        if self.suffix is not None:
-            yield self._sql_match_string_suffix(columns.content, self.suffix)
 
 
 class LogEntryCreate(BaseRecordCreate, slots=True):
