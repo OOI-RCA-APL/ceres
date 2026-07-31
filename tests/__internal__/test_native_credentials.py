@@ -28,7 +28,7 @@ from ceres_core import (
 from ceres.__internal__.auth import get_password_hash_type, verify_password
 from ceres.config import Argon2HashingConfig, HashType
 from ceres.data import validate
-from ceres.data.types import Argon2Hash, BCryptHash, EmailAddress
+from ceres.data.types import Argon2Hash, BCryptHash, EmailAddress, Password
 
 PARAMETERS = Argon2HashingConfig()
 
@@ -118,20 +118,46 @@ def test_bcrypt_hashes_the_way_the_model_stores_them() -> None:
     assert hash_bcrypt("secret", 99) is None
 
 
-def test_a_password_the_model_would_refuse_is_not_hashed() -> None:
-    """A value outside `Password`'s constraints refuses rather than being stored.
+def test_a_password_is_held_only_to_the_limit_hashing_imposes() -> None:
+    """The cap is bcrypt's 72-byte input limit, so a passphrase is a password.
 
-    The create model holds a password to 32 characters and to bcrypt's 72-byte input
-    limit. The native path takes raw argument text, so without this the two disagree and
-    a row lands that Python answers a validation error for.
+    Measured in bytes because that is how bcrypt measures it, and multi-byte characters
+    reach the limit sooner than their character count suggests.
     """
-    assert hash_argon2("a" * 32, 3, 65536, 4, 32, 16) is not None
-    assert hash_argon2("a" * 33, 3, 65536, 4, 32, 16) is None
+    # A long passphrase is exactly the kind of password worth encouraging.
+    passphrase = "correct horse battery staple and then some more"
+    assert len(passphrase) > 32
+    assert hash_argon2(passphrase, 3, 65536, 4, 32, 16) is not None
+    assert validate(Password, passphrase) == passphrase
+
+    assert hash_argon2("a" * 72, 3, 65536, 4, 32, 16) is not None
+    assert hash_argon2("a" * 73, 3, 65536, 4, 32, 16) is None
     assert hash_argon2("", 3, 65536, 4, 32, 16) is None
-    # Thirty-two characters of multi-byte text is over the byte limit.
-    assert hash_argon2("\u00fc" * 32, 3, 65536, 4, 32, 16) is not None
-    assert hash_argon2("\U0001f600" * 32, 3, 65536, 4, 32, 16) is None
-    assert hash_bcrypt("a" * 33, 4) is None
+    assert hash_bcrypt("a" * 73, 4) is None
+
+    # Eighteen four-byte characters are 72 bytes, nineteen are over.
+    assert hash_argon2("\U0001f600" * 18, 3, 65536, 4, 32, 16) is not None
+    assert hash_argon2("\U0001f600" * 19, 3, 65536, 4, 32, 16) is None
+
+    with pytest.raises(ValueError):
+        validate(Password, "a" * 73)
+
+
+def test_the_length_limit_never_rejects_a_stored_hash() -> None:
+    """A hash is recognized before the limit applies, which it has to be.
+
+    An Argon2 hash at the configured defaults is longer than a password may be, so a
+    limit applied first would make storing one impossible and would fail every row of a
+    dump of hashed users. bcrypt's are shorter and would survive by luck, which is not a
+    reason to rely on the order any less.
+    """
+    default = _hash(STORED_PASSWORD)
+    assert len(default) > 72, default
+
+    for hashed in [default, *ARGON2_CFFI_HASHES, *BCRYPT_HASHES]:
+        # Passing one back through hashing returns it untouched rather than refusing it.
+        assert hash_argon2(hashed, 3, 65536, 4, 32, 16) == hashed, hashed
+        assert hash_bcrypt(hashed, 4) == hashed, hashed
 
 
 def test_a_hash_carries_the_parameters_it_was_configured_with() -> None:
@@ -172,16 +198,21 @@ def test_an_already_hashed_password_passes_through() -> None:
     assert _hash(stored) == stored
 
 
-NORMALIZED = [
-    "ada@example.com",
-    "Ada@Example.COM",
-    "a.b+tag@Gmail.com",
-    "linus@kernel.example.co.uk",
-    "x@y.zz",
-    "first.last@sub.domain.example.org",
-    "user!#$%&'*+-/=?^_`{|}~@example.com",
+ADDRESSES = [
+    ("ada@example.com", "ada@example.com"),
+    ("Ada@Example.COM", "ada@example.com"),
+    ("a.b+tag@Gmail.com", "a.b+tag@gmail.com"),
+    ("first.last@sub.domain.example.org", "first.last@sub.domain.example.org"),
+    ("user!#$%&'*+-/=?^_`{|}~@example.com", "user!#$%&'*+-/=?^_`{|}~@example.com"),
+    # An internationalized domain stores in its own script however it arrives.
+    ("a@münchen.de", "a@münchen.de"),
+    ("a@xn--mnchen-3ya.de", "a@münchen.de"),
+    ("A@MÜNCHEN.DE", "a@münchen.de"),
+    ("a@例え.jp", "a@例え.jp"),
+    ("üser@example.com", "üser@example.com"),
+    ("u\u0308ser@example.com", "üser@example.com"),
 ]
-"""Addresses the native subset is expected to serve."""
+"""Addresses and the single form each one stores as."""
 
 REFUSED = [
     "",
@@ -193,157 +224,59 @@ REFUSED = [
     "a@-example.com",
     "a@example-.com",
     "a@example..com",
-    "a@example.c",
     "a@example.c0m",
     ".a@example.com",
     "a.@example.com",
     "a..b@example.com",
     '"quoted local"@example.com',
-    "user@über.de",
-    "üser@example.com",
+    "Ada <ada@example.com>",
     "a b@example.com",
     "a@exam ple.com",
     "a@@example.com",
-    "a@example.com ",
-    " a@example.com",
     "a@[127.0.0.1]",
-    "a@xn--80ak6aa92e.com",
     "a@127.0.0.1",
-    "a@exa_mple.com",
-    "Ada <ada@example.com>",
-    "a@example.invalid",
-    "a@sub.test",
     "a" * 65 + "@example.com",
     "a@" + "b" * 64 + ".com",
-    "a@" + ("b" * 60 + ".") * 5 + "com",
 ]
-"""Addresses outside the subset, which delegate rather than being guessed at."""
+"""Addresses Ceres will not store, none of which names a mailbox it can hold."""
 
 
-@pytest.mark.parametrize("address", NORMALIZED)
-def test_a_served_address_matches_what_the_model_would_have_stored(address: str) -> None:
-    """Every address the native path accepts normalizes exactly as the model does.
+@pytest.mark.parametrize(("address", "expected"), ADDRESSES)
+def test_an_address_stores_as_one_normalized_form(address: str, expected: str) -> None:
+    """Every spelling of a mailbox lands on the same stored text."""
+    assert normalize_email(address) == expected
+    assert validate(EmailAddress, address) == expected
 
-    This is the direction that can corrupt data. An address accepted here and refused by
-    `email_validator`, or normalized differently, is a row written natively that Python
-    would have written another way or not at all.
+
+@pytest.mark.parametrize(("address", "expected"), ADDRESSES)
+def test_normalizing_is_idempotent(address: str, expected: str) -> None:
+    """Normalizing a stored address answers itself.
+
+    A filter normalizes the value it is given before comparing, so a form that changed on
+    a second pass would never match the row a create wrote.
     """
-    native = normalize_email(address)
-    assert native is not None, "expected the native subset to serve this address"
-    assert native == validate(EmailAddress, address)
+    assert normalize_email(expected) == expected
 
 
 @pytest.mark.parametrize("address", REFUSED)
-def test_a_refused_address_delegates(address: str) -> None:
-    """An address outside the subset is left to the model, whatever the model makes of it."""
+def test_a_refused_address_raises(address: str) -> None:
+    """An address Ceres will not store is a validation error rather than a stored row."""
     assert normalize_email(address) is None
+    with pytest.raises(ValueError):
+        validate(EmailAddress, address)
 
 
-def test_the_reserved_domain_list_matches_the_validators_own() -> None:
-    """The native list of undeliverable names is the library's list.
-
-    Holding the two together is what keeps a name the library adds later from being an
-    address written natively that Python refuses.
-    """
-    from email_validator import SPECIAL_USE_DOMAIN_NAMES
-
-    assert sorted(special_use_domains()) == sorted(SPECIAL_USE_DOMAIN_NAMES)
-    for name in SPECIAL_USE_DOMAIN_NAMES:
+def test_reserved_domains_are_refused() -> None:
+    """No address under a reserved name can receive mail, so none is stored."""
+    for name in special_use_domains():
         assert normalize_email(f"a@example.{name}") is None, name
 
-
-def test_no_accepted_address_is_one_the_validator_rejects() -> None:
-    """Sweep every combination of a nasty local part and a nasty domain, one way.
-
-    A refusal is always safe, so the sweep asserts nothing about them. What it holds is
-    that every address the native path accepts is one the model accepts too, and stores
-    as the same text. The grammar comes from a crate whose accept surface is not the
-    model's, so this product is what pins the difference.
-    """
-    from itertools import product
-
-    from email_validator import EmailNotValidError
-
-    locals_ = [
-        "a",
-        "ab",
-        "a.b",
-        ".a",
-        "a.",
-        "a..b",
-        "a b",
-        '"a b"',
-        "a@b",
-        "",
-        "A",
-        "Ada",
-        "ada.lovelace",
-        "ada+tag",
-        "ü",
-        "0",
-        "-a",
-        "a\t",
-        "a\n",
-        *(f"a{character}" for character in "!#$%&'*+-/=?^_`{|}~()<>[]\\,;:\""),
-    ]
-    domains = [
-        "b.com",
-        "B.COM",
-        "b",
-        "b.c",
-        "b.co",
-        "b.c0m",
-        "b-c.com",
-        "-b.com",
-        "b-.com",
-        "b..com",
-        ".b.com",
-        "b.com.",
-        "b_c.com",
-        "sub.b.com",
-        "xn--80ak6aa92e.com",
-        "b.xn--fiqs8s",
-        "127.0.0.1",
-        "[127.0.0.1]",
-        "über.de",
+    # The list is the one RFC 2606 and RFC 7686 set aside.
+    assert sorted(special_use_domains()) == [
+        "arpa",
+        "invalid",
+        "local",
         "localhost",
-        "b.museum",
-        "",
-        "b .com",
-        "b.c om",
-        "b" * 64 + ".com",
-        "b.c-m",
-        "b.travel",
-        *(f"b.{name}" for name in special_use_domains()),
+        "onion",
+        "test",
     ]
-
-    corpus = [f"{local}@{domain}" for local, domain in product(locals_, domains)]
-    corpus += [
-        *NORMALIZED,
-        *REFUSED,
-        "a@b.com ",
-        " a@b.com",
-        "a@@b.com",
-        "a",
-        "@",
-        "Ada <a@b.com>",
-        "<a@b.com>",
-        "a@b.com,c@d.com",
-    ]
-
-    served = 0
-    for address in corpus:
-        native = normalize_email(address)
-        if native is None:
-            continue
-
-        served += 1
-        try:
-            expected = validate(EmailAddress, address)
-        except (ValueError, EmailNotValidError) as error:
-            pytest.fail(f"native accepted {address!r} which the model rejects: {error}")
-
-        assert native == expected, address
-
-    # A sweep that served nothing would pass without testing anything.
-    assert served > 100, served

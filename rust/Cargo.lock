@@ -742,6 +742,7 @@ dependencies = [
  "csv",
  "email_address",
  "futures-util",
+ "idna",
  "sea-query",
  "sea-query-binder",
  "serde",
@@ -753,6 +754,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "turso",
+ "unicode-normalization",
  "uuid",
 ]
 

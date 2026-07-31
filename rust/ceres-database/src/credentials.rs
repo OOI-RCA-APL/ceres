@@ -14,6 +14,7 @@ use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, Salt
 use argon2::{Algorithm, Argon2, Params, Version};
 use email_address::EmailAddress;
 use serde_json::{Map, Value};
+use unicode_normalization::UnicodeNormalization;
 
 use crate::entities::EntityTable;
 
@@ -111,12 +112,13 @@ impl Credentials {
 
 /// Whether a plaintext password is one the create model would take.
 ///
-/// `Password` holds it between 1 and 32 characters and to bcrypt's 72-byte input limit,
-/// which is a real ceiling rather than a stylistic one, and 32 characters of multi-byte
-/// text can exceed it.
+/// The only ceiling is bcrypt's 72-byte input limit, measured in bytes because that is
+/// how bcrypt measures it. A passphrase is a good password, so nothing narrower applies.
+///
+/// This is never reached by a stored hash. `Credentials::password` recognizes one first
+/// and passes it through, which it has to, since every hash is longer than this allows.
 pub fn valid_password(value: &str) -> bool {
-    let characters = value.chars().count();
-    (1..=32).contains(&characters) && value.len() <= 72
+    !value.is_empty() && value.len() <= 72
 }
 
 /// Hash with Argon2id under the given parameters.
@@ -233,97 +235,83 @@ fn argon2_hash(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '$'))
 }
 
-/// The reserved names no address can be delivered to, which the validator library
-/// refuses and this subset therefore refuses too.
+/// The reserved names no address can be delivered to.
 ///
-/// Kept in the library's own order and spelling. `SPECIAL_USE_DOMAIN_NAMES` is where it
-/// lives on the Python side, and the parity suite compares the two.
+/// Every one of these is set aside by RFC 2606 or RFC 7686 for documentation, testing, or
+/// onion routing, so no address under them can receive mail.
 pub const SPECIAL_USE_DOMAINS: &[&str] =
     &["arpa", "invalid", "local", "localhost", "onion", "test"];
 
-/// Normalize an email address, `None` for anything outside the subset this understands.
+/// Normalize an email address into the form Ceres stores, `None` for one it will not take.
 ///
-/// The grammar belongs to the `email_address` crate, which parses RFC 5322 addresses.
-/// What is left here is the narrowing, the difference between what that crate admits and
-/// what the Python model stores.
+/// This is the only definition of a valid address in the system. It is built from crates
+/// rather than written out, `email_address` for the RFC 5322 grammar, `idna` for UTS-46
+/// domain processing, and `unicode-normalization` for the local part, with only the
+/// narrowing between them written here.
 ///
-/// The Python model validates through the `email_validator` library and then lowercases
-/// the whole result. That library is stricter than RFC 5322 in some places, refusing
-/// undeliverable names, and it rewrites the address in others, decoding an
-/// internationalized domain back to Unicode. Neither library is the other, so the subset
-/// admitted here is the plain ASCII intersection where normalizing IS lowercasing.
+/// The stored form is what a lookup compares against, so normalizing has to be
+/// idempotent. Normalizing an address that is already stored answers the same text, which
+/// is what lets a filter find the row a create wrote.
 ///
-/// The narrowing runs one way on purpose. An address refused here delegates, which costs
-/// a process start and nothing else. One accepted here that the model would have refused,
-/// or would have stored differently, is a row written wrong, so the parity suite sweeps
-/// that direction alone.
+/// Refused are display forms, quoted local parts, domain literals, single-label domains,
+/// and the reserved names above, none of which name a mailbox Ceres can hold.
 pub fn normalize_email(value: &str) -> Option<String> {
-    let parsed: EmailAddress = value.parse().ok()?;
-
-    // Anything non-ASCII is an internationalized address the model rewrites rather than
-    // lowercases, in the local part through Unicode normalization and in the domain
-    // through IDNA. Holding to ASCII is what makes lowercasing the whole answer.
-    if !value.is_ascii() {
+    // The whole address is capped the way SMTP caps a path.
+    if value.len() > 254 {
         return None;
     }
 
-    // A quoted local part is one the model refuses outright. The crate keeps the quotes,
-    // so their absence is the test.
-    let local = parsed.local_part();
-    if local.starts_with('"') {
-        return None;
-    }
+    // Composing comes first, so a decomposed `u` plus a combining diaeresis is the same
+    // input as a composed `ü` from here on. It also has to precede parsing, because the
+    // grammar crate reads a combining mark as an invalid character.
+    let composed: String = value.nfc().collect();
+    let parsed: EmailAddress = composed.parse().ok()?;
 
-    // The crate reads a display form, `Ada <a@b.com>`, as an address with a name on it.
-    // The model takes no such thing, and lowercasing one would store the whole string.
+    // A display form, `Ada <a@b.com>`, carries a name the stored column has nowhere to
+    // put, and a quoted local part carries quoting the comparison would have to preserve.
     if !parsed.display_part().is_empty() {
         return None;
     }
 
-    // A domain is at least two labels, because the model reads a bare single-label name
-    // as special-use or undeliverable. A domain literal, `a@[127.0.0.1]`, falls out of
-    // the same checks, its brackets and digits being no label at all.
-    let labels: Vec<&str> = parsed.domain().split('.').collect();
+    let local = parsed.local_part().to_string();
+    if local.starts_with('"') || local.is_empty() || local.len() > 64 {
+        return None;
+    }
+
+    // UTS-46 case-folds, composes, maps the label separators, and decodes punycode, so a
+    // domain written in ASCII and the same one written in its own script land together.
+    let (domain, processed) = idna::domain_to_unicode(parsed.domain());
+    processed.ok()?;
+
+    let labels: Vec<&str> = domain.split('.').collect();
     let [.., last] = labels.as_slice() else {
         return None;
     };
-    if labels.len() < 2 {
+    // A single-label domain is a local network name rather than a deliverable one, and a
+    // domain literal fails the same test, its brackets being no label at all.
+    if labels.len() < 2 || domain.len() > 253 {
         return None;
     }
 
-    // A hostname label is letters, digits, and inner hyphens. The crate reads the wider
-    // RFC 5322 domain, which admits an underscore among other things, and the model does
-    // not, so the narrower reading is the one that holds here.
-    //
-    // A punycode label is refused for a different reason. It is an internationalized name
-    // written in ASCII, which the model decodes back to its Unicode form rather than
-    // storing as it arrived.
-    let hostname = |label: &&str| {
-        !label.is_empty()
-            && label.len() <= 63
-            && !label.starts_with('-')
-            && !label.ends_with('-')
-            && !label.starts_with("xn--")
-            && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-    };
-    if !labels.iter().all(hostname) {
+    if labels
+        .iter()
+        .any(|label| label.is_empty() || label.starts_with('-') || label.ends_with('-'))
+    {
         return None;
     }
 
-    // A deliverable name ends in an alphabetic label of at least two characters, which
-    // rules out the numeric tails an address parser will otherwise take.
-    if last.len() < 2 || !last.chars().all(|c| c.is_ascii_alphabetic()) {
+    // A deliverable name ends in an alphabetic label, which rules out the numeric tail an
+    // address parser otherwise reads out of an IP address.
+    if last.chars().count() < 2 || last.chars().any(|c| !c.is_alphabetic()) {
         return None;
     }
 
-    // The model refuses an address whose domain ends in a special-use name, because none
-    // of them can receive mail. The parity suite holds this list against the library's
-    // own, so a name added there fails the suite rather than passing silently.
     if SPECIAL_USE_DOMAINS.contains(&last.to_lowercase().as_str()) {
         return None;
     }
 
-    Some(value.to_lowercase())
+    // UTS-46 already lowered the domain, so this is the local part's fold.
+    Some(format!("{local}@{domain}").to_lowercase())
 }
 
 #[cfg(test)]
@@ -399,44 +387,69 @@ mod tests {
     }
 
     #[test]
-    fn an_email_normalizes_by_lowercasing_or_is_refused() {
+    fn an_email_normalizes_to_one_stored_form() {
+        let stored = |value: &str| normalize_email(value).expect(value);
+
+        // Case folds and the local part composes, so the same mailbox written different
+        // ways lands on one text.
+        assert_eq!(stored("Ada@Example.COM"), "ada@example.com");
+        assert_eq!(stored("a.b+tag@Gmail.com"), "a.b+tag@gmail.com");
         assert_eq!(
-            normalize_email("Ada@Example.COM").as_deref(),
-            Some("ada@example.com")
-        );
-        assert_eq!(
-            normalize_email("a.b+tag@Gmail.com").as_deref(),
-            Some("a.b+tag@gmail.com")
-        );
-        assert_eq!(
-            normalize_email("linus@kernel.example.com").as_deref(),
-            Some("linus@kernel.example.com")
+            stored("linus@kernel.example.co.uk"),
+            "linus@kernel.example.co.uk"
         );
 
-        // Everything outside the subset delegates rather than being guessed at.
+        // An internationalized domain stores in its own script whether it arrives that
+        // way or as punycode, which is what makes the two forms the same address.
+        assert_eq!(stored("a@münchen.de"), "a@münchen.de");
+        assert_eq!(stored("a@xn--mnchen-3ya.de"), "a@münchen.de");
+        assert_eq!(stored("A@MÜNCHEN.DE"), "a@münchen.de");
+        assert_eq!(stored("a@例え.jp"), "a@例え.jp");
+        assert_eq!(stored("üser@example.com"), "üser@example.com");
+
+        // Normalizing is idempotent, so a stored address compares equal to itself and a
+        // filter finds the row a create wrote.
+        for value in [
+            "Ada@Example.COM",
+            "a@xn--mnchen-3ya.de",
+            "A@MÜNCHEN.DE",
+            "üser@例え.jp",
+        ] {
+            let once = stored(value);
+            assert_eq!(stored(&once), once, "{value:?}");
+        }
+
+        // A composed and a decomposed local part are the same mailbox.
+        assert_eq!(
+            stored("üser@example.com"),
+            stored("u\u{308}ser@example.com")
+        );
+
         for refused in [
             "",
             "nobody",
             "@example.com",
             "a@",
+            // A single-label name is a local network's, not a deliverable mailbox.
             "a@localhost",
-            // A domain ending in a reserved name receives no mail, whatever precedes it.
+            "a@example",
+            // Reserved names receive no mail whatever precedes them.
             "a@example.invalid",
             "a@host.local",
             "a@site.ONION",
-            "a@example",
             "a@-example.com",
             "a@example-.com",
             "a@example..com",
-            "a@example.c",
+            // A numeric tail is an address, not a name.
             "a@example.c0m",
+            "a@127.0.0.1",
+            "a@[127.0.0.1]",
             ".a@example.com",
             "a.@example.com",
             "a..b@example.com",
+            // Quoting and display names carry text the stored column cannot hold.
             "\"quoted local\"@example.com",
-            "user@über.de",
-            // A punycode domain decodes back to Unicode rather than staying as written.
-            "a@xn--80ak6aa92e.com",
+            "Ada <ada@example.com>",
             "a b@example.com",
             "a@exam ple.com",
         ] {
