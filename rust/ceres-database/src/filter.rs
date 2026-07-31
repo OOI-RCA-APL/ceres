@@ -348,11 +348,12 @@ impl RecordFilter {
         } else {
             self.statement(dialect)
         };
-        let (sql, values) = match dialect {
-            SqlDialect::SqliteText => statement.build(sea_query::SqliteQueryBuilder),
-            SqlDialect::Postgres => statement.build(sea_query::PostgresQueryBuilder),
-        };
-        (sql, values.0)
+        build(statement, dialect)
+    }
+
+    /// Compile the existence check to SQL and its bound parameters.
+    pub fn exists_compiled(&self, dialect: SqlDialect) -> (String, Vec<Value>) {
+        build(self.exists_statement(dialect), dialect)
     }
 
     /// The filter's offset, `None` when unset.
@@ -488,6 +489,33 @@ impl RecordFilter {
         statement
             .expr(Expr::cust("COUNT(*)"))
             .from_subquery(inner, Alias::new("matched"));
+        statement
+    }
+
+    /// Build the existence statement, `SELECT EXISTS (...)`.
+    ///
+    /// Ordering never changes whether a row exists, and the Python layer ignores it here
+    /// too, so the inner query carries only the conditions and the page bounds.
+    pub fn exists_statement(&self, dialect: SqlDialect) -> SelectStatement {
+        let now = Utc::now().naive_utc().trunc_subsecs(6);
+        let mut inner = Query::select();
+        inner.column(Asterisk).from(Alias::new(self.table.name()));
+        for condition in self.node.combined_conditions(self.table, dialect, now) {
+            inner.and_where(condition);
+        }
+
+        if let Some(limit) = self.limit {
+            inner.limit(limit);
+        } else if self.offset.is_some() && dialect == SqlDialect::SqliteText {
+            inner.limit(i64::MAX as u64);
+        }
+
+        if let Some(offset) = self.offset {
+            inner.offset(offset);
+        }
+
+        let mut statement = Query::select();
+        statement.expr(Expr::exists(inner));
         statement
     }
 
@@ -1985,6 +2013,16 @@ fn record_timestamp(text: Option<&str>) -> Option<NaiveDateTime> {
 }
 
 /// Render a statement in a dialect and return what follows a fixed prefix.
+/// Render a statement in the dialect's placeholder style, `?` for the SQLite family
+/// and `$n` for PostgreSQL.
+fn build(statement: SelectStatement, dialect: SqlDialect) -> (String, Vec<Value>) {
+    let (sql, values) = match dialect {
+        SqlDialect::SqliteText => statement.build(sea_query::SqliteQueryBuilder),
+        SqlDialect::Postgres => statement.build(sea_query::PostgresQueryBuilder),
+    };
+    (sql, values.0)
+}
+
 fn rendered_after(statement: &SelectStatement, dialect: SqlDialect, prefix: &str) -> String {
     let rendered = match dialect {
         SqlDialect::SqliteText => statement.to_string(sea_query::SqliteQueryBuilder),

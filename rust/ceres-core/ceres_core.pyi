@@ -576,6 +576,12 @@ class RecordFilter:
         The parameters arrive in placeholder order for a driver-level execute, `?`
         style for the SQLite family and `$n` for PostgreSQL.
         """
+    def exists_compiled(self, dialect: str) -> tuple[str, list[Any]]:
+        r"""
+        Compile the existence check to SQL and its parameters for a dialect.
+
+        The shape an `any` command runs, which stops at the first matching row.
+        """
     def matches(self, record_json: str, now: datetime | None = None) -> bool:
         r"""
         Whether one serialized record matches this filter.

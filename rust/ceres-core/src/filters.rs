@@ -116,11 +116,19 @@ impl RecordFilter {
         count: bool,
     ) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
         let (sql, values) = self.filter.compiled(dialect_of(dialect)?, count);
-        let parameters = values
-            .into_iter()
-            .map(|value| bind_value(py, value))
-            .collect::<PyResult<Vec<_>>>()?;
-        Ok((sql, parameters))
+        bound(py, sql, values)
+    }
+
+    /// Compile the existence check to SQL and its parameters for a dialect.
+    ///
+    /// The shape an `any` command runs, which stops at the first matching row.
+    fn exists_compiled<'py>(
+        &self,
+        py: Python<'py>,
+        dialect: &str,
+    ) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
+        let (sql, values) = self.filter.exists_compiled(dialect_of(dialect)?);
+        bound(py, sql, values)
     }
 
     /// Whether one serialized record matches this filter.
@@ -137,6 +145,19 @@ impl RecordFilter {
             .matches(record_json, now.map(|now| now.naive_utc()))
             .map_err(PyValueError::new_err)
     }
+}
+
+/// A compiled statement with its parameters as the objects their driver binds.
+fn bound<'py>(
+    py: Python<'py>,
+    sql: String,
+    values: Vec<ceres_database::BindValue>,
+) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
+    let parameters = values
+        .into_iter()
+        .map(|value| bind_value(py, value))
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok((sql, parameters))
 }
 
 /// One compiled parameter as the Python object its driver binds.

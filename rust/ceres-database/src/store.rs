@@ -227,6 +227,40 @@ impl RecordStore {
         }
     }
 
+    /// Whether any record matches a parsed native filter.
+    ///
+    /// Existence stops at the first matching row, so this stays cheap on a large table
+    /// where counting would not.
+    pub async fn any_filter(&self, filter: &RecordFilter) -> Result<bool, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(false);
+        }
+
+        let statement = filter.exists_statement(self.dialect());
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
+                let exists: bool = row.try_get(0)?;
+                Ok(exists)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
+                let exists: bool = row.try_get(0)?;
+                Ok(exists)
+            }
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(backend.scalar_count(&sql, parameters).await? > 0)
+            }
+        }
+    }
+
     /// Read the columns an authentication gate needs for one user, `None` when no user
     /// carries the ID.
     ///

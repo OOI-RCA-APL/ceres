@@ -108,6 +108,17 @@ async def test_compiled_statements_execute_through_the_python_session(tmp_path: 
                 row = result.fetchone()
                 assert row is not None
                 assert int(row[0]) == expected_count, f"count {pairs}"
+
+            # The existence check answers what the `any` command reports. SQLite hands
+            # back an integer where PostgreSQL hands back a boolean, so compare on
+            # truthiness rather than on the driver's type.
+            expected_any = await engine.__manager__(Message).where(counting).any()
+            sql, parameters = handle.exists_compiled(dialect)
+            async with await engine.database.use() as connection:
+                result = await connection.exec_driver_sql(sql, tuple(parameters))
+                row = result.fetchone()
+                assert row is not None
+                assert bool(row[0]) is expected_any, f"any {pairs}"
     finally:
         await engine.database.dispose()
 

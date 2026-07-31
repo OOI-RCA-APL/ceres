@@ -1,9 +1,10 @@
 //! Native record dumps.
 //!
-//! An uncolored JSON or CSV `select` or `count` over a record table runs entirely
-//! natively, the filter parses into the native subset, the database opens read-only
-//! through the native store, and the output renders in one pass, projected or not, so
-//! the interpreter never starts.
+//! An uncolored `select`, `count`, or `any` over a record table runs entirely natively,
+//! the filter parses into the native subset, the database opens read-only through the
+//! native store, and the output renders in one pass, projected or not, so the
+//! interpreter never starts. An `any` reports through its exit status as well as its
+//! output, one for no match, the way the Python command does.
 //!
 //! The command carries no filter flag surface of its own. Every `--key value` token
 //! pair lexes into the same wire pairs the server parses, and the native filter subset,
@@ -25,10 +26,27 @@ use ceres_database::{RecordFilter, RecordStore, RecordTable};
 use crate::error::Result;
 use crate::project::Project;
 
+/// The record verbs a native pass can serve.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum Verb {
+    #[default]
+    Select,
+    Count,
+    /// An existence check, which reports through its exit status as well as its output.
+    Any,
+}
+
+impl Verb {
+    /// Whether the verb carries an output surface, which only `select` does.
+    fn renders_records(self) -> bool {
+        matches!(self, Self::Select)
+    }
+}
+
 /// What a record invocation asked for, lexed without a declared flag surface.
 #[derive(Debug, Default, PartialEq)]
 struct Invocation {
-    counting: bool,
+    verb: Verb,
     /// The filter's wire pairs, every flag that is not an output control.
     pairs: Vec<(String, String)>,
     output: Option<PathBuf>,
@@ -49,9 +67,10 @@ impl Invocation {
     fn lex(raw: &[OsString]) -> Option<Self> {
         let mut tokens = raw.iter().map(|token| token.to_str());
         let mut invocation = Self {
-            counting: match tokens.next()?? {
-                "select" => false,
-                "count" => true,
+            verb: match tokens.next()?? {
+                "select" => Verb::Select,
+                "count" => Verb::Count,
+                "any" => Verb::Any,
                 _ => return None,
             },
             ..Self::default()
@@ -141,10 +160,9 @@ impl Invocation {
     /// delegate, for an unknown format or colorized output. Mirrors the Python
     /// command's color resolution.
     fn dump_format(&self) -> Option<DumpFormat> {
-        // A count carries no output surface at all, no fields, no output file, no
-        // format, and no header choice, so any of them on one is an argument error
-        // the Python command owns.
-        if self.counting
+        // Only `select` carries an output surface. Fields, an output file, a format, or
+        // a header choice on a `count` or an `any` is an argument error Python owns.
+        if !self.verb.renders_records()
             && (!self.positional_fields.is_empty()
                 || self.flag_field.is_some()
                 || self.output.is_some()
@@ -227,29 +245,67 @@ pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> R
     let projection = invocation.projection();
     let header = invocation.header.unwrap_or(true);
     let rendered = runtime.block_on(async {
-        if invocation.counting {
-            store
+        match invocation.verb {
+            Verb::Count => store
                 .count_filter(&filter)
                 .await
-                .map(|count| format!("{count}\n").into_bytes())
-        } else {
-            let records = store.fetch_filter(&filter).await?;
-            let rendered = match (format, projection.is_empty()) {
-                (DumpFormat::Json, true) => records.to_json_lines(),
-                (DumpFormat::Json, false) => records.to_json_lines_projected(&projection),
-                (DumpFormat::Csv, true) => Ok(records.to_csv_lines(header).into_bytes()),
-                (DumpFormat::Csv, false) => records
-                    .to_csv_lines_projected(&projection, header)
-                    .map(String::into_bytes),
-            };
-            rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
+                .map(|count| Rendered::Text(format!("{count}\n"))),
+            Verb::Any => store.any_filter(&filter).await.map(Rendered::Exists),
+            Verb::Select => {
+                let records = store.fetch_filter(&filter).await?;
+                let rendered = match (format, projection.is_empty()) {
+                    (DumpFormat::Json, true) => records.to_json_lines(),
+                    (DumpFormat::Json, false) => records.to_json_lines_projected(&projection),
+                    (DumpFormat::Csv, true) => Ok(records.to_csv_lines(header).into_bytes()),
+                    (DumpFormat::Csv, false) => records
+                        .to_csv_lines_projected(&projection, header)
+                        .map(String::into_bytes),
+                };
+                rendered
+                    .map(Rendered::Bytes)
+                    .map_err(|error| ceres_database::Error::Decode(error.to_string()))
+            }
         }
     });
     let Ok(rendered) = rendered else {
         return Ok(false);
     };
 
-    write_output(invocation.output.as_deref(), &rendered)
+    // An existence check reports through its exit status as well as its output, so it
+    // writes first and then carries the status out.
+    let exists = rendered.exists();
+    write_output(invocation.output.as_deref(), &rendered.into_bytes())?;
+    match exists {
+        Some(false) => Err(crate::error::Exit::status(1)),
+        _ => Ok(true),
+    }
+}
+
+/// What a native pass produced, ahead of writing it.
+enum Rendered {
+    Bytes(Vec<u8>),
+    Text(String),
+    /// An existence answer, which prints like Python's `bool` and sets the exit status.
+    Exists(bool),
+}
+
+impl Rendered {
+    /// The existence answer, `None` for everything that is not an existence check.
+    fn exists(&self) -> Option<bool> {
+        match self {
+            Self::Exists(exists) => Some(*exists),
+            _ => None,
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        match self {
+            Self::Bytes(bytes) => bytes,
+            Self::Text(text) => text.into_bytes(),
+            Self::Exists(true) => b"true\n".to_vec(),
+            Self::Exists(false) => b"false\n".to_vec(),
+        }
+    }
 }
 
 /// Open the native store for a configured database, `None` when it cannot join.
@@ -350,11 +406,29 @@ mod tests {
     }
 
     #[test]
-    fn only_select_and_count_lex() {
-        assert!(Invocation::lex(&raw(&["select"])).is_some());
-        assert!(Invocation::lex(&raw(&["count", "--limit", "5"])).is_some());
+    fn only_the_read_verbs_lex() {
+        assert_eq!(
+            Invocation::lex(&raw(&["select"])).unwrap().verb,
+            Verb::Select
+        );
+        assert_eq!(
+            Invocation::lex(&raw(&["count", "--limit", "5"]))
+                .unwrap()
+                .verb,
+            Verb::Count
+        );
+        assert_eq!(Invocation::lex(&raw(&["any"])).unwrap().verb, Verb::Any);
         assert!(Invocation::lex(&raw(&["create"])).is_none());
         assert!(Invocation::lex(&raw(&[])).is_none());
+    }
+
+    #[test]
+    fn an_existence_answer_prints_like_python_and_carries_a_status() {
+        assert_eq!(Rendered::Exists(true).exists(), Some(true));
+        assert_eq!(Rendered::Exists(false).exists(), Some(false));
+        assert_eq!(Rendered::Text("3\n".to_string()).exists(), None);
+        assert_eq!(Rendered::Exists(true).into_bytes(), b"true\n");
+        assert_eq!(Rendered::Exists(false).into_bytes(), b"false\n");
     }
 
     #[test]
@@ -428,26 +502,28 @@ mod tests {
         assert!(Invocation::lex(&raw(&["select", "id,content"])).is_none());
         assert!(Invocation::lex(&raw(&["select", "[\"id\"]"])).is_none());
 
-        // A count has no output surface, so fields, an output file, or a format on
-        // one delegates.
-        assert_eq!(
-            lex(&["count", "--field", "id", "--no-color"]).dump_format(),
-            None
-        );
-        assert_eq!(lex(&["count", "id", "--no-color"]).dump_format(), None);
-        assert_eq!(lex(&["count", "--output", "rows.json"]).dump_format(), None);
-        assert_eq!(
-            lex(&["count", "--data-format", "csv", "--no-color"]).dump_format(),
-            None
-        );
-        assert_eq!(
-            lex(&["count", "--no-header", "--no-color"]).dump_format(),
-            None
-        );
-        assert_eq!(
-            lex(&["count", "--limit", "5", "--no-color"]).dump_format(),
-            Some(DumpFormat::Json)
-        );
+        // Neither `count` nor `any` has an output surface, so fields, an output file, a
+        // format, or a header choice on one delegates.
+        for verb in ["count", "any"] {
+            assert_eq!(
+                lex(&[verb, "--field", "id", "--no-color"]).dump_format(),
+                None
+            );
+            assert_eq!(lex(&[verb, "id", "--no-color"]).dump_format(), None);
+            assert_eq!(lex(&[verb, "--output", "rows.json"]).dump_format(), None);
+            assert_eq!(
+                lex(&[verb, "--data-format", "csv", "--no-color"]).dump_format(),
+                None
+            );
+            assert_eq!(
+                lex(&[verb, "--no-header", "--no-color"]).dump_format(),
+                None
+            );
+            assert_eq!(
+                lex(&[verb, "--limit", "5", "--no-color"]).dump_format(),
+                Some(DumpFormat::Json)
+            );
+        }
 
         // The header choice lexes as a bare boolean flag and stays native on select.
         let invocation = lex(&["select", "--no-header", "--output", "rows.csv"]);
