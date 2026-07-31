@@ -13,7 +13,7 @@ import SchemaFormControls from '@/components/schema-form/SchemaFormControls.vue'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
-import { useSchemaForm } from '@/schema-form'
+import { isEmptyObjectSchema, useSchemaForm } from '@/schema-form'
 import { deepClone, type Plain } from '@/utilities'
 import { ButtonAction, useWorkspace } from '@/workspace'
 
@@ -99,8 +99,12 @@ const form = useSchemaForm({
   },
 })
 
-/** Whether the action asks for anything, which is what decides if pressing opens a popup. */
-const takesArguments = $computed(() => !form.isEmpty)
+/** Whether the action asks for anything, which is what decides if pressing opens a popup.
+
+Read off the schema rather than off the form, since what the form is holding is a copy left over
+from the last time the popup was open and says nothing about what the action wants.
+*/
+const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
 
 /** Whether pressing opens something rather than running there and then. */
 const opensDialog = $computed(() => (takesArguments && !button.locked) || button.confirm)
