@@ -328,7 +328,8 @@ class BaseEntityFilter[
 
     order: MaybeSequence[OrderT] | None = None
     """
-    Specify ordering of results by field. Prefix field names with '-' for descending order.
+    Specify ordering of results by field. Suffix a field name with ':desc' for descending order,
+    or with ':asc' for ascending order, which is also the default.
 
     If `and__` subfilters are defined, and `order` is unspecified in this root `order` argument, the
     last `order` defined in `and__` will be used instead.
