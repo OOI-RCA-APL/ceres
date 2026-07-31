@@ -18,7 +18,7 @@ mod turso;
 mod writer;
 
 pub use entities::EntityTable;
-pub use filter::{EntityFilter, RecordFilter, Refusal, SqlDialect};
+pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, SqlDialect};
 pub use load::{
     Conflict, LoadFormat, batches, build, build_entity, entity_batches, read, read_entities,
 };

@@ -620,20 +620,14 @@ macro_rules! filter_surface {
                 table.schema().delegated.to_vec()
             }
 
-            /// The wire keys that are bare flags rather than flags taking a value.
+            /// Every filter key this table serves, with the argument form its family
+            /// gives it.
             ///
-            /// A boolean is a scalar in the Python models, which the CLI renders as a
-            /// `--key` and `--no-key` pair, so a lexer has to know these by name or it
-            /// would swallow the following argument as their value.
-            pub fn boolean_keys(table: $table) -> Vec<&'static str> {
-                let schema = table.schema();
-                schema
-                    .columns
-                    .iter()
-                    .filter(|field| field.family == ceres_entities::FieldFamily::Boolean)
-                    .map(|field| field.key)
-                    .chain(schema.computed.iter().map(|predicate| predicate.key))
-                    .collect()
+            /// A parser builds from this rather than from a list of names, so it cannot
+            /// disagree with the compiler about whether a key is a bare flag or takes a
+            /// value.
+            pub fn keys(table: $table) -> Vec<FilterKey> {
+                filter_keys(table.schema())
             }
 
             /// Parse query pairs into a filter, refusing what cannot compile natively.
@@ -1841,11 +1835,53 @@ impl FilterNode {
 /// brings, the ordered bounds a level brings, the table's computed predicates, and the
 /// query keys every table shares.
 pub(crate) fn schema_keys(table: Schema) -> Vec<&'static str> {
+    filter_keys(table).into_iter().map(|key| key.key).collect()
+}
+
+/// One filter key and the argument form that carries it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FilterKey {
+    pub key: &'static str,
+    /// Whether the key is a bare flag or takes a value, which its family decides.
+    pub arity: Arity,
+}
+
+/// How a filter key arrives on the command line.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Arity {
+    /// A `--key` and `--no-key` pair carrying no value of its own, which a scalar
+    /// boolean is in the Python models and therefore in its generated CLI.
+    Flag,
+    /// A `--key value` pair, repeatable where the field folds a list.
+    Value,
+}
+
+/// Every filter key a table serves, with the argument form its family gives it.
+///
+/// Generated from the entity's fields rather than written out, so a parser built from
+/// this cannot disagree with the compiler about what a key is or how it arrives. A flat
+/// list of names would drop exactly the information a parser needs, which is how a
+/// boolean came to be lexed as though it took a value.
+pub(crate) fn filter_keys(table: Schema) -> Vec<FilterKey> {
+    let value = |key| FilterKey {
+        key,
+        arity: Arity::Value,
+    };
+    let flag = |key| FilterKey {
+        key,
+        arity: Arity::Flag,
+    };
+
     let mut keys = Vec::new();
     for field in table.fields() {
-        for operation in field.operations {
-            keys.push(operation.key);
-        }
+        // An operation matches within a field's content, so it always takes a value,
+        // whatever form the field's own key takes.
+        keys.extend(
+            field
+                .operations
+                .iter()
+                .map(|operation| value(operation.key)),
+        );
 
         // A field whose own key is delegated still brings its operations, which is how
         // an email address filters on its parts without comparing whole.
@@ -1853,25 +1889,30 @@ pub(crate) fn schema_keys(table: Schema) -> Vec<&'static str> {
             continue;
         }
 
-        keys.push(field.key);
+        keys.push(if field.family.scalar() {
+            flag(field.key)
+        } else {
+            value(field.key)
+        });
+
         match field.family {
-            FieldFamily::Address => {
-                keys.push("root");
-            }
+            FieldFamily::Address => keys.push(value("root")),
             FieldFamily::Timestamp => {
-                keys.extend(["after", "before", "timespan", "max_age", "min_age"]);
-                keys.extend(["after_hour", "before_hour", "after_minute", "before_minute"]);
-                keys.extend(["subsample_every", "subsample", "subsample_select"]);
+                keys.extend(["after", "before", "timespan", "max_age", "min_age"].map(value));
+                keys.extend(
+                    ["after_hour", "before_hour", "after_minute", "before_minute"].map(value),
+                );
+                keys.extend(["subsample_every", "subsample", "subsample_select"].map(value));
             }
-            FieldFamily::Level => {
-                keys.extend(bound_keys(field));
-            }
+            FieldFamily::Level => keys.extend(bound_keys(field).map(value)),
             _ => {}
         }
     }
 
-    keys.extend(table.computed.iter().map(|predicate| predicate.key));
-    keys.extend(["order", "limit", "offset", "or", "and"]);
+    // A computed predicate has no column and answers a yes or no, so it is a flag like
+    // any other boolean.
+    keys.extend(table.computed.iter().map(|predicate| flag(predicate.key)));
+    keys.extend(["order", "limit", "offset", "or", "and"].map(value));
     keys
 }
 

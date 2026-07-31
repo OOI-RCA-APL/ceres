@@ -20,7 +20,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use ceres_config::DatabaseConfig;
-use ceres_database::{Conflict, LoadFormat, RecordStore};
+use ceres_database::{Arity, Conflict, FilterKey, LoadFormat, RecordStore};
 
 use crate::error::Result;
 
@@ -105,11 +105,11 @@ pub(crate) struct Invocation {
 impl Invocation {
     /// Lex raw arguments, `None` for anything the native path cannot represent.
     ///
-    /// `booleans` names the table's boolean wire keys, which the Python CLI declares as
-    /// `--key` and `--no-key` pairs rather than as flags taking a value. Lexing one as
-    /// though it took a value would swallow the following argument, which on a `select`
-    /// is a positional field rather than the boolean's value.
-    pub(crate) fn lex(raw: &[OsString], booleans: &[&str]) -> Option<Self> {
+    /// `keys` is the table's filter surface, generated from the entity's fields, each
+    /// carrying the argument form its family gives it. Every form is decided from that
+    /// rather than guessed, because the Python CLI is generated from the same field
+    /// definitions and a key's family is what decides how it arrives.
+    pub(crate) fn lex(raw: &[OsString], keys: &[FilterKey]) -> Option<Self> {
         let mut tokens = raw.iter().map(|token| token.to_str());
         let mut invocation = Self {
             verb: match tokens.next()?? {
@@ -158,21 +158,31 @@ impl Invocation {
                 "collect" => invocation.collect = true,
                 "no-collect" => invocation.collect = false,
                 _ => {
-                    // A boolean key is its own value, `--key` reading true and `--no-key`
-                    // false, and it never takes the argument that follows it.
                     let key = flag.replace('-', "_");
-                    let negated = key.strip_prefix("no_").unwrap_or(&key);
-                    if value.is_none() && booleans.contains(&negated) {
-                        let held = if key == negated { "true" } else { "false" };
-                        invocation
-                            .pairs
-                            .push((negated.to_string(), held.to_string()));
+                    let bare = key.strip_prefix("no_").unwrap_or(&key);
+                    let arity = keys
+                        .iter()
+                        .find(|candidate| candidate.key == key || candidate.key == bare)
+                        .map(|candidate| candidate.arity);
+
+                    // A flag key is its own value, `--key` reading true and `--no-key`
+                    // false. It never takes the argument that follows it, and it never
+                    // takes an `=` value either, which its generated parser rejects.
+                    if arity == Some(Arity::Flag) {
+                        if value.is_some() {
+                            return None;
+                        }
+
+                        let held = if key == bare { "true" } else { "false" };
+                        invocation.pairs.push((bare.to_string(), held.to_string()));
                         continue;
                     }
 
                     if value.is_none() {
                         let next = tokens.peek()?.as_ref()?;
-                        if next.starts_with("--") {
+                        // A value is never another flag, and a lone hyphen leads one no
+                        // more than a double one does.
+                        if next.starts_with('-') {
                             return None;
                         }
 

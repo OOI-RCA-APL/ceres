@@ -24,7 +24,7 @@ use crate::project::Project;
 
 /// Attempt one entity command natively, `false` meaning the caller delegates.
 pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> Result<bool> {
-    let Some(invocation) = Invocation::lex(raw, &EntityFilter::boolean_keys(table)) else {
+    let Some(invocation) = Invocation::lex(raw, &EntityFilter::keys(table)) else {
         return Ok(false);
     };
     let Some(format) = invocation.dump_format() else {
@@ -229,7 +229,7 @@ mod tests {
 
     /// Lex against the table's boolean keys, the way the command dispatch does.
     fn lex(table: EntityTable, arguments: &[&str]) -> Invocation {
-        Invocation::lex(&raw(arguments), &EntityFilter::boolean_keys(table)).unwrap()
+        Invocation::lex(&raw(arguments), &EntityFilter::keys(table)).unwrap()
     }
 
     #[test]
@@ -295,6 +295,16 @@ mod tests {
     fn a_boolean_key_is_its_own_value_and_never_takes_the_next_argument() {
         // The Python CLI declares every boolean as a `--key` and `--no-key` pair, so a
         // token following one is a positional field rather than the boolean's value.
+        // The arity comes from the field's family, so the parser and the compiler
+        // cannot disagree about what `--owned` is.
+        assert_eq!(
+            EntityFilter::keys(EntityTable::Workspaces)
+                .iter()
+                .find(|key| key.key == "owned")
+                .map(|key| key.arity),
+            Some(ceres_database::Arity::Flag)
+        );
+
         let invocation = lex(
             EntityTable::Workspaces,
             &["select", "--owned", "name", "--no-color"],

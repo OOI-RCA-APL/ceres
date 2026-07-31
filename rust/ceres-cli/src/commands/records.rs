@@ -19,7 +19,7 @@ use crate::project::Project;
 
 /// Attempt one record command natively, `false` meaning the caller delegates.
 pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> Result<bool> {
-    let Some(invocation) = Invocation::lex(raw, &RecordFilter::boolean_keys(table)) else {
+    let Some(invocation) = Invocation::lex(raw, &RecordFilter::keys(table)) else {
         return Ok(false);
     };
     let Some(format) = invocation.dump_format() else {
@@ -197,7 +197,11 @@ mod tests {
             RecordTable::Alerts,
             RecordTable::Logs,
         ] {
-            assert!(RecordFilter::boolean_keys(table).is_empty());
+            assert!(
+                RecordFilter::keys(table)
+                    .iter()
+                    .all(|key| key.arity == ceres_database::Arity::Value)
+            );
         }
     }
 
