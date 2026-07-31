@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 use serde_norway::Value as Yaml;
 
-use crate::records::RecordTable;
+use crate::records::{RecordTable, Schema};
 use crate::selector::{AddressSelector, valid_address};
 use crate::store::Parameter;
 
@@ -215,7 +215,7 @@ impl RecordFilter {
     /// timestamp brings, the ordered bounds a level brings, and the query keys.
     pub fn supported_keys(table: RecordTable) -> Vec<&'static str> {
         let mut keys = Vec::new();
-        for field in table.fields() {
+        for field in table.schema().fields() {
             for operation in field.operations {
                 keys.push(operation.key);
             }
@@ -252,12 +252,7 @@ impl RecordFilter {
     /// list and the supported one to exactly what the Pydantic models declare so a new
     /// filter field cannot ship unclassified.
     pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
-        // A particle's `class` filters by a Python type, which has no native form.
-        if table == RecordTable::Particles {
-            return vec!["class"];
-        }
-
-        Vec::new()
+        table.schema().delegated.to_vec()
     }
 
     /// Parse query pairs into a filter, refusing what cannot compile natively.
@@ -267,7 +262,7 @@ impl RecordFilter {
     pub fn parse(table: RecordTable, pairs: &[(String, String)]) -> Result<Self, Refusal> {
         let mut parsed = Parsed::default();
         for (key, value) in pairs {
-            parsed.apply(table, key, &WireValue::Text(value))?;
+            parsed.apply(table.schema(), key, &WireValue::Text(value))?;
         }
 
         let Parsed {
@@ -328,7 +323,7 @@ impl RecordFilter {
             limit,
             offset,
             ..
-        } = Parsed::from_yaml(table, &mapping)?;
+        } = Parsed::from_yaml(table.schema(), &mapping)?;
         Ok(Self {
             table,
             node,
@@ -370,7 +365,9 @@ impl RecordFilter {
         let now = now
             .unwrap_or_else(|| Utc::now().naive_utc())
             .trunc_subsecs(6);
-        let conditions = self.node.combined_conditions(self.table, dialect, now);
+        let conditions = self
+            .node
+            .combined_conditions(self.table.schema(), dialect, now);
         if conditions.is_empty() {
             return None;
         }
@@ -410,7 +407,7 @@ impl RecordFilter {
         let now = now
             .unwrap_or_else(|| Utc::now().naive_utc())
             .trunc_subsecs(6);
-        Ok(self.node.matches(self.table, &fields, now))
+        Ok(self.node.matches(self.table.schema(), &fields, now))
     }
 
     /// Build the listing statement, mirroring the Python layer's `apply`.
@@ -422,7 +419,10 @@ impl RecordFilter {
         statement
             .column(Asterisk)
             .from(Alias::new(self.table.name()));
-        for condition in self.node.combined_conditions(self.table, dialect, now) {
+        for condition in self
+            .node
+            .combined_conditions(self.table.schema(), dialect, now)
+        {
             statement.and_where(condition);
         }
 
@@ -456,7 +456,10 @@ impl RecordFilter {
             statement
                 .expr(Expr::cust("COUNT(*)"))
                 .from(Alias::new(self.table.name()));
-            for condition in self.node.combined_conditions(self.table, dialect, now) {
+            for condition in self
+                .node
+                .combined_conditions(self.table.schema(), dialect, now)
+            {
                 statement.and_where(condition);
             }
 
@@ -467,7 +470,10 @@ impl RecordFilter {
         inner
             .column(Alias::new("id"))
             .from(Alias::new(self.table.name()));
-        for condition in self.node.combined_conditions(self.table, dialect, now) {
+        for condition in self
+            .node
+            .combined_conditions(self.table.schema(), dialect, now)
+        {
             inner.and_where(condition);
         }
 
@@ -500,7 +506,10 @@ impl RecordFilter {
         let now = Utc::now().naive_utc().trunc_subsecs(6);
         let mut inner = Query::select();
         inner.column(Asterisk).from(Alias::new(self.table.name()));
-        for condition in self.node.combined_conditions(self.table, dialect, now) {
+        for condition in self
+            .node
+            .combined_conditions(self.table.schema(), dialect, now)
+        {
             inner.and_where(condition);
         }
 
@@ -533,7 +542,10 @@ impl RecordFilter {
         let mut keys = Query::select();
         keys.column(Alias::new("id"))
             .from(Alias::new(self.table.name()));
-        for condition in self.node.combined_conditions(self.table, dialect, now) {
+        for condition in self
+            .node
+            .combined_conditions(self.table.schema(), dialect, now)
+        {
             keys.and_where(condition);
         }
 
@@ -568,7 +580,10 @@ impl RecordFilter {
                 statement.and_where(Expr::col(Alias::new("id")).in_subquery(keys));
             }
             None => {
-                for condition in self.node.combined_conditions(self.table, dialect, now) {
+                for condition in self
+                    .node
+                    .combined_conditions(self.table.schema(), dialect, now)
+                {
                     statement.and_where(condition);
                 }
             }
@@ -595,7 +610,10 @@ impl RecordFilter {
                 statement.and_where(Expr::col(Alias::new("id")).in_subquery(keys));
             }
             None => {
-                for condition in self.node.combined_conditions(self.table, dialect, now) {
+                for condition in self
+                    .node
+                    .combined_conditions(self.table.schema(), dialect, now)
+                {
                     statement.and_where(condition);
                 }
             }
@@ -698,7 +716,7 @@ struct Parsed {
 
 impl Parsed {
     /// Apply one wire key to this node.
-    fn apply(&mut self, table: RecordTable, key: &str, value: &WireValue) -> Result<(), Refusal> {
+    fn apply(&mut self, table: Schema, key: &str, value: &WireValue) -> Result<(), Refusal> {
         match resolve(table, key)? {
             KeyRole::Equality(field) => {
                 let scalars = value.scalars(key)?;
@@ -850,7 +868,7 @@ impl Parsed {
     }
 
     /// Parse one subfilter from its YAML mapping.
-    fn from_yaml(table: RecordTable, mapping: &serde_norway::Mapping) -> Result<Self, Refusal> {
+    fn from_yaml(table: Schema, mapping: &serde_norway::Mapping) -> Result<Self, Refusal> {
         let mut parsed = Self::default();
         for (key, value) in mapping {
             let Some(key) = key.as_str() else {
@@ -943,7 +961,7 @@ impl Parsed {
 /// A plain text value parses as YAML first. The result is one subfilter mapping, a
 /// sequence of them, or nothing, and a sequence element may itself be YAML text of
 /// one mapping, the way the Python `FromYAML` layers read it.
-fn group_children(table: RecordTable, value: &WireValue) -> Result<Vec<Parsed>, Refusal> {
+fn group_children(table: Schema, value: &WireValue) -> Result<Vec<Parsed>, Refusal> {
     let parsed;
     let value = match value {
         WireValue::Text(text) => {
@@ -1058,7 +1076,7 @@ impl FilterNode {
     /// node holding, or any `or` node holding on its own.
     fn matches(
         &self,
-        table: RecordTable,
+        table: Schema,
         fields: &std::collections::HashMap<&str, &serde_json::value::RawValue>,
         now: NaiveDateTime,
     ) -> bool {
@@ -1076,7 +1094,7 @@ impl FilterNode {
     /// Whether a record satisfies this node's own conditions.
     fn matches_own(
         &self,
-        table: RecordTable,
+        table: Schema,
         fields: &std::collections::HashMap<&str, &serde_json::value::RawValue>,
         now: NaiveDateTime,
     ) -> bool {
@@ -1277,7 +1295,7 @@ impl FilterNode {
     /// matches everything.
     fn combined_conditions(
         &self,
-        table: RecordTable,
+        table: Schema,
         dialect: SqlDialect,
         now: NaiveDateTime,
     ) -> Vec<SimpleExpr> {
@@ -1315,7 +1333,7 @@ impl FilterNode {
     /// The `WHERE` conditions, in the entity's field order.
     fn conditions(
         &self,
-        table: RecordTable,
+        table: Schema,
         dialect: SqlDialect,
         now: NaiveDateTime,
     ) -> Vec<SimpleExpr> {
@@ -1465,7 +1483,7 @@ impl FilterNode {
     fn subsample_conditions(
         &self,
         conditions: &mut Vec<SimpleExpr>,
-        table: RecordTable,
+        table: Schema,
         key: &'static str,
         now: NaiveDateTime,
         dialect: SqlDialect,
@@ -1588,7 +1606,7 @@ impl FilterNode {
 }
 
 /// Resolve what one wire key means for a table, from the entity's field families.
-fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
+fn resolve(table: Schema, key: &str) -> Result<KeyRole, Refusal> {
     match key {
         "order" => return Ok(KeyRole::Order),
         "limit" => return Ok(KeyRole::Limit),
@@ -1661,7 +1679,7 @@ fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
         }
     }
 
-    if RecordFilter::delegated_keys(table).contains(&key) {
+    if table.delegated.contains(&key) {
         return Err(Refusal::Delegated);
     }
 
@@ -1807,7 +1825,7 @@ fn parse_duration(text: &str) -> Result<Duration, Refusal> {
 /// timestamps.
 #[expect(clippy::too_many_arguments)]
 fn bucket_condition(
-    table: RecordTable,
+    table: Schema,
     key: &'static str,
     origin: NaiveDateTime,
     width: i64,
@@ -1908,7 +1926,7 @@ fn clock_part(key: &'static str, part: &str, format: &str, dialect: SqlDialect) 
 
 /// Parse an order value, `field`, `field:asc`, or `field:desc` over the entity's
 /// filterable fields.
-fn parse_order(table: RecordTable, text: &str) -> Result<OrderTerm, Refusal> {
+fn parse_order(table: Schema, text: &str) -> Result<OrderTerm, Refusal> {
     let (base, ascending) = match text.split_once(':') {
         None => (text, true),
         Some((base, "asc")) => (base, true),
