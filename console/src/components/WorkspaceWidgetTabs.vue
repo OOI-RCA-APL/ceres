@@ -403,6 +403,7 @@ function convertToCarousel() {
 
 <style lang="scss" module>
 @use 'sass:color';
+@use '@/css/tab-strip' as strip;
 
 .empty {
   opacity: 0.7;
@@ -432,78 +433,36 @@ function convertToCarousel() {
 }
 
 .tabs {
-  height: 100%;
-  flex: 0 1 auto;
-  min-width: 0;
+  @include strip.scroller;
 }
 
-// A strip that outgrows its container scrolls, the way a browser's tab bar does. Quasar's own
-// answer is a pair of arrow buttons, which cost width and sit awkwardly next to draggable tabs.
-.tabs :global(.q-tabs__content) {
-  overflow-x: auto;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
-}
-
-.tabs :global(.q-tabs__arrow) {
-  display: none;
-}
-
-// Quasar's dense tabs impose a minimum height on the tab and pad its content box, which together
-// push the tab taller than the strip it sits in. Both need matching specificity to override.
 .tabs .tab {
-  min-height: 0;
-  padding: 0;
+  @include strip.tabUnpadded;
 }
 
 .tab :global(.q-tab__content) {
-  padding: 0;
+  @include strip.tabContentUnpadded;
 }
 
 .tab {
-  border-radius: 4px 4px 0 0;
-  opacity: 0.7;
-  transition: background-color 0.2s, opacity 0.2s, transform 0.16s ease;
-  touch-action: none;
-
-  &:hover {
-    opacity: 1;
-  }
-
-  &:global(.q-tab--active) {
-    opacity: 1;
-    background-color: $primary;
-    color: white;
-  }
+  @include strip.tab;
 }
 
 // The grip and the close button sit against the tab's own edges rather than inside the row, so they
-// cost the same width whether they are showing or not and the label never moves under the pointer.
+// cost the same width whether they are showing or not and the label never moves.
 .tabInner {
   height: 100%;
   padding: 2px 20px 2px 14px;
 }
 
-// An invisible strip along the tab's leading edge carrying the grab cursor. Nothing is drawn in it,
-// so it costs no width and the label never moves.
+// Reaching only as far as the padding does, since a widget's tab carries no icon for the grip to
+// have to clear.
 .grip {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 14px;
-  cursor: grab;
+  @include strip.grip(14px);
 }
 
 .label {
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  @include strip.label;
 }
 
 // The name is offered as a field on hover, and the label itself is the wrong thing to ask, since a
@@ -518,79 +477,46 @@ function convertToCarousel() {
   pointer-events: none;
 }
 
-// The close button holds its place whether or not it is showing, so a tab stays exactly as wide
-// hovered as it is at rest and the strip does not shuffle under the pointer. The page being shown
-// keeps it visible, since that is the one most likely to go next.
 .close {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  opacity: 0;
-  transform: translateY(-50%);
-  transition: opacity 0.15s;
+  @include strip.close;
 }
 
+// The page being shown keeps its close button visible, since that is the one most likely to go
+// next.
 .tab:hover .close,
 .closeShown {
   opacity: 1;
 }
 
-// While a drag is in progress the strip must not clip the lifted tab, and hover highlighting on the
-// tabs sliding aside would read as a second thing happening at once.
 .arranging {
-  &:hover {
-    opacity: inherit;
-  }
+  @include strip.arranging;
 }
 
 .held {
-  z-index: 2;
-  opacity: 1;
+  @include strip.held;
 }
 
-// The held tab tracks the pointer directly, so it must not smooth its own movement. It regains the
-// transition once released, which is what animates it into the gap.
 .grabbed {
-  cursor: grabbing;
-  transition: background-color 0.2s, opacity 0.2s;
+  @include strip.grabbed;
 }
 
 .swapping {
-  transition: none;
+  @include strip.swapping;
 }
 
 .add,
 .stripMenu {
-  align-self: center;
-  flex: none;
-  border-radius: 50%;
+  @include strip.add;
+  @include strip.fadedIcon;
 }
 
-// An empty strip has nothing for the button to sit against, so it takes the middle instead.
 .addCentered {
-  margin: 0 auto;
+  @include strip.addCentered;
 }
 
-// Once the tabs scroll there is no end of the row to sit beside, so the button pins to the trailing
-// edge with that side squared off against it, over the strip's own surface so the tabs read as
-// passing underneath.
+// Clear of the strip's own menu, which is the one thing pinned further out than it.
 .addAnchored {
-  position: absolute;
-  top: 50%;
-  right: 30px;
-  z-index: 2;
-  border-radius: 50% 0 0 50%;
-  transform: translateY(-50%);
-}
-
-.add :global(.q-icon),
-.stripMenu :global(.q-icon) {
-  opacity: 0.7;
-}
-
-.add:hover :global(.q-icon),
-.stripMenu:hover :global(.q-icon) {
-  opacity: 1;
+  @include strip.addAnchored(30px);
 }
 
 :global(.dark) .addAnchored,
