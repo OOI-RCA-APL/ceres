@@ -169,8 +169,11 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(pyo3::wrap_pyfunction!(fetcher::record_filter_keys, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::entity_filter_keys, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::normalize_email, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::hash_password, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(fetcher::hash_argon2, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(fetcher::verify_argon2, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::verify_password, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(fetcher::hash_bcrypt, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(fetcher::verify_bcrypt, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(
         fetcher::special_use_domains,
         module

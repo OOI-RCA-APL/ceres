@@ -73,19 +73,18 @@ def get_password_hash(
     """
     match config:
         case BCryptHashingConfig():
-            from bcrypt import gensalt, hashpw
+            from ceres_core import hash_bcrypt
 
-            return BCryptHash(
-                hashpw(
-                    password.encode(),
-                    gensalt(config.rounds),
-                ).decode()
-            )
+            hashed = hash_bcrypt(password, config.rounds)
+            if hashed is None:
+                raise ValueError("bcrypt cost out of range.")
+
+            return BCryptHash(hashed)
 
         case Argon2HashingConfig():
-            from ceres_core import hash_password
+            from ceres_core import hash_argon2
 
-            hashed = hash_password(
+            hashed = hash_argon2(
                 password,
                 config.time_cost,
                 config.memory_cost,
@@ -104,32 +103,17 @@ def get_password_hash(
 def verify_password(password: str, hash: PasswordHash) -> bool:
     """Verify that `password` matches the given `hash`.
 
-    Detect the hash algorithm automatically and delegate to the appropriate verification
-    function.
+    The algorithm is read off the stored hash rather than taken from the configuration, so
+    a row written before a database's hashing was changed still verifies.
 
     Args:
         password: The plaintext password to check.
         hash: A previously generated password hash.
 
     Returns:
-        ``True`` if the password matches the hash, ``False`` otherwise (including for
-        unrecognized hash formats or verification errors).
+        `True` if the password matches the hash, `False` otherwise, an unrecognized hash
+        format included.
     """
-    match get_password_hash_type(hash):
-        case HashType.BCRYPT:
-            from bcrypt import checkpw
+    from ceres_core import verify_password as verify
 
-            try:
-                return checkpw(password.encode(), hash.encode())
-            except ValueError:
-                return False
-        case HashType.ARGON2:
-            from ceres_core import verify_password as verify_argon2
-
-            # The parameters come out of the stored hash, so one written under an older
-            # configuration still verifies after the configuration changes.
-            return verify_argon2(password, hash) or False
-        case None:
-            return False
-
-    return False
+    return verify(password, hash)

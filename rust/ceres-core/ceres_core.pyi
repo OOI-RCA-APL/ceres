@@ -34,13 +34,16 @@ __all__ = [
     "ServiceConfig",
     "TursoDatabaseConfig",
     "entity_filter_keys",
-    "hash_password",
+    "hash_argon2",
+    "hash_bcrypt",
     "normalize_email",
     "openapi_schema",
     "parse_record_filter",
     "record_filter_from_json",
     "record_filter_keys",
     "special_use_domains",
+    "verify_argon2",
+    "verify_bcrypt",
     "verify_password",
 ]
 
@@ -1179,7 +1182,7 @@ def entity_filter_keys(table: EntityTable) -> tuple[list[str], list[str]]:
     holds their union to exactly the fields the Python filter models declare.
     """
 
-def hash_password(
+def hash_argon2(
     password: str,
     time_cost: int,
     memory_cost: int,
@@ -1200,6 +1203,14 @@ def hash_password(
     The interpreter lock is released for the duration. Argon2 is deliberately expensive,
     tens of milliseconds against the default memory cost, and holding the lock through it
     would stall every other Python thread, the event loop included.
+    """
+
+def hash_bcrypt(password: str, rounds: int) -> str | None:
+    r"""
+    Hash a password with bcrypt at the given cost, `None` when the cost is out of range.
+
+    The other half of the one hashing implementation, for a database configured to use
+    bcrypt rather than the default. Releases the interpreter lock like the Argon2 pair.
     """
 
 def normalize_email(value: str) -> str | None:
@@ -1244,11 +1255,25 @@ def special_use_domains() -> list[str]:
     refuses.
     """
 
-def verify_password(password: str, hash: str) -> bool | None:
+def verify_argon2(password: str, hash: str) -> bool | None:
     r"""
     Whether a password matches a stored Argon2 hash, `None` for any other algorithm.
 
     The parameters come out of the encoded hash, so a stored one still verifies after the
-    configuration's parameters change. Releases the interpreter lock like `hash_password`,
+    configuration's parameters change. Releases the interpreter lock like `hash_argon2`,
     and for the same reason, verifying costs what hashing costs.
+    """
+
+def verify_bcrypt(password: str, hash: str) -> bool | None:
+    r"""
+    Whether a password matches a stored bcrypt hash, `None` for any other algorithm.
+    """
+
+def verify_password(password: str, hash: str) -> bool:
+    r"""
+    Whether a password matches a stored hash of either algorithm.
+
+    The algorithm is read off the hash itself rather than taken from a configuration,
+    which is what lets a database keep verifying rows written before its hashing was
+    changed. A value that reads as neither algorithm's hash matches nothing.
     """

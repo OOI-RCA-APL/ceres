@@ -5,7 +5,7 @@
 |---|---|
 | `ceres/__init__.py` | 100% |
 | `ceres/__internal__/__init__.py` | 100% |
-| `ceres/__internal__/auth.py` | 91% |
+| `ceres/__internal__/auth.py` | 94% |
 | `ceres/__internal__/database/__init__.py` | 100% |
 | `ceres/__internal__/database/bytes.py` | 25% |
 | `ceres/__internal__/database/errors.py` | 69% |

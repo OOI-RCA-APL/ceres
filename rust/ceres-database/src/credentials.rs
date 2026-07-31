@@ -31,14 +31,22 @@ pub struct Argon2Params {
     pub salt_length: usize,
 }
 
+/// The hashing a database configures, one of the two algorithms it can name.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Hashing {
+    Argon2(Argon2Params),
+    /// The bcrypt cost factor, its one parameter.
+    Bcrypt(u32),
+}
+
 /// The credential rules one database's writes follow.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Credentials {
-    hashing: Argon2Params,
+    hashing: Hashing,
 }
 
 impl Credentials {
-    pub fn new(hashing: Argon2Params) -> Self {
+    pub fn new(hashing: Hashing) -> Self {
         Self { hashing }
     }
 
@@ -82,31 +90,69 @@ impl Credentials {
     /// A value that already reads as a password hash is stored as it arrived, which is
     /// what lets a dump of one database load into another. That is the manager's own
     /// rule, and a load file full of stored hashes depends on it.
+    ///
+    /// Anything else has to be a password the create model would have accepted, or the
+    /// native path would store a hash of a value Python refuses outright.
     pub fn password(&self, value: &str) -> Option<String> {
         if is_password_hash(value) {
             return Some(value.to_string());
         }
 
-        let parameters = Params::new(
-            self.hashing.memory_cost,
-            self.hashing.time_cost,
-            self.hashing.parallelism,
-            Some(self.hash_length()),
-        )
-        .ok()?;
-        let mut salt = vec![0u8; self.hashing.salt_length];
-        OsRng.fill_bytes(&mut salt);
-        let salt = SaltString::encode_b64(&salt).ok()?;
+        if !valid_password(value) {
+            return None;
+        }
 
-        Argon2::new(Algorithm::Argon2id, Version::V0x13, parameters)
-            .hash_password(value.as_bytes(), &salt)
-            .ok()
-            .map(|hash| hash.to_string())
+        match self.hashing {
+            Hashing::Argon2(parameters) => hash_argon2(value, parameters),
+            Hashing::Bcrypt(cost) => hash_bcrypt(value, cost),
+        }
+    }
+}
+
+/// Whether a plaintext password is one the create model would take.
+///
+/// `Password` holds it between 1 and 32 characters and to bcrypt's 72-byte input limit,
+/// which is a real ceiling rather than a stylistic one, and 32 characters of multi-byte
+/// text can exceed it.
+pub fn valid_password(value: &str) -> bool {
+    let characters = value.chars().count();
+    (1..=32).contains(&characters) && value.len() <= 72
+}
+
+/// Hash with Argon2id under the given parameters.
+fn hash_argon2(value: &str, parameters: Argon2Params) -> Option<String> {
+    let configured = Params::new(
+        parameters.memory_cost,
+        parameters.time_cost,
+        parameters.parallelism,
+        Some(parameters.hash_length),
+    )
+    .ok()?;
+    let mut salt = vec![0u8; parameters.salt_length];
+    OsRng.fill_bytes(&mut salt);
+    let salt = SaltString::encode_b64(&salt).ok()?;
+
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, configured)
+        .hash_password(value.as_bytes(), &salt)
+        .ok()
+        .map(|hash| hash.to_string())
+}
+
+/// Hash with bcrypt at the given cost.
+///
+/// The crate writes the `$2b$` prefix the Python library writes, and both salt from the
+/// system generator, so the two produce the same shape and verify each other's output.
+fn hash_bcrypt(value: &str, cost: u32) -> Option<String> {
+    bcrypt::hash(value, cost).ok()
+}
+
+/// Whether a password matches a stored bcrypt hash, `None` for any other algorithm.
+pub fn verify_bcrypt(password: &str, hash: &str) -> Option<bool> {
+    if !bcrypt_hash(hash) {
+        return None;
     }
 
-    fn hash_length(&self) -> usize {
-        self.hashing.hash_length
-    }
+    bcrypt::verify(password, hash).ok()
 }
 
 /// Whether a password matches a stored Argon2 hash.
@@ -284,14 +330,14 @@ pub fn normalize_email(value: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn parameters() -> Argon2Params {
-        Argon2Params {
+    fn parameters() -> Hashing {
+        Hashing::Argon2(Argon2Params {
             time_cost: 3,
             memory_cost: 65536,
             parallelism: 4,
             hash_length: 32,
             salt_length: 16,
-        }
+        })
     }
 
     #[test]
@@ -299,13 +345,13 @@ mod tests {
         // Argon2 reads its parameters back out of the encoded string, so verifying a hash
         // proves nothing about which parameters produced it. Reading them off the string
         // is what catches a hash length written where a salt length belongs.
-        let credentials = Credentials::new(Argon2Params {
+        let credentials = Credentials::new(Hashing::Argon2(Argon2Params {
             time_cost: 2,
             memory_cost: 8192,
             parallelism: 1,
             hash_length: 24,
             salt_length: 20,
-        });
+        }));
         let hashed = credentials.password("secret").expect("a password hashes");
 
         assert!(

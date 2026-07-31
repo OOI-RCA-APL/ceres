@@ -17,18 +17,24 @@ one differently, would write a row Python would not have written.
 """
 
 import pytest
-from ceres_core import hash_password, normalize_email, special_use_domains
+from ceres_core import (
+    hash_argon2,
+    hash_bcrypt,
+    normalize_email,
+    special_use_domains,
+    verify_bcrypt,
+)
 
 from ceres.__internal__.auth import get_password_hash_type, verify_password
 from ceres.config import Argon2HashingConfig, HashType
 from ceres.data import validate
-from ceres.data.types import Argon2Hash, EmailAddress
+from ceres.data.types import Argon2Hash, BCryptHash, EmailAddress
 
 PARAMETERS = Argon2HashingConfig()
 
 
 def _hash(password: str, config: Argon2HashingConfig = PARAMETERS) -> Argon2Hash:
-    hashed = hash_password(
+    hashed = hash_argon2(
         password,
         config.time_cost,
         config.memory_cost,
@@ -76,6 +82,56 @@ def test_a_hash_written_by_the_old_library_still_verifies(hashed: str) -> None:
     """
     assert verify_password(STORED_PASSWORD, validate(Argon2Hash, hashed))
     assert not verify_password("wrong password", validate(Argon2Hash, hashed))
+
+
+BCRYPT_HASHES = [
+    "$2b$04$j/v0NxFqAUw3o1dK0ne0De3TIf53C7VFdy7jf83ZGozpKwrhvCbrK",
+    "$2b$10$B/A0hl9j7.9PhClUYVAqxOExTGylSw3rzfjY1A9V.Ky1DFbdG0qCK",
+    "$2b$12$XuliIpkUuqT7bH7h/X.pp.H0F1FgRjnvHqpZo4.IbEwfVqQDat0qy",
+    # The older `$2a$` prefix, which stored rows can still carry.
+    "$2a$04$FlBqeqnwBFuu4OG7VFyKfunWElXOM2JS/yzPCRQ36oxq81oyoSO6W",
+]
+"""Hashes of `STORED_PASSWORD` produced by the `bcrypt` package, which used to hash them.
+
+Written out for the same reason as the Argon2 ones, the package no longer being a
+dependency. They cover three cost factors and both prefixes a stored hash can carry.
+"""
+
+
+@pytest.mark.parametrize("hashed", BCRYPT_HASHES)
+def test_a_bcrypt_hash_from_the_old_library_still_verifies(hashed: str) -> None:
+    """A bcrypt password stored before the switch verifies against the crate."""
+    assert verify_bcrypt(STORED_PASSWORD, hashed)
+    assert not verify_bcrypt("wrong password", hashed)
+
+
+def test_bcrypt_hashes_the_way_the_model_stores_them() -> None:
+    """A natively-produced bcrypt hash is the shape the model's own type validates."""
+    hashed = hash_bcrypt("secret", 4)
+    assert hashed is not None
+    assert validate(BCryptHash, hashed) == hashed
+    assert get_password_hash_type(hashed) is HashType.BCRYPT
+    assert verify_bcrypt("secret", hashed)
+    assert not verify_bcrypt("nope", hashed)
+
+    # A cost outside what bcrypt takes answers nothing rather than hashing weakly.
+    assert hash_bcrypt("secret", 99) is None
+
+
+def test_a_password_the_model_would_refuse_is_not_hashed() -> None:
+    """A value outside `Password`'s constraints refuses rather than being stored.
+
+    The create model holds a password to 32 characters and to bcrypt's 72-byte input
+    limit. The native path takes raw argument text, so without this the two disagree and
+    a row lands that Python answers a validation error for.
+    """
+    assert hash_argon2("a" * 32, 3, 65536, 4, 32, 16) is not None
+    assert hash_argon2("a" * 33, 3, 65536, 4, 32, 16) is None
+    assert hash_argon2("", 3, 65536, 4, 32, 16) is None
+    # Thirty-two characters of multi-byte text is over the byte limit.
+    assert hash_argon2("\u00fc" * 32, 3, 65536, 4, 32, 16) is not None
+    assert hash_argon2("\U0001f600" * 32, 3, 65536, 4, 32, 16) is None
+    assert hash_bcrypt("a" * 33, 4) is None
 
 
 def test_a_hash_carries_the_parameters_it_was_configured_with() -> None:

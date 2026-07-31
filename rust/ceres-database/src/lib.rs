@@ -19,8 +19,8 @@ mod turso;
 mod writer;
 
 pub use credentials::{
-    Argon2Params, Credentials, SPECIAL_USE_DOMAINS, is_password_hash, normalize_email,
-    verify_argon2,
+    Argon2Params, Credentials, Hashing, SPECIAL_USE_DOMAINS, is_password_hash, normalize_email,
+    valid_password, verify_argon2, verify_bcrypt,
 };
 pub use entities::EntityTable;
 pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, SqlDialect};

@@ -359,7 +359,7 @@ pub fn special_use_domains() -> Vec<&'static str> {
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (password, time_cost, memory_cost, parallelism, hash_length, salt_length))]
-pub fn hash_password(
+pub fn hash_argon2(
     py: Python<'_>,
     password: &str,
     time_cost: u32,
@@ -368,25 +368,60 @@ pub fn hash_password(
     hash_length: usize,
     salt_length: usize,
 ) -> Option<String> {
-    let credentials = ceres_database::Credentials::new(ceres_database::Argon2Params {
-        time_cost,
-        memory_cost,
-        parallelism,
-        hash_length,
-        salt_length,
-    });
+    let credentials = ceres_database::Credentials::new(ceres_database::Hashing::Argon2(
+        ceres_database::Argon2Params {
+            time_cost,
+            memory_cost,
+            parallelism,
+            hash_length,
+            salt_length,
+        },
+    ));
     py.detach(|| credentials.password(password))
+}
+
+/// Hash a password with bcrypt at the given cost, `None` when the cost is out of range.
+///
+/// The other half of the one hashing implementation, for a database configured to use
+/// bcrypt rather than the default. Releases the interpreter lock like the Argon2 pair.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn hash_bcrypt(py: Python<'_>, password: &str, rounds: u32) -> Option<String> {
+    let credentials = ceres_database::Credentials::new(ceres_database::Hashing::Bcrypt(rounds));
+    py.detach(|| credentials.password(password))
+}
+
+/// Whether a password matches a stored bcrypt hash, `None` for any other algorithm.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn verify_bcrypt(py: Python<'_>, password: &str, hash: &str) -> Option<bool> {
+    py.detach(|| ceres_database::verify_bcrypt(password, hash))
 }
 
 /// Whether a password matches a stored Argon2 hash, `None` for any other algorithm.
 ///
 /// The parameters come out of the encoded hash, so a stored one still verifies after the
-/// configuration's parameters change. Releases the interpreter lock like `hash_password`,
+/// configuration's parameters change. Releases the interpreter lock like `hash_argon2`,
 /// and for the same reason, verifying costs what hashing costs.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
-pub fn verify_password(py: Python<'_>, password: &str, hash: &str) -> Option<bool> {
+pub fn verify_argon2(py: Python<'_>, password: &str, hash: &str) -> Option<bool> {
     py.detach(|| ceres_database::verify_argon2(password, hash))
+}
+
+/// Whether a password matches a stored hash of either algorithm.
+///
+/// The algorithm is read off the hash itself rather than taken from a configuration,
+/// which is what lets a database keep verifying rows written before its hashing was
+/// changed. A value that reads as neither algorithm's hash matches nothing.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn verify_password(py: Python<'_>, password: &str, hash: &str) -> bool {
+    py.detach(|| {
+        ceres_database::verify_argon2(password, hash)
+            .or_else(|| ceres_database::verify_bcrypt(password, hash))
+            .unwrap_or(false)
+    })
 }
 
 fn to_value_error(error: ceres_database::Error) -> PyErr {

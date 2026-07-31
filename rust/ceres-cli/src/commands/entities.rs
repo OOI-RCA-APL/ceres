@@ -15,7 +15,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use ceres_config::{DatabaseConfig, HashingConfig};
-use ceres_database::{Argon2Params, Credentials, EntityFilter, EntityTable};
+use ceres_database::{Argon2Params, Credentials, EntityFilter, EntityTable, Hashing};
 use ceres_entities::Entities;
 
 use crate::commands::dump::{
@@ -181,24 +181,25 @@ pub fn try_run(table: EntityTable, config: Option<&Path>, raw: &[OsString]) -> R
     deliver(&invocation, rendered)
 }
 
-/// The credential rules this database's writes follow, `None` when the native path
-/// cannot produce them.
+/// The credential rules this database's writes follow, `None` when a configured
+/// parameter is outside what the hashing takes.
 ///
-/// Argon2id is what a database configures unless it says otherwise, and it is the one
-/// algorithm produced here. A configuration naming bcrypt leaves every user write to
-/// Python rather than storing a hash of the wrong shape.
+/// Both algorithms a configuration can name are produced here, so the answer is `None`
+/// only for a parameter that would not hash at all, which the configuration layer should
+/// already have refused.
 fn credentials(database: &DatabaseConfig) -> Option<Credentials> {
-    let HashingConfig::Argon2(hashing) = &database.shared().hashing else {
-        return None;
+    let hashing = match &database.shared().hashing {
+        HashingConfig::Argon2(hashing) => Hashing::Argon2(Argon2Params {
+            time_cost: hashing.time_cost.try_into().ok()?,
+            memory_cost: hashing.memory_cost.try_into().ok()?,
+            parallelism: hashing.parallelism.try_into().ok()?,
+            hash_length: hashing.hash_length.try_into().ok()?,
+            salt_length: hashing.salt_length.try_into().ok()?,
+        }),
+        HashingConfig::Bcrypt(hashing) => Hashing::Bcrypt(hashing.rounds.try_into().ok()?),
     };
 
-    Some(Credentials::new(Argon2Params {
-        time_cost: hashing.time_cost.try_into().ok()?,
-        memory_cost: hashing.memory_cost.try_into().ok()?,
-        parallelism: hashing.parallelism.try_into().ok()?,
-        hash_length: hashing.hash_length.try_into().ok()?,
-        salt_length: hashing.salt_length.try_into().ok()?,
-    }))
+    Some(Credentials::new(hashing))
 }
 
 /// Whether the native path serves this verb on this table.
@@ -314,17 +315,20 @@ mod tests {
     }
 
     #[test]
-    fn a_bcrypt_database_hands_its_user_writes_back() {
-        // bcrypt is the one other algorithm a configuration can name, and it is not
-        // produced here, so a database on it writes its users through Python.
+    fn a_bcrypt_database_serves_its_user_writes_too() {
+        // bcrypt is the other algorithm a configuration can name, and it is produced
+        // here as well, so a database on it writes its users natively like any other.
         let config = DatabaseConfig::Sqlite(ceres_config::SqliteDatabaseConfig {
             path: Some("records.sqlite".into()),
             shared: ceres_config::SharedDatabaseConfig {
-                hashing: HashingConfig::Bcrypt(ceres_config::BcryptHashingConfig { rounds: 12 }),
+                hashing: HashingConfig::Bcrypt(ceres_config::BcryptHashingConfig { rounds: 4 }),
                 ..Default::default()
             },
         });
-        assert_eq!(credentials(&config), None);
+        let rules = credentials(&config).expect("bcrypt hashes natively");
+        let hashed = rules.password("secret").expect("a password hashes");
+        assert!(hashed.starts_with("$2b$04$"), "{hashed}");
+        assert_eq!(ceres_database::verify_bcrypt("secret", &hashed), Some(true));
     }
 
     #[test]
