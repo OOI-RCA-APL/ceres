@@ -50,6 +50,7 @@ function tabs(id: string, pages: { id: string; layout: WidgetRow[] }[]): TabsWid
     width: widgetWidthSubdivisions,
     restricted: false,
     frameless: false,
+    fill: false,
     tabs: pages.map((page) => ({ id: page.id, name: '', layout: page.layout })),
   }
 }

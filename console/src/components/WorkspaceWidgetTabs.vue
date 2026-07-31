@@ -220,7 +220,7 @@ function convertToCarousel() {
   <div :class="[$style.root, 'column', 'full-height', 'no-wrap']">
     <div ref="root" :class="[$style.strip, 'items-stretch', 'no-wrap', 'row']">
       <q-tabs
-        :class="$style.tabs"
+        :class="[$style.tabs, widget.fill && $style.filling]"
         dense
         indicator-color="transparent"
         inline-label
@@ -374,6 +374,15 @@ function convertToCarousel() {
                 <q-item-label>Convert To Carousel</q-item-label>
               </q-item-section>
             </q-item>
+            <q-separator />
+            <!-- How the strip is drawn, rather than what is on any one page, which is why it sits
+            under a rule at the end. The menu stays open, since seeing the strip take the setting is
+            the point of choosing it. -->
+            <q-item dense>
+              <q-item-section>
+                <q-checkbox v-model="widget.fill" dense label="Fill Width" />
+              </q-item-section>
+            </q-item>
           </q-list>
         </q-menu>
       </q-btn>
@@ -434,6 +443,31 @@ function convertToCarousel() {
 
 .tabs {
   @include strip.scroller;
+}
+
+// Tabs sharing out whatever room the strip has spare, rather than leaving it empty after the last
+// one.
+.filling {
+  flex: 1 1 auto;
+
+  :global(.q-tabs__content) {
+    width: 100%;
+  }
+
+  // An equal share each, floored at the width the tab's own name needs. Asking for a share from
+  // nothing rather than from its content is what makes the shares equal, and the floor is what
+  // keeps a long name from being cut down to match a short one. A strip with no room to spare is
+  // then every tab at its own width, which is exactly what it is without this.
+  .tab {
+    flex: 1 1 0;
+    min-width: max-content;
+  }
+
+  // A name centred in the room it has been given, since a tab wider than its name is no longer a
+  // label with space after it. On a full strip there is no spare room and this does nothing.
+  .tabInner {
+    justify-content: center;
+  }
 }
 
 .tabs .tab {

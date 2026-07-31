@@ -262,12 +262,17 @@ export const CarouselWidgetModel = BaseWidgetModel.extend({
 export type TabsWidget = BaseWidget & {
   type: 'tabs'
   tabs: WidgetPage[]
+  fill: boolean
 }
 
 export const TabsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('tabs'),
   name: Zod.string().catch('Tabs'),
   tabs: safeArrayOf(WidgetPageModel),
+
+  // Whether the tabs share the width of the strip out between them rather than each taking only
+  // the room its own name needs.
+  fill: Zod.boolean().catch(false),
 })
 
 export type Widget =

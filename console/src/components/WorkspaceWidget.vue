@@ -472,8 +472,13 @@ watch(
   overflow: visible;
 }
 
+// The box a widget is drawn in takes the card's size rather than its own contents', in both
+// directions. Left to itself it grows to whatever it is holding, and something wide inside it, a
+// long strip of tabs most of all, pushes the widget out past the column it was given and drags the
+// whole row wider. Being told its width is what makes the box scroll instead.
 .content {
   height: 0 !important;
+  width: 100%;
 }
 
 :global(.dark) .content {
