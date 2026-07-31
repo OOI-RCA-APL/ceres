@@ -9,16 +9,18 @@
 extern crate self as ceres_entities;
 
 mod address;
+mod entities;
 mod filterable;
 mod records;
 mod timestamp;
 
 pub use address::Address;
 pub use ceres_config::Level;
+pub use entities::{Entities, Setting, User, Variable, Workspace};
 pub use filterable::{
     FieldFamily, FieldOperation, FilterField, FilterValues, Filterable, OperationKind,
 };
 pub use records::{
-    Alert, LogEntry, Message, MessageDirection, Particle, Records, latin1, to_json_array,
+    Alert, CsvRecord, LogEntry, Message, MessageDirection, Particle, Records, latin1, to_json_array,
 };
 pub use timestamp::Timestamp;

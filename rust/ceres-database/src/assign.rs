@@ -106,6 +106,18 @@ fn encode(family: &FieldFamily, value: &Value, dialect: Dialect) -> Option<Simpl
                 Dialect::Postgres => value.clone().into(),
             }
         }
+        FieldFamily::Boolean => value.as_bool()?.into(),
+        // A value column takes whatever JSON it was given, stored as its text on the
+        // SQLite family the way the query layer writes it.
+        FieldFamily::JsonValue => match dialect {
+            Dialect::Sqlite => value.to_string().into(),
+            Dialect::Postgres => value.clone().into(),
+        },
+        FieldFamily::PlainAddress => Address::parse(value.as_str()?)
+            .ok()?
+            .as_str()
+            .to_string()
+            .into(),
     })
 }
 

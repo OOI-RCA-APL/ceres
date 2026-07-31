@@ -31,6 +31,8 @@ use uuid::Uuid;
 
 use serde_norway::Value as Yaml;
 
+use ceres_entities::Address;
+
 use crate::records::{RecordTable, Schema};
 use crate::selector::{AddressSelector, valid_address};
 use crate::store::Parameter;
@@ -137,6 +139,8 @@ enum Values {
     Texts(Vec<String>),
     Stamps(Vec<NaiveDateTime>),
     Bytes(Vec<Vec<u8>>),
+    /// One boolean, which its family takes in place of a set.
+    Boolean(bool),
 }
 
 /// One field operation filter, matching within the field's content.
@@ -1026,6 +1030,24 @@ impl FilterNode {
             // A JSON field carries no equality key, only its operation filters, so its
             // own key never resolves here.
             FieldFamily::Json => return Err(Refusal::Delegated),
+            // A boolean takes one value, so naming the key twice is a conflict rather
+            // than a set, the way a scalar field is in the Python models.
+            FieldFamily::Boolean => {
+                let parsed = match value {
+                    "true" | "True" => true,
+                    "false" | "False" => false,
+                    _ => return Err(Refusal::invalid(format!("invalid boolean {value:?}"))),
+                };
+                Values::Boolean(parsed)
+            }
+            // A value compares on the serialized text the column stores, so the wire
+            // text parses as YAML and re-serializes into that form.
+            FieldFamily::JsonValue => Values::Texts(vec![json_text(value)?]),
+            // A plain address compares whole, outside the selector grammar.
+            FieldFamily::PlainAddress => {
+                Address::parse(value).map_err(Refusal::Invalid)?;
+                Values::Texts(vec![value.to_string()])
+            }
         };
 
         match self
@@ -1116,9 +1138,18 @@ impl FilterNode {
                     (Values::Bytes(patterns), _) => text
                         .as_deref()
                         .is_some_and(|text| patterns.contains(&latin1_bytes(text))),
+                    // A value column compares on the serialized text of whatever it
+                    // holds, so the raw wire JSON is the thing to compare.
+                    (Values::Texts(texts), FieldFamily::JsonValue) => raw
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok())
+                        .map(|value| value.to_string())
+                        .is_some_and(|held| texts.contains(&held)),
                     (Values::Texts(texts), _) => text
                         .as_deref()
                         .is_some_and(|text| texts.iter().any(|candidate| candidate == text)),
+                    (Values::Boolean(wanted), _) => raw
+                        .and_then(|raw| serde_json::from_str::<bool>(raw.get()).ok())
+                        .is_some_and(|held| held == *wanted),
                 };
                 if !held {
                     return false;
@@ -1346,6 +1377,13 @@ impl FilterNode {
             let column = Expr::col(Alias::new(field.key));
             if let Some(values) = self.values_of(field) {
                 conditions.push(match values {
+                    // A value column holds JSON, and the comparison is against its
+                    // text, so the column casts before it compares, matching the cast
+                    // the Python filter applies.
+                    Values::Texts(texts) if field.family == FieldFamily::JsonValue => match_values(
+                        Expr::expr(column.clone().cast_as(Alias::new("TEXT"))),
+                        texts.iter().cloned().map(Value::from),
+                    ),
                     Values::Uuids(ids) => {
                         match_values(column.clone(), ids.iter().map(|id| id_value(*id, dialect)))
                     }
@@ -1359,6 +1397,7 @@ impl FilterNode {
                     Values::Bytes(patterns) => {
                         match_values(column.clone(), patterns.iter().cloned().map(Value::from))
                     }
+                    Values::Boolean(wanted) => column.clone().eq(*wanted),
                 });
             }
 
@@ -1730,6 +1769,17 @@ fn speedate_config() -> speedate::TimeConfig {
 /// Parse a wire timestamp on the grammar the Python `DateTime` accepts, ISO forms,
 /// epoch numbers, and bare dates, aware values normalizing to UTC and naive ones read
 /// as UTC.
+/// The compact JSON text a value column stores, parsed from the wire's YAML form.
+///
+/// The Python filter compares `to_json(self.value)` against the column cast to text, so
+/// the comparison is on serialized form and a number, a string, and a structure all
+/// compare by the same rule.
+fn json_text(value: &str) -> Result<String, Refusal> {
+    let parsed: serde_json::Value = serde_norway::from_str(value)
+        .map_err(|_| Refusal::invalid(format!("invalid value {value:?}")))?;
+    Ok(parsed.to_string())
+}
+
 pub(crate) fn parse_timestamp(text: &str) -> Result<NaiveDateTime, Refusal> {
     let config = speedate::DateTimeConfig {
         time_config: speedate_config(),

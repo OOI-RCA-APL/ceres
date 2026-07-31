@@ -28,9 +28,16 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
 
     let mut entries = Vec::new();
     for field in &fields.named {
+        if marked(field, "skip") {
+            continue;
+        }
+
         let identifier = field.ident.as_ref().expect("named fields carry names");
         let key = wire_name(field)?.unwrap_or_else(|| identifier.to_string());
-        let family = family_of(&field.ty);
+        let family = match family_of(&field.ty) {
+            Family::Address if marked(field, "plain") => Family::PlainAddress,
+            family => family,
+        };
 
         let entry = match &family {
             Family::Uuid => quote! { ceres_entities::FieldFamily::Uuid },
@@ -45,6 +52,9 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             Family::Level => quote! { ceres_entities::FieldFamily::Level },
             Family::Bytes => quote! { ceres_entities::FieldFamily::Bytes },
             Family::Json => quote! { ceres_entities::FieldFamily::Json },
+            Family::Boolean => quote! { ceres_entities::FieldFamily::Boolean },
+            Family::JsonValue => quote! { ceres_entities::FieldFamily::JsonValue },
+            Family::PlainAddress => quote! { ceres_entities::FieldFamily::PlainAddress },
             Family::Unfilterable => continue,
         };
 
@@ -101,6 +111,9 @@ enum Family {
     Values(Box<syn::Type>),
     Bytes,
     Json,
+    Boolean,
+    JsonValue,
+    PlainAddress,
     Unfilterable,
 }
 
@@ -159,6 +172,9 @@ fn family_of(ty: &syn::Type) -> Family {
             _ => Family::Unfilterable,
         },
         "Map" => Family::Json,
+        "bool" => Family::Boolean,
+        // A bare JSON value filters by equality on its serialized text.
+        "Value" => Family::JsonValue,
         "Option" => match first_type_argument(segment) {
             Some(inner) => family_of(&inner),
             None => Family::Unfilterable,
@@ -206,20 +222,28 @@ fn first_type_argument(segment: &syn::PathSegment) -> Option<syn::Type> {
 
 /// Whether the field carries `#[filterable(bare_operations)]`.
 fn bare_operations(field: &syn::Field) -> bool {
+    marked(field, "bare_operations")
+}
+
+/// Whether the field carries the given `#[filterable(...)]` marker.
+///
+/// `skip` drops a field whose type would otherwise filter, for a column the Python
+/// filter does not expose. `plain` takes an address out of the selector grammar.
+fn marked(field: &syn::Field, name: &str) -> bool {
     for attribute in &field.attrs {
         if !attribute.path().is_ident("filterable") {
             continue;
         }
 
-        let mut bare = false;
+        let mut found = false;
         let _ = attribute.parse_nested_meta(|meta| {
-            if meta.path.is_ident("bare_operations") {
-                bare = true;
+            if meta.path.is_ident(name) {
+                found = true;
             }
 
             Ok(())
         });
-        if bare {
+        if found {
             return true;
         }
     }

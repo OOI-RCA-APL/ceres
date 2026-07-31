@@ -67,6 +67,19 @@ pub enum FieldFamily {
     /// A JSON payload, whose operations match its serialized text and which carries
     /// no equality key of its own.
     Json,
+    /// Equality on a boolean, which takes one value rather than a set of them.
+    Boolean,
+    /// Equality on the serialized text of a JSON value, which carries no operations.
+    ///
+    /// A variable's value compares this way, on the text the column stores, so that
+    /// numbers, strings, and structures all compare by the same rule.
+    JsonValue,
+    /// Equality on a whole address, outside the selector grammar.
+    ///
+    /// A workspace's scope is the one address in the system filtered this way. It names
+    /// a subtree rather than a component, so matching it against a selector's segments
+    /// would mean something else entirely.
+    PlainAddress,
 }
 
 impl FieldFamily {
@@ -76,6 +89,14 @@ impl FieldFamily {
     /// only, so their own key is not part of the wire surface.
     pub fn native(&self) -> bool {
         !matches!(self, Self::Json)
+    }
+
+    /// Whether the family takes one value rather than a set of them.
+    ///
+    /// A boolean filter is a scalar in the Python models, so a list is a validation
+    /// error rather than an `IN`.
+    pub fn scalar(&self) -> bool {
+        matches!(self, Self::Boolean)
     }
 }
 
