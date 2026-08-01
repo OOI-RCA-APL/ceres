@@ -54,7 +54,7 @@ impl Parameter {
 pub enum Error {
     #[error("{0} is not a record table")]
     UnknownTable(String),
-    #[error(transparent)]
+    #[error("{}", database_message(.0))]
     Database(#[from] sqlx::Error),
     #[error(transparent)]
     Turso(#[from] turso::Error),
@@ -70,6 +70,26 @@ pub enum Error {
     /// rolls it back, so this is the command's own message to report.
     #[error("{0}")]
     Refused(String),
+}
+
+/// A driver failure in the driver's own words, with the detail it offered.
+///
+/// PostgreSQL says which constraint broke on the first line and which key broke it on a
+/// `DETAIL` line, and the second line is the one naming the column and the value. Callers
+/// read the taxonomy off this wording, so dropping the detail would lose the difference
+/// between "something was already taken" and knowing what.
+fn database_message(error: &sqlx::Error) -> String {
+    let sqlx::Error::Database(database) = error else {
+        return error.to_string();
+    };
+
+    match database.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
+        Some(postgres) => match postgres.detail() {
+            Some(detail) => format!("{postgres}\nDETAIL:  {detail}"),
+            None => postgres.to_string(),
+        },
+        None => database.to_string(),
+    }
 }
 
 /// Build the connection options for a PostgreSQL database.

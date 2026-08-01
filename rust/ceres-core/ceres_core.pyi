@@ -38,6 +38,7 @@ __all__ = [
     "entity_filter_keys",
     "hash_argon2",
     "hash_bcrypt",
+    "insert_compiled",
     "normalize_email",
     "openapi_schema",
     "record_filter_keys",
@@ -1283,6 +1284,21 @@ def hash_bcrypt(password: str, rounds: int) -> str | None:
 
     The other half of the one hashing implementation, for a database configured to use
     bcrypt rather than the default. Releases the interpreter lock like the Argon2 pair.
+    """
+
+def insert_compiled(
+    table: str, dialect: str, values: str, upsert: bool = False
+) -> tuple[str, list[Any]]:
+    r"""
+    Compile one row's insert to SQL and its parameters for a dialect.
+
+    This takes a table rather than a filter, because an insert names the row it writes
+    instead of narrowing to rows that already exist. `values` is the serialized JSON object
+    of column values, and each one encodes into the form its column stores.
+
+    `upsert` decides what a collision on the primary key does. Left off, the collision
+    reaches the caller, which is what turns a duplicate into the error naming the column it
+    collided on. Turned on, every column outside the key takes the new row's value.
     """
 
 def normalize_email(value: str) -> str | None:

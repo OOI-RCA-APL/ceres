@@ -19,6 +19,7 @@ mod store;
 mod turso;
 mod writer;
 
+pub use assign::insert_compiled;
 pub use ceres_entities::OperationKind;
 pub use credentials::{
     Argon2Params, Credentials, Hashing, SPECIAL_USE_DOMAINS, is_password_hash, normalize_email,

@@ -1664,6 +1664,25 @@ class BaseEntityManager[
         values = data.__entity_to_column_values__()
         row = Row(**values)
 
+        database = self.__database__
+        store = database._store()
+        if store is not None:
+            from ceres_core import insert_compiled
+
+            await database.ready()
+            # The compile stays outside the wrapper, a column the row cannot hold is the
+            # caller's own error rather than a driver failure to translate.
+            sql, parameters = insert_compiled(
+                Row.__tablename__,
+                database.type.value,
+                _native_assign(values),
+                upsert,
+            )
+            with wrap_database_errors():
+                await store.execute(sql, parameters)
+
+            return row  # type: ignore
+
         match self.__database__.type:
             case DatabaseType.SQLITE | DatabaseType.TURSO:
                 from sqlalchemy.dialects.sqlite import insert

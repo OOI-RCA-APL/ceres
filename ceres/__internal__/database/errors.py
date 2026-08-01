@@ -15,6 +15,12 @@ _POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
     r".*duplicate key.*\((?P<column>.+?)\)=\((?P<value>.+?)\)",
     re.MULTILINE | re.DOTALL,
 )
+# Every backend's wording for a row pointing at something that is not there. This is an
+# integrity failure rather than a duplicate, so it is matched separately and never carries
+# a column, the offending value being the reference rather than the row.
+_FOREIGN_KEY_ERROR_REGEX = re.compile(
+    r"FOREIGN KEY constraint failed|violates foreign key constraint",
+)
 
 
 @contextmanager
@@ -74,7 +80,11 @@ def wrap_database_errors() -> Iterator[None]:
         # driver's own words, and the wording is what decides here anyway, so a constraint
         # violation translates the same whichever engine surfaced it. A message neither
         # wording recognizes belongs to whoever raised it and travels on unchanged.
-        _raise_if_already_exists(str(exception))
+        message = str(exception)
+        _raise_if_already_exists(message)
+        if _FOREIGN_KEY_ERROR_REGEX.search(message) is not None:
+            raise IntegrityError()
+
         raise
 
 

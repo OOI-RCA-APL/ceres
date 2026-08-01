@@ -52,6 +52,14 @@ impl Table {
         }
     }
 
+    /// The table's whole schema, which is what a write encodes and narrows against.
+    pub(crate) fn schema(&self) -> crate::records::Schema {
+        match self {
+            Self::Record(table) => table.schema(),
+            Self::Entity(table) => table.schema(),
+        }
+    }
+
     /// The family a named column belongs to, `None` for one the table does not declare.
     fn family(&self, column: &str) -> Option<FieldFamily> {
         self.columns()

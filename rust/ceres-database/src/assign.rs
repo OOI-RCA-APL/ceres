@@ -1,8 +1,13 @@
-//! Assignments for a native record update.
+//! Column values for a native write, an update's or an insert's.
 //!
-//! An `update` carries its new values as one YAML or JSON object, the same form the
-//! Python command accepts. Each key names a column, and its value encodes into the
-//! form that column stores, which differs per backend exactly as the writer's does.
+//! A write carries its values as one YAML or JSON object, the same form the Python command
+//! accepts. Each key names a column, and its value encodes into the form that column
+//! stores, which differs per backend exactly as the writer's does.
+//!
+//! The two writes differ in one place. An update refuses the columns that identify a row,
+//! because changing an identity is a different row rather than the same one moved. An
+//! insert requires them, because that is where the identity comes from. Everything past
+//! that guard is the same encoding.
 //!
 //! Anything this module cannot represent is refused with a sentence naming the key and
 //! what it wanted, because the reader is holding a command line they can fix. Nothing is
@@ -13,6 +18,8 @@ use sea_query::SimpleExpr;
 use serde_json::Value;
 
 use crate::credentials::normalize_email;
+use crate::dynamic::Table;
+use crate::filter::SqlDialect;
 use crate::records::Schema;
 use crate::store::Parameter;
 use crate::writer::Dialect;
@@ -39,15 +46,42 @@ pub(crate) fn assignments(
         return Err("--assign was given nothing to assign.".to_string());
     }
 
-    let mut assignments = Vec::with_capacity(values.len());
-    for (key, value) in values {
+    for key in values.keys() {
         if schema.fixed.contains(&key.as_str()) {
             return Err(format!(
                 "`{key}` is part of what identifies a row, so it cannot be assigned. \
                  Create the row you want and delete this one instead."
             ));
         }
+    }
 
+    encoded(schema, values, dialect)
+}
+
+/// Encode an insert's column values.
+///
+/// An insert sets the row's identity rather than changing it, so the columns an update
+/// refuses are the ones this one requires, and the identity guard does not apply here.
+pub(crate) fn insert_values(
+    schema: Schema,
+    values: &serde_json::Map<String, Value>,
+    dialect: Dialect,
+) -> Result<Vec<Assignment>, String> {
+    if values.is_empty() {
+        return Err("An insert was given no columns to write.".to_string());
+    }
+
+    encoded(schema, values, dialect)
+}
+
+/// Encode each named column's value into the form that column stores.
+fn encoded(
+    schema: Schema,
+    values: &serde_json::Map<String, Value>,
+    dialect: Dialect,
+) -> Result<Vec<Assignment>, String> {
+    let mut assignments = Vec::with_capacity(values.len());
+    for (key, value) in values {
         let Some(field) = schema.columns.iter().find(|field| field.key == key) else {
             return Err(format!(
                 "There is no `{key}` to assign. This table holds {}.",
@@ -64,6 +98,62 @@ pub(crate) fn assignments(
     }
 
     Ok(assignments)
+}
+
+/// Compile one row's insert to SQL and its bound parameters.
+///
+/// `upsert` decides what a collision on the table's primary key does. Without it the
+/// collision is the caller's to see, which is what turns a duplicate into the error that
+/// names the column it collided on. With it every column outside the key takes the new
+/// row's value, which is what makes a repeated write idempotent rather than a failure.
+pub fn insert_compiled(
+    table: Table,
+    values: &serde_json::Map<String, serde_json::Value>,
+    upsert: bool,
+    dialect: SqlDialect,
+) -> Result<(String, Vec<sea_query::Value>), String> {
+    let schema = table.schema();
+    let writer = match dialect {
+        SqlDialect::SqliteText => Dialect::Sqlite,
+        SqlDialect::Postgres => Dialect::Postgres,
+    };
+    let assignments = insert_values(schema, values, writer)?;
+
+    let mut statement = sea_query::Query::insert();
+    statement.into_table(sea_query::Alias::new(schema.name));
+    statement.columns(
+        assignments
+            .iter()
+            .map(|assignment| sea_query::Alias::new(assignment.column)),
+    );
+    statement
+        .values(
+            assignments
+                .iter()
+                .map(|assignment| assignment.value.clone())
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|error| format!("The insert could not be built. {error}"))?;
+
+    if upsert {
+        let mut clause = sea_query::OnConflict::columns(
+            schema.key.iter().map(|&key| sea_query::Alias::new(key)),
+        );
+        clause.update_columns(
+            assignments
+                .iter()
+                .map(|assignment| assignment.column)
+                .filter(|column| !schema.key.contains(column))
+                .map(sea_query::Alias::new),
+        );
+        statement.on_conflict(clause);
+    }
+
+    let (sql, values) = match dialect {
+        SqlDialect::SqliteText => statement.build(sea_query::SqliteQueryBuilder),
+        SqlDialect::Postgres => statement.build(sea_query::PostgresQueryBuilder),
+    };
+    Ok((sql, values.0))
 }
 
 /// The columns an update may assign, which is every column that is not identity.

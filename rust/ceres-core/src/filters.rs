@@ -13,7 +13,7 @@
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
 use ceres_database::{Refusal, SqlDialect, Table};
 
@@ -222,6 +222,34 @@ impl NativeFilter {
         let now = now.map(|now| now.naive_utc());
         delegate!(self, matches(record_json, now)).map_err(PyValueError::new_err)
     }
+}
+
+/// Compile one row's insert to SQL and its parameters for a dialect.
+///
+/// This takes a table rather than a filter, because an insert names the row it writes
+/// instead of narrowing to rows that already exist. `values` is the serialized JSON object
+/// of column values, and each one encodes into the form its column stores.
+///
+/// `upsert` decides what a collision on the primary key does. Left off, the collision
+/// reaches the caller, which is what turns a duplicate into the error naming the column it
+/// collided on. Turned on, every column outside the key takes the new row's value.
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (table, dialect, values, upsert = false))]
+pub fn insert_compiled<'py>(
+    py: Python<'py>,
+    table: &str,
+    dialect: &str,
+    values: &str,
+    upsert: bool,
+) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
+    let table = table_of(table)?;
+    let dialect = dialect_of(dialect)?;
+    let values: serde_json::Map<String, serde_json::Value> = serde_json::from_str(values)
+        .map_err(|error| PyValueError::new_err(format!("unreadable row: {error}")))?;
+    let (sql, parameters) = ceres_database::insert_compiled(table, &values, upsert, dialect)
+        .map_err(PyValueError::new_err)?;
+    bound(py, sql, parameters)
 }
 
 /// A compiled statement with its parameters as the objects their driver binds.
