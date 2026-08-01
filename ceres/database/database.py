@@ -455,9 +455,17 @@ class Database:
         await self.dispose()
 
     async def dispose(self) -> None:
-        """Dispose of the underlying engine, closing any pooled connections."""
-        with wrap_database_errors():
-            await self._engine.dispose()
+        """Dispose of the underlying engine, closing any pooled connections.
+
+        Waiting on the migration lock is what keeps a database from being disposed out from
+        under its own bootstrap. A component stops as soon as it runs out of work, and the
+        stop disposes its database, so a query started from outside the component can be
+        partway through `ready` when that happens. Closing the connections underneath it
+        fails the migration, and the failure names neither the disposal nor the caller.
+        """
+        async with self._migrate_lock:
+            with wrap_database_errors():
+                await self._engine.dispose()
 
     async def _get_applied_migration_ids(self) -> list[int]:
         """Return the IDs of every migration recorded as applied, in ascending order."""

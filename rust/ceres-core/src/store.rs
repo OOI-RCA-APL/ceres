@@ -110,6 +110,56 @@ impl Store {
         })
     }
 
+    /// Execute a statement that returns rows, as chunks read as they arrive.
+    ///
+    /// The chunked twin of `fetch`. A caller iterating a result rather than collecting it
+    /// holds one chunk at a time, so a query over a large table costs a chunk of memory
+    /// rather than the whole result, and the first rows reach the caller before the last
+    /// ones have been read.
+    #[pyo3(signature = (sql, parameters, table=None))]
+    fn stream(
+        &self,
+        sql: String,
+        #[gen_stub(override_type(type_repr = "list[typing.Any]"))] parameters: Vec<
+            Bound<'_, PyAny>,
+        >,
+        table: Option<&str>,
+    ) -> PyResult<RowChunks> {
+        let table = named(table)?;
+        let parameters = parameters
+            .iter()
+            .map(extract_parameter)
+            .collect::<PyResult<Vec<_>>>()?;
+        let store = self.store.clone();
+        // One chunk of depth lets the query read ahead of the reader by exactly one,
+        // which overlaps the two without letting either run away from the other.
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let runtime = pyo3_async_runtimes::tokio::get_runtime();
+        let handle = runtime.handle().clone();
+        runtime.spawn_blocking(move || {
+            let outcome = handle.block_on(async {
+                let mut sink = |rows: Vec<ceres_database::Row>| {
+                    // A closed channel is the reader having gone away, which ends the
+                    // query rather than reporting anything.
+                    sender
+                        .send(Ok(rows))
+                        .map_err(|_| ceres_database::Error::Decode("the reader stopped".into()))
+                };
+                store
+                    .stream_dynamic(table, &sql, parameters, &mut sink)
+                    .await
+            });
+
+            if let Err(error) = outcome {
+                let _ = sender.send(Err(error));
+            }
+        });
+
+        Ok(RowChunks {
+            chunks: Arc::new(std::sync::Mutex::new(receiver)),
+        })
+    }
+
     /// Execute a statement that returns no rows, as an awaitable count of rows touched.
     fn execute<'py>(
         &self,
@@ -137,6 +187,52 @@ impl Store {
         let store = self.store.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             store.execute_script(&sql).await.map_err(to_value_error)
+        })
+    }
+}
+
+/// A streamed result, handed over one chunk of rows at a time.
+#[gen_stub_pyclass]
+#[pyclass(module = "ceres_core", frozen)]
+pub struct RowChunks {
+    chunks: Arc<std::sync::Mutex<std::sync::mpsc::Receiver<StreamedRows>>>,
+}
+
+/// One chunk as the streaming query produced it, or what stopped the query.
+type StreamedRows = Result<Vec<ceres_database::Row>, ceres_database::Error>;
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl RowChunks {
+    /// The next chunk of column mappings, `None` once the query is spent.
+    ///
+    /// Waiting for a chunk blocks a thread of its own rather than the event loop, so a
+    /// slow query leaves the caller's asyncio loop free.
+    fn next<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let chunks = self.chunks.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let received = pyo3_async_runtimes::tokio::get_runtime()
+                .spawn_blocking(move || {
+                    let receiver = chunks.lock().expect("the chunks outlive every reader");
+                    receiver.recv()
+                })
+                .await
+                .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+
+            match received {
+                // A disconnected channel is the query having run to its end.
+                Err(_) => Ok(None),
+                Ok(Ok(rows)) => Python::attach(|py| {
+                    // The mappings are unbound before the future resolves, because a
+                    // bound object holds the interpreter's lifetime and cannot cross a
+                    // thread.
+                    rows.iter()
+                        .map(|row| mapping(py, row).map(|held| held.unbind()))
+                        .collect::<PyResult<Vec<_>>>()
+                        .map(Some)
+                }),
+                Ok(Err(error)) => Err(to_value_error(error)),
+            }
         })
     }
 }

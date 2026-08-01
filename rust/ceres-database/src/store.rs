@@ -1144,6 +1144,48 @@ impl RecordStore {
         }
     }
 
+    /// The chunked twin of [`fetch_dynamic`](Self::fetch_dynamic).
+    ///
+    /// A caller iterating a result rather than collecting it gets rows as they arrive, so
+    /// a query over a large table costs a chunk of memory rather than the whole result,
+    /// and the first rows reach the caller before the last ones have been read.
+    pub async fn stream_dynamic(
+        &self,
+        table: Option<crate::dynamic::Table>,
+        sql: &str,
+        parameters: Vec<Parameter>,
+        sink: &mut impl FnMut(Vec<crate::dynamic::Row>) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let mut cursor = bind_sqlite(sqlx::query(sql), parameters).fetch(pool);
+                drain(
+                    &mut cursor,
+                    |rows| {
+                        rows.iter()
+                            .map(|row| crate::dynamic::sqlite_row(row, table))
+                            .collect()
+                    },
+                    sink,
+                )
+                .await
+            }
+            Backend::Postgres(pool) => {
+                let mut cursor = bind_postgres(sqlx::query(sql), parameters).fetch(pool);
+                drain(
+                    &mut cursor,
+                    |rows| rows.iter().map(crate::dynamic::postgres_row).collect(),
+                    sink,
+                )
+                .await
+            }
+            Backend::Turso(backend) => {
+                let parameters = parameters.into_iter().map(parameter_value).collect();
+                backend.stream_dynamic(table, sql, parameters, sink).await
+            }
+        }
+    }
+
     /// Execute a statement that returns no rows, answering how many it touched.
     pub async fn execute_dynamic(
         &self,

@@ -68,6 +68,34 @@ def test_the_in_memory_path_is_refused():
     assert "must name a file" in str(raised.value)
 
 
+async def test_disposing_waits_for_a_bootstrap_in_flight():
+    """A disposal that lands mid-migration waits for it rather than cutting it off.
+
+    A component stops as soon as it runs out of work and disposes its database on the way
+    out, so a query started from elsewhere can be partway through `ready` right then.
+    Closing the connections underneath it fails the migration with a driver error that
+    names neither the disposal nor the caller.
+    """
+    from asyncio import create_task, sleep
+
+    database = Database(SQLiteDatabaseConfig())
+    try:
+        # Holding the migration lock is what being partway through a migration looks like
+        # from the outside, and it is the state disposal has to wait out.
+        async with database._migrate_lock:
+            disposal = create_task(database.dispose())
+            await sleep(0)
+            assert not disposal.done(), "disposal closed the connections mid-migration"
+
+        await disposal
+
+        # The database still works afterwards, disposal releasing connections rather than
+        # ending the instance.
+        assert await database.users.count() == 0
+    finally:
+        await database.dispose()
+
+
 async def test_use_only_checks_initialized_once_per_instance(monkeypatch):
     """A second `use()` call does not re-run schema introspection on an already bootstrapped
     instance."""

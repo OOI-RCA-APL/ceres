@@ -26,6 +26,7 @@ __all__ = [
     "RecordFetcher",
     "RecordTable",
     "RecordWriter",
+    "RowChunks",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
     "ServerCORSConfig",
@@ -701,6 +702,19 @@ class RecordWriter:
         `ValueError` when an entity cannot extract natively, before anything writes.
         """
 
+@final
+class RowChunks:
+    r"""
+    A streamed result, handed over one chunk of rows at a time.
+    """
+    def next(self) -> Any:
+        r"""
+        The next chunk of column mappings, `None` once the query is spent.
+
+        Waiting for a chunk blocks a thread of its own rather than the event loop, so a
+        slow query leaves the caller's asyncio loop free.
+        """
+
 class SQLiteDatabaseConfig:
     r"""
     Configuration for a SQLite-backed database, the default for local deployments.
@@ -1143,6 +1157,15 @@ class Store:
         `table` names the table the rows come from, which is what says whether a column
         of text holds a UUID, a timestamp, or a name. A statement belonging to no table,
         which is what a migration runs, passes `None` and reads values as stored.
+        """
+    def stream(self, sql: str, parameters: list[Any], table: str | None = None) -> RowChunks:
+        r"""
+        Execute a statement that returns rows, as chunks read as they arrive.
+
+        The chunked twin of `fetch`. A caller iterating a result rather than collecting it
+        holds one chunk at a time, so a query over a large table costs a chunk of memory
+        rather than the whole result, and the first rows reach the caller before the last
+        ones have been read.
         """
     def execute(self, sql: str, parameters: list[Any]) -> Any:
         r"""

@@ -1054,11 +1054,57 @@ class SelectExecutor[
 ](_BaseStatementExecutor[EntityT, FilterT, list[EntityT]]):
     """Executor that builds and runs a ``SELECT`` statement, returning entities."""
 
-    __slots__ = ()
+    __slots__ = ("_chunks",)
+
+    @override
+    def __init__(
+        self,
+        *,
+        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
+    ) -> None:
+        super().__init__(query=query)
+        self._chunks: Any | None = None
 
     @override
     async def _await(self) -> list[EntityT]:
         return await self.all()
+
+    @override
+    async def __aenter__(self) -> ResultsIterator[EntityT]:
+        native = await self._native_query()
+        if native is None:
+            return await super().__aenter__()
+
+        store, sql, parameters = native
+        if self._chunks is None:
+            self._chunks = store.stream(sql, parameters, self._native_table())
+
+        return ResultsIterator(self._parse_chunks(self._chunks))
+
+    @override
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        # Dropping the chunks closes the channel the query writes into, which is what ends
+        # a query the caller stopped reading part way through.
+        self._chunks = None
+        await super().__aexit__(exc_type, exc_value, traceback)
+
+    async def _parse_chunks(self, chunks: Any) -> AsyncIterator[EntityT]:
+        """Async-iterate a streamed result, one chunk of column mappings at a time."""
+        parse = self._get_native_parser()
+
+        count = 0
+        while (rows := await chunks.next()) is not None:
+            for values in rows:
+                entity = parse(values)
+                if entity is not None:
+                    yield entity
+
+                count += 1
+                if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
+                    count = 0
+                    # Yield control to the event loop.
+                    await sleep(0)
+                    await sleep(0)
 
     @override
     async def all(self) -> list[EntityT]:

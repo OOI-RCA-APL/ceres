@@ -233,6 +233,37 @@ impl TursoBackend {
         Ok(decoded)
     }
 
+    /// The chunked twin of `query_dynamic`, handing rows over as they are read.
+    pub(crate) async fn stream_dynamic(
+        &self,
+        table: Option<crate::dynamic::Table>,
+        sql: &str,
+        parameters: Vec<Value>,
+        sink: &mut impl FnMut(Vec<crate::dynamic::Row>) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let connection = self.connection().await?;
+        let mut rows = connection
+            .query(sql, turso::params_from_iter(parameters))
+            .await?;
+        let names = rows.column_names();
+
+        let mut chunk = Vec::with_capacity(crate::store::CHUNK);
+        while let Some(row) = rows.next().await? {
+            chunk.push(crate::dynamic::turso_row(&row, &names, table)?);
+            if chunk.len() >= crate::store::CHUNK {
+                sink(std::mem::take(&mut chunk))?;
+                chunk.reserve(crate::store::CHUNK);
+            }
+        }
+
+        // The trailing rows go over even when they do not fill a chunk.
+        if !chunk.is_empty() {
+            sink(chunk)?;
+        }
+
+        Ok(())
+    }
+
     /// Execute a statement that returns no rows, answering how many it touched.
     pub(crate) async fn execute_dynamic(
         &self,

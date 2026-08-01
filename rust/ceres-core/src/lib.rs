@@ -167,6 +167,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<filters::NativeFilter>()?;
     module.add_class::<fetcher::RecordWriter>()?;
     module.add_class::<store::Store>()?;
+    module.add_class::<store::RowChunks>()?;
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(filters::insert_compiled, module)?)?;
