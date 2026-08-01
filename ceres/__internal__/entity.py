@@ -963,17 +963,12 @@ class _BaseStatementExecutor[
         the compiler resolves age-relative conditions against is this session's, so a
         frozen or faked time stays authoritative all the way down.
         """
-        database = self._query._get_database()
-        store = database._store()
+        store = await self._query._native_store()
         if store is None:
             return None
 
-        # The store reads the database directly rather than through a connection the query
-        # layer opened, so the bootstrap that opening one would have done happens here.
-        await database.ready()
-
         native = self._query._get_resolved_filter()._native_filter()
-        sql, parameters = native.compiled(database.type.value, now=utc())
+        sql, parameters = native.compiled(self._query._get_database().type.value, now=utc())
         return store, sql, parameters
 
     def _get_native_parser(self) -> Callable[[dict[str, Any]], EntityT | None]:
@@ -1265,10 +1260,38 @@ class BaseEntityQuery[
         """Create a ``DeleteExecutor`` for this query."""
         return DeleteExecutor(query=self.where())
 
+    async def _native_store(self) -> Any | None:
+        """The store this query's statements run on, `None` when the query layer keeps them.
+
+        A backend withholds its store when a second engine cannot safely join the database,
+        which is the only reason a statement stays on the query layer. Bootstrapping happens
+        here because the store reads the database directly rather than through a connection
+        the query layer opened, and a database nobody has bootstrapped has no tables.
+        """
+        database = self._get_database()
+        store = database._store()
+        if store is not None:
+            await database.ready()
+
+        return store
+
     async def count(self) -> int:
         """Return the number of entities matching this query's filter."""
         database = self._get_database()
         filter = self._get_resolved_filter()
+
+        store = await self._native_store()
+        if store is not None:
+            sql, parameters = filter._native_filter().compiled(
+                database.type.value,
+                count=True,
+                now=utc(),
+            )
+            rows = await store.fetch(sql, parameters)
+            # The count is the statement's only column, and its name is whatever the
+            # backend calls a `COUNT(*)` expression, so the row is read by position.
+            return next(iter(rows[0].values())) if rows else 0
+
         statement = select(func.count()).select_from(self._get_row_class())
         statement = filter.apply(
             statement,
@@ -1285,6 +1308,13 @@ class BaseEntityQuery[
         """Return ``True`` if at least one entity matches this query's filter."""
         database = self._get_database()
         filter = self._get_resolved_filter()
+
+        store = await self._native_store()
+        if store is not None:
+            sql, parameters = filter._native_filter().exists_compiled(database.type.value, utc())
+            rows = await store.fetch(sql, parameters)
+            return bool(next(iter(rows[0].values()))) if rows else False
+
         statement = select("*").select_from(self._get_row_class())
         statement = filter.apply(
             statement,
