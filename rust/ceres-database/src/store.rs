@@ -1,6 +1,6 @@
 //! Connection parameters and the operations a database serves.
 //!
-//! Everything here is written once against [`Engine`], the trait in
+//! Everything here is written once against [`DatabaseBackend`], the trait in
 //! [`crate::backend`] that every backend implements. Building a statement and choosing a
 //! backend are separate concerns, so this file holds the first and knows nothing of the
 //! second beyond which dialect it renders for.
@@ -13,7 +13,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 use crate::assign::assignments;
-use crate::backend::{Engine, PostgresEngine, SqliteEngine, Write, Writing};
+use crate::backend::{DatabaseBackend, PostgresBackend, SqliteBackend, Write, Writing};
 use crate::credentials::Credentials;
 use crate::entities::EntityTable;
 use crate::filter::{EntityFilter, RecordFilter, SqlDialect};
@@ -240,11 +240,10 @@ pub struct GateUser {
 /// including per-instance temporary SQLite paths, which is why it takes resolved
 /// connection parameters rather than a configuration.
 ///
-/// Which backend is behind it is known only through [`Engine`], so every operation below
-/// is written once. The handle is shared rather than owned so a writer can be opened over
-/// the same engine.
+/// Which backend is behind it is known only through [`DatabaseBackend`], so every
+/// operation below is written once.
 pub struct RecordStore {
-    engine: Arc<dyn Engine>,
+    backend: Arc<dyn DatabaseBackend>,
 }
 
 impl RecordStore {
@@ -262,7 +261,7 @@ impl RecordStore {
         let pool = lifecycle(SqlitePoolOptions::new(), Vec::new(), on_connect, on_close)
             .connect_lazy_with(options);
         Ok(Self {
-            engine: Arc::new(SqliteEngine(pool)),
+            backend: Arc::new(SqliteBackend(pool)),
         })
     }
 
@@ -304,7 +303,7 @@ impl RecordStore {
         )
         .connect_lazy_with(options);
         Ok(Self {
-            engine: Arc::new(SqliteEngine(pool)),
+            backend: Arc::new(SqliteBackend(pool)),
         })
     }
 
@@ -330,7 +329,7 @@ impl RecordStore {
         let pool = lifecycle(PgPoolOptions::new(), on_init, on_connect, on_close)
             .connect_lazy_with(options);
         Ok(Self {
-            engine: Arc::new(PostgresEngine(pool)),
+            backend: Arc::new(PostgresBackend(pool)),
         })
     }
 
@@ -352,7 +351,7 @@ impl RecordStore {
         on_close: Vec<String>,
     ) -> Self {
         Self {
-            engine: Arc::new(TursoBackend::new(path, mvcc, on_init, on_connect, on_close)),
+            backend: Arc::new(TursoBackend::new(path, mvcc, on_init, on_connect, on_close)),
         }
     }
 
@@ -361,7 +360,7 @@ impl RecordStore {
     /// `false` says a [`Writing::Concurrent`] transaction ran serialized anyway, so no
     /// commit conflict is possible and a caller that would retry one never has to.
     pub fn overlaps_writers(&self) -> bool {
-        self.engine.overlaps_writers()
+        self.backend.overlaps_writers()
     }
 
     /// Fetch a record listing, ordered by timestamp like the Python layer's default.
@@ -380,7 +379,7 @@ impl RecordStore {
 
     /// The dialect value forms this store's backend binds.
     fn dialect(&self) -> SqlDialect {
-        self.engine.dialect()
+        self.backend.dialect()
     }
 
     /// Execute one built statement, decoding rows for the table.
@@ -389,7 +388,7 @@ impl RecordStore {
         table: RecordTable,
         statement: SelectStatement,
     ) -> Result<Records, Error> {
-        self.engine.select_records(table, statement).await
+        self.backend.select_records(table, statement).await
     }
 
     /// Fetch the records a parsed native filter matches.
@@ -417,7 +416,7 @@ impl RecordStore {
         }
 
         let statement = filter.statement(self.dialect(), None);
-        self.engine
+        self.backend
             .stream_records(filter.table(), statement, sink)
             .await
     }
@@ -433,7 +432,7 @@ impl RecordStore {
         }
 
         let statement = filter.statement(self.dialect(), None);
-        self.engine
+        self.backend
             .stream_entities(filter.table(), statement, sink)
             .await
     }
@@ -460,7 +459,7 @@ impl RecordStore {
             return Ok(false);
         }
 
-        self.engine
+        self.backend
             .exists(filter.exists_statement(self.dialect(), None))
             .await
     }
@@ -561,7 +560,7 @@ impl RecordStore {
     /// Nothing lands unless the statement succeeds, so a failure leaves the table
     /// exactly as it was and the command is free to delegate.
     async fn write(&self, statement: impl Into<Write>) -> Result<u64, Error> {
-        self.engine.write(statement.into()).await
+        self.backend.write(statement.into()).await
     }
 
     /// Run one write statement that hands its rows back, in its own transaction.
@@ -574,7 +573,7 @@ impl RecordStore {
         table: RecordTable,
         statement: impl Into<Write>,
     ) -> Result<Records, Error> {
-        self.engine.write_records(table, statement.into()).await
+        self.backend.write_records(table, statement.into()).await
     }
 
     /// The entity form of [`Self::write_returning`].
@@ -583,7 +582,7 @@ impl RecordStore {
         table: EntityTable,
         statement: impl Into<Write>,
     ) -> Result<Entities, Error> {
-        self.engine.write_entities(table, statement.into()).await
+        self.backend.write_entities(table, statement.into()).await
     }
 
     /// Fetch an entity listing, ordered by the entity's own default.
@@ -597,7 +596,7 @@ impl RecordStore {
             return Ok(table.empty());
         }
 
-        self.engine
+        self.backend
             .select_entities(table, table.listing(limit, offset))
             .await
     }
@@ -609,7 +608,9 @@ impl RecordStore {
         }
 
         let statement = filter.statement(self.dialect(), None);
-        self.engine.select_entities(filter.table(), statement).await
+        self.backend
+            .select_entities(filter.table(), statement)
+            .await
     }
 
     /// Count the entities a parsed native filter matches.
@@ -628,7 +629,7 @@ impl RecordStore {
             return Ok(false);
         }
 
-        self.engine
+        self.backend
             .exists(filter.exists_statement(self.dialect(), None))
             .await
     }
@@ -750,7 +751,7 @@ impl RecordStore {
 
     /// Run one count statement.
     async fn scalar_count(&self, statement: SelectStatement) -> Result<u64, Error> {
-        self.engine.count(statement).await
+        self.backend.count(statement).await
     }
 
     /// Write a bulk load's batches in one transaction, reading as it writes.
@@ -832,7 +833,9 @@ impl RecordStore {
         // A load takes the whole write lock. Its batches are one caller's own rows going
         // into tables nobody else is touching, so overlapping buys nothing and a conflict
         // at commit would mean re-reading the source.
-        self.engine.insert_all(Writing::Default, &mut batches).await
+        self.backend
+            .insert_all(Writing::Default, &mut batches)
+            .await
     }
 
     /// Read the columns an authentication gate needs for one user, `None` when no user
@@ -842,7 +845,7 @@ impl RecordStore {
     /// whether it is disabled, so a record request never crosses into Python just to
     /// admit its caller.
     pub async fn gate_user(&self, id: uuid::Uuid) -> Result<Option<GateUser>, Error> {
-        self.engine.gate_user(id).await
+        self.backend.gate_user(id).await
     }
 
     /// Execute a compiled record query, decoding its rows for the given table.
@@ -857,7 +860,7 @@ impl RecordStore {
         parameters: Vec<Parameter>,
     ) -> Result<Records, Error> {
         assert_readonly(sql)?;
-        self.engine.query_records(table, sql, parameters).await
+        self.backend.query_records(table, sql, parameters).await
     }
 
     /// Execute a compiled record query, decoding its rows a chunk at a time.
@@ -872,7 +875,7 @@ impl RecordStore {
         sink: &mut (impl FnMut(Records) -> Result<(), Error> + Send),
     ) -> Result<(), Error> {
         assert_readonly(sql)?;
-        self.engine
+        self.backend
             .stream_query_records(table, sql, parameters, sink)
             .await
     }
@@ -889,7 +892,7 @@ impl RecordStore {
         sql: &str,
         parameters: Vec<Parameter>,
     ) -> Result<Vec<crate::dynamic::Row>, Error> {
-        self.engine.query_rows(table, sql, parameters).await
+        self.backend.query_rows(table, sql, parameters).await
     }
 
     /// The chunked twin of [`fetch_dynamic`](Self::fetch_dynamic).
@@ -904,7 +907,7 @@ impl RecordStore {
         parameters: Vec<Parameter>,
         sink: &mut (impl FnMut(Vec<crate::dynamic::Row>) -> Result<(), Error> + Send),
     ) -> Result<(), Error> {
-        self.engine.stream_rows(table, sql, parameters, sink).await
+        self.backend.stream_rows(table, sql, parameters, sink).await
     }
 
     /// Execute a statement that returns no rows, answering how many it touched.
@@ -913,7 +916,7 @@ impl RecordStore {
         sql: &str,
         parameters: Vec<Parameter>,
     ) -> Result<u64, Error> {
-        self.engine.execute(sql, parameters).await
+        self.backend.execute(sql, parameters).await
     }
 
     /// Run a script of `;`-separated statements.
@@ -923,7 +926,7 @@ impl RecordStore {
     /// the SQLite family needs before rebuilding a table does nothing inside a
     /// transaction, and a script sent whole is the driver's business to sequence.
     pub async fn execute_script(&self, sql: &str) -> Result<(), Error> {
-        self.engine.execute_script(sql).await
+        self.backend.execute_script(sql).await
     }
 }
 

@@ -1216,7 +1216,7 @@ mod tests {
     /// race at commit, so it has to follow the setting rather than the request.
     #[test]
     fn overlapping_writers_are_reported_only_under_mvcc() {
-        use crate::backend::Engine;
+        use crate::backend::DatabaseBackend;
 
         let backend = |mvcc| TursoBackend::new("unused.turso", mvcc, vec![], vec![], vec![]);
         assert!(!backend(false).overlaps_writers());

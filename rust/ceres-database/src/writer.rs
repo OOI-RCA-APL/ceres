@@ -15,7 +15,7 @@ use sea_query::{Alias, InsertStatement, OnConflict, Query, SimpleExpr};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
-use crate::backend::{Engine, PostgresEngine, SqliteEngine, Writing};
+use crate::backend::{DatabaseBackend, PostgresBackend, SqliteBackend, Writing};
 use crate::records::RecordTable;
 use crate::store::{Error, Parameter};
 use crate::turso::TursoBackend;
@@ -35,7 +35,7 @@ pub(crate) enum Dialect {
 /// backend serializes writers anyway and one connection avoids lock churn against the
 /// query layer's own pool on the same file.
 pub struct RecordWriter {
-    engine: Arc<dyn Engine>,
+    backend: Arc<dyn DatabaseBackend>,
 }
 
 impl RecordWriter {
@@ -46,8 +46,8 @@ impl RecordWriter {
     /// Python layer.
     ///
     /// `on_connect` and `on_close` are the configuration's own statements for the two ends
-    /// of a connection's life. The `init` statements are the store's to run, that being
-    /// the engine a database opens for itself.
+    /// of a connection's life. The `init` statements are the store's to run, it being the
+    /// connection a database opens for itself.
     pub fn sqlite(
         path: &str,
         on_connect: Vec<String>,
@@ -66,7 +66,7 @@ impl RecordWriter {
         )
         .connect_lazy_with(options);
         Ok(Self {
-            engine: Arc::new(SqliteEngine(pool)),
+            backend: Arc::new(SqliteBackend(pool)),
         })
     }
 
@@ -89,7 +89,7 @@ impl RecordWriter {
         let pool = crate::store::lifecycle(PgPoolOptions::new(), Vec::new(), on_connect, on_close)
             .connect_lazy_with(options);
         Ok(Self {
-            engine: Arc::new(PostgresEngine(pool)),
+            backend: Arc::new(PostgresBackend(pool)),
         })
     }
 
@@ -100,11 +100,11 @@ impl RecordWriter {
     /// overlap other writers.
     ///
     /// `on_connect` and `on_close` are the configuration's own statements for the two ends
-    /// of a connection's life. The `init` statements are the store's to run, that being
-    /// the engine a database opens for itself.
+    /// of a connection's life. The `init` statements are the store's to run, it being the
+    /// connection a database opens for itself.
     pub fn turso(path: &str, mvcc: bool, on_connect: Vec<String>, on_close: Vec<String>) -> Self {
         Self {
-            engine: Arc::new(TursoBackend::new(
+            backend: Arc::new(TursoBackend::new(
                 path,
                 mvcc,
                 Vec::new(),
@@ -123,7 +123,7 @@ impl RecordWriter {
     /// transaction is answerable rather than silently ignored, and it is what the tests
     /// assert the setting against.
     pub fn overlaps_writers(&self) -> bool {
-        self.engine.overlaps_writers()
+        self.backend.overlaps_writers()
     }
 
     /// Upsert every batch in one transaction.
@@ -137,7 +137,7 @@ impl RecordWriter {
     /// backend that cannot overlap runs it serialized instead, which is what
     /// [`Self::overlaps_writers`] reports.
     pub async fn upsert(&self, batches: Vec<Records>) -> Result<(), Error> {
-        let dialect = match self.engine.dialect() {
+        let dialect = match self.backend.dialect() {
             crate::filter::SqlDialect::Postgres => Dialect::Postgres,
             crate::filter::SqlDialect::SqliteText => Dialect::Sqlite,
         };
@@ -150,7 +150,7 @@ impl RecordWriter {
         // flush is told to write what it holds rather than asked how much of it was new.
         // The load path is what actually answers with this number, over batches that
         // carry no duplicates.
-        self.engine
+        self.backend
             .insert_all(Writing::Concurrent, &mut statements)
             .await?;
         Ok(())

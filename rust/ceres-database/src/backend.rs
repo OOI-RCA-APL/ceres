@@ -1,10 +1,10 @@
-//! One trait every database engine implements, and the three that do.
+//! One trait every database backend implements, and the three that do.
 //!
 //! Everything above this file works in sea-query statements and compiled SQL, and knows
 //! a backend only by what it can be asked to do. The differences that remain, which
 //! query builder renders a statement, how a parameter binds, how a row decodes, and how
-//! a transaction opens, live behind [`Engine`] rather than in a match arm at every call
-//! site.
+//! a transaction opens, live behind [`DatabaseBackend`] rather than in a match arm at
+//! every call site.
 //!
 //! Adding a backend means writing one impl. Adding an operation means adding one method
 //! and implementing it three times, which is the trade this shape makes deliberately: a
@@ -30,9 +30,9 @@ use crate::turso::{parameter_value, sea_value};
 
 /// How a transaction means to sit beside other writers.
 ///
-/// This is the caller's intent rather than a promise about the engine. A backend that
-/// cannot overlap writers runs a [`Writing::Concurrent`] transaction the only way it
-/// can, so ask [`Engine::overlaps_writers`] when the answer changes what a caller does.
+/// This is the caller's intent rather than a promise about the backend. One that cannot
+/// overlap writers runs a [`Writing::Concurrent`] transaction the only way it can, so ask
+/// [`DatabaseBackend::overlaps_writers`] when the answer changes what a caller does.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Writing {
     /// However the backend opens a transaction by default.
@@ -54,8 +54,8 @@ pub enum Writing {
 ///
 /// The two shapes are kept apart rather than rendered to text early, because each backend
 /// renders with its own query builder and a `RETURNING` clause is added before that
-/// happens. An insert is not here, [`Engine::insert_all`] taking its statements directly
-/// because it writes several in one transaction rather than one in its own.
+/// happens. An insert is not here, [`DatabaseBackend::insert_all`] taking its statements
+/// directly because it writes several in one transaction rather than one in its own.
 pub(crate) enum Write {
     Update(UpdateStatement),
     Delete(DeleteStatement),
@@ -72,19 +72,19 @@ pub(crate) type Sink<'a, T> = &'a mut (dyn FnMut(T) -> Result<(), Error> + Send)
 pub(crate) type Batches<'a> =
     &'a mut (dyn Iterator<Item = Result<(InsertStatement, usize), String>> + Send);
 
-/// One database engine, as the store and the writer need it.
+/// One database backend, as the store and the writer need it.
 ///
 /// Every method takes a built statement or compiled SQL and answers in this crate's own
 /// types, so nothing above here handles a driver's rows, arguments, or pool.
 #[async_trait]
-pub(crate) trait Engine: Send + Sync {
-    /// The value forms this engine binds, which is what a filter renders against.
+pub(crate) trait DatabaseBackend: Send + Sync {
+    /// The value forms this backend binds, which is what a filter renders against.
     fn dialect(&self) -> SqlDialect;
 
     /// Whether two write transactions on this database can overlap.
     ///
     /// `false` means a [`Writing::Concurrent`] transaction ran serialized, because the
-    /// engine has one writer or was not configured for more. Callers that would retry a
+    /// backend has one writer or was not configured for more. Callers that would retry a
     /// commit conflict use this to say whether one is possible at all.
     fn overlaps_writers(&self) -> bool;
 
@@ -123,7 +123,7 @@ pub(crate) trait Engine: Send + Sync {
 
     /// Run a select whose first column says whether any row matched.
     ///
-    /// Separate from [`Self::count`] because the engines disagree on what an `EXISTS`
+    /// Separate from [`Self::count`] because the backends disagree on what an `EXISTS`
     /// column decodes as, and because a caller asking this can stop at the first row.
     async fn exists(&self, statement: SelectStatement) -> Result<bool, Error>;
 
@@ -269,7 +269,7 @@ where
     Ok(())
 }
 
-/// Declare an `Engine` over one of sqlx's pools.
+/// Declare a `DatabaseBackend` over one of sqlx's pools.
 ///
 /// SQLite and PostgreSQL differ only in which query builder renders a statement, how a
 /// compiled parameter binds, and how a row decodes into this crate's types. Each of those
@@ -279,7 +279,7 @@ where
 /// Neither honors [`Writing::Concurrent`] specially. PostgreSQL already overlaps writers,
 /// its transactions being optimistic by nature, and SQLite admits one writer at a time
 /// whatever a transaction asks for. `overlaps_writers` is what tells them apart.
-macro_rules! sqlx_engine {
+macro_rules! sqlx_backend {
     (
         $name:ident,
         pool = $pool:ty,
@@ -294,7 +294,7 @@ macro_rules! sqlx_engine {
         pub(crate) struct $name(pub(crate) $pool);
 
         #[async_trait]
-        impl Engine for $name {
+        impl DatabaseBackend for $name {
             fn dialect(&self) -> SqlDialect {
                 $dialect
             }
@@ -523,8 +523,8 @@ macro_rules! sqlx_engine {
 /// its own way.
 const GATE_SQL: &str = "SELECT \"admin\", \"disabled\" FROM \"users\" WHERE \"id\" = ";
 
-sqlx_engine!(
-    SqliteEngine,
+sqlx_backend!(
+    SqliteBackend,
     pool = sqlx::SqlitePool,
     builder = SqliteQueryBuilder,
     dialect = SqlDialect::SqliteText,
@@ -535,8 +535,8 @@ sqlx_engine!(
     gate = |id| (format!("{GATE_SQL}?"), id.to_string()),
 );
 
-sqlx_engine!(
-    PostgresEngine,
+sqlx_backend!(
+    PostgresBackend,
     pool = sqlx::PgPool,
     builder = PostgresQueryBuilder,
     dialect = SqlDialect::Postgres,
@@ -624,7 +624,7 @@ fn turso_write(statement: Write) -> Result<(String, Vec<turso::Value>), Error> {
 }
 
 #[async_trait]
-impl Engine for crate::turso::TursoBackend {
+impl DatabaseBackend for crate::turso::TursoBackend {
     fn dialect(&self) -> SqlDialect {
         // Turso reads and writes SQLite's file format, so values take the same forms and
         // statements render with the same builder.
@@ -632,8 +632,8 @@ impl Engine for crate::turso::TursoBackend {
     }
 
     fn overlaps_writers(&self) -> bool {
-        // Only under MVCC journaling. Without it the engine admits one writer, the same
-        // as SQLite, and a concurrent transaction opens plainly.
+        // Only under MVCC journaling. Without it Turso admits one writer, the same as
+        // SQLite, and a concurrent transaction opens plainly.
         self.mvcc()
     }
 
@@ -707,8 +707,8 @@ impl Engine for crate::turso::TursoBackend {
     }
 
     async fn insert_all(&self, writing: Writing, batches: Batches<'_>) -> Result<usize, Error> {
-        // The engine takes its statements together rather than one at a time, so the
-        // batches render here and the transaction is opened around all of them.
+        // Turso takes its statements together rather than one at a time, so the batches
+        // render here and the transaction is opened around all of them.
         let mut statements = Vec::new();
         let mut written = 0;
         for batch in batches {
