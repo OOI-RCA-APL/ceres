@@ -1,11 +1,6 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Unpack, override
 
-from sqlalchemy import Index, LargeBinary, func
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import expression
-
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -23,15 +18,12 @@ from ceres.__internal__.record import (
     BaseRecordFilter,
     BaseRecordFilterArgs,
     BaseRecordOrder,
-    BaseRecordRow,
     BaseRecordUpdate,
 )
 from ceres.data import BytesFromString, BytesToString, MaybeSequence, StrEnum
 
 if TYPE_CHECKING:
     from uuid import UUID
-
-    from sqlalchemy.schema import SchemaItem
 
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
 
@@ -59,40 +51,6 @@ type MessageData = Annotated[
     BytesToString("latin-1", "ignore"),
 ]
 """Raw message payload bytes, serialized to and from `latin-1` strings for transport."""
-
-
-class MessageRow(BaseRecordRow, kw_only=True):
-    """SQLAlchemy row type backing the `Message` entity."""
-
-    __tablename__: ClassVar[str] = "messages"
-
-    connection: Mapped[str | None] = mapped_column(
-        TextMapper(),
-        nullable=True,
-        default=None,
-        server_default=expression.null(),
-    )
-    direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
-    data: Mapped[bytes] = mapped_column(LargeBinary)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__connection", cls.connection),
-            EnumConstraint(cls.direction, MessageDirection, f"ck_{cls.__tablename__}__direction"),
-            # On SQLite a plain B-tree index on the raw bytes is used.
-            Index(f"ix_{cls.__tablename__}__data", cls.data).ddl_if("sqlite"),
-            # On PostgreSQL the bytes are tokenized into a hex representation that supports
-            # trigram-based substring search via a GIN index.
-            Index(
-                f"ix_{cls.__tablename__}__data",
-                func.ceres_tokenize_bytes(cls.data).label("tokens"),
-                postgresql_ops={"tokens": "gin_trgm_ops"},
-                postgresql_using="gin",
-            ).ddl_if("postgresql"),
-        )
 
 
 type MessageField = (
@@ -136,6 +94,8 @@ class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     """Filter for selecting `Message` records by connection, direction, or payload contents."""
 
+    __table__: ClassVar[str] = "messages"
+
     connection: MaybeSequence[str] | None = None
     """Filter by `connection` being equal to one or more given strings."""
     connection_contains: MaybeSequence[str] | None = None
@@ -154,11 +114,6 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     """Filter by `data` starting with one or more given byte prefixes."""
     suffix: MaybeSequence[MessageData] | None = None
     """Filter by `data` ending with one or more given byte suffixes."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[MessageRow]:
-        return MessageRow
 
 
 class MessageCreate(BaseRecordCreate, slots=True):
@@ -219,7 +174,6 @@ class MessageQuery(
 class MessageManager(
     BaseEntityManager[
         "Message",
-        MessageRow,
         MessageCreate,
         MessageUpdate,
         MessageFilter,
@@ -324,7 +278,7 @@ class MessageOutputChannel(
 class Message(
     BaseRecord,
     MessageCreate,
-    ConcreteEntity[MessageRow],
+    ConcreteEntity,
     slots=True,
 ):
     """A chunk of data sent or received on a connection.

@@ -25,61 +25,26 @@ _FOREIGN_KEY_ERROR_REGEX = re.compile(
 
 @contextmanager
 def wrap_database_errors() -> Iterator[None]:
-    """Catch SQLAlchemy exceptions and re-raise them as Ceres domain errors.
+    """Translate a driver failure into the Ceres error that describes it.
 
-    Translate integrity constraint violations into ``AlreadyExistsError`` or ``IntegrityError``,
-    timeout errors into ``DatabaseUnreachableError``, programming errors into
-    ``DatabaseProgrammingError``, and all other SQLAlchemy errors into
-    ``DatabaseUnexpectedError``.
+    The native store reports a driver failure as a plain value error carrying the driver's
+    own words, so the wording is what decides here rather than the exception's class. That
+    makes one constraint violation translate the same whichever backend surfaced it. A
+    message no backend's wording recognizes belongs to whoever raised it and travels on
+    unchanged.
 
     Yields:
-        Control to the caller's block. Any ``SQLAlchemyError`` raised inside the block is caught
-        and translated.
+        Control to the caller's block.
 
     Raises:
         AlreadyExistsError: If a unique constraint is violated.
         IntegrityError: If another integrity constraint is violated.
-        DatabaseUnreachableError: If a timeout occurs.
-        DatabaseProgrammingError: If a programming error occurs.
-        DatabaseUnexpectedError: For all other SQLAlchemy errors.
     """
-
-    from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
-    from sqlalchemy.exc import SQLAlchemyError
-
-    from ceres.error import (
-        DatabaseProgrammingError,
-        DatabaseUnexpectedError,
-        DatabaseUnreachableError,
-        IntegrityError,
-    )
+    from ceres.error import IntegrityError
 
     try:
         yield
-    except SQLAlchemyError as exception:
-        import sqlalchemy.exc
-
-        if isinstance(
-            exception,
-            sqlalchemy.exc.ArgumentError | sqlalchemy.exc.InvalidRequestError,
-        ):
-            from ceres.error import trace
-
-            raise DatabaseProgrammingError(exception=trace(exception))
-
-        if isinstance(exception, sqlalchemy.exc.TimeoutError):
-            raise DatabaseUnreachableError(reason=str(exception))
-
-        if isinstance(exception, SQLAlchemyIntegrityError):
-            _raise_if_already_exists(str(exception.orig))
-            raise IntegrityError()
-
-        raise DatabaseUnexpectedError(reason=str(exception))
     except ValueError as exception:
-        # The native store reports a driver failure as a plain value error carrying the
-        # driver's own words, and the wording is what decides here anyway, so a constraint
-        # violation translates the same whichever engine surfaced it. A message neither
-        # wording recognizes belongs to whoever raised it and travels on unchanged.
         message = str(exception)
         _raise_if_already_exists(message)
         if _FOREIGN_KEY_ERROR_REGEX.search(message) is not None:

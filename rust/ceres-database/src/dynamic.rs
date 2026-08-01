@@ -139,8 +139,14 @@ pub fn postgres_row(row: &sqlx::postgres::PgRow) -> Result<Row, Error> {
 
         let cell = match column.type_info().name().to_ascii_uppercase().as_str() {
             "BOOL" => Cell::Bool(row.try_get(index)?),
-            "INT2" | "INT4" | "INT8" => Cell::Integer(row.try_get(index)?),
-            "FLOAT4" | "FLOAT8" | "NUMERIC" => Cell::Float(row.try_get(index)?),
+            // Each width decodes as itself and widens here. Asking for an `i64` from an
+            // `INT4` is a decode error rather than a widening, so a narrower column, which
+            // is what `SELECT 1` and most of the catalog hand back, would otherwise fail.
+            "INT2" => Cell::Integer(row.try_get::<i16, _>(index)?.into()),
+            "INT4" => Cell::Integer(row.try_get::<i32, _>(index)?.into()),
+            "INT8" => Cell::Integer(row.try_get(index)?),
+            "FLOAT4" => Cell::Float(row.try_get::<f32, _>(index)?.into()),
+            "FLOAT8" | "NUMERIC" => Cell::Float(row.try_get(index)?),
             "BYTEA" => Cell::Bytes(row.try_get(index)?),
             "UUID" => Cell::Uuid(row.try_get(index)?),
             "TIMESTAMPTZ" => Cell::Timestamp(

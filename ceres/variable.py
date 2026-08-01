@@ -1,11 +1,8 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict, Unpack, overload, override
 
 from pydantic import ValidationError
-from sqlalchemy import JSON, Index, PrimaryKeyConstraint, Text, cast
-from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import TextMapper
 from ceres.__internal__.entity import (
     BaseAddressEntity,
     BaseAddressEntityCreate,
@@ -13,7 +10,6 @@ from ceres.__internal__.entity import (
     BaseAddressEntityFilter,
     BaseAddressEntityFilterArgs,
     BaseAddressEntityOrder,
-    BaseAddressEntityRow,
     BaseEntityManager,
     BaseEntityQuery,
     ConcreteEntity,
@@ -25,37 +21,12 @@ from ceres.__internal__.manager import BaseNodeManager
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, to_json, validate
 
 if TYPE_CHECKING:
-    from sqlalchemy import SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
-    from ceres.database import DatabaseType
 
 __all__ = [
     "Variable",
 ]
-
-
-class VariableRow(BaseAddressEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `Variable` entity."""
-
-    __tablename__: ClassVar[str] = "variables"
-
-    name: Mapped[str] = mapped_column(TextMapper())
-    value: Mapped[JSONSerializable] = mapped_column(JSON)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *(
-                current
-                for current in super().__get_table_args__()
-                if not isinstance(current, Index) or "address" not in (current.name or "")
-            ),
-            PrimaryKeyConstraint("address", "name", name=f"pk_{cls.__tablename__}"),
-        )
 
 
 type VariableField = (
@@ -94,6 +65,8 @@ class VariableFilterArgs(BaseAddressEntityFilterArgs[VariableField, VariableOrde
 
 class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, VariableOrder]):
     """Filter for selecting `Variable` records by name, internal status, or value."""
+
+    __table__: ClassVar[str] = "variables"
 
     name: MaybeSequence[str] | None = None
     """Filter by `name` being equal to one or more given names."""
@@ -143,37 +116,6 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
                 return False
 
         return True
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[VariableRow]:
-        return VariableRow
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.name is not None:
-            yield self._sql_match_value(columns.name, self.name)
-        if self.name_contains is not None:
-            yield self._sql_match_string_contains(columns.name, self.name_contains)
-        if self.name_prefix is not None:
-            yield self._sql_match_string_prefix(columns.name, self.name_prefix)
-        if self.name_suffix is not None:
-            yield self._sql_match_string_suffix(columns.name, self.name_suffix)
-
-        if self.internal is not None:
-            internal = self._sql_match_string_prefix(columns.name, "__")
-            internal &= self._sql_match_string_suffix(columns.name, "__")
-            yield internal if self.internal else ~internal
-
-        if "value" in self.model_fields_set:
-            yield self._sql_match_value(cast(columns.value, Text), to_json(self.value))
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[VariableOrder]:
-        return ("address", "name")
 
 
 class VariableCreate(BaseAddressEntityCreate, slots=True):
@@ -231,7 +173,6 @@ class VariableQuery(
 class VariableManager(
     BaseEntityManager[
         "Variable",
-        VariableRow,
         VariableCreate,
         VariableUpdate,
         VariableFilter,
@@ -410,7 +351,7 @@ class VariableOutputChannel(
 class Variable(
     BaseAddressEntity,
     VariableCreate,
-    ConcreteEntity[VariableRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Named JSON-serializable value owned by an addressed node.

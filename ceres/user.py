@@ -1,11 +1,5 @@
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 
-from sqlalchemy import Boolean, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import expression
-
-from ceres.__internal__.database.types import TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -15,7 +9,6 @@ from ceres.__internal__.entity import (
     BaseUUIDEntityFilter,
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
-    BaseUUIDEntityRow,
     ConcreteEntity,
     EntityNaming,
     EntityQuery,
@@ -32,43 +25,11 @@ from ceres.data import (
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from sqlalchemy import SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
-    from ceres.database import DatabaseType
 
 __all__ = [
     "User",
 ]
-
-
-class UserRow(BaseUUIDEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `User` entity."""
-
-    __tablename__: ClassVar[str] = "users"
-
-    username: Mapped[Username] = mapped_column(TextMapper())
-    email: Mapped[EmailAddress] = mapped_column(TextMapper())
-    password: Mapped[PasswordHash] = mapped_column(TextMapper())
-    admin: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        server_default=expression.false(),
-    )
-    disabled: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        server_default=expression.false(),
-    )
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            UniqueConstraint(cls.username, name=f"uq_{cls.__tablename__}__username"),
-        )
 
 
 type UserField = (
@@ -120,6 +81,8 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     """Filter for selecting `User` records by identity or admin status."""
 
+    __table__: ClassVar[str] = "users"
+
     username: MaybeSequence[str] | None = None
     """Filter by `username` being equal to one or more given usernames."""
     username_contains: MaybeSequence[str] | None = None
@@ -140,11 +103,6 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     """Filter by `admin` being either `True` or `False`."""
     disabled: bool | None = None
     """Filter by `disabled` being either `True` or `False`."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[UserRow]:
-        return UserRow
 
     @override
     def _matches(self, obj: User) -> bool:
@@ -175,40 +133,6 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
             return False
 
         return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.username is not None:
-            yield self._sql_match_value(columns.username, self.username)
-        if self.username_contains is not None:
-            yield self._sql_match_string_contains(columns.username, self.username_contains)
-        if self.username_prefix is not None:
-            yield self._sql_match_string_prefix(columns.username, self.username_prefix)
-        if self.username_suffix is not None:
-            yield self._sql_match_string_suffix(columns.username, self.username_suffix)
-
-        if self.email is not None:
-            yield self._sql_match_value(columns.email, self.email)
-        if self.email_contains is not None:
-            yield self._sql_match_string_contains(
-                columns.email, self.email_contains, insensitive=True
-            )
-        if self.email_prefix is not None:
-            yield self._sql_match_string_prefix(columns.email, self.email_prefix, insensitive=True)
-        if self.email_suffix is not None:
-            yield self._sql_match_string_suffix(columns.email, self.email_suffix, insensitive=True)
-
-        if self.admin is not None:
-            yield columns.admin == self.admin
-        if self.disabled is not None:
-            yield columns.disabled == self.disabled
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[UserOrder]:
-        return "username"
 
 
 class UserCreate(BaseUUIDEntityCreate, slots=True):
@@ -292,7 +216,6 @@ class UserQuery(
 class UserManager(
     BaseEntityManager[
         "User",
-        UserRow,
         UserCreate,
         UserUpdate,
         UserFilter,
@@ -337,7 +260,7 @@ class BoundUserManager(UserManager, BaseNodeManager):
 class User(
     BaseUUIDEntity,
     UserCreate,
-    ConcreteEntity[UserRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Authenticated account with an `admin` flag that governs access to workspaces and resources.

@@ -12,7 +12,6 @@ from ceres.data.types import _NAME_PATTERN
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
-    from sqlalchemy.sql import ColumnElement, SQLColumnExpression
 
 _NAME = _NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
@@ -249,58 +248,6 @@ class AddressSelector:
                     return True
 
         return False
-
-    def matches_expression(
-        self,
-        address: SQLColumnExpression[Address],
-        root: Address | None,
-    ) -> ColumnElement[bool]:
-        """Build a SQL boolean expression equivalent to `matches()` for use in queries.
-
-        Args:
-            address: SQL column expression of the address being tested.
-            root: Reference address used to resolve any relative segments. `None` or the engine
-                resolve against every component.
-
-        Returns:
-            A SQL `OR` of conditions, one per selector segment.
-        """
-        from sqlalchemy.sql import expression, or_
-
-        from ceres.__internal__.filter import _SelectorMatch
-
-        self = self.as_absolute(root)
-
-        conditions: list[ColumnElement[bool]] = []
-
-        for segment in self._get_normalized_segments():
-            if ":" not in segment._text:
-                conditions.append(address == segment)
-                continue
-
-            base, modifier = segment._text.split(":")
-
-            if base == "~":
-                if modifier == "all":
-                    conditions.append(expression.true())
-                elif modifier == "descendants":
-                    conditions.append(address != "~")
-
-                continue
-
-            if base == "@":
-                # With no root component, `@` selects every component, so `descendants` and `all`
-                # both match anything that is not the engine.
-                if modifier in ("all", "descendants"):
-                    conditions.append(address != "~")
-                elif modifier == "children":
-                    conditions.append(address.like("@%") & address.not_like("%.%"))
-
-                continue
-
-            conditions.append(_SelectorMatch(address, base, modifier))
-
-        return or_(*conditions)
 
 
 class DynamicAddress(AddressSelector):

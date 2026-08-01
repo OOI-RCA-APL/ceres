@@ -2,10 +2,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Unpack, override
 
 from pydantic import Field
-from sqlalchemy import JSON, Index
-from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -22,7 +19,6 @@ from ceres.__internal__.record import (
     BaseRecordFilter,
     BaseRecordFilterArgs,
     BaseRecordOrder,
-    BaseRecordRow,
     BaseRecordUpdate,
 )
 from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence
@@ -31,42 +27,11 @@ from ceres.level import Level
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
 
 __all__ = [
     "Alert",
 ]
-
-
-class AlertRow(BaseRecordRow, kw_only=True):
-    """SQLAlchemy row type backing the `Alert` entity."""
-
-    __tablename__: ClassVar[str] = "alerts"
-
-    level: Mapped[Level] = mapped_column(EnumMapper(Level))
-    type: Mapped[str] = mapped_column(TextMapper())
-    data: Mapped[JSONSerializableDict] = mapped_column(
-        JSON,
-        default_factory=dict,
-        server_default="{}",
-    )
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            EnumConstraint(cls.level, Level, f"ck_{cls.__tablename__}__level"),
-            # GIN trigram index supports substring search on the alert type on PostgreSQL.
-            Index(
-                f"ix_{cls.__tablename__}__type",
-                cls.type,
-                postgresql_ops={"type": "gin_trgm_ops"},
-                postgresql_using="gin",
-            ),
-        )
 
 
 type AlertField = (
@@ -111,6 +76,8 @@ class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False)
 class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     """Filter for selecting `Alert` records by level, type, or data contents."""
 
+    __table__: ClassVar[str] = "alerts"
+
     level: MaybeSequence[Level] | None = None
     """Filter by `level` being equal to one or more given levels."""
     min_level: Level | None = None
@@ -131,11 +98,6 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     """Filter by whether or not the JSON text of `data` starts with one or more given prefixes."""
     data_suffix: MaybeSequence[str] | None = None
     """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[AlertRow]:
-        return AlertRow
 
 
 class AlertCreate(BaseRecordCreate, slots=True):
@@ -196,7 +158,6 @@ class AlertQuery(
 class AlertManager(
     BaseEntityManager[
         "Alert",
-        AlertRow,
         AlertCreate,
         AlertUpdate,
         AlertFilter,
@@ -337,7 +298,7 @@ class AlertOutputChannel(
 class Alert(
     BaseRecord,
     AlertCreate,
-    ConcreteEntity[AlertRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Severity-tagged event raised by a component or engine and persisted as a record.

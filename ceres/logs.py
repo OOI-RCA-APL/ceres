@@ -10,10 +10,6 @@ from typing import (
     override,
 )
 
-from sqlalchemy import Index
-from sqlalchemy.orm import Mapped, mapped_column
-
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -30,7 +26,6 @@ from ceres.__internal__.record import (
     BaseRecordFilter,
     BaseRecordFilterArgs,
     BaseRecordOrder,
-    BaseRecordRow,
     BaseRecordUpdate,
 )
 from ceres.data import MaybeSequence, to_json
@@ -38,8 +33,6 @@ from ceres.level import Level
 
 if TYPE_CHECKING:
     from uuid import UUID
-
-    from sqlalchemy.schema import SchemaItem
 
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
@@ -55,29 +48,6 @@ __all__ = [
     "LogManager",
     "BoundLogManager",
 ]
-
-
-class LogEntryRow(BaseRecordRow, kw_only=True):
-    """SQLAlchemy row type backing the `LogEntry` entity."""
-
-    __tablename__: ClassVar[str] = "logs"
-
-    level: Mapped[Level] = mapped_column(EnumMapper(Level))
-    content: Mapped[str] = mapped_column(TextMapper())
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            EnumConstraint(cls.level, Level, name=f"ck_{cls.__tablename__}__level"),
-            Index(
-                f"ix_{cls.__tablename__}__content",
-                cls.content,
-                postgresql_ops={"content": "gin_trgm_ops"},
-                postgresql_using="gin",
-            ),
-        )
 
 
 LogEntryField: TypeAlias = (
@@ -118,6 +88,8 @@ class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], tot
 class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder]):
     """Filter for selecting `LogEntry` records by level or content."""
 
+    __table__: ClassVar[str] = "logs"
+
     level: MaybeSequence[Level] | None = None
     """Filter by `level` being equal to one or more given levels."""
     min_level: Level | None = None
@@ -132,11 +104,6 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
     """Filter by `content` starting with one or more given prefixes."""
     suffix: MaybeSequence[str] | None = None
     """Filter by `content` ending with one or more given suffixes."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[LogEntryRow]:
-        return LogEntryRow
 
 
 class LogEntryCreate(BaseRecordCreate, slots=True):
@@ -262,7 +229,6 @@ class LogEntryQuery(
 class LogManager(
     BaseEntityManager[
         "LogEntry",
-        LogEntryRow,
         LogEntryCreate,
         LogEntryUpdate,
         LogEntryFilter,
@@ -496,7 +462,7 @@ class LogEntryOutputChannel(
 class LogEntry(
     BaseRecord,
     LogEntryCreate,
-    ConcreteEntity[LogEntryRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Text-content log line emitted by a component or engine and persisted as a record.

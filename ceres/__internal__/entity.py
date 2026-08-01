@@ -5,7 +5,6 @@ from collections.abc import (
     Awaitable,
     Callable,
     Generator,
-    Iterable,
     Mapping,
     Sequence,
 )
@@ -18,7 +17,6 @@ from typing import (
     Final,
     Literal,
     Self,
-    TypeAlias,
     TypedDict,
     Unpack,
     cast,
@@ -29,46 +27,14 @@ from typing import (
 from uuid import UUID
 
 from pydantic import Field, NonNegativeInt, model_validator
-from sqlalchemy import (
-    ClauseElement,
-    Column,
-    ColumnElement,
-    Delete,
-    Dialect,
-    Engine,
-    Index,
-    Integer,
-    PrimaryKeyConstraint,
-    Result,
-    Row,
-    Select,
-    SQLColumnExpression,
-    String,
-    Table,
-    TypeDecorator,
-    Update,
-    and_,
-    delete,
-    func,
-    literal,
-    or_,
-    select,
-    tuple_,
-    update,
-)
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncResult
-from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_attr, mapped_column
-from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
 
 from ceres.__internal__.database.errors import wrap_database_errors
-from ceres.__internal__.database.types import AddressColumn, DateTimeMapper, UUIDMapper
 from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
 from ceres.__internal__.manager import BaseDatabaseManager
 from ceres.__internal__.utilities.case import kebabcase, snakecase
 from ceres.__internal__.utilities.classes import cached_class_property
 from ceres.__internal__.utilities.collections import seq
 from ceres.__internal__.utilities.functions import call_partial
-from ceres.__internal__.utilities.typing import get_generic_superclass_argument
 from ceres.address import Address, AddressSelector
 from ceres.channel import OutputChannel
 from ceres.concurrency import sleep
@@ -84,220 +50,13 @@ from ceres.data import (
     to_json,
     uuid7,
 )
-from ceres.database import DatabaseType
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
-    from sqlalchemy.types import TypeEngine
-
     from ceres.__internal__.protocols import DatabaseSource
     from ceres.database import Database
     from ceres.entity import Entity
     from ceres.node import Node
-
-    _Rows = Result[tuple[object, ...]]
-    _AsyncRows: TypeAlias = AsyncResult[tuple[object, ...]]
-
-
-class BaseEntityRow(
-    MappedAsDataclass,
-    DeclarativeBase,
-    kw_only=True,
-):
-    """Abstract SQLAlchemy declarative base for entity table rows.
-
-    Provide DDL generation helpers for creating tables and indexes, and a ``values`` method
-    that extracts column data as a plain dict.
-    """
-
-    __abstract__: ClassVar[bool] = True
-    __mapper_args__: ClassVar[Mapping[str, Any]] = {
-        "eager_defaults": True,
-    }
-
-    if TYPE_CHECKING:
-        __tablename__: ClassVar[str]
-        __table__: ClassVar[Table]
-
-    @classmethod
-    def get_ddl(
-        cls,
-        dialect: Dialect | Engine | AsyncEngine,
-        *,
-        table: bool = True,
-        indexes: bool = True,
-        if_not_exists: bool = True,
-    ) -> Iterable[str]:
-        """Yield compiled DDL statements for creating this row's table and indexes.
-
-        Args:
-            dialect: The SQLAlchemy dialect (or engine) to compile against.
-            table: Include the ``CREATE TABLE`` statement when ``True``.
-            indexes: Include ``CREATE INDEX`` statements when ``True``.
-            if_not_exists: Use ``IF NOT EXISTS`` in the generated DDL when ``True``.
-
-        Yields:
-            DDL statement strings ready for execution.
-        """
-        if table:
-            yield cls.get_table_ddl(dialect, if_not_exists=if_not_exists)
-        if indexes:
-            yield from cls.get_index_ddl(dialect, if_not_exists=if_not_exists)
-
-    @classmethod
-    def get_table_ddl(
-        cls,
-        dialect: Dialect | Engine | AsyncEngine,
-        *,
-        name: str | None = None,
-        temporary: bool = False,
-        if_not_exists: bool = True,
-    ) -> str:
-        """Compile and return the ``CREATE TABLE`` DDL statement for this row class.
-
-        Args:
-            dialect: The SQLAlchemy dialect (or engine) to compile against.
-            name: Override the table name in the generated DDL, or ``None`` to use the
-                default.
-            temporary: Produce a ``CREATE TEMPORARY TABLE`` statement when ``True``.
-            if_not_exists: Use ``IF NOT EXISTS`` in the generated DDL when ``True``.
-
-        Returns:
-            A single DDL string ending with a trailing semicolon.
-        """
-        statement = _compile(dialect, CreateTable(cls.__table__, if_not_exists=if_not_exists))
-
-        if name:
-            if if_not_exists:
-                statement = statement.replace(
-                    f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}",
-                    f"CREATE TABLE IF NOT EXISTS {name}",
-                )
-            else:
-                statement = statement.replace(
-                    f"CREATE TABLE {cls.__tablename__}",
-                    f"CREATE TABLE {name}",
-                )
-        if temporary:
-            statement = statement.replace("CREATE TABLE", "CREATE TEMPORARY TABLE")
-
-        return statement
-
-    @classmethod
-    def get_index_ddl(
-        cls,
-        dialect: Dialect | Engine | AsyncEngine,
-        *,
-        if_not_exists: bool = True,
-    ) -> Iterable[str]:
-        """Yield compiled ``CREATE INDEX`` DDL statements for this row's table indexes.
-
-        Skip indexes whose ``_ddl_if`` dialect constraint does not match the given dialect.
-
-        Args:
-            dialect: The SQLAlchemy dialect (or engine) to compile against.
-            if_not_exists: Use ``IF NOT EXISTS`` in the generated DDL when ``True``.
-
-        Yields:
-            DDL statement strings, one per applicable index, sorted by index name.
-        """
-        if isinstance(dialect, Engine | AsyncEngine):
-            dialect = dialect.dialect
-
-        for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name or "")):
-            if index._ddl_if is not None:
-                # `DDLif.dialect` can be a tuple of dialect names, despite the type annotation being
-                # `str | None` at the time of writing.
-                if dialect.name not in seq(index._ddl_if.dialect):
-                    continue
-
-            yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
-
-    def values(self) -> dict[str, Any]:
-        """Return this row's column values as a plain dictionary keyed by column name."""
-        __dict__ = self.__dict__
-        return {column.name: __dict__[column.name] for column in self.__table__.columns}
-
-    @declared_attr
-    def __table_args__(cls) -> Any:
-        return (
-            *cls.__get_table_args__(),
-            cls.__get_table_kwargs__(),
-        )
-
-    @classmethod
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return ()
-
-    @classmethod
-    def __get_table_kwargs__(cls) -> dict[str, Any]:
-        return {}
-
-
-def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) -> str:
-    """Compile a SQLAlchemy DDL element into a formatted, semicolon-terminated string.
-
-    Args:
-        dialect: The SQLAlchemy dialect (or engine) to compile against.
-        element: The DDL clause element to compile.
-
-    Returns:
-        A cleaned-up DDL string with normalized indentation and a trailing semicolon.
-    """
-    import re
-    import textwrap
-
-    if isinstance(dialect, Engine):
-        dialect = dialect.dialect
-    elif isinstance(dialect, AsyncEngine):
-        dialect = dialect.sync_engine.dialect
-
-    statement = str(element.compile(dialect=dialect))
-    statement = re.sub(
-        r"[\n\r]+\t",
-        "\n    ",
-        textwrap.dedent(statement.strip()),
-    ).strip()
-
-    if not statement.endswith(";"):
-        statement += ";"
-    return statement
-
-
-def _resolve_type(type_: TypeEngine[Any]) -> TypeEngine[Any]:
-    """Unwrap a `TypeDecorator` down to the type the database actually sees."""
-    while isinstance(type_, TypeDecorator):
-        type_ = type_.impl if not isinstance(type_.impl, type) else type_.impl()
-
-    return type_
-
-
-def _ordered_by_code_point(column: Column[Any], dialect: DatabaseType) -> ColumnElement[Any]:
-    """Order a text column by code point rather than by the database's own collation.
-
-    Ordering of text follows the collation a database was created with, so the same query returns
-    a different order on a deployment whose cluster was initialized with a locale. Naming `C` in
-    the statement makes the order a property of Ceres instead, and matches SQLite, which compares
-    text by byte and has no equivalent to name.
-
-    Enum columns are included, because they are stored as text rather than as a native enum type.
-    Non-text columns are returned untouched, since collating them is an error.
-
-    Args:
-        column: Column being ordered by.
-        dialect: Backend the statement is being built for.
-
-    Returns:
-        The column, collated when that both applies and is needed.
-    """
-    if dialect is not DatabaseType.POSTGRES:
-        return column
-
-    if not isinstance(_resolve_type(column.type), String):
-        return column
-
-    return column.collate("C")
 
 
 class BaseEntityFilterArgs[
@@ -451,15 +210,14 @@ class BaseEntityFilter[
         and__ = [*(self.and__ or ()), other]
         return self.model_copy(update={"and__": and__})
 
-    @classmethod
-    @abstractmethod
-    def _get_row_cls(cls) -> type[BaseEntityRow]: ...
+    __table__: ClassVar[str]
+    """Table this filter selects from, which is what the compiler types its columns by."""
 
     __nullable_filters__: ClassVar[frozenset[str]] = frozenset()
     """Fields where naming `None` filters for null rather than not filtering at all.
 
     Almost every field reads an absent value as "not filtered", so a `None` is dropped
-    before the compiler sees it. A field listed here is one whose `_get_where` asks
+    before the compiler sees it. A field listed here is one the compiler reads as asking
     whether the field was set rather than whether it is `None`, so a caller that named
     `None` meant the null and the dump has to carry it.
     """
@@ -480,7 +238,7 @@ class BaseEntityFilter[
         parsed filter. Every table the managers serve compiles, so nothing above this
         needs a second path for the ones that do not.
         """
-        return _parsed_filter(self._get_row_cls().__tablename__, self._native_dump())
+        return _parsed_filter(self.__table__, self._native_dump())
 
     def matches(self, obj: EntityT) -> bool:
         """Test whether `obj` satisfies this filter, including all ``and__`` and ``or__`` subfilters.
@@ -503,124 +261,6 @@ class BaseEntityFilter[
     @abstractmethod
     def _matches(self, obj: EntityT) -> bool:
         return True
-
-    def _get_combined_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        """Yield SQL ``WHERE`` clauses combining this filter with its ``and__`` and ``or__`` groups.
-
-        Args:
-            dialect: The database dialect, used to generate dialect-specific expressions.
-
-        Yields:
-            Boolean column expressions to be applied to a query.
-        """
-        ands = list(self._get_where(dialect))
-
-        if self.and__:
-            for subcondition in seq(self.and__):
-                ands.extend(subcondition._get_combined_where(dialect))
-
-        if not self.or__:
-            yield from ands
-        else:
-            from sqlalchemy import true
-
-            # Each subfilter's conditions must hold together, so a subfilter with
-            # several conditions groups into one term, and one with none matches
-            # everything, the way in-memory matching reads them.
-            ors: list[SQLColumnExpression[bool]] = []
-            for subcondition in seq(self.or__):
-                grouped = list(subcondition._get_combined_where(dialect))
-                if not grouped:
-                    ors.append(true())
-                elif len(grouped) == 1:
-                    ors.append(grouped[0])
-                else:
-                    ors.append(and_(*grouped))
-
-            if ands:
-                yield or_(and_(*ands), *ors)
-            else:
-                yield or_(*ors)
-
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        return ()
-
-    @abstractmethod
-    def _get_default_order(self) -> MaybeSequence[OrderT]: ...
-
-    def _get_order_by(self, dialect: DatabaseType) -> tuple[SQLColumnExpression[Any], ...]:
-        """Build the ``ORDER BY`` column tuple from this filter's ``order`` (or the default).
-
-        Args:
-            dialect: Backend the statement is being built for, which decides whether an explicit
-                collation is needed.
-
-        Returns:
-            The columns to order by, in order.
-        """
-        order = self.order
-        if order is None:
-            order = self._get_default_order()
-
-        Row = self._get_row_cls()
-        columns: list[SQLColumnExpression[Any]] = []
-        for value in seq(order):
-            base = value.split(":")[0]
-            ascending = not value.endswith(":desc")
-            column = _ordered_by_code_point(Row.__table__.columns[base], dialect)
-            columns.append(column if ascending else column.desc())
-
-        return tuple(columns)
-
-    def apply[StatementT: Select[tuple[Any, ...]] | Update | Delete](
-        self,
-        statement: StatementT,
-        dialect: DatabaseType,
-        *,
-        always_use_subquery: bool = False,
-        ignore_where: bool = False,
-        ignore_order: bool = False,
-    ) -> StatementT:
-        """Apply this filter's ``WHERE``, ``ORDER BY``, ``LIMIT``, and ``OFFSET`` to `statement`.
-
-        For ``UPDATE`` and ``DELETE`` statements that include ``LIMIT``/``OFFSET`` or
-        ``RETURNING``, a primary-key subquery is used because those statements cannot
-        directly carry ordering and pagination.
-
-        Args:
-            statement: A SQLAlchemy ``SELECT``, ``UPDATE``, or ``DELETE`` statement.
-            dialect: The database dialect, used for dialect-specific SQL generation.
-            always_use_subquery: Force subquery filtering even when it could be avoided.
-            ignore_where: Skip applying ``WHERE`` clauses.
-            ignore_order: Skip applying ``ORDER BY``.
-
-        Returns:
-            The modified statement with filter criteria applied.
-        """
-        where = () if ignore_where else tuple(self._get_combined_where(dialect))
-        order_by = () if ignore_order else tuple(self._get_order_by(dialect))
-        limit = self.limit
-        offset = self.offset
-
-        # Opportunistically avoid using subquery filtering if possible.
-        if not always_use_subquery:
-            if isinstance(statement, Select):
-                return statement.where(*where).order_by(*order_by).limit(limit).offset(offset)
-
-            # This is an update or delete statement, and if there is no `limit` or `offset`,
-            # `order_by` does not matter, so we can avoid using a subquery.
-            if limit is None and offset is None and not statement._returning:
-                return statement.where(*where)
-
-        pk = self._get_row_cls().__table__.primary_key.columns
-        pks = select(*pk).where(*where).order_by(*order_by).limit(limit).offset(offset)
-
-        pk = pk[0] if len(pk) == 1 else tuple_(*pk)
-
-        if isinstance(statement, Update | Delete):
-            return statement.where(pk.in_(pks))
-
-        return statement.where(pk.in_(pks)).order_by(*order_by)
 
 
 class BaseEntityCreate(DataObject, abstract=True, slots=True):
@@ -792,8 +432,6 @@ class _BaseStatementExecutor[
 
     __slots__ = (
         "_query",
-        "_connection",
-        "_stream",
         "_chunks",
     )
 
@@ -803,8 +441,6 @@ class _BaseStatementExecutor[
         query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
     ) -> None:
         self._query: Final = query
-        self._connection: AsyncConnection | None = None
-        self._stream: _AsyncRows | None = None
         self._chunks: Any | None = None
 
     @override
@@ -876,34 +512,11 @@ class _BaseStatementExecutor[
     async def compiled(self) -> tuple[str, list[Any]]:
         """Compile the query into SQL text and positionally-ordered parameters.
 
-        The native fetch path executes exactly the statement this layer would have run,
-        so every filter construct is covered without a second implementation of its SQL.
-        Bind processors are applied here, so parameters arrive as the primitive values the
-        driver would have been handed.
+        This is the same statement the executor runs, compiled by the same compiler, so a
+        caller handing the SQL to something else gets exactly the rows an ``await`` would
+        have. The parameters come out as the primitive values the driver takes.
         """
-        statement = await self._get_statement(True)
-        dialect = self._query._get_database().engine.dialect
-        # Post-compile rendering expands `IN` placeholders into per-value parameters, which
-        # the driver would otherwise do at execution time.
-        compiled = statement.compile(dialect=dialect, compile_kwargs={"render_postcompile": True})
-        parameters = compiled.construct_params()
-
-        # The bind processors are the dialect's value converters, datetimes to stored text,
-        # UUIDs to strings, and so on. Internal but stable across SQLAlchemy 2.
-        processors = cast(
-            "Mapping[str, Callable[[Any], Any]]",
-            compiled._bind_processors,  # pyright: ignore[reportPrivateUsage]
-        )
-        ordered: list[Any] = []
-        for name in compiled.positiontup or ():
-            value = parameters[name]
-            processor = processors.get(name)
-            if processor is not None and value is not None:
-                value = processor(value)
-
-            ordered.append(value)
-
-        return str(compiled), ordered
+        return await self._compile_native(returning=True)
 
     @abstractmethod
     def _should_commit(self) -> bool: ...
@@ -916,34 +529,6 @@ class _BaseStatementExecutor[
 
     @abstractmethod
     async def _await(self) -> AwaitT: ...
-
-    @abstractmethod
-    async def _get_statement(
-        self,
-        returning: bool,
-    ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
-
-    def _get_parser(self) -> Callable[[Row], EntityT | None]:
-        """Build a row-to-entity parser function, optionally applying a transform."""
-        Entity = self._query._get_entity_class()
-        transform = self._query._get_transform()
-
-        if transform is None:
-
-            def parse(row: Row) -> EntityT | None:
-                values: Mapping[str, Any] = row._mapping  # type: ignore
-                entity = create(Entity, values, True)
-                return entity
-
-        else:
-
-            def parse(row: Row) -> EntityT | None:
-                values: Mapping[str, Any] = row._mapping  # type: ignore
-                entity: Any = create(Entity, values, True)
-                entity = transform(entity)
-                return entity
-
-        return parse
 
     async def _native_statement(self, *, returning: bool) -> tuple[Any, str, list[Any]]:
         """The store and the compiled statement this executor runs.
@@ -966,7 +551,7 @@ class _BaseStatementExecutor[
 
     def _native_table(self) -> str:
         """The table the rows come from, which is what types their columns."""
-        return self._query._get_row_class().__tablename__
+        return self._query._get_entity_class().__entity_naming__.table
 
     async def _parse_chunks(self, chunks: Any) -> AsyncIterator[EntityT]:
         """Async-iterate a streamed result, one chunk of column mappings at a time."""
@@ -1008,43 +593,6 @@ class _BaseStatementExecutor[
 
         return parse
 
-    async def _parse_rows(self, rows: _Rows) -> list[EntityT]:
-        """Parse a synchronous result set into a list of entities, yielding control periodically."""
-        parse = self._get_parser()
-        entities: list[EntityT] = []
-
-        count = 0
-        for row in rows:
-            entity = parse(row)
-            if entity is not None:
-                entities.append(entity)
-
-            count += 1
-            if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
-                count = 0
-                # Yield control to the event loop.
-                await sleep(0)
-                await sleep(0)
-
-        return entities
-
-    async def _parse_async_rows(self, rows: _AsyncRows) -> AsyncIterator[EntityT]:
-        """Async-iterate over a streaming result set, yielding parsed entities."""
-        parser = self._get_parser()
-
-        count = 0
-        async for row in rows:
-            entity = parser(row)
-            if entity is not None:
-                yield entity
-
-            count += 1
-            if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
-                count = 0
-                # Yield control to the event loop.
-                await sleep(0)
-                await sleep(0)
-
 
 class SelectExecutor[
     EntityT: BaseEntity,
@@ -1063,14 +611,6 @@ class SelectExecutor[
         # A select already names the rows it matched, so it has nothing to return on top.
         native = self._query._get_resolved_filter()._native_filter()
         return native.compiled(self._query._get_database().type.value, now=utc())
-
-    @override
-    async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
-        Row = self._query._get_row_class()
-        database = self._query._get_database()
-        statement = select(*Row.__table__.columns)
-        statement = self._query._get_resolved_filter().apply(statement, database.type)
-        return statement
 
     @override
     def _should_commit(self) -> bool:
@@ -1137,19 +677,6 @@ class UpdateExecutor[
         )
 
     @override
-    async def _get_statement(self, returning: bool) -> Update | ReturningUpdate:
-        Row = self._query._get_row_class()
-        database = self._query._get_database()
-        assign = await self._query._assign_transform(self._assign)
-
-        statement = update(Row).values(assign)
-        if returning:
-            statement = statement.returning(*Row.__table__.columns)
-
-        statement = self._query._get_resolved_filter().apply(statement, database.type)
-        return statement
-
-    @override
     def _should_commit(self) -> bool:
         return True
 
@@ -1190,18 +717,6 @@ class DeleteExecutor[
             returning,
             utc(),
         )
-
-    @override
-    async def _get_statement(self, returning: bool) -> Delete | ReturningDelete:
-        Row = self._query._get_row_class()
-        database = self._query._get_database()
-
-        statement = delete(Row)
-        if returning:
-            statement = statement.returning(*Row.__table__.columns)
-
-        statement = self._query._get_resolved_filter().apply(statement, database.type)
-        return statement
 
     @override
     def _should_commit(self) -> bool:
@@ -1328,10 +843,6 @@ class BaseEntityQuery[
     @final
     def _get_filter_class(self) -> type[FilterT]:
         return self._get_entity_class().Filter  # type: ignore
-
-    @final
-    def _get_row_class(self) -> type[BaseEntityRow]:
-        return self._get_entity_class().Row
 
     def _get_resolved_filter(
         self,
@@ -1483,7 +994,6 @@ type Filtering[FilterT] = FilterT | Callable[[], FilterT | None] | None
 
 class BaseEntityManager[
     EntityT: BaseEntity,
-    RowT: BaseEntityRow,
     CreateT: BaseEntityCreate,
     UpdateT: BaseEntityUpdate,
     FilterT: BaseEntityFilter[Any, Any, Any],
@@ -1583,30 +1093,24 @@ class BaseEntityManager[
         data: EntityT,
         *,
         upsert: bool = False,
-    ) -> RowT:
+    ) -> None:
         """Insert an entity's column values into the database.
 
         Args:
             data: The entity to persist.
             upsert: When ``True``, use dialect-specific ``ON CONFLICT DO UPDATE`` to update
                 non-primary-key columns if the row already exists.
-
-        Returns:
-            The constructed row object.
         """
-        Row = self._get_row_class()
-        values = data.__entity_to_column_values__()
-        row = Row(**values)
-
         from ceres_core import insert_compiled
 
+        values = data.__entity_to_column_values__()
         database = self.__database__
         await database.ready()
 
         # The compile stays outside the wrapper, a column the row cannot hold is the
         # caller's own error rather than a driver failure to translate.
         sql, parameters = insert_compiled(
-            Row.__tablename__,
+            self._get_entity_class().__entity_naming__.table,
             database.type.value,
             _native_assign(values),
             upsert,
@@ -1614,14 +1118,23 @@ class BaseEntityManager[
         with wrap_database_errors():
             await database._store().execute(sql, parameters)
 
-        return row  # type: ignore
+
+@cache
+def _stored_columns(table: str) -> frozenset[str]:
+    """The columns the native layer reads and writes for `table`."""
+    from ceres_core import stored_columns
+
+    for name, columns in stored_columns():
+        if name == table:
+            return frozenset(column for column, _ in columns)
+
+    raise KeyError(f"No table named `{table}` is stored.")
 
 
 class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
-    """Abstract base for all entity types, associating a row class, filter, and manager."""
+    """Abstract base for all entity types, associating a filter and a manager with a table."""
 
     Manager = BaseEntityManager
-    Row = BaseEntityRow
     Create = BaseEntityCreate
     Update = BaseEntityUpdate
     Filter = BaseEntityFilter
@@ -1629,20 +1142,20 @@ class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
     Field = str
     Order = str
 
+    __entity_naming__: ClassVar[EntityNaming]
+
     @cached_class_property
     @classmethod
     @override
     def __entity_columns__(cls) -> tuple[str, ...]:
-        columns = cls.Row.__table__.columns
+        # Taken from the native layer, so an entity field and the column it persists to are
+        # the same name in one place rather than two that can drift apart.
+        columns = _stored_columns(cls.__entity_naming__.table)
         return tuple(field for field in cls.__data_object_fields__ if field in columns)
 
     def __entity_to_column_values__(self) -> dict[str, Any]:
         """Return a dict mapping column names to their values for this entity instance."""
         return {field: getattr(self, field) for field in self.__entity_columns__}
-
-    @abstractmethod
-    def __entity_to_row__(self) -> BaseEntityRow:
-        return self.Row(**self.__entity_to_column_values__())
 
 
 _REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, tuple[type[Any], bool]] = {
@@ -1657,23 +1170,12 @@ _REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, tuple[type[Any], bool]] = {
 }
 
 
-class ConcreteEntity[TRow: BaseEntityRow](BaseEntity, abstract=True, slots=True):
-    """Abstract entity that auto-resolves its ``Row`` class from its generic type parameter.
+class ConcreteEntity(BaseEntity, abstract=True, slots=True):
+    """Abstract entity for a table of its own, validated at class creation time.
 
-    Direct subclasses are validated at class creation time to ensure all required class
-    attributes (``__entity_naming__``, ``Manager``, ``Filter``, etc.) are defined.
+    Direct subclasses must define all the required class attributes
+    (``__entity_naming__``, ``Manager``, ``Filter``, and the rest).
     """
-
-    __entity_naming__: ClassVar[EntityNaming]
-
-    @cached_class_property
-    @classmethod
-    def Row(cls) -> type[TRow]:
-        return get_generic_superclass_argument(cls, ConcreteEntity, 0)
-
-    @override
-    def __entity_to_row__(self) -> TRow:
-        return self.Row(**self.__entity_to_column_values__())
 
     @classmethod
     @override
@@ -1720,22 +1222,6 @@ class ConcreteEntity[TRow: BaseEntityRow](BaseEntity, abstract=True, slots=True)
             raise TypeError(f"Filter class `{Filter}` must be constructable with no arguments.")
 
 
-class BaseUUIDEntityRow(BaseEntityRow):
-    """Abstract row that adds a UUID primary key column (``id``)."""
-
-    __abstract__: ClassVar[bool] = True
-
-    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid7)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
-        )
-
-
 type BaseUUIDEntityField = Literal["id"]
 type BaseUUIDEntityOrder = Literal[
     "id",
@@ -1763,11 +1249,6 @@ class BaseUUIDEntityFilter[
     id: MaybeSequence[UUID] | None = None
     """Filter by `id` being equal to one or more given UUIDs."""
 
-    @classmethod
-    @abstractmethod
-    @override
-    def _get_row_cls(cls) -> type[BaseUUIDEntityRow]: ...
-
     @override
     def _matches(self, obj: EntityT) -> bool:
         if not super()._matches(obj):
@@ -1777,14 +1258,6 @@ class BaseUUIDEntityFilter[
             return False
 
         return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.id is not None:
-            yield self._sql_match_value(columns.id, self.id)
 
 
 class BaseUUIDEntityCreate(BaseEntityCreate, abstract=True, slots=True):
@@ -1803,22 +1276,6 @@ class BaseUUIDEntity(BaseEntity, BaseUUIDEntityCreate, abstract=True, slots=True
     """Abstract entity with a UUID primary key (``id``)."""
 
     pass
-
-
-class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
-    """Abstract row that adds an indexed ``address`` column."""
-
-    __abstract__: ClassVar[bool] = True
-
-    address: Mapped[Address] = mapped_column(AddressColumn(), sort_order=-2000)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__address", cls.address),
-        )
 
 
 type BaseAddressEntityField = Literal["address"]
@@ -1863,19 +1320,6 @@ class BaseAddressEntityFilter[
 
         return True
 
-    @classmethod
-    @abstractmethod
-    @override
-    def _get_row_cls(cls) -> type[BaseAddressEntityRow]: ...
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.address is not None:
-            yield self.address.matches_expression(columns.address, self.root)
-
 
 class BaseAddressEntityCreate(BaseEntityCreate, abstract=True, slots=True):
     """Creation data for address-keyed entities."""
@@ -1893,27 +1337,6 @@ class BaseAddressEntity(BaseEntity, BaseAddressEntityCreate, abstract=True, slot
     """Abstract entity with an ``address`` field."""
 
     pass
-
-
-class BaseTimestampEntityRow(BaseEntityRow):
-    """Abstract row that adds an indexed ``timestamp`` column defaulting to the current UTC time."""
-
-    __abstract__: ClassVar[bool] = True
-
-    timestamp: Mapped[DateTime] = mapped_column(
-        DateTimeMapper,
-        sort_order=-1000,
-        default_factory=utc,
-        server_default=func.now(),
-    )
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
-        )
 
 
 type BaseTimestampEntityField = Literal["timestamp"]
@@ -2046,89 +1469,6 @@ class BaseTimestampEntityFilter[
                     return False
 
         return True
-
-    @classmethod
-    @abstractmethod
-    @override
-    def _get_row_cls(cls) -> type[BaseTimestampEntityRow]: ...
-
-    @override
-    def _get_where(
-        self,
-        dialect: DatabaseType,
-        *,
-        now: datetime | None = None,
-    ) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.timestamp is not None:
-            yield self._sql_match_value(columns.timestamp, self.timestamp)
-        if self.after is not None:
-            yield columns.timestamp >= self.after
-        if self.before is not None:
-            yield columns.timestamp < self.before
-
-        now = utc(now)
-        if self.timespan is not None:
-            if self.after is not None:
-                yield columns.timestamp < self.after + self.timespan
-            elif self.before is not None:
-                yield columns.timestamp >= self.before - self.timespan
-            else:
-                yield columns.timestamp >= now - self.timespan
-                yield columns.timestamp < now
-
-        if self.max_age is not None:
-            yield columns.timestamp > now - self.max_age
-        if self.min_age is not None:
-            yield columns.timestamp <= now - self.min_age
-
-        if self.after_hour is not None or self.before_hour is not None:
-            min_hour = self.after_hour if self.after_hour is not None else 0
-            max_hour = self.before_hour if self.before_hour is not None else 24
-            match dialect:
-                case DatabaseType.POSTGRES:
-                    hour = func.date_part(
-                        literal("hour", literal_execute=True),
-                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
-                    )
-                case DatabaseType.SQLITE | DatabaseType.TURSO:
-                    from sqlalchemy import cast
-
-                    hour = cast(func.strftime("%H", columns.timestamp), Integer)
-
-            within_min = hour >= min_hour
-            within_max = hour < max_hour
-            if min_hour <= max_hour:
-                yield within_min & within_max
-            else:
-                yield within_min | within_max
-
-        if self.after_minute is not None or self.before_minute is not None:
-            min_minute = self.after_minute if self.after_minute is not None else 0
-            max_minute = self.before_minute if self.before_minute is not None else 60
-            match dialect:
-                case DatabaseType.POSTGRES:
-                    minute = func.date_part(
-                        literal("minute", literal_execute=True),
-                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
-                    )
-                case DatabaseType.SQLITE | DatabaseType.TURSO:
-                    from sqlalchemy import cast
-
-                    minute = cast(func.strftime("%M", columns.timestamp), Integer)
-
-            within_min = minute >= min_minute
-            within_max = minute < max_minute
-            if min_minute <= max_minute:
-                yield within_min & within_max
-            else:
-                yield within_min | within_max
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[OrderT]:
-        return "timestamp"  # type: ignore
 
     def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:
         """Compute the effective start and end times from the combined time-range filter fields.

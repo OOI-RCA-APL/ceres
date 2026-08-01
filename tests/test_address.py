@@ -1,10 +1,10 @@
 import copy
 
 import pytest
-from sqlalchemy import Column, MetaData, Table, create_engine, select
 
-from ceres.__internal__.database.types import AddressMapper
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.database import Database
+from ceres.particle import Particle
 
 
 class TestAddressSelector:
@@ -723,37 +723,38 @@ class TestAddressGrammarTightening:
         assert not Address("@a").contains(Address("@ab"))
 
 
-def _assert_matches_expression_parity(
+async def _assert_selects_what_it_matches(
     selector: AddressSelector,
     root: Address | None,
     candidates: list[str],
 ) -> None:
-    """Assert `matches()` and a SQLite-compiled `matches_expression()` agree over `candidates`."""
-    metadata = MetaData()
-    table = Table("addresses", metadata, Column("address", AddressMapper))
+    """Assert a query filtered by `selector` returns exactly what `matches()` accepts.
 
-    engine = create_engine("sqlite://")
-    metadata.create_all(engine)
+    A selector reaches the database as compiled SQL and reaches an in-memory record as
+    `matches()`, and the two have to agree or the same filter answers differently depending
+    on where the records happen to be. The query runs through a real database rather than
+    against rendered SQL, so what is checked is the rows a caller gets back.
+    """
+    database = Database()
+    try:
+        for candidate in candidates:
+            await database.particles.create(
+                Particle.Create(address=Address(candidate), type="sample", data={})
+            )
 
-    with engine.begin() as connection:
-        connection.execute(table.insert(), [{"address": candidate} for candidate in candidates])
+        selected = {
+            str(particle.address)
+            for particle in await database.particles.where(address=selector, root=root)
+        }
+    finally:
+        await database.dispose()
 
-    with engine.connect() as connection:
-        condition = selector.matches_expression(table.c.address, root)
-        statement = select(table.c.address).where(condition)
-        sql_matches = {str(row.address) for row in connection.execute(statement)}
-
-    python_matches = {
-        candidate for candidate in candidates if selector.matches(Address(candidate), root)
-    }
-
-    assert sql_matches == python_matches
-
-    engine.dispose()
+    matched = {candidate for candidate in candidates if selector.matches(Address(candidate), root)}
+    assert selected == matched
 
 
-class TestAddressMatchesExpressionParity:
-    """`matches()` and `matches_expression()` must agree for every forest selector."""
+class TestAddressSelectsWhatItMatches:
+    """A selector picks the same addresses out of a database as it does out of memory."""
 
     CANDIDATES = [
         "~",
@@ -763,20 +764,27 @@ class TestAddressMatchesExpressionParity:
         "@other",
     ]
 
-    def test_root_all_parity(self) -> None:
-        _assert_matches_expression_parity(AddressSelector("@:all"), None, self.CANDIDATES)
+    @pytest.mark.databases()
+    async def test_root_all(self) -> None:
+        await _assert_selects_what_it_matches(AddressSelector("@:all"), None, self.CANDIDATES)
 
-    def test_root_descendants_parity(self) -> None:
-        _assert_matches_expression_parity(AddressSelector("@:descendants"), None, self.CANDIDATES)
+    @pytest.mark.databases()
+    async def test_root_descendants(self) -> None:
+        await _assert_selects_what_it_matches(
+            AddressSelector("@:descendants"), None, self.CANDIDATES
+        )
 
-    def test_root_children_parity(self) -> None:
-        _assert_matches_expression_parity(AddressSelector("@:children"), None, self.CANDIDATES)
+    @pytest.mark.databases()
+    async def test_root_children(self) -> None:
+        await _assert_selects_what_it_matches(AddressSelector("@:children"), None, self.CANDIDATES)
 
-    def test_engine_all_parity(self) -> None:
-        _assert_matches_expression_parity(AddressSelector("~:all"), None, self.CANDIDATES)
+    @pytest.mark.databases()
+    async def test_engine_all(self) -> None:
+        await _assert_selects_what_it_matches(AddressSelector("~:all"), None, self.CANDIDATES)
 
-    def test_piped_children_selector_falls_through_parity(self) -> None:
-        _assert_matches_expression_parity(
+    @pytest.mark.databases()
+    async def test_piped_children_selector_falls_through(self) -> None:
+        await _assert_selects_what_it_matches(
             AddressSelector("@:children|@a.b"),
             None,
             ["@a", "@a.b", "@x.y.z", "~"],

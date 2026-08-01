@@ -1,6 +1,4 @@
 import pytest
-import sqlalchemy
-from sqlalchemy.exc import IntegrityError
 
 from ceres.address import Address
 from ceres.database import Database
@@ -74,13 +72,11 @@ async def test_placement_column_rejects_a_null() -> None:
     database = await _setup_database()
     await database.workspaces.create(Workspace.Create(name="home"))
 
-    with pytest.raises(IntegrityError):
-        async with database.engine.begin() as connection:
-            await connection.execute(
-                sqlalchemy.text(
-                    "INSERT INTO workspaces (id, name, scope, data) "
-                    "VALUES ('00000000000000000000000000000001', 'legacy', NULL, '{}')"
-                )
-            )
+    with pytest.raises(ValueError, match="scope"):
+        await database._store().execute(
+            "INSERT INTO workspaces (id, name, scope, data) "
+            "VALUES ('00000000000000000000000000000001', 'legacy', NULL, '{}')",
+            [],
+        )
 
     await database.dispose()

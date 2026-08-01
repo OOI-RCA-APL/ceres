@@ -1,33 +1,21 @@
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
-from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint
-from sqlalchemy.orm import Mapped, mapped_column
-
-from ceres.__internal__.database.types import TextMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
     BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
-    BaseEntityRow,
     ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
 from ceres.__internal__.manager import BaseNodeManager
-from ceres.__internal__.utilities.collections import seq
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence
-from ceres.user import UserRow
 
 if TYPE_CHECKING:
-    from sqlalchemy import SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
-    from ceres.database import DatabaseType
 
 __all__ = [
     "Setting",
@@ -40,31 +28,6 @@ __all__ = [
     "SettingManager",
     "BoundSettingManager",
 ]
-
-
-class SettingRow(BaseEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `Setting` entity."""
-
-    __tablename__: ClassVar[str] = "settings"
-
-    user_id: Mapped[UUID] = mapped_column(UUIDMapper)
-    name: Mapped[str] = mapped_column(TextMapper())
-    value: Mapped[JSONSerializable] = mapped_column(JSON)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            PrimaryKeyConstraint("user_id", "name", name=f"pk_{cls.__tablename__}"),
-            ForeignKeyConstraint(
-                [cls.user_id],
-                [UserRow.id],
-                name=f"fk_{cls.__tablename__}__user_id__users__id",
-                ondelete="CASCADE",
-                onupdate="CASCADE",
-            ),
-        )
 
 
 type SettingField = Literal[
@@ -103,6 +66,8 @@ class SettingFilterArgs(BaseEntityFilterArgs[SettingField, SettingOrder], total=
 class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
     """Filter for selecting `Setting` records by owning user or name."""
 
+    __table__: ClassVar[str] = "settings"
+
     user_id: MaybeSequence[UUID] | None = None
     """Filter by `user_id` being equal to one or more given UUIDs."""
     name: MaybeSequence[str] | None = None
@@ -132,32 +97,6 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
             return False
 
         return True
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[SettingRow]:
-        return SettingRow
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.user_id is not None:
-            yield columns.user_id.in_(seq(self.user_id))
-
-        if self.name is not None:
-            yield self._sql_match_value(columns.name, self.name)
-        if self.name_contains is not None:
-            yield self._sql_match_string_contains(columns.name, self.name_contains)
-        if self.name_prefix is not None:
-            yield self._sql_match_string_prefix(columns.name, self.name_prefix)
-        if self.name_suffix is not None:
-            yield self._sql_match_string_suffix(columns.name, self.name_suffix)
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[SettingOrder]:
-        return "name"
 
 
 class SettingCreate(BaseEntityCreate, slots=True):
@@ -217,7 +156,6 @@ class SettingQuery(
 class SettingManager(
     BaseEntityManager[
         "Setting",
-        SettingRow,
         SettingCreate,
         SettingUpdate,
         SettingFilter,
@@ -254,7 +192,7 @@ class BoundSettingManager(SettingManager, BaseNodeManager):
         super().__init__(source)
 
 
-class Setting(SettingCreate, ConcreteEntity[SettingRow], slots=True):
+class Setting(SettingCreate, ConcreteEntity, slots=True):
     """Per-user named value used to persist user preferences and application state.
 
     Settings are keyed by `(user_id, name)` and store arbitrary JSON-serializable values.

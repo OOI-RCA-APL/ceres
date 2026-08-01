@@ -12,11 +12,9 @@ dependencies = [
     "aiohttp>=3.13.3,<4",
     "ceres-core==0.40.0",
     "aiosmtplib>=5.1,<6",
-    "aiosqlite>=0.22.1",
     "anyio>=4.13,<5",
     "apscheduler>=3.11.2,<4",
     "asgiref>=3.11.1,<4",
-    "asyncpg>=0.31",
     "jinja2>=3.1,<4",
     "mistune>=3.2,<4",
     "objsize>=0.8.0",
@@ -27,17 +25,12 @@ dependencies = [
     "pyyaml>=6,<7",
     "rich>=14.3.2,<15",
     "setproctitle>=1.3.7,<2",
-    "sqlalchemy[asyncio]>=2.0.46,<3",
     "typing-extensions>=4.15.0",
     "uuid-utils>=0.14.1",
     "uvloop>=0.22.1; platform_system == 'Linux' or platform_system == 'Darwin'",
     "watchfiles>=1.1.1,<2",
     "starlette>=1,<2",
 ]
-
-[project.optional-dependencies]
-# Consider making required once free-threaded support lands for `pyturso`.
-turso = ["pyturso>=0.7.1"]
 
 [dependency-groups]
 dev = [
@@ -46,7 +39,6 @@ dev = [
     "pytest>=9.0.2,<10",
     "pytest-asyncio>=1.3.0,<2",
     "pytest-cov>=7.1.0",
-    "pyturso>=0.7.1",
     "ruff==0.15",
     "types-pyyaml>=6,<7",
 ]
@@ -82,7 +74,6 @@ extend-select = ["I", "TC", "T201", "UP"]
 exempt-modules = ["typing", "typing_extensions", "collections.abc"]
 runtime-evaluated-base-classes = [
     "pydantic.BaseModel",
-    "sqlalchemy.orm.DeclarativeBase",
     "ceres.component.Component",
     "ceres.data.DataModel",
     "ceres.data.ImmutableDataModel",
@@ -96,17 +87,14 @@ runtime-evaluated-base-classes = [
     "ceres.__internal__.entity.BaseEntityCreate",
     "ceres.__internal__.entity.BaseEntityFilter",
     "ceres.__internal__.entity.BaseEntityFilterArgs",
-    "ceres.__internal__.entity.BaseEntityRow",
     "ceres.__internal__.entity.BaseUUIDEntity",
     "ceres.__internal__.entity.BaseUUIDEntityCreate",
     "ceres.__internal__.entity.BaseUUIDEntityFilter",
     "ceres.__internal__.entity.BaseUUIDEntityFilterArgs",
-    "ceres.__internal__.entity.BaseUUIDEntityRow",
     "ceres.__internal__.record.BaseRecord",
     "ceres.__internal__.record.BaseRecordCreate",
     "ceres.__internal__.record.BaseRecordFilter",
     "ceres.__internal__.record.BaseRecordFilterArgs",
-    "ceres.__internal__.record.BaseRecordRow",
 ]
 runtime-evaluated-decorators = [
     "ceres.__internal__.app.shared.Router.delete",

@@ -8,7 +8,6 @@ replays the same migrations against PostgreSQL.
 import asyncio
 
 import pytest
-from sqlalchemy import text
 
 from ceres.config import SQLiteDatabaseConfig
 from ceres.database import Database
@@ -27,6 +26,20 @@ async def database():
 
 def _write(directory, filename, content="SELECT 1;"):
     (directory / filename).write_text(content)
+
+
+async def _names(database: Database, kind: str) -> set[str]:
+    """The names of every `kind` ("table" or "index") the schema holds."""
+    rows = await database._store().fetch(
+        "SELECT name FROM sqlite_master WHERE type = ?", [kind]
+    )
+    return {str(row["name"]) for row in rows}
+
+
+async def _columns(database: Database, table: str) -> list[str]:
+    """The column names of `table`, in declaration order."""
+    rows = await database._store().fetch(f"PRAGMA table_info({table})", [])
+    return [str(row["name"]) for row in rows]
 
 
 def test_load_migrations_parses_ids_names_and_dialects(tmp_path):
@@ -81,15 +94,7 @@ async def test_migrate_bootstraps_empty_database(database):
     assert 1 in applied
 
     # The baseline creates every entity table.
-    async with database.engine.begin() as connection:
-        tables = {
-            row[0]
-            for row in await connection.execute(
-                text("SELECT name FROM sqlite_master WHERE type = 'table'")
-            )
-        }
-
-    assert {"users", "workspaces", "messages", "migrations"} <= tables
+    assert {"users", "workspaces", "messages", "migrations"} <= await _names(database, "table")
 
 
 async def test_migrate_is_idempotent(database):
@@ -107,15 +112,7 @@ async def test_migrate_applies_pending_in_order(database, monkeypatch, tmp_path)
     assert applied == [1, 2]
     assert await database.get_pending_migrations() == []
 
-    async with database.engine.begin() as connection:
-        tables = {
-            row[0]
-            for row in await connection.execute(
-                text("SELECT name FROM sqlite_master WHERE type = 'table'")
-            )
-        }
-
-    assert {"first", "second"} <= tables
+    assert {"first", "second"} <= await _names(database, "table")
 
 
 async def test_migrate_executes_multi_statement_scripts(database, monkeypatch, tmp_path):
@@ -130,22 +127,8 @@ async def test_migrate_executes_multi_statement_scripts(database, monkeypatch, t
 
     await database.migrate()
 
-    async with database.engine.begin() as connection:
-        tables = {
-            row[0]
-            for row in await connection.execute(
-                text("SELECT name FROM sqlite_master WHERE type = 'table'")
-            )
-        }
-        indexes = {
-            row[0]
-            for row in await connection.execute(
-                text("SELECT name FROM sqlite_master WHERE type = 'index'")
-            )
-        }
-
-    assert {"one", "two"} <= tables
-    assert "ix_two" in indexes
+    assert {"one", "two"} <= await _names(database, "table")
+    assert "ix_two" in await _names(database, "index")
 
 
 async def test_assert_schema_current_raises_on_pending(database, monkeypatch, tmp_path):
@@ -153,8 +136,7 @@ async def test_assert_schema_current_raises_on_pending(database, monkeypatch, tm
     monkeypatch.setattr("ceres.database.migrations.MIGRATIONS", load_migrations(tmp_path))
 
     await database.migrate()
-    async with database.engine.begin() as connection:
-        await connection.execute(text("DELETE FROM migrations"))
+    await database._store().execute("DELETE FROM migrations", [])
 
     with pytest.raises(DatabaseVersionError) as context:
         await database.assert_schema_current()
@@ -164,10 +146,9 @@ async def test_assert_schema_current_raises_on_pending(database, monkeypatch, tm
 
 async def test_assert_schema_current_raises_on_unknown(database):
     await database.migrate()
-    async with database.engine.begin() as connection:
-        await connection.execute(
-            text("INSERT INTO migrations (id, applied_at) VALUES (9999, '2026-01-01')")
-        )
+    await database._store().execute(
+        "INSERT INTO migrations (id, applied_at) VALUES (9999, '2026-01-01')", []
+    )
 
     with pytest.raises(DatabaseVersionError) as context:
         await database.assert_schema_current()
@@ -196,109 +177,79 @@ async def test_migrate_is_safe_under_concurrent_calls(database, monkeypatch, tmp
     assert sorted(first_applied + second_applied) == [1]
     assert await database.get_pending_migrations() == []
 
-    async with database.engine.begin() as connection:
-        result = await connection.execute(text("SELECT id FROM migrations"))
-        assert [row[0] for row in result] == [1]
+    rows = await database._store().fetch("SELECT id FROM migrations", [])
+    assert [row["id"] for row in rows] == [1]
 
 
 async def test_migration_2_transforms_old_schema(database):
     from ceres.database.migrations import MIGRATIONS
 
     baseline = next(migration for migration in MIGRATIONS if migration.id == 1)
-    async with database.engine.begin() as connection:
-        # Create workspaces with the pre-collapse check constraint first, so the baseline
-        # script's `CREATE TABLE IF NOT EXISTS` leaves it alone. This reproduces a database
-        # that predates the baseline snapshot, where `general_*` still allowed the wider
-        # 'operators' and 'admins' values migration 2 is responsible for narrowing.
-        await connection.execute(
-            text(
-                "CREATE TABLE workspaces ("
-                "id CHAR(32) NOT NULL, "
-                "name TEXT NOT NULL, "
-                "general_viewership VARCHAR DEFAULT 'private' NOT NULL, "
-                "general_editorship VARCHAR DEFAULT 'private' NOT NULL, "
-                "general_managership VARCHAR DEFAULT 'private' NOT NULL, "
-                "data JSON DEFAULT '{}' NOT NULL, "
-                "CONSTRAINT pk_workspaces PRIMARY KEY (id), "
-                "CONSTRAINT ck_workspaces__general_viewership "
-                "CHECK (general_viewership IN ('anyone', 'operators', 'admins', 'private')), "
-                "CONSTRAINT ck_workspaces__general_editorship "
-                "CHECK (general_editorship IN ('anyone', 'operators', 'admins', 'private')), "
-                "CONSTRAINT ck_workspaces__general_managership "
-                "CHECK (general_managership IN ('anyone', 'operators', 'admins', 'private'))"
-                ")"
-            )
-        )
+    store = database._store()
 
-        await database._execute_script(connection, baseline.render("sqlite"))
-        await connection.execute(
-            text(
-                "INSERT INTO users (id, username, email, password, role, disabled) VALUES "
-                "('u1', 'alice', 'a@a', 'x', 'admin', 0), "
-                "('u2', 'bob', 'b@b', 'x', 'operator', 0), "
-                "('u3', 'carol', 'c@c', 'x', 'viewer', 0)"
-            )
-        )
-        await connection.execute(
-            text(
-                "INSERT INTO workspaces (id, name, general_viewership, general_editorship, "
-                "general_managership, data) VALUES "
-                "('w1', 'open', 'anyone', 'operators', 'admins', '{}')"
-            )
-        )
-        await connection.execute(
-            text("INSERT INTO settings (user_id, name, value) VALUES ('u1', 'theme', '\"dark\"')")
-        )
-        await connection.execute(
-            text(
-                "INSERT INTO workspace_memberships (user_id, workspace_id, role) VALUES "
-                "('u1', 'w1', 'viewer')"
-            )
-        )
+    # Create workspaces with the pre-collapse check constraint first, so the baseline
+    # script's `CREATE TABLE IF NOT EXISTS` leaves it alone. This reproduces a database
+    # that predates the baseline snapshot, where `general_*` still allowed the wider
+    # 'operators' and 'admins' values migration 2 is responsible for narrowing.
+    await store.execute_script(
+        "CREATE TABLE workspaces ("
+        "id CHAR(32) NOT NULL, "
+        "name TEXT NOT NULL, "
+        "general_viewership VARCHAR DEFAULT 'private' NOT NULL, "
+        "general_editorship VARCHAR DEFAULT 'private' NOT NULL, "
+        "general_managership VARCHAR DEFAULT 'private' NOT NULL, "
+        "data JSON DEFAULT '{}' NOT NULL, "
+        "CONSTRAINT pk_workspaces PRIMARY KEY (id), "
+        "CONSTRAINT ck_workspaces__general_viewership "
+        "CHECK (general_viewership IN ('anyone', 'operators', 'admins', 'private')), "
+        "CONSTRAINT ck_workspaces__general_editorship "
+        "CHECK (general_editorship IN ('anyone', 'operators', 'admins', 'private')), "
+        "CONSTRAINT ck_workspaces__general_managership "
+        "CHECK (general_managership IN ('anyone', 'operators', 'admins', 'private'))"
+        ");"
+    )
+    await store.execute_script(baseline.render("sqlite"))
+    await store.execute_script(
+        "INSERT INTO users (id, username, email, password, role, disabled) VALUES "
+        "('u1', 'alice', 'a@a', 'x', 'admin', 0), "
+        "('u2', 'bob', 'b@b', 'x', 'operator', 0), "
+        "('u3', 'carol', 'c@c', 'x', 'viewer', 0);\n"
+        "INSERT INTO workspaces (id, name, general_viewership, general_editorship, "
+        "general_managership, data) VALUES "
+        "('w1', 'open', 'anyone', 'operators', 'admins', '{}');\n"
+        "INSERT INTO settings (user_id, name, value) VALUES ('u1', 'theme', '\"dark\"');\n"
+        "INSERT INTO workspace_memberships (user_id, workspace_id, role) VALUES "
+        "('u1', 'w1', 'viewer');"
+    )
 
     await database.migrate()
 
-    async with database.engine.begin() as connection:
-        users = {
-            row[0]: row[1] for row in await connection.execute(text("SELECT id, admin FROM users"))
-        }
-        assert users == {"u1": 1, "u2": 0, "u3": 0}
+    rows = await store.fetch("SELECT id, admin FROM users", [])
+    assert {str(row["id"]): row["admin"] for row in rows} == {"u1": 1, "u2": 0, "u3": 0}
+    assert "role" not in await _columns(database, "users")
 
-        columns = [row[1] for row in await connection.execute(text("PRAGMA table_info(users)"))]
-        assert "role" not in columns
+    # The users table rebuild (required to drop `role` alongside its check constraint) must
+    # preserve rows in tables that reference users by foreign key.
+    settings = await store.fetch(
+        "SELECT user_id, name, value FROM settings WHERE user_id = 'u1'", []
+    )
+    assert [(row["user_id"], row["name"], row["value"]) for row in settings] == [
+        ("u1", "theme", '"dark"')
+    ]
 
-        # The users table rebuild (required to drop `role` alongside its check
-        # constraint) must preserve rows in tables that reference users by foreign key.
-        setting = (
-            await connection.execute(
-                text("SELECT user_id, name, value FROM settings WHERE user_id = 'u1'")
-            )
-        ).one()
-        assert tuple(setting) == ("u1", "theme", '"dark"')
+    # The workspaces table is rebuilt three separate times across the migration sequence, to
+    # narrow its check constraints, to make the placement column required, and to drop the
+    # general access columns. The row has to survive every one of them.
+    workspaces = await store.fetch("SELECT id, name, scope FROM workspaces WHERE id = 'w1'", [])
+    assert [(row["id"], row["name"], row["scope"]) for row in workspaces] == [("w1", "open", "~")]
 
-        # The workspaces table is rebuilt three separate times across the migration sequence, to
-        # narrow its check constraints, to make the placement column required, and to drop the
-        # general access columns. The row has to survive every one of them.
-        workspace = (
-            await connection.execute(text("SELECT id, name, scope FROM workspaces WHERE id = 'w1'"))
-        ).one()
-        assert tuple(workspace) == ("w1", "open", "~")
+    # The general access columns and the memberships table are gone by the end of the
+    # sequence, so a database that predates the baseline still lands on the current schema.
+    columns = await _columns(database, "workspaces")
+    assert "general_viewership" not in columns
+    assert "owner_id" in columns
 
-        # The general access columns and the memberships table are gone by the end of the
-        # sequence, so a database that predates the baseline still lands on the current schema.
-        columns = [
-            row[1] for row in await connection.execute(text("PRAGMA table_info(workspaces)"))
-        ]
-        assert "general_viewership" not in columns
-        assert "owner_id" in columns
-
-        tables = {
-            row[0]
-            for row in await connection.execute(
-                text("SELECT name FROM sqlite_master WHERE type = 'table'")
-            )
-        }
-        assert "workspace_memberships" not in tables
+    assert "workspace_memberships" not in await _names(database, "table")
 
 
 async def test_a_table_rebuild_puts_back_the_foreign_keys_it_turned_off(database):
@@ -310,10 +261,8 @@ async def test_a_table_rebuild_puts_back_the_foreign_keys_it_turned_off(database
     still be there, so the constraints themselves are what has to be checked.
     """
     await database.migrate()
-    store = database._store()
-    assert store is not None
 
-    rows = await store.fetch(
+    rows = await database._store().fetch(
         "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL",
         [],
     )
@@ -337,36 +286,25 @@ async def test_migration_3_converts_root_grants_and_deletes_root_state(database)
     from ceres.database.migrations import MIGRATIONS
 
     baseline = next(migration for migration in MIGRATIONS if migration.id == 1)
+    store = database._store()
 
-    async with database.engine.begin() as connection:
-        await database._execute_script(connection, baseline.render("sqlite"))
-        await connection.execute(
-            text(
-                "INSERT INTO users (id, username, email, password, role, disabled) VALUES "
-                "('u1', 'alice', 'a@a', 'x', 'admin', 0)"
-            )
-        )
-        await connection.execute(
-            text(
-                "INSERT INTO user_permissions (user_id, target_type, target, level) VALUES "
-                "('u1', 'component', '@', 'operate')"
-            )
-        )
-        await connection.execute(
-            text("INSERT INTO variables (address, name, value) VALUES ('@', 'enabled', 'true')")
-        )
+    await store.execute_script(baseline.render("sqlite"))
+    await store.execute_script(
+        "INSERT INTO users (id, username, email, password, role, disabled) VALUES "
+        "('u1', 'alice', 'a@a', 'x', 'admin', 0);\n"
+        "INSERT INTO user_permissions (user_id, target_type, target, level) VALUES "
+        "('u1', 'component', '@', 'operate');\n"
+        "INSERT INTO variables (address, name, value) VALUES ('@', 'enabled', 'true');"
+    )
 
     await database.migrate()
 
-    async with database.engine.begin() as connection:
-        grant = (
-            await connection.execute(
-                text("SELECT target_type, target, level FROM user_permissions WHERE user_id = 'u1'")
-            )
-        ).one()
-        assert tuple(grant) == ("all", "", "operate")
+    grants = await store.fetch(
+        "SELECT target_type, target, level FROM user_permissions WHERE user_id = 'u1'", []
+    )
+    assert [(row["target_type"], row["target"], row["level"]) for row in grants] == [
+        ("all", "", "operate")
+    ]
 
-        variables = (
-            await connection.execute(text("SELECT COUNT(*) FROM variables WHERE address = '@'"))
-        ).scalar_one()
-        assert variables == 0
+    rows = await store.fetch("SELECT COUNT(*) AS count FROM variables WHERE address = '@'", [])
+    assert rows[0]["count"] == 0

@@ -879,7 +879,7 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     concurrent writers.
 
     Turso reads and writes the same file format as SQLite and takes the same path settings, so this
-    inherits them. What it adds is `BEGIN CONCURRENT`, which lets several connections write at once
+    inherits them. What it adds is MVCC journaling, which lets several connections write at once
     instead of serializing behind one writer.
 
     Left at its defaults this is a drop-in replacement for `SQLiteDatabaseConfig`. It writes an
@@ -893,11 +893,9 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     treat turning it on as a migration rather than as a setting. It is also off by default because
     overlapping writers are optimistic rather than blocking. Two transactions touching the same
     rows both proceed and the second fails when it commits, so a caller has to be prepared to
-    retry. Turning it on is necessary but not sufficient, a transaction also has to be opened
-    inside `Database.concurrent_transactions()`, which is how a caller says its writes are safe
-    to retry.
+    retry.
 
-    `pyturso` is not installed with Ceres. `pip install "ceres[turso]"` adds it.
+    Turso is compiled into Ceres, so this backend needs nothing installed alongside it.
     """
 
     if TYPE_CHECKING:

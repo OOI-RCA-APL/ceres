@@ -1,26 +1,12 @@
-import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
-from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
-from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
 from tempfile import gettempdir
 from typing import TYPE_CHECKING, Any, Self, final, override
 
 from ceres_core import RecordFetcher, RecordWriter, Store
-from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, text
-from sqlalchemy.ext.asyncio import (
-    AsyncConnection,
-    AsyncEngine,
-    AsyncSession,
-    create_async_engine,
-)
-from sqlalchemy.pool import QueuePool
 
-from ceres.__internal__.database.bytes import tokenize_bytes
 from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
@@ -30,8 +16,8 @@ from ceres.config import (
     SQLiteDatabaseConfig,
     TursoDatabaseConfig,
 )
-from ceres.data import PasswordHash, to_json, uuid4
-from ceres.error import DatabaseLoadError, DatabaseMigrationError, DatabaseVersionError
+from ceres.data import PasswordHash, uuid4
+from ceres.error import DatabaseMigrationError, DatabaseVersionError
 from ceres.logs import get_logger
 
 DESTRUCTIVE_MIGRATIONS: dict[str, str] = {}
@@ -43,21 +29,12 @@ ignore the ones that matter.
 """
 
 if TYPE_CHECKING:
-    import sqlite3
     from uuid import UUID
 
-    from sqlalchemy import Connection
-    from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
-    from sqlalchemy.engine.interfaces import DBAPIConnection
-
-    from ceres.__internal__.entity import BaseEntityManager, BaseEntityRow
+    from ceres.__internal__.entity import BaseEntityManager
     from ceres.database import DatabaseType
     from ceres.database.migrations import Migration
     from ceres.entity import Entity
-
-    _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
-else:
-    _SQLiteConnection = object
 
 
 with __lazy_imports__(__name__):
@@ -116,9 +93,9 @@ def default_database_config() -> DatabaseConfig:
 class Database:
     """Asynchronous database handle backing all persisted Ceres state.
 
-    `Database` owns the SQLAlchemy async engine, exposes cached entity managers for every
-    persisted record type, and handles one-time schema initialization. Instantiating the base
-    class dispatches to the appropriate concrete subclass based on the configuration, so
+    `Database` owns the native store every query runs through, exposes cached entity managers
+    for every persisted record type, and handles one-time schema initialization. Instantiating
+    the base class dispatches to the appropriate concrete subclass based on the configuration, so
     `Database(SQLiteDatabaseConfig())` returns a `SQLiteDatabase` and
     `Database(PostgresDatabaseConfig(...))` returns a `PostgresDatabase`. Omitting the config
     entirely dispatches on whatever `default_database_config` returns.
@@ -141,8 +118,8 @@ class Database:
     def __init__(self, config: DatabaseConfig | None = None, /) -> None:
         # Every subclass builds itself from `__new__`, and Python then calls `__init__` a second
         # time with the arguments the caller wrote, which are not necessarily the resolved ones.
-        # The first call wins, so that second pass neither rebuilds the engine nor overwrites the
-        # resolved config with the `None` a caller who wanted the default passed.
+        # The first call wins, so that second pass does not overwrite the resolved config with
+        # the `None` a caller who wanted the default passed.
         if getattr(self, "_config", None) is not None:
             return
 
@@ -150,8 +127,6 @@ class Database:
 
         self._id = uuid4()
         self._config = config
-        self._concurrent = ContextVar(f"ceres-concurrent-{self._id}", default=False)
-        self._engine = self._create_engine()
         self._migrate_lock = AsyncLock()
         self._bootstrapped = False
 
@@ -237,11 +212,6 @@ class Database:
             "on_connect": [*(self.config.hooks.connect or ())],
             "on_close": [*(self.config.hooks.close or ())],
         }
-
-    @property
-    def engine(self) -> AsyncEngine:
-        """Underlying SQLAlchemy async engine."""
-        return self._engine
 
     @property
     def ddl(self) -> list[str]:
@@ -332,98 +302,6 @@ class Database:
 
         return get_entity_manager(self, Entity)
 
-    @property
-    @abstractmethod
-    def url(self) -> str:
-        """SQLAlchemy connection URL string used to build the engine."""
-        ...
-
-    @abstractmethod
-    def _get_engine_config(self) -> dict[str, Any]: ...
-
-    @final
-    def _create_engine(self) -> AsyncEngine:
-        engine = create_async_engine(self.url, **self._get_engine_config())
-        self._setup_engine(engine)
-        return engine
-
-    def _setup_engine(self, engine: AsyncEngine) -> None:
-        on_init = [*self._get_base_init_commands(), *(self.config.hooks.init or ())]
-        on_connect = [*self._get_base_connect_commands(), *(self.config.hooks.connect or ())]
-        on_close = [*self._get_base_close_commands(), *(self.config.hooks.close or ())]
-
-        if on_init:
-            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.first_connect
-            @event.listens_for(engine.sync_engine, "first_connect")
-            def first_connect(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                try:
-                    for statement in on_init:
-                        cursor.execute(statement)
-                finally:
-                    cursor.close()
-
-        if on_connect:
-            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
-            @event.listens_for(engine.sync_engine, "connect")
-            def connect(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                try:
-                    for statement in on_connect:
-                        cursor.execute(statement)
-                finally:
-                    cursor.close()
-
-        if on_close:
-            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.close
-            @event.listens_for(engine.sync_engine, "close")
-            def close(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                try:
-                    for statement in on_close:
-                        cursor.execute(statement)
-                finally:
-                    cursor.close()
-
-    @final
-    def _get_init_commands(self) -> Iterable[str]:
-        """Yield every SQL command to run the first time the database is connected to."""
-        yield from self._get_base_init_commands()
-        yield from self.config.hooks.init or ()
-
-    def _get_base_init_commands(self) -> Iterable[str]:
-        """Yield the base backend-defined SQL commands run on first connect."""
-        yield from ()
-
-    @final
-    def _get_connect_commands(self) -> Iterable[str]:
-        """Yield every SQL command to run on each new connection."""
-        yield from self._get_base_connect_commands()
-        yield from self.config.hooks.connect or ()
-
-    def _get_base_connect_commands(self) -> Iterable[str]:
-        """Yield the base backend-defined SQL commands run on each new connection."""
-        yield from ()
-
-    @final
-    def _get_close_commands(self) -> Iterable[str]:
-        """Yield every SQL command to run when a connection is being closed."""
-        yield from self._get_base_close_commands()
-        yield from self.config.hooks.close or ()
-
-    def _get_base_close_commands(self) -> Iterable[str]:
-        """Yield the base backend-defined SQL commands run when a connection is closed."""
-        yield from ()
-
-    def session(self) -> AsyncSession:
-        """Open a new ORM session bound to this database's engine.
-
-        Returns:
-            A fresh `AsyncSession` with `expire_on_commit=False` so loaded objects remain
-            usable after a commit.
-        """
-        return AsyncSession(self._engine, expire_on_commit=False)
-
     async def ready(self) -> None:
         """Bootstrap an empty database through the migration chain.
 
@@ -465,7 +343,10 @@ class Database:
         await self.dispose()
 
     async def dispose(self) -> None:
-        """Dispose of the underlying engine, closing any pooled connections.
+        """Drop this database's connections, closing the pools they came from.
+
+        Dropping the last reference to a store closes the pool underneath it, so the release
+        statements a configuration named run as each connection goes.
 
         Waiting on the migration lock is what keeps a database from being disposed out from
         under its own bootstrap. A component stops as soon as it runs out of work, and the
@@ -474,8 +355,10 @@ class Database:
         fails the migration, and the failure names neither the disposal nor the caller.
         """
         async with self._migrate_lock:
-            with wrap_database_errors():
-                await self._engine.dispose()
+            self._native_store = None
+            self._native_record_fetcher = None
+            self._native_record_writer = None
+            self._bootstrapped = False
 
     def _migrations_table_ddl(self) -> str:
         """The bookkeeping table's own DDL, in this backend's spelling."""
@@ -489,15 +372,9 @@ class Database:
         """Return the IDs of every migration recorded as applied, in ascending order."""
         with wrap_database_errors():
             store = self._store()
-            if store is not None:
-                await store.execute_script(self._migrations_table_ddl())
-                rows = await store.fetch("SELECT id FROM migrations ORDER BY id", [])
-                return [row["id"] for row in rows]
-
-            async with self._engine.begin() as connection:
-                await connection.execute(text(self._migrations_table_ddl()))
-                result = await connection.execute(text("SELECT id FROM migrations ORDER BY id"))
-                return [row[0] for row in result]
+            await store.execute_script(self._migrations_table_ddl())
+            rows = await store.fetch("SELECT id FROM migrations ORDER BY id", [])
+            return [row["id"] for row in rows]
 
     async def get_applied_migrations(self) -> list[Migration]:
         """Return known migrations recorded as applied, in application order."""
@@ -536,29 +413,6 @@ class Database:
         async with self._migrate_lock:
             return await self._apply_pending_migrations()
 
-    @contextmanager
-    def concurrent_transactions(self) -> Iterator[None]:
-        """Let transactions opened in this scope overlap with other writers.
-
-        Only meaningful on a backend that offers it, and only `TursoDatabase` does. Everywhere
-        else this does nothing, because SQLite and PostgreSQL already give their own answer to
-        concurrent writers.
-
-        Concurrency is opt-in rather than the default because the backends that support it refuse
-        to run schema changes inside such a transaction, and because the transactions are
-        optimistic: two that touch the same rows will see the second fail at commit. Callers ask
-        for it where writes are frequent, independent, and safe to retry, which in practice means
-        the record writer.
-
-        Yields:
-            `None`, for the duration of the scope.
-        """
-        token = self._concurrent.set(True)
-        try:
-            yield
-        finally:
-            self._concurrent.reset(token)
-
     async def _apply_pending_migrations(self) -> list[int]:
         """Apply each pending migration in its own transaction.
 
@@ -585,25 +439,15 @@ class Database:
 
             with wrap_database_errors():
                 try:
-                    if store is not None:
-                        # The script and the record that it ran go over as one, so a
-                        # migration cannot land without being recorded and then run twice.
-                        # The driver separates the statements, which is what lets a script
-                        # turn foreign keys off before rebuilding a table, a pragma that
-                        # does nothing inside a transaction someone else opened.
-                        recorded = f"INSERT INTO migrations (id) VALUES ({migration.id});"
-                        await store.execute_script(
-                            recorded if sql is None else f"{sql.rstrip().rstrip(';')};\n{recorded}"
-                        )
-                    else:
-                        async with self._engine.begin() as connection:
-                            if sql is not None:
-                                await self._execute_script(connection, sql)
-
-                            await connection.execute(
-                                text("INSERT INTO migrations (id) VALUES (:id)"),
-                                {"id": migration.id},
-                            )
+                    # The script and the record that it ran go over as one, so a migration
+                    # cannot land without being recorded and then run twice. The driver
+                    # separates the statements, which is what lets a script turn foreign
+                    # keys off before rebuilding a table, a pragma that does nothing inside
+                    # a transaction someone else opened.
+                    recorded = f"INSERT INTO migrations (id) VALUES ({migration.id});"
+                    await store.execute_script(
+                        recorded if sql is None else f"{sql.rstrip().rstrip(';')};\n{recorded}"
+                    )
                 except Exception as error:
                     raise DatabaseMigrationError(
                         message=(f"Migration {migration.id} ({migration.name}) failed. {error}")
@@ -612,16 +456,6 @@ class Database:
             applied.append(migration.id)
 
         return applied
-
-    @abstractmethod
-    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
-        """Execute a possibly multi-statement SQL script through the backend driver.
-
-        Args:
-            connection: Connection whose transaction the script runs within.
-            sql: SQL script text, which may contain multiple `;`-terminated statements.
-        """
-        ...
 
     async def assert_schema_current(self) -> None:
         """Verify the database schema matches this version of ceres.
@@ -650,13 +484,17 @@ class Database:
             )
 
     async def clear(self) -> None:
-        """Delete every row from every known entity table, preserving the schema itself."""
-        with wrap_database_errors():
-            async with self._engine.begin() as connection:
-                for cls in reversed(_get_entity_row_classes()):
-                    await connection.execute(delete(cls))
+        """Delete every row from every known entity table, preserving the schema itself.
 
-                await connection.commit()
+        The tables come from the native layer, which lists a table before anything that
+        references it, so deleting in reverse empties a table only once nothing points at
+        it. Adding a table there puts it in the right place by the same rule.
+        """
+        from ceres_core import stored_columns
+
+        deletes = [f"DELETE FROM {table};" for table, _ in reversed(stored_columns())]
+        with wrap_database_errors():
+            await self._store().execute_script("\n".join(deletes))
 
     async def initialized(self) -> bool:
         """Check whether the database already has tables in it.
@@ -759,16 +597,6 @@ class SQLiteDatabase(Database):
         assert isinstance(config, SQLiteDatabaseConfig)
         return config
 
-    @property
-    @override
-    def url(self) -> str:
-        """Build and return the `sqlite+aiosqlite` connection URL for this database."""
-        return URL.create(
-            "sqlite+aiosqlite",
-            database=str(self.path),
-            query=self.config.query or {},
-        ).render_as_string(hide_password=False)
-
     @override
     def _create_store(self) -> Store:
         return Store.sqlite(str(self.path), **self._native_hooks())
@@ -813,82 +641,11 @@ class SQLiteDatabase(Database):
 
     @override
     async def dispose(self) -> None:
-        """Dispose of the engine, then remove any temporary database files."""
+        """Drop the connections, then remove any temporary database files."""
         try:
             await super().dispose()
         finally:
             self._cleanup_temporary_files()
-
-    @override
-    def _get_engine_config(self) -> dict[str, Any]:
-        return {
-            "poolclass": AsyncAdaptedQueuePool,
-            "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
-            "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
-            "pool_recycle": 15 * 60,  # Recreate connections after fifteen minutes.
-            "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
-            **self.config.engine,
-        }
-
-    @override
-    def _setup_engine(self, engine: AsyncEngine) -> None:
-        # https://docs.sqlalchemy.org/en/latest/core/events.html#sqlalchemy.events.DialectEvents.do_connect
-        @event.listens_for(engine.sync_engine, "do_connect")
-        def do_connect(*args: object) -> None:
-            # Create the directory containing the database file if it doesn't already exist.
-            if self.config.path is not None:
-                try:
-                    self.config.path.parent.mkdir(parents=True, exist_ok=True)
-                except Exception:
-                    traceback.print_exc()
-
-        # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
-        @event.listens_for(engine.sync_engine, "connect")
-        def connect(connection: _SQLiteConnection, *args: object) -> None:
-            # Clear the isolation level to stop "sqlite3" from:
-            #   1. Automatically emitting "BEGIN"
-            #   2. Automatically emitting "COMMIT" before any DDL
-            # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
-            connection.isolation_level = None
-            # Create custom functions.
-            _sqlite_create_functions(connection)
-
-        # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.ConnectionEvents.begin
-        @event.listens_for(engine.sync_engine, "begin")
-        def begin(connection: Connection) -> None:
-            # Emit our own "BEGIN" statement.
-            # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
-
-        # Apply base setup.
-        super()._setup_engine(engine)
-
-    @override
-    def _get_base_init_commands(self) -> Iterable[str]:
-        yield from super()._get_base_init_commands()
-        # Enable incremental "auto_vacuum" mode when the first connection to the database is
-        # made. This can only be done before database tables are created and is disabled by
-        # default, so we do it here just in case "incremental_vacuum" is needed later on.
-        # https://www.sqlite.org/pragma.html#pragma_auto_vacuum
-        # https://www.sqlite.org/pragma.html#pragma_incremental_vacuum
-        yield "PRAGMA auto_vacuum = INCREMENTAL"
-
-    @override
-    def _get_base_connect_commands(self) -> Iterable[str]:
-        yield from super()._get_base_connect_commands()
-        # Enable foreign key handling by default.
-        # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
-        yield "PRAGMA foreign_keys = ON"
-        # Enable a 30 second busy timeout.
-        yield "PRAGMA busy_timeout = 30000"
-
-    @override
-    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
-        # Run the script through aiosqlite's "executescript", which handles multiple
-        # ";"-terminated statements in a single call.
-        raw = await connection.get_raw_connection()
-        assert raw.driver_connection is not None
-        await raw.driver_connection.executescript(sql)
 
     def _get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
@@ -921,7 +678,6 @@ class TursoDatabase(SQLiteDatabase):
 
     @override
     def __init__(self, /, config: TursoDatabaseConfig | None = None) -> None:
-        _assert_turso_installed()
         super().__init__(config or TursoDatabaseConfig())
 
     @property
@@ -957,122 +713,6 @@ class TursoDatabase(SQLiteDatabase):
             self._native_record_writer = writer
 
         return writer
-
-    @property
-    @override
-    def url(self) -> str:
-        """Build and return the `sqlite+aioturso` connection URL for this database."""
-        return URL.create(
-            "sqlite+aioturso",
-            database=str(self.path),
-            query=self.config.query or {},
-        ).render_as_string(hide_password=False)
-
-    @override
-    def _setup_engine(self, engine: AsyncEngine) -> None:
-        # "SQLiteDatabase" registers Python functions on each connection and opens transactions
-        # with "BEGIN IMMEDIATE". Turso offers no way to register a function, and "BEGIN IMMEDIATE"
-        # takes the write lock and so gives up the concurrency this backend exists for, which is
-        # why none of that setup is reused and "Database._setup_engine" is called directly.
-        @event.listens_for(engine.sync_engine, "do_connect")
-        def do_connect(*args: object) -> None:
-            if self.config.path is not None:
-                try:
-                    self.config.path.parent.mkdir(parents=True, exist_ok=True)
-                except Exception:
-                    traceback.print_exc()
-
-        @event.listens_for(engine.sync_engine, "connect")
-        def connect(adapted: Any, *args: object) -> None:
-            # Unlike aiosqlite's, Turso's adapter does not proxy attributes through to the
-            # connection underneath it, so reach the driver's own object to configure it.
-            connection = getattr(adapted, "driver_connection", adapted)
-
-            # Stop the driver emitting its own "BEGIN", the same as the SQLite backend.
-            connection.isolation_level = None
-
-            if self.config.mvcc:
-                # A statement that returns rows does not run until something reads from it, and
-                # "journal_mode" reports the mode it selected. Without the fetch this is a silent
-                # no-op and "BEGIN CONCURRENT" later fails claiming MVCC is disabled.
-                # Statements go through the adapted connection, whose cursor drives the driver's
-                # coroutines for us. This event is synchronous, so the driver's own cursor would
-                # hand back coroutines nobody can await.
-                cursor = adapted.cursor()
-                try:
-                    cursor.execute("PRAGMA journal_mode = 'mvcc'")
-                    mode = cursor.fetchone()
-                finally:
-                    cursor.close()
-
-                if mode is None or str(mode[0]).lower() != "mvcc":
-                    raise DatabaseLoadError(
-                        message=(
-                            "Turso would not enable MVCC, which concurrent writes require. "
-                            f"'PRAGMA journal_mode' reported {mode[0] if mode else 'nothing'}. "
-                            "Set 'mvcc' to false to run this database with a single "
-                            "writer instead."
-                        )
-                    )
-
-        @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
-        def before_cursor_execute(
-            connection: Connection,
-            cursor: Any,
-            statement: str,
-            parameters: Any,
-            context: Any,
-            executemany: bool,
-        ) -> tuple[str, Any]:
-            # SQLAlchemy hands binary columns over as "memoryview". Python's own driver takes it
-            # through the buffer protocol, Turso's takes only exact bytes and rejects everything
-            # else, so a message's data would never insert.
-            return statement, _to_turso_parameters(parameters, executemany)
-
-        @event.listens_for(engine.sync_engine, "begin")
-        def begin(connection: Connection) -> None:
-            # "BEGIN CONCURRENT" is what lets two connections write at once. It is optimistic, so
-            # a transaction that touched the same rows as another fails at commit rather than
-            # waiting here. Turso rejects DDL inside one, so schema changes take the plain form and
-            # everything else takes the concurrent one.
-            #
-            # The plain form is "BEGIN" rather than the "BEGIN IMMEDIATE" the SQLite backend uses.
-            # Taking the write lock up front costs Turso far more than it costs SQLite, enough to
-            # serialize reads behind unrelated writes and turn a second of work into minutes.
-            if self.config.mvcc and self._concurrent.get():
-                connection.exec_driver_sql("BEGIN CONCURRENT")
-            else:
-                connection.exec_driver_sql("BEGIN")
-
-        Database._setup_engine(self, engine)
-
-    @override
-    def _get_base_init_commands(self) -> Iterable[str]:
-        # Deliberately not "SQLiteDatabase"'s, which sets "auto_vacuum". Turso rejects that PRAGMA
-        # unless the server was started with an experimental flag.
-        yield from Database._get_base_init_commands(self)
-
-    @override
-    def _get_base_connect_commands(self) -> Iterable[str]:
-        yield from Database._get_base_connect_commands(self)
-        yield "PRAGMA foreign_keys = ON"
-        yield "PRAGMA busy_timeout = 30000"
-        # "case_sensitive_like" is deliberately absent. Turso accepts it and does not honor it, so
-        # setting it would suggest "LIKE" matches case where it does not.
-
-    @override
-    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
-        # Turso's "executescript" runs the script in a transaction of its own, so calling it here,
-        # inside the one a migration already opened, leaves every statement after the first
-        # unapplied and the next migration fails on a table that looks missing. Running the
-        # statements one at a time keeps them in the migration's transaction, where a failure part
-        # way through rolls the whole migration back.
-        #
-        # Splitting on ";" is only safe because these scripts are plain DDL. A statement carrying
-        # its own ";", such as a trigger body, would need a real parser.
-        for statement in sql.split(";"):
-            if statement.strip():
-                await connection.exec_driver_sql(statement)
 
     @override
     def _get_temporary_path(self) -> Path:
@@ -1151,172 +791,3 @@ class PostgresDatabase(Database):
             self._native_record_writer = writer
 
         return writer
-
-    @property
-    @override
-    def url(self) -> str:
-        """Build and return the `postgresql+asyncpg` connection URL for this database."""
-        return str(
-            URL.create(
-                "postgresql+asyncpg",
-                username=self.config.user,
-                password=self.config.password.get_secret_value()
-                if self.config.password is not None
-                else None,
-                host=self.config.host,
-                port=self.config.port,
-                database=self.config.database,
-                query=self.config.query or {},
-            ).render_as_string(hide_password=False)
-        )
-
-    @override
-    def _get_engine_config(self) -> dict[str, Any]:
-        config: dict[str, Any] = {
-            "poolclass": AsyncAdaptedQueuePool,
-            "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
-            "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
-            "pool_pre_ping": True,  # Check to see if a connection has closed before use.
-            "pool_recycle": 60 * 5,  # Recreate connections after five minutes.
-            "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
-            **self.config.engine,
-        }
-
-        # Pools that hold nothing between checkouts, such as `NullPool`, reject the sizing
-        # arguments outright, so they only travel with a pool that queues connections.
-        if not issubclass(config["poolclass"], QueuePool):
-            config.pop("pool_size", None)
-            config.pop("max_overflow", None)
-
-        return config
-
-    @override
-    async def _execute_script(self, connection: AsyncConnection, sql: str) -> None:
-        # asyncpg's simple query protocol executes an entire multi-statement string in one
-        # call, including the "$$"-quoted function bodies the baseline schema defines.
-        raw = await connection.get_raw_connection()
-        assert raw.driver_connection is not None
-        await raw.driver_connection.execute(sql)
-
-
-def _ceres_tokenize_bytes(value: bytes) -> str:
-    return tokenize_bytes(value)
-
-
-def _ceres_date_bin(
-    interval: float | object,
-    value: str | object,
-    origin: str | object,
-) -> str | None:
-    if not isinstance(interval, int | float):
-        return None
-    if not isinstance(value, str):
-        return None
-    if not isinstance(origin, str):
-        return None
-
-    value = datetime.fromisoformat(value)
-    origin = datetime.fromisoformat(origin)
-    delta = value - origin
-
-    binned_seconds = (delta.total_seconds() // interval) * interval
-    binned_time = origin + timedelta(seconds=binned_seconds)
-
-    return binned_time.isoformat(" ")
-
-
-def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
-    import sqlite3
-
-    sqlite3.enable_callback_tracebacks(True)
-    connection.create_function("ceres_tokenize_bytes", 1, _ceres_tokenize_bytes)
-    connection.create_function("date_bin", 3, _ceres_date_bin)
-
-
-def _to_turso_parameters(parameters: Any, executemany: bool) -> Any:
-    """Convert bound parameters into the handful of types Turso's driver accepts.
-
-    Only `memoryview` needs converting today, which is how SQLAlchemy presents a binary column.
-
-    Args:
-        parameters: The bound parameters, either one set or a sequence of them.
-        executemany: Whether `parameters` is a sequence of parameter sets.
-
-    Returns:
-        The parameters, with any value the driver would reject replaced by one it accepts.
-    """
-
-    def convert(value: Any) -> Any:
-        return bytes(value) if isinstance(value, memoryview) else value
-
-    def convert_set(values: Any) -> Any:
-        if isinstance(values, dict):
-            return {key: convert(value) for key, value in values.items()}
-
-        if isinstance(values, list | tuple):
-            return type(values)(convert(value) for value in values)
-
-        return values
-
-    if executemany and isinstance(parameters, list | tuple):
-        return type(parameters)(convert_set(values) for values in parameters)
-
-    return convert_set(parameters)
-
-
-def _assert_turso_installed() -> None:
-    """Check that Turso is importable and its SQLAlchemy dialect can be built.
-
-    `pyturso` is an extra, so a deployment that never asks for this backend does not carry it.
-
-    The dialect it registers subclasses SQLAlchemy's aiosqlite dialect, whose constructor reads
-    `dbapi.has_stop`. Turso's DBAPI shim does not define it, so `create_async_engine` raises an
-    `AttributeError` before it ever reaches the database. Defaulting it here keeps that upstream
-    gap from surfacing as an unrelated error, and the attribute can be dropped once a release
-    defines it.
-
-    Raises:
-        DatabaseLoadError: If `pyturso` is not installed.
-    """
-    try:
-        from turso.sqlalchemy.dialect import AsyncAdapt_turso_dbapi
-    except ImportError as error:
-        raise DatabaseLoadError(
-            message=(
-                "The Turso backend needs the 'pyturso' package, which Ceres does not install by "
-                "default. Add it with 'pip install \"ceres[turso]\"', or use the 'sqlite' "
-                "backend, which reads and writes the same file."
-            )
-        ) from error
-
-    if not hasattr(AsyncAdapt_turso_dbapi, "has_stop"):
-        setattr(AsyncAdapt_turso_dbapi, "has_stop", False)  # noqa: B010
-
-
-def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
-    from ceres.alert import AlertRow
-    from ceres.group import GroupMembershipRow, GroupRow
-    from ceres.logs import LogEntryRow
-    from ceres.message import MessageRow
-    from ceres.particle import ParticleRow
-    from ceres.permission import GroupPermissionRow, UserPermissionRow
-    from ceres.setting import SettingRow
-    from ceres.user import UserRow
-    from ceres.variable import VariableRow
-    from ceres.workspace import WorkspaceEditRow, WorkspaceRow
-
-    return [
-        MessageRow,
-        ParticleRow,
-        AlertRow,
-        LogEntryRow,
-        UserRow,
-        SettingRow,
-        VariableRow,
-        WorkspaceRow,
-        WorkspaceEditRow,
-        GroupRow,
-        GroupMembershipRow,
-        UserPermissionRow,
-        GroupPermissionRow,
-    ]

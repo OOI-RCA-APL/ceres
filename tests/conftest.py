@@ -149,16 +149,12 @@ def _pointed_at(name: str, patch: pytest.MonkeyPatch) -> Iterator[None]:
 def _unavailable(name: str) -> str | None:
     """Explain why `name` cannot be run here, or return `None` when it can.
 
-    A backend nobody has installed or started skips its tests rather than failing them, so the
-    suite stays usable without a PostgreSQL server or the optional Turso package. Cached because
-    the answer cannot change during a run and reaching a server to find out is not free.
+    A server nobody has started skips its tests rather than failing them, so the suite stays
+    usable without a PostgreSQL server. Cached because the answer cannot change during a run
+    and reaching a server to find out is not free.
+
+    Turso is compiled into Ceres, so it is always available and never skips.
     """
-    if name == TURSO:
-        from importlib.util import find_spec
-
-        if find_spec("turso") is None:
-            return "the Turso backend needs the optional 'pyturso' package"
-
     if name == POSTGRES:
         from tests import postgres
 
@@ -200,25 +196,12 @@ def setup() -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def database_backend() -> Iterator[None]:
-    """Point unconfigured databases at the backend the run asked for, and track their engines."""
-    from ceres.database import database as module
+    """Point unconfigured databases at the backend the run asked for."""
     from tests import postgres
 
-    create_engine = module.Database._create_engine
-
     try:
-        with pytest.MonkeyPatch.context() as patch:
-            # These engines may pool their connections, so somebody has to close them. Wrapping
-            # engine creation catches every database however a test builds it, including the ones
-            # that pass a config of their own and so never reach `default_database_config`.
-            patch.setattr(
-                module.Database,
-                "_create_engine",
-                lambda self: postgres.track_engine(create_engine(self)),
-            )
-
-            with _pointed_at(_active, patch):
-                yield
+        with pytest.MonkeyPatch.context() as patch, _pointed_at(_active, patch):
+            yield
     finally:
         if _postgres_used:
             postgres.drop_schemas()
@@ -247,15 +230,10 @@ def database(request: pytest.FixtureRequest) -> Iterator[str]:
 
 @pytest.fixture(autouse=True)
 async def release_database_resources(database: str) -> AsyncIterator[None]:
-    """Close a test's connections and return its schemas once it is over.
-
-    Closing runs here rather than in a synchronous fixture because the connections belong to the
-    test's event loop and have to be closed while it is still running.
-    """
+    """Return a test's schemas to the pool once it is over."""
     from tests import postgres
 
     yield
 
-    await postgres.close_engines()
     if _active == POSTGRES:
         postgres.release_schemas()
