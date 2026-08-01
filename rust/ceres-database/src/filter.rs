@@ -794,6 +794,19 @@ impl WireValue<'_> {
     }
 
     /// The value as the scalars it lists, one for plain text.
+    /// The value as one whole, for a field that compares on a serialized structure.
+    ///
+    /// Plain wire text is already the text a value column stores, and a YAML value
+    /// serializes to the same JSON the Python side writes, so a mapping and a sequence
+    /// both cross as themselves rather than as the scalars inside them.
+    fn whole(&self, key: &str) -> Result<String, Refusal> {
+        match self {
+            Self::Text(text) => json_text(text),
+            Self::Yaml(value) => serde_json::to_string(value)
+                .map_err(|_| Refusal::invalid(format!("invalid {key} value"))),
+        }
+    }
+
     fn scalars(&self, key: &str) -> Result<Vec<String>, Refusal> {
         match self {
             Self::Text(text) => Ok(vec![(*text).to_string()]),
@@ -818,9 +831,26 @@ impl WireValue<'_> {
 fn yaml_scalar(value: &Yaml) -> Option<String> {
     match value {
         Yaml::String(text) => Some(text.clone()),
+        // Only a field whose value can be null reaches here holding one, and its stored
+        // text is the JSON spelling.
+        Yaml::Null => Some("null".to_string()),
         Yaml::Number(number) => Some(number.to_string()),
+        // A filter model dumps a boolean field as a JSON boolean rather than as the text
+        // a query string carries, and both spell it the same way.
+        Yaml::Bool(held) => Some(held.to_string()),
         _ => None,
     }
+}
+
+/// Whether naming `None` for a field filters for null rather than not filtering.
+///
+/// A value column stores its JSON text, `null` included, so the null is one of the
+/// values it compares against. Every other family reads an absent value as no filter.
+fn nullable(schema: Schema, key: &str) -> bool {
+    schema
+        .fields
+        .iter()
+        .any(|field| field.key == key && field.family == FieldFamily::JsonValue)
 }
 
 /// Parse one wire YAML value the way the Python `FromYAML` reads it, empty text
@@ -853,6 +883,14 @@ impl Parsed {
     fn apply(&mut self, table: Schema, key: &str, value: &WireValue) -> Result<(), Refusal> {
         match resolve(table, key)? {
             KeyRole::Equality(field) => {
+                // A value column compares on the whole serialized value, so a structure
+                // is one value rather than a set of them and a list is a list rather
+                // than a choice between its elements.
+                if field.family == FieldFamily::JsonValue {
+                    self.node.push_equality(field, &value.whole(key)?)?;
+                    return Ok(());
+                }
+
                 // A boolean field takes one value rather than a set, so a list of them
                 // is a validation error the Python model owns.
                 let scalars = value.scalars(key)?;
@@ -1027,8 +1065,11 @@ impl Parsed {
                 return Err(Refusal::invalid("subfilter keys must be strings"));
             };
 
-            // A null value leaves its field unset, like the Python models.
-            if matches!(value, Yaml::Null) {
+            // A null value leaves its field unset, like the Python models, except on a
+            // field whose own value can be null. A variable's value compares on the text
+            // its column stores, and `null` is one of the texts it stores, so naming it
+            // is a filter rather than the absence of one.
+            if matches!(value, Yaml::Null) && !nullable(table, key) {
                 continue;
             }
 

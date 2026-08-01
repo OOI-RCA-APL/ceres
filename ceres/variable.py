@@ -109,6 +109,8 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
     start with an end with two underscores. For example, `__enabled__`. If `None`, both internal and
     non-internal variables will be matched.
     """
+    __nullable_filters__: ClassVar[frozenset[str]] = frozenset({"value"})
+
     value: FromYAML[JSONSerializable] | None = None
     """Filter by `value` being exactly equal to the given JSON-serializable value.
 

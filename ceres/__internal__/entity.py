@@ -10,7 +10,7 @@ from collections.abc import (
     Sequence,
 )
 from datetime import datetime
-from functools import cache
+from functools import cache, lru_cache
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -28,7 +28,7 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import Field, NonNegativeInt, PrivateAttr, model_validator
+from pydantic import Field, NonNegativeInt, model_validator
 from sqlalchemy import (
     ClauseElement,
     Column,
@@ -81,6 +81,7 @@ from ceres.data import (
     PositiveTimeDelta,
     StrEnum,
     create,
+    to_json,
     uuid7,
 )
 from ceres.database import DatabaseType
@@ -454,27 +455,32 @@ class BaseEntityFilter[
     @abstractmethod
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
-    _native_cache: Any = PrivateAttr(default=None)
+    __nullable_filters__: ClassVar[frozenset[str]] = frozenset()
+    """Fields where naming `None` filters for null rather than not filtering at all.
+
+    Almost every field reads an absent value as "not filtered", so a `None` is dropped
+    before the compiler sees it. A field listed here is one whose `_get_where` asks
+    whether the field was set rather than whether it is `None`, so a caller that named
+    `None` meant the null and the dump has to carry it.
+    """
 
     def _native_dump(self) -> str:
         """Serialize this filter for the native compiler, in its wire JSON form."""
-        return self.model_dump_json(by_alias=True, exclude_none=True)
+        dumped = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        for name in self.__nullable_filters__ & self.model_fields_set:
+            dumped.setdefault(name, None)
+
+        return to_json(dumped)
 
     def _native_filter(self) -> Any:
-        """The native compiler's parsed form of this filter, built once and reused.
+        """The native compiler's parsed form of this filter.
 
         The compiler is the single authority on filter semantics, so the statement a
         query runs is compiled here and in-memory matching reads rows through the same
         parsed filter. Every table the managers serve compiles, so nothing above this
         needs a second path for the ones that do not.
         """
-        if self._native_cache is None:
-            from ceres_core import NativeFilter
-
-            table = self._get_row_cls().__tablename__
-            self._native_cache = NativeFilter.from_json(table, self._native_dump())
-
-        return self._native_cache
+        return _parsed_filter(self._get_row_cls().__tablename__, self._native_dump())
 
     def matches(self, obj: EntityT) -> bool:
         """Test whether `obj` satisfies this filter, including all ``and__`` and ``or__`` subfilters.
@@ -697,6 +703,21 @@ type EntityParser[EntityT] = Callable[[Any], EntityT | None]
 
 _EXECUTOR_STREAM_THRESHOLD = 5000
 _EXECUTOR_PARSE_YIELD_CONTROL_EVERY = 50
+
+
+@lru_cache(maxsize=1024)
+def _parsed_filter(table: str, dump: str) -> Any:
+    """Parse one filter's wire form against its table, reusing an identical parse.
+
+    The cache is keyed on what the filter says rather than held on the filter object,
+    because filters are copied constantly. `with_defaults` returns a copy carrying the
+    original's private attributes, so a cache kept on the instance would follow a filter
+    into a copy that no longer says the same thing, and the copy would run the original's
+    statement.
+    """
+    from ceres_core import NativeFilter
+
+    return NativeFilter.from_json(table, dump)
 
 
 @cache
