@@ -328,14 +328,18 @@ class NativeFilter:
         The `ORDER BY` terms as inline SQL for a dialect, including the table's default
         ordering.
         """
-    def compiled(self, dialect: str, *, count: bool = False) -> tuple[str, list[Any]]:
+    def compiled(
+        self, dialect: str, *, count: bool = False, now: datetime | None = None
+    ) -> tuple[str, list[Any]]:
         r"""
         Compile to SQL and its parameters for a dialect, a listing statement or a count.
 
         The parameters arrive in placeholder order for a driver-level execute, `?` style
-        for the SQLite family and `$n` for PostgreSQL.
+        for the SQLite family and `$n` for PostgreSQL. The caller's clock decides
+        age-relative conditions, and the whole statement resolves it once, so `min_age`
+        and `max_age` in one filter cannot straddle a tick.
         """
-    def exists_compiled(self, dialect: str) -> tuple[str, list[Any]]:
+    def exists_compiled(self, dialect: str, now: datetime | None = None) -> tuple[str, list[Any]]:
         r"""
         Compile the existence check to SQL and its parameters for a dialect.
 

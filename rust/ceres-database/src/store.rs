@@ -263,7 +263,7 @@ impl RecordStore {
             return Ok(filter.table().empty());
         }
 
-        self.select(filter.table(), filter.statement(self.dialect()))
+        self.select(filter.table(), filter.statement(self.dialect(), None))
             .await
     }
 
@@ -282,7 +282,7 @@ impl RecordStore {
         }
 
         let table = filter.table();
-        let statement = filter.statement(self.dialect());
+        let statement = filter.statement(self.dialect(), None);
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
@@ -318,7 +318,7 @@ impl RecordStore {
         }
 
         let table = filter.table();
-        let statement = filter.statement(self.dialect());
+        let statement = filter.statement(self.dialect(), None);
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
@@ -360,7 +360,7 @@ impl RecordStore {
             return Ok(0);
         }
 
-        self.scalar_count(filter.count_statement(self.dialect()))
+        self.scalar_count(filter.count_statement(self.dialect(), None))
             .await
     }
 
@@ -373,7 +373,7 @@ impl RecordStore {
             return Ok(false);
         }
 
-        let statement = filter.exists_statement(self.dialect());
+        let statement = filter.exists_statement(self.dialect(), None);
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
@@ -407,7 +407,8 @@ impl RecordStore {
             return Ok(0);
         }
 
-        self.write(filter.delete_statement(self.dialect())).await
+        self.write(filter.delete_statement(self.dialect(), None))
+            .await
     }
 
     /// Assign values to the records a parsed native filter matches, returning how many
@@ -422,7 +423,7 @@ impl RecordStore {
             return Ok(0);
         }
 
-        self.write(filter.update_statement(self.dialect(), &assignments))
+        self.write(filter.update_statement(self.dialect(), &assignments, None))
             .await
     }
 
@@ -439,7 +440,7 @@ impl RecordStore {
             return Ok(filter.table().empty());
         }
 
-        let mut statement = filter.update_statement(self.dialect(), &assignments);
+        let mut statement = filter.update_statement(self.dialect(), &assignments, None);
         statement.returning_all();
         self.write_returning(filter.table(), statement).await
     }
@@ -451,7 +452,7 @@ impl RecordStore {
             return Ok(filter.table().empty());
         }
 
-        let mut statement = filter.delete_statement(self.dialect());
+        let mut statement = filter.delete_statement(self.dialect(), None);
         statement.returning_all();
         self.write_returning(filter.table(), statement).await
     }
@@ -644,7 +645,7 @@ impl RecordStore {
             return Ok(filter.table().empty());
         }
 
-        let statement = filter.statement(self.dialect());
+        let statement = filter.statement(self.dialect(), None);
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
@@ -675,7 +676,7 @@ impl RecordStore {
             return Ok(0);
         }
 
-        self.scalar_count(filter.count_statement(self.dialect()))
+        self.scalar_count(filter.count_statement(self.dialect(), None))
             .await
     }
 
@@ -685,7 +686,7 @@ impl RecordStore {
             return Ok(false);
         }
 
-        let statement = filter.exists_statement(self.dialect());
+        let statement = filter.exists_statement(self.dialect(), None);
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
@@ -717,7 +718,8 @@ impl RecordStore {
             return Ok(0);
         }
 
-        self.write(filter.delete_statement(self.dialect())).await
+        self.write(filter.delete_statement(self.dialect(), None))
+            .await
     }
 
     /// Read an entity update's assignment object, with the credential rules applied.
@@ -782,7 +784,7 @@ impl RecordStore {
             return Ok(0);
         }
 
-        self.write(filter.update_statement(self.dialect(), &assignments))
+        self.write(filter.update_statement(self.dialect(), &assignments, None))
             .await
     }
 
@@ -800,7 +802,7 @@ impl RecordStore {
             return Ok(filter.table().empty());
         }
 
-        let mut statement = filter.update_statement(self.dialect(), &assignments);
+        let mut statement = filter.update_statement(self.dialect(), &assignments, None);
         statement.returning_all();
         self.write_returning_entities(filter.table(), statement)
             .await
@@ -816,7 +818,7 @@ impl RecordStore {
             return Ok(filter.table().empty());
         }
 
-        let mut statement = filter.delete_statement(self.dialect());
+        let mut statement = filter.delete_statement(self.dialect(), None);
         statement.returning_all();
         self.write_returning_entities(filter.table(), statement)
             .await

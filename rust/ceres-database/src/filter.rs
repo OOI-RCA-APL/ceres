@@ -293,18 +293,27 @@ impl Filter {
     ///
     /// The parameters arrive in placeholder order, ready for a driver-level execute,
     /// `?` for the SQLite family and `$n` for PostgreSQL.
-    pub fn compiled(&self, dialect: SqlDialect, count: bool) -> (String, Vec<Value>) {
+    pub fn compiled(
+        &self,
+        dialect: SqlDialect,
+        count: bool,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
         let statement = if count {
-            self.count_statement(dialect)
+            self.count_statement(dialect, now)
         } else {
-            self.statement(dialect)
+            self.statement(dialect, now)
         };
         build(statement, dialect)
     }
 
     /// Compile the existence check to SQL and its bound parameters.
-    pub fn exists_compiled(&self, dialect: SqlDialect) -> (String, Vec<Value>) {
-        build(self.exists_statement(dialect), dialect)
+    pub fn exists_compiled(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
+        build(self.exists_statement(dialect, now), dialect)
     }
 
     /// The combined `WHERE` conditions rendered as inline SQL, `None` when the filter
@@ -313,9 +322,7 @@ impl Filter {
     /// The text embeds into a statement another engine builds, the Python session's,
     /// so values render as literals rather than binds.
     pub fn where_sql(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> Option<String> {
-        let now = now
-            .unwrap_or_else(|| Utc::now().naive_utc())
-            .trunc_subsecs(6);
+        let now = resolve_now(now);
         let conditions = self.node.combined_conditions(self.schema, dialect, now);
         if conditions.is_empty() {
             return None;
@@ -353,17 +360,13 @@ impl Filter {
         let fields: std::collections::HashMap<&str, &serde_json::value::RawValue> =
             serde_json::from_str(record_json)
                 .map_err(|error| format!("unreadable record: {error}"))?;
-        let now = now
-            .unwrap_or_else(|| Utc::now().naive_utc())
-            .trunc_subsecs(6);
+        let now = resolve_now(now);
         Ok(self.node.matches(self.schema, &fields, now))
     }
 
     /// Build the listing statement, mirroring the Python layer's `apply`.
-    pub fn statement(&self, dialect: SqlDialect) -> SelectStatement {
-        // `now` truncates to microseconds so arithmetic and rendering match Python's
-        // `datetime` resolution exactly, and every node shares one instant.
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+    pub fn statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> SelectStatement {
+        let now = resolve_now(now);
         let mut statement = Query::select();
         statement
             .column(Asterisk)
@@ -395,8 +398,12 @@ impl Filter {
     ///
     /// A limit or offset bounds the count itself, matching the Python layer, which
     /// counts over the paged primary-key subquery in that case.
-    pub fn count_statement(&self, dialect: SqlDialect) -> SelectStatement {
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+    pub fn count_statement(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> SelectStatement {
+        let now = resolve_now(now);
         if self.limit.is_none() && self.offset.is_none() {
             let mut statement = Query::select();
             statement
@@ -444,8 +451,12 @@ impl Filter {
     ///
     /// Ordering never changes whether a row exists, and the Python layer ignores it here
     /// too, so the inner query carries only the conditions and the page bounds.
-    pub fn exists_statement(&self, dialect: SqlDialect) -> SelectStatement {
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+    pub fn exists_statement(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> SelectStatement {
+        let now = resolve_now(now);
         let mut inner = Query::select();
         inner.column(Asterisk).from(Alias::new(self.schema.name()));
         for condition in self.node.combined_conditions(self.schema, dialect, now) {
@@ -469,12 +480,11 @@ impl Filter {
 
     /// The primary keys the filter's page selects, `None` when the filter names no
     /// page and the caller can therefore match rows in place.
-    fn paged_keys(&self, dialect: SqlDialect) -> Option<SelectStatement> {
+    fn paged_keys(&self, dialect: SqlDialect, now: NaiveDateTime) -> Option<SelectStatement> {
         if self.limit.is_none() && self.offset.is_none() {
             return None;
         }
 
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
         let mut keys = Query::select();
         keys.from(Alias::new(self.schema.name()));
         for column in self.schema.key {
@@ -524,11 +534,11 @@ impl Filter {
     /// Without a page the conditions apply in place. With one the statement deletes the
     /// keys its ordered page names, because a `DELETE` carries neither ordering nor
     /// pagination of its own.
-    fn delete_statement(&self, dialect: SqlDialect) -> DeleteStatement {
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+    fn delete_statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> DeleteStatement {
+        let now = resolve_now(now);
         let mut statement = Query::delete();
         statement.from_table(Alias::new(self.schema.name()));
-        match self.paged_keys(dialect) {
+        match self.paged_keys(dialect, now) {
             Some(keys) => {
                 statement.and_where(self.key_expression().in_subquery(keys));
             }
@@ -547,15 +557,16 @@ impl Filter {
         &self,
         dialect: SqlDialect,
         assignments: &[crate::assign::Assignment],
+        now: Option<NaiveDateTime>,
     ) -> UpdateStatement {
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+        let now = resolve_now(now);
         let mut statement = Query::update();
         statement.table(Alias::new(self.schema.name()));
         for assignment in assignments {
             statement.value(Alias::new(assignment.column), assignment.value.clone());
         }
 
-        match self.paged_keys(dialect) {
+        match self.paged_keys(dialect, now) {
             Some(keys) => {
                 statement.and_where(self.key_expression().in_subquery(keys));
             }
@@ -683,23 +694,39 @@ macro_rules! filter_surface {
             }
 
             /// Build the listing statement, mirroring the Python layer's `apply`.
-            pub fn statement(&self, dialect: SqlDialect) -> SelectStatement {
-                self.filter.statement(dialect)
+            pub fn statement(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> SelectStatement {
+                self.filter.statement(dialect, now)
             }
 
             /// Build the count statement.
-            pub fn count_statement(&self, dialect: SqlDialect) -> SelectStatement {
-                self.filter.count_statement(dialect)
+            pub fn count_statement(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> SelectStatement {
+                self.filter.count_statement(dialect, now)
             }
 
             /// Build the existence statement, `SELECT EXISTS (...)`.
-            pub fn exists_statement(&self, dialect: SqlDialect) -> SelectStatement {
-                self.filter.exists_statement(dialect)
+            pub fn exists_statement(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> SelectStatement {
+                self.filter.exists_statement(dialect, now)
             }
 
             /// Build the delete statement, mirroring the Python layer's `apply`.
-            pub fn delete_statement(&self, dialect: SqlDialect) -> DeleteStatement {
-                self.filter.delete_statement(dialect)
+            pub fn delete_statement(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> DeleteStatement {
+                self.filter.delete_statement(dialect, now)
             }
 
             /// Compile to SQL and its bound parameters, in the dialect's placeholder
@@ -707,13 +734,22 @@ macro_rules! filter_surface {
             ///
             /// The parameters arrive in placeholder order, ready for a driver-level
             /// execute, `?` for the SQLite family and `$n` for PostgreSQL.
-            pub fn compiled(&self, dialect: SqlDialect, count: bool) -> (String, Vec<Value>) {
-                self.filter.compiled(dialect, count)
+            pub fn compiled(
+                &self,
+                dialect: SqlDialect,
+                count: bool,
+                now: Option<NaiveDateTime>,
+            ) -> (String, Vec<Value>) {
+                self.filter.compiled(dialect, count, now)
             }
 
             /// Compile the existence check to SQL and its bound parameters.
-            pub fn exists_compiled(&self, dialect: SqlDialect) -> (String, Vec<Value>) {
-                self.filter.exists_compiled(dialect)
+            pub fn exists_compiled(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> (String, Vec<Value>) {
+                self.filter.exists_compiled(dialect, now)
             }
 
             /// The combined `WHERE` conditions rendered as inline SQL, `None` when the
@@ -747,8 +783,9 @@ macro_rules! filter_surface {
                 &self,
                 dialect: SqlDialect,
                 assignments: &[crate::assign::Assignment],
+                now: Option<NaiveDateTime>,
             ) -> UpdateStatement {
-                self.filter.update_statement(dialect, assignments)
+                self.filter.update_statement(dialect, assignments, now)
             }
         }
     };
@@ -822,6 +859,21 @@ impl WireValue<'_> {
                 .ok_or_else(|| Refusal::invalid(format!("invalid {key} value"))),
         }
     }
+}
+
+/// The instant age-relative conditions compare against, the caller's clock when it names
+/// one and the wall clock otherwise.
+///
+/// A caller naming one is how a Python session under a faked or frozen time stays
+/// authoritative, because the clock the filter language means is the one the session
+/// reads. Truncating to microseconds matches Python's `datetime` resolution exactly, so
+/// arithmetic and rendering agree on both sides.
+///
+/// One statement resolves this once and shares it across every node it builds, which is
+/// what keeps `min_age` and `max_age` in the same filter from straddling a tick.
+fn resolve_now(now: Option<NaiveDateTime>) -> NaiveDateTime {
+    now.unwrap_or_else(|| Utc::now().naive_utc())
+        .trunc_subsecs(6)
 }
 
 /// One YAML scalar in the text form the wire parsers read, `None` for the rest.
@@ -2755,7 +2807,7 @@ mod tests {
     fn entity_sql(table: EntityTable, entries: &[(&str, &str)]) -> String {
         EntityFilter::parse(table, &pairs(entries))
             .expect("the filter parses")
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder)
     }
 
@@ -2781,11 +2833,36 @@ mod tests {
     }
 
     #[test]
+    fn one_statement_resolves_the_clock_once() {
+        // A caller's clock reaches every age-relative condition in the statement, and
+        // reaches all of them as the same instant. Resolving per condition would let
+        // `min_age` and `max_age` straddle a tick and render a window that excludes a
+        // row sitting exactly on the boundary.
+        let now = NaiveDateTime::parse_from_str("2026-07-31 12:00:00", "%Y-%m-%d %H:%M:%S")
+            .expect("the instant parses");
+        let sql = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("max_age", "PT1H"), ("min_age", "PT1H")]),
+        )
+        .expect("the filter parses")
+        .statement(SqlDialect::SqliteText, Some(now))
+        .to_string(SqliteQueryBuilder);
+
+        // Both bounds land on the same hour-old instant, so the pair reads as one point
+        // rather than as a window whose ends were measured a tick apart.
+        assert!(
+            sql.contains("\"timestamp\" > '2026-07-31 11:00:00.000000'")
+                && sql.contains("\"timestamp\" <= '2026-07-31 11:00:00.000000'"),
+            "{sql}"
+        );
+    }
+
+    #[test]
     fn a_composite_key_narrows_a_paged_write_by_row_value() {
         // Without a page the conditions apply in place, whatever the key looks like.
         let plain = EntityFilter::parse(EntityTable::Variables, &pairs(&[("name", "x")]))
             .unwrap()
-            .delete_statement(SqlDialect::SqliteText)
+            .delete_statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert_eq!(
             plain, "DELETE FROM \"variables\" WHERE \"name\" = 'x'",
@@ -2796,7 +2873,7 @@ mod tests {
         // builds `tuple_(*pk).in_(...)` for a composite primary key.
         let paged = EntityFilter::parse(EntityTable::Variables, &pairs(&[("limit", "2")]))
             .unwrap()
-            .delete_statement(SqlDialect::SqliteText)
+            .delete_statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             paged.starts_with(
@@ -2809,7 +2886,7 @@ mod tests {
         // A single key column stays a plain membership test.
         let single = EntityFilter::parse(EntityTable::Users, &pairs(&[("limit", "2")]))
             .unwrap()
-            .delete_statement(SqlDialect::SqliteText)
+            .delete_statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             single.starts_with("DELETE FROM \"users\" WHERE \"id\" IN (SELECT \"id\""),
@@ -2843,7 +2920,7 @@ mod tests {
 
         let postgres = EntityFilter::parse(EntityTable::Users, &pairs(&[("email_prefix", "Ada")]))
             .unwrap()
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             postgres.contains("\"email\" ILIKE 'Ada%' ESCAPE '^'"),
@@ -2956,7 +3033,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("\"timestamp\" IN (SELECT MIN(\"timestamp\") FROM \"particles\""),
@@ -2966,7 +3043,7 @@ mod tests {
         assert!(sql.contains("/ 60000000) AS INTEGER)"), "{sql}");
 
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("GROUP BY date_bin(INTERVAL '60000000 microseconds', \"timestamp\", TIMESTAMPTZ '2026-07-30 00:00:00.000000+00')"),
@@ -2985,7 +3062,7 @@ mod tests {
         )
         .unwrap();
         let sql = counted
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("SELECT MAX(\"timestamp\")"), "{sql}");
         assert!(sql.contains("/ 60000000) AS INTEGER)"), "{sql}");
@@ -3121,7 +3198,7 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert_eq!(
             sql,
@@ -3134,7 +3211,7 @@ mod tests {
     fn single_values_compile_to_equality_and_lists_to_in() {
         let single = RecordFilter::parse(RecordTable::Logs, &pairs(&[("level", "info")])).unwrap();
         let sql = single
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"level\" = 'info'"), "{sql}");
 
@@ -3144,7 +3221,7 @@ mod tests {
         )
         .unwrap();
         let sql = several
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"level\" IN ('info', 'error')"), "{sql}");
     }
@@ -3161,7 +3238,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains(
@@ -3178,7 +3255,7 @@ mod tests {
         )
         .unwrap();
         let sql = open
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("WHERE \"connection\" = 'serial' OR TRUE"),
@@ -3192,7 +3269,7 @@ mod tests {
         )
         .unwrap();
         let sql = both
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("WHERE \"connection\" = 'serial' AND \"direction\" = 'send'"),
@@ -3206,7 +3283,7 @@ mod tests {
         )
         .unwrap();
         let sql = nested
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("WHERE \"connection\" = 'network' AND \"direction\" = 'send'"),
@@ -3227,7 +3304,7 @@ mod tests {
         assert_eq!(filter.limit(), Some(3));
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("ORDER BY \"timestamp\" DESC LIMIT 3 OFFSET 2"),
@@ -3273,7 +3350,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("GLOB '@deck.*'"), "{sql}");
 
@@ -3283,7 +3360,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("\"address\" = '@a' OR (\"address\" GLOB '@b.*')"),
@@ -3300,13 +3377,13 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"type\" GLOB '*temp_high*'"), "{sql}");
         assert!(sql.contains("\"type\" GLOB 'd[[]o]or*'"), "{sql}");
 
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("\"type\" LIKE '%temp^_high%' ESCAPE '^'"),
@@ -3324,7 +3401,7 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("(\"content\" GLOB '*warm*') OR (\"content\" GLOB '*cold*')"),
@@ -3339,7 +3416,7 @@ mod tests {
                 .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("CAST(\"data\" AS TEXT) GLOB '*sensor*'"),
@@ -3356,14 +3433,14 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("instr(\"data\", x'6162') > 0"), "{sql}");
         assert!(sql.contains("substr(\"data\", 1, 1) = x'78'"), "{sql}");
         assert!(sql.contains("substr(\"data\", -2) = x'797A'"), "{sql}");
 
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("ceres_tokenize_bytes(\"data\") LIKE '%61 62 %' ESCAPE '^'"),
@@ -3388,7 +3465,7 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"data\" IN (x'6162', x'6364')"), "{sql}");
     }
@@ -3399,7 +3476,7 @@ mod tests {
         let all_empty =
             RecordFilter::parse(RecordTable::Logs, &pairs(&[("contains", "")])).unwrap();
         let sql = all_empty
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("WHERE TRUE"), "{sql}");
 
@@ -3410,7 +3487,7 @@ mod tests {
         )
         .unwrap();
         let sql = mixed
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("(\"content\" GLOB '**') OR (\"content\" GLOB '*x*')"),
@@ -3423,7 +3500,7 @@ mod tests {
         let filter =
             RecordFilter::parse(RecordTable::Messages, &pairs(&[("order", "data:desc")])).unwrap();
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(sql.contains("ORDER BY \"data\" DESC"), "{sql}");
     }
@@ -3433,7 +3510,7 @@ mod tests {
         let filter =
             RecordFilter::parse(RecordTable::Particles, &pairs(&[("limit", "5")])).unwrap();
         let sql = filter
-            .count_statement(SqlDialect::SqliteText)
+            .count_statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert_eq!(
             sql,
@@ -3446,14 +3523,14 @@ mod tests {
     fn uuid_columns_never_collate_on_postgres() {
         let by_id = RecordFilter::parse(RecordTable::Logs, &pairs(&[("order", "id")])).unwrap();
         let sql = by_id
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(sql.contains("ORDER BY \"id\" ASC"), "{sql}");
 
         let by_content =
             RecordFilter::parse(RecordTable::Logs, &pairs(&[("order", "content:desc")])).unwrap();
         let sql = by_content
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("ORDER BY \"content\" COLLATE \"C\" DESC"),
@@ -3509,7 +3586,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains(
@@ -3520,7 +3597,7 @@ mod tests {
         );
 
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("(date_part('hour', \"timestamp\" AT TIME ZONE 'UTC')) >= 9"),
@@ -3534,7 +3611,7 @@ mod tests {
         )
         .unwrap();
         let sql = wrapped
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains(
