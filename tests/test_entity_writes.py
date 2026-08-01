@@ -8,7 +8,9 @@ has to come back the same either way.
 import pytest
 
 from ceres.address import Address
+from ceres.alert import Alert
 from ceres.database import Database
+from ceres.level import Level
 from ceres.message import Message, MessageDirection
 from ceres.variable import Variable
 
@@ -45,6 +47,57 @@ async def test_updating_a_binary_column_keeps_every_byte() -> None:
         again = await database.messages.get(created.id)
         assert again is not None
         assert again.data == b"\xff\xfe\x00\x7f"
+    finally:
+        await database.dispose()
+
+
+async def test_a_document_column_stores_a_null_as_a_value() -> None:
+    """A variable holding `None` holds the JSON null, not an empty column.
+
+    The column is not nullable, so writing SQL NULL would be refused outright. It is the
+    one place a null means a value rather than the absence of one, and it has to read back
+    as `None` rather than as the string "null".
+    """
+    database = await _database()
+    try:
+        created = await database.variables.create(
+            Variable.Create(address=Address("@sensor"), name="reading", value=None)
+        )
+        assert created.value is None
+
+        stored = await database.variables.where(address=Address("@sensor"), name="reading").first()
+        assert stored is not None and stored.value is None
+
+        # And the same on the way through an update, which encodes by the same rule.
+        assert await database.variables.where(name="reading").update({"value": 1}) == 1
+        assert await database.variables.where(name="reading").update({"value": None}) == 1
+
+        cleared = await database.variables.where(name="reading").first()
+        assert cleared is not None and cleared.value is None
+    finally:
+        await database.dispose()
+
+
+async def test_a_document_column_keeps_the_key_order_it_was_given() -> None:
+    """A stored document reads back as the text it was written as.
+
+    PostgreSQL's `json` keeps what it was given while its `jsonb` normalizes, sorting keys
+    on the way in. `data_contains` matches against that stored text, so a document written
+    as `jsonb` would be searched in an order nobody wrote, and a substring spanning two
+    keys would miss the very row that had just been stored.
+    """
+    database = await _database()
+    try:
+        # `jsonb` would sort these the other way round, "name" being the shorter key.
+        data = {"number": 123, "name": "abc"}
+        created = await database.alerts.create(
+            Alert.Create(address=Address("@sensor"), level=Level.INFO, type="ordered", data=data)
+        )
+        assert list(created.data) == ["number", "name"]
+
+        found = await database.alerts.where(data_contains='"number"').all()
+        assert [alert.id for alert in found] == [created.id]
+        assert list(found[0].data) == ["number", "name"]
     finally:
         await database.dispose()
 

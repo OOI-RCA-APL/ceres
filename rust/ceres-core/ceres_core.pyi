@@ -624,6 +624,11 @@ class RecordFetcher:
         Open a fetcher over a SQLite database file.
         """
     @staticmethod
+    def turso(path: str, mvcc: bool) -> RecordFetcher:
+        r"""
+        Open a fetcher over a Turso database file.
+        """
+    @staticmethod
     def postgres(
         host: str,
         database: str,
@@ -686,6 +691,11 @@ class RecordWriter:
     def sqlite(path: str) -> RecordWriter:
         r"""
         Open a writer over a SQLite database file.
+        """
+    @staticmethod
+    def turso(path: str, mvcc: bool) -> RecordWriter:
+        r"""
+        Open a writer over a Turso database file.
         """
     @staticmethod
     def postgres(

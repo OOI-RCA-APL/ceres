@@ -51,12 +51,11 @@ impl TursoBackend {
         let database = self
             .database
             .get_or_try_init(|| async {
-                // The file's lifecycle belongs to the Python layer, opening a missing
-                // path would create an empty database beside the real one.
-                if !std::path::Path::new(&self.path).exists() {
-                    return Err(Error::Connect(format!("no database file at {}", self.path)));
-                }
-
+                // A missing file is created, because this is what runs a database's
+                // migrations and a database has no file before its first one. Callers that
+                // mean to read an existing database check for it themselves and say so, an
+                // empty database being a worse answer than a refusal for anyone who pointed
+                // at the wrong path.
                 turso::Builder::new_local(&self.path)
                     .build()
                     .await
@@ -1013,12 +1012,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_files_refuse_to_open() {
+    async fn a_missing_file_is_created_but_a_missing_directory_is_not() {
+        // A database has no file before its first migration, so opening one creates it.
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("fresh.turso");
+        let store = RecordStore::turso(path.to_str().expect("the path is text"), false);
+        // Nothing has created the schema, so the table is missing rather than the file.
+        assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
+        assert!(path.exists(), "opening the database created its file");
+
+        // A path whose directory does not exist is still someone pointing at nothing.
         let store = RecordStore::turso("/nonexistent/records.turso", false);
-        let error = store
-            .fetch(RecordTable::Logs, None, None)
-            .await
-            .unwrap_err();
-        assert!(matches!(error, Error::Connect(_)));
+        assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
     }
 }

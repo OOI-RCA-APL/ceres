@@ -318,13 +318,21 @@ async def test_native_fetches_match_on_postgres(database: str) -> None:
 
 
 @pytest.mark.databases("turso")
-async def test_turso_databases_report_no_native_paths(database: str) -> None:
-    """Turso databases keep the query layer's paths, a second engine copy in the same
-    process would bypass Turso's file lock and corrupt the WAL.
+async def test_turso_databases_serve_the_native_paths(database: str) -> None:
+    """Turso reads and writes through the same engine everything else does.
+
+    Turso coordinates the engines sharing a file through in-process state and an fcntl
+    lock, and fcntl locks never conflict within one process, so two copies of the engine
+    here would overwrite each other's WAL frames. There is one copy now, which is what
+    makes this safe rather than the paths having become safe on their own.
     """
     db = Database()
-    assert db._record_fetcher() is None
-    assert db._record_writer() is None
+    try:
+        assert db._record_fetcher() is not None
+        assert db._record_writer() is not None
+        assert db._store() is not None
+    finally:
+        await db.dispose()
 
 
 async def test_typed_particle_queries_keep_the_materializing_path() -> None:

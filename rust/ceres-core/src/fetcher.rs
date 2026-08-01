@@ -112,6 +112,15 @@ impl RecordFetcher {
         })
     }
 
+    /// Open a fetcher over a Turso database file.
+    #[staticmethod]
+    fn turso(path: &str, mvcc: bool) -> PyResult<Self> {
+        let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
+        Ok(Self {
+            store: Arc::new(RecordStore::turso(path, mvcc)),
+        })
+    }
+
     /// Open a fetcher over a PostgreSQL database.
     ///
     /// `settings` are per-connection server settings like `search_path`, matching the ones
@@ -484,6 +493,15 @@ impl RecordWriter {
         let writer = ceres_database::RecordWriter::sqlite(path).map_err(to_value_error)?;
         Ok(Self {
             writer: Arc::new(writer),
+        })
+    }
+
+    /// Open a writer over a Turso database file.
+    #[staticmethod]
+    fn turso(path: &str, mvcc: bool) -> PyResult<Self> {
+        let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
+        Ok(Self {
+            writer: Arc::new(ceres_database::RecordWriter::turso(path, mvcc)),
         })
     }
 

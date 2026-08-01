@@ -156,6 +156,21 @@ pub fn insert_compiled(
     Ok((sql, values.0))
 }
 
+/// A JSON document as the value its column stores.
+///
+/// Both backends store the document's text, so both bind text. PostgreSQL's `json` keeps
+/// what it was given, key order included, and only casts to it here rather than binding a
+/// document object, which would arrive as `jsonb` and be normalized on the way in. That
+/// normalization reorders keys, and a filter comparing the stored text would then miss the
+/// row it wrote.
+fn json_text(value: &Value, dialect: Dialect) -> SimpleExpr {
+    let text = value.to_string();
+    match dialect {
+        Dialect::Sqlite => text.into(),
+        Dialect::Postgres => SimpleExpr::from(text).cast_as(sea_query::Alias::new("json")),
+    }
+}
+
 /// The columns an update may assign, which is every column that is not identity.
 fn assignable(schema: Schema) -> Vec<&'static str> {
     schema
@@ -198,7 +213,12 @@ fn shown(value: &Value) -> String {
 fn encode(family: &FieldFamily, value: &Value, dialect: Dialect) -> Result<SimpleExpr, String> {
     // A null clears a nullable column. The database rejects it on a column that is not
     // nullable, which rolls the transaction back and reports.
-    if value.is_null() {
+    //
+    // A column holding a whole JSON document is the exception. There a null is a value the
+    // document can take rather than the absence of one, so it stores as the JSON `null` and
+    // reads back as one. Clearing such a column would be a different thing, and no column
+    // that stores a document is nullable anyway.
+    if value.is_null() && !matches!(family, FieldFamily::JsonValue) {
         return Ok(SimpleExpr::Keyword(sea_query::Keyword::Null));
     }
 
@@ -259,21 +279,15 @@ fn encode(family: &FieldFamily, value: &Value, dialect: Dialect) -> Result<Simpl
                 return Err("takes an object".to_string());
             }
 
-            match dialect {
-                Dialect::Sqlite => value.to_string().into(),
-                Dialect::Postgres => value.clone().into(),
-            }
+            json_text(value, dialect)
         }
         FieldFamily::Boolean => value
             .as_bool()
             .ok_or_else(|| "takes true or false".to_string())?
             .into(),
-        // A value column takes whatever JSON it was given, stored as its text on the
-        // SQLite family the way the query layer writes it.
-        FieldFamily::JsonValue => match dialect {
-            Dialect::Sqlite => value.to_string().into(),
-            Dialect::Postgres => value.clone().into(),
-        },
+        // A value column takes whatever JSON it was given, stored as its text the way the
+        // query layer writes it.
+        FieldFamily::JsonValue => json_text(value, dialect),
         FieldFamily::PlainAddress => Address::parse(text(value, "an address")?)
             .map_err(|_| "takes an address, which starts with `@`".to_string())?
             .as_str()

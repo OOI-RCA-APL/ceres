@@ -938,27 +938,22 @@ class TursoDatabase(SQLiteDatabase):
         return Store.turso(str(self.path), self.config.mvcc)
 
     @override
-    def _store(self) -> Store | None:
-        # Withheld for the same reason as the fetcher below, and the query layer is the
-        # other engine in that pair, so running it on a store here is exactly the two
-        # copies that lose each other's writes.
-        return None
-
-    @override
     def _record_fetcher(self) -> RecordFetcher | None:
-        # Turso coordinates the engines sharing a database file through in-process state
-        # and an fcntl file lock. A second copy of the engine in the same process, which
-        # is exactly what a native fetcher would be next to the driver's, bypasses both,
-        # because fcntl locks never conflict within one process. The two copies then
-        # overwrite each other's WAL frames, verified empirically as lost committed
-        # writes. Native record paths for this backend wait until the Rust core owns the
-        # only engine in the process.
-        return None
+        fetcher = getattr(self, "_native_record_fetcher", None)
+        if fetcher is None:
+            fetcher = RecordFetcher.turso(str(self.path), self.config.mvcc)
+            self._native_record_fetcher = fetcher
+
+        return fetcher
 
     @override
     def _record_writer(self) -> RecordWriter | None:
-        # Withheld for the same reasons as the fetcher, and doubly so for writes.
-        return None
+        writer = getattr(self, "_native_record_writer", None)
+        if writer is None:
+            writer = RecordWriter.turso(str(self.path), self.config.mvcc)
+            self._native_record_writer = writer
+
+        return writer
 
     @property
     @override

@@ -372,10 +372,7 @@ fn group_permission_values(permission: &GroupPermission, dialect: Dialect) -> Ve
 
 /// Bind a bare JSON value, stored as its text on the SQLite family.
 fn bare_json_value(value: &serde_json::Value, dialect: Dialect) -> SimpleExpr {
-    match dialect {
-        Dialect::Sqlite => value.to_string().into(),
-        Dialect::Postgres => value.clone().into(),
-    }
+    json_text(&value.to_string(), dialect)
 }
 
 /// Open an insert over a table's columns, `None` when there is nothing to bind.
@@ -499,10 +496,22 @@ fn timestamp_value(timestamp: &ceres_entities::Timestamp, dialect: Dialect) -> S
 }
 
 fn json_value(data: &serde_json::Map<String, serde_json::Value>, dialect: Dialect) -> SimpleExpr {
+    json_text(
+        &serde_json::Value::Object(data.clone()).to_string(),
+        dialect,
+    )
+}
+
+/// A JSON document's text as the value its column stores.
+///
+/// Both backends store the text, matching the query layer's writer. PostgreSQL casts to
+/// `json` rather than binding a document object, which would arrive as `jsonb` and be
+/// normalized, sorting its keys. The stored text is what a `contains` filter searches, so
+/// a document written as `jsonb` would be searched in an order nobody wrote it in.
+fn json_text(text: &str, dialect: Dialect) -> SimpleExpr {
     match dialect {
-        // JSON columns store compact text on SQLite, matching the query layer's writer.
-        Dialect::Sqlite => serde_json::Value::Object(data.clone()).to_string().into(),
-        Dialect::Postgres => serde_json::Value::Object(data.clone()).into(),
+        Dialect::Sqlite => text.into(),
+        Dialect::Postgres => SimpleExpr::from(text).cast_as(sea_query::Alias::new("json")),
     }
 }
 
