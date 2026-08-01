@@ -620,49 +620,70 @@ pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<boo
 /// The rules mirror the Python layer's own native-pool gating, an in-memory or
 /// unpathed file database is private to its instance, and a PostgreSQL configuration
 /// carrying driver-specific connection arguments cannot be reproduced faithfully.
-pub(crate) fn open_store(config: &DatabaseConfig, writing: bool) -> Option<RecordStore> {
+pub(crate) fn open_store(
+    config: &DatabaseConfig,
+    writing: bool,
+) -> std::result::Result<RecordStore, String> {
     match config {
         DatabaseConfig::Sqlite(sqlite) => {
+            // An in-memory database belongs to the process that made it, and this is a
+            // different process, so there is nothing here to read or write. Saying so
+            // beats reporting an empty table as though it were the answer.
             if sqlite.is_memory() {
-                return None;
+                return Err(
+                    "This project's database is in memory, which lives only inside the                      engine's own process. Point `database.path` at a file to read it from                      here."
+                        .to_string(),
+                );
             }
 
-            let path = absolute_existing(sqlite.path.as_deref()?)?;
+            let path = existing(sqlite.path.as_deref())?;
             if writing {
-                RecordStore::sqlite_writable(&path).ok()
+                RecordStore::sqlite_writable(&path)
             } else {
-                RecordStore::sqlite(&path).ok()
+                RecordStore::sqlite(&path)
             }
+            .map_err(|error| format!("Cannot open {path}. {error}"))
         }
         DatabaseConfig::Turso(turso) => {
-            // Turso keeps the Python write path until its native writer is wired.
-            if writing {
-                return None;
-            }
-
-            let path = absolute_existing(turso.path.as_deref()?)?;
-            Some(RecordStore::turso(&path, turso.mvcc))
+            let path = existing(turso.path.as_deref())?;
+            Ok(RecordStore::turso(&path, turso.mvcc))
         }
         DatabaseConfig::Postgres(postgres) => {
-            if postgres.shared.query.is_some() {
-                return None;
-            }
-
+            // Server settings shape what a query sees, `search_path` above all, so they
+            // are forwarded. Any other driver argument is a Python library's own, and
+            // guessing at one would silently change how the connection behaves.
             let mut settings = Vec::new();
             for (key, value) in &postgres.shared.engine {
                 if key != "connect_args" {
-                    return None;
+                    return Err(unsupported(key));
                 }
 
-                let arguments = value.as_object()?;
+                let Some(arguments) = value.as_object() else {
+                    return Err(unsupported(key));
+                };
                 for (name, value) in arguments {
                     if name != "server_settings" {
-                        return None;
+                        return Err(unsupported(name));
                     }
 
-                    for (setting, text) in value.as_object()? {
-                        settings.push((setting.clone(), text.as_str()?.to_string()));
+                    let Some(held) = value.as_object() else {
+                        return Err(unsupported(name));
+                    };
+                    for (setting, text) in held {
+                        let Some(text) = text.as_str() else {
+                            return Err(unsupported(setting));
+                        };
+                        settings.push((setting.clone(), text.to_string()));
                     }
+                }
+            }
+
+            // Connection string parameters carry through by name, so a configuration
+            // naming `sslmode` connects the way it says it does.
+            let mut parameters = Vec::new();
+            for (key, value) in postgres.shared.query.iter().flatten() {
+                for held in value.as_slice() {
+                    parameters.push((key.clone(), held.clone()));
                 }
             }
 
@@ -673,22 +694,39 @@ pub(crate) fn open_store(config: &DatabaseConfig, writing: bool) -> Option<Recor
                 &postgres.user,
                 postgres.password.as_ref().map(|secret| secret.expose()),
                 settings,
+                parameters,
             )
-            .ok()
+            .map_err(|error| error.to_string())
         }
     }
 }
 
-/// Resolve a database path like the Python layer, absolute against the working
-/// directory, and only when the file exists, a missing one delegates so the canonical
-/// connection error comes from Python.
-fn absolute_existing(path: &Path) -> Option<String> {
-    let absolute = std::path::absolute(path).ok()?;
+/// What to say about a driver argument this cannot reproduce.
+fn unsupported(key: &str) -> String {
+    format!(
+        "The database configuration sets `{key}`, which is an argument for a Python          database library rather than something this connects with. Remove it, or move          what it does into `connect_args.server_settings`."
+    )
+}
+
+/// Resolve a configured database path, which has to name a file that is there.
+fn existing(path: Option<&Path>) -> std::result::Result<String, String> {
+    let Some(path) = path else {
+        return Err(
+            "This project's database configuration names no path, so there is no file to              open."
+                .to_string(),
+        );
+    };
+
+    let absolute = std::path::absolute(path)
+        .map_err(|error| format!("Cannot resolve {}. {error}", path.display()))?;
     if !absolute.is_file() {
-        return None;
+        return Err(format!(
+            "There is no database at {}. Run `ceres database migrate` to create it.",
+            absolute.display()
+        ));
     }
 
-    Some(absolute.to_string_lossy().into_owned())
+    Ok(absolute.to_string_lossy().into_owned())
 }
 
 /// Write the rendered output to the destination the command named.

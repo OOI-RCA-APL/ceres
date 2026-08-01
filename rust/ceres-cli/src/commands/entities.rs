@@ -89,9 +89,10 @@ pub fn try_run(
         .build()
         .expect("the runtime always builds");
     let guard = runtime.enter();
-    let Some(store) = open_store(&meta.database, invocation.verb.writes()) else {
-        return Ok(false);
-    };
+    // A database this cannot open is reported here, naming the configuration that made
+    // it so, rather than being handed to another process to explain.
+    let store =
+        open_store(&meta.database, invocation.verb.writes()).map_err(crate::error::Exit::failed)?;
 
     drop(guard);
 

@@ -104,8 +104,9 @@ impl RecordFetcher {
     ) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store = RecordStore::postgres(host, port, database, user, password, settings)
-            .map_err(to_value_error)?;
+        let store =
+            RecordStore::postgres(host, port, database, user, password, settings, Vec::new())
+                .map_err(to_value_error)?;
         Ok(Self {
             store: Arc::new(store),
         })
