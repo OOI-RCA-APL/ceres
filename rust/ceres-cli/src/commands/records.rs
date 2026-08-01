@@ -28,13 +28,6 @@ pub fn try_run(
 ) -> Result<bool> {
     let invocation = Invocation::read(Table::Record(table), verb, matches);
 
-    // `--collect` streams the rows a write touched rather than counting them, which the
-    // native writers do not produce yet. Serving the command while quietly dropping the
-    // flag would answer a different question than the one asked, so it hands over.
-    if invocation.collect {
-        return Ok(false);
-    }
-
     let format = invocation.dump_format(color);
     // A follow reads a running engine rather than the database, so it opens no store and
     // takes its own path from here.
@@ -119,6 +112,13 @@ pub fn try_run(
                 .await
                 .map(|count| Rendered::Text(format!("{count}\n"))),
             Verb::Any => store.any_filter(filter()).await.map(Rendered::Exists),
+            // A filtered write reports how many rows it touched, or the rows
+            // themselves when `--collect` asked for them.
+            Verb::Delete if invocation.collect => {
+                let touched = store.delete_filter_returning(filter()).await?;
+                render(&touched, format, &projection, header)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
+            }
             Verb::Delete => store
                 .delete_filter(filter())
                 .await
@@ -128,13 +128,16 @@ pub fn try_run(
                     .assign
                     .as_deref()
                     .expect("an update carries its assignments");
-                store.update_filter(filter(), assign).await.map(|affected| {
-                    // Assignments the encoder refuses leave the table untouched, so the
-                    // command delegates and Python owns the outcome.
-                    affected.map_or(Rendered::Delegate, |affected| {
-                        Rendered::Text(format!("{affected}\n"))
-                    })
-                })
+                if invocation.collect {
+                    let touched = store.update_filter_returning(filter(), assign).await?;
+                    render(&touched, format, &projection, header)
+                        .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
+                } else {
+                    store
+                        .update_filter(filter(), assign)
+                        .await
+                        .map(|affected| Rendered::Text(format!("{affected}\n")))
+                }
             }
             // A load reports how many rows it wrote, which the reader counts as it
             // walks the file, whatever the conflict mode then did with them.
@@ -143,19 +146,17 @@ pub fn try_run(
                     .conflict()
                     .expect("a load resolved its conflict mode above");
                 let batches = source.take().expect("a load opened its file above");
-                store.load_records(batches, conflict).await.map(|written| {
-                    // A row the reader refused rolled the load back, so Python owns it.
-                    written.map_or(Rendered::Delegate, |written| {
-                        Rendered::Text(format!("{written}\n"))
-                    })
-                })
+                store
+                    .load_records(batches, conflict)
+                    .await
+                    .map(|written| Rendered::Text(format!("{written}\n")))
             }
             // A follow took its own path before the store opened.
             Verb::Follow => unreachable!("a follow never reaches the store"),
             Verb::Create => {
                 store
                     .load_records(
-                        incoming.iter().cloned().map(Some),
+                        incoming.iter().cloned().map(Ok),
                         ceres_database::Conflict::Error,
                     )
                     .await?;
@@ -185,8 +186,14 @@ pub fn try_run(
             }
         }
     });
-    let Ok(rendered) = rendered else {
-        return Ok(false);
+    let rendered = match rendered {
+        Ok(rendered) => rendered,
+        // A refusal names what the command asked for that the writer will not do, and
+        // nothing was written, so this is its own failure to report.
+        Err(ceres_database::Error::Refused(message)) => {
+            return Err(crate::error::Exit::failed(message));
+        }
+        Err(_) => return Ok(false),
     };
 
     deliver(&invocation, rendered)

@@ -58,6 +58,12 @@ pub enum Error {
     Decode(String),
     #[error("the native path does not serve this operation on this backend")]
     Unsupported,
+    /// The command asked for something the writer will not do, said in a sentence.
+    ///
+    /// Nothing was written, because a refusal happens before the transaction opens or
+    /// rolls it back, so this is the command's own message to report.
+    #[error("{0}")]
+    Refused(String),
 }
 
 /// The standing an authentication gate reads for one user.
@@ -356,37 +362,71 @@ impl RecordStore {
     }
 
     /// Assign values to the records a parsed native filter matches, returning how many
-    /// changed. `None` when the assignments fall outside what the native path encodes.
+    /// changed.
     ///
     /// Like a delete, this runs in its own transaction and commits only on success.
-    pub async fn update_filter(
-        &self,
-        filter: &RecordFilter,
-        assign: &str,
-    ) -> Result<Option<u64>, Error> {
-        let Some(assignments) = self.encode_assignments(filter.table().schema(), assign) else {
-            return Ok(None);
-        };
+    pub async fn update_filter(&self, filter: &RecordFilter, assign: &str) -> Result<u64, Error> {
+        let assignments = self
+            .encode_assignments(filter.table().schema(), assign)
+            .map_err(Error::Refused)?;
         if filter.limit() == Some(0) {
-            return Ok(Some(0));
+            return Ok(0);
         }
 
         self.write(filter.update_statement(self.dialect(), &assignments))
             .await
-            .map(Some)
     }
 
-    /// Encode an update's assignments for this backend, `None` when the object itself
-    /// or any value in it falls outside what the native path represents faithfully.
+    /// Assign values and hand back the records that changed, for `--collect`.
+    pub async fn update_filter_returning(
+        &self,
+        filter: &RecordFilter,
+        assign: &str,
+    ) -> Result<Records, Error> {
+        let assignments = self
+            .encode_assignments(filter.table().schema(), assign)
+            .map_err(Error::Refused)?;
+        if filter.limit() == Some(0) {
+            return Ok(filter.table().empty());
+        }
+
+        let mut statement = filter.update_statement(self.dialect(), &assignments);
+        statement.returning_all();
+        self.write_returning(filter.table(), statement).await
+    }
+
+    /// Delete the records a parsed native filter matches and hand back the ones that
+    /// went, for `--collect`.
+    pub async fn delete_filter_returning(&self, filter: &RecordFilter) -> Result<Records, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(filter.table().empty());
+        }
+
+        let mut statement = filter.delete_statement(self.dialect());
+        statement.returning_all();
+        self.write_returning(filter.table(), statement).await
+    }
+
+    /// Encode an update's assignments for this backend.
+    ///
+    /// A refusal carries the sentence to show, because the reader is holding a command
+    /// line they can fix and the alternative is a validation dump.
     fn encode_assignments(
         &self,
         schema: crate::records::Schema,
         assign: &str,
-    ) -> Option<Vec<crate::assign::Assignment>> {
-        // The assignments are one YAML or JSON object, the form the Python command
-        // takes, and anything else leaves the table untouched.
-        let Ok(serde_json::Value::Object(values)) = serde_norway::from_str(assign) else {
-            return None;
+    ) -> Result<Vec<crate::assign::Assignment>, String> {
+        // The assignments are one YAML or JSON object, and anything else is not an
+        // assignment at all.
+        let values = match serde_norway::from_str(assign) {
+            Ok(serde_json::Value::Object(values)) => values,
+            Ok(_) => {
+                return Err(
+                    "--assign takes an object of column names and values, like                      `{\"name\": \"rate\"}`."
+                        .to_string(),
+                );
+            }
+            Err(error) => return Err(format!("--assign is not readable as JSON or YAML. {error}")),
         };
 
         crate::assign::assignments(
@@ -426,6 +466,68 @@ impl RecordStore {
                 Ok(affected)
             }
             // Turso keeps the Python write path until its native writer is wired.
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
+    /// Run one write statement that hands its rows back, in its own transaction.
+    ///
+    /// `RETURNING` is how a write says what it touched without a second query racing it,
+    /// which is what `--collect` asks for. SQLite has had it since 3.35 and PostgreSQL
+    /// always has.
+    async fn write_returning<S: SqlxBinder>(
+        &self,
+        table: RecordTable,
+        statement: S,
+    ) -> Result<Records, Error> {
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let mut transaction = pool.begin().await?;
+                let rows = sqlx::query_with(&sql, values)
+                    .fetch_all(&mut *transaction)
+                    .await?;
+                transaction.commit().await?;
+                DecodeRecords::decode(table, rows)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let mut transaction = pool.begin().await?;
+                let rows = sqlx::query_with(&sql, values)
+                    .fetch_all(&mut *transaction)
+                    .await?;
+                transaction.commit().await?;
+                DecodeRecords::decode(table, rows)
+            }
+            Backend::Turso(_) => Err(Error::Unsupported),
+        }
+    }
+
+    /// The entity form of [`Self::write_returning`].
+    async fn write_returning_entities<S: SqlxBinder>(
+        &self,
+        table: EntityTable,
+        statement: S,
+    ) -> Result<Entities, Error> {
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
+                let mut transaction = pool.begin().await?;
+                let rows = sqlx::query_with(&sql, values)
+                    .fetch_all(&mut *transaction)
+                    .await?;
+                transaction.commit().await?;
+                DecodeEntities::decode(table, rows)
+            }
+            Backend::Postgres(pool) => {
+                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
+                let mut transaction = pool.begin().await?;
+                let rows = sqlx::query_with(&sql, values)
+                    .fetch_all(&mut *transaction)
+                    .await?;
+                transaction.commit().await?;
+                DecodeEntities::decode(table, rows)
+            }
             Backend::Turso(_) => Err(Error::Unsupported),
         }
     }
@@ -526,45 +628,106 @@ impl RecordStore {
         self.write(filter.delete_statement(self.dialect())).await
     }
 
+    /// Read an entity update's assignment object, with the credential rules applied.
+    ///
+    /// A user's password hashes and their email address normalizes on the way in, the
+    /// same rules a create follows, so a row written here is one the model would have
+    /// written.
+    fn entity_assignments(
+        &self,
+        filter: &EntityFilter,
+        assign: &str,
+        credentials: Option<Credentials>,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
+        let mut values = match serde_norway::from_str::<serde_json::Value>(assign) {
+            Ok(serde_json::Value::Object(values)) => values,
+            Ok(_) => {
+                return Err(Error::Refused(
+                    "--assign takes an object of column names and values, like \
+                     `{\"name\": \"rate\"}`."
+                        .to_string(),
+                ));
+            }
+            Err(error) => {
+                return Err(Error::Refused(format!(
+                    "--assign is not readable as JSON or YAML. {error}"
+                )));
+            }
+        };
+
+        if filter.table() == EntityTable::Users {
+            let Some(credentials) = credentials else {
+                return Err(Error::Refused(
+                    "This database hashes passwords in a way this command cannot reproduce, \
+                     so it will not write a user."
+                        .to_string(),
+                ));
+            };
+            if !credentials.apply(filter.table(), &mut values) {
+                return Err(Error::Refused(
+                    "A user's password must be between 1 and 72 bytes, and their email \
+                     address must be one this command can normalize."
+                        .to_string(),
+                ));
+            }
+        }
+
+        Ok(values)
+    }
+
     /// Assign values to the entities a parsed native filter matches, returning how many
-    /// changed. `None` when the assignments fall outside what the native path encodes.
+    /// changed.
     pub async fn update_entity_filter(
         &self,
         filter: &EntityFilter,
         assign: &str,
         credentials: Option<Credentials>,
-    ) -> Result<Option<u64>, Error> {
-        // The assignments are one YAML or JSON object, the form the Python command
-        // takes, and anything else leaves the table untouched.
-        let Ok(serde_json::Value::Object(mut values)) =
-            serde_norway::from_str::<serde_json::Value>(assign)
-        else {
-            return Ok(None);
-        };
-
-        // A password hashes and an email address normalizes on their way into the
-        // assignment, the same rules a create follows.
-        if filter.table() == EntityTable::Users {
-            let Some(credentials) = credentials else {
-                return Ok(None);
-            };
-            if !credentials.apply(filter.table(), &mut values) {
-                return Ok(None);
-            }
-        }
-
-        let Some(assignments) =
-            assignments(filter.table().schema(), &values, self.writer_dialect())
-        else {
-            return Ok(None);
-        };
+    ) -> Result<u64, Error> {
+        let values = self.entity_assignments(filter, assign, credentials)?;
+        let assignments = assignments(filter.table().schema(), &values, self.writer_dialect())
+            .map_err(Error::Refused)?;
         if filter.limit() == Some(0) {
-            return Ok(Some(0));
+            return Ok(0);
         }
 
         self.write(filter.update_statement(self.dialect(), &assignments))
             .await
-            .map(Some)
+    }
+
+    /// Assign values and hand back the entities that changed, for `--collect`.
+    pub async fn update_entity_filter_returning(
+        &self,
+        filter: &EntityFilter,
+        assign: &str,
+        credentials: Option<Credentials>,
+    ) -> Result<Entities, Error> {
+        let values = self.entity_assignments(filter, assign, credentials)?;
+        let assignments = assignments(filter.table().schema(), &values, self.writer_dialect())
+            .map_err(Error::Refused)?;
+        if filter.limit() == Some(0) {
+            return Ok(filter.table().empty());
+        }
+
+        let mut statement = filter.update_statement(self.dialect(), &assignments);
+        statement.returning_all();
+        self.write_returning_entities(filter.table(), statement)
+            .await
+    }
+
+    /// Delete the entities a parsed native filter matches and hand back the ones that
+    /// went, for `--collect`.
+    pub async fn delete_entity_filter_returning(
+        &self,
+        filter: &EntityFilter,
+    ) -> Result<Entities, Error> {
+        if filter.limit() == Some(0) {
+            return Ok(filter.table().empty());
+        }
+
+        let mut statement = filter.delete_statement(self.dialect());
+        statement.returning_all();
+        self.write_returning_entities(filter.table(), statement)
+            .await
     }
 
     /// Run one count statement, whichever backend serves it.
@@ -598,18 +761,19 @@ impl RecordStore {
     /// Batches arrive from a reader that walks its source, so a load of any size holds
     /// one batch rather than the whole file, matching the Python command. Nothing lands
     /// unless the whole load succeeds, so a collision under `Conflict::Error`, or a row
-    /// the reader refuses, leaves the table exactly as it was and the command is free to
-    /// delegate. Answers how many rows were written, `None` when a row was refused.
+    /// the reader refuses, leaves the table exactly as it was. Answers how many rows were
+    /// written.
     pub async fn load_records(
         &self,
-        batches: impl Iterator<Item = Option<Records>>,
+        batches: impl Iterator<Item = Result<Records, String>>,
         conflict: Conflict,
-    ) -> Result<Option<usize>, Error> {
+    ) -> Result<usize, Error> {
         let dialect = self.writer_dialect();
         self.write_batches(batches.map(|batch| {
             let batch = batch?;
             let rows = batch.len();
-            let mut statement = crate::writer::load_statement(&batch, dialect)?;
+            let mut statement = crate::writer::load_statement(&batch, dialect)
+                .ok_or_else(|| "A row holds a value this command cannot store.".to_string())?;
             let key = crate::records::table_of(&batch).schema().key;
             on_conflict(
                 &mut statement,
@@ -617,7 +781,7 @@ impl RecordStore {
                 key,
                 crate::writer::columns(crate::records::table_of(&batch)),
             );
-            Some((statement, rows))
+            Ok((statement, rows))
         }))
         .await
     }
@@ -628,14 +792,15 @@ impl RecordStore {
     /// setting is a pair of columns rather than an ID.
     pub async fn load_entities(
         &self,
-        batches: impl Iterator<Item = Option<Entities>>,
+        batches: impl Iterator<Item = Result<Entities, String>>,
         conflict: Conflict,
-    ) -> Result<Option<usize>, Error> {
+    ) -> Result<usize, Error> {
         let dialect = self.writer_dialect();
         self.write_batches(batches.map(|batch| {
             let batch = batch?;
             let rows = batch.len();
-            let mut statement = crate::writer::entity_load_statement(&batch, dialect)?;
+            let mut statement = crate::writer::entity_load_statement(&batch, dialect)
+                .ok_or_else(|| "A row holds a value this command cannot store.".to_string())?;
             let schema = crate::entities::table_of(&batch).schema();
             on_conflict(
                 &mut statement,
@@ -643,7 +808,7 @@ impl RecordStore {
                 schema.key,
                 crate::writer::entity_columns(&batch),
             );
-            Some((statement, rows))
+            Ok((statement, rows))
         }))
         .await
     }
@@ -661,21 +826,20 @@ impl RecordStore {
     ///
     /// The batches are pulled one at a time, so the reader behind them walks its source
     /// as the writes go out rather than collecting it first. A batch of `None` is a row
-    /// the reader refused, which rolls everything back by returning before the commit.
+    /// the reader refused, which rolls everything back by returning before the commit and
+    /// reports which row it was.
     async fn write_batches(
         &self,
-        mut batches: impl Iterator<Item = Option<(sea_query::InsertStatement, usize)>>,
-    ) -> Result<Option<usize>, Error> {
+        mut batches: impl Iterator<Item = Result<(sea_query::InsertStatement, usize), String>>,
+    ) -> Result<usize, Error> {
         macro_rules! run {
             ($pool:expr, $builder:expr) => {{
                 let mut transaction = $pool.begin().await?;
                 let mut written = 0;
                 for batch in &mut batches {
-                    let Some((statement, rows)) = batch else {
-                        // Dropping the transaction rolls it back, so the table is
-                        // exactly as it was and the command delegates.
-                        return Ok(None);
-                    };
+                    // Dropping the transaction rolls it back, so the table is exactly as
+                    // it was and the refusal is the command's own to report.
+                    let (statement, rows) = batch.map_err(Error::Refused)?;
 
                     let (sql, values) = statement.build_sqlx($builder);
                     sqlx::query_with(&sql, values)
@@ -685,7 +849,7 @@ impl RecordStore {
                 }
 
                 transaction.commit().await?;
-                Ok(Some(written))
+                Ok(written)
             }};
         }
 

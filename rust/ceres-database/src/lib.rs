@@ -18,12 +18,12 @@ mod store;
 mod turso;
 mod writer;
 
+pub use ceres_entities::OperationKind;
 pub use credentials::{
     Argon2Params, Credentials, Hashing, SPECIAL_USE_DOMAINS, is_password_hash, normalize_email,
     valid_password, verify_argon2, verify_bcrypt,
 };
 pub use entities::EntityTable;
-pub use ceres_entities::OperationKind;
 pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, Role, SqlDialect, Window};
 pub use load::{
     Conflict, LoadFormat, batches, build, build_entity, entity_batches, read, read_entities,

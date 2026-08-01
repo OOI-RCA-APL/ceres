@@ -347,3 +347,101 @@ async fn a_dump_of_nothing_says_so_rather_than_printing_an_empty_box() {
     let drawn = project.watched(&["variables", "select", "--name", "nothing-matches-this"]);
     assert_eq!(succeeded(&drawn).trim(), "No rows.");
 }
+
+#[tokio::test]
+async fn a_collected_write_hands_back_the_rows_it_touched() {
+    let project = Project::seed().await;
+
+    // `--collect` answers with the rows themselves rather than how many there were,
+    // which is what makes a write scriptable against what it actually changed.
+    let touched = succeeded(&project.run(&[
+        "variables",
+        "update",
+        "--address",
+        "@motor",
+        "--assign",
+        "{\"value\": 9}",
+        "--no-confirm",
+        "--collect",
+    ]));
+
+    let rows: Vec<&str> = touched.lines().collect();
+    assert_eq!(rows.len(), 2, "{touched}");
+    assert!(
+        rows.iter().all(|row| row.contains("\"value\":9")),
+        "{touched}"
+    );
+
+    // The rows a delete collected are the ones that went, so they can be kept.
+    let gone = succeeded(&project.run(&[
+        "variables",
+        "delete",
+        "--address",
+        "@motor",
+        "--no-confirm",
+        "--collect",
+    ]));
+    assert_eq!(gone.lines().count(), 2, "{gone}");
+    assert_eq!(project.variables().await.len(), 2);
+}
+
+#[tokio::test]
+async fn an_assignment_the_writer_will_not_take_says_why() {
+    let project = Project::seed().await;
+
+    // A column that is not there names the ones that are.
+    let unknown = project.run(&[
+        "variables",
+        "update",
+        "--name",
+        "speed",
+        "--assign",
+        "{\"nope\": 1}",
+        "--no-confirm",
+    ]);
+    assert!(!unknown.status.success());
+    let message = String::from_utf8_lossy(&unknown.stderr);
+    assert!(message.contains("`nope`"), "{message}");
+    assert!(message.contains("`value`"), "{message}");
+
+    // A column that identifies the row says so, rather than reporting it as missing.
+    let identity = project.run(&[
+        "variables",
+        "update",
+        "--name",
+        "speed",
+        "--assign",
+        "{\"address\": \"@elsewhere\"}",
+        "--no-confirm",
+    ]);
+    assert!(!identity.status.success());
+    let message = String::from_utf8_lossy(&identity.stderr);
+    assert!(message.contains("identifies a row"), "{message}");
+
+    // Nothing was written by either, because a refusal happens before the transaction.
+    assert!(
+        project
+            .variables()
+            .await
+            .contains(&"@motor speed 5".to_string())
+    );
+}
+
+#[tokio::test]
+async fn a_load_names_the_row_it_could_not_read() {
+    let project = Project::seed().await;
+    let rows = project.path().join("rows.jsonl");
+    std::fs::write(
+        &rows,
+        "{\"address\": \"@loaded\", \"name\": \"one\", \"value\": 1}\nnot an object at all\n",
+    )
+    .expect("the file writes");
+
+    let refused = project.run(&["variables", "load", rows.to_str().expect("a text path")]);
+    assert!(!refused.status.success());
+
+    let message = String::from_utf8_lossy(&refused.stderr);
+    assert!(message.contains("Row 2"), "{message}");
+    // A load either lands whole or not at all, so the good first row is not there.
+    assert_eq!(project.variables().await.len(), 4);
+}

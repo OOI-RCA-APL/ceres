@@ -283,8 +283,6 @@ pub(crate) enum Rendered {
     /// This is the one place a native pass reports for itself, because delegating would
     /// mean Python writing a second copy of a dump the caller has already seen part of.
     Failed(String),
-    /// The pass cannot serve the command after all, having changed nothing.
-    Delegate,
 }
 
 impl Rendered {
@@ -302,7 +300,7 @@ impl Rendered {
             Self::Text(text) => text.into_bytes(),
             Self::Exists(true) => b"true\n".to_vec(),
             Self::Exists(false) => b"false\n".to_vec(),
-            Self::Written | Self::Failed(_) | Self::Delegate | Self::Declined => Vec::new(),
+            Self::Written | Self::Failed(_) | Self::Declined => Vec::new(),
         }
     }
 }
@@ -599,12 +597,6 @@ pub(crate) fn confirmed(
 /// An existence check reports through its exit status as well as its output, so it
 /// writes first and then carries the status out.
 pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<bool> {
-    // A pass that decided mid-flight it cannot serve the command wrote nothing and
-    // changed nothing, so it delegates like any other refusal.
-    if matches!(rendered, Rendered::Delegate) {
-        return Ok(false);
-    }
-
     match rendered {
         // A stream placed its own output, so there is nothing left to write.
         Rendered::Written => return Ok(true),

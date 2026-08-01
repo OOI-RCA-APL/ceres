@@ -1962,12 +1962,9 @@ pub(crate) fn filter_keys(table: Schema) -> Vec<FilterKey> {
 
         let window = |key, kind| keyed(key, Arity::Value, Role::Window(kind), Some(field.key));
         match field.family {
-            FieldFamily::Address => keys.push(keyed(
-                "root",
-                Arity::Value,
-                Role::Root,
-                Some(field.key),
-            )),
+            FieldFamily::Address => {
+                keys.push(keyed("root", Arity::Value, Role::Root, Some(field.key)));
+            }
             FieldFamily::Timestamp => {
                 keys.extend(["after", "before"].map(|key| window(key, Window::Absolute)));
                 keys.push(window("timespan", Window::Span));

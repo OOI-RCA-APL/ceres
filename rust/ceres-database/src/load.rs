@@ -84,30 +84,33 @@ type Convert<T> = Box<dyn Fn(&[Map<String, Value>]) -> Option<T>>;
 ///
 /// A load of any size holds one batch rather than the whole file, matching the Python
 /// command, which reads its source lazily and flushes every `BATCH` rows inside a single
-/// transaction. An item of `None` is a row the native types cannot represent, which
-/// rolls the whole load back and delegates.
+/// transaction. A refused item names the row that could not be read, which rolls the
+/// whole load back and is reported as the command's own failure.
 pub struct Batches<R, T> {
     rows: Rows<R>,
     convert: Convert<T>,
     /// Whether a refusal already ended the walk, past which there is nothing to read.
     spent: bool,
+    /// How many rows have been handed over, which is what names the offending one.
+    read: usize,
 }
 
 impl<R: BufRead, T> Iterator for Batches<R, T> {
-    type Item = Option<T>;
+    type Item = Result<T, String>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.spent {
             return None;
         }
 
+        let start = self.read;
         let mut objects = Vec::with_capacity(BATCH);
         while objects.len() < BATCH {
             match self.rows.next() {
                 None => break,
                 Some(None) => {
                     self.spent = true;
-                    return Some(None);
+                    return Some(Err(refused(start + objects.len() + 1)));
                 }
                 Some(Some(object)) => objects.push(object),
             }
@@ -117,10 +120,30 @@ impl<R: BufRead, T> Iterator for Batches<R, T> {
             return None;
         }
 
-        let batch = (self.convert)(&objects);
-        self.spent = batch.is_none();
-        Some(batch)
+        self.read += objects.len();
+        match (self.convert)(&objects) {
+            Some(batch) => Some(Ok(batch)),
+            None => {
+                self.spent = true;
+                // The batch says only that something in it was refused, so the rows are
+                // walked again one at a time to name which. This runs on the failing
+                // load alone, where the cost buys the reader the row number.
+                let offending = objects
+                    .iter()
+                    .position(|object| (self.convert)(std::slice::from_ref(object)).is_none())
+                    .map_or(start + 1, |index| start + index + 1);
+                Some(Err(refused(offending)))
+            }
+        }
     }
+}
+
+/// What to say about a row that could not be read.
+fn refused(row: usize) -> String {
+    format!(
+        "Row {row} could not be read. Nothing was loaded, because a load either lands \
+         whole or not at all."
+    )
 }
 
 /// Walk an input's rows in batches of records.
@@ -136,6 +159,7 @@ pub fn batches<R: BufRead>(
         rows: Rows::open(source, format)?,
         convert: Box::new(move |objects| records(table, objects)),
         spent: false,
+        read: 0,
     })
 }
 
@@ -156,6 +180,7 @@ pub fn entity_batches<R: BufRead>(
             entities(table, &credentialed(table, objects, credentials)?)
         }),
         spent: false,
+        read: 0,
     })
 }
 
@@ -223,7 +248,9 @@ impl<R: BufRead> Rows<R> {
 /// batches and writes nothing. Executing a load walks its source rather than collecting
 /// it, so this is for callers that genuinely want the whole file at once.
 pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Records>> {
-    batches(table, text.as_bytes(), format)?.collect()
+    batches(table, text.as_bytes(), format)?
+        .collect::<Result<_, _>>()
+        .ok()
 }
 
 /// Read a whole entity input into batches, like the record `read`.
@@ -233,7 +260,9 @@ pub fn read_entities(
     format: LoadFormat,
     credentials: Option<Credentials>,
 ) -> Option<Vec<Entities>> {
-    entity_batches(table, text.as_bytes(), format, credentials)?.collect()
+    entity_batches(table, text.as_bytes(), format, credentials)?
+        .collect::<Result<_, _>>()
+        .ok()
 }
 
 /// Build the one record a create names from its field values, `None` when a field or a
