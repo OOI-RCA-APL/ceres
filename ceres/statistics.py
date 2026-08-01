@@ -1,14 +1,12 @@
 from typing import Any, Unpack
 
 from pydantic import Field
-from sqlalchemy import func, select
 
 from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
 from ceres.__internal__.manager import BaseDatabaseManager
 from ceres.__internal__.utilities.functions import call_partial
 from ceres.address import Address, AddressSelector
-from ceres.alert import Alert
 from ceres.data import DataObject, DateTime
 from ceres.level import Level
 
@@ -154,24 +152,8 @@ class StatisticsManager(BaseDatabaseManager):
         happens above, on far fewer rows than the alerts themselves.
         """
         database = self.__database__
-        store = database._store()
-        if store is None:
-            statement = select(Alert.Row.address, Alert.Row.level, func.count()).group_by(
-                Alert.Row.address,
-                Alert.Row.level,
-            )
-            if filter.after is not None:
-                statement = statement.where(Alert.Row.timestamp >= filter.after)
-            if filter.before is not None:
-                statement = statement.where(Alert.Row.timestamp < filter.before)
-
-            async with await database.use() as connection:
-                return [
-                    (address, level, count)
-                    for address, level, count in await connection.execute(statement)
-                ]
-
         await database.ready()
+
         postgres = database.type.value == "postgres"
         conditions: list[str] = []
         parameters: list[Any] = []
@@ -185,7 +167,7 @@ class StatisticsManager(BaseDatabaseManager):
             conditions.append(f'"timestamp" {operator} {marker}')
 
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-        rows = await store.fetch(
+        rows = await database._store().fetch(
             f'SELECT "address", "level", COUNT(*) AS "count" FROM "alerts"{where} '
             'GROUP BY "address", "level"',
             parameters,

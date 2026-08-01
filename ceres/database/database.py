@@ -196,14 +196,12 @@ class Database:
         """
         return None
 
-    def _store(self) -> Store | None:
-        """Return the native store this database's queries run through, or `None` when a
-        second engine cannot safely join this database.
+    def _store(self) -> Store:
+        """Return the native store this database's queries run through.
 
-        One store serves the whole database, reads and writes alike, because a second
-        pool over the same file is what the backends that withhold a native fetcher are
-        avoiding. Built once and reused, and it connects lazily, so holding one costs
-        nothing until a query runs.
+        One store serves the whole database, reads and writes alike, and it is the only
+        engine in the process, which is what Turso needs. Built once and reused, and it
+        connects lazily, so holding one costs nothing until a query runs.
         """
         store = getattr(self, "_native_store", None)
         if store is None:

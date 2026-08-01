@@ -818,42 +818,17 @@ class _BaseStatementExecutor[
         return self._await().__await__()
 
     async def __aenter__(self) -> ResultsIterator[EntityT]:
-        native = await self._native_statement(returning=True)
-        if native is not None:
-            store, sql, parameters = native
-            if self._chunks is None:
-                with wrap_database_errors():
-                    self._chunks = store.stream(sql, parameters, self._native_table())
+        store, sql, parameters = await self._native_statement(returning=True)
+        if self._chunks is None:
+            with wrap_database_errors():
+                self._chunks = store.stream(sql, parameters, self._native_table())
 
-            return ResultsIterator(self._parse_chunks(self._chunks))
-
-        with wrap_database_errors():
-            if self._connection is None:
-                self._connection = await self._query._get_database().use()
-                await self._connection.__aenter__()
-            if self._stream is None:
-                self._stream = await self._connection.stream(
-                    await self._get_statement(True),
-                )
-
-        return ResultsIterator(self._parse_async_rows(self._stream))
+        return ResultsIterator(self._parse_chunks(self._chunks))
 
     async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         # Dropping the chunks closes the channel the query writes into, which is what ends
         # a query the caller stopped reading part way through.
         self._chunks = None
-        try:
-            if self._stream is not None:
-                await self._stream.close()
-        finally:
-            self._stream = None
-            if self._connection is not None:
-                if exc_type is None and self._should_commit():
-                    await self._connection.commit()
-                try:
-                    await self._connection.__aexit__(exc_type, exc_value, traceback)
-                finally:
-                    self._connection = None
 
     def limit(self, limit: int) -> Self:
         """Return a new executor with a ``LIMIT`` clause set to `limit`."""
@@ -874,66 +849,29 @@ class _BaseStatementExecutor[
         return entities[0] if entities else None
 
     async def all(self) -> list[EntityT]:
-        """Execute the query and return all matching entities as a list.
+        """Execute the query and return all matching entities as a list."""
+        store, sql, parameters = await self._native_statement(returning=True)
+        parse = self._get_native_parser()
+        with wrap_database_errors():
+            rows = await store.fetch(sql, parameters, self._native_table())
 
-        Use streaming when the result set may be large (above
-        ``_EXECUTOR_STREAM_THRESHOLD``), falling back to eager loading for smaller sets.
-        """
-        native = await self._native_statement(returning=True)
-        if native is not None:
-            store, sql, parameters = native
-            parse = self._get_native_parser()
-            with wrap_database_errors():
-                rows = await store.fetch(sql, parameters, self._native_table())
+        entities: list[EntityT] = []
+        for values in rows:
+            entity = parse(values)
+            if entity is not None:
+                entities.append(entity)
 
-            entities: list[EntityT] = []
-            for values in rows:
-                entity = parse(values)
-                if entity is not None:
-                    entities.append(entity)
-
-            return entities
-
-        resolved = self._query._get_resolved_filter()
-        database = self._query._get_database()
-        statement = await self._get_statement(True)
-
-        async with await database.use() as connection:
-            if resolved.limit is not None and resolved.limit <= _EXECUTOR_STREAM_THRESHOLD:
-                result = await connection.execute(statement)
-                entities = await self._parse_rows(result)
-                if self._should_commit():
-                    await connection.commit()
-            else:
-                stream = await connection.stream(statement)
-                entities = [entity async for entity in self._parse_async_rows(stream)]
-                if self._should_commit():
-                    await connection.commit()
-
-            return entities
+        return entities
 
     async def mappings(self) -> list[Mapping[str, Any]]:
         """Execute the query and return raw row mappings without materializing entities.
 
-        The native record path serializes straight from these values, so no Python entity
-        objects are built for rows that only pass through to a response body.
+        The wire paths serialize straight from these values, so no Python entity objects
+        are built for rows that only pass through to a response body.
         """
-        native = await self._native_statement(returning=True)
-        if native is not None:
-            store, sql, parameters = native
-            with wrap_database_errors():
-                return await store.fetch(sql, parameters, self._native_table())
-
-        database = self._query._get_database()
-        statement = await self._get_statement(True)
-
-        async with await database.use() as connection:
-            result = await connection.execute(statement)
-            rows = [cast("Mapping[str, Any]", row._mapping) for row in result]
-            if self._should_commit():
-                await connection.commit()
-
-            return rows
+        store, sql, parameters = await self._native_statement(returning=True)
+        with wrap_database_errors():
+            return await store.fetch(sql, parameters, self._native_table())
 
     async def compiled(self) -> tuple[str, list[Any]]:
         """Compile the query into SQL text and positionally-ordered parameters.
@@ -1007,22 +945,17 @@ class _BaseStatementExecutor[
 
         return parse
 
-    async def _native_statement(self, *, returning: bool) -> tuple[Any, str, list[Any]] | None:
-        """The store and the compiled statement this executor runs, or `None` to keep it here.
+    async def _native_statement(self, *, returning: bool) -> tuple[Any, str, list[Any]]:
+        """The store and the compiled statement this executor runs.
 
-        A backend withholds its store when a second engine cannot safely join the
-        database, which is the only reason a statement stays on the query layer. The clock
-        the compiler resolves age-relative conditions against is this session's, so a
-        frozen or faked time stays authoritative all the way down.
+        The clock the compiler resolves age-relative conditions against is this session's,
+        so a frozen or faked time stays authoritative all the way down.
 
         `returning` asks a write for the rows it touched, which is what a caller consuming
         one as entities rather than as a count is after. A read ignores it, already
         selecting the rows it matched.
         """
         store = await self._query._native_store()
-        if store is None:
-            return None
-
         sql, parameters = await self._compile_native(returning=returning)
         return store, sql, parameters
 
@@ -1185,21 +1118,9 @@ class UpdateExecutor[
 
     @override
     async def _await(self) -> int:
-        database = self._query._get_database()
-
-        native = await self._native_statement(returning=False)
-        if native is not None:
-            store, sql, parameters = native
-            with wrap_database_errors():
-                return await store.execute(sql, parameters)
-
-        statement = await self._get_statement(False)
-
+        store, sql, parameters = await self._native_statement(returning=False)
         with wrap_database_errors():
-            async with await database.use() as connection:
-                result = await connection.execute(statement)
-                await connection.commit()
-                return result.rowcount
+            return await store.execute(sql, parameters)
 
     @override
     async def _compile_native(self, *, returning: bool) -> tuple[str, list[Any]]:
@@ -1257,21 +1178,9 @@ class DeleteExecutor[
 
     @override
     async def _await(self) -> int:
-        database = self._query._get_database()
-
-        native = await self._native_statement(returning=False)
-        if native is not None:
-            store, sql, parameters = native
-            with wrap_database_errors():
-                return await store.execute(sql, parameters)
-
-        statement = await self._get_statement(False)
-
+        store, sql, parameters = await self._native_statement(returning=False)
         with wrap_database_errors():
-            async with await database.use() as connection:
-                result = await connection.execute(statement)
-                await connection.commit()
-                return result.rowcount
+            return await store.execute(sql, parameters)
 
     @override
     async def _compile_native(self, *, returning: bool) -> tuple[str, list[Any]]:
@@ -1354,74 +1263,46 @@ class BaseEntityQuery[
         """Create a ``DeleteExecutor`` for this query."""
         return DeleteExecutor(query=self.where())
 
-    async def _native_store(self) -> Any | None:
-        """The store this query's statements run on, `None` when the query layer keeps them.
+    async def _native_store(self) -> Any:
+        """The store this query's statements run on.
 
-        A backend withholds its store when a second engine cannot safely join the database,
-        which is the only reason a statement stays on the query layer. Bootstrapping happens
-        here because the store reads the database directly rather than through a connection
-        the query layer opened, and a database nobody has bootstrapped has no tables.
+        Bootstrapping happens here, because the store reads the database directly rather
+        than through a connection something else opened, and a database nobody has
+        bootstrapped has no tables and, for a temporary one, no file either.
         """
         database = self._get_database()
-        store = database._store()
-        if store is not None:
-            await database.ready()
-
-        return store
+        await database.ready()
+        return database._store()
 
     async def count(self) -> int:
         """Return the number of entities matching this query's filter."""
         database = self._get_database()
         filter = self._get_resolved_filter()
-
         store = await self._native_store()
-        if store is not None:
-            sql, parameters = filter._native_filter().compiled(
-                database.type.value,
-                count=True,
-                now=utc(),
-            )
-            rows = await store.fetch(sql, parameters)
-            # The count is the statement's only column, and its name is whatever the
-            # backend calls a `COUNT(*)` expression, so the row is read by position.
-            return next(iter(rows[0].values())) if rows else 0
 
-        statement = select(func.count()).select_from(self._get_row_class())
-        statement = filter.apply(
-            statement,
-            database.type,
-            ignore_order=True,
-            always_use_subquery=filter.limit is not None or filter.offset is not None,
+        sql, parameters = filter._native_filter().compiled(
+            database.type.value,
+            count=True,
+            now=utc(),
         )
+        with wrap_database_errors():
+            rows = await store.fetch(sql, parameters)
 
-        async with await database.use() as connection:
-            results = await connection.execute(statement)
-            return results.scalar() or 0
+        # The count is the statement's only column, and its name is whatever the backend
+        # calls a `COUNT(*)` expression, so the row is read by position.
+        return next(iter(rows[0].values())) if rows else 0
 
     async def any(self) -> bool:
         """Return ``True`` if at least one entity matches this query's filter."""
         database = self._get_database()
         filter = self._get_resolved_filter()
-
         store = await self._native_store()
-        if store is not None:
-            sql, parameters = filter._native_filter().exists_compiled(database.type.value, utc())
+
+        sql, parameters = filter._native_filter().exists_compiled(database.type.value, utc())
+        with wrap_database_errors():
             rows = await store.fetch(sql, parameters)
-            return bool(next(iter(rows[0].values()))) if rows else False
 
-        statement = select("*").select_from(self._get_row_class())
-        statement = filter.apply(
-            statement,
-            database.type,
-            ignore_order=True,
-            always_use_subquery=filter.limit is not None or filter.offset is not None,
-        )
-        statement = select(statement.exists())
-
-        async with await database.use() as connection:
-            results = await connection.execute(statement)
-            count = results.scalar() or 0
-            return count > 0
+        return bool(next(iter(rows[0].values()))) if rows else False
 
     @abstractmethod
     def _get_database(self) -> Database: ...
@@ -1717,50 +1598,23 @@ class BaseEntityManager[
         values = data.__entity_to_column_values__()
         row = Row(**values)
 
+        from ceres_core import insert_compiled
+
         database = self.__database__
-        store = database._store()
-        if store is not None:
-            from ceres_core import insert_compiled
+        await database.ready()
 
-            await database.ready()
-            # The compile stays outside the wrapper, a column the row cannot hold is the
-            # caller's own error rather than a driver failure to translate.
-            sql, parameters = insert_compiled(
-                Row.__tablename__,
-                database.type.value,
-                _native_assign(values),
-                upsert,
-            )
-            with wrap_database_errors():
-                await store.execute(sql, parameters)
-
-            return row  # type: ignore
-
-        match self.__database__.type:
-            case DatabaseType.SQLITE | DatabaseType.TURSO:
-                from sqlalchemy.dialects.sqlite import insert
-            case DatabaseType.POSTGRES:
-                from sqlalchemy.dialects.postgresql import insert
-
+        # The compile stays outside the wrapper, a column the row cannot hold is the
+        # caller's own error rather than a driver failure to translate.
+        sql, parameters = insert_compiled(
+            Row.__tablename__,
+            database.type.value,
+            _native_assign(values),
+            upsert,
+        )
         with wrap_database_errors():
-            async with await self.__database__.use() as connection:
-                statement = insert(Row).values(values)
-                pk = Row.__table__.primary_key.columns
+            await database._store().execute(sql, parameters)
 
-                if upsert:
-                    upsert_columns = {
-                        name: column
-                        for name, column in statement.excluded.items()
-                        if name not in pk
-                    }
-                    statement = statement.on_conflict_do_update(
-                        index_elements=pk,
-                        set_=upsert_columns,
-                    )
-
-                await connection.execute(statement)
-                await connection.commit()
-                return row  # type: ignore
+        return row  # type: ignore
 
 
 class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
