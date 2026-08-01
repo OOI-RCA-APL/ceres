@@ -316,6 +316,38 @@ impl Filter {
         build(self.exists_statement(dialect, now), dialect)
     }
 
+    /// Compile the delete to SQL and its bound parameters.
+    pub fn delete_compiled(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
+        build(self.delete_statement(dialect, now), dialect)
+    }
+
+    /// Compile an update to SQL and its bound parameters, for one assignment object.
+    ///
+    /// The object is the same JSON an `update` command carries, and each value encodes
+    /// into the form its column stores, so a caller cannot write a value the column did
+    /// not ask for. A refusal carries the sentence naming the key and what it wanted.
+    pub fn update_compiled(
+        &self,
+        dialect: SqlDialect,
+        assign: &serde_json::Map<String, serde_json::Value>,
+        now: Option<NaiveDateTime>,
+    ) -> Result<(String, Vec<Value>), Refusal> {
+        let writer = match dialect {
+            SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
+            SqlDialect::Postgres => crate::writer::Dialect::Postgres,
+        };
+        let assignments =
+            crate::assign::assignments(self.schema, assign, writer).map_err(Refusal::Invalid)?;
+        Ok(build(
+            self.update_statement(dialect, &assignments, now),
+            dialect,
+        ))
+    }
+
     /// The combined `WHERE` conditions rendered as inline SQL, `None` when the filter
     /// is unconditional.
     ///
@@ -750,6 +782,26 @@ macro_rules! filter_surface {
                 now: Option<NaiveDateTime>,
             ) -> (String, Vec<Value>) {
                 self.filter.exists_compiled(dialect, now)
+            }
+
+            /// Compile the delete to SQL and its bound parameters.
+            pub fn delete_compiled(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> (String, Vec<Value>) {
+                self.filter.delete_compiled(dialect, now)
+            }
+
+            /// Compile an update to SQL and its bound parameters, for one assignment
+            /// object.
+            pub fn update_compiled(
+                &self,
+                dialect: SqlDialect,
+                assign: &serde_json::Map<String, serde_json::Value>,
+                now: Option<NaiveDateTime>,
+            ) -> Result<(String, Vec<Value>), Refusal> {
+                self.filter.update_compiled(dialect, assign, now)
             }
 
             /// The combined `WHERE` conditions rendered as inline SQL, `None` when the
@@ -2707,10 +2759,13 @@ fn record_timestamp(text: Option<&str>) -> Option<NaiveDateTime> {
 /// Render a statement in a dialect and return what follows a fixed prefix.
 /// Render a statement in the dialect's placeholder style, `?` for the SQLite family
 /// and `$n` for PostgreSQL.
-fn build(statement: SelectStatement, dialect: SqlDialect) -> (String, Vec<Value>) {
+fn build<S: sea_query::QueryStatementBuilder>(
+    statement: S,
+    dialect: SqlDialect,
+) -> (String, Vec<Value>) {
     let (sql, values) = match dialect {
-        SqlDialect::SqliteText => statement.build(sea_query::SqliteQueryBuilder),
-        SqlDialect::Postgres => statement.build(sea_query::PostgresQueryBuilder),
+        SqlDialect::SqliteText => statement.build_any(&sea_query::SqliteQueryBuilder),
+        SqlDialect::Postgres => statement.build_any(&sea_query::PostgresQueryBuilder),
     };
     (sql, values.0)
 }

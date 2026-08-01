@@ -163,6 +163,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<entities::EntityTable>()?;
     module.add_class::<fetcher::RecordFetcher>()?;
     module.add_class::<fetcher::RecordChunks>()?;
+    module.add_class::<fetcher::JsonParameter>()?;
     module.add_class::<filters::NativeFilter>()?;
     module.add_class::<fetcher::RecordWriter>()?;
     module.add_class::<store::Store>()?;

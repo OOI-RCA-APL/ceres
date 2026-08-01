@@ -410,6 +410,7 @@ pub(crate) fn parameter_value(parameter: Parameter) -> Value {
         Parameter::Bytes(value) => Value::Blob(value),
         Parameter::Timestamp(value) => Value::Text(Parameter::timestamp_text(&value)),
         Parameter::Uuid(value) => Value::Text(value.to_string()),
+        Parameter::Json(value) => Value::Text(value.to_string()),
     }
 }
 

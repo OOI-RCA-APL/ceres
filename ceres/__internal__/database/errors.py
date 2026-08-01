@@ -69,6 +69,13 @@ def wrap_database_errors() -> Iterator[None]:
             raise IntegrityError()
 
         raise DatabaseUnexpectedError(reason=str(exception))
+    except ValueError as exception:
+        # The native store reports a driver failure as a plain value error carrying the
+        # driver's own words, and the wording is what decides here anyway, so a constraint
+        # violation translates the same whichever engine surfaced it. A message neither
+        # wording recognizes belongs to whoever raised it and travels on unchanged.
+        _raise_if_already_exists(str(exception))
+        raise
 
 
 def _raise_if_already_exists(message: str) -> None:

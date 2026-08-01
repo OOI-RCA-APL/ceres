@@ -15,6 +15,7 @@ __all__ = [
     "ConsoleConfig",
     "DatabaseConfigHooks",
     "EntityTable",
+    "JsonParameter",
     "LoggingConfig",
     "NativeFilter",
     "NativeServer",
@@ -214,6 +215,20 @@ class DatabaseConfigHooks:
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
 
+@final
+class JsonParameter:
+    r"""
+    A whole JSON document as one statement parameter.
+
+    The columns that store a document bind it as one value, and PostgreSQL's `jsonb` refuses
+    a text bind, so the fact that a parameter is a document has to survive the trip out to
+    Python and back rather than arriving as a string nobody can tell apart from a name.
+    """
+    def __repr__(self) -> str:
+        r"""
+        The document's serialized form, which is what a text column stores.
+        """
+
 class LoggingConfig:
     r"""
     Per-component or per-engine logging configuration.
@@ -344,6 +359,20 @@ class NativeFilter:
         Compile the existence check to SQL and its parameters for a dialect.
 
         The shape an `any` command runs, which stops at the first matching row.
+        """
+    def delete_compiled(self, dialect: str, now: datetime | None = None) -> tuple[str, list[Any]]:
+        r"""
+        Compile the delete to SQL and its parameters for a dialect.
+        """
+    def update_compiled(
+        self, dialect: str, assign: str, now: datetime | None = None
+    ) -> tuple[str, list[Any]]:
+        r"""
+        Compile an update to SQL and its parameters for a dialect.
+
+        `assign` is the serialized JSON object of new values, and each one encodes into the
+        form its column stores, so the caller cannot write a value the column did not ask
+        for. A refusal carries the sentence naming the key and what it wanted.
         """
     def matches(self, record_json: str, now: datetime | None = None) -> bool:
         r"""

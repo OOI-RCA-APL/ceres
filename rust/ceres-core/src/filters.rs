@@ -173,6 +173,42 @@ impl NativeFilter {
         bound(py, sql, values)
     }
 
+    /// Compile the delete to SQL and its parameters for a dialect.
+    #[pyo3(signature = (dialect, now = None))]
+    fn delete_compiled<'py>(
+        &self,
+        py: Python<'py>,
+        dialect: &str,
+        now: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
+        let dialect = dialect_of(dialect)?;
+        let now = now.map(|now| now.naive_utc());
+        let (sql, values) = delegate!(self, delete_compiled(dialect, now));
+        bound(py, sql, values)
+    }
+
+    /// Compile an update to SQL and its parameters for a dialect.
+    ///
+    /// `assign` is the serialized JSON object of new values, and each one encodes into the
+    /// form its column stores, so the caller cannot write a value the column did not ask
+    /// for. A refusal carries the sentence naming the key and what it wanted.
+    #[pyo3(signature = (dialect, assign, now = None))]
+    fn update_compiled<'py>(
+        &self,
+        py: Python<'py>,
+        dialect: &str,
+        assign: &str,
+        now: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
+        let dialect = dialect_of(dialect)?;
+        let now = now.map(|now| now.naive_utc());
+        let assign: serde_json::Map<String, serde_json::Value> = serde_json::from_str(assign)
+            .map_err(|error| PyValueError::new_err(format!("unreadable assignment: {error}")))?;
+        let (sql, values) =
+            delegate!(self, update_compiled(dialect, &assign, now)).map_err(refusal_error)?;
+        bound(py, sql, values)
+    }
+
     /// Whether one serialized row matches this filter.
     ///
     /// Query controls and subsampling do not participate, this reads a single row the way
@@ -230,6 +266,14 @@ fn bind_value<'py>(
         Value::ChronoDateTime(value) => value.map(|value| value.and_utc()).into_bound_py_any(py)?,
         Value::ChronoDateTimeUtc(value) => value.map(|value| *value).into_bound_py_any(py)?,
         Value::Uuid(value) => value.map(|value| *value).into_bound_py_any(py)?,
+        // A document stays marked as one rather than becoming a string, because the column
+        // it lands in may be `jsonb`, which refuses a text bind.
+        Value::Json(value) => match value {
+            Some(value) => {
+                Bound::new(py, crate::fetcher::JsonParameter { value: *value })?.into_any()
+            }
+            None => py.None().into_bound(py),
+        },
         other => {
             return Err(PyValueError::new_err(format!(
                 "{other:?} is not a value the compiler binds"

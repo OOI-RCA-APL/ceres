@@ -29,6 +29,12 @@ pub enum Parameter {
     Bytes(Vec<u8>),
     Timestamp(chrono::NaiveDateTime),
     Uuid(uuid::Uuid),
+    /// A whole JSON document, for the columns that store one.
+    ///
+    /// This stays separate from `Text` because PostgreSQL's `jsonb` refuses a text bind,
+    /// while SQLite stores the same document as its serialized text, so the column's type
+    /// decides the binding and the two cannot share an arm.
+    Json(serde_json::Value),
 }
 
 impl Parameter {
@@ -1179,6 +1185,7 @@ fn bind_sqlite<'q>(
             Parameter::Bytes(value) => query.bind(value),
             Parameter::Timestamp(value) => query.bind(Parameter::timestamp_text(&value)),
             Parameter::Uuid(value) => query.bind(value.to_string()),
+            Parameter::Json(value) => query.bind(value.to_string()),
         };
     }
 
@@ -1201,6 +1208,7 @@ fn bind_postgres<'q>(
             Parameter::Bytes(value) => query.bind(value),
             Parameter::Timestamp(value) => query.bind(value),
             Parameter::Uuid(value) => query.bind(value),
+            Parameter::Json(value) => query.bind(value),
         };
     }
 

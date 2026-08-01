@@ -17,6 +17,26 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use crate::entities::{EntityTable, RecordBatch, RecordTable};
 
+/// A whole JSON document as one statement parameter.
+///
+/// The columns that store a document bind it as one value, and PostgreSQL's `jsonb` refuses
+/// a text bind, so the fact that a parameter is a document has to survive the trip out to
+/// Python and back rather than arriving as a string nobody can tell apart from a name.
+#[gen_stub_pyclass]
+#[pyclass(module = "ceres_core", frozen)]
+pub struct JsonParameter {
+    pub(crate) value: serde_json::Value,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl JsonParameter {
+    /// The document's serialized form, which is what a text column stores.
+    fn __repr__(&self) -> String {
+        format!("JsonParameter({})", self.value)
+    }
+}
+
 /// Extract a compiled statement parameter, one of the primitives bind processors produce.
 pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
     if value.is_none() {
@@ -55,6 +75,10 @@ pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter>
 
     if let Ok(id) = value.extract::<uuid::Uuid>() {
         return Ok(Parameter::Uuid(id));
+    }
+
+    if let Ok(json) = value.extract::<PyRef<'_, JsonParameter>>() {
+        return Ok(Parameter::Json(json.value.clone()));
     }
 
     Err(PyTypeError::new_err(format!(

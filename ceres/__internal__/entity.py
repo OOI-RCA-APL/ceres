@@ -720,6 +720,23 @@ def _parsed_filter(table: str, dump: str) -> Any:
     return NativeFilter.from_json(table, dump)
 
 
+def _native_assign(assign: Mapping[str, Any]) -> str:
+    """Serialize an update's new values for the native encoder, in its wire JSON form.
+
+    A bytes column crosses as latin-1 text, which is the convention the encoder reads back.
+    JSON carries no byte string of its own, and latin-1 is the one text encoding that maps
+    every byte to exactly one character, so the round trip is byte for byte.
+    """
+    from ceres.data import to_json
+
+    return to_json(
+        {
+            key: value.decode("latin-1") if isinstance(value, bytes) else value
+            for key, value in assign.items()
+        }
+    )
+
+
 @cache
 def _column_wrappers(Entity: type[BaseEntity]) -> dict[str, type[Any]]:
     """The columns whose stored value has to become a Python object, and what makes one.
@@ -1129,6 +1146,19 @@ class UpdateExecutor[
     @override
     async def _await(self) -> int:
         database = self._query._get_database()
+
+        store = await self._query._native_store()
+        if store is not None:
+            assign = await self._query._assign_transform(self._assign)
+            native = self._query._get_resolved_filter()._native_filter()
+            with wrap_database_errors():
+                sql, parameters = native.update_compiled(
+                    database.type.value,
+                    _native_assign(assign),
+                    utc(),
+                )
+                return await store.execute(sql, parameters)
+
         statement = await self._get_statement(False)
 
         with wrap_database_errors():
@@ -1180,6 +1210,14 @@ class DeleteExecutor[
     @override
     async def _await(self) -> int:
         database = self._query._get_database()
+
+        store = await self._query._native_store()
+        if store is not None:
+            native = self._query._get_resolved_filter()._native_filter()
+            with wrap_database_errors():
+                sql, parameters = native.delete_compiled(database.type.value, utc())
+                return await store.execute(sql, parameters)
+
         statement = await self._get_statement(False)
 
         with wrap_database_errors():
