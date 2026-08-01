@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
 from tempfile import gettempdir
-from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Self, final, override
 
 from ceres_core import RecordFetcher, RecordWriter, Store
@@ -246,13 +245,17 @@ class Database:
 
     @property
     def ddl(self) -> list[str]:
-        """Collect every DDL statement needed to create the schema on this backend."""
-        commands: list[str] = []
+        """Every script that creates this backend's schema, in the order they run.
 
-        for cls in _get_entity_row_classes():
-            commands.extend(cls.get_ddl(self._engine.sync_engine))
+        The migrations are the schema, so what initializes a database is the chain a fresh
+        one runs rather than a separate description of the result. The bookkeeping table
+        comes first, since it is what records the rest as they are applied, and a migration
+        with no script for this backend is a recorded no-op that contributes nothing.
+        """
+        from ceres.database.migrations import MIGRATIONS
 
-        return commands
+        scripts = (migration.render(self.type.value) for migration in MIGRATIONS)
+        return [self._migrations_table_ddl(), *(script for script in scripts if script)]
 
     @cached_property
     def messages(self) -> MessageManager:
@@ -1164,30 +1167,6 @@ class PostgresDatabase(Database):
                 query=self.config.query or {},
             ).render_as_string(hide_password=False)
         )
-
-    @property
-    @override
-    def ddl(self) -> list[str]:
-        """Collect every DDL statement needed for PostgreSQL, including extensions and functions."""
-        commands: list[str] = []
-
-        commands.append("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
-        commands.append(
-            dedent(
-                r"""
-                CREATE OR REPLACE FUNCTION ceres_tokenize_bytes(bytes bytea) RETURNS TEXT
-                IMMUTABLE
-                LANGUAGE plpgsql AS $$
-                    BEGIN
-                        RETURN regexp_replace(encode($1, 'hex'), '(.{2})', '\1 ', 'g');
-                    END;
-                $$;
-                """
-            ).strip()
-        )
-
-        commands.extend(super().ddl)
-        return commands
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:

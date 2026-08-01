@@ -171,6 +171,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(filters::insert_compiled, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(fetcher::stored_columns, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::record_filter_keys, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::entity_filter_keys, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::normalize_email, module)?)?;

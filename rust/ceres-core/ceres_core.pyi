@@ -44,6 +44,7 @@ __all__ = [
     "openapi_schema",
     "record_filter_keys",
     "special_use_domains",
+    "stored_columns",
     "verify_argon2",
     "verify_bcrypt",
     "verify_password",
@@ -1420,6 +1421,17 @@ def special_use_domains() -> list[str]:
     Exposed so the parity suite can hold it against the validator library's own list. A
     name added there and not here would be an address written natively that Python
     refuses.
+    """
+
+def stored_columns() -> list[tuple[str, list[tuple[str, str]]]]:
+    r"""
+    Every column the native layer reads and writes, by table.
+
+    Each entry pairs a table name with its columns, and each column its name and the
+    family that decides how it decodes. This is the contract between the entity structs
+    and the schema the migrations create, and a column named here that the migrations do
+    not create is a decode failure on a live query rather than anything a build catches,
+    which is what the drift test exists to find first.
     """
 
 def verify_argon2(password: str, hash: str) -> bool | None:

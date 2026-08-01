@@ -330,6 +330,67 @@ impl RecordFetcher {
     }
 }
 
+/// Every column the native layer reads and writes, by table.
+///
+/// Each entry pairs a table name with its columns, and each column its name and the
+/// family that decides how it decodes. This is the contract between the entity structs
+/// and the schema the migrations create, and a column named here that the migrations do
+/// not create is a decode failure on a live query rather than anything a build catches,
+/// which is what the drift test exists to find first.
+#[pyo3_stub_gen::derive::gen_stub_pyfunction]
+#[pyfunction]
+pub fn stored_columns() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
+    use ceres_database::{EntityTable as Entities, RecordTable as Records};
+
+    let records = [
+        Records::Messages,
+        Records::Particles,
+        Records::Alerts,
+        Records::Logs,
+    ]
+    .into_iter()
+    .map(|table| (table.name(), described(table.columns())));
+    let entities = [
+        Entities::Users,
+        Entities::Variables,
+        Entities::Settings,
+        Entities::Workspaces,
+        Entities::WorkspaceEdits,
+        Entities::Groups,
+        Entities::GroupMemberships,
+        Entities::UserPermissions,
+        Entities::GroupPermissions,
+    ]
+    .into_iter()
+    .map(|table| (table.name(), described(table.columns())));
+
+    records.chain(entities).collect()
+}
+
+/// One table's columns as name and family, the family named the way it reads.
+fn described(columns: &'static [ceres_entities::FilterField]) -> Vec<(&'static str, &'static str)> {
+    use ceres_entities::FieldFamily;
+
+    columns
+        .iter()
+        .map(|column| {
+            let family = match column.family {
+                FieldFamily::Uuid => "uuid",
+                FieldFamily::Address | FieldFamily::PlainAddress => "address",
+                FieldFamily::Timestamp => "timestamp",
+                FieldFamily::Text => "text",
+                FieldFamily::Email => "email",
+                FieldFamily::Values(_) => "values",
+                FieldFamily::Level => "level",
+                FieldFamily::Bytes => "bytes",
+                FieldFamily::Json | FieldFamily::JsonValue => "json",
+                FieldFamily::Boolean => "boolean",
+            };
+            (column.key, family)
+        })
+        .collect()
+}
+
 /// The native filter subset's key classification for one record table.
 ///
 /// Answers `(supported, delegated)`, and the classification test holds their union to

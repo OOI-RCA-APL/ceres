@@ -96,7 +96,7 @@ async def _execute(statements: list[str]) -> None:
 def prepare() -> None:
     """Install the shared extensions once, before any schema is handed out.
 
-    `PostgresDatabase.ddl` asks for `pg_trgm` without naming a schema, so a migration run inside a
+    The baseline migration asks for `pg_trgm` without naming a schema, so a migration run inside a
     throwaway schema would install it there and take `gin_trgm_ops` down with that schema when it
     is recycled. Putting the extension in `public` first makes every later `IF NOT EXISTS` a no-op
     and keeps the operator classes resolvable for the whole run.
