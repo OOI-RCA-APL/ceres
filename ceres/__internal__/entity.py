@@ -1151,12 +1151,15 @@ class UpdateExecutor[
         if store is not None:
             assign = await self._query._assign_transform(self._assign)
             native = self._query._get_resolved_filter()._native_filter()
+            # The compile stays outside the wrapper. It refuses an assignment the column
+            # cannot hold, and that refusal is the caller's own to read rather than
+            # something to run past the constraint wordings a driver failure is matched on.
+            sql, parameters = native.update_compiled(
+                database.type.value,
+                _native_assign(assign),
+                utc(),
+            )
             with wrap_database_errors():
-                sql, parameters = native.update_compiled(
-                    database.type.value,
-                    _native_assign(assign),
-                    utc(),
-                )
                 return await store.execute(sql, parameters)
 
         statement = await self._get_statement(False)
