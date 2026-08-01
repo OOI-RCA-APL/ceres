@@ -26,22 +26,37 @@ pub struct Store {
 #[pymethods]
 impl Store {
     /// Open a store over a SQLite database file.
+    ///
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life, run after this backend's.
     #[staticmethod]
-    fn sqlite(path: &str) -> PyResult<Self> {
+    #[pyo3(signature = (path, on_connect=Vec::new(), on_close=Vec::new()))]
+    fn sqlite(path: &str, on_connect: Vec<String>, on_close: Vec<String>) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store = RecordStore::sqlite_writable(path).map_err(to_value_error)?;
+        let store =
+            RecordStore::sqlite_writable(path, on_connect, on_close).map_err(to_value_error)?;
         Ok(Self {
             store: Arc::new(store),
         })
     }
 
     /// Open a store over a Turso database file.
+    ///
+    /// A `close` hook is refused here, this backend opening a connection per operation
+    /// rather than pooling them, so such a statement would never run.
     #[staticmethod]
-    fn turso(path: &str, mvcc: bool) -> PyResult<Self> {
+    #[pyo3(signature = (path, mvcc, on_connect=Vec::new(), on_close=Vec::new()))]
+    fn turso(
+        path: &str,
+        mvcc: bool,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
+    ) -> PyResult<Self> {
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
+        let store = RecordStore::turso(path, mvcc, on_connect, on_close).map_err(to_value_error)?;
         Ok(Self {
-            store: Arc::new(RecordStore::turso(path, mvcc)),
+            store: Arc::new(store),
         })
     }
 
@@ -55,7 +70,10 @@ impl Store {
         password=None,
         settings=Vec::new(),
         parameters=Vec::new(),
+        on_connect=Vec::new(),
+        on_close=Vec::new(),
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn postgres(
         host: &str,
         database: &str,
@@ -64,11 +82,14 @@ impl Store {
         password: Option<&str>,
         settings: Vec<(String, String)>,
         parameters: Vec<(String, String)>,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
     ) -> PyResult<Self> {
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store =
-            RecordStore::postgres(host, port, database, user, password, settings, parameters)
-                .map_err(to_value_error)?;
+        let store = RecordStore::postgres(
+            host, port, database, user, password, settings, parameters, on_connect, on_close,
+        )
+        .map_err(to_value_error)?;
         Ok(Self {
             store: Arc::new(store),
         })

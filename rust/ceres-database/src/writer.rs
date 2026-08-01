@@ -87,12 +87,14 @@ impl RecordWriter {
 
     /// Open a writer over a Turso database file.
     ///
-    /// When `mvcc` is set, each connection enables MVCC journaling to match the query
-    /// layer's connections on the same file. Transactions open with a plain `BEGIN`, the
-    /// concurrent form is for the query layer's explicitly concurrent sections.
-    pub fn turso(path: &str, mvcc: bool) -> Self {
+    /// When `mvcc` is set, each connection enables MVCC journaling to match the store's
+    /// connections on the same file. Transactions open with a plain `BEGIN`, the
+    /// concurrent form is for the explicitly concurrent sections.
+    ///
+    /// `on_connect` is the configuration's own statements for an opening connection.
+    pub fn turso(path: &str, mvcc: bool, on_connect: Vec<String>) -> Self {
         Self {
-            backend: Backend::Turso(TursoBackend::new(path, mvcc)),
+            backend: Backend::Turso(TursoBackend::new(path, mvcc, on_connect)),
         }
     }
 

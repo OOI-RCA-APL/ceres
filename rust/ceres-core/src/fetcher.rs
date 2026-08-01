@@ -114,17 +114,20 @@ impl RecordFetcher {
 
     /// Open a fetcher over a Turso database file.
     #[staticmethod]
-    fn turso(path: &str, mvcc: bool) -> PyResult<Self> {
+    #[pyo3(signature = (path, mvcc, on_connect=Vec::new()))]
+    fn turso(path: &str, mvcc: bool, on_connect: Vec<String>) -> PyResult<Self> {
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
+        let store =
+            RecordStore::turso(path, mvcc, on_connect, Vec::new()).map_err(to_value_error)?;
         Ok(Self {
-            store: Arc::new(RecordStore::turso(path, mvcc)),
+            store: Arc::new(store),
         })
     }
 
     /// Open a fetcher over a PostgreSQL database.
     ///
-    /// `settings` are per-connection server settings like `search_path`, matching the ones
-    /// the query layer passes its own driver.
+    /// `settings` are per-connection server settings like `search_path`. `on_connect` and
+    /// `on_close` are the configuration's own statements for a connection's two ends.
     #[staticmethod]
     #[pyo3(signature = (
         host,
@@ -134,7 +137,10 @@ impl RecordFetcher {
         password=None,
         settings=Vec::new(),
         parameters=Vec::new(),
+        on_connect=Vec::new(),
+        on_close=Vec::new(),
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn postgres(
         host: &str,
         database: &str,
@@ -143,12 +149,15 @@ impl RecordFetcher {
         password: Option<&str>,
         settings: Vec<(String, String)>,
         parameters: Vec<(String, String)>,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
     ) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store =
-            RecordStore::postgres(host, port, database, user, password, settings, parameters)
-                .map_err(to_value_error)?;
+        let store = RecordStore::postgres(
+            host, port, database, user, password, settings, parameters, on_connect, on_close,
+        )
+        .map_err(to_value_error)?;
         Ok(Self {
             store: Arc::new(store),
         })
@@ -501,7 +510,7 @@ impl RecordWriter {
     fn turso(path: &str, mvcc: bool) -> PyResult<Self> {
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
         Ok(Self {
-            writer: Arc::new(ceres_database::RecordWriter::turso(path, mvcc)),
+            writer: Arc::new(ceres_database::RecordWriter::turso(path, mvcc, Vec::new())),
         })
     }
 

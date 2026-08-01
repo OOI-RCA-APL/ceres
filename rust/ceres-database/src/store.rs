@@ -72,6 +72,59 @@ pub enum Error {
     Refused(String),
 }
 
+/// Attach a configuration's connection lifecycle statements to a pool.
+///
+/// These are the `connect` and `close` hooks a database configuration declares, and they
+/// run on every connection the pool opens and releases, after whatever this backend sets
+/// for itself. A statement that fails on connect fails the checkout, because a connection
+/// that skipped its setup is not the connection that was configured. One that fails on
+/// release retires the connection instead of reporting, the caller having already finished
+/// with it by then.
+fn lifecycle<DB>(
+    options: sqlx::pool::PoolOptions<DB>,
+    on_connect: Vec<String>,
+    on_close: Vec<String>,
+) -> sqlx::pool::PoolOptions<DB>
+where
+    DB: sqlx::Database,
+    for<'c> &'c mut DB::Connection: sqlx::Executor<'c, Database = DB>,
+{
+    use sqlx::Executor;
+
+    let mut options = options;
+    if !on_connect.is_empty() {
+        let statements = std::sync::Arc::new(on_connect);
+        options = options.after_connect(move |connection, _| {
+            let statements = statements.clone();
+            Box::pin(async move {
+                // One at a time, because these are separate configured statements rather
+                // than a script, and the one that failed is the one worth naming.
+                for statement in statements.iter() {
+                    connection.execute(statement.as_str()).await?;
+                }
+
+                Ok(())
+            })
+        });
+    }
+
+    if !on_close.is_empty() {
+        let statements = std::sync::Arc::new(on_close);
+        options = options.after_release(move |connection, _| {
+            let statements = statements.clone();
+            Box::pin(async move {
+                for statement in statements.iter() {
+                    connection.execute(statement.as_str()).await?;
+                }
+
+                Ok(false)
+            })
+        });
+    }
+
+    options
+}
+
 /// A driver failure in the driver's own words, with the detail it offered.
 ///
 /// PostgreSQL says which constraint broke on the first line and which key broke it on a
@@ -192,15 +245,25 @@ impl RecordStore {
     /// and a database has no file before its first one. Callers that mean to read an
     /// existing database check for it themselves and say so, an empty file being a worse
     /// answer than a refusal for anyone pointing at the wrong path.
-    pub fn sqlite_writable(path: &str) -> Result<Self, Error> {
+    ///
+    /// `on_connect` and `on_close` are the statements a configuration asked to run at the
+    /// two ends of a connection's life, in order, after this backend's own.
+    pub fn sqlite_writable(
+        path: &str,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
+    ) -> Result<Self, Error> {
         let options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true)
             .busy_timeout(std::time::Duration::from_secs(30))
             .foreign_keys(true);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_lazy_with(options);
+        let pool = lifecycle(
+            SqlitePoolOptions::new().max_connections(1),
+            on_connect,
+            on_close,
+        )
+        .connect_lazy_with(options);
         Ok(Self {
             backend: Backend::Sqlite(pool),
         })
@@ -208,8 +271,10 @@ impl RecordStore {
 
     /// Open a store over a PostgreSQL database.
     ///
-    /// `settings` are per-connection server settings like `search_path`, matching the ones
-    /// the Python layer passes its own driver.
+    /// `settings` are per-connection server settings like `search_path`. `on_connect` and
+    /// `on_close` are the statements a configuration asked to run at the two ends of a
+    /// connection's life.
+    #[allow(clippy::too_many_arguments)]
     pub fn postgres(
         host: &str,
         port: Option<u16>,
@@ -218,9 +283,11 @@ impl RecordStore {
         password: Option<&str>,
         settings: Vec<(String, String)>,
         parameters: Vec<(String, String)>,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
     ) -> Result<Self, Error> {
         let options = postgres_options(host, port, database, user, password, settings, parameters)?;
-        let pool = PgPoolOptions::new().connect_lazy_with(options);
+        let pool = lifecycle(PgPoolOptions::new(), on_connect, on_close).connect_lazy_with(options);
         Ok(Self {
             backend: Backend::Postgres(pool),
         })
@@ -228,12 +295,29 @@ impl RecordStore {
 
     /// Open a store over a Turso database file.
     ///
-    /// When `mvcc` is set, each connection enables MVCC journaling to match the query
-    /// layer's connections on the same file.
-    pub fn turso(path: &str, mvcc: bool) -> Self {
-        Self {
-            backend: Backend::Turso(TursoBackend::new(path, mvcc)),
+    /// When `mvcc` is set, each connection enables MVCC journaling. `on_connect` is the
+    /// statements a configuration asked to run as a connection opens.
+    ///
+    /// A `close` hook is refused rather than ignored. This backend opens a connection per
+    /// operation and lets it go at the end, so there is no pooled connection being handed
+    /// back for such a statement to run on, and accepting one would mean never running it.
+    pub fn turso(
+        path: &str,
+        mvcc: bool,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
+    ) -> Result<Self, Error> {
+        if !on_close.is_empty() {
+            return Err(Error::Connect(
+                "This backend opens a connection per operation rather than pooling them, so \
+                 a `close` hook would never run. Remove `database.hooks.close`."
+                    .to_string(),
+            ));
         }
+
+        Ok(Self {
+            backend: Backend::Turso(TursoBackend::new(path, mvcc, on_connect)),
+        })
     }
 
     /// Fetch a record listing, ordered by timestamp like the Python layer's default.
@@ -1381,7 +1465,7 @@ mod tests {
         .unwrap();
         pool.close().await;
 
-        RecordStore::sqlite_writable(path).unwrap()
+        RecordStore::sqlite_writable(path, Vec::new(), Vec::new()).unwrap()
     }
 
     /// The stored entries, ordered by content so a comparison is stable.

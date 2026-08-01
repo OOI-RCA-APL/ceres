@@ -624,7 +624,7 @@ class RecordFetcher:
         Open a fetcher over a SQLite database file.
         """
     @staticmethod
-    def turso(path: str, mvcc: bool) -> RecordFetcher:
+    def turso(path: str, mvcc: bool, on_connect: Sequence[str] = []) -> RecordFetcher:
         r"""
         Open a fetcher over a Turso database file.
         """
@@ -637,12 +637,14 @@ class RecordFetcher:
         password: str | None = None,
         settings: Sequence[tuple[str, str]] = [],
         parameters: Sequence[tuple[str, str]] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
     ) -> RecordFetcher:
         r"""
         Open a fetcher over a PostgreSQL database.
 
-        `settings` are per-connection server settings like `search_path`, matching the ones
-        the query layer passes its own driver.
+        `settings` are per-connection server settings like `search_path`. `on_connect` and
+        `on_close` are the configuration's own statements for a connection's two ends.
         """
     def fetch_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> Any:
         r"""
@@ -1144,14 +1146,22 @@ class Store:
     A natively-connected database the query layer reads and writes through.
     """
     @staticmethod
-    def sqlite(path: str) -> Store:
+    def sqlite(path: str, on_connect: Sequence[str] = [], on_close: Sequence[str] = []) -> Store:
         r"""
         Open a store over a SQLite database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life, run after this backend's.
         """
     @staticmethod
-    def turso(path: str, mvcc: bool) -> Store:
+    def turso(
+        path: str, mvcc: bool, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> Store:
         r"""
         Open a store over a Turso database file.
+
+        A `close` hook is refused here, this backend opening a connection per operation
+        rather than pooling them, so such a statement would never run.
         """
     @staticmethod
     def postgres(
@@ -1162,6 +1172,8 @@ class Store:
         password: str | None = None,
         settings: Sequence[tuple[str, str]] = [],
         parameters: Sequence[tuple[str, str]] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
     ) -> Store:
         r"""
         Open a store over a PostgreSQL database.

@@ -34,14 +34,16 @@ use crate::store::{Error, Parameter};
 pub(crate) struct TursoBackend {
     path: String,
     mvcc: bool,
+    on_connect: Vec<String>,
     database: OnceCell<turso::Database>,
 }
 
 impl TursoBackend {
-    pub(crate) fn new(path: &str, mvcc: bool) -> Self {
+    pub(crate) fn new(path: &str, mvcc: bool, on_connect: Vec<String>) -> Self {
         Self {
             path: path.to_string(),
             mvcc,
+            on_connect,
             database: OnceCell::new(),
         }
     }
@@ -85,6 +87,12 @@ impl TursoBackend {
                     }
                 )));
             }
+        }
+
+        // The configuration's own statements come last, so one of them can override what
+        // this set, which is the point of being able to configure them.
+        for statement in &self.on_connect {
+            pragma(&connection, statement).await?;
         }
 
         Ok(connection)
@@ -938,7 +946,7 @@ mod tests {
             data: vec![0, 65, 255],
         };
 
-        let writer = RecordWriter::turso(path, mvcc);
+        let writer = RecordWriter::turso(path, mvcc, Vec::new());
         writer
             .upsert(vec![
                 Records::Particles(vec![first.clone(), second.clone()]),
@@ -947,7 +955,8 @@ mod tests {
             .await
             .unwrap();
 
-        let store = RecordStore::turso(path, mvcc);
+        let store = RecordStore::turso(path, mvcc, Vec::new(), Vec::new())
+            .expect("no close hook was configured");
         let records = store
             .fetch(RecordTable::Particles, None, None)
             .await
@@ -1016,13 +1025,20 @@ mod tests {
         // A database has no file before its first migration, so opening one creates it.
         let directory = tempfile::tempdir().expect("the temporary directory is made");
         let path = directory.path().join("fresh.turso");
-        let store = RecordStore::turso(path.to_str().expect("the path is text"), false);
+        let store = RecordStore::turso(
+            path.to_str().expect("the path is text"),
+            false,
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("no close hook was configured");
         // Nothing has created the schema, so the table is missing rather than the file.
         assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
         assert!(path.exists(), "opening the database created its file");
 
         // A path whose directory does not exist is still someone pointing at nothing.
-        let store = RecordStore::turso("/nonexistent/records.turso", false);
+        let store = RecordStore::turso("/nonexistent/records.turso", false, Vec::new(), Vec::new())
+            .expect("no close hook was configured");
         assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
     }
 }

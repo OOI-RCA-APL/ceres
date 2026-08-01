@@ -627,7 +627,7 @@ pub(crate) fn open_store(
         DatabaseConfig::Sqlite(sqlite) => {
             let path = existing(sqlite.path.as_deref())?;
             if writing {
-                RecordStore::sqlite_writable(&path)
+                RecordStore::sqlite_writable(&path, Vec::new(), Vec::new())
             } else {
                 RecordStore::sqlite(&path)
             }
@@ -635,7 +635,10 @@ pub(crate) fn open_store(
         }
         DatabaseConfig::Turso(turso) => {
             let path = existing(turso.path.as_deref())?;
-            Ok(RecordStore::turso(&path, turso.mvcc))
+            Ok(
+                RecordStore::turso(&path, turso.mvcc, Vec::new(), Vec::new())
+                    .expect("no close hook was configured"),
+            )
         }
         DatabaseConfig::Postgres(postgres) => {
             // Server settings shape what a query sees, `search_path` above all, so they
@@ -684,6 +687,8 @@ pub(crate) fn open_store(
                 postgres.password.as_ref().map(|secret| secret.expose()),
                 settings,
                 parameters,
+                postgres.shared.hooks.connect.clone().unwrap_or_default(),
+                postgres.shared.hooks.close.clone().unwrap_or_default(),
             )
             .map_err(|error| error.to_string())
         }
