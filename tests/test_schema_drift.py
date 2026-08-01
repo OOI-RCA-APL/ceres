@@ -19,7 +19,7 @@ import pytest
 from ceres_core import stored_columns
 
 from ceres.database import Database, DatabaseType
-from tests import schema
+from tests import introspection
 
 pytestmark = pytest.mark.databases()
 """Every backend, since drift between the migrations and the models is backend specific."""
@@ -182,11 +182,11 @@ async def test_the_migrations_build_the_schema_that_was_recorded() -> None:
     database = Database()
     try:
         await database.migrate()
-        recorded = schema.render(await schema.describe(database))
+        recorded = introspection.render(await introspection.describe(database))
     finally:
         await database.dispose()
 
-    path = schema.path_for(database.type.value)
+    path = introspection.path_for(database.type.value)
     assert path.exists(), f"no schema is recorded for {database.type.value}, run 'make schema'"
     assert recorded == path.read_text(), (
         f"the migrations no longer build the schema recorded in {path.name}. "

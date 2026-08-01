@@ -7,7 +7,9 @@ The diff is the point: it shows what the migration did to the schema, on every b
 the review rather than afterwards.
 
 PostgreSQL needs a reachable test server and Turso needs the optional `pyturso` package, so
-a backend that cannot be reached is reported and left as it was rather than recorded empty.
+a backend that cannot be reached is left as it was rather than recorded empty. `--check`
+fails on one it could not reach as well as on one that has drifted, because a check that
+skipped a backend has not checked it and reporting otherwise is how a stale file survives.
 """
 
 import asyncio
@@ -17,7 +19,15 @@ from typing import Any
 # ruff: disable[T201] # Allow print statements.
 from ceres.config import SQLiteDatabaseConfig, TursoDatabaseConfig
 from ceres.database import Database
-from tests import postgres, schema
+from tests import introspection, postgres
+
+_EXPECTED_TABLES = {"migrations", "users", "workspaces", "messages", "particles"}
+"""Tables any migrated database holds, as a floor under what is worth recording.
+
+Nobody reads the update path as closely as the check path, so a half-applied migration or a
+misconfigured backend could otherwise write a truncated file that every later run passes
+against. This is a sanity floor, not a schema, which is what the recorded file is for.
+"""
 
 
 def _config(backend: str) -> Any:
@@ -37,7 +47,12 @@ async def _record(backend: str) -> str:
     database = Database(_config(backend))
     try:
         await database.migrate()
-        return schema.render(await schema.describe(database))
+        described = await introspection.describe(database)
+        missing = sorted(_EXPECTED_TABLES - set(described))
+        if missing:
+            raise RuntimeError(f"the migrated database is missing {missing}, nothing was recorded")
+
+        return introspection.render(described)
     finally:
         await database.dispose()
 
@@ -45,16 +60,18 @@ async def _record(backend: str) -> str:
 async def main() -> int:
     check = "--check" in sys.argv
     stale: list[str] = []
-    schema.SCHEMA_DIRECTORY.mkdir(exist_ok=True)
+    unreached: list[str] = []
+    introspection.SCHEMA_DIRECTORY.mkdir(exist_ok=True)
 
     for backend in ("sqlite", "turso", "postgres"):
         try:
             recorded = await _record(backend)
         except Exception as error:
-            print(f"{backend}: skipped, {error}")
+            unreached.append(backend)
+            print(f"{backend}: not reached, {error}")
             continue
 
-        path = schema.path_for(backend)
+        path = introspection.path_for(backend)
         if check:
             if not path.exists() or path.read_text() != recorded:
                 stale.append(backend)
@@ -70,9 +87,11 @@ async def main() -> int:
 
     if stale:
         print("\nRun 'make schema' to record the schema the migrations now build.")
-        return 1
 
-    return 0
+    if unreached and check:
+        print(f"\n{', '.join(unreached)} could not be reached, so nothing checked them.")
+
+    return 1 if stale or (unreached and check) else 0
 
 
 if __name__ == "__main__":
