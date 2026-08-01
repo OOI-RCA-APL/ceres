@@ -6,10 +6,10 @@ Run after any migration change, the same way coverage is regenerated after a tes
 The diff is the point: it shows what the migration did to the schema, on every backend, in
 the review rather than afterwards.
 
-PostgreSQL needs a reachable test server and Turso needs the optional `pyturso` package, so
-a backend that cannot be reached is left as it was rather than recorded empty. `--check`
-fails on one it could not reach as well as on one that has drifted, because a check that
-skipped a backend has not checked it and reporting otherwise is how a stale file survives.
+PostgreSQL needs a reachable test server, so a backend that cannot be reached is left as it
+was rather than recorded empty. `--check` fails on one it could not reach as well as on one
+that has drifted, because a check that skipped a backend has not checked it and reporting
+otherwise is how a stale file survives.
 """
 
 import asyncio

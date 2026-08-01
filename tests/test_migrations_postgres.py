@@ -67,9 +67,7 @@ async def store():
         pytest.skip(f"no PostgreSQL server at {POSTGRES_URL}")
 
     admin = _store()
-    await admin.execute_script(
-        f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE;\nCREATE SCHEMA {SCHEMA};"
-    )
+    await admin.execute_script(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE;\nCREATE SCHEMA {SCHEMA};")
     try:
         yield _store(SCHEMA)
     finally:

@@ -47,8 +47,8 @@ class Migration:
 
         Args:
             dialect: Dialect key to look up, e.g. `sqlite`, `postgres`, or `postgresql`.
-                Normalized against `_DIALECT_KEYS` so callers can pass either the SQLAlchemy
-                dialect name or the `DatabaseType` value.
+                Normalized against `_DIALECT_KEYS` so callers can pass either spelling of a
+                backend's name or the `DatabaseType` value.
 
         Returns:
             The SQL script text, or `None` if this migration has no script for `dialect`.

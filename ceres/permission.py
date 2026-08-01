@@ -299,7 +299,6 @@ class GroupPermissionFilter(
         return True
 
 
-
 class GroupPermissionCreate(BaseEntityCreate, slots=True):
     """Payload for creating a new `GroupPermission` record."""
 

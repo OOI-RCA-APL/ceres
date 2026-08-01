@@ -73,7 +73,7 @@ ceres/
     engine.py               # Engine orchestration.
     config.py               # Configuration loading and validation.
     connection/             # Connection system (sources, splitters, buffers).
-    database/               # SQLAlchemy async database layer.
+    database/               # Async database layer over the native store.
     error.py                # Error hierarchy.
     event.py                # Event system.
     particle.py             # Data parsing (particles).

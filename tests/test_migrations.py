@@ -30,9 +30,7 @@ def _write(directory, filename, content="SELECT 1;"):
 
 async def _names(database: Database, kind: str) -> set[str]:
     """The names of every `kind` ("table" or "index") the schema holds."""
-    rows = await database._store().fetch(
-        "SELECT name FROM sqlite_master WHERE type = ?", [kind]
-    )
+    rows = await database._store().fetch("SELECT name FROM sqlite_master WHERE type = ?", [kind])
     return {str(row["name"]) for row in rows}
 
 

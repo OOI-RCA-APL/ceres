@@ -63,9 +63,7 @@ async def test_enabling_mvcc_lets_two_writers_overlap(tmp_path):
     database = Database(TursoDatabaseConfig(path=tmp_path / "ceres.db", mvcc=True))
     try:
         await database.migrate()
-        await database._store().execute_script(
-            "CREATE TABLE probe (k TEXT PRIMARY KEY, v TEXT);"
-        )
+        await database._store().execute_script("CREATE TABLE probe (k TEXT PRIMARY KEY, v TEXT);")
 
         store = database._store()
         await asyncio.gather(

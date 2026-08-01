@@ -661,13 +661,12 @@ class TursoDatabase(SQLiteDatabase):
     """`Database` backed by a Turso file, which is SQLite's format with concurrent writers.
 
     Turso reads and writes the same file a `SQLiteDatabase` does and accepts the same schema, so
-    almost everything is inherited. Two things differ. Write transactions open with
-    `BEGIN CONCURRENT` under `journal_mode = 'mvcc'`, which is the point of the backend, and
-    conflicts are reported when a transaction commits rather than when it writes, so a caller that
-    loses a race sees an error at commit and has to retry.
+    almost everything is inherited. What differs is `journal_mode = 'mvcc'`, which is the point of
+    the backend, and which reports a conflict when a transaction commits rather than when it
+    writes, so a caller that loses a race sees an error at commit and has to retry.
 
-    See `TursoDatabaseConfig` for what enabling `mvcc` costs, and note that `pyturso` is an extra
-    rather than an installed dependency.
+    See `TursoDatabaseConfig` for what enabling `mvcc` costs. The engine is compiled into Ceres,
+    so nothing has to be installed alongside it.
     """
 
     @override

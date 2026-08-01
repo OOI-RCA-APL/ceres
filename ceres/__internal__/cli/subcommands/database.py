@@ -80,7 +80,12 @@ class ShellCommand(CLICommand):
 
                     command = ["sqlite3", str(database.path)]
                     command.extend(["-cmd", f".output {os.devnull}"])
-                    for statement in database._get_connect_commands():
+                    # What the store sets on every connection it opens, so the shell sees the
+                    # database the way the running engine does. A shell without foreign keys
+                    # on would let a statement through that the engine would refuse.
+                    for statement in ("PRAGMA foreign_keys = ON", "PRAGMA busy_timeout = 30000"):
+                        command.extend(["-cmd", statement])
+                    for statement in database.config.hooks.connect or ():
                         command.extend(["-cmd", statement])
                     for statement in database.config.hooks.init or ():
                         command.extend(["-cmd", statement])
