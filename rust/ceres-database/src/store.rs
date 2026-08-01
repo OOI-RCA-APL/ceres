@@ -185,14 +185,17 @@ impl RecordStore {
 
     /// Open a writable store over a SQLite database file.
     ///
-    /// The connection matches the query layer's, the same busy timeout and foreign key
-    /// enforcement, because both pools share the file. It never creates a missing file,
-    /// whose lifecycle belongs to the Python layer, and holds one connection, since the
-    /// backend serializes writers anyway.
+    /// The connection carries the same busy timeout and foreign key enforcement the query
+    /// layer's does, and holds one connection, since the backend serializes writers anyway.
+    ///
+    /// A missing file is created, because the store is what runs a database's migrations
+    /// and a database has no file before its first one. Callers that mean to read an
+    /// existing database check for it themselves and say so, an empty file being a worse
+    /// answer than a refusal for anyone pointing at the wrong path.
     pub fn sqlite_writable(path: &str) -> Result<Self, Error> {
         let options = SqliteConnectOptions::new()
             .filename(path)
-            .create_if_missing(false)
+            .create_if_missing(true)
             .busy_timeout(std::time::Duration::from_secs(30))
             .foreign_keys(true);
         let pool = SqlitePoolOptions::new()

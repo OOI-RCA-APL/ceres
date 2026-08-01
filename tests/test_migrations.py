@@ -301,6 +301,29 @@ async def test_migration_2_transforms_old_schema(database):
         assert "workspace_memberships" not in tables
 
 
+async def test_a_table_rebuild_puts_back_the_foreign_keys_it_turned_off(database):
+    """SQLite rebuilds a table by copying it, with foreign keys off across the swap.
+
+    That pragma does nothing inside a transaction someone else opened, so a runner that
+    wrapped the whole script in one would leave the rebuilt tables without the constraints
+    the migration meant to carry over. It would do it without failing, and the rows would
+    still be there, so the constraints themselves are what has to be checked.
+    """
+    await database.migrate()
+    store = database._store()
+    assert store is not None
+
+    rows = await store.fetch(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL",
+        [],
+    )
+    schema = {row["name"]: row["sql"] for row in rows}
+
+    # Both of these are rebuilt by a later migration, and both point back at `users`.
+    assert "REFERENCES users" in schema["group_memberships"]
+    assert "REFERENCES users" in schema["user_permissions"]
+
+
 def test_migrations_include_migration_3():
     from ceres.database.migrations import MIGRATIONS
 

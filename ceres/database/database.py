@@ -467,16 +467,25 @@ class Database:
             with wrap_database_errors():
                 await self._engine.dispose()
 
-    async def _get_applied_migration_ids(self) -> list[int]:
-        """Return the IDs of every migration recorded as applied, in ascending order."""
-        ddl = (
+    def _migrations_table_ddl(self) -> str:
+        """The bookkeeping table's own DDL, in this backend's spelling."""
+        return (
             _MIGRATIONS_TABLE_DDL_POSTGRES
             if self.type.value == "postgres"
             else _MIGRATIONS_TABLE_DDL_SQLITE
         )
+
+    async def _get_applied_migration_ids(self) -> list[int]:
+        """Return the IDs of every migration recorded as applied, in ascending order."""
         with wrap_database_errors():
+            store = self._store()
+            if store is not None:
+                await store.execute_script(self._migrations_table_ddl())
+                rows = await store.fetch("SELECT id FROM migrations ORDER BY id", [])
+                return [row["id"] for row in rows]
+
             async with self._engine.begin() as connection:
-                await connection.execute(text(ddl))
+                await connection.execute(text(self._migrations_table_ddl()))
                 result = await connection.execute(text("SELECT id FROM migrations ORDER BY id"))
                 return [row[0] for row in result]
 
@@ -561,17 +570,30 @@ class Database:
                     warning,
                 )
 
+            sql = migration.render(self.type.value)
+            store = self._store()
+
             with wrap_database_errors():
                 try:
-                    async with self._engine.begin() as connection:
-                        sql = migration.render(self.type.value)
-                        if sql is not None:
-                            await self._execute_script(connection, sql)
-
-                        await connection.execute(
-                            text("INSERT INTO migrations (id) VALUES (:id)"),
-                            {"id": migration.id},
+                    if store is not None:
+                        # The script and the record that it ran go over as one, so a
+                        # migration cannot land without being recorded and then run twice.
+                        # The driver separates the statements, which is what lets a script
+                        # turn foreign keys off before rebuilding a table, a pragma that
+                        # does nothing inside a transaction someone else opened.
+                        recorded = f"INSERT INTO migrations (id) VALUES ({migration.id});"
+                        await store.execute_script(
+                            recorded if sql is None else f"{sql.rstrip().rstrip(';')};\n{recorded}"
                         )
+                    else:
+                        async with self._engine.begin() as connection:
+                            if sql is not None:
+                                await self._execute_script(connection, sql)
+
+                            await connection.execute(
+                                text("INSERT INTO migrations (id) VALUES (:id)"),
+                                {"id": migration.id},
+                            )
                 except Exception as error:
                     raise DatabaseMigrationError(
                         message=(f"Migration {migration.id} ({migration.name}) failed. {error}")
@@ -633,9 +655,35 @@ class Database:
             `True` if any tables exist in the database, `False` on a fresh database.
         """
         with wrap_database_errors():
+            store = self._store()
+            if store is not None:
+                rows = await store.fetch(*self._table_names_query())
+                return bool(rows)
+
             return await self._run_sync(
                 lambda connection: bool(inspect(connection).get_table_names())
             )
+
+    def _table_names_query(self) -> tuple[str, list[Any]]:
+        """A statement listing the tables a caller's own schema holds.
+
+        This has to answer the way the query layer's introspection does on a database that
+        layer created, because disagreeing means bootstrapping a database that already has
+        tables, so the wording follows what each backend counts as a table of the caller's.
+        Neither backend's internal tables are the caller's, and PostgreSQL's system schemas
+        are excluded for the same reason.
+        """
+        if self.type.value == "postgres":
+            return (
+                "SELECT tablename FROM pg_catalog.pg_tables "
+                "WHERE schemaname NOT IN ('pg_catalog', 'information_schema')",
+                [],
+            )
+
+        return (
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+            [],
+        )
 
     async def hash_password(self, password: str) -> PasswordHash:
         """Hash a plaintext password using the configured hashing parameters.
