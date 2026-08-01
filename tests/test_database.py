@@ -8,6 +8,21 @@ from ceres.database import Database
 from ceres.user import User
 
 
+@pytest.mark.databases()
+async def test_ping_answers_on_every_backend():
+    """A reachable database says so, whatever width its server calls a small integer.
+
+    `ping` asks for a literal, which PostgreSQL types as `INT4` where every stored count
+    is `INT8`. A reader that only knew the wider one answered that a healthy server was
+    unreachable, so this runs on all three rather than on the default.
+    """
+    database = Database()
+    try:
+        assert await database.ping()
+    finally:
+        await database.dispose()
+
+
 async def test_a_temporary_database_migrates_and_persists_schema_across_operations():
     """Schema and data survive across sequential operations on the same instance."""
     database = Database(SQLiteDatabaseConfig())

@@ -343,10 +343,16 @@ class Database:
         await self.dispose()
 
     async def dispose(self) -> None:
-        """Drop this database's connections, closing the pools they came from.
+        """Let go of this database's pools, so the connections they hold can close.
 
-        Dropping the last reference to a store closes the pool underneath it, so the release
-        statements a configuration named run as each connection goes.
+        A `close` statement runs as each operation returns its connection rather than
+        here, which is what makes it run at all on a backend that opens one connection per
+        operation. What this releases is the pools themselves.
+
+        A disposed database is reusable, the same as a disposed engine was. Reaching it
+        again opens fresh connections and, because the bootstrap flag goes with the pools,
+        re-migrates. That last part matters for a temporary database, whose file is deleted
+        on the way out and would otherwise be reopened empty and treated as migrated.
 
         Waiting on the migration lock is what keeps a database from being disposed out from
         under its own bootstrap. A component stops as soon as it runs out of work, and the

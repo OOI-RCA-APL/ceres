@@ -1,11 +1,11 @@
-"""Parity between the native filter subset and the Python query layer.
+"""The two ways into the filter compiler have to read a wire value the same way.
 
-Every vector here feeds the same wire pairs to both sides. The Python side folds them
-into the Pydantic filter and executes through the query layer, the native side parses
-them into the Rust subset and executes through the record store, and the two must
-produce identical serialized records on every backend. Constructs outside the subset
-must decline rather than guess, and the classification test holds the subset's key
-lists to exactly the fields the Pydantic filters declare.
+One compiler serves both paths, but they reach it differently. The query layer validates
+the pairs through the Pydantic filter and hands the compiler its JSON dump, while the
+fetcher parses the same pairs into the subset directly. Every vector here goes down both
+and the records that come back must be byte-identical on every backend. Constructs outside
+the subset must decline rather than guess, and the classification test holds the subset's
+key lists to exactly the fields the Pydantic filters declare.
 """
 
 import json
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = pytest.mark.databases()
-"""Every backend, the subset must compile each dialect identically to SQLAlchemy."""
+"""Every backend, since a dialect is where the two paths could render differently."""
 
 RECORD_TABLES = {
     Message: RecordTable.MESSAGES,

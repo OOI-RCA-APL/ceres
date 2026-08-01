@@ -337,6 +337,10 @@ impl RecordFetcher {
 /// and the schema the migrations create, and a column named here that the migrations do
 /// not create is a decode failure on a live query rather than anything a build catches,
 /// which is what the drift test exists to find first.
+///
+/// The order is load bearing. A table appears before anything holding a foreign key to
+/// it, which is what lets a caller empty the schema by deleting in reverse.
+/// `tables_precede_the_tables_that_reference_them` pins it.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
 pub fn stored_columns() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
@@ -666,5 +670,40 @@ impl RecordWriter {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             writer.upsert(batches).await.map_err(to_value_error)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stored_columns;
+
+    #[test]
+    fn tables_precede_the_tables_that_reference_them() {
+        // `Database.clear()` empties the schema by deleting in reverse of this order, so a
+        // referenced table has to come first or the delete fails on its foreign keys.
+        // Reordering the lists in `stored_columns` breaks that silently, hence this.
+        let order: Vec<&str> = stored_columns().into_iter().map(|(name, _)| name).collect();
+        let position = |name: &str| {
+            order
+                .iter()
+                .position(|held| *held == name)
+                .unwrap_or_else(|| panic!("{name} is stored"))
+        };
+
+        for (referenced, holder) in [
+            ("users", "settings"),
+            ("users", "workspaces"),
+            ("users", "workspace_edits"),
+            ("workspaces", "workspace_edits"),
+            ("users", "group_memberships"),
+            ("groups", "group_memberships"),
+            ("users", "user_permissions"),
+            ("groups", "group_permissions"),
+        ] {
+            assert!(
+                position(referenced) < position(holder),
+                "{holder} references {referenced}, so {referenced} must be listed first"
+            );
+        }
     }
 }

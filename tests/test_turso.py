@@ -58,8 +58,14 @@ async def test_a_file_turso_wrote_is_still_a_sqlite_file(tmp_path):
         await reopened.dispose()
 
 
-async def test_enabling_mvcc_lets_two_writers_overlap(tmp_path):
-    """Concurrent writes both land, which is the reason this backend exists."""
+async def test_mvcc_journaling_still_reads_and_writes(tmp_path):
+    """A database asking for MVCC migrates, writes, and reads back.
+
+    This says the journaling mode is accepted and the schema works under it. It does not
+    say two write transactions overlap, because nothing opens one yet. The native store
+    begins every transaction plainly, so `mvcc` currently buys concurrent statements
+    rather than concurrent transactions.
+    """
     database = Database(TursoDatabaseConfig(path=tmp_path / "ceres.db", mvcc=True))
     try:
         await database.migrate()
