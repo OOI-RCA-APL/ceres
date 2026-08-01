@@ -14,8 +14,9 @@
 //! its own driver for Turso databases and never constructs this backend beside it.
 
 use ceres_entities::{
-    Address, Alert, Entities, LogEntry, Message, Particle, Records, Setting, Timestamp, User,
-    Variable, Workspace,
+    Address, Alert, ComponentAccessLevel, Entities, Group, GroupMembership, GroupPermission,
+    LogEntry, Message, Particle, PermissionTargetType, Records, Setting, Timestamp, User,
+    UserPermission, Variable, Workspace, WorkspaceEdit,
 };
 use chrono::NaiveDateTime;
 use tokio::sync::OnceCell;
@@ -591,6 +592,92 @@ async fn decode_entities(
 
             Ok(Entities::Workspaces(entities))
         }
+        EntityTable::WorkspaceEdits => {
+            let user = columns.index("user_id")?;
+            let workspace = columns.index("workspace_id")?;
+            let data = columns.index("data")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(WorkspaceEdit {
+                    user_id: uuid(&row, user)?,
+                    workspace_id: uuid(&row, workspace)?,
+                    data: object(&row, data, "a workspace edit's data")?,
+                });
+            }
+
+            Ok(Entities::WorkspaceEdits(entities))
+        }
+        EntityTable::Groups => {
+            let name = columns.index("name")?;
+            let description = columns.index("description")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(Group {
+                    id: id(&row, &columns)?,
+                    name: text(&row, name)?,
+                    description: text(&row, description)?,
+                });
+            }
+
+            Ok(Entities::Groups(entities))
+        }
+        EntityTable::GroupMemberships => {
+            let user = columns.index("user_id")?;
+            let group = columns.index("group_id")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(GroupMembership {
+                    user_id: uuid(&row, user)?,
+                    group_id: uuid(&row, group)?,
+                });
+            }
+
+            Ok(Entities::GroupMemberships(entities))
+        }
+        EntityTable::UserPermissions => {
+            let user = columns.index("user_id")?;
+            let kind = columns.index("target_type")?;
+            let target = columns.index("target")?;
+            let level = columns.index("level")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(UserPermission {
+                    user_id: uuid(&row, user)?,
+                    target_type: target_type(&row, kind)?,
+                    target: text(&row, target)?,
+                    level: access_level(&row, level)?,
+                });
+            }
+
+            Ok(Entities::UserPermissions(entities))
+        }
+        EntityTable::GroupPermissions => {
+            let group = columns.index("group_id")?;
+            let kind = columns.index("target_type")?;
+            let target = columns.index("target")?;
+            let level = columns.index("level")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(GroupPermission {
+                    group_id: uuid(&row, group)?,
+                    target_type: target_type(&row, kind)?,
+                    target: text(&row, target)?,
+                    level: access_level(&row, level)?,
+                });
+            }
+
+            Ok(Entities::GroupPermissions(entities))
+        }
     }
 }
 
@@ -669,6 +756,32 @@ fn json(row: &turso::Row, index: usize) -> Result<serde_json::Value, Error> {
             .unwrap_or(serde_json::Value::Null)),
         other => Err(Error::Decode(format!("expected JSON, found {other:?}"))),
     }
+}
+
+/// Decode a JSON object column, naming what was expected when the value is not one.
+fn object(
+    row: &turso::Row,
+    index: usize,
+    what: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
+    match json(row, index)? {
+        serde_json::Value::Object(held) => Ok(held),
+        _ => Err(Error::Decode(format!("{what} is not an object"))),
+    }
+}
+
+/// Decode a permission's target type from the text the column stores.
+fn target_type(row: &turso::Row, index: usize) -> Result<PermissionTargetType, Error> {
+    let held = text(row, index)?;
+    PermissionTargetType::parse(&held)
+        .ok_or_else(|| Error::Decode(format!("{held:?} is not a permission target type")))
+}
+
+/// Decode a permission's access level from the text the column stores.
+fn access_level(row: &turso::Row, index: usize) -> Result<ComponentAccessLevel, Error> {
+    let held = text(row, index)?;
+    ComponentAccessLevel::parse(&held)
+        .ok_or_else(|| Error::Decode(format!("{held:?} is not an access level")))
 }
 
 fn blob(row: &turso::Row, index: usize) -> Result<Vec<u8>, Error> {

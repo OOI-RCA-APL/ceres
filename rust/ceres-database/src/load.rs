@@ -10,8 +10,9 @@
 //! filter port established.
 
 use ceres_entities::{
-    Alert, Entities, FieldFamily, LogEntry, Message, Particle, Records, Setting, Timestamp, User,
-    Variable, Workspace,
+    Alert, Entities, FieldFamily, Group, GroupMembership, GroupPermission, LogEntry, Message,
+    Particle, Records, Setting, Timestamp, User, UserPermission, Variable, Workspace,
+    WorkspaceEdit,
 };
 use serde_json::{Map, Value};
 
@@ -388,6 +389,15 @@ fn entities(table: EntityTable, objects: &[Map<String, Value>]) -> Option<Entiti
         EntityTable::Variables => Entities::Variables(convert::<Variable>(rows)?),
         EntityTable::Settings => Entities::Settings(convert::<Setting>(rows)?),
         EntityTable::Workspaces => Entities::Workspaces(convert::<Workspace>(rows)?),
+        EntityTable::WorkspaceEdits => Entities::WorkspaceEdits(convert::<WorkspaceEdit>(rows)?),
+        EntityTable::Groups => Entities::Groups(convert::<Group>(rows)?),
+        EntityTable::GroupMemberships => {
+            Entities::GroupMemberships(convert::<GroupMembership>(rows)?)
+        }
+        EntityTable::UserPermissions => Entities::UserPermissions(convert::<UserPermission>(rows)?),
+        EntityTable::GroupPermissions => {
+            Entities::GroupPermissions(convert::<GroupPermission>(rows)?)
+        }
     })
 }
 
@@ -462,6 +472,10 @@ fn entity_default(table: EntityTable, key: &str) -> Option<Value> {
         (EntityTable::Workspaces, "data") => Some(Value::Object(Map::new())),
         (EntityTable::Users, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
         (EntityTable::Users, "admin" | "disabled") => Some(false.into()),
+        (EntityTable::Groups, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
+        (EntityTable::Groups, "description") => Some("".into()),
+        // A permission and a membership name every one of their columns, and an edit
+        // carries the draft it exists to hold, so none of them default.
         _ => None,
     }
 }

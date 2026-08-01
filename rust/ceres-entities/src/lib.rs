@@ -16,7 +16,10 @@ mod timestamp;
 
 pub use address::Address;
 pub use ceres_config::Level;
-pub use entities::{Entities, Setting, User, Variable, Workspace};
+pub use entities::{
+    ComponentAccessLevel, Entities, Group, GroupMembership, GroupPermission, PermissionTargetType,
+    Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
+};
 pub use filterable::{
     FieldFamily, FieldOperation, FilterField, FilterValues, Filterable, OperationKind,
 };

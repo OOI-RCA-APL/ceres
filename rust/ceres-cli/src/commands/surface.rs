@@ -35,7 +35,7 @@ pub(crate) enum Table {
 
 impl Table {
     /// Every group the CLI declares, in the order they appear in help.
-    pub(crate) fn all() -> [Self; 8] {
+    pub(crate) fn all() -> [Self; 13] {
         [
             Self::Record(RecordTable::Alerts),
             Self::Record(RecordTable::Logs),
@@ -45,10 +45,18 @@ impl Table {
             Self::Entity(EntityTable::Users),
             Self::Entity(EntityTable::Variables),
             Self::Entity(EntityTable::Workspaces),
+            Self::Entity(EntityTable::WorkspaceEdits),
+            Self::Entity(EntityTable::Groups),
+            Self::Entity(EntityTable::GroupMemberships),
+            Self::Entity(EntityTable::UserPermissions),
+            Self::Entity(EntityTable::GroupPermissions),
         ]
     }
 
     /// The command group's name, which is the table's own plural.
+    ///
+    /// A table whose name is two words hyphenates here, the way a flag's wire key does,
+    /// so `user_permissions` is reached as `ceres user-permissions`.
     pub(crate) fn group(self) -> &'static str {
         match self {
             Self::Record(RecordTable::Alerts) => "alerts",
@@ -59,6 +67,11 @@ impl Table {
             Self::Entity(EntityTable::Users) => "users",
             Self::Entity(EntityTable::Variables) => "variables",
             Self::Entity(EntityTable::Workspaces) => "workspaces",
+            Self::Entity(EntityTable::WorkspaceEdits) => "workspace-edits",
+            Self::Entity(EntityTable::Groups) => "groups",
+            Self::Entity(EntityTable::GroupMemberships) => "group-memberships",
+            Self::Entity(EntityTable::UserPermissions) => "user-permissions",
+            Self::Entity(EntityTable::GroupPermissions) => "group-permissions",
         }
     }
 
@@ -73,6 +86,11 @@ impl Table {
             Self::Entity(EntityTable::Users) => "user",
             Self::Entity(EntityTable::Variables) => "variable",
             Self::Entity(EntityTable::Workspaces) => "workspace",
+            Self::Entity(EntityTable::WorkspaceEdits) => "workspace edit",
+            Self::Entity(EntityTable::Groups) => "group",
+            Self::Entity(EntityTable::GroupMemberships) => "group membership",
+            Self::Entity(EntityTable::UserPermissions) => "user permission",
+            Self::Entity(EntityTable::GroupPermissions) => "group permission",
         }
     }
 
@@ -96,6 +114,11 @@ impl Table {
             Self::Entity(EntityTable::Users) => "--username ada",
             Self::Entity(EntityTable::Variables) => "--address @motor --name speed",
             Self::Entity(EntityTable::Workspaces) => "--name Overview",
+            Self::Entity(EntityTable::WorkspaceEdits) => "--user-id UUID",
+            Self::Entity(EntityTable::Groups) => "--name operators",
+            Self::Entity(EntityTable::GroupMemberships) => "--group-id UUID",
+            Self::Entity(EntityTable::UserPermissions) => "--user-id UUID --level manage",
+            Self::Entity(EntityTable::GroupPermissions) => "--target-type tag --target outdoor",
         }
     }
 
@@ -114,6 +137,17 @@ impl Table {
             }
             Self::Entity(EntityTable::Variables) => "--address @motor --name speed --value 5",
             Self::Entity(EntityTable::Workspaces) => "--name Overview --scope @motor",
+            Self::Entity(EntityTable::WorkspaceEdits) => {
+                "--user-id UUID --workspace-id UUID --data '{}'"
+            }
+            Self::Entity(EntityTable::Groups) => "--name operators",
+            Self::Entity(EntityTable::GroupMemberships) => "--user-id UUID --group-id UUID",
+            Self::Entity(EntityTable::UserPermissions) => {
+                "--user-id UUID --target-type component --target @motor --level operate"
+            }
+            Self::Entity(EntityTable::GroupPermissions) => {
+                "--group-id UUID --target-type all --target '' --level view"
+            }
         }
     }
 
@@ -128,6 +162,13 @@ impl Table {
             Self::Entity(EntityTable::Users) => "{\"admin\": true}",
             Self::Entity(EntityTable::Variables) => "{\"value\": 9}",
             Self::Entity(EntityTable::Workspaces) => "{\"name\": \"Home\"}",
+            Self::Entity(EntityTable::WorkspaceEdits) => "{\"data\": {}}",
+            Self::Entity(EntityTable::Groups) => "{\"description\": \"on call\"}",
+            // A membership is created or deleted rather than edited, so the example shows
+            // the one shape an update can take, which is no assignment at all.
+            Self::Entity(EntityTable::GroupMemberships) => "{}",
+            Self::Entity(EntityTable::UserPermissions) => "{\"level\": \"manage\"}",
+            Self::Entity(EntityTable::GroupPermissions) => "{\"level\": \"view\"}",
         }
     }
 

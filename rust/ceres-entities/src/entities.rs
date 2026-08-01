@@ -10,13 +10,50 @@
 //! `skip` drops a column the filter does not expose, a user's password hash among them,
 //! and `plain` takes a workspace's scope out of the selector grammar.
 
-use ceres_macros::Filterable;
+use ceres_macros::{FilterValues, Filterable};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use crate::address::Address;
 use crate::records::CsvRecord;
+
+/// What kind of thing a permission grant applies to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, FilterValues)]
+#[serde(rename_all = "lowercase")]
+pub enum PermissionTargetType {
+    /// One component, named by address.
+    Component,
+    /// Every component carrying a tag.
+    Tag,
+    /// Every component, with an empty target string.
+    All,
+}
+
+/// What a grant lets its holder do with the target.
+///
+/// The levels are a strict hierarchy, each implying the ones below it, but a permission
+/// filters on the level by equality rather than by rank, so the family here is a closed
+/// set of values rather than an ordered one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ComponentAccessLevel {
+    /// No access, which a component declares as its default rather than a grant holding.
+    Deny,
+    View,
+    Operate,
+    Manage,
+}
+
+/// The levels a permission row may hold, which is every level but `deny`.
+///
+/// `deny` means the absence of a grant, so the tables check for the other three and a
+/// row can never carry it. Writing the set out rather than deriving it from the enum
+/// keeps the wire surface to what is storable, so `--level deny` is refused by the
+/// argument parser rather than by the database.
+impl crate::FilterValues for ComponentAccessLevel {
+    const VALUES: &'static [&'static str] = &["view", "operate", "manage"];
+}
 
 /// An operator account.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
@@ -76,6 +113,100 @@ pub struct Workspace {
     pub data: Map<String, Value>,
 }
 
+/// A console layout a user has edited but not yet published.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
+pub struct WorkspaceEdit {
+    pub user_id: Uuid,
+    pub workspace_id: Uuid,
+    /// The draft layout, stored like a workspace's own and filterable the same way,
+    /// which is to say not at all.
+    #[filterable(skip)]
+    pub data: Map<String, Value>,
+}
+
+/// A named collection of users, which permissions can be granted to as a whole.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
+pub struct Group {
+    pub id: Uuid,
+    pub name: String,
+    /// Free text describing the group, which the Python filter does not expose.
+    #[filterable(skip)]
+    pub description: String,
+}
+
+/// One user's membership of one group.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
+pub struct GroupMembership {
+    pub user_id: Uuid,
+    pub group_id: Uuid,
+}
+
+/// A grant made directly to a user.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
+pub struct UserPermission {
+    pub user_id: Uuid,
+    pub target_type: PermissionTargetType,
+    /// What the grant covers, an address or a tag, and empty when it covers everything.
+    ///
+    /// It filters by equality alone. A substring of an address or a tag names nothing,
+    /// so the Python filter gives the field no operation keys and neither does this.
+    #[filterable(no_operations)]
+    pub target: String,
+    pub level: ComponentAccessLevel,
+}
+
+/// A grant made to a group, which reaches every user in it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
+pub struct GroupPermission {
+    pub group_id: Uuid,
+    pub target_type: PermissionTargetType,
+    #[filterable(no_operations)]
+    pub target: String,
+    pub level: ComponentAccessLevel,
+}
+
+impl PermissionTargetType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Component => "component",
+            Self::Tag => "tag",
+            Self::All => "all",
+        }
+    }
+
+    /// Read a target type from its stored text.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "component" => Some(Self::Component),
+            "tag" => Some(Self::Tag),
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
+impl ComponentAccessLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Deny => "deny",
+            Self::View => "view",
+            Self::Operate => "operate",
+            Self::Manage => "manage",
+        }
+    }
+
+    /// Read an access level from its stored text.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "deny" => Some(Self::Deny),
+            "view" => Some(Self::View),
+            "operate" => Some(Self::Operate),
+            "manage" => Some(Self::Manage),
+            _ => None,
+        }
+    }
+}
+
 impl CsvRecord for User {
     const CSV_HEADER: &'static str = "id,username,email,password,admin,disabled";
 
@@ -130,6 +261,67 @@ impl CsvRecord for Workspace {
     }
 }
 
+impl CsvRecord for WorkspaceEdit {
+    const CSV_HEADER: &'static str = "user_id,workspace_id,data";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.user_id.to_string()),
+            Some(self.workspace_id.to_string()),
+            Some(Value::Object(self.data.clone()).to_string()),
+        ]
+    }
+}
+
+impl CsvRecord for Group {
+    const CSV_HEADER: &'static str = "id,name,description";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.id.to_string()),
+            Some(self.name.clone()),
+            Some(self.description.clone()),
+        ]
+    }
+}
+
+impl CsvRecord for GroupMembership {
+    const CSV_HEADER: &'static str = "user_id,group_id";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.user_id.to_string()),
+            Some(self.group_id.to_string()),
+        ]
+    }
+}
+
+impl CsvRecord for UserPermission {
+    const CSV_HEADER: &'static str = "user_id,target_type,target,level";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.user_id.to_string()),
+            Some(self.target_type.as_str().to_string()),
+            Some(self.target.clone()),
+            Some(self.level.as_str().to_string()),
+        ]
+    }
+}
+
+impl CsvRecord for GroupPermission {
+    const CSV_HEADER: &'static str = "group_id,target_type,target,level";
+
+    fn csv_cells(&self) -> Vec<Option<String>> {
+        vec![
+            Some(self.group_id.to_string()),
+            Some(self.target_type.as_str().to_string()),
+            Some(self.target.clone()),
+            Some(self.level.as_str().to_string()),
+        ]
+    }
+}
+
 /// A boolean cell, rendered as its JSON text the way the row extraction does.
 fn boolean_cell(value: bool) -> String {
     if value { "true" } else { "false" }.to_string()
@@ -147,78 +339,87 @@ fn value_cell(value: &Value) -> Option<String> {
     }
 }
 
-/// The entities of one query result, all of a single type.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Entities {
-    Users(Vec<User>),
-    Variables(Vec<Variable>),
-    Settings(Vec<Setting>),
-    Workspaces(Vec<Workspace>),
+/// Declare the batch enum over the entity types, and the rendering that dispatches on it.
+///
+/// Every arm of every method is the same call against a different element type, so the
+/// variants are named once here rather than nine times per method. A new entity type is
+/// one line, and it cannot be added to the enum while being forgotten by the renderers.
+macro_rules! entity_batches {
+    ($($variant:ident($entity:ty)),+ $(,)?) => {
+        /// The entities of one query result, all of a single type.
+        #[derive(Clone, Debug, PartialEq)]
+        pub enum Entities {
+            $($variant(Vec<$entity>),)+
+        }
+
+        impl Entities {
+            /// The number of entities held.
+            pub fn len(&self) -> usize {
+                match self {
+                    $(Self::$variant(entities) => entities.len(),)+
+                }
+            }
+
+            /// Whether no entities are held.
+            pub fn is_empty(&self) -> bool {
+                self.len() == 0
+            }
+
+            /// Serialize the entities as JSON lines in the wire format, one per line.
+            pub fn to_json_lines(&self) -> serde_json::Result<Vec<u8>> {
+                match self {
+                    $(Self::$variant(entities) => crate::records::to_json_lines(entities),)+
+                }
+            }
+
+            /// Render the entities as CSV lines, under a header row unless suppressed.
+            pub fn to_csv_lines(&self, header: bool) -> String {
+                match self {
+                    $(Self::$variant(entities) => {
+                        crate::records::to_csv_lines(entities, header)
+                    })+
+                }
+            }
+
+            /// Serialize a field projection of the entities as JSON lines, aliased objects.
+            pub fn to_json_lines_projected(
+                &self,
+                fields: &[(String, String)],
+            ) -> serde_json::Result<Vec<u8>> {
+                match self {
+                    $(Self::$variant(entities) => {
+                        crate::records::to_json_lines_projected(entities, fields)
+                    })+
+                }
+            }
+
+            /// Render a field projection of the entities as CSV lines, an alias header row
+            /// unless suppressed.
+            pub fn to_csv_lines_projected(
+                &self,
+                fields: &[(String, String)],
+                header: bool,
+            ) -> serde_json::Result<String> {
+                match self {
+                    $(Self::$variant(rows) => {
+                        crate::records::to_csv_lines_projected(rows, fields, header)
+                    })+
+                }
+            }
+        }
+    };
 }
 
-impl Entities {
-    /// The number of entities held.
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Users(entities) => entities.len(),
-            Self::Variables(entities) => entities.len(),
-            Self::Settings(entities) => entities.len(),
-            Self::Workspaces(entities) => entities.len(),
-        }
-    }
-
-    /// Whether no entities are held.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Serialize the entities as JSON lines in the wire format, one per line.
-    pub fn to_json_lines(&self) -> serde_json::Result<Vec<u8>> {
-        match self {
-            Self::Users(entities) => crate::records::to_json_lines(entities),
-            Self::Variables(entities) => crate::records::to_json_lines(entities),
-            Self::Settings(entities) => crate::records::to_json_lines(entities),
-            Self::Workspaces(entities) => crate::records::to_json_lines(entities),
-        }
-    }
-
-    /// Render the entities as CSV lines, under a header row unless suppressed.
-    pub fn to_csv_lines(&self, header: bool) -> String {
-        match self {
-            Self::Users(entities) => crate::records::to_csv_lines(entities, header),
-            Self::Variables(entities) => crate::records::to_csv_lines(entities, header),
-            Self::Settings(entities) => crate::records::to_csv_lines(entities, header),
-            Self::Workspaces(entities) => crate::records::to_csv_lines(entities, header),
-        }
-    }
-
-    /// Serialize a field projection of the entities as JSON lines, aliased objects.
-    pub fn to_json_lines_projected(
-        &self,
-        fields: &[(String, String)],
-    ) -> serde_json::Result<Vec<u8>> {
-        match self {
-            Self::Users(entities) => crate::records::to_json_lines_projected(entities, fields),
-            Self::Variables(entities) => crate::records::to_json_lines_projected(entities, fields),
-            Self::Settings(entities) => crate::records::to_json_lines_projected(entities, fields),
-            Self::Workspaces(entities) => crate::records::to_json_lines_projected(entities, fields),
-        }
-    }
-
-    /// Render a field projection of the entities as CSV lines, an alias header row
-    /// unless suppressed.
-    pub fn to_csv_lines_projected(
-        &self,
-        fields: &[(String, String)],
-        header: bool,
-    ) -> serde_json::Result<String> {
-        match self {
-            Self::Users(rows) => crate::records::to_csv_lines_projected(rows, fields, header),
-            Self::Variables(rows) => crate::records::to_csv_lines_projected(rows, fields, header),
-            Self::Settings(rows) => crate::records::to_csv_lines_projected(rows, fields, header),
-            Self::Workspaces(rows) => crate::records::to_csv_lines_projected(rows, fields, header),
-        }
-    }
+entity_batches! {
+    Users(User),
+    Variables(Variable),
+    Settings(Setting),
+    Workspaces(Workspace),
+    WorkspaceEdits(WorkspaceEdit),
+    Groups(Group),
+    GroupMemberships(GroupMembership),
+    UserPermissions(UserPermission),
+    GroupPermissions(GroupPermission),
 }
 
 #[cfg(test)]

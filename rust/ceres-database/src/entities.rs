@@ -7,7 +7,10 @@
 //! are their own rather than a timestamp's, and three of their filter keys match a
 //! shape of a column rather than its value.
 
-use ceres_entities::{Address, Entities, Setting, User, Variable, Workspace};
+use ceres_entities::{
+    Address, ComponentAccessLevel, Entities, Group, GroupMembership, GroupPermission,
+    PermissionTargetType, Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
+};
 use sea_query::{Alias, Asterisk, Order, Query, SelectStatement};
 use serde_json::Value;
 use sqlx::Row;
@@ -25,6 +28,11 @@ pub enum EntityTable {
     Variables,
     Settings,
     Workspaces,
+    WorkspaceEdits,
+    Groups,
+    GroupMemberships,
+    UserPermissions,
+    GroupPermissions,
 }
 
 impl EntityTable {
@@ -35,6 +43,11 @@ impl EntityTable {
             "variables" => Ok(Self::Variables),
             "settings" => Ok(Self::Settings),
             "workspaces" => Ok(Self::Workspaces),
+            "workspace_edits" => Ok(Self::WorkspaceEdits),
+            "groups" => Ok(Self::Groups),
+            "group_memberships" => Ok(Self::GroupMemberships),
+            "user_permissions" => Ok(Self::UserPermissions),
+            "group_permissions" => Ok(Self::GroupPermissions),
             other => Err(Error::UnknownTable(other.to_string())),
         }
     }
@@ -45,6 +58,11 @@ impl EntityTable {
             Self::Variables => "variables",
             Self::Settings => "settings",
             Self::Workspaces => "workspaces",
+            Self::WorkspaceEdits => "workspace_edits",
+            Self::Groups => "groups",
+            Self::GroupMemberships => "group_memberships",
+            Self::UserPermissions => "user_permissions",
+            Self::GroupPermissions => "group_permissions",
         }
     }
 
@@ -114,6 +132,62 @@ impl EntityTable {
                     },
                 ],
             },
+            Self::WorkspaceEdits => Schema {
+                name: self.name(),
+                fields: WorkspaceEdit::FIELDS,
+                columns: WorkspaceEdit::COLUMNS,
+                delegated: &[],
+                key: &["workspace_id", "user_id"],
+                // The draft data is the only thing an edit can change, which is what
+                // `WorkspaceEditUpdate` declares.
+                fixed: &["workspace_id", "user_id"],
+                order: &["user_id", "workspace_id"],
+                computed: &[],
+            },
+            Self::Groups => Schema {
+                name: self.name(),
+                fields: Group::FIELDS,
+                columns: Group::COLUMNS,
+                delegated: &[],
+                key: &["id"],
+                fixed: &["id"],
+                order: &["name"],
+                computed: &[],
+            },
+            Self::GroupMemberships => Schema {
+                name: self.name(),
+                fields: GroupMembership::FIELDS,
+                columns: GroupMembership::COLUMNS,
+                delegated: &[],
+                key: &["user_id", "group_id"],
+                // A membership is created or deleted and never edited, so both of its
+                // columns are fixed and `GroupMembershipUpdate` carries no fields.
+                fixed: &["user_id", "group_id"],
+                order: &["user_id", "group_id"],
+                computed: &[],
+            },
+            Self::UserPermissions => Schema {
+                name: self.name(),
+                fields: UserPermission::FIELDS,
+                columns: UserPermission::COLUMNS,
+                delegated: &[],
+                key: &["user_id", "target_type", "target"],
+                // The level is what a grant can be raised or lowered to. Changing who or
+                // what it covers would be a different grant.
+                fixed: &["user_id", "target_type", "target"],
+                order: &["user_id", "target_type", "target"],
+                computed: &[],
+            },
+            Self::GroupPermissions => Schema {
+                name: self.name(),
+                fields: GroupPermission::FIELDS,
+                columns: GroupPermission::COLUMNS,
+                delegated: &[],
+                key: &["group_id", "target_type", "target"],
+                fixed: &["group_id", "target_type", "target"],
+                order: &["group_id", "target_type", "target"],
+                computed: &[],
+            },
         }
     }
 
@@ -142,6 +216,11 @@ impl EntityTable {
             Self::Variables => Entities::Variables(Vec::new()),
             Self::Settings => Entities::Settings(Vec::new()),
             Self::Workspaces => Entities::Workspaces(Vec::new()),
+            Self::WorkspaceEdits => Entities::WorkspaceEdits(Vec::new()),
+            Self::Groups => Entities::Groups(Vec::new()),
+            Self::GroupMemberships => Entities::GroupMemberships(Vec::new()),
+            Self::UserPermissions => Entities::UserPermissions(Vec::new()),
+            Self::GroupPermissions => Entities::GroupPermissions(Vec::new()),
         }
     }
 }
@@ -153,6 +232,11 @@ pub(crate) fn table_of(entities: &Entities) -> EntityTable {
         Entities::Variables(_) => EntityTable::Variables,
         Entities::Settings(_) => EntityTable::Settings,
         Entities::Workspaces(_) => EntityTable::Workspaces,
+        Entities::WorkspaceEdits(_) => EntityTable::WorkspaceEdits,
+        Entities::Groups(_) => EntityTable::Groups,
+        Entities::GroupMemberships(_) => EntityTable::GroupMemberships,
+        Entities::UserPermissions(_) => EntityTable::UserPermissions,
+        Entities::GroupPermissions(_) => EntityTable::GroupPermissions,
     }
 }
 
@@ -214,6 +298,62 @@ impl DecodeEntities for SqliteRow {
                 })
                 .collect::<Result<_, Error>>()
                 .map(Entities::Workspaces),
+            EntityTable::WorkspaceEdits => rows
+                .iter()
+                .map(|row| {
+                    Ok(WorkspaceEdit {
+                        user_id: sqlite_id(row, "user_id")?,
+                        workspace_id: sqlite_id(row, "workspace_id")?,
+                        data: crate::records::json_text(row.try_get("data")?)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::WorkspaceEdits),
+            EntityTable::Groups => rows
+                .iter()
+                .map(|row| {
+                    Ok(Group {
+                        id: sqlite_id(row, "id")?,
+                        name: row.try_get("name")?,
+                        description: row.try_get("description")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::Groups),
+            EntityTable::GroupMemberships => rows
+                .iter()
+                .map(|row| {
+                    Ok(GroupMembership {
+                        user_id: sqlite_id(row, "user_id")?,
+                        group_id: sqlite_id(row, "group_id")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::GroupMemberships),
+            EntityTable::UserPermissions => rows
+                .iter()
+                .map(|row| {
+                    Ok(UserPermission {
+                        user_id: sqlite_id(row, "user_id")?,
+                        target_type: target_type(row.try_get("target_type")?)?,
+                        target: row.try_get("target")?,
+                        level: access_level(row.try_get("level")?)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::UserPermissions),
+            EntityTable::GroupPermissions => rows
+                .iter()
+                .map(|row| {
+                    Ok(GroupPermission {
+                        group_id: sqlite_id(row, "group_id")?,
+                        target_type: target_type(row.try_get("target_type")?)?,
+                        target: row.try_get("target")?,
+                        level: access_level(row.try_get("level")?)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::GroupPermissions),
         }
     }
 }
@@ -266,18 +406,89 @@ impl DecodeEntities for PgRow {
                         scope: Address::trusted(row.try_get("scope")?),
                         owner_id: row.try_get("owner_id")?,
                         show_when_logged_out: row.try_get("show_when_logged_out")?,
-                        data: match row.try_get("data")? {
-                            Value::Object(map) => map,
-                            other => {
-                                return Err(Error::Decode(format!("{other} is not a JSON object")));
-                            }
-                        },
+                        data: json_object(row.try_get("data")?)?,
                     })
                 })
                 .collect::<Result<_, Error>>()
                 .map(Entities::Workspaces),
+            EntityTable::WorkspaceEdits => rows
+                .iter()
+                .map(|row| {
+                    Ok(WorkspaceEdit {
+                        user_id: row.try_get("user_id")?,
+                        workspace_id: row.try_get("workspace_id")?,
+                        data: json_object(row.try_get("data")?)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::WorkspaceEdits),
+            EntityTable::Groups => rows
+                .iter()
+                .map(|row| {
+                    Ok(Group {
+                        id: row.try_get("id")?,
+                        name: row.try_get("name")?,
+                        description: row.try_get("description")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::Groups),
+            EntityTable::GroupMemberships => rows
+                .iter()
+                .map(|row| {
+                    Ok(GroupMembership {
+                        user_id: row.try_get("user_id")?,
+                        group_id: row.try_get("group_id")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::GroupMemberships),
+            EntityTable::UserPermissions => rows
+                .iter()
+                .map(|row| {
+                    Ok(UserPermission {
+                        user_id: row.try_get("user_id")?,
+                        target_type: target_type(row.try_get("target_type")?)?,
+                        target: row.try_get("target")?,
+                        level: access_level(row.try_get("level")?)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::UserPermissions),
+            EntityTable::GroupPermissions => rows
+                .iter()
+                .map(|row| {
+                    Ok(GroupPermission {
+                        group_id: row.try_get("group_id")?,
+                        target_type: target_type(row.try_get("target_type")?)?,
+                        target: row.try_get("target")?,
+                        level: access_level(row.try_get("level")?)?,
+                    })
+                })
+                .collect::<Result<_, Error>>()
+                .map(Entities::GroupPermissions),
         }
     }
+}
+
+/// A JSON object column, which a workspace's layout and an edit's draft both hold.
+fn json_object(value: Value) -> Result<serde_json::Map<String, Value>, Error> {
+    match value {
+        Value::Object(map) => Ok(map),
+        other => Err(Error::Decode(format!("{other} is not a JSON object"))),
+    }
+}
+
+/// Decode a permission's target type from the text the column stores.
+fn target_type(value: String) -> Result<PermissionTargetType, Error> {
+    PermissionTargetType::parse(&value)
+        .ok_or_else(|| Error::Decode(format!("{value:?} is not a permission target type")))
+}
+
+/// Decode a permission's access level from the text the column stores.
+fn access_level(value: String) -> Result<ComponentAccessLevel, Error> {
+    ComponentAccessLevel::parse(&value)
+        .ok_or_else(|| Error::Decode(format!("{value:?} is not an access level")))
 }
 
 /// Decode a SQLite ID column, stored as hyphenated UUID text.

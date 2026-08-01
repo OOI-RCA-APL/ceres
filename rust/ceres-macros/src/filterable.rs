@@ -57,12 +57,16 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             Family::Unfilterable => continue,
         };
 
-        let operations = operation_entries(
-            &key,
-            &family,
-            bare_operations(field),
-            marked(field, "insensitive"),
-        );
+        let operations = if marked(field, "no_operations") {
+            Vec::new()
+        } else {
+            operation_entries(
+                &key,
+                &family,
+                bare_operations(field),
+                marked(field, "insensitive"),
+            )
+        };
         let column = quote! {
             ceres_entities::FilterField {
                 key: #key,
@@ -211,6 +215,8 @@ fn family_of(ty: &syn::Type) -> Family {
 /// here, and referencing one that stops implementing `FilterValues` fails to compile.
 fn known_enum(identifier: &syn::Ident) -> bool {
     identifier == "MessageDirection"
+        || identifier == "PermissionTargetType"
+        || identifier == "ComponentAccessLevel"
 }
 
 /// Whether a type path's tail is one bare identifier.
@@ -247,7 +253,8 @@ fn bare_operations(field: &syn::Field) -> bool {
 /// `skip` drops a field whose type would otherwise filter, for a column the Python
 /// filter does not expose. `plain` takes an address out of the selector grammar.
 /// `insensitive` folds case in the field's operation filters, which an email address's
-/// do.
+/// do. `no_operations` keeps a text field's own key while dropping the `contains`,
+/// `prefix`, and `suffix` variants, which a permission target filters without.
 fn marked(field: &syn::Field, name: &str) -> bool {
     for attribute in &field.attrs {
         if !attribute.path().is_ident("filterable") {

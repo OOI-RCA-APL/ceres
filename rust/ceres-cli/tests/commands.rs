@@ -67,6 +67,61 @@ impl Project {
         Self { directory }
     }
 
+    /// Build a project whose database holds the groups and grants tables.
+    ///
+    /// These are separate from the seed above because no test needs both, and every test
+    /// pays for whatever the seed it calls creates.
+    async fn access() -> Self {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let database = directory.path().join("records.sqlite");
+        std::fs::write(
+            directory.path().join("ceres.yaml"),
+            format!(
+                "components: []\ndatabase:\n  type: sqlite\n  path: {}\n",
+                database.display()
+            ),
+        )
+        .expect("the configuration writes");
+
+        let url = format!("sqlite://{}?mode=rwc", database.display());
+        let pool = sqlx::SqlitePool::connect(&url)
+            .await
+            .expect("the database opens");
+
+        // The column types and the check constraints are the migrations' own, so a value
+        // the surface admits but the schema refuses fails here the way it would in a real
+        // database.
+        for statement in [
+            "CREATE TABLE groups (id CHAR(32) NOT NULL, name TEXT NOT NULL, \
+             description TEXT DEFAULT '' NOT NULL, CONSTRAINT pk_groups PRIMARY KEY (id), \
+             CONSTRAINT uq_groups__name UNIQUE (name))",
+            "CREATE TABLE group_memberships (user_id CHAR(32) NOT NULL, \
+             group_id CHAR(32) NOT NULL, \
+             CONSTRAINT pk_group_memberships PRIMARY KEY (user_id, group_id))",
+            "CREATE TABLE group_permissions (group_id CHAR(32) NOT NULL, \
+             target_type VARCHAR NOT NULL, target TEXT NOT NULL, level VARCHAR NOT NULL, \
+             CONSTRAINT pk_group_permissions PRIMARY KEY (group_id, target_type, target), \
+             CONSTRAINT ck_group_permissions__target_type \
+             CHECK (target_type IN ('component', 'tag', 'all')), \
+             CONSTRAINT ck_group_permissions__level CHECK (level IN ('view', 'operate', 'manage')))",
+        ] {
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .expect("the table is created");
+        }
+
+        sqlx::query("INSERT INTO groups VALUES ('019fbae5954c7321b29edfa121e5cdea', ?, ?)")
+            .bind("operators")
+            .bind("on call")
+            .execute(&pool)
+            .await
+            .expect("the row inserts");
+
+        pool.close().await;
+        Self { directory }
+    }
+
     fn config(&self) -> PathBuf {
         self.directory.path().join("ceres.yaml")
     }
@@ -534,4 +589,106 @@ async fn a_dump_to_a_file_carries_every_row() {
 
     let held = std::fs::read_to_string(&out).expect("the file reads");
     assert_eq!(held.lines().count(), 4, "{held}");
+}
+
+#[tokio::test]
+async fn the_groups_and_grants_tables_serve_the_whole_verb_set() {
+    let project = Project::access().await;
+
+    let created = succeeded(&project.run(&["groups", "create", "--name", "viewers"]));
+    // The ID and the empty description are defaults the create model supplies.
+    assert!(created.contains("\"name\":\"viewers\""), "{created}");
+    assert!(created.contains("\"description\":\"\""), "{created}");
+
+    let all = succeeded(&project.run(&["groups", "select"]));
+    assert_eq!(all.lines().count(), 2, "{all}");
+
+    let updated = succeeded(&project.run(&[
+        "groups",
+        "update",
+        "--name",
+        "viewers",
+        "--assign",
+        "{\"description\": \"read only\"}",
+        "--no-confirm",
+    ]));
+    assert_eq!(updated.trim(), "1", "{updated}");
+
+    let read = succeeded(&project.run(&["groups", "select", "--name", "viewers"]));
+    assert!(read.contains("\"description\":\"read only\""), "{read}");
+
+    let deleted =
+        succeeded(&project.run(&["groups", "delete", "--name", "viewers", "--no-confirm"]));
+    assert_eq!(deleted.trim(), "1", "{deleted}");
+
+    let left = succeeded(&project.run(&["groups", "count"]));
+    assert_eq!(left.trim(), "1", "{left}");
+}
+
+#[tokio::test]
+async fn a_grant_filters_and_collects_on_its_enum_columns() {
+    let project = Project::access().await;
+    let group = "019fbae5954c7321b29edfa121e5cdea";
+
+    succeeded(&project.run(&[
+        "group-permissions",
+        "create",
+        "--group-id",
+        group,
+        "--target-type",
+        "tag",
+        "--target",
+        "outdoor",
+        "--level",
+        "view",
+    ]));
+
+    let matched = succeeded(&project.run(&["group-permissions", "count", "--level", "view"]));
+    assert_eq!(matched.trim(), "1", "{matched}");
+
+    let missed = succeeded(&project.run(&["group-permissions", "count", "--level", "manage"]));
+    assert_eq!(missed.trim(), "0", "{missed}");
+
+    // The rows a write touched come back from the write itself.
+    let raised = succeeded(&project.run(&[
+        "group-permissions",
+        "update",
+        "--target-type",
+        "tag",
+        "--assign",
+        "{\"level\": \"manage\"}",
+        "--no-confirm",
+        "--collect",
+    ]));
+    assert!(raised.contains("\"level\":\"manage\""), "{raised}");
+}
+
+#[tokio::test]
+async fn a_grant_refuses_a_level_the_schema_cannot_store() {
+    let project = Project::access().await;
+
+    // `deny` names the absence of a grant rather than one a row can hold, so the argument
+    // parser turns it away before a statement is built.
+    let output = project.run(&["group-permissions", "count", "--level", "deny"]);
+    assert!(!output.status.success());
+    let complaint = String::from_utf8_lossy(&output.stderr);
+    assert!(complaint.contains("deny"), "{complaint}");
+}
+
+#[tokio::test]
+async fn a_membership_refuses_an_assignment_to_a_key_column() {
+    let project = Project::access().await;
+
+    // Both of a membership's columns identify it, which is why its update model carries
+    // no fields at all.
+    let output = project.run(&[
+        "group-memberships",
+        "update",
+        "--assign",
+        "{\"group_id\": \"019fbae5954c7321b29edfa121e5cdea\"}",
+        "--no-confirm",
+    ]);
+    assert!(!output.status.success());
+    let complaint = String::from_utf8_lossy(&output.stderr);
+    assert!(complaint.contains("group_id"), "{complaint}");
 }

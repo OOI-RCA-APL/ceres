@@ -7,8 +7,8 @@
 use std::time::Duration;
 
 use ceres_entities::{
-    Alert, Entities, LogEntry, Message, MessageDirection, Particle, Records, Setting, User,
-    Variable, Workspace,
+    Alert, Entities, Group, GroupMembership, GroupPermission, LogEntry, Message, MessageDirection,
+    Particle, Records, Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
 };
 use sea_query::{
     Alias, InsertStatement, OnConflict, PostgresQueryBuilder, Query, SimpleExpr, SqliteQueryBuilder,
@@ -237,6 +237,26 @@ pub(crate) fn entity_load_statement(
             .iter()
             .map(|workspace| workspace_values(workspace, dialect))
             .collect(),
+        Entities::WorkspaceEdits(edits) => edits
+            .iter()
+            .map(|edit| workspace_edit_values(edit, dialect))
+            .collect(),
+        Entities::Groups(groups) => groups
+            .iter()
+            .map(|group| group_values(group, dialect))
+            .collect(),
+        Entities::GroupMemberships(memberships) => memberships
+            .iter()
+            .map(|membership| group_membership_values(membership, dialect))
+            .collect(),
+        Entities::UserPermissions(permissions) => permissions
+            .iter()
+            .map(|permission| user_permission_values(permission, dialect))
+            .collect(),
+        Entities::GroupPermissions(permissions) => permissions
+            .iter()
+            .map(|permission| group_permission_values(permission, dialect))
+            .collect(),
     };
 
     open_insert(
@@ -260,6 +280,11 @@ pub(crate) fn entity_columns(entities: &Entities) -> &'static [&'static str] {
             "show_when_logged_out",
             "data",
         ],
+        Entities::WorkspaceEdits(_) => &["user_id", "workspace_id", "data"],
+        Entities::Groups(_) => &["id", "name", "description"],
+        Entities::GroupMemberships(_) => &["user_id", "group_id"],
+        Entities::UserPermissions(_) => &["user_id", "target_type", "target", "level"],
+        Entities::GroupPermissions(_) => &["group_id", "target_type", "target", "level"],
     }
 }
 
@@ -301,6 +326,47 @@ fn workspace_values(workspace: &Workspace, dialect: Dialect) -> Vec<SimpleExpr> 
         },
         workspace.show_when_logged_out.into(),
         json_value(&workspace.data, dialect),
+    ]
+}
+
+fn workspace_edit_values(edit: &WorkspaceEdit, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(edit.user_id, dialect),
+        id_value(edit.workspace_id, dialect),
+        json_value(&edit.data, dialect),
+    ]
+}
+
+fn group_values(group: &Group, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(group.id, dialect),
+        group.name.clone().into(),
+        group.description.clone().into(),
+    ]
+}
+
+fn group_membership_values(membership: &GroupMembership, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(membership.user_id, dialect),
+        id_value(membership.group_id, dialect),
+    ]
+}
+
+fn user_permission_values(permission: &UserPermission, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(permission.user_id, dialect),
+        permission.target_type.as_str().into(),
+        permission.target.clone().into(),
+        permission.level.as_str().into(),
+    ]
+}
+
+fn group_permission_values(permission: &GroupPermission, dialect: Dialect) -> Vec<SimpleExpr> {
+    vec![
+        id_value(permission.group_id, dialect),
+        permission.target_type.as_str().into(),
+        permission.target.clone().into(),
+        permission.level.as_str().into(),
     ]
 }
 
