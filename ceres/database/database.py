@@ -11,7 +11,7 @@ from tempfile import gettempdir
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Self, final, override
 
-from ceres_core import RecordFetcher, RecordWriter
+from ceres_core import RecordFetcher, RecordWriter, Store
 from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -195,6 +195,26 @@ class Database:
         through Pydantic. The same joinability rules as `_record_fetcher` apply.
         """
         return None
+
+    def _store(self) -> Store:
+        """Return the native store this database's queries run through.
+
+        One store serves the whole database, reads and writes alike, because a second
+        pool over the same file is what the backends that withhold a native fetcher are
+        avoiding. Built once and reused, and it connects lazily, so holding one costs
+        nothing until a query runs.
+        """
+        store = getattr(self, "_native_store", None)
+        if store is None:
+            store = self._create_store()
+            self._native_store = store
+
+        return store
+
+    @abstractmethod
+    def _create_store(self) -> Store:
+        """Open a native store on this backend's connection parameters."""
+        ...
 
     @property
     def engine(self) -> AsyncEngine:
@@ -687,6 +707,10 @@ class SQLiteDatabase(Database):
         ).render_as_string(hide_password=False)
 
     @override
+    def _create_store(self) -> Store:
+        return Store.sqlite(str(self.path))
+
+    @override
     def _record_fetcher(self) -> RecordFetcher | None:
         if self.config.is_memory:
             # A private in-memory database lives inside its one connection, a second pool
@@ -874,6 +898,10 @@ class TursoDatabase(SQLiteDatabase):
         return config
 
     @override
+    def _create_store(self) -> Store:
+        return Store.turso(str(self.path), self.config.mvcc)
+
+    @override
     def _record_fetcher(self) -> RecordFetcher | None:
         # Turso coordinates the engines sharing a database file through in-process state
         # and an fcntl file lock. A second copy of the engine in the same process, which
@@ -1056,6 +1084,10 @@ class PostgresDatabase(Database):
             "password": config.password.get_secret_value() if config.password is not None else None,
             "settings": list(settings.items()),
         }
+
+    @override
+    def _create_store(self) -> Store:
+        return Store.postgres(**self._native_connection_arguments())
 
     @override
     def _record_fetcher(self) -> RecordFetcher | None:

@@ -9,6 +9,8 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
+from datetime import datetime
+from functools import cache
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -77,6 +79,7 @@ from ceres.data import (
     MaybeSequence,
     NonNegativeTimeDelta,
     PositiveTimeDelta,
+    StrEnum,
     create,
     uuid7,
 )
@@ -84,8 +87,6 @@ from ceres.database import DatabaseType
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
     from sqlalchemy.types import TypeEngine
 
@@ -698,6 +699,47 @@ _EXECUTOR_STREAM_THRESHOLD = 5000
 _EXECUTOR_PARSE_YIELD_CONTROL_EVERY = 50
 
 
+@cache
+def _column_wrappers(Entity: type[BaseEntity]) -> dict[str, type[Any]]:
+    """The columns whose stored value has to become a Python object, and what makes one.
+
+    The store hands back the primitives a column holds, so a UUID arrives as a `UUID` and
+    a timestamp as an aware `datetime`, but an address arrives as its text and an enum
+    member as its value. Those are Python classes rather than primitives, and the entity's
+    own annotation names which class each column wants, so the conversion follows the
+    model rather than a list of column names kept beside it.
+    """
+    wrappers: dict[str, type[Any]] = {}
+    for name, field in Entity.__pydantic_fields__.items():
+        annotation = field.annotation
+        # An optional column annotates as a union, whose one concrete member is the class
+        # the value takes when it is present.
+        members = [
+            member
+            for member in getattr(annotation, "__args__", (annotation,))
+            if member is not type(None)
+        ]
+        if len(members) != 1:
+            continue
+
+        target = members[0]
+        if not isinstance(target, type) or issubclass(target, DataObject):
+            continue
+
+        # The primitives cross as themselves, and a subclass of one is still the model's
+        # own type, so only the classes a stored value is not already an instance of need
+        # building.
+        if issubclass(target, str | int | float | bool | bytes | datetime | UUID | dict | list):
+            if issubclass(target, StrEnum) or target is not str:
+                wrappers[name] = target
+
+            continue
+
+        wrappers[name] = target
+
+    return wrappers
+
+
 class _BaseStatementExecutor[
     EntityT: BaseEntity,
     FilterT: BaseEntityFilter[Any, Any, Any],
@@ -889,6 +931,28 @@ class _BaseStatementExecutor[
                 entity: Any = create(Entity, values, True)
                 entity = transform(entity)
                 return entity
+
+        return parse
+
+    def _get_native_parser(self) -> Callable[[dict[str, Any]], EntityT | None]:
+        """Build a parser over the column mappings the native store returns."""
+        Entity = self._query._get_entity_class()
+        transform = self._query._get_transform()
+        wrap = _column_wrappers(Entity)
+
+        def parse(values: dict[str, Any]) -> EntityT | None:
+            for name, into in wrap.items():
+                held = values.get(name)
+                # A column the store already hands over as its own type is left alone,
+                # since building a `UUID` from a `UUID` is an error rather than a copy.
+                if held is not None and not isinstance(held, into):
+                    values[name] = into(held)
+
+            entity: Any = create(Entity, values, True)
+            if transform is not None:
+                entity = transform(entity)
+
+            return cast("EntityT | None", entity)
 
         return parse
 
