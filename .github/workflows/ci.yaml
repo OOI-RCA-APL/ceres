@@ -69,6 +69,12 @@ jobs:
         run: make install
       - name: Lint
         run: make lint
+      # Ahead of the tests, because a migration that changed the schema without recording
+      # it fails here in seconds and there in minutes, saying the same thing either way.
+      # This refuses a backend it cannot reach as well as one that has drifted, so the
+      # three files are checked or the step fails rather than quietly covering two.
+      - name: Check Recorded Schema
+        run: make schema-check
       - name: Test
         run: make test
       - name: Build
