@@ -129,6 +129,10 @@ async def test_the_migrations_create_every_column_the_models_read() -> None:
     Compared in both directions. A column the models name and the migrations skip fails a
     decode, and one the migrations create and the models never name is a column no write
     ever fills, which its first `NOT NULL` turns into a failing insert.
+
+    The second direction assumes the database holds nothing but Ceres's own tables, which
+    is true of one these tests built and of a deployment that gave Ceres a database of its
+    own. An operator sharing a schema with tables of their own would see it fail on theirs.
     """
     declared, migrated, _ = await _built()
 
@@ -160,6 +164,27 @@ async def test_the_migrations_create_every_column_as_the_type_its_family_decodes
                 )
 
     assert not mismatches, "column types disagree:\n  " + "\n  ".join(mismatches)
+
+
+async def test_the_ddl_an_operator_is_handed_builds_the_schema_the_migrations_build() -> None:
+    """`ceres database ddl` prints scripts that create the same schema, run in order.
+
+    The command exists so an operator can read or replay what initializes a database, so
+    what it prints has to actually build one. PostgreSQL is the case worth having, its
+    baseline carrying a `$$`-quoted function body that only survives being handed over as
+    one whole script.
+    """
+    migrated = Database()
+    applied = Database()
+    try:
+        await migrated.migrate()
+        for script in applied.ddl:
+            await applied._store().execute_script(script)
+
+        assert await _migrated(applied) == await _migrated(migrated)
+    finally:
+        await migrated.dispose()
+        await applied.dispose()
 
 
 def test_every_family_the_models_use_has_a_type_on_every_backend() -> None:

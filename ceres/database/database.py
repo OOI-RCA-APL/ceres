@@ -670,15 +670,17 @@ class Database:
     def _table_names_query(self) -> tuple[str, list[Any]]:
         """A statement listing the tables a caller's own schema holds.
 
-        Answering wrongly means bootstrapping a database that already has tables, so the
-        wording follows what each backend counts as a table of the caller's. Neither
-        backend's internal tables are the caller's, and PostgreSQL's system schemas are
-        excluded for the same reason.
+        Answering wrongly means skipping the bootstrap of a database that has no tables, so
+        the wording follows what each backend counts as a table of the caller's. Neither
+        backend's internal tables are the caller's, and on PostgreSQL neither is a table in
+        a schema this connection does not resolve names against. Scoping to the search path
+        rather than to every schema on the server is what makes the answer this database's
+        rather than the server's, which matters wherever one server holds more than one.
         """
         if self.type.value == "postgres":
             return (
                 "SELECT tablename FROM pg_catalog.pg_tables "
-                "WHERE schemaname NOT IN ('pg_catalog', 'information_schema')",
+                "WHERE schemaname = ANY(current_schemas(false))",
                 [],
             )
 
