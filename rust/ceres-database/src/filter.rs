@@ -317,12 +317,22 @@ impl Filter {
     }
 
     /// Compile the delete to SQL and its bound parameters.
+    ///
+    /// `returning` hands back the rows the statement removed, which is how a caller that
+    /// wants the entities it deleted gets them without a second query that would no longer
+    /// find them.
     pub fn delete_compiled(
         &self,
         dialect: SqlDialect,
+        returning: bool,
         now: Option<NaiveDateTime>,
     ) -> (String, Vec<Value>) {
-        build(self.delete_statement(dialect, now), dialect)
+        let mut statement = self.delete_statement(dialect, now);
+        if returning {
+            statement.returning_all();
+        }
+
+        build(statement, dialect)
     }
 
     /// Compile an update to SQL and its bound parameters, for one assignment object.
@@ -334,6 +344,7 @@ impl Filter {
         &self,
         dialect: SqlDialect,
         assign: &serde_json::Map<String, serde_json::Value>,
+        returning: bool,
         now: Option<NaiveDateTime>,
     ) -> Result<(String, Vec<Value>), Refusal> {
         let writer = match dialect {
@@ -342,10 +353,12 @@ impl Filter {
         };
         let assignments =
             crate::assign::assignments(self.schema, assign, writer).map_err(Refusal::Invalid)?;
-        Ok(build(
-            self.update_statement(dialect, &assignments, now),
-            dialect,
-        ))
+        let mut statement = self.update_statement(dialect, &assignments, now);
+        if returning {
+            statement.returning_all();
+        }
+
+        Ok(build(statement, dialect))
     }
 
     /// The combined `WHERE` conditions rendered as inline SQL, `None` when the filter
@@ -788,9 +801,10 @@ macro_rules! filter_surface {
             pub fn delete_compiled(
                 &self,
                 dialect: SqlDialect,
+                returning: bool,
                 now: Option<NaiveDateTime>,
             ) -> (String, Vec<Value>) {
-                self.filter.delete_compiled(dialect, now)
+                self.filter.delete_compiled(dialect, returning, now)
             }
 
             /// Compile an update to SQL and its bound parameters, for one assignment
@@ -799,9 +813,10 @@ macro_rules! filter_surface {
                 &self,
                 dialect: SqlDialect,
                 assign: &serde_json::Map<String, serde_json::Value>,
+                returning: bool,
                 now: Option<NaiveDateTime>,
             ) -> Result<(String, Vec<Value>), Refusal> {
-                self.filter.update_compiled(dialect, assign, now)
+                self.filter.update_compiled(dialect, assign, returning, now)
             }
 
             /// The combined `WHERE` conditions rendered as inline SQL, `None` when the

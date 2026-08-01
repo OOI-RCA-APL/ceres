@@ -794,6 +794,7 @@ class _BaseStatementExecutor[
         "_query",
         "_connection",
         "_stream",
+        "_chunks",
     )
 
     def __init__(
@@ -804,6 +805,7 @@ class _BaseStatementExecutor[
         self._query: Final = query
         self._connection: AsyncConnection | None = None
         self._stream: _AsyncRows | None = None
+        self._chunks: Any | None = None
 
     @override
     def __eq__(self, value: object, /) -> bool:
@@ -816,6 +818,15 @@ class _BaseStatementExecutor[
         return self._await().__await__()
 
     async def __aenter__(self) -> ResultsIterator[EntityT]:
+        native = await self._native_statement(returning=True)
+        if native is not None:
+            store, sql, parameters = native
+            if self._chunks is None:
+                with wrap_database_errors():
+                    self._chunks = store.stream(sql, parameters, self._native_table())
+
+            return ResultsIterator(self._parse_chunks(self._chunks))
+
         with wrap_database_errors():
             if self._connection is None:
                 self._connection = await self._query._get_database().use()
@@ -828,6 +839,9 @@ class _BaseStatementExecutor[
         return ResultsIterator(self._parse_async_rows(self._stream))
 
     async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        # Dropping the chunks closes the channel the query writes into, which is what ends
+        # a query the caller stopped reading part way through.
+        self._chunks = None
         try:
             if self._stream is not None:
                 await self._stream.close()
@@ -865,6 +879,21 @@ class _BaseStatementExecutor[
         Use streaming when the result set may be large (above
         ``_EXECUTOR_STREAM_THRESHOLD``), falling back to eager loading for smaller sets.
         """
+        native = await self._native_statement(returning=True)
+        if native is not None:
+            store, sql, parameters = native
+            parse = self._get_native_parser()
+            with wrap_database_errors():
+                rows = await store.fetch(sql, parameters, self._native_table())
+
+            entities: list[EntityT] = []
+            for values in rows:
+                entity = parse(values)
+                if entity is not None:
+                    entities.append(entity)
+
+            return entities
+
         resolved = self._query._get_resolved_filter()
         database = self._query._get_database()
         statement = await self._get_statement(True)
@@ -889,6 +918,12 @@ class _BaseStatementExecutor[
         The native record path serializes straight from these values, so no Python entity
         objects are built for rows that only pass through to a response body.
         """
+        native = await self._native_statement(returning=True)
+        if native is not None:
+            store, sql, parameters = native
+            with wrap_database_errors():
+                return await store.fetch(sql, parameters, self._native_table())
+
         database = self._query._get_database()
         statement = await self._get_statement(True)
 
@@ -972,21 +1007,51 @@ class _BaseStatementExecutor[
 
         return parse
 
-    async def _native_query(self) -> tuple[Any, str, list[Any]] | None:
-        """The store and the compiled statement this query runs, or `None` to keep it here.
+    async def _native_statement(self, *, returning: bool) -> tuple[Any, str, list[Any]] | None:
+        """The store and the compiled statement this executor runs, or `None` to keep it here.
 
         A backend withholds its store when a second engine cannot safely join the
-        database, which is the only reason a query stays on the query layer. The clock
+        database, which is the only reason a statement stays on the query layer. The clock
         the compiler resolves age-relative conditions against is this session's, so a
         frozen or faked time stays authoritative all the way down.
+
+        `returning` asks a write for the rows it touched, which is what a caller consuming
+        one as entities rather than as a count is after. A read ignores it, already
+        selecting the rows it matched.
         """
         store = await self._query._native_store()
         if store is None:
             return None
 
-        native = self._query._get_resolved_filter()._native_filter()
-        sql, parameters = native.compiled(self._query._get_database().type.value, now=utc())
+        sql, parameters = await self._compile_native(returning=returning)
         return store, sql, parameters
+
+    @abstractmethod
+    async def _compile_native(self, *, returning: bool) -> tuple[str, list[Any]]:
+        """Compile this executor's statement for the native store."""
+        ...
+
+    def _native_table(self) -> str:
+        """The table the rows come from, which is what types their columns."""
+        return self._query._get_row_class().__tablename__
+
+    async def _parse_chunks(self, chunks: Any) -> AsyncIterator[EntityT]:
+        """Async-iterate a streamed result, one chunk of column mappings at a time."""
+        parse = self._get_native_parser()
+
+        count = 0
+        while (rows := await chunks.next()) is not None:
+            for values in rows:
+                entity = parse(values)
+                if entity is not None:
+                    yield entity
+
+                count += 1
+                if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
+                    count = 0
+                    # Yield control to the event loop.
+                    await sleep(0)
+                    await sleep(0)
 
     def _get_native_parser(self) -> Callable[[dict[str, Any]], EntityT | None]:
         """Build a parser over the column mappings the native store returns."""
@@ -1054,88 +1119,17 @@ class SelectExecutor[
 ](_BaseStatementExecutor[EntityT, FilterT, list[EntityT]]):
     """Executor that builds and runs a ``SELECT`` statement, returning entities."""
 
-    __slots__ = ("_chunks",)
-
-    @override
-    def __init__(
-        self,
-        *,
-        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
-    ) -> None:
-        super().__init__(query=query)
-        self._chunks: Any | None = None
+    __slots__ = ()
 
     @override
     async def _await(self) -> list[EntityT]:
         return await self.all()
 
     @override
-    async def __aenter__(self) -> ResultsIterator[EntityT]:
-        native = await self._native_query()
-        if native is None:
-            return await super().__aenter__()
-
-        store, sql, parameters = native
-        if self._chunks is None:
-            self._chunks = store.stream(sql, parameters, self._native_table())
-
-        return ResultsIterator(self._parse_chunks(self._chunks))
-
-    @override
-    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-        # Dropping the chunks closes the channel the query writes into, which is what ends
-        # a query the caller stopped reading part way through.
-        self._chunks = None
-        await super().__aexit__(exc_type, exc_value, traceback)
-
-    async def _parse_chunks(self, chunks: Any) -> AsyncIterator[EntityT]:
-        """Async-iterate a streamed result, one chunk of column mappings at a time."""
-        parse = self._get_native_parser()
-
-        count = 0
-        while (rows := await chunks.next()) is not None:
-            for values in rows:
-                entity = parse(values)
-                if entity is not None:
-                    yield entity
-
-                count += 1
-                if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
-                    count = 0
-                    # Yield control to the event loop.
-                    await sleep(0)
-                    await sleep(0)
-
-    @override
-    async def all(self) -> list[EntityT]:
-        """Execute the query and return all matching entities as a list."""
-        native = await self._native_query()
-        if native is None:
-            return await super().all()
-
-        store, sql, parameters = native
-        parse = self._get_native_parser()
-        entities: list[EntityT] = []
-        for values in await store.fetch(sql, parameters, self._native_table()):
-            entity = parse(values)
-            if entity is not None:
-                entities.append(entity)
-
-        return entities
-
-    @override
-    async def mappings(self) -> list[Mapping[str, Any]]:
-        """Execute the query and return raw row mappings without materializing entities."""
-        native = await self._native_query()
-        if native is None:
-            return await super().mappings()
-
-        store, sql, parameters = native
-        return await store.fetch(sql, parameters, self._native_table())
-
-    def _native_table(self) -> str:
-        """The table the fetched rows come from, which is what types their columns."""
-        return self._query._get_row_class().__tablename__
+    async def _compile_native(self, *, returning: bool) -> tuple[str, list[Any]]:
+        # A select already names the rows it matched, so it has nothing to return on top.
+        native = self._query._get_resolved_filter()._native_filter()
+        return native.compiled(self._query._get_database().type.value, now=utc())
 
     @override
     async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
@@ -1193,18 +1187,9 @@ class UpdateExecutor[
     async def _await(self) -> int:
         database = self._query._get_database()
 
-        store = await self._query._native_store()
-        if store is not None:
-            assign = await self._query._assign_transform(self._assign)
-            native = self._query._get_resolved_filter()._native_filter()
-            # The compile stays outside the wrapper. It refuses an assignment the column
-            # cannot hold, and that refusal is the caller's own to read rather than
-            # something to run past the constraint wordings a driver failure is matched on.
-            sql, parameters = native.update_compiled(
-                database.type.value,
-                _native_assign(assign),
-                utc(),
-            )
+        native = await self._native_statement(returning=False)
+        if native is not None:
+            store, sql, parameters = native
             with wrap_database_errors():
                 return await store.execute(sql, parameters)
 
@@ -1215,6 +1200,20 @@ class UpdateExecutor[
                 result = await connection.execute(statement)
                 await connection.commit()
                 return result.rowcount
+
+    @override
+    async def _compile_native(self, *, returning: bool) -> tuple[str, list[Any]]:
+        assign = await self._query._assign_transform(self._assign)
+        native = self._query._get_resolved_filter()._native_filter()
+        # The compile refuses an assignment the column cannot hold, and that refusal is the
+        # caller's own to read rather than something to run past the constraint wordings a
+        # driver failure is matched on, so it stays outside the error wrapper.
+        return native.update_compiled(
+            self._query._get_database().type.value,
+            _native_assign(assign),
+            returning,
+            utc(),
+        )
 
     @override
     async def _get_statement(self, returning: bool) -> Update | ReturningUpdate:
@@ -1260,11 +1259,10 @@ class DeleteExecutor[
     async def _await(self) -> int:
         database = self._query._get_database()
 
-        store = await self._query._native_store()
-        if store is not None:
-            native = self._query._get_resolved_filter()._native_filter()
+        native = await self._native_statement(returning=False)
+        if native is not None:
+            store, sql, parameters = native
             with wrap_database_errors():
-                sql, parameters = native.delete_compiled(database.type.value, utc())
                 return await store.execute(sql, parameters)
 
         statement = await self._get_statement(False)
@@ -1274,6 +1272,15 @@ class DeleteExecutor[
                 result = await connection.execute(statement)
                 await connection.commit()
                 return result.rowcount
+
+    @override
+    async def _compile_native(self, *, returning: bool) -> tuple[str, list[Any]]:
+        native = self._query._get_resolved_filter()._native_filter()
+        return native.delete_compiled(
+            self._query._get_database().type.value,
+            returning,
+            utc(),
+        )
 
     @override
     async def _get_statement(self, returning: bool) -> Delete | ReturningDelete:

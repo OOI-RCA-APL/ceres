@@ -362,12 +362,18 @@ class NativeFilter:
 
         The shape an `any` command runs, which stops at the first matching row.
         """
-    def delete_compiled(self, dialect: str, now: datetime | None = None) -> tuple[str, list[Any]]:
+    def delete_compiled(
+        self, dialect: str, returning: bool = False, now: datetime | None = None
+    ) -> tuple[str, list[Any]]:
         r"""
         Compile the delete to SQL and its parameters for a dialect.
+
+        `returning` hands back the rows the statement removed, which is how a caller that
+        wants the entities it deleted gets them without a second query that would no
+        longer find them.
         """
     def update_compiled(
-        self, dialect: str, assign: str, now: datetime | None = None
+        self, dialect: str, assign: str, returning: bool = False, now: datetime | None = None
     ) -> tuple[str, list[Any]]:
         r"""
         Compile an update to SQL and its parameters for a dialect.

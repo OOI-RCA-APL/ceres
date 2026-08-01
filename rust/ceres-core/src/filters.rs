@@ -174,16 +174,21 @@ impl NativeFilter {
     }
 
     /// Compile the delete to SQL and its parameters for a dialect.
-    #[pyo3(signature = (dialect, now = None))]
+    ///
+    /// `returning` hands back the rows the statement removed, which is how a caller that
+    /// wants the entities it deleted gets them without a second query that would no
+    /// longer find them.
+    #[pyo3(signature = (dialect, returning = false, now = None))]
     fn delete_compiled<'py>(
         &self,
         py: Python<'py>,
         dialect: &str,
+        returning: bool,
         now: Option<chrono::DateTime<chrono::Utc>>,
     ) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
         let dialect = dialect_of(dialect)?;
         let now = now.map(|now| now.naive_utc());
-        let (sql, values) = delegate!(self, delete_compiled(dialect, now));
+        let (sql, values) = delegate!(self, delete_compiled(dialect, returning, now));
         bound(py, sql, values)
     }
 
@@ -192,20 +197,21 @@ impl NativeFilter {
     /// `assign` is the serialized JSON object of new values, and each one encodes into the
     /// form its column stores, so the caller cannot write a value the column did not ask
     /// for. A refusal carries the sentence naming the key and what it wanted.
-    #[pyo3(signature = (dialect, assign, now = None))]
+    #[pyo3(signature = (dialect, assign, returning = false, now = None))]
     fn update_compiled<'py>(
         &self,
         py: Python<'py>,
         dialect: &str,
         assign: &str,
+        returning: bool,
         now: Option<chrono::DateTime<chrono::Utc>>,
     ) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
         let dialect = dialect_of(dialect)?;
         let now = now.map(|now| now.naive_utc());
         let assign: serde_json::Map<String, serde_json::Value> = serde_json::from_str(assign)
             .map_err(|error| PyValueError::new_err(format!("unreadable assignment: {error}")))?;
-        let (sql, values) =
-            delegate!(self, update_compiled(dialect, &assign, now)).map_err(refusal_error)?;
+        let (sql, values) = delegate!(self, update_compiled(dialect, &assign, returning, now))
+            .map_err(refusal_error)?;
         bound(py, sql, values)
     }
 
