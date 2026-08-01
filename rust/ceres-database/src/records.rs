@@ -34,6 +34,11 @@ impl RecordTable {
         }
     }
 
+    /// Every column the table stores, with the family that decides how it decodes.
+    pub fn columns(&self) -> &'static [ceres_entities::FilterField] {
+        self.schema().columns
+    }
+
     /// The table's name, which is also the API route its records are served on.
     pub fn name(&self) -> &'static str {
         match self {

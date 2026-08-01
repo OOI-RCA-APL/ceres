@@ -1083,6 +1083,80 @@ impl RecordStore {
             }
         }
     }
+
+    /// Execute a statement that returns rows, decoding them by column.
+    ///
+    /// The query layer compiles its own statement and then reads whatever it selected,
+    /// so this decodes by column rather than into a table's struct. Values arrive in the
+    /// form their column declares, which is what lets one caller read the same row the
+    /// same way on every backend.
+    pub async fn fetch_dynamic(
+        &self,
+        table: Option<crate::dynamic::Table>,
+        sql: &str,
+        parameters: Vec<Parameter>,
+    ) -> Result<Vec<crate::dynamic::Row>, Error> {
+        match &self.backend {
+            Backend::Sqlite(pool) => bind_sqlite(sqlx::query(sql), parameters)
+                .fetch_all(pool)
+                .await?
+                .iter()
+                .map(|row| crate::dynamic::sqlite_row(row, table))
+                .collect(),
+            Backend::Postgres(pool) => bind_postgres(sqlx::query(sql), parameters)
+                .fetch_all(pool)
+                .await?
+                .iter()
+                .map(crate::dynamic::postgres_row)
+                .collect(),
+            Backend::Turso(backend) => {
+                let parameters = parameters.into_iter().map(parameter_value).collect();
+                backend.query_dynamic(table, sql, parameters).await
+            }
+        }
+    }
+
+    /// Execute a statement that returns no rows, answering how many it touched.
+    pub async fn execute_dynamic(
+        &self,
+        sql: &str,
+        parameters: Vec<Parameter>,
+    ) -> Result<u64, Error> {
+        match &self.backend {
+            Backend::Sqlite(pool) => Ok(bind_sqlite(sqlx::query(sql), parameters)
+                .execute(pool)
+                .await?
+                .rows_affected()),
+            Backend::Postgres(pool) => Ok(bind_postgres(sqlx::query(sql), parameters)
+                .execute(pool)
+                .await?
+                .rows_affected()),
+            Backend::Turso(backend) => {
+                let parameters = parameters.into_iter().map(parameter_value).collect();
+                backend.execute_dynamic(sql, parameters).await
+            }
+        }
+    }
+
+    /// Run a script of `;`-separated statements.
+    ///
+    /// `raw_sql` sends the whole script, so the driver separates the statements rather
+    /// than this guessing where one ends. A migration relies on that, since a `PRAGMA`
+    /// the SQLite family needs before rebuilding a table does nothing inside a
+    /// transaction, and a script sent whole is the driver's business to sequence.
+    pub async fn execute_script(&self, sql: &str) -> Result<(), Error> {
+        match &self.backend {
+            Backend::Sqlite(pool) => {
+                sqlx::raw_sql(sql).execute(pool).await?;
+                Ok(())
+            }
+            Backend::Postgres(pool) => {
+                sqlx::raw_sql(sql).execute(pool).await?;
+                Ok(())
+            }
+            Backend::Turso(backend) => backend.execute_script(sql).await,
+        }
+    }
 }
 
 /// Bind compiled parameters onto a SQLite statement.

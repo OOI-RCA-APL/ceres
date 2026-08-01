@@ -32,6 +32,7 @@ __all__ = [
     "ServerConfig",
     "ServerSSLConfig",
     "ServiceConfig",
+    "Store",
     "TursoDatabaseConfig",
     "entity_filter_keys",
     "hash_argon2",
@@ -1080,6 +1081,51 @@ class ServiceConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
+
+@final
+class Store:
+    r"""
+    A natively-connected database the query layer reads and writes through.
+    """
+    @staticmethod
+    def sqlite(path: str) -> Store:
+        r"""
+        Open a store over a SQLite database file.
+        """
+    @staticmethod
+    def turso(path: str, mvcc: bool) -> Store:
+        r"""
+        Open a store over a Turso database file.
+        """
+    @staticmethod
+    def postgres(
+        host: str,
+        database: str,
+        user: str,
+        port: int | None = None,
+        password: str | None = None,
+        settings: Sequence[tuple[str, str]] = [],
+        parameters: Sequence[tuple[str, str]] = [],
+    ) -> Store:
+        r"""
+        Open a store over a PostgreSQL database.
+        """
+    def fetch(self, sql: str, parameters: list[Any], table: str | None = None) -> Any:
+        r"""
+        Execute a statement that returns rows, as an awaitable list of column mappings.
+
+        `table` names the table the rows come from, which is what says whether a column
+        of text holds a UUID, a timestamp, or a name. A statement belonging to no table,
+        which is what a migration runs, passes `None` and reads values as stored.
+        """
+    def execute(self, sql: str, parameters: list[Any]) -> Any:
+        r"""
+        Execute a statement that returns no rows, as an awaitable count of rows touched.
+        """
+    def execute_script(self, sql: str) -> Any:
+        r"""
+        Run a script of `;`-separated statements, as an awaitable.
+        """
 
 class TursoDatabaseConfig(SQLiteDatabaseConfig):
     r"""

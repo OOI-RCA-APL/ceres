@@ -212,6 +212,64 @@ impl TursoBackend {
         }
     }
 
+    /// Execute a statement that returns rows, decoding them by column.
+    pub(crate) async fn query_dynamic(
+        &self,
+        table: Option<crate::dynamic::Table>,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<Vec<crate::dynamic::Row>, Error> {
+        let connection = self.connection().await?;
+        let mut rows = connection
+            .query(sql, turso::params_from_iter(parameters))
+            .await?;
+        let names = rows.column_names();
+
+        let mut decoded = Vec::new();
+        while let Some(row) = rows.next().await? {
+            decoded.push(crate::dynamic::turso_row(&row, &names, table)?);
+        }
+
+        Ok(decoded)
+    }
+
+    /// Execute a statement that returns no rows, answering how many it touched.
+    pub(crate) async fn execute_dynamic(
+        &self,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<u64, Error> {
+        self.execute_write(sql, parameters).await
+    }
+
+    /// Run a script of `;`-separated statements in one transaction.
+    ///
+    /// Turso's own `execute_batch` opens a transaction of its own, which would commit
+    /// part way through a migration and leave a failure half applied, so the statements
+    /// run one at a time inside the transaction opened here. The scripts are the
+    /// project's own DDL files, which carry no statement holding a bare semicolon.
+    pub(crate) async fn execute_script(&self, sql: &str) -> Result<(), Error> {
+        let connection = self.connection().await?;
+        connection.execute("BEGIN", ()).await?;
+        for statement in sql.split(';') {
+            if statement.trim().is_empty() {
+                continue;
+            }
+
+            if let Err(error) = connection.execute(statement, ()).await {
+                let _ = connection.execute("ROLLBACK", ()).await;
+                return Err(error.into());
+            }
+        }
+
+        if let Err(error) = connection.execute("COMMIT", ()).await {
+            let _ = connection.execute("ROLLBACK", ()).await;
+            return Err(error.into());
+        }
+
+        Ok(())
+    }
+
     /// Execute one write in its own transaction, answering how many rows changed.
     pub(crate) async fn execute_write(
         &self,

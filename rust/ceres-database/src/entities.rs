@@ -52,6 +52,11 @@ impl EntityTable {
         }
     }
 
+    /// Every column the table stores, with the family that decides how it decodes.
+    pub fn columns(&self) -> &'static [ceres_entities::FilterField] {
+        self.schema().columns
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::Users => "users",

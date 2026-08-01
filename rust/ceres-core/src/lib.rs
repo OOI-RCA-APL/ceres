@@ -16,6 +16,7 @@ mod filters;
 pub mod interop;
 pub mod logging;
 pub mod server;
+pub mod store;
 
 use std::path::PathBuf;
 
@@ -164,6 +165,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<fetcher::RecordChunks>()?;
     module.add_class::<filters::RecordFilter>()?;
     module.add_class::<fetcher::RecordWriter>()?;
+    module.add_class::<store::Store>()?;
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(fetcher::record_filter_keys, module)?)?;

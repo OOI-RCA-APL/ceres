@@ -701,6 +701,55 @@ macro_rules! filter_surface {
             pub fn delete_statement(&self, dialect: SqlDialect) -> DeleteStatement {
                 self.filter.delete_statement(dialect)
             }
+
+            /// Compile to SQL and its bound parameters, in the dialect's placeholder
+            /// style.
+            ///
+            /// The parameters arrive in placeholder order, ready for a driver-level
+            /// execute, `?` for the SQLite family and `$n` for PostgreSQL.
+            pub fn compiled(&self, dialect: SqlDialect, count: bool) -> (String, Vec<Value>) {
+                self.filter.compiled(dialect, count)
+            }
+
+            /// Compile the existence check to SQL and its bound parameters.
+            pub fn exists_compiled(&self, dialect: SqlDialect) -> (String, Vec<Value>) {
+                self.filter.exists_compiled(dialect)
+            }
+
+            /// The combined `WHERE` conditions rendered as inline SQL, `None` when the
+            /// filter is unconditional.
+            pub fn where_sql(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> Option<String> {
+                self.filter.where_sql(dialect, now)
+            }
+
+            /// The `ORDER BY` terms rendered as inline SQL, `None` when the table brings
+            /// no default ordering.
+            pub fn order_sql(&self, dialect: SqlDialect) -> Option<String> {
+                self.filter.order_sql(dialect)
+            }
+
+            /// Whether one serialized row matches this filter, like the Python filter's
+            /// `matches`.
+            pub fn matches(
+                &self,
+                record_json: &str,
+                now: Option<NaiveDateTime>,
+            ) -> Result<bool, String> {
+                self.filter.matches(record_json, now)
+            }
+
+            /// Build the update statement for a set of encoded assignments.
+            pub(crate) fn update_statement(
+                &self,
+                dialect: SqlDialect,
+                assignments: &[crate::assign::Assignment],
+            ) -> UpdateStatement {
+                self.filter.update_statement(dialect, assignments)
+            }
         }
     };
 }
@@ -714,48 +763,6 @@ pub struct RecordFilter {
 
 filter_surface!(RecordFilter, RecordTable);
 
-impl RecordFilter {
-    /// Compile to SQL and its bound parameters, in the dialect's placeholder style.
-    ///
-    /// The parameters arrive in placeholder order, ready for a driver-level execute,
-    /// `?` for the SQLite family and `$n` for PostgreSQL.
-    pub fn compiled(&self, dialect: SqlDialect, count: bool) -> (String, Vec<Value>) {
-        self.filter.compiled(dialect, count)
-    }
-
-    /// Compile the existence check to SQL and its bound parameters.
-    pub fn exists_compiled(&self, dialect: SqlDialect) -> (String, Vec<Value>) {
-        self.filter.exists_compiled(dialect)
-    }
-
-    /// The combined `WHERE` conditions rendered as inline SQL, `None` when the filter
-    /// is unconditional.
-    pub fn where_sql(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> Option<String> {
-        self.filter.where_sql(dialect, now)
-    }
-
-    /// The `ORDER BY` terms rendered as inline SQL, `None` when the table brings no
-    /// default ordering.
-    pub fn order_sql(&self, dialect: SqlDialect) -> Option<String> {
-        self.filter.order_sql(dialect)
-    }
-
-    /// Whether one serialized record matches this filter, like the Python filter's
-    /// `matches`.
-    pub fn matches(&self, record_json: &str, now: Option<NaiveDateTime>) -> Result<bool, String> {
-        self.filter.matches(record_json, now)
-    }
-
-    /// Build the update statement for a set of encoded assignments.
-    pub(crate) fn update_statement(
-        &self,
-        dialect: SqlDialect,
-        assignments: &[crate::assign::Assignment],
-    ) -> UpdateStatement {
-        self.filter.update_statement(dialect, assignments)
-    }
-}
-
 /// A parsed entity filter, the compiled core plus the entity table it names.
 ///
 /// The non-record filter language is a strict subset of the record one, the entity
@@ -768,17 +775,6 @@ pub struct EntityFilter {
 }
 
 filter_surface!(EntityFilter, EntityTable);
-
-impl EntityFilter {
-    /// Build the update statement for a set of encoded assignments.
-    pub(crate) fn update_statement(
-        &self,
-        dialect: SqlDialect,
-        assignments: &[crate::assign::Assignment],
-    ) -> UpdateStatement {
-        self.filter.update_statement(dialect, assignments)
-    }
-}
 
 /// One wire value mid-parse, plain text from query pairs or YAML from a subfilter.
 enum WireValue<'a> {

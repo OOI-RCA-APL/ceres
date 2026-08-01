@@ -9,6 +9,7 @@
 
 mod assign;
 mod credentials;
+mod dynamic;
 mod entities;
 mod filter;
 mod load;
@@ -23,6 +24,7 @@ pub use credentials::{
     Argon2Params, Credentials, Hashing, SPECIAL_USE_DOMAINS, is_password_hash, normalize_email,
     valid_password, verify_argon2, verify_bcrypt,
 };
+pub use dynamic::{Cell, Row, Table};
 pub use entities::EntityTable;
 pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, Role, SqlDialect, Window};
 pub use load::{

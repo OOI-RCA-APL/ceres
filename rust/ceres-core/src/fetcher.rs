@@ -18,7 +18,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use crate::entities::{EntityTable, RecordBatch, RecordTable};
 
 /// Extract a compiled statement parameter, one of the primitives bind processors produce.
-fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
+pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
     if value.is_none() {
         return Ok(Parameter::Null);
     }
@@ -434,7 +434,7 @@ pub fn verify_password(py: Python<'_>, password: &str, hash: &str) -> bool {
     })
 }
 
-fn to_value_error(error: ceres_database::Error) -> PyErr {
+pub(crate) fn to_value_error(error: ceres_database::Error) -> PyErr {
     PyValueError::new_err(error.to_string())
 }
 
