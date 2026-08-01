@@ -619,14 +619,25 @@ class RecordFetcher:
     open lazily on first use.
     """
     @staticmethod
-    def sqlite(path: str) -> RecordFetcher:
+    def sqlite(
+        path: str, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> RecordFetcher:
         r"""
         Open a fetcher over a SQLite database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life.
         """
     @staticmethod
-    def turso(path: str, mvcc: bool, on_connect: Sequence[str] = []) -> RecordFetcher:
+    def turso(
+        path: str, mvcc: bool, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> RecordFetcher:
         r"""
         Open a fetcher over a Turso database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life. The `init` statements are the store's to run, that being
+        the engine a database opens for itself.
         """
     @staticmethod
     def postgres(
@@ -690,14 +701,24 @@ class RecordWriter:
     the fetcher, and matching the query layer's connection semantics.
     """
     @staticmethod
-    def sqlite(path: str) -> RecordWriter:
+    def sqlite(
+        path: str, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> RecordWriter:
         r"""
         Open a writer over a SQLite database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life.
         """
     @staticmethod
-    def turso(path: str, mvcc: bool) -> RecordWriter:
+    def turso(
+        path: str, mvcc: bool, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> RecordWriter:
         r"""
         Open a writer over a Turso database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life.
         """
     @staticmethod
     def postgres(
@@ -708,9 +729,14 @@ class RecordWriter:
         password: str | None = None,
         settings: Sequence[tuple[str, str]] = [],
         parameters: Sequence[tuple[str, str]] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
     ) -> RecordWriter:
         r"""
         Open a writer over a PostgreSQL database, with per-connection server settings.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life.
         """
     def write(self, groups: list[tuple[RecordTable, list[Any]]]) -> Any:
         r"""
@@ -1146,22 +1172,33 @@ class Store:
     A natively-connected database the query layer reads and writes through.
     """
     @staticmethod
-    def sqlite(path: str, on_connect: Sequence[str] = [], on_close: Sequence[str] = []) -> Store:
+    def sqlite(
+        path: str,
+        on_init: Sequence[str] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
+    ) -> Store:
         r"""
         Open a store over a SQLite database file.
 
-        `on_connect` and `on_close` are the configuration's own statements for the two ends
-        of a connection's life, run after this backend's.
+        `on_init`, `on_connect`, and `on_close` are the configuration's own statements for
+        the first connection and for the two ends of every connection's life, run after
+        this backend's.
         """
     @staticmethod
     def turso(
-        path: str, mvcc: bool, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+        path: str,
+        mvcc: bool,
+        on_init: Sequence[str] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
     ) -> Store:
         r"""
         Open a store over a Turso database file.
 
-        A `close` hook is refused here, this backend opening a connection per operation
-        rather than pooling them, so such a statement would never run.
+        `on_init`, `on_connect`, and `on_close` are the configuration's own statements for
+        the first connection and for the two ends of every connection's life, run after
+        this backend's.
         """
     @staticmethod
     def postgres(
@@ -1172,6 +1209,7 @@ class Store:
         password: str | None = None,
         settings: Sequence[tuple[str, str]] = [],
         parameters: Sequence[tuple[str, str]] = [],
+        on_init: Sequence[str] = [],
         on_connect: Sequence[str] = [],
         on_close: Sequence[str] = [],
     ) -> Store:

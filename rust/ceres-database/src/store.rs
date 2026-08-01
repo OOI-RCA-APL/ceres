@@ -74,14 +74,18 @@ pub enum Error {
 
 /// Attach a configuration's connection lifecycle statements to a pool.
 ///
-/// These are the `connect` and `close` hooks a database configuration declares, and they
-/// run on every connection the pool opens and releases, after whatever this backend sets
-/// for itself. A statement that fails on connect fails the checkout, because a connection
-/// that skipped its setup is not the connection that was configured. One that fails on
-/// release retires the connection instead of reporting, the caller having already finished
-/// with it by then.
-fn lifecycle<DB>(
+/// These are the `init`, `connect`, and `close` hooks a database configuration declares,
+/// and they run after whatever this backend sets for itself. A statement that fails on
+/// connect fails the checkout, because a connection that skipped its setup is not the
+/// connection that was configured. One that fails on release retires the connection
+/// instead of reporting, the caller having already finished with it by then.
+///
+/// The `init` statements belong to the database rather than to a connection, so they run
+/// on whichever connection opens first and on no other. A failure leaves them un-run, so
+/// the next connection to open tries again rather than the database going without them.
+pub(crate) fn lifecycle<DB>(
     options: sqlx::pool::PoolOptions<DB>,
+    on_init: Vec<String>,
     on_connect: Vec<String>,
     on_close: Vec<String>,
 ) -> sqlx::pool::PoolOptions<DB>
@@ -92,11 +96,25 @@ where
     use sqlx::Executor;
 
     let mut options = options;
-    if !on_connect.is_empty() {
+    if !on_init.is_empty() || !on_connect.is_empty() {
+        let initial = std::sync::Arc::new(on_init);
         let statements = std::sync::Arc::new(on_connect);
+        let started = std::sync::Arc::new(tokio::sync::OnceCell::new());
         options = options.after_connect(move |connection, _| {
+            let initial = initial.clone();
             let statements = statements.clone();
+            let started = started.clone();
             Box::pin(async move {
+                started
+                    .get_or_try_init(|| async {
+                        for statement in initial.iter() {
+                            connection.execute(statement.as_str()).await?;
+                        }
+
+                        Ok::<(), sqlx::Error>(())
+                    })
+                    .await?;
+
                 // One at a time, because these are separate configured statements rather
                 // than a script, and the one that failed is the one worth naming.
                 for statement in statements.iter() {
@@ -210,10 +228,13 @@ pub struct GateUser {
 }
 
 /// The connection pool or engine for one backend.
+///
+/// The Turso engine is boxed because it holds its own configuration inline rather than
+/// behind a pool handle, so left unboxed every store would carry its size.
 enum Backend {
     Sqlite(SqlitePool),
     Postgres(PgPool),
-    Turso(TursoBackend),
+    Turso(Box<TursoBackend>),
 }
 
 /// A natively-connected view of a Ceres database, serving entity reads.
@@ -227,10 +248,19 @@ pub struct RecordStore {
 }
 
 impl RecordStore {
-    /// Open a store over a SQLite database file.
-    pub fn sqlite(path: &str) -> Result<Self, Error> {
+    /// Open a read-only store over a SQLite database file.
+    ///
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life. The `init` statements belong to whichever store opens the
+    /// database for writing, a read-only connection being in no position to set them.
+    pub fn sqlite(
+        path: &str,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
+    ) -> Result<Self, Error> {
         let options = SqliteConnectOptions::new().filename(path).read_only(true);
-        let pool = SqlitePoolOptions::new().connect_lazy_with(options);
+        let pool = lifecycle(SqlitePoolOptions::new(), Vec::new(), on_connect, on_close)
+            .connect_lazy_with(options);
         Ok(Self {
             backend: Backend::Sqlite(pool),
         })
@@ -246,10 +276,17 @@ impl RecordStore {
     /// existing database check for it themselves and say so, an empty file being a worse
     /// answer than a refusal for anyone pointing at the wrong path.
     ///
-    /// `on_connect` and `on_close` are the statements a configuration asked to run at the
-    /// two ends of a connection's life, in order, after this backend's own.
+    /// Incremental `auto_vacuum` is set here rather than left to a hook, because the
+    /// setting only takes on a database with no tables in it and this is what creates the
+    /// file. A database that missed it can never reclaim freed pages without a full
+    /// `VACUUM` rewriting the whole file.
+    ///
+    /// `on_init`, `on_connect`, and `on_close` are the statements a configuration asked to
+    /// run on the first connection and at the two ends of every connection's life, in
+    /// order, after this backend's own.
     pub fn sqlite_writable(
         path: &str,
+        on_init: Vec<String>,
         on_connect: Vec<String>,
         on_close: Vec<String>,
     ) -> Result<Self, Error> {
@@ -257,9 +294,11 @@ impl RecordStore {
             .filename(path)
             .create_if_missing(true)
             .busy_timeout(std::time::Duration::from_secs(30))
+            .auto_vacuum(sqlx::sqlite::SqliteAutoVacuum::Incremental)
             .foreign_keys(true);
         let pool = lifecycle(
             SqlitePoolOptions::new().max_connections(1),
+            on_init,
             on_connect,
             on_close,
         )
@@ -271,9 +310,9 @@ impl RecordStore {
 
     /// Open a store over a PostgreSQL database.
     ///
-    /// `settings` are per-connection server settings like `search_path`. `on_connect` and
-    /// `on_close` are the statements a configuration asked to run at the two ends of a
-    /// connection's life.
+    /// `settings` are per-connection server settings like `search_path`. `on_init`,
+    /// `on_connect`, and `on_close` are the statements a configuration asked to run on the
+    /// first connection and at the two ends of every connection's life.
     #[allow(clippy::too_many_arguments)]
     pub fn postgres(
         host: &str,
@@ -283,11 +322,13 @@ impl RecordStore {
         password: Option<&str>,
         settings: Vec<(String, String)>,
         parameters: Vec<(String, String)>,
+        on_init: Vec<String>,
         on_connect: Vec<String>,
         on_close: Vec<String>,
     ) -> Result<Self, Error> {
         let options = postgres_options(host, port, database, user, password, settings, parameters)?;
-        let pool = lifecycle(PgPoolOptions::new(), on_connect, on_close).connect_lazy_with(options);
+        let pool = lifecycle(PgPoolOptions::new(), on_init, on_connect, on_close)
+            .connect_lazy_with(options);
         Ok(Self {
             backend: Backend::Postgres(pool),
         })
@@ -295,29 +336,26 @@ impl RecordStore {
 
     /// Open a store over a Turso database file.
     ///
-    /// When `mvcc` is set, each connection enables MVCC journaling. `on_connect` is the
-    /// statements a configuration asked to run as a connection opens.
+    /// When `mvcc` is set, each connection enables MVCC journaling. `on_init`,
+    /// `on_connect`, and `on_close` are the statements a configuration asked to run on the
+    /// first connection and at the two ends of every connection's life, in order, after
+    /// this backend's own.
     ///
-    /// A `close` hook is refused rather than ignored. This backend opens a connection per
-    /// operation and lets it go at the end, so there is no pooled connection being handed
-    /// back for such a statement to run on, and accepting one would mean never running it.
+    /// This backend opens a connection per operation rather than pooling them, so a
+    /// connection reaches its close at the end of the operation that opened it, and the
+    /// `close` statements run there rather than on a handback to a pool.
     pub fn turso(
         path: &str,
         mvcc: bool,
+        on_init: Vec<String>,
         on_connect: Vec<String>,
         on_close: Vec<String>,
-    ) -> Result<Self, Error> {
-        if !on_close.is_empty() {
-            return Err(Error::Connect(
-                "This backend opens a connection per operation rather than pooling them, so \
-                 a `close` hook would never run. Remove `database.hooks.close`."
-                    .to_string(),
-            ));
+    ) -> Self {
+        Self {
+            backend: Backend::Turso(Box::new(TursoBackend::new(
+                path, mvcc, on_init, on_connect, on_close,
+            ))),
         }
-
-        Ok(Self {
-            backend: Backend::Turso(TursoBackend::new(path, mvcc, on_connect)),
-        })
     }
 
     /// Fetch a record listing, ordered by timestamp like the Python layer's default.
@@ -1465,7 +1503,7 @@ mod tests {
         .unwrap();
         pool.close().await;
 
-        RecordStore::sqlite_writable(path, Vec::new(), Vec::new()).unwrap()
+        RecordStore::sqlite_writable(path, Vec::new(), Vec::new(), Vec::new()).unwrap()
     }
 
     /// The stored entries, ordered by content so a comparison is stable.
@@ -1582,7 +1620,7 @@ mod tests {
 
         pool.close().await;
 
-        let store = RecordStore::sqlite(path).unwrap();
+        let store = RecordStore::sqlite(path, Vec::new(), Vec::new()).unwrap();
         let Entities::Variables(variables) = store
             .fetch_entities(EntityTable::Variables, None, None)
             .await

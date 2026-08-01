@@ -1,7 +1,7 @@
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timedelta
@@ -12,7 +12,7 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Self, final, override
 
 from ceres_core import RecordFetcher, RecordWriter, Store
-from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
+from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -214,6 +214,30 @@ class Database:
     def _create_store(self) -> Store:
         """Open a native store on this backend's connection parameters."""
         ...
+
+    @final
+    def _native_hooks(self) -> dict[str, Any]:
+        """Return the configuration's connection statements, by stage of a connection's life.
+
+        Only what the configuration declared goes across. Each backend already sets its own
+        commands on the connections it opens, so passing those again would run them twice.
+
+        The `init` statements go to the store alone, that being the engine a database opens
+        for itself, while a fetcher's and a writer's pools take the per-connection pair
+        through `_native_connection_hooks`.
+        """
+        return {
+            "on_init": [*(self.config.hooks.init or ())],
+            **self._native_connection_hooks(),
+        }
+
+    @final
+    def _native_connection_hooks(self) -> dict[str, Any]:
+        """Return the configuration's statements for the two ends of a connection's life."""
+        return {
+            "on_connect": [*(self.config.hooks.connect or ())],
+            "on_close": [*(self.config.hooks.close or ())],
+        }
 
     @property
     def engine(self) -> AsyncEngine:
@@ -742,13 +766,13 @@ class SQLiteDatabase(Database):
 
     @override
     def _create_store(self) -> Store:
-        return Store.sqlite(str(self.path))
+        return Store.sqlite(str(self.path), **self._native_hooks())
 
     @override
     def _record_fetcher(self) -> RecordFetcher | None:
         fetcher = getattr(self, "_native_record_fetcher", None)
         if fetcher is None:
-            fetcher = RecordFetcher.sqlite(str(self.path))
+            fetcher = RecordFetcher.sqlite(str(self.path), **self._native_connection_hooks())
             self._native_record_fetcher = fetcher
 
         return fetcher
@@ -757,7 +781,7 @@ class SQLiteDatabase(Database):
     def _record_writer(self) -> RecordWriter | None:
         writer = getattr(self, "_native_record_writer", None)
         if writer is None:
-            writer = RecordWriter.sqlite(str(self.path))
+            writer = RecordWriter.sqlite(str(self.path), **self._native_connection_hooks())
             self._native_record_writer = writer
 
         return writer
@@ -905,13 +929,15 @@ class TursoDatabase(SQLiteDatabase):
 
     @override
     def _create_store(self) -> Store:
-        return Store.turso(str(self.path), self.config.mvcc)
+        return Store.turso(str(self.path), self.config.mvcc, **self._native_hooks())
 
     @override
     def _record_fetcher(self) -> RecordFetcher | None:
         fetcher = getattr(self, "_native_record_fetcher", None)
         if fetcher is None:
-            fetcher = RecordFetcher.turso(str(self.path), self.config.mvcc)
+            fetcher = RecordFetcher.turso(
+                str(self.path), self.config.mvcc, **self._native_connection_hooks()
+            )
             self._native_record_fetcher = fetcher
 
         return fetcher
@@ -920,7 +946,9 @@ class TursoDatabase(SQLiteDatabase):
     def _record_writer(self) -> RecordWriter | None:
         writer = getattr(self, "_native_record_writer", None)
         if writer is None:
-            writer = RecordWriter.turso(str(self.path), self.config.mvcc)
+            writer = RecordWriter.turso(
+                str(self.path), self.config.mvcc, **self._native_connection_hooks()
+            )
             self._native_record_writer = writer
 
         return writer
@@ -1095,13 +1123,15 @@ class PostgresDatabase(Database):
 
     @override
     def _create_store(self) -> Store:
-        return Store.postgres(**self._native_connection_arguments())
+        return Store.postgres(**self._native_connection_arguments(), **self._native_hooks())
 
     @override
     def _record_fetcher(self) -> RecordFetcher | None:
         fetcher = getattr(self, "_native_record_fetcher", None)
         if fetcher is None:
-            fetcher = RecordFetcher.postgres(**self._native_connection_arguments())
+            fetcher = RecordFetcher.postgres(
+                **self._native_connection_arguments(), **self._native_connection_hooks()
+            )
             self._native_record_fetcher = fetcher
 
         return fetcher
@@ -1110,7 +1140,9 @@ class PostgresDatabase(Database):
     def _record_writer(self) -> RecordWriter | None:
         writer = getattr(self, "_native_record_writer", None)
         if writer is None:
-            writer = RecordWriter.postgres(**self._native_connection_arguments())
+            writer = RecordWriter.postgres(
+                **self._native_connection_arguments(), **self._native_connection_hooks()
+            )
             self._native_record_writer = writer
 
         return writer

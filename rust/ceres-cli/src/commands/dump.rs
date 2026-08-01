@@ -623,22 +623,33 @@ pub(crate) fn open_store(
     config: &DatabaseConfig,
     writing: bool,
 ) -> std::result::Result<RecordStore, String> {
+    // The configuration's connection hooks run here the way they do anywhere else it is
+    // opened, a database reached from a command being the same database.
+    let hooks = |shared: &ceres_config::SharedDatabaseConfig| {
+        (
+            shared.hooks.init.clone().unwrap_or_default(),
+            shared.hooks.connect.clone().unwrap_or_default(),
+            shared.hooks.close.clone().unwrap_or_default(),
+        )
+    };
+
     match config {
         DatabaseConfig::Sqlite(sqlite) => {
             let path = existing(sqlite.path.as_deref())?;
+            let (on_init, on_connect, on_close) = hooks(&sqlite.shared);
             if writing {
-                RecordStore::sqlite_writable(&path, Vec::new(), Vec::new())
+                RecordStore::sqlite_writable(&path, on_init, on_connect, on_close)
             } else {
-                RecordStore::sqlite(&path)
+                RecordStore::sqlite(&path, on_connect, on_close)
             }
             .map_err(|error| format!("Cannot open {path}. {error}"))
         }
         DatabaseConfig::Turso(turso) => {
             let path = existing(turso.path.as_deref())?;
-            Ok(
-                RecordStore::turso(&path, turso.mvcc, Vec::new(), Vec::new())
-                    .expect("no close hook was configured"),
-            )
+            let (on_init, on_connect, on_close) = hooks(&turso.shared);
+            Ok(RecordStore::turso(
+                &path, turso.mvcc, on_init, on_connect, on_close,
+            ))
         }
         DatabaseConfig::Postgres(postgres) => {
             // Server settings shape what a query sees, `search_path` above all, so they
@@ -687,6 +698,7 @@ pub(crate) fn open_store(
                 postgres.password.as_ref().map(|secret| secret.expose()),
                 settings,
                 parameters,
+                postgres.shared.hooks.init.clone().unwrap_or_default(),
                 postgres.shared.hooks.connect.clone().unwrap_or_default(),
                 postgres.shared.hooks.close.clone().unwrap_or_default(),
             )

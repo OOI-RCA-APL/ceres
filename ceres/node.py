@@ -27,8 +27,6 @@ from ceres.timing import utc
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from sqlalchemy.ext.asyncio import AsyncConnection
-
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database import Database

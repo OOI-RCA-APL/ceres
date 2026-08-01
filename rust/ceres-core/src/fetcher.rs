@@ -102,26 +102,38 @@ pub struct RecordFetcher {
 #[pymethods]
 impl RecordFetcher {
     /// Open a fetcher over a SQLite database file.
+    ///
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life.
     #[staticmethod]
-    fn sqlite(path: &str) -> PyResult<Self> {
+    #[pyo3(signature = (path, on_connect=Vec::new(), on_close=Vec::new()))]
+    fn sqlite(path: &str, on_connect: Vec<String>, on_close: Vec<String>) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store = RecordStore::sqlite(path).map_err(to_value_error)?;
+        let store = RecordStore::sqlite(path, on_connect, on_close).map_err(to_value_error)?;
         Ok(Self {
             store: Arc::new(store),
         })
     }
 
     /// Open a fetcher over a Turso database file.
+    ///
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life. The `init` statements are the store's to run, that being
+    /// the engine a database opens for itself.
     #[staticmethod]
-    #[pyo3(signature = (path, mvcc, on_connect=Vec::new()))]
-    fn turso(path: &str, mvcc: bool, on_connect: Vec<String>) -> PyResult<Self> {
+    #[pyo3(signature = (path, mvcc, on_connect=Vec::new(), on_close=Vec::new()))]
+    fn turso(path: &str, mvcc: bool, on_connect: Vec<String>, on_close: Vec<String>) -> Self {
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store =
-            RecordStore::turso(path, mvcc, on_connect, Vec::new()).map_err(to_value_error)?;
-        Ok(Self {
-            store: Arc::new(store),
-        })
+        Self {
+            store: Arc::new(RecordStore::turso(
+                path,
+                mvcc,
+                Vec::new(),
+                on_connect,
+                on_close,
+            )),
+        }
     }
 
     /// Open a fetcher over a PostgreSQL database.
@@ -154,8 +166,19 @@ impl RecordFetcher {
     ) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
+        // The `init` statements are the store's to run, that being the engine a database
+        // opens for itself.
         let store = RecordStore::postgres(
-            host, port, database, user, password, settings, parameters, on_connect, on_close,
+            host,
+            port,
+            database,
+            user,
+            password,
+            settings,
+            parameters,
+            Vec::new(),
+            on_connect,
+            on_close,
         )
         .map_err(to_value_error)?;
         Ok(Self {
@@ -495,26 +518,40 @@ pub struct RecordWriter {
 #[pymethods]
 impl RecordWriter {
     /// Open a writer over a SQLite database file.
+    ///
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life.
     #[staticmethod]
-    fn sqlite(path: &str) -> PyResult<Self> {
+    #[pyo3(signature = (path, on_connect=Vec::new(), on_close=Vec::new()))]
+    fn sqlite(path: &str, on_connect: Vec<String>, on_close: Vec<String>) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let writer = ceres_database::RecordWriter::sqlite(path).map_err(to_value_error)?;
+        let writer = ceres_database::RecordWriter::sqlite(path, on_connect, on_close)
+            .map_err(to_value_error)?;
         Ok(Self {
             writer: Arc::new(writer),
         })
     }
 
     /// Open a writer over a Turso database file.
+    ///
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life.
     #[staticmethod]
-    fn turso(path: &str, mvcc: bool) -> PyResult<Self> {
+    #[pyo3(signature = (path, mvcc, on_connect=Vec::new(), on_close=Vec::new()))]
+    fn turso(path: &str, mvcc: bool, on_connect: Vec<String>, on_close: Vec<String>) -> Self {
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        Ok(Self {
-            writer: Arc::new(ceres_database::RecordWriter::turso(path, mvcc, Vec::new())),
-        })
+        Self {
+            writer: Arc::new(ceres_database::RecordWriter::turso(
+                path, mvcc, on_connect, on_close,
+            )),
+        }
     }
 
     /// Open a writer over a PostgreSQL database, with per-connection server settings.
+    ///
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life.
     #[staticmethod]
     #[pyo3(signature = (
         host,
@@ -524,7 +561,10 @@ impl RecordWriter {
         password=None,
         settings=Vec::new(),
         parameters=Vec::new(),
+        on_connect=Vec::new(),
+        on_close=Vec::new(),
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn postgres(
         host: &str,
         database: &str,
@@ -533,11 +573,13 @@ impl RecordWriter {
         password: Option<&str>,
         settings: Vec<(String, String)>,
         parameters: Vec<(String, String)>,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
     ) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
         let writer = ceres_database::RecordWriter::postgres(
-            host, port, database, user, password, settings, parameters,
+            host, port, database, user, password, settings, parameters, on_connect, on_close,
         )
         .map_err(to_value_error)?;
         Ok(Self {

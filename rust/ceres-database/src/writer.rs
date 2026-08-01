@@ -22,10 +22,13 @@ use crate::store::{Error, Parameter};
 use crate::turso::{TursoBackend, sea_value};
 
 /// The write pool or engine for one backend.
+///
+/// The Turso engine is boxed because it holds its own configuration inline rather than
+/// behind a pool handle, so left unboxed every writer would carry its size.
 enum Backend {
     Sqlite(SqlitePool),
     Postgres(PgPool),
-    Turso(TursoBackend),
+    Turso(Box<TursoBackend>),
 }
 
 /// How a backend expects record values bound.
@@ -52,21 +55,34 @@ impl RecordWriter {
     /// The connection matches the query layer's, the same busy timeout and foreign key
     /// enforcement, and never creates a missing file, the file's lifecycle belongs to the
     /// Python layer.
-    pub fn sqlite(path: &str) -> Result<Self, Error> {
+    ///
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life. The `init` statements are the store's to run, that being
+    /// the engine a database opens for itself.
+    pub fn sqlite(
+        path: &str,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
+    ) -> Result<Self, Error> {
         let options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(false)
             .busy_timeout(Duration::from_secs(30))
             .foreign_keys(true);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_lazy_with(options);
+        let pool = crate::store::lifecycle(
+            SqlitePoolOptions::new().max_connections(1),
+            Vec::new(),
+            on_connect,
+            on_close,
+        )
+        .connect_lazy_with(options);
         Ok(Self {
             backend: Backend::Sqlite(pool),
         })
     }
 
     /// Open a writer over a PostgreSQL database, with per-connection server settings.
+    #[allow(clippy::too_many_arguments)]
     pub fn postgres(
         host: &str,
         port: Option<u16>,
@@ -75,11 +91,14 @@ impl RecordWriter {
         password: Option<&str>,
         settings: Vec<(String, String)>,
         parameters: Vec<(String, String)>,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
     ) -> Result<Self, Error> {
         let options = crate::store::postgres_options(
             host, port, database, user, password, settings, parameters,
         )?;
-        let pool = PgPoolOptions::new().connect_lazy_with(options);
+        let pool = crate::store::lifecycle(PgPoolOptions::new(), Vec::new(), on_connect, on_close)
+            .connect_lazy_with(options);
         Ok(Self {
             backend: Backend::Postgres(pool),
         })
@@ -91,10 +110,18 @@ impl RecordWriter {
     /// connections on the same file. Transactions open with a plain `BEGIN`, the
     /// concurrent form is for the explicitly concurrent sections.
     ///
-    /// `on_connect` is the configuration's own statements for an opening connection.
-    pub fn turso(path: &str, mvcc: bool, on_connect: Vec<String>) -> Self {
+    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
+    /// of a connection's life. The `init` statements are the store's to run, that being
+    /// the engine a database opens for itself.
+    pub fn turso(path: &str, mvcc: bool, on_connect: Vec<String>, on_close: Vec<String>) -> Self {
         Self {
-            backend: Backend::Turso(TursoBackend::new(path, mvcc, on_connect)),
+            backend: Backend::Turso(Box::new(TursoBackend::new(
+                path,
+                mvcc,
+                Vec::new(),
+                on_connect,
+                on_close,
+            ))),
         }
     }
 

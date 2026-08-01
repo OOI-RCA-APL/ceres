@@ -130,7 +130,6 @@ if TYPE_CHECKING:
 
     from pydantic.config import JsonDict
     from pydantic.types import Discriminator
-    from sqlalchemy.ext.asyncio import AsyncConnection
     from starlette.responses import FileResponse, Response, StreamingResponse
 
     from ceres.connection import Buffer, Connection, ConnectionField
