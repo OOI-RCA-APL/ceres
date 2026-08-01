@@ -678,8 +678,7 @@ class SQLiteDatabaseConfig:
     @property
     def path(self) -> Path | None:
         r"""
-        Path to the SQLite file. Omit to use a temporary on-disk file, or set to
-        `:memory:` (see `in_memory`) for a private in-memory database.
+        Path to the SQLite file. Omit to use a temporary on-disk file.
         """
     @property
     def hooks(self) -> DatabaseConfigHooks:
@@ -706,11 +705,6 @@ class SQLiteDatabaseConfig:
         r"""
         The backend selector for this configuration.
         """
-    @property
-    def is_memory(self) -> bool:
-        r"""
-        Whether `path` is the special `:memory:` sentinel used by `in_memory`.
-        """
     def __new__(
         cls,
         *,
@@ -735,14 +729,6 @@ class SQLiteDatabaseConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
-    @classmethod
-    def in_memory(cls) -> Self:
-        r"""
-        Build a config for a private in-memory database scoped to this process.
-
-        The returned database exists only in memory for the lifetime of its engine, useful
-        for tests and other short-lived, detached databases that should never touch disk.
-        """
 
 class ServerAuthenticationConfig:
     r"""
@@ -1145,8 +1131,7 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     @property
     def path(self) -> Path | None:
         r"""
-        Path to the database file. Omit to use a temporary on-disk file, or set to
-        `:memory:` (see `in_memory`) for a private in-memory database.
+        Path to the database file. Omit to use a temporary on-disk file.
         """
     @property
     def mvcc(self) -> bool:
@@ -1178,11 +1163,6 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     def type(self) -> str:
         r"""
         The backend selector for this configuration.
-        """
-    @property
-    def is_memory(self) -> bool:
-        r"""
-        Whether `path` is the special `:memory:` sentinel used by `in_memory`.
         """
     def __new__(
         cls,

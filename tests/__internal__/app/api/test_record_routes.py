@@ -205,9 +205,13 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
     assert json.loads(batch.to_json()) == [json.loads(to_json(entity)) for entity in entities]
 
 
-async def test_in_memory_databases_report_no_native_fetcher() -> None:
-    database = Database(SQLiteDatabaseConfig.in_memory())
-    assert database._record_fetcher() is None
+async def test_a_temporary_database_still_reports_a_native_fetcher() -> None:
+    """A path nobody configured is still a path, so the native fetcher can join it."""
+    database = Database(SQLiteDatabaseConfig())
+    try:
+        assert database._record_fetcher() is not None
+    finally:
+        await database.dispose()
 
 
 async def test_native_writes_read_back_identically(tmp_path: Path) -> None:
@@ -252,7 +256,7 @@ async def test_native_writes_read_back_identically(tmp_path: Path) -> None:
 
 
 async def test_unsupported_flushes_decline_the_native_writer(tmp_path: Path) -> None:
-    """Typed payloads and non-record entities send the whole flush down the query layer."""
+    """A typed payload sends the whole flush down the query layer."""
     from ceres.__internal__.database.writer import Writer
 
     engine = await _build_engine_on_disk(tmp_path)
@@ -264,9 +268,6 @@ async def test_unsupported_flushes_decline_the_native_writer(tmp_path: Path) -> 
 
     typed = construct(Particle, address=Address("@sensor.temp"), type="sample", data=TypedData(a=1))
     assert not await writer._write_natively(db, [typed])
-
-    memory = Database(SQLiteDatabaseConfig.in_memory())
-    assert not await Writer(lambda: memory)._write_natively(memory, [])
 
 
 @pytest.mark.databases("postgres")

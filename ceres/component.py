@@ -1616,15 +1616,15 @@ class ComponentSystem(Node, ComponentSource):
         """The database used by the component.
 
         If the component is part of a tree, this returns the database from the engine at the
-        root. A detached component creates a private in-memory database lazily on first access,
-        useful for unit tests.
+        root. A detached component creates a private temporary database lazily on first access,
+        useful for unit tests. Its files are removed when the database is disposed.
         """
         container = self._container
         if container is not None:
             return container.database
 
         if self._database is None:
-            self._database = Database(SQLiteDatabaseConfig.in_memory())
+            self._database = Database(SQLiteDatabaseConfig())
         return self._database
 
     @property

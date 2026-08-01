@@ -671,11 +671,10 @@ class Database:
 
 
 class SQLiteDatabase(Database):
-    """`Database` backed by a local SQLite file, a per-process temporary file, or memory.
+    """`Database` backed by a local SQLite file, or a per-process temporary file.
 
     When `config.path` is unset, `SQLiteDatabase` creates a temporary on-disk database whose files
-    are cleaned up when the instance is disposed. When `config.is_memory` is `True`, the database
-    lives entirely in memory for the lifetime of its engine and touches no disk at all.
+    are cleaned up when the instance is disposed.
     """
 
     @override
@@ -712,11 +711,6 @@ class SQLiteDatabase(Database):
 
     @override
     def _record_fetcher(self) -> RecordFetcher | None:
-        if self.config.is_memory:
-            # A private in-memory database lives inside its one connection, a second pool
-            # would see a different, empty database.
-            return None
-
         fetcher = getattr(self, "_native_record_fetcher", None)
         if fetcher is None:
             fetcher = RecordFetcher.sqlite(str(self.path))
@@ -726,9 +720,6 @@ class SQLiteDatabase(Database):
 
     @override
     def _record_writer(self) -> RecordWriter | None:
-        if self.config.is_memory:
-            return None
-
         writer = getattr(self, "_native_record_writer", None)
         if writer is None:
             writer = RecordWriter.sqlite(str(self.path))
@@ -740,17 +731,13 @@ class SQLiteDatabase(Database):
     def path(self) -> Path:
         """Filesystem path of the SQLite database file.
 
-        Returns the configured `config.path` when set (including the `:memory:` sentinel for an
-        in-memory database, which is returned as-is rather than resolved to an absolute path),
-        otherwise a temporary path derived from this instance's `id`.
+        Returns the configured `config.path` when set, otherwise a temporary path derived from
+        this instance's `id`.
         """
         path = self.config.path
         if path is None:
             # No path was provided, create a temporary on-disk database.
             return self._get_temporary_path()
-
-        if self.config.is_memory:
-            return path
 
         return path.absolute()
 
@@ -770,21 +757,6 @@ class SQLiteDatabase(Database):
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:
-        if self.config.is_memory:
-            return {
-                # A single connection kept alive for the life of the engine, a fresh connection
-                # would otherwise see a brand new empty database. "AsyncAdaptedQueuePool" blocks
-                # concurrent checkouts instead of handing the connection out twice, so overlapping
-                # callers wait their turn instead of interleaving transactions on the same
-                # connection, which "StaticPool" would allow and this database's manual "BEGIN
-                # IMMEDIATE" transaction handling can't tolerate.
-                "poolclass": AsyncAdaptedQueuePool,
-                "pool_size": 1,
-                "max_overflow": 0,
-                "json_serializer": to_json,  # Serialize any Pydantic compatible object to JSON.
-                **self.config.engine,
-            }
-
         return {
             "poolclass": AsyncAdaptedQueuePool,
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
@@ -800,8 +772,7 @@ class SQLiteDatabase(Database):
         @event.listens_for(engine.sync_engine, "do_connect")
         def do_connect(*args: object) -> None:
             # Create the directory containing the database file if it doesn't already exist.
-            # An in-memory database has no directory to create.
-            if self.config.path is not None and not self.config.is_memory:
+            if self.config.path is not None:
                 try:
                     self.config.path.parent.mkdir(parents=True, exist_ok=True)
                 except Exception:
@@ -935,7 +906,7 @@ class TursoDatabase(SQLiteDatabase):
         # why none of that setup is reused and "Database._setup_engine" is called directly.
         @event.listens_for(engine.sync_engine, "do_connect")
         def do_connect(*args: object) -> None:
-            if self.config.path is not None and not self.config.is_memory:
+            if self.config.path is not None:
                 try:
                     self.config.path.parent.mkdir(parents=True, exist_ok=True)
                 except Exception:

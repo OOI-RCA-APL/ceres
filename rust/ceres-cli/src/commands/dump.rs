@@ -625,16 +625,6 @@ pub(crate) fn open_store(
 ) -> std::result::Result<RecordStore, String> {
     match config {
         DatabaseConfig::Sqlite(sqlite) => {
-            // An in-memory database belongs to the process that made it, and this is a
-            // different process, so there is nothing here to read or write. Saying so
-            // beats reporting an empty table as though it were the answer.
-            if sqlite.is_memory() {
-                return Err(
-                    "This project's database is in memory, which lives only inside the                      engine's own process. Point `database.path` at a file to read it from                      here."
-                        .to_string(),
-                );
-            }
-
             let path = existing(sqlite.path.as_deref())?;
             if writing {
                 RecordStore::sqlite_writable(&path)

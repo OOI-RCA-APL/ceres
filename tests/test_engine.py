@@ -30,7 +30,7 @@ def _config(component_names_to_classes: dict[str, str]) -> Config:
     return validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "components": [
                 {"name": name, "class": cls} for name, cls in component_names_to_classes.items()
             ],
@@ -176,7 +176,7 @@ def _cross_tree_config(target: str) -> Config:
     return validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "components": [
                 {
                     "name": "alpha",

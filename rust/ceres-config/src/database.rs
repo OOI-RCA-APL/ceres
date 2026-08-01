@@ -9,8 +9,23 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Problem, Problems};
 use crate::values::{MaybeSequence, Secret};
 
-/// The path sentinel selecting a private in-memory SQLite database.
-pub const MEMORY_PATH: &str = ":memory:";
+/// The path SQLite reads as a request for a private in-memory database.
+///
+/// Nothing here opens one. A private in-memory database lives inside the single connection
+/// that opened it, so nothing else in the process can join it, and the native store owns
+/// its own connections. Rejecting the path is what keeps that from reading as a database
+/// file literally named `:memory:`, which is what a bare path would otherwise create.
+const MEMORY_PATH: &str = ":memory:";
+
+/// Reject the in-memory path, which no backend opens.
+fn validate_path(path: Option<&Path>, problems: &mut Problems) {
+    if path == Some(Path::new(MEMORY_PATH)) {
+        problems.push(Problem::new(
+            "path",
+            "must name a file. Omit it for a temporary on-disk database.",
+        ));
+    }
+}
 
 /// SQL statements executed at well-known points in the database lifecycle.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
@@ -271,8 +286,7 @@ impl RawSharedDatabaseConfig {
 #[serde(default, deny_unknown_fields)]
 #[schemars(title = "SQLiteDatabaseConfig")]
 pub struct RawSqliteDatabaseConfig {
-    /// Path to the SQLite file. Omit to use a temporary on-disk file, or set to `:memory:`
-    /// for a private in-memory database.
+    /// Path to the SQLite file. Omit to use a temporary on-disk file.
     pub path: Option<PathBuf>,
 
     #[serde(flatten)]
@@ -288,19 +302,13 @@ pub struct SqliteDatabaseConfig {
     pub shared: SharedDatabaseConfig,
 }
 
-impl SqliteDatabaseConfig {
-    /// Whether `path` is the special `:memory:` sentinel.
-    pub fn is_memory(&self) -> bool {
-        self.path.as_deref() == Some(Path::new(MEMORY_PATH))
-    }
-}
-
 impl TryFrom<RawSqliteDatabaseConfig> for SqliteDatabaseConfig {
     type Error = Problems;
 
     fn try_from(raw: RawSqliteDatabaseConfig) -> Result<Self, Problems> {
         let mut problems = Problems::default();
         let shared = raw.shared.validate(&mut problems);
+        validate_path(raw.path.as_deref(), &mut problems);
 
         problems.into_result(Self {
             path: raw.path,
@@ -315,8 +323,7 @@ impl TryFrom<RawSqliteDatabaseConfig> for SqliteDatabaseConfig {
 #[serde(default, deny_unknown_fields)]
 #[schemars(title = "TursoDatabaseConfig")]
 pub struct RawTursoDatabaseConfig {
-    /// Path to the database file. Omit to use a temporary on-disk file, or set to `:memory:`
-    /// for a private in-memory database.
+    /// Path to the database file. Omit to use a temporary on-disk file.
     pub path: Option<PathBuf>,
 
     /// Put the database in Turso's MVCC journal mode, which is what lets writers overlap.
@@ -338,19 +345,13 @@ pub struct TursoDatabaseConfig {
     pub shared: SharedDatabaseConfig,
 }
 
-impl TursoDatabaseConfig {
-    /// Whether `path` is the special `:memory:` sentinel.
-    pub fn is_memory(&self) -> bool {
-        self.path.as_deref() == Some(Path::new(MEMORY_PATH))
-    }
-}
-
 impl TryFrom<RawTursoDatabaseConfig> for TursoDatabaseConfig {
     type Error = Problems;
 
     fn try_from(raw: RawTursoDatabaseConfig) -> Result<Self, Problems> {
         let mut problems = Problems::default();
         let shared = raw.shared.validate(&mut problems);
+        validate_path(raw.path.as_deref(), &mut problems);
 
         problems.into_result(Self {
             path: raw.path,
@@ -518,13 +519,24 @@ mod tests {
     }
 
     #[test]
-    fn memory_paths_are_recognized() {
-        let config = SqliteDatabaseConfig {
-            path: Some(PathBuf::from(MEMORY_PATH)),
-            ..SqliteDatabaseConfig::default()
-        };
-        assert!(config.is_memory());
-        assert!(!SqliteDatabaseConfig::default().is_memory());
+    fn the_in_memory_path_is_refused_rather_than_taken_literally() {
+        // Left alone it would name a file called ":memory:", which reads as a working
+        // database right up until someone looks for the data somewhere else.
+        for text in [
+            "type: sqlite\npath: ':memory:'\n",
+            "type: turso\npath: ':memory:'\n",
+        ] {
+            let raw: RawDatabaseConfig = serde_yaml_ng::from_str(text).unwrap();
+            let problems = DatabaseConfig::try_from(raw).expect_err("the path is refused");
+            assert!(
+                format!("{problems}").contains("must name a file"),
+                "{problems}"
+            );
+        }
+
+        // A temporary on-disk database is what an omitted path already gives.
+        let raw: RawDatabaseConfig = serde_yaml_ng::from_str("type: sqlite\n").unwrap();
+        DatabaseConfig::try_from(raw).expect("an omitted path is fine");
     }
 
     #[test]

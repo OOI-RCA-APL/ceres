@@ -71,11 +71,6 @@ class ShellCommand(CLICommand):
 
                 case DatabaseType.SQLITE | DatabaseType.TURSO:
                     assert isinstance(database, SQLiteDatabase)
-                    if database.config.is_memory:
-                        raise CLICommandFailed(
-                            "Database is in-memory and has no file to open a shell against."
-                        )
-
                     if isinstance(database, TursoDatabase) and database.config.mvcc:
                         raise CLICommandFailed(
                             "MVCC journaling makes the database file unreadable to "
