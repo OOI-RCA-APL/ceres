@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from ceres_core import RecordTable, parse_record_filter, record_filter_from_json
+from ceres_core import NativeFilter
 
 from ceres import Engine
 from ceres.address import Address
@@ -89,7 +89,7 @@ async def test_compiled_statements_execute_through_the_python_session(tmp_path: 
 
     try:
         for pairs in CASES:
-            handle = parse_record_filter(RecordTable.MESSAGES, pairs)
+            handle = NativeFilter.from_pairs("messages", pairs)
             expected = [
                 str(entity.id)
                 for entity in await engine.__manager__(Message).where(
@@ -140,7 +140,7 @@ async def test_filters_parse_from_the_model_json_dump(tmp_path: Path) -> None:
             },
         )
         dumped = filter.model_dump_json(by_alias=True, exclude_none=True)
-        handle = record_filter_from_json(RecordTable.MESSAGES, dumped)
+        handle = NativeFilter.from_json("messages", dumped)
         assert handle.limit == 3
 
         expected = [str(entity.id) for entity in await engine.__manager__(Message).where(filter)]
@@ -152,13 +152,13 @@ async def test_filters_parse_from_the_model_json_dump(tmp_path: Path) -> None:
 
 def test_invalid_filters_raise_the_wire_message() -> None:
     with pytest.raises(ValueError, match="limit"):
-        parse_record_filter(RecordTable.MESSAGES, [("limit", "-1")])
+        NativeFilter.from_pairs("messages", [("limit", "-1")])
 
     with pytest.raises(ValueError, match="or__"):
-        parse_record_filter(RecordTable.MESSAGES, [("or", '{"limit": 5}')])
+        NativeFilter.from_pairs("messages", [("or", '{"limit": 5}')])
 
     with pytest.raises(ValueError, match="native form"):
-        parse_record_filter(RecordTable.PARTICLES, [("class", "a.b:C")])
+        NativeFilter.from_pairs("particles", [("class", "a.b:C")])
 
 
 def _fold(pairs: list[tuple[str, str]]) -> dict[str, Any]:

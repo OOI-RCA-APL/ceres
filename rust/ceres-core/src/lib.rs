@@ -163,7 +163,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<entities::EntityTable>()?;
     module.add_class::<fetcher::RecordFetcher>()?;
     module.add_class::<fetcher::RecordChunks>()?;
-    module.add_class::<filters::RecordFilter>()?;
+    module.add_class::<filters::NativeFilter>()?;
     module.add_class::<fetcher::RecordWriter>()?;
     module.add_class::<store::Store>()?;
     module.add_class::<server::NativeServer>()?;
@@ -178,14 +178,6 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(pyo3::wrap_pyfunction!(fetcher::verify_bcrypt, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(
         fetcher::special_use_domains,
-        module
-    )?)?;
-    module.add_function(pyo3::wrap_pyfunction!(
-        filters::parse_record_filter,
-        module
-    )?)?;
-    module.add_function(pyo3::wrap_pyfunction!(
-        filters::record_filter_from_json,
         module
     )?)?;
     Ok(())

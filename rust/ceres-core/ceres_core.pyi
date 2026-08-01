@@ -16,13 +16,13 @@ __all__ = [
     "DatabaseConfigHooks",
     "EntityTable",
     "LoggingConfig",
+    "NativeFilter",
     "NativeServer",
     "PackingProgram",
     "PostgresDatabaseConfig",
     "RecordBatch",
     "RecordChunks",
     "RecordFetcher",
-    "RecordFilter",
     "RecordTable",
     "RecordWriter",
     "SQLiteDatabaseConfig",
@@ -39,8 +39,6 @@ __all__ = [
     "hash_bcrypt",
     "normalize_email",
     "openapi_schema",
-    "parse_record_filter",
-    "record_filter_from_json",
     "record_filter_keys",
     "special_use_domains",
     "verify_argon2",
@@ -290,6 +288,66 @@ class LoggingConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
+
+@final
+class NativeFilter:
+    r"""
+    A parsed filter, held natively and reused across calls.
+    """
+    @property
+    def limit(self) -> int | None:
+        r"""
+        The filter's limit, `None` when unbounded.
+        """
+    @property
+    def offset(self) -> int | None:
+        r"""
+        The filter's offset, `None` when unset.
+        """
+    @staticmethod
+    def from_pairs(table: str, pairs: Sequence[tuple[str, str]]) -> NativeFilter:
+        r"""
+        Parse a filter from ordered wire query pairs.
+        """
+    @staticmethod
+    def from_json(table: str, json: str) -> NativeFilter:
+        r"""
+        Parse a filter from its serialized JSON form, the filter model's dump.
+        """
+    def where_sql(self, dialect: str, now: datetime | None = None) -> str | None:
+        r"""
+        The `WHERE` conditions as inline SQL for a dialect, `None` when the filter is
+        unconditional.
+
+        The text embeds into a statement the caller builds, so values render as literals
+        rather than binds. The caller's clock decides age-relative conditions, so a
+        session under a faked or frozen time stays authoritative.
+        """
+    def order_sql(self, dialect: str) -> str | None:
+        r"""
+        The `ORDER BY` terms as inline SQL for a dialect, including the table's default
+        ordering.
+        """
+    def compiled(self, dialect: str, *, count: bool = False) -> tuple[str, list[Any]]:
+        r"""
+        Compile to SQL and its parameters for a dialect, a listing statement or a count.
+
+        The parameters arrive in placeholder order for a driver-level execute, `?` style
+        for the SQLite family and `$n` for PostgreSQL.
+        """
+    def exists_compiled(self, dialect: str) -> tuple[str, list[Any]]:
+        r"""
+        Compile the existence check to SQL and its parameters for a dialect.
+
+        The shape an `any` command runs, which stops at the first matching row.
+        """
+    def matches(self, record_json: str, now: datetime | None = None) -> bool:
+        r"""
+        Whether one serialized row matches this filter.
+
+        Query controls and subsampling do not participate, this reads a single row the way
+        live stream filtering does.
+        """
 
 @final
 class NativeServer:
@@ -572,58 +630,6 @@ class RecordFetcher:
 
         Like `fetch_pairs`, a request outside the native subset answers `None`
         synchronously so the caller delegates.
-        """
-
-@final
-class RecordFilter:
-    r"""
-    A parsed record filter, held natively and reused across calls.
-    """
-    @property
-    def limit(self) -> int | None:
-        r"""
-        The filter's limit, `None` when unbounded.
-        """
-    @property
-    def offset(self) -> int | None:
-        r"""
-        The filter's offset, `None` when unset.
-        """
-    def where_sql(self, dialect: str, now: datetime | None = None) -> str | None:
-        r"""
-        The `WHERE` conditions as inline SQL for a dialect, `None` when the filter is
-        unconditional.
-
-        The text embeds into a statement the Python session builds, so values render
-        as literals rather than binds.
-        The caller's clock decides age-relative conditions, so a session under a faked
-        or frozen time stays authoritative.
-        """
-    def order_sql(self, dialect: str) -> str | None:
-        r"""
-        The `ORDER BY` terms as inline SQL for a dialect, including the table's
-        default ordering.
-        """
-    def compiled(self, dialect: str, *, count: bool = False) -> tuple[str, list[Any]]:
-        r"""
-        Compile to SQL and its parameters for a dialect, a listing statement or a
-        count.
-
-        The parameters arrive in placeholder order for a driver-level execute, `?`
-        style for the SQLite family and `$n` for PostgreSQL.
-        """
-    def exists_compiled(self, dialect: str) -> tuple[str, list[Any]]:
-        r"""
-        Compile the existence check to SQL and its parameters for a dialect.
-
-        The shape an `any` command runs, which stops at the first matching row.
-        """
-    def matches(self, record_json: str, now: datetime | None = None) -> bool:
-        r"""
-        Whether one serialized record matches this filter.
-
-        Query controls and subsampling do not participate, this reads a single record
-        the way live stream filtering does.
         """
 
 @final
@@ -1279,16 +1285,6 @@ def normalize_email(value: str) -> str | None:
 def openapi_schema(version: str) -> str:
     r"""
     Serve the OpenAPI document describing the API, as JSON text.
-    """
-
-def parse_record_filter(table: RecordTable, pairs: Sequence[tuple[str, str]]) -> RecordFilter:
-    r"""
-    Parse a record filter from ordered wire query pairs.
-    """
-
-def record_filter_from_json(table: RecordTable, json: str) -> RecordFilter:
-    r"""
-    Parse a record filter from its serialized JSON form, the filter model's dump.
     """
 
 def record_filter_keys(table: RecordTable) -> tuple[list[str], list[str]]:

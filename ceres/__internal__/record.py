@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar, Self, override
 
-from pydantic import Field, NonNegativeInt, PositiveInt, PrivateAttr, model_validator
+from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 from sqlalchemy import Delete, Select, Update, select, text, tuple_
 
 from ceres.__internal__.entity import (
@@ -154,33 +154,6 @@ class BaseRecordFilter[
             raise ValueError(f"{subject} {message}")
 
         return self
-
-    _native_cache: Any = PrivateAttr(default=None)
-
-    def _native_dump(self) -> str:
-        """Serialize this filter for the native compiler, in its wire JSON form."""
-        return self.model_dump_json(by_alias=True, exclude_none=True)
-
-    def _native_filter(self) -> Any:
-        """The native compiler's parsed form of this filter, built once and reused.
-
-        The compiler is the single authority on filter semantics. Statements execute
-        through the Python session, but their `WHERE` and `ORDER BY` come from here,
-        and in-memory matching reads records through the same parsed filter.
-        """
-        if self._native_cache is None:
-            from ceres_core import RecordTable, record_filter_from_json
-
-            tables = {
-                "messages": RecordTable.MESSAGES,
-                "particles": RecordTable.PARTICLES,
-                "alerts": RecordTable.ALERTS,
-                "logs": RecordTable.LOGS,
-            }
-            table = tables[self._get_row_cls().__tablename__]
-            self._native_cache = record_filter_from_json(table, self._native_dump())
-
-        return self._native_cache
 
     @override
     def matches(self, obj: RecordT) -> bool:  # type: ignore[override]

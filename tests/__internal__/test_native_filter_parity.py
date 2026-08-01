@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from ceres_core import (
     EntityTable,
+    NativeFilter,
     RecordTable,
     entity_filter_keys,
-    parse_record_filter,
     record_filter_keys,
 )
 
@@ -345,7 +345,7 @@ async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None
 
                 # The native matcher must read each record the way the Python filter's
                 # in-memory matching does.
-                handle = parse_record_filter(table, pairs)
+                handle = NativeFilter.from_pairs(Record.__entity_naming__.table, pairs)
                 for entity in await engine.__manager__(Record).where(Record.Filter()):
                     record_json = to_json(entity)
                     assert handle.matches(record_json) == filter.matches(entity), (

@@ -26,7 +26,7 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import Field, NonNegativeInt, model_validator
+from pydantic import Field, NonNegativeInt, PrivateAttr, model_validator
 from sqlalchemy import (
     ClauseElement,
     Column,
@@ -452,6 +452,28 @@ class BaseEntityFilter[
     @classmethod
     @abstractmethod
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
+
+    _native_cache: Any = PrivateAttr(default=None)
+
+    def _native_dump(self) -> str:
+        """Serialize this filter for the native compiler, in its wire JSON form."""
+        return self.model_dump_json(by_alias=True, exclude_none=True)
+
+    def _native_filter(self) -> Any:
+        """The native compiler's parsed form of this filter, built once and reused.
+
+        The compiler is the single authority on filter semantics, so the statement a
+        query runs is compiled here and in-memory matching reads rows through the same
+        parsed filter. Every table the managers serve compiles, so nothing above this
+        needs a second path for the ones that do not.
+        """
+        if self._native_cache is None:
+            from ceres_core import NativeFilter
+
+            table = self._get_row_cls().__tablename__
+            self._native_cache = NativeFilter.from_json(table, self._native_dump())
+
+        return self._native_cache
 
     def matches(self, obj: EntityT) -> bool:
         """Test whether `obj` satisfies this filter, including all ``and__`` and ``or__`` subfilters.
