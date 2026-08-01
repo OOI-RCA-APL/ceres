@@ -13,12 +13,16 @@
 //! the two copies overwrite each other's WAL frames. That is why the Python layer keeps
 //! its own driver for Turso databases and never constructs this backend beside it.
 
-use ceres_entities::{Address, Alert, LogEntry, Message, Particle, Records, Timestamp};
+use ceres_entities::{
+    Address, Alert, Entities, LogEntry, Message, Particle, Records, Setting, Timestamp, User,
+    Variable, Workspace,
+};
 use chrono::NaiveDateTime;
 use tokio::sync::OnceCell;
 use turso::Value;
 use uuid::Uuid;
 
+use crate::entities::EntityTable;
 use crate::records::{RecordTable, direction, json_text, level};
 use crate::store::{Error, Parameter};
 
@@ -168,6 +172,133 @@ impl TursoBackend {
             Value::Integer(count) => Ok(count.max(0) as u64),
             other => Err(Error::Decode(format!("{other:?} is not a count"))),
         }
+    }
+
+    /// Execute a query and decode its rows for the given entity table.
+    pub(crate) async fn query_entities(
+        &self,
+        table: EntityTable,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<Entities, Error> {
+        let connection = self.connection().await?;
+        let mut rows = connection
+            .query(sql, turso::params_from_iter(parameters))
+            .await?;
+        decode_entities(table, &mut rows, usize::MAX).await
+    }
+
+    /// Walk an entity result set, handing over one chunk at a time.
+    pub(crate) async fn stream_entities(
+        &self,
+        table: EntityTable,
+        sql: &str,
+        parameters: Vec<Value>,
+        sink: &mut impl FnMut(Entities) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let connection = self.connection().await?;
+        let mut rows = connection
+            .query(sql, turso::params_from_iter(parameters))
+            .await?;
+
+        loop {
+            let entities = decode_entities(table, &mut rows, crate::store::CHUNK).await?;
+            let complete = entities.len() == crate::store::CHUNK;
+            sink(entities)?;
+            if !complete {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Execute one write in its own transaction, answering how many rows changed.
+    pub(crate) async fn execute_write(
+        &self,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<u64, Error> {
+        let connection = self.connection().await?;
+        connection.execute("BEGIN", ()).await?;
+        let affected = match connection
+            .execute(sql, turso::params_from_iter(parameters))
+            .await
+        {
+            Ok(affected) => affected,
+            Err(error) => {
+                let _ = connection.execute("ROLLBACK", ()).await;
+                return Err(error.into());
+            }
+        };
+
+        if let Err(error) = connection.execute("COMMIT", ()).await {
+            let _ = connection.execute("ROLLBACK", ()).await;
+            return Err(error.into());
+        }
+
+        Ok(affected)
+    }
+
+    /// Execute one write that hands its rows back, in its own transaction.
+    ///
+    /// `RETURNING` is SQLite's, which this engine implements, so a write says what it
+    /// touched without a second query racing it.
+    pub(crate) async fn query_write(
+        &self,
+        table: RecordTable,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<Records, Error> {
+        let connection = self.connection().await?;
+        connection.execute("BEGIN", ()).await?;
+        let decoded = async {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+            decode(table, &mut rows, usize::MAX).await
+        }
+        .await;
+        self.settle(&connection, decoded).await
+    }
+
+    /// The entity form of [`Self::query_write`].
+    pub(crate) async fn query_write_entities(
+        &self,
+        table: EntityTable,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<Entities, Error> {
+        let connection = self.connection().await?;
+        connection.execute("BEGIN", ()).await?;
+        let decoded = async {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+            decode_entities(table, &mut rows, usize::MAX).await
+        }
+        .await;
+        self.settle(&connection, decoded).await
+    }
+
+    /// Commit what a write produced, or roll back what it failed at.
+    async fn settle<T>(
+        &self,
+        connection: &turso::Connection,
+        outcome: Result<T, Error>,
+    ) -> Result<T, Error> {
+        let held = match outcome {
+            Ok(held) => held,
+            Err(error) => {
+                let _ = connection.execute("ROLLBACK", ()).await;
+                return Err(error);
+            }
+        };
+
+        if let Err(error) = connection.execute("COMMIT", ()).await {
+            let _ = connection.execute("ROLLBACK", ()).await;
+            return Err(error.into());
+        }
+
+        Ok(held)
     }
 
     /// Execute statements in one transaction, rolling back if any of them fails.
@@ -356,6 +487,113 @@ async fn decode(
 }
 
 /// The column names of a result set, resolving fields to positions.
+/// Decode up to `limit` rows for the given entity table.
+///
+/// The columns are read by name rather than by position, because a `RETURNING *` and a
+/// listing do not have to order them the same way.
+async fn decode_entities(
+    table: EntityTable,
+    rows: &mut turso::Rows,
+    limit: usize,
+) -> Result<Entities, Error> {
+    let columns = Columns {
+        names: rows.column_names(),
+    };
+
+    match table {
+        EntityTable::Users => {
+            let username = columns.index("username")?;
+            let email = columns.index("email")?;
+            let password = columns.index("password")?;
+            let admin = columns.index("admin")?;
+            let disabled = columns.index("disabled")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(User {
+                    id: id(&row, &columns)?,
+                    username: text(&row, username)?,
+                    email: text(&row, email)?,
+                    password: text(&row, password)?,
+                    admin: boolean(&row, admin)?,
+                    disabled: boolean(&row, disabled)?,
+                });
+            }
+
+            Ok(Entities::Users(entities))
+        }
+        EntityTable::Variables => {
+            let name = columns.index("name")?;
+            let value = columns.index("value")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(Variable {
+                    address: address(&row, &columns)?,
+                    name: text(&row, name)?,
+                    value: json(&row, value)?,
+                });
+            }
+
+            Ok(Entities::Variables(entities))
+        }
+        EntityTable::Settings => {
+            let user = columns.index("user_id")?;
+            let name = columns.index("name")?;
+            let value = columns.index("value")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(Setting {
+                    user_id: uuid(&row, user)?,
+                    name: text(&row, name)?,
+                    value: json(&row, value)?,
+                });
+            }
+
+            Ok(Entities::Settings(entities))
+        }
+        EntityTable::Workspaces => {
+            let name = columns.index("name")?;
+            let scope = columns.index("scope")?;
+            let owner = columns.index("owner_id")?;
+            let shown = columns.index("show_when_logged_out")?;
+            let data = columns.index("data")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                let held = json(&row, data)?;
+                let serde_json::Value::Object(held) = held else {
+                    return Err(Error::Decode(
+                        "a workspace's data is not an object".to_string(),
+                    ));
+                };
+                entities.push(Workspace {
+                    id: id(&row, &columns)?,
+                    name: text(&row, name)?,
+                    // Addresses were validated when written, so the value is trusted on
+                    // the way out the way a record's address is.
+                    scope: Address::trusted(text(&row, scope)?),
+                    owner_id: optional_text(&row, owner)?
+                        .map(|held| {
+                            held.parse()
+                                .map_err(|_| Error::Decode(format!("{held:?} is not a UUID")))
+                        })
+                        .transpose()?,
+                    show_when_logged_out: boolean(&row, shown)?,
+                    data: held,
+                });
+            }
+
+            Ok(Entities::Workspaces(entities))
+        }
+    }
+}
+
 struct Columns {
     names: Vec<String>,
 }
@@ -400,6 +638,36 @@ fn optional_text(row: &turso::Row, index: usize) -> Result<Option<String>, Error
         Value::Null => Ok(None),
         Value::Text(text) => Ok(Some(text)),
         other => Err(Error::Decode(format!("expected text, found {other:?}"))),
+    }
+}
+
+fn uuid(row: &turso::Row, index: usize) -> Result<Uuid, Error> {
+    let held = text(row, index)?;
+    held.parse()
+        .map_err(|_| Error::Decode(format!("{held:?} is not a UUID")))
+}
+
+/// Decode a boolean column, which SQLite stores as an integer.
+fn boolean(row: &turso::Row, index: usize) -> Result<bool, Error> {
+    match row.get_value(index)? {
+        Value::Integer(held) => Ok(held != 0),
+        other => Err(Error::Decode(format!(
+            "expected a boolean, found {other:?}"
+        ))),
+    }
+}
+
+/// Decode a JSON column, stored as its text the way the query layer writes it.
+fn json(row: &turso::Row, index: usize) -> Result<serde_json::Value, Error> {
+    match row.get_value(index)? {
+        Value::Null => Ok(serde_json::Value::Null),
+        Value::Text(held) => serde_json::from_str(&held)
+            .map_err(|error| Error::Decode(format!("{held:?} is not JSON. {error}"))),
+        Value::Integer(held) => Ok(held.into()),
+        Value::Real(held) => Ok(serde_json::Number::from_f64(held)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null)),
+        other => Err(Error::Decode(format!("expected JSON, found {other:?}"))),
     }
 }
 

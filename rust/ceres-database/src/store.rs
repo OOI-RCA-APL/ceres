@@ -325,7 +325,14 @@ impl RecordStore {
                 )
                 .await
             }
-            Backend::Turso(_) => Err(Error::Unsupported),
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.stream_entities(table, &sql, parameters, sink).await
+            }
         }
     }
 
@@ -470,7 +477,10 @@ impl RecordStore {
     ///
     /// Nothing lands unless the statement succeeds, so a failure leaves the table
     /// exactly as it was and the command is free to delegate.
-    async fn write<S: SqlxBinder>(&self, statement: S) -> Result<u64, Error> {
+    async fn write<S: SqlxBinder + sea_query::QueryStatementWriter>(
+        &self,
+        statement: S,
+    ) -> Result<u64, Error> {
         match &self.backend {
             Backend::Sqlite(pool) => {
                 let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
@@ -492,8 +502,14 @@ impl RecordStore {
                 transaction.commit().await?;
                 Ok(affected)
             }
-            // Turso keeps the Python write path until its native writer is wired.
-            Backend::Turso(_) => Err(Error::Unsupported),
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.execute_write(&sql, parameters).await
+            }
         }
     }
 
@@ -502,7 +518,7 @@ impl RecordStore {
     /// `RETURNING` is how a write says what it touched without a second query racing it,
     /// which is what `--collect` asks for. SQLite has had it since 3.35 and PostgreSQL
     /// always has.
-    async fn write_returning<S: SqlxBinder>(
+    async fn write_returning<S: SqlxBinder + sea_query::QueryStatementWriter>(
         &self,
         table: RecordTable,
         statement: S,
@@ -526,12 +542,19 @@ impl RecordStore {
                 transaction.commit().await?;
                 DecodeRecords::decode(table, rows)
             }
-            Backend::Turso(_) => Err(Error::Unsupported),
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.query_write(table, &sql, parameters).await
+            }
         }
     }
 
     /// The entity form of [`Self::write_returning`].
-    async fn write_returning_entities<S: SqlxBinder>(
+    async fn write_returning_entities<S: SqlxBinder + sea_query::QueryStatementWriter>(
         &self,
         table: EntityTable,
         statement: S,
@@ -555,14 +578,18 @@ impl RecordStore {
                 transaction.commit().await?;
                 DecodeEntities::decode(table, rows)
             }
-            Backend::Turso(_) => Err(Error::Unsupported),
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.query_write_entities(table, &sql, parameters).await
+            }
         }
     }
 
     /// Fetch an entity listing, ordered by the entity's own default.
-    ///
-    /// Turso shares the SQLite dialect but not its driver, and the entity decoders are
-    /// written against the two `sqlx` row types, so it keeps the Python path.
     pub async fn fetch_entities(
         &self,
         table: EntityTable,
@@ -585,7 +612,14 @@ impl RecordStore {
                 let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
                 DecodeEntities::decode(table, rows)
             }
-            Backend::Turso(_) => Err(Error::Unsupported),
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend.query_entities(table, &sql, parameters).await
+            }
         }
     }
 
@@ -607,7 +641,16 @@ impl RecordStore {
                 let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
                 DecodeEntities::decode(filter.table(), rows)
             }
-            Backend::Turso(_) => Err(Error::Unsupported),
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                backend
+                    .query_entities(filter.table(), &sql, parameters)
+                    .await
+            }
         }
     }
 
@@ -639,7 +682,14 @@ impl RecordStore {
                 let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
                 Ok(row.try_get(0)?)
             }
-            Backend::Turso(_) => Err(Error::Unsupported),
+            Backend::Turso(backend) => {
+                let (sql, values) = statement.build(SqliteQueryBuilder);
+                let parameters = values
+                    .into_iter()
+                    .map(sea_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(backend.scalar_count(&sql, parameters).await? > 0)
+            }
         }
     }
 
@@ -883,8 +933,25 @@ impl RecordStore {
         match &self.backend {
             Backend::Sqlite(pool) => run!(pool, SqliteQueryBuilder),
             Backend::Postgres(pool) => run!(pool, PostgresQueryBuilder),
-            // Turso keeps the Python write path until its native writer is wired.
-            Backend::Turso(_) => Err(Error::Unsupported),
+            Backend::Turso(backend) => {
+                // The engine takes its statements together rather than one at a time, so
+                // the batches are built here and the transaction is its own.
+                let mut statements = Vec::new();
+                let mut written = 0;
+                for batch in &mut batches {
+                    let (statement, rows) = batch.map_err(Error::Refused)?;
+                    let (sql, values) = statement.build(SqliteQueryBuilder);
+                    let parameters = values
+                        .into_iter()
+                        .map(sea_value)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    statements.push((sql, parameters));
+                    written += rows;
+                }
+
+                backend.execute_transaction(statements).await?;
+                Ok(written)
+            }
         }
     }
 
