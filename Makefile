@@ -20,6 +20,10 @@ coverage:
 	uv run ./scripts/update-coverage.py
 coverage-check:
 	uv run ./scripts/update-coverage.py --check
+schema:
+	uv run ./scripts/update-schema.py
+schema-check:
+	uv run ./scripts/update-schema.py --check
 test-all:
 	uv run ./scripts/test-all-python-versions.py
 lint:

@@ -1,0 +1,531 @@
+{
+  "alerts": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": "CURRENT_TIMESTAMP",
+        "name": "timestamp",
+        "nullable": false,
+        "type": "TIMESTAMP"
+      },
+      {
+        "default": null,
+        "name": "level",
+        "nullable": false,
+        "type": "VARCHAR"
+      },
+      {
+        "default": null,
+        "name": "type",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": "'{}'",
+        "name": "data",
+        "nullable": false,
+        "type": "JSON"
+      }
+    ],
+    "foreign_keys": [],
+    "indexes": [
+      "CREATE INDEX ix_alerts__address ON alerts (address)",
+      "CREATE INDEX ix_alerts__timestamp ON alerts (timestamp)",
+      "CREATE INDEX ix_alerts__type ON alerts (type)"
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "statement": "CREATE TABLE alerts ( id CHAR(32) NOT NULL, address TEXT NOT NULL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, level VARCHAR NOT NULL, type TEXT NOT NULL, data JSON DEFAULT '{}' NOT NULL, CONSTRAINT pk_alerts PRIMARY KEY (id), CONSTRAINT ck_alerts__level CHECK (level IN ('debug', 'info', 'warning', 'error', 'critical')) )"
+  },
+  "group_memberships": {
+    "columns": [
+      {
+        "default": null,
+        "name": "user_id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "group_id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      }
+    ],
+    "foreign_keys": [
+      "group_id -> groups.id on_delete=CASCADE on_update=CASCADE",
+      "user_id -> users.id on_delete=CASCADE on_update=CASCADE"
+    ],
+    "indexes": [],
+    "primary_key": [
+      "user_id",
+      "group_id"
+    ],
+    "statement": "CREATE TABLE group_memberships ( user_id CHAR(32) NOT NULL, group_id CHAR(32) NOT NULL, CONSTRAINT pk_group_memberships PRIMARY KEY (user_id, group_id), CONSTRAINT fk_group_memberships__user_id__users__id FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE, CONSTRAINT fk_group_memberships__group_id__groups__id FOREIGN KEY(group_id) REFERENCES groups (id) ON DELETE CASCADE ON UPDATE CASCADE )"
+  },
+  "group_permissions": {
+    "columns": [
+      {
+        "default": null,
+        "name": "group_id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "target_type",
+        "nullable": false,
+        "type": "VARCHAR"
+      },
+      {
+        "default": null,
+        "name": "target",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "level",
+        "nullable": false,
+        "type": "VARCHAR"
+      }
+    ],
+    "foreign_keys": [
+      "group_id -> groups.id on_delete=CASCADE on_update=CASCADE"
+    ],
+    "indexes": [],
+    "primary_key": [
+      "group_id",
+      "target_type",
+      "target"
+    ],
+    "statement": "CREATE TABLE \"group_permissions\" ( group_id CHAR(32) NOT NULL, target_type VARCHAR NOT NULL, target TEXT NOT NULL, level VARCHAR NOT NULL, CONSTRAINT pk_group_permissions PRIMARY KEY (group_id, target_type, target), CONSTRAINT fk_group_permissions__group_id__groups__id FOREIGN KEY(group_id) REFERENCES groups (id) ON DELETE CASCADE ON UPDATE CASCADE, CONSTRAINT ck_group_permissions__target_type CHECK (target_type IN ('component', 'tag', 'all')), CONSTRAINT ck_group_permissions__level CHECK (level IN ('view', 'operate', 'manage')) )"
+  },
+  "groups": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "name",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": "''",
+        "name": "description",
+        "nullable": false,
+        "type": "TEXT"
+      }
+    ],
+    "foreign_keys": [],
+    "indexes": [],
+    "primary_key": [
+      "id"
+    ],
+    "statement": "CREATE TABLE groups ( id CHAR(32) NOT NULL, name TEXT NOT NULL, description TEXT DEFAULT '' NOT NULL, CONSTRAINT pk_groups PRIMARY KEY (id), CONSTRAINT uq_groups__name UNIQUE (name) )"
+  },
+  "logs": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": "CURRENT_TIMESTAMP",
+        "name": "timestamp",
+        "nullable": false,
+        "type": "TIMESTAMP"
+      },
+      {
+        "default": null,
+        "name": "level",
+        "nullable": false,
+        "type": "VARCHAR"
+      },
+      {
+        "default": null,
+        "name": "content",
+        "nullable": false,
+        "type": "TEXT"
+      }
+    ],
+    "foreign_keys": [],
+    "indexes": [
+      "CREATE INDEX ix_logs__address ON logs (address)",
+      "CREATE INDEX ix_logs__content ON logs (content)",
+      "CREATE INDEX ix_logs__timestamp ON logs (timestamp)"
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "statement": "CREATE TABLE logs ( id CHAR(32) NOT NULL, address TEXT NOT NULL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, level VARCHAR NOT NULL, content TEXT NOT NULL, CONSTRAINT pk_logs PRIMARY KEY (id), CONSTRAINT ck_logs__level CHECK (level IN ('debug', 'info', 'warning', 'error', 'critical')) )"
+  },
+  "messages": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": "CURRENT_TIMESTAMP",
+        "name": "timestamp",
+        "nullable": false,
+        "type": "TIMESTAMP"
+      },
+      {
+        "default": "NULL",
+        "name": "connection",
+        "nullable": true,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "direction",
+        "nullable": false,
+        "type": "VARCHAR"
+      },
+      {
+        "default": null,
+        "name": "data",
+        "nullable": false,
+        "type": "BLOB"
+      }
+    ],
+    "foreign_keys": [],
+    "indexes": [
+      "CREATE INDEX ix_messages__address ON messages (address)",
+      "CREATE INDEX ix_messages__connection ON messages (connection)",
+      "CREATE INDEX ix_messages__data ON messages (data)",
+      "CREATE INDEX ix_messages__timestamp ON messages (timestamp)"
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "statement": "CREATE TABLE messages ( id CHAR(32) NOT NULL, address TEXT NOT NULL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, connection TEXT DEFAULT NULL, direction VARCHAR NOT NULL, data BLOB NOT NULL, CONSTRAINT pk_messages PRIMARY KEY (id), CONSTRAINT ck_messages__direction CHECK (direction IN ('send', 'receive')) )"
+  },
+  "migrations": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": true,
+        "type": "INTEGER"
+      },
+      {
+        "default": "CURRENT_TIMESTAMP",
+        "name": "applied_at",
+        "nullable": false,
+        "type": "TIMESTAMP"
+      }
+    ],
+    "foreign_keys": [],
+    "indexes": [],
+    "primary_key": [
+      "id"
+    ],
+    "statement": "CREATE TABLE migrations ( id INTEGER PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL )"
+  },
+  "particles": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": "CURRENT_TIMESTAMP",
+        "name": "timestamp",
+        "nullable": false,
+        "type": "TIMESTAMP"
+      },
+      {
+        "default": null,
+        "name": "type",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "data",
+        "nullable": false,
+        "type": "JSON"
+      }
+    ],
+    "foreign_keys": [],
+    "indexes": [
+      "CREATE INDEX ix_particles__address ON particles (address)",
+      "CREATE INDEX ix_particles__timestamp ON particles (timestamp)",
+      "CREATE INDEX ix_particles__type ON particles (type)"
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "statement": "CREATE TABLE particles ( id CHAR(32) NOT NULL, address TEXT NOT NULL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, type TEXT NOT NULL, data JSON NOT NULL, CONSTRAINT pk_particles PRIMARY KEY (id) )"
+  },
+  "settings": {
+    "columns": [
+      {
+        "default": null,
+        "name": "user_id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "name",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "value",
+        "nullable": false,
+        "type": "JSON"
+      }
+    ],
+    "foreign_keys": [
+      "user_id -> users.id on_delete=CASCADE on_update=CASCADE"
+    ],
+    "indexes": [],
+    "primary_key": [
+      "user_id",
+      "name"
+    ],
+    "statement": "CREATE TABLE settings ( user_id CHAR(32) NOT NULL, name TEXT NOT NULL, value JSON NOT NULL, CONSTRAINT pk_settings PRIMARY KEY (user_id, name), CONSTRAINT fk_settings__user_id__users__id FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE )"
+  },
+  "user_permissions": {
+    "columns": [
+      {
+        "default": null,
+        "name": "user_id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "target_type",
+        "nullable": false,
+        "type": "VARCHAR"
+      },
+      {
+        "default": null,
+        "name": "target",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "level",
+        "nullable": false,
+        "type": "VARCHAR"
+      }
+    ],
+    "foreign_keys": [
+      "user_id -> users.id on_delete=CASCADE on_update=CASCADE"
+    ],
+    "indexes": [],
+    "primary_key": [
+      "user_id",
+      "target_type",
+      "target"
+    ],
+    "statement": "CREATE TABLE \"user_permissions\" ( user_id CHAR(32) NOT NULL, target_type VARCHAR NOT NULL, target TEXT NOT NULL, level VARCHAR NOT NULL, CONSTRAINT pk_user_permissions PRIMARY KEY (user_id, target_type, target), CONSTRAINT fk_user_permissions__user_id__users__id FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE, CONSTRAINT ck_user_permissions__target_type CHECK (target_type IN ('component', 'tag', 'all')), CONSTRAINT ck_user_permissions__level CHECK (level IN ('view', 'operate', 'manage')) )"
+  },
+  "users": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "username",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "email",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "password",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": "0",
+        "name": "admin",
+        "nullable": false,
+        "type": "BOOLEAN"
+      },
+      {
+        "default": "0",
+        "name": "disabled",
+        "nullable": false,
+        "type": "BOOLEAN"
+      }
+    ],
+    "foreign_keys": [],
+    "indexes": [],
+    "primary_key": [
+      "id"
+    ],
+    "statement": "CREATE TABLE \"users\" ( id CHAR(32) NOT NULL, username TEXT NOT NULL, email TEXT NOT NULL, password TEXT NOT NULL, admin BOOLEAN DEFAULT 0 NOT NULL, disabled BOOLEAN DEFAULT 0 NOT NULL, CONSTRAINT pk_users PRIMARY KEY (id), CONSTRAINT uq_users__username UNIQUE (username) )"
+  },
+  "variables": {
+    "columns": [
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "name",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "value",
+        "nullable": false,
+        "type": "JSON"
+      }
+    ],
+    "foreign_keys": [],
+    "indexes": [
+      "CREATE INDEX ix_variables__address ON variables (address)"
+    ],
+    "primary_key": [
+      "address",
+      "name"
+    ],
+    "statement": "CREATE TABLE variables ( address TEXT NOT NULL, name TEXT NOT NULL, value JSON NOT NULL, CONSTRAINT pk_variables PRIMARY KEY (address, name) )"
+  },
+  "workspace_edits": {
+    "columns": [
+      {
+        "default": null,
+        "name": "user_id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "workspace_id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "data",
+        "nullable": false,
+        "type": "JSON"
+      }
+    ],
+    "foreign_keys": [
+      "user_id -> users.id on_delete=CASCADE on_update=CASCADE",
+      "workspace_id -> workspaces.id on_delete=CASCADE on_update=CASCADE"
+    ],
+    "indexes": [],
+    "primary_key": [
+      "user_id",
+      "workspace_id"
+    ],
+    "statement": "CREATE TABLE workspace_edits ( user_id CHAR(32) NOT NULL, workspace_id CHAR(32) NOT NULL, data JSON NOT NULL, CONSTRAINT pk_workspace_edits PRIMARY KEY (workspace_id, user_id), CONSTRAINT fk_workspace_edits__workspace_id__workspaces__id FOREIGN KEY(workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE ON UPDATE CASCADE, CONSTRAINT fk_workspace_edits__user_id__users__id FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE )"
+  },
+  "workspaces": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": null,
+        "name": "name",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": "'~'",
+        "name": "scope",
+        "nullable": false,
+        "type": "TEXT"
+      },
+      {
+        "default": null,
+        "name": "owner_id",
+        "nullable": true,
+        "type": "CHAR(32)"
+      },
+      {
+        "default": "0",
+        "name": "show_when_logged_out",
+        "nullable": false,
+        "type": "BOOLEAN"
+      },
+      {
+        "default": "'{}'",
+        "name": "data",
+        "nullable": false,
+        "type": "JSON"
+      }
+    ],
+    "foreign_keys": [
+      "owner_id -> users.id on_delete=CASCADE on_update=CASCADE"
+    ],
+    "indexes": [],
+    "primary_key": [
+      "id"
+    ],
+    "statement": "CREATE TABLE \"workspaces\" ( id CHAR(32) NOT NULL, name TEXT NOT NULL, scope TEXT DEFAULT '~' NOT NULL, owner_id CHAR(32), show_when_logged_out BOOLEAN DEFAULT 0 NOT NULL, data JSON DEFAULT '{}' NOT NULL, CONSTRAINT pk_workspaces PRIMARY KEY (id), CONSTRAINT fk_workspaces__owner_id__users__id FOREIGN KEY(owner_id) REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE )"
+  }
+}

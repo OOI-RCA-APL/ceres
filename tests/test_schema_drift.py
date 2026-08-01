@@ -19,6 +19,7 @@ import pytest
 from ceres_core import stored_columns
 
 from ceres.database import Database, DatabaseType
+from tests import schema
 
 pytestmark = pytest.mark.databases()
 """Every backend, since drift between the migrations and the models is backend specific."""
@@ -164,6 +165,33 @@ async def test_the_migrations_create_every_column_as_the_type_its_family_decodes
                 )
 
     assert not mismatches, "column types disagree:\n  " + "\n  ".join(mismatches)
+
+
+async def test_the_migrations_build_the_schema_that_was_recorded() -> None:
+    """The whole schema, against the copy checked in beside these tests.
+
+    This is what covers everything the column comparison above cannot see, defaults,
+    nullability, keys, checks, and indexes among them, none of which the models describe.
+    A migration that changes any of them changes this file, and the diff is what puts the
+    change in front of a reviewer.
+
+    Failing here is not by itself a fault. It means the schema moved, and the question is
+    whether it moved the way the migration meant it to. Read the diff, then run
+    `make schema` to record it.
+    """
+    database = Database()
+    try:
+        await database.migrate()
+        recorded = schema.render(await schema.describe(database))
+    finally:
+        await database.dispose()
+
+    path = schema.path_for(database.type.value)
+    assert path.exists(), f"no schema is recorded for {database.type.value}, run 'make schema'"
+    assert recorded == path.read_text(), (
+        f"the migrations no longer build the schema recorded in {path.name}. "
+        "Read the diff, and run 'make schema' once the change is the intended one."
+    )
 
 
 async def test_the_ddl_an_operator_is_handed_builds_the_schema_the_migrations_build() -> None:
