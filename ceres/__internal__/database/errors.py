@@ -2,10 +2,15 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+# SQLite and Turso both name the constraint's columns as "table.column", listing them comma
+# separated when more than one column makes up the constraint, and Turso appends its result code
+# in parentheses. The first column is the one reported, so the capture stops at the first comma or
+# space rather than running to the end of the message.
 _SQLITE_UNIQUE_ERROR_REGEX = re.compile(
-    r"UNIQUE constraint failed: (.+?)\.(?P<column>.+?)",
-    re.MULTILINE | re.DOTALL,
+    r"UNIQUE constraint failed: [^.]+\.(?P<column>[^,\s]+)",
 )
+# PostgreSQL puts the column and the value that collided in the detail line, as
+# "Key (username)=(taken) already exists".
 _POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
     r".*duplicate key.*\((?P<column>.+?)\)=\((?P<value>.+?)\)",
     re.MULTILINE | re.DOTALL,
@@ -37,7 +42,6 @@ def wrap_database_errors() -> Iterator[None]:
     from sqlalchemy.exc import SQLAlchemyError
 
     from ceres.error import (
-        AlreadyExistsError,
         DatabaseProgrammingError,
         DatabaseUnexpectedError,
         DatabaseUnreachableError,
@@ -47,15 +51,6 @@ def wrap_database_errors() -> Iterator[None]:
     try:
         yield
     except SQLAlchemyError as exception:
-        try:
-            from sqlalchemy.dialects.postgresql.asyncpg import AsyncAdapt_asyncpg_dbapi
-
-            PostgresIntegrityError = AsyncAdapt_asyncpg_dbapi.IntegrityError
-        except ImportError:
-            PostgresIntegrityError = None
-
-        from sqlite3 import IntegrityError as SQLiteIntegrityError
-
         import sqlalchemy.exc
 
         if isinstance(
@@ -70,20 +65,26 @@ def wrap_database_errors() -> Iterator[None]:
             raise DatabaseUnreachableError(reason=str(exception))
 
         if isinstance(exception, SQLAlchemyIntegrityError):
-            if isinstance(exception.orig, SQLiteIntegrityError):
-                match = _SQLITE_UNIQUE_ERROR_REGEX.match(str(exception.orig))
-                if match is not None:
-                    raise AlreadyExistsError(field=match.group("column"))
-            elif PostgresIntegrityError is not None and isinstance(
-                exception.orig, PostgresIntegrityError
-            ):
-                match = _POSTGRES_UNIQUE_ERROR_REGEX.match(str(exception.orig))
-                if match is not None:
-                    raise AlreadyExistsError(
-                        field=match.group("column"),
-                        value=match.group("value"),
-                    )
-
+            _raise_if_already_exists(str(exception.orig))
             raise IntegrityError()
 
         raise DatabaseUnexpectedError(reason=str(exception))
+
+
+def _raise_if_already_exists(message: str) -> None:
+    """Raise `AlreadyExistsError` when `message` reports a unique constraint violation.
+
+    Each backend words the violation its own way, so the wording is what decides rather than
+    which driver raised it. Turso and the SQLite driver report the same text through different
+    exception classes, and a driver that reports neither wording falls through to the caller's
+    plain integrity error.
+    """
+    from ceres.error import AlreadyExistsError
+
+    match = _SQLITE_UNIQUE_ERROR_REGEX.search(message)
+    if match is not None:
+        raise AlreadyExistsError(field=match.group("column"))
+
+    match = _POSTGRES_UNIQUE_ERROR_REGEX.match(message)
+    if match is not None:
+        raise AlreadyExistsError(field=match.group("column"), value=match.group("value"))
