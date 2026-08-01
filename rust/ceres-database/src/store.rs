@@ -66,6 +66,62 @@ pub enum Error {
     Refused(String),
 }
 
+/// Build the connection options for a PostgreSQL database.
+///
+/// `settings` are per-connection server settings like `search_path`, which shape what a
+/// query sees. `parameters` are the connection string's own, applied by name rather than
+/// guessed at, because a connection that quietly ignored `sslmode` would not be the
+/// connection that was configured.
+pub(crate) fn postgres_options(
+    host: &str,
+    port: Option<u16>,
+    database: &str,
+    user: &str,
+    password: Option<&str>,
+    settings: Vec<(String, String)>,
+    parameters: Vec<(String, String)>,
+) -> Result<PgConnectOptions, Error> {
+    let mut options = PgConnectOptions::new()
+        .host(host)
+        .database(database)
+        .username(user);
+    if let Some(port) = port {
+        options = options.port(port);
+    }
+
+    if let Some(password) = password {
+        options = options.password(password);
+    }
+
+    if !settings.is_empty() {
+        options = options.options(settings);
+    }
+
+    for (key, value) in parameters {
+        options = match key.as_str() {
+            "sslmode" | "ssl_mode" => {
+                let mode = value.parse().map_err(|_| {
+                    Error::Refused(format!("`{value}` is not an SSL mode this connects with."))
+                })?;
+                options.ssl_mode(mode)
+            }
+            "sslrootcert" | "ssl_root_cert" => options.ssl_root_cert(&value),
+            "sslcert" | "ssl_client_cert" => options.ssl_client_cert(&value),
+            "sslkey" | "ssl_client_key" => options.ssl_client_key(&value),
+            "application_name" => options.application_name(&value),
+            "options" => options.options([("options", value.as_str())]),
+            _ => {
+                return Err(Error::Refused(format!(
+                    "The database configuration sets the connection parameter `{key}`, \
+                     which this does not know how to apply."
+                )));
+            }
+        };
+    }
+
+    Ok(options)
+}
+
 /// The standing an authentication gate reads for one user.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GateUser {
@@ -134,48 +190,7 @@ impl RecordStore {
         settings: Vec<(String, String)>,
         parameters: Vec<(String, String)>,
     ) -> Result<Self, Error> {
-        let mut options = PgConnectOptions::new()
-            .host(host)
-            .database(database)
-            .username(user);
-        if let Some(port) = port {
-            options = options.port(port);
-        }
-
-        if let Some(password) = password {
-            options = options.password(password);
-        }
-
-        if !settings.is_empty() {
-            options = options.options(settings);
-        }
-
-        // Connection string parameters are libpq's own, so each one is applied by name
-        // rather than guessed at. A parameter nobody recognizes is reported instead of
-        // being dropped, because a connection that quietly ignored `sslmode` would be a
-        // different connection than the one that was configured.
-        for (key, value) in parameters {
-            options = match key.as_str() {
-                "sslmode" | "ssl_mode" => {
-                    let mode = value.parse().map_err(|_| {
-                        Error::Refused(format!("`{value}` is not an SSL mode this connects with."))
-                    })?;
-                    options.ssl_mode(mode)
-                }
-                "sslrootcert" | "ssl_root_cert" => options.ssl_root_cert(&value),
-                "sslcert" | "ssl_client_cert" => options.ssl_client_cert(&value),
-                "sslkey" | "ssl_client_key" => options.ssl_client_key(&value),
-                "application_name" => options.application_name(&value),
-                "options" => options.options([("options", value.as_str())]),
-                _ => {
-                    return Err(Error::Refused(format!(
-                        "The database configuration sets the connection parameter `{key}`, \
-                         which this does not know how to apply."
-                    )));
-                }
-            };
-        }
-
+        let options = postgres_options(host, port, database, user, password, settings, parameters)?;
         let pool = PgPoolOptions::new().connect_lazy_with(options);
         Ok(Self {
             backend: Backend::Postgres(pool),

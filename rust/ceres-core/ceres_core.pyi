@@ -531,6 +531,7 @@ class RecordFetcher:
         port: int | None = None,
         password: str | None = None,
         settings: Sequence[tuple[str, str]] = [],
+        parameters: Sequence[tuple[str, str]] = [],
     ) -> RecordFetcher:
         r"""
         Open a fetcher over a PostgreSQL database.
@@ -646,6 +647,7 @@ class RecordWriter:
         port: int | None = None,
         password: str | None = None,
         settings: Sequence[tuple[str, str]] = [],
+        parameters: Sequence[tuple[str, str]] = [],
     ) -> RecordWriter:
         r"""
         Open a writer over a PostgreSQL database, with per-connection server settings.

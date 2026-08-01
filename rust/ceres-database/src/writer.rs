@@ -14,7 +14,7 @@ use sea_query::{
     Alias, InsertStatement, OnConflict, PostgresQueryBuilder, Query, SimpleExpr, SqliteQueryBuilder,
 };
 use sea_query_binder::SqlxBinder;
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use crate::records::RecordTable;
@@ -74,23 +74,11 @@ impl RecordWriter {
         user: &str,
         password: Option<&str>,
         settings: Vec<(String, String)>,
+        parameters: Vec<(String, String)>,
     ) -> Result<Self, Error> {
-        let mut options = PgConnectOptions::new()
-            .host(host)
-            .database(database)
-            .username(user);
-        if let Some(port) = port {
-            options = options.port(port);
-        }
-
-        if let Some(password) = password {
-            options = options.password(password);
-        }
-
-        if !settings.is_empty() {
-            options = options.options(settings);
-        }
-
+        let options = crate::store::postgres_options(
+            host, port, database, user, password, settings, parameters,
+        )?;
         let pool = PgPoolOptions::new().connect_lazy_with(options);
         Ok(Self {
             backend: Backend::Postgres(pool),

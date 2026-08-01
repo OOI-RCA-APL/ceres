@@ -93,7 +93,15 @@ impl RecordFetcher {
     /// `settings` are per-connection server settings like `search_path`, matching the ones
     /// the query layer passes its own driver.
     #[staticmethod]
-    #[pyo3(signature = (host, database, user, port=None, password=None, settings=Vec::new()))]
+    #[pyo3(signature = (
+        host,
+        database,
+        user,
+        port=None,
+        password=None,
+        settings=Vec::new(),
+        parameters=Vec::new(),
+    ))]
     fn postgres(
         host: &str,
         database: &str,
@@ -101,11 +109,12 @@ impl RecordFetcher {
         port: Option<u16>,
         password: Option<&str>,
         settings: Vec<(String, String)>,
+        parameters: Vec<(String, String)>,
     ) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
         let store =
-            RecordStore::postgres(host, port, database, user, password, settings, Vec::new())
+            RecordStore::postgres(host, port, database, user, password, settings, parameters)
                 .map_err(to_value_error)?;
         Ok(Self {
             store: Arc::new(store),
@@ -456,7 +465,15 @@ impl RecordWriter {
 
     /// Open a writer over a PostgreSQL database, with per-connection server settings.
     #[staticmethod]
-    #[pyo3(signature = (host, database, user, port=None, password=None, settings=Vec::new()))]
+    #[pyo3(signature = (
+        host,
+        database,
+        user,
+        port=None,
+        password=None,
+        settings=Vec::new(),
+        parameters=Vec::new(),
+    ))]
     fn postgres(
         host: &str,
         database: &str,
@@ -464,12 +481,14 @@ impl RecordWriter {
         port: Option<u16>,
         password: Option<&str>,
         settings: Vec<(String, String)>,
+        parameters: Vec<(String, String)>,
     ) -> PyResult<Self> {
         // Pool construction spawns maintenance tasks, which needs the runtime's context.
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let writer =
-            ceres_database::RecordWriter::postgres(host, port, database, user, password, settings)
-                .map_err(to_value_error)?;
+        let writer = ceres_database::RecordWriter::postgres(
+            host, port, database, user, password, settings, parameters,
+        )
+        .map_err(to_value_error)?;
         Ok(Self {
             writer: Arc::new(writer),
         })

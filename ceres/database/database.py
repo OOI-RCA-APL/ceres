@@ -1030,24 +1030,25 @@ class PostgresDatabase(Database):
         assert isinstance(config, PostgresDatabaseConfig)
         return config
 
-    def _native_connection_arguments(self) -> dict[str, Any] | None:
-        """Resolve the arguments a native pool connects with, or `None` when it cannot.
+    def _native_connection_arguments(self) -> dict[str, Any]:
+        """Resolve the arguments a native pool connects with.
 
-        Connection string query parameters are driver-specific and do not reach the native
-        pool. Per-connection server settings like `search_path` shape what queries see, so
-        they are forwarded, while any other connection argument is unknown to the native
-        pool and guessing would silently change query behavior.
+        Per-connection server settings like `search_path` shape what queries see, and
+        connection string parameters are applied by name, so a configuration naming
+        `sslmode` connects the way it says it does. A parameter the native pool does not
+        recognize is refused there rather than dropped here, because a connection that
+        quietly ignored one would not be the connection that was configured.
         """
         config = self.config
-        if config.query:
-            return None
-
         connect_args: dict[str, Any] = config.engine.get("connect_args", {})
-        if set(connect_args) - {"server_settings"}:
-            return None
-
         settings: dict[str, str] = connect_args.get("server_settings", {})
+        parameters: list[tuple[str, str]] = [
+            (key, value)
+            for key, held in (config.query or {}).items()
+            for value in (held if isinstance(held, list) else [held])
+        ]
         return {
+            "parameters": parameters,
             "host": config.host,
             "database": config.database,
             "user": config.user,
@@ -1060,11 +1061,7 @@ class PostgresDatabase(Database):
     def _record_fetcher(self) -> RecordFetcher | None:
         fetcher = getattr(self, "_native_record_fetcher", None)
         if fetcher is None:
-            arguments = self._native_connection_arguments()
-            if arguments is None:
-                return None
-
-            fetcher = RecordFetcher.postgres(**arguments)
+            fetcher = RecordFetcher.postgres(**self._native_connection_arguments())
             self._native_record_fetcher = fetcher
 
         return fetcher
@@ -1073,11 +1070,7 @@ class PostgresDatabase(Database):
     def _record_writer(self) -> RecordWriter | None:
         writer = getattr(self, "_native_record_writer", None)
         if writer is None:
-            arguments = self._native_connection_arguments()
-            if arguments is None:
-                return None
-
-            writer = RecordWriter.postgres(**arguments)
+            writer = RecordWriter.postgres(**self._native_connection_arguments())
             self._native_record_writer = writer
 
         return writer
