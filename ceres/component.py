@@ -1727,8 +1727,8 @@ class ComponentSystem(Node, ComponentSource):
         return PrunerManager(self)
 
     @override
-    async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
-        await super().__node_sync__(connection)
+    async def __node_sync__(self) -> None:
+        await super().__node_sync__()
         self._enabled = await self.__get_enabled_in_database()
 
     @property

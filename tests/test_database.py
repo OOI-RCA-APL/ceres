@@ -96,9 +96,12 @@ async def test_disposing_waits_for_a_bootstrap_in_flight():
         await database.dispose()
 
 
-async def test_use_only_checks_initialized_once_per_instance(monkeypatch):
-    """A second `use()` call does not re-run schema introspection on an already bootstrapped
-    instance."""
+async def test_bootstrapping_only_checks_the_schema_once_per_instance(monkeypatch):
+    """A second `ready()` call does not re-introspect an already bootstrapped instance.
+
+    Every query goes through `ready` first, so an introspection round trip left in there
+    would be one per query rather than one per database.
+    """
     database = Database(SQLiteDatabaseConfig())
     try:
         calls = 0
@@ -111,14 +114,10 @@ async def test_use_only_checks_initialized_once_per_instance(monkeypatch):
 
         monkeypatch.setattr(database, "initialized", counting_initialized)
 
-        async with await database.use():
-            pass
-
+        await database.ready()
         assert calls == 1
 
-        async with await database.use():
-            pass
-
+        await database.ready()
         assert calls == 1
     finally:
         await database.dispose()

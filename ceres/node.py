@@ -102,7 +102,7 @@ class Node(Tasklet, NodeSource):
         """Current UTC time, provided as an attribute so tests can override it per node."""
         return utc()
 
-    async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
+    async def __node_sync__(self) -> None:
         """Hook for subclasses to hydrate persisted state, called once during startup."""
 
     @property

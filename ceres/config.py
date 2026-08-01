@@ -1085,8 +1085,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
 
         database = Database(self.database)
         try:
-            async with database.connect():
-                pass
+            await database._store().fetch("SELECT 1", [])
         except Error as error:
             if isinstance(error, DatabaseError):
                 return [error]

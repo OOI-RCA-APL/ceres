@@ -397,15 +397,6 @@ class Database:
         """
         return AsyncSession(self._engine, expire_on_commit=False)
 
-    def connect(self) -> AsyncConnection:
-        """Open a new low-level async connection from the engine's pool.
-
-        Returns:
-            An `AsyncConnection` the caller is responsible for entering as a context manager
-            to release back to the pool.
-        """
-        return self._engine.connect()
-
     async def ready(self) -> None:
         """Bootstrap an empty database through the migration chain.
 
@@ -425,24 +416,18 @@ class Database:
 
             self._bootstrapped = True
 
-    async def use(self) -> AsyncConnection:
-        """Bootstrap an empty database through the migration chain, then open a new connection.
-
-        Returns:
-            An `AsyncConnection` ready for use against a bootstrapped database.
-        """
-        await self.ready()
-        return self.connect()
-
     async def ping(self) -> bool:
         """Check whether the database is reachable.
 
+        This asks the database a question it can answer without a schema, so it says
+        whether the database can be reached rather than whether it has been set up.
+
         Returns:
-            `True` if a connection can be opened successfully, `False` otherwise.
+            `True` if the database answered, `False` otherwise.
         """
         try:
-            async with self.connect():
-                return True
+            await self._store().fetch("SELECT 1", [])
+            return True
         except Exception:
             return False
 
@@ -653,23 +638,15 @@ class Database:
             `True` if any tables exist in the database, `False` on a fresh database.
         """
         with wrap_database_errors():
-            store = self._store()
-            if store is not None:
-                rows = await store.fetch(*self._table_names_query())
-                return bool(rows)
-
-            return await self._run_sync(
-                lambda connection: bool(inspect(connection).get_table_names())
-            )
+            return bool(await self._store().fetch(*self._table_names_query()))
 
     def _table_names_query(self) -> tuple[str, list[Any]]:
         """A statement listing the tables a caller's own schema holds.
 
-        This has to answer the way the query layer's introspection does on a database that
-        layer created, because disagreeing means bootstrapping a database that already has
-        tables, so the wording follows what each backend counts as a table of the caller's.
-        Neither backend's internal tables are the caller's, and PostgreSQL's system schemas
-        are excluded for the same reason.
+        Answering wrongly means bootstrapping a database that already has tables, so the
+        wording follows what each backend counts as a table of the caller's. Neither
+        backend's internal tables are the caller's, and PostgreSQL's system schemas are
+        excluded for the same reason.
         """
         if self.type.value == "postgres":
             return (
@@ -726,11 +703,6 @@ class Database:
             return password
 
         return await self.hash_password(password)
-
-    async def _run_sync[T](self, callback: Callable[[Connection], T]) -> T:
-        with wrap_database_errors():
-            async with self.connect() as connection:
-                return await connection.run_sync(callback)
 
 
 class SQLiteDatabase(Database):

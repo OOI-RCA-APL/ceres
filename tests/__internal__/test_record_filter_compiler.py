@@ -76,13 +76,24 @@ CASES: list[list[tuple[str, str]]] = [
 
 
 async def _execute(engine: Engine, sql: str, parameters: list[Any]) -> list[str]:
-    """Run a compiled listing through the Python session and return the row IDs."""
-    async with await engine.database.use() as connection:
-        result = await connection.exec_driver_sql(sql, tuple(parameters))
-        return [str(row._mapping["id"]) for row in result.fetchall()]
+    """Run a compiled listing on the store and return the row IDs."""
+    rows = await engine.database._store().fetch(sql, parameters, "messages")
+    return [str(row["id"]) for row in rows]
 
 
-async def test_compiled_statements_execute_through_the_python_session(tmp_path: Path) -> None:
+async def _scalar(engine: Engine, sql: str, parameters: list[Any]) -> Any:
+    """The single value a compiled count or existence check answers with."""
+    rows = await engine.database._store().fetch(sql, parameters)
+    return next(iter(rows[0].values()))
+
+
+async def test_a_compiled_statement_answers_what_the_manager_does(tmp_path: Path) -> None:
+    """Running the compiled SQL directly reaches the same rows the manager API reports.
+
+    The manager compiles through here too, so this is not two implementations agreeing.
+    It is the compiled text being executable and meaning what the surface above it says,
+    which is what a caller handed the SQL by `compiled` is relying on.
+    """
     engine = await _build_engine(tmp_path)
     await _seed(engine)
     dialect = engine.database.type.value
@@ -90,35 +101,23 @@ async def test_compiled_statements_execute_through_the_python_session(tmp_path: 
     try:
         for pairs in CASES:
             handle = NativeFilter.from_pairs("messages", pairs)
-            expected = [
-                str(entity.id)
-                for entity in await engine.__manager__(Message).where(
-                    validate(Message.Filter, _fold(pairs))
-                )
-            ]
+            filter = validate(Message.Filter, _fold(pairs))
+            manager = engine.__manager__(Message)
 
+            expected = [str(entity.id) for entity in await manager.where(filter)]
             sql, parameters = handle.compiled(dialect)
             assert await _execute(engine, sql, parameters) == expected, f"{pairs}"
 
-            counting = validate(Message.Filter, _fold(pairs))
-            expected_count = await engine.__manager__(Message).where(counting).count()
             sql, parameters = handle.compiled(dialect, count=True)
-            async with await engine.database.use() as connection:
-                result = await connection.exec_driver_sql(sql, tuple(parameters))
-                row = result.fetchone()
-                assert row is not None
-                assert int(row[0]) == expected_count, f"count {pairs}"
+            expected_count = await manager.where(filter).count()
+            assert int(await _scalar(engine, sql, parameters)) == expected_count, f"count {pairs}"
 
             # The existence check answers what the `any` command reports. SQLite hands
             # back an integer where PostgreSQL hands back a boolean, so compare on
             # truthiness rather than on the driver's type.
-            expected_any = await engine.__manager__(Message).where(counting).any()
             sql, parameters = handle.exists_compiled(dialect)
-            async with await engine.database.use() as connection:
-                result = await connection.exec_driver_sql(sql, tuple(parameters))
-                row = result.fetchone()
-                assert row is not None
-                assert bool(row[0]) is expected_any, f"any {pairs}"
+            expected_any = await manager.where(filter).any()
+            assert bool(await _scalar(engine, sql, parameters)) is expected_any, f"any {pairs}"
     finally:
         await engine.database.dispose()
 

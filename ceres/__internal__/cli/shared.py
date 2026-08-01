@@ -596,11 +596,8 @@ class CLICommand(DataModel):
         database = Database(config.database)
 
         if require_connect:
-            try:
-                async with database.connect():
-                    pass
-            except Exception as exception:
-                raise CLICommandFailed(f"Failed to connect to database: {exception}")
+            if not await database.ping():
+                raise CLICommandFailed("Failed to connect to database.")
 
             if require_initialized:
                 if not await database.initialized():
