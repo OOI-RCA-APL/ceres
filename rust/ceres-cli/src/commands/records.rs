@@ -18,14 +18,14 @@ use crate::commands::surface::Table;
 use crate::error::Result;
 use crate::project::Project;
 
-/// Attempt one record command natively, `false` meaning the caller delegates.
-pub fn try_run(
+/// Run one record command.
+pub fn run(
     table: RecordTable,
     config: Option<&Path>,
     color: Option<bool>,
     verb: Verb,
     matches: &ArgMatches,
-) -> Result<bool> {
+) -> Result<()> {
     let invocation = Invocation::read(Table::Record(table), verb, matches);
 
     let format = invocation.dump_format(color);
@@ -41,17 +41,17 @@ pub fn try_run(
     let mut incoming = Vec::new();
     let mut source = None;
     if invocation.verb.filters() {
-        let Ok(parsed) = RecordFilter::parse(table, &invocation.pairs) else {
-            return Ok(false);
-        };
-
+        let parsed = RecordFilter::parse(table, &invocation.pairs).map_err(refused)?;
         filter = Some(parsed);
     } else if invocation.verb == Verb::Create {
-        let Some(records) = ceres_database::build(table, &invocation.pairs) else {
-            return Ok(false);
+        let Some(built) = ceres_database::build(table, &invocation.pairs) else {
+            return Err(crate::error::Exit::failed(
+                "This create names a value that cannot be stored as given. Check the \
+                 types each field takes with --help.",
+            ));
         };
 
-        incoming.push(records);
+        incoming.push(built);
     } else {
         // A file that will not open is this command's failure to report, not a reason
         // to hand the whole load to another process.
@@ -59,18 +59,16 @@ pub fn try_run(
             .load_source()
             .map_err(crate::error::Exit::failed)?;
         let Some(batches) = ceres_database::batches(table, file, load_format) else {
-            return Ok(false);
+            return Err(crate::error::Exit::failed(
+                "The file's first row does not name the columns to load.",
+            ));
         };
 
         source = Some(batches);
     }
 
-    let Ok(project) = Project::discover(config) else {
-        return Ok(false);
-    };
-    let Ok(meta) = project.load_meta() else {
-        return Ok(false);
-    };
+    let project = Project::discover(config)?;
+    let meta = project.load_meta()?;
     // Pool construction spawns maintenance tasks, so the runtime has to exist first.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -194,7 +192,7 @@ pub fn try_run(
         Err(ceres_database::Error::Refused(message)) => {
             return Err(crate::error::Exit::failed(message));
         }
-        Err(_) => return Ok(false),
+        Err(error) => return Err(crate::error::Exit::failed(error.to_string())),
     };
 
     deliver(&invocation, rendered)
@@ -220,6 +218,19 @@ fn render(
             .map(String::into_bytes),
     };
     rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
+}
+
+/// What to say about a filter the compiler will not take.
+///
+/// An invalid value carries its own sentence, and a construct outside the grammar names
+/// itself, because both are things the reader wrote and can change.
+pub(crate) fn refused(refusal: ceres_database::Refusal) -> crate::error::Exit {
+    crate::error::Exit::failed(match refusal {
+        ceres_database::Refusal::Invalid(message) => message,
+        ceres_database::Refusal::Delegated => {
+            "This filter uses a construct the query compiler does not serve.".to_string()
+        }
+    })
 }
 
 #[cfg(test)]

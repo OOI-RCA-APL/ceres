@@ -457,18 +457,10 @@ class MainCliSettingsSource(CliSettingsSource):
 
 
 with __lazy_imports__(__name__):
-    from ceres.__internal__.cli.subcommands.alerts import AlertsCommand
     from ceres.__internal__.cli.subcommands.console import ConsoleCommand
     from ceres.__internal__.cli.subcommands.database import DatabaseCommand
     from ceres.__internal__.cli.subcommands.generate import GenerateCommand
-    from ceres.__internal__.cli.subcommands.logs import LogsCommand
-    from ceres.__internal__.cli.subcommands.messages import MessagesCommand
-    from ceres.__internal__.cli.subcommands.particles import ParticlesCommand
     from ceres.__internal__.cli.subcommands.service import ServiceCommand
-    from ceres.__internal__.cli.subcommands.settings import SettingsCommand
-    from ceres.__internal__.cli.subcommands.users import UsersCommand
-    from ceres.__internal__.cli.subcommands.variables import VariablesCommand
-    from ceres.__internal__.cli.subcommands.workspaces import WorkspacesCommand
 
 
 def main(args: Sequence[str] | None = None) -> int:
@@ -504,18 +496,10 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
     arguments = [token for token in args if not token.startswith("-")]
     subcommand = arguments[0] if arguments else None
     subcommands = {
-        "alerts": AlertsCommand,
         "console": ConsoleCommand,
         "database": DatabaseCommand,
         "generate": GenerateCommand,
-        "logs": LogsCommand,
-        "messages": MessagesCommand,
-        "particles": ParticlesCommand,
         "service": ServiceCommand,
-        "settings": SettingsCommand,
-        "users": UsersCommand,
-        "variables": VariablesCommand,
-        "workspaces": WorkspacesCommand,
     }
 
     if subcommand in subcommands:

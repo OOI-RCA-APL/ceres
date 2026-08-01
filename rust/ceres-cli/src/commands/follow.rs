@@ -24,31 +24,30 @@ use crate::commands::dump::{DumpFormat, Invocation, Rendered, Sink, deliver, wri
 use crate::error::Result;
 use crate::project::Project;
 
-/// Follow a record table's live stream, `false` meaning the caller delegates.
+/// Follow a record table's live stream.
 pub fn run(
     table: RecordTable,
     invocation: &Invocation,
     format: DumpFormat,
     config: Option<&Path>,
-) -> Result<bool> {
-    // The filter parses here only to prove the native path understands it. The engine
+) -> Result<()> {
+    // The filter parses here only to prove the query compiler understands it. The engine
     // compiles the query itself, so what crosses the wire is the pairs as typed.
-    if RecordFilter::parse(table, &invocation.pairs).is_err() {
-        return Ok(false);
-    }
+    RecordFilter::parse(table, &invocation.pairs).map_err(crate::commands::records::refused)?;
 
-    let Ok(project) = Project::discover(config) else {
-        return Ok(false);
-    };
-    // A stream needs a running engine, and reporting that none is running is the Python
-    // command's message to produce.
-    let Ok(client) = Client::connect(&project) else {
-        return Ok(false);
-    };
+    let project = Project::discover(config)?;
+    let client = Client::connect(&project).map_err(|_| {
+        crate::error::Exit::failed(
+            "Following reads new rows from a running engine, and none is running for this \
+             project. Start it with `ceres run`.",
+        )
+    })?;
 
-    let Ok(mut socket) = client.stream(table.name(), &invocation.pairs) else {
-        return Ok(false);
-    };
+    let mut socket = client
+        .stream(table.name(), &invocation.pairs)
+        .map_err(|error| {
+            crate::error::Exit::failed(format!("Cannot open the engine's stream. {error}"))
+        })?;
 
     let projection = invocation.projection.clone();
     let mut sink = Sink::live(invocation.output.as_deref(), invocation.header);
@@ -64,37 +63,24 @@ pub fn run(
 
         let rendered = match render(table, &frame, format, &projection, &mut sink) {
             Ok(rendered) => rendered,
-            Err(message) => {
-                // Nothing has gone out yet, so the whole command is still Python's.
-                if !sink.wrote() {
-                    return Ok(false);
-                }
-
-                return deliver(invocation, Rendered::Failed(message));
-            }
+            Err(message) => return deliver(invocation, Rendered::Failed(message)),
         };
 
         if let Err(error) = sink.push(rendered) {
             // A reader that closed the pipe is where the follow was asked to stop.
             if sink.broke() {
-                return Ok(true);
-            }
-
-            if !sink.wrote() {
-                return Ok(false);
+                return Ok(());
             }
 
             return deliver(invocation, Rendered::Failed(written(error).to_string()));
         }
     }
 
-    let wrote = sink.wrote();
     match sink.finish() {
         Ok(Some(held)) => deliver(invocation, Rendered::Bytes(held)),
-        Ok(None) => Ok(true),
-        // A final write that failed having already put frames out cannot be handed back,
-        // so the command ends here rather than replaying in Python.
-        Err(_) => Ok(wrote),
+        Ok(None) => Ok(()),
+        // A stream that failed having already put frames out ends where it stopped.
+        Err(_) => Ok(()),
     }
 }
 

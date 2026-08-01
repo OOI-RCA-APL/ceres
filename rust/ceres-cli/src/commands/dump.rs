@@ -596,10 +596,10 @@ pub(crate) fn confirmed(
 ///
 /// An existence check reports through its exit status as well as its output, so it
 /// writes first and then carries the status out.
-pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<bool> {
+pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<()> {
     match rendered {
         // A stream placed its own output, so there is nothing left to write.
-        Rendered::Written => return Ok(true),
+        Rendered::Written => return Ok(()),
         // Declining changed nothing, and a command chained behind this one with `&&`
         // must not run as though the write had gone through.
         Rendered::Declined => return Err(crate::error::Exit::failed("Cancelled.")),
@@ -611,15 +611,14 @@ pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<boo
     write_output(invocation.output.as_deref(), &rendered.into_bytes())?;
     match exists {
         Some(false) => Err(crate::error::Exit::status(1)),
-        _ => Ok(true),
+        _ => Ok(()),
     }
 }
 
-/// Open the native store for a configured database, `None` when it cannot join.
+/// Open the native store for a configured database.
 ///
-/// The rules mirror the Python layer's own native-pool gating, an in-memory or
-/// unpathed file database is private to its instance, and a PostgreSQL configuration
-/// carrying driver-specific connection arguments cannot be reproduced faithfully.
+/// A configuration this cannot connect through is refused with a sentence naming what
+/// about it made that so, because a database nobody can reach is the reader's to fix.
 pub(crate) fn open_store(
     config: &DatabaseConfig,
     writing: bool,
@@ -730,15 +729,15 @@ fn existing(path: Option<&Path>) -> std::result::Result<String, String> {
 }
 
 /// Write the rendered output to the destination the command named.
-fn write_output(output: Option<&Path>, rendered: &[u8]) -> Result<bool> {
+fn write_output(output: Option<&Path>, rendered: &[u8]) -> Result<()> {
     match output {
         Some(path) => {
-            let Ok(mut file) = std::fs::File::create(path) else {
-                // The Python command owns the failure message for an unwritable output.
-                return Ok(false);
-            };
-            if file.write_all(rendered).is_err() {
-                return Ok(false);
+            let written = std::fs::File::create(path).and_then(|mut file| file.write_all(rendered));
+            if let Err(error) = written {
+                return Err(crate::error::Exit::failed(format!(
+                    "Cannot write {}. {error}",
+                    path.display()
+                )));
             }
         }
         None => {
@@ -748,7 +747,7 @@ fn write_output(output: Option<&Path>, rendered: &[u8]) -> Result<bool> {
         }
     }
 
-    Ok(true)
+    Ok(())
 }
 
 #[cfg(test)]

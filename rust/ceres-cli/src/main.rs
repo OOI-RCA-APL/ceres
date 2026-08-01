@@ -36,10 +36,7 @@ fn main() -> ExitCode {
     {
         let color = color_override(&matches);
         let output = Output::new(color);
-        return report(
-            table_command(table, &matches, color, verb, arguments),
-            &output,
-        );
+        return report(table_command(table, &matches, color, verb), &output);
     }
 
     let cli = match Cli::from_arg_matches(&matches) {
@@ -74,13 +71,12 @@ fn color_override(matches: &clap::ArgMatches) -> Option<bool> {
     }
 }
 
-/// Run one verb of a table command group, or delegate what a native pass cannot serve.
+/// Run one verb of a table command group.
 fn table_command(
     table: commands::surface::Table,
     matches: &clap::ArgMatches,
     color: Option<bool>,
     verb: &clap::ArgMatches,
-    arguments: Vec<OsString>,
 ) -> Result<()> {
     use commands::surface::Table;
 
@@ -92,15 +88,10 @@ fn table_command(
     let (name, verb) = verb.subcommand().expect("a group requires its verb");
     let named = commands::dump::Verb::parse(name).expect("a declared verb");
 
-    let served = match table {
-        Table::Record(table) => commands::records::try_run(table, config, color, named, verb)?,
-        Table::Entity(table) => commands::entities::try_run(table, config, color, named, verb)?,
-    };
-    if served {
-        return Ok(());
+    match table {
+        Table::Record(table) => commands::records::run(table, config, color, named, verb),
+        Table::Entity(table) => commands::entities::run(table, config, color, named, verb),
     }
-
-    match runtime::delegate(arguments)? {}
 }
 
 fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {

@@ -445,3 +445,93 @@ async fn a_load_names_the_row_it_could_not_read() {
     // A load either lands whole or not at all, so the good first row is not there.
     assert_eq!(project.variables().await.len(), 4);
 }
+
+#[tokio::test]
+async fn a_conflicting_load_does_what_its_mode_says() {
+    let project = Project::seed().await;
+    let collide = project.path().join("collide.jsonl");
+    std::fs::write(
+        &collide,
+        "{\"address\": \"@motor\", \"name\": \"speed\", \"value\": 99}\n",
+    )
+    .expect("the file writes");
+    let path = collide.to_str().expect("a text path");
+
+    // The default refuses the collision and rolls the whole load back.
+    let refused = project.run(&["variables", "load", path]);
+    assert!(!refused.status.success());
+    assert!(
+        project
+            .variables()
+            .await
+            .contains(&"@motor speed 5".to_string())
+    );
+
+    // Ignoring one keeps the row that was already there.
+    let ignored = succeeded(&project.run(&["variables", "load", path, "--on-conflict", "ignore"]));
+    assert_eq!(ignored.trim(), "1");
+    assert!(
+        project
+            .variables()
+            .await
+            .contains(&"@motor speed 5".to_string())
+    );
+
+    // Updating takes the incoming value instead.
+    let updated = succeeded(&project.run(&["variables", "load", path, "--on-conflict", "update"]));
+    assert_eq!(updated.trim(), "1");
+    assert!(
+        project
+            .variables()
+            .await
+            .contains(&"@motor speed 99".to_string())
+    );
+}
+
+#[tokio::test]
+async fn a_csv_dump_carries_its_header_even_with_no_rows() {
+    let project = Project::seed().await;
+
+    // The header names the columns, which is what makes an empty result readable as an
+    // empty table rather than as nothing at all.
+    let empty = succeeded(&project.run(&[
+        "variables",
+        "select",
+        "--name",
+        "nothing-matches-this",
+        "--data-format",
+        "csv",
+    ]));
+    assert_eq!(empty.trim(), "address,name,value");
+
+    // Suppressing it leaves the data rows alone, for appending to something.
+    let rows = succeeded(&project.run(&[
+        "variables",
+        "select",
+        "--address",
+        "@motor",
+        "--data-format",
+        "csv",
+        "--no-header",
+    ]));
+    assert!(!rows.contains("address,name,value"), "{rows}");
+    assert_eq!(rows.lines().count(), 2, "{rows}");
+}
+
+#[tokio::test]
+async fn a_dump_to_a_file_carries_every_row() {
+    let project = Project::seed().await;
+    let out = project.path().join("rows.jsonl");
+
+    let written = succeeded(&project.run(&[
+        "variables",
+        "select",
+        "--output",
+        out.to_str().expect("a text path"),
+    ]));
+    // The rows went to the file, so nothing was printed.
+    assert!(written.is_empty(), "{written}");
+
+    let held = std::fs::read_to_string(&out).expect("the file reads");
+    assert_eq!(held.lines().count(), 4, "{held}");
+}

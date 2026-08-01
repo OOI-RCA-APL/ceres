@@ -25,30 +25,29 @@ use crate::commands::surface::Table;
 use crate::error::Result;
 use crate::project::Project;
 
-/// Attempt one entity command natively, `false` meaning the caller delegates.
-pub fn try_run(
+/// Run one entity command.
+pub fn run(
     table: EntityTable,
     config: Option<&Path>,
     color: Option<bool>,
     verb: Verb,
     matches: &ArgMatches,
-) -> Result<bool> {
+) -> Result<()> {
     let invocation = Invocation::read(Table::Entity(table), verb, matches);
 
     let format = invocation.dump_format(color);
 
     // The configuration is read before anything is built, because a user's own columns
     // are written under rules the database's own hashing configuration decides.
-    let Ok(project) = Project::discover(config) else {
-        return Ok(false);
-    };
-    let Ok(meta) = project.load_meta() else {
-        return Ok(false);
-    };
+    let project = Project::discover(config)?;
+    let meta = project.load_meta()?;
 
     let credentials = credentials(&meta.database);
     if !serves(table, &invocation, credentials) {
-        return Ok(false);
+        return Err(crate::error::Exit::failed(
+            "This database hashes passwords with parameters this command cannot \
+             reproduce, so it will not write a user.",
+        ));
     }
 
     // A filtered verb parses its wire pairs, while `create` reads them as the new
@@ -57,18 +56,18 @@ pub fn try_run(
     let mut incoming = Vec::new();
     let mut source = None;
     if invocation.verb.filters() {
-        let Ok(parsed) = EntityFilter::parse(table, &invocation.pairs) else {
-            return Ok(false);
-        };
-
+        let parsed = EntityFilter::parse(table, &invocation.pairs).map_err(refused)?;
         filter = Some(parsed);
     } else if invocation.verb == Verb::Create {
-        let Some(entities) = ceres_database::build_entity(table, &invocation.pairs, credentials)
+        let Some(built) = ceres_database::build_entity(table, &invocation.pairs, credentials)
         else {
-            return Ok(false);
+            return Err(crate::error::Exit::failed(
+                "This create names a value that cannot be stored as given. Check the \
+                 types each field takes with --help.",
+            ));
         };
 
-        incoming.push(entities);
+        incoming.push(built);
     } else {
         // A file that will not open is this command's failure to report, not a reason
         // to hand the whole load to another process.
@@ -77,7 +76,9 @@ pub fn try_run(
             .map_err(crate::error::Exit::failed)?;
         let Some(batches) = ceres_database::entity_batches(table, file, load_format, credentials)
         else {
-            return Ok(false);
+            return Err(crate::error::Exit::failed(
+                "The file's first row does not name the columns to load.",
+            ));
         };
 
         source = Some(batches);
@@ -212,7 +213,7 @@ pub fn try_run(
         Err(ceres_database::Error::Refused(message)) => {
             return Err(crate::error::Exit::failed(message));
         }
-        Err(_) => return Ok(false),
+        Err(error) => return Err(crate::error::Exit::failed(error.to_string())),
     };
 
     deliver(&invocation, rendered)
@@ -272,6 +273,19 @@ fn render(
             .map(String::into_bytes),
     };
     rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
+}
+
+/// What to say about a filter the compiler will not take.
+///
+/// An invalid value carries its own sentence, and a construct outside the grammar names
+/// itself, because both are things the reader wrote and can change.
+fn refused(refusal: ceres_database::Refusal) -> crate::error::Exit {
+    crate::error::Exit::failed(match refusal {
+        ceres_database::Refusal::Invalid(message) => message,
+        ceres_database::Refusal::Delegated => {
+            "This filter uses a construct the query compiler does not serve.".to_string()
+        }
+    })
 }
 
 #[cfg(test)]
