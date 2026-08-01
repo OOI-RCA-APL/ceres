@@ -895,6 +895,11 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     rows both proceed and the second fails when it commits, so a caller has to be prepared to
     retry.
 
+    What takes the setting up on is the record writer. A flush of buffered records opens a
+    transaction that may overlap other writers, and one that loses a race is put back and written
+    with the next flush. Every other write, and every migration, takes the write lock as it always
+    did, because those are neither frequent nor safe to run twice.
+
     Turso is compiled into Ceres, so this backend needs nothing installed alongside it.
     """
 

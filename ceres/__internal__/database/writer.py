@@ -11,6 +11,47 @@ if TYPE_CHECKING:
     from ceres.entity import Entity
 
 
+def write_failures() -> tuple[type[BaseException], ...]:
+    """What a flush can fail with, and therefore what it puts its entities back for.
+
+    A flush that raises anything here still has entities nobody has written, so they go
+    back on the queue and go out with the next one. Anything outside this set is not a
+    write that failed, and letting it through unhandled is how it stays visible.
+
+    Every wording the store recognizes translates into one of the first four. A wording it
+    does not recognize stays the plain value error it raised, which is why that is here
+    too. A write conflict under Turso's MVCC journaling is exactly that case, the engine
+    calling it "Write-write conflict", and it is the reason a concurrent transaction is
+    safe to ask for.
+
+    Imported lazily and built once, because `ceres.error` is not a cheap import and a
+    flush is a hot path.
+    """
+    global _WRITE_FAILURES
+
+    if _WRITE_FAILURES is None:
+        from ceres.error import (
+            AlreadyExistsError,
+            DatabaseUnexpectedError,
+            DatabaseUnreachableError,
+            IntegrityError,
+        )
+
+        _WRITE_FAILURES = (
+            AlreadyExistsError,
+            DatabaseUnexpectedError,
+            DatabaseUnreachableError,
+            IntegrityError,
+            ValueError,
+        )
+
+    return _WRITE_FAILURES
+
+
+_WRITE_FAILURES: tuple[type[BaseException], ...] | None = None
+"""Cached by `write_failures`, which is what fills it."""
+
+
 @dataclass(slots=True)
 class Flush:
     """Represent a single flush operation containing entities to write and a completion signal."""
@@ -106,24 +147,6 @@ class Writer:
         self._buffer = []
         self._flushes.append(flush)
 
-        from ceres.error import (
-            AlreadyExistsError,
-            DatabaseUnexpectedError,
-            DatabaseUnreachableError,
-            IntegrityError,
-        )
-
-        # What a write can fail with, whether the driver's own words were recognized or
-        # not. An unrecognized failure reaches here as the plain value error the store
-        # raised, and a flush that hit one still has entities nobody has written.
-        write_failures = (
-            AlreadyExistsError,
-            DatabaseUnexpectedError,
-            DatabaseUnreachableError,
-            IntegrityError,
-            ValueError,
-        )
-
         try:
             # Wait for the previous flush to complete.
             if previous:
@@ -132,7 +155,7 @@ class Writer:
             database = self._database()
             if not await self._write_natively(database, flush.entities):
                 await self._write_entities(database, flush.entities)
-        except write_failures:
+        except write_failures():
             if len(self._flushes) > 1:
                 next = self._flushes[1].entities
             else:

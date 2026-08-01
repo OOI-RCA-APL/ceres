@@ -5,6 +5,8 @@ Turso is compiled into Ceres rather than installed alongside it, so these never 
 
 import asyncio
 
+import pytest
+
 from ceres.config import SQLiteDatabaseConfig, TursoDatabaseConfig
 from ceres.database import Database, TursoDatabase
 from ceres.user import User
@@ -61,10 +63,9 @@ async def test_a_file_turso_wrote_is_still_a_sqlite_file(tmp_path):
 async def test_mvcc_journaling_still_reads_and_writes(tmp_path):
     """A database asking for MVCC migrates, writes, and reads back.
 
-    This says the journaling mode is accepted and the schema works under it. It does not
-    say two write transactions overlap, because nothing opens one yet. The native store
-    begins every transaction plainly, so `mvcc` currently buys concurrent statements
-    rather than concurrent transactions.
+    This says the journaling mode is accepted and the schema works under it. That two
+    write transactions genuinely overlap under it is a `ceres-database` test, where a
+    transaction can be held open across another's write.
     """
     database = Database(TursoDatabaseConfig(path=tmp_path / "ceres.db", mvcc=True))
     try:
@@ -81,3 +82,24 @@ async def test_mvcc_journaling_still_reads_and_writes(tmp_path):
         assert rows[0]["count"] == 2
     finally:
         await database.dispose()
+
+
+async def test_a_write_conflict_is_a_failure_the_writer_requeues_on():
+    """A flush that loses a race at commit keeps its records for the next one.
+
+    A record flush now asks for a transaction that may overlap other writers, which trades
+    blocking for a refusal at commit. The engine calls that "Write-write conflict", a
+    wording neither constraint pattern recognizes, so it reaches the writer as the plain
+    value error the store raised. This asserts that error is one the flush requeues on,
+    because a failure outside that set would drop the records instead.
+    """
+    from ceres.__internal__.database.errors import wrap_database_errors
+    from ceres.__internal__.database.writer import write_failures
+
+    with pytest.raises(Exception) as raised:  # noqa: B017, PT011, PT012
+        with wrap_database_errors():
+            raise ValueError("Write-write conflict")
+
+    assert isinstance(raised.value, write_failures()), (
+        "a flush that lost a race puts its records back rather than dropping them"
+    )

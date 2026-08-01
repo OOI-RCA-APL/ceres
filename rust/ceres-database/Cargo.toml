@@ -8,6 +8,9 @@ repository.workspace = true
 
 [dependencies]
 argon2 = "0.5"
+# The backend trait has async methods and is held behind `dyn`, which the language cannot
+# express on its own until async fns in traits become dyn-compatible.
+async-trait = "0.1"
 bcrypt = { version = "0.19", default-features = false, features = ["std"] }
 ceres-entities = { path = "../ceres-entities" }
 chrono = "0.4"

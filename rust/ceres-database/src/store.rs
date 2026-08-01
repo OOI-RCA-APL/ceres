@@ -1,19 +1,25 @@
-//! Connection pools and query execution.
+//! Connection parameters and the operations a database serves.
+//!
+//! Everything here is written once against [`Engine`], the trait in
+//! [`crate::backend`] that every backend implements. Building a statement and choosing a
+//! backend are separate concerns, so this file holds the first and knows nothing of the
+//! second beyond which dialect it renders for.
+
+use std::sync::Arc;
 
 use ceres_entities::{Entities, Records};
-use sea_query::{Alias, OnConflict, PostgresQueryBuilder, SelectStatement, SqliteQueryBuilder};
-use sea_query_binder::SqlxBinder;
-use sqlx::Row;
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sea_query::{Alias, OnConflict, SelectStatement};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 use crate::assign::assignments;
+use crate::backend::{Engine, PostgresEngine, SqliteEngine, Write, Writing};
 use crate::credentials::Credentials;
-use crate::entities::{DecodeEntities, EntityTable};
+use crate::entities::EntityTable;
 use crate::filter::{EntityFilter, RecordFilter, SqlDialect};
 use crate::load::Conflict;
-use crate::records::{DecodeRecords, RecordTable};
-use crate::turso::{TursoBackend, parameter_value, sea_value};
+use crate::records::RecordTable;
+use crate::turso::TursoBackend;
 
 /// A statement parameter, as the Python layer's bind processors produce them.
 ///
@@ -227,24 +233,18 @@ pub struct GateUser {
     pub disabled: bool,
 }
 
-/// The connection pool or engine for one backend.
-///
-/// The Turso engine is boxed because it holds its own configuration inline rather than
-/// behind a pool handle, so left unboxed every store would carry its size.
-enum Backend {
-    Sqlite(SqlitePool),
-    Postgres(PgPool),
-    Turso(Box<TursoBackend>),
-}
-
 /// A natively-connected view of a Ceres database, serving entity reads.
 ///
 /// Connections open lazily on first use, so building a store is cheap and never touches
 /// the database. The store connects to the same database the Python layer resolved,
 /// including per-instance temporary SQLite paths, which is why it takes resolved
 /// connection parameters rather than a configuration.
+///
+/// Which backend is behind it is known only through [`Engine`], so every operation below
+/// is written once. The handle is shared rather than owned so a writer can be opened over
+/// the same engine.
 pub struct RecordStore {
-    backend: Backend,
+    engine: Arc<dyn Engine>,
 }
 
 impl RecordStore {
@@ -262,7 +262,7 @@ impl RecordStore {
         let pool = lifecycle(SqlitePoolOptions::new(), Vec::new(), on_connect, on_close)
             .connect_lazy_with(options);
         Ok(Self {
-            backend: Backend::Sqlite(pool),
+            engine: Arc::new(SqliteEngine(pool)),
         })
     }
 
@@ -304,7 +304,7 @@ impl RecordStore {
         )
         .connect_lazy_with(options);
         Ok(Self {
-            backend: Backend::Sqlite(pool),
+            engine: Arc::new(SqliteEngine(pool)),
         })
     }
 
@@ -330,7 +330,7 @@ impl RecordStore {
         let pool = lifecycle(PgPoolOptions::new(), on_init, on_connect, on_close)
             .connect_lazy_with(options);
         Ok(Self {
-            backend: Backend::Postgres(pool),
+            engine: Arc::new(PostgresEngine(pool)),
         })
     }
 
@@ -352,10 +352,16 @@ impl RecordStore {
         on_close: Vec<String>,
     ) -> Self {
         Self {
-            backend: Backend::Turso(Box::new(TursoBackend::new(
-                path, mvcc, on_init, on_connect, on_close,
-            ))),
+            engine: Arc::new(TursoBackend::new(path, mvcc, on_init, on_connect, on_close)),
         }
+    }
+
+    /// Whether two write transactions on this database can overlap.
+    ///
+    /// `false` says a [`Writing::Concurrent`] transaction ran serialized anyway, so no
+    /// commit conflict is possible and a caller that would retry one never has to.
+    pub fn overlaps_writers(&self) -> bool {
+        self.engine.overlaps_writers()
     }
 
     /// Fetch a record listing, ordered by timestamp like the Python layer's default.
@@ -374,10 +380,7 @@ impl RecordStore {
 
     /// The dialect value forms this store's backend binds.
     fn dialect(&self) -> SqlDialect {
-        match &self.backend {
-            Backend::Sqlite(_) | Backend::Turso(_) => SqlDialect::SqliteText,
-            Backend::Postgres(_) => SqlDialect::Postgres,
-        }
+        self.engine.dialect()
     }
 
     /// Execute one built statement, decoding rows for the table.
@@ -386,26 +389,7 @@ impl RecordStore {
         table: RecordTable,
         statement: SelectStatement,
     ) -> Result<Records, Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
-                DecodeRecords::decode(table, rows)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
-                DecodeRecords::decode(table, rows)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.query(table, &sql, parameters).await
-            }
-        }
+        self.engine.select_records(table, statement).await
     }
 
     /// Fetch the records a parsed native filter matches.
@@ -426,80 +410,32 @@ impl RecordStore {
     pub async fn stream_filter(
         &self,
         filter: &RecordFilter,
-        sink: &mut impl FnMut(Records) -> Result<(), Error>,
+        sink: &mut (impl FnMut(Records) -> Result<(), Error> + Send),
     ) -> Result<(), Error> {
         if filter.limit() == Some(0) {
             return sink(filter.table().empty());
         }
 
-        let table = filter.table();
         let statement = filter.statement(self.dialect(), None);
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let mut cursor = sqlx::query_with(&sql, values).fetch(pool);
-                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let mut cursor = sqlx::query_with(&sql, values).fetch(pool);
-                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
-            }
-            // Turso holds its result set behind its own cursor, which the backend walks
-            // in chunks of its own.
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.stream(table, &sql, parameters, sink).await
-            }
-        }
+        self.engine
+            .stream_records(filter.table(), statement, sink)
+            .await
     }
 
     /// Fetch the entities a parsed native filter matches, a chunk at a time.
     pub async fn stream_entity_filter(
         &self,
         filter: &EntityFilter,
-        sink: &mut impl FnMut(Entities) -> Result<(), Error>,
+        sink: &mut (impl FnMut(Entities) -> Result<(), Error> + Send),
     ) -> Result<(), Error> {
         if filter.limit() == Some(0) {
             return sink(filter.table().empty());
         }
 
-        let table = filter.table();
         let statement = filter.statement(self.dialect(), None);
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let mut cursor = sqlx::query_with(&sql, values).fetch(pool);
-                drain(
-                    &mut cursor,
-                    |rows| DecodeEntities::decode(table, rows),
-                    sink,
-                )
-                .await
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let mut cursor = sqlx::query_with(&sql, values).fetch(pool);
-                drain(
-                    &mut cursor,
-                    |rows| DecodeEntities::decode(table, rows),
-                    sink,
-                )
-                .await
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.stream_entities(table, &sql, parameters, sink).await
-            }
-        }
+        self.engine
+            .stream_entities(filter.table(), statement, sink)
+            .await
     }
 
     /// Count the records a parsed native filter matches.
@@ -524,29 +460,9 @@ impl RecordStore {
             return Ok(false);
         }
 
-        let statement = filter.exists_statement(self.dialect(), None);
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
-                let exists: bool = row.try_get(0)?;
-                Ok(exists)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
-                let exists: bool = row.try_get(0)?;
-                Ok(exists)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(backend.scalar_count(&sql, parameters).await? > 0)
-            }
-        }
+        self.engine
+            .exists(filter.exists_statement(self.dialect(), None))
+            .await
     }
 
     /// Delete the records a parsed native filter matches, returning how many went.
@@ -644,40 +560,8 @@ impl RecordStore {
     ///
     /// Nothing lands unless the statement succeeds, so a failure leaves the table
     /// exactly as it was and the command is free to delegate.
-    async fn write<S: SqlxBinder + sea_query::QueryStatementWriter>(
-        &self,
-        statement: S,
-    ) -> Result<u64, Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let affected = sqlx::query_with(&sql, values)
-                    .execute(&mut *transaction)
-                    .await?
-                    .rows_affected();
-                transaction.commit().await?;
-                Ok(affected)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let affected = sqlx::query_with(&sql, values)
-                    .execute(&mut *transaction)
-                    .await?
-                    .rows_affected();
-                transaction.commit().await?;
-                Ok(affected)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.execute_write(&sql, parameters).await
-            }
-        }
+    async fn write(&self, statement: impl Into<Write>) -> Result<u64, Error> {
+        self.engine.write(statement.into()).await
     }
 
     /// Run one write statement that hands its rows back, in its own transaction.
@@ -685,75 +569,21 @@ impl RecordStore {
     /// `RETURNING` is how a write says what it touched without a second query racing it,
     /// which is what `--collect` asks for. SQLite has had it since 3.35 and PostgreSQL
     /// always has.
-    async fn write_returning<S: SqlxBinder + sea_query::QueryStatementWriter>(
+    async fn write_returning(
         &self,
         table: RecordTable,
-        statement: S,
+        statement: impl Into<Write>,
     ) -> Result<Records, Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let rows = sqlx::query_with(&sql, values)
-                    .fetch_all(&mut *transaction)
-                    .await?;
-                transaction.commit().await?;
-                DecodeRecords::decode(table, rows)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let rows = sqlx::query_with(&sql, values)
-                    .fetch_all(&mut *transaction)
-                    .await?;
-                transaction.commit().await?;
-                DecodeRecords::decode(table, rows)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.query_write(table, &sql, parameters).await
-            }
-        }
+        self.engine.write_records(table, statement.into()).await
     }
 
     /// The entity form of [`Self::write_returning`].
-    async fn write_returning_entities<S: SqlxBinder + sea_query::QueryStatementWriter>(
+    async fn write_returning_entities(
         &self,
         table: EntityTable,
-        statement: S,
+        statement: impl Into<Write>,
     ) -> Result<Entities, Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let rows = sqlx::query_with(&sql, values)
-                    .fetch_all(&mut *transaction)
-                    .await?;
-                transaction.commit().await?;
-                DecodeEntities::decode(table, rows)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let mut transaction = pool.begin().await?;
-                let rows = sqlx::query_with(&sql, values)
-                    .fetch_all(&mut *transaction)
-                    .await?;
-                transaction.commit().await?;
-                DecodeEntities::decode(table, rows)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.query_write_entities(table, &sql, parameters).await
-            }
-        }
+        self.engine.write_entities(table, statement.into()).await
     }
 
     /// Fetch an entity listing, ordered by the entity's own default.
@@ -767,27 +597,9 @@ impl RecordStore {
             return Ok(table.empty());
         }
 
-        let statement = table.listing(limit, offset);
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
-                DecodeEntities::decode(table, rows)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
-                DecodeEntities::decode(table, rows)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.query_entities(table, &sql, parameters).await
-            }
-        }
+        self.engine
+            .select_entities(table, table.listing(limit, offset))
+            .await
     }
 
     /// Fetch the entities a parsed native filter matches.
@@ -797,28 +609,7 @@ impl RecordStore {
         }
 
         let statement = filter.statement(self.dialect(), None);
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
-                DecodeEntities::decode(filter.table(), rows)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let rows = sqlx::query_with(&sql, values).fetch_all(pool).await?;
-                DecodeEntities::decode(filter.table(), rows)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend
-                    .query_entities(filter.table(), &sql, parameters)
-                    .await
-            }
-        }
+        self.engine.select_entities(filter.table(), statement).await
     }
 
     /// Count the entities a parsed native filter matches.
@@ -837,27 +628,9 @@ impl RecordStore {
             return Ok(false);
         }
 
-        let statement = filter.exists_statement(self.dialect(), None);
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
-                Ok(row.try_get(0)?)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
-                Ok(row.try_get(0)?)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(backend.scalar_count(&sql, parameters).await? > 0)
-            }
-        }
+        self.engine
+            .exists(filter.exists_statement(self.dialect(), None))
+            .await
     }
 
     /// Delete the entities a parsed native filter matches, returning how many went.
@@ -975,30 +748,9 @@ impl RecordStore {
             .await
     }
 
-    /// Run one count statement, whichever backend serves it.
+    /// Run one count statement.
     async fn scalar_count(&self, statement: SelectStatement) -> Result<u64, Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
-                let count: i64 = row.try_get(0)?;
-                Ok(count.max(0) as u64)
-            }
-            Backend::Postgres(pool) => {
-                let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                let row = sqlx::query_with(&sql, values).fetch_one(pool).await?;
-                let count: i64 = row.try_get(0)?;
-                Ok(count.max(0) as u64)
-            }
-            Backend::Turso(backend) => {
-                let (sql, values) = statement.build(SqliteQueryBuilder);
-                let parameters = values
-                    .into_iter()
-                    .map(sea_value)
-                    .collect::<Result<Vec<_>, _>>()?;
-                backend.scalar_count(&sql, parameters).await
-            }
-        }
+        self.engine.count(statement).await
     }
 
     /// Write a bulk load's batches in one transaction, reading as it writes.
@@ -1010,7 +762,7 @@ impl RecordStore {
     /// written.
     pub async fn load_records(
         &self,
-        batches: impl Iterator<Item = Result<Records, String>>,
+        batches: impl Iterator<Item = Result<Records, String>> + Send,
         conflict: Conflict,
     ) -> Result<usize, Error> {
         let dialect = self.writer_dialect();
@@ -1037,7 +789,7 @@ impl RecordStore {
     /// setting is a pair of columns rather than an ID.
     pub async fn load_entities(
         &self,
-        batches: impl Iterator<Item = Result<Entities, String>>,
+        batches: impl Iterator<Item = Result<Entities, String>> + Send,
         conflict: Conflict,
     ) -> Result<usize, Error> {
         let dialect = self.writer_dialect();
@@ -1075,52 +827,12 @@ impl RecordStore {
     /// reports which row it was.
     async fn write_batches(
         &self,
-        mut batches: impl Iterator<Item = Result<(sea_query::InsertStatement, usize), String>>,
+        mut batches: impl Iterator<Item = Result<(sea_query::InsertStatement, usize), String>> + Send,
     ) -> Result<usize, Error> {
-        macro_rules! run {
-            ($pool:expr, $builder:expr) => {{
-                let mut transaction = $pool.begin().await?;
-                let mut written = 0;
-                for batch in &mut batches {
-                    // Dropping the transaction rolls it back, so the table is exactly as
-                    // it was and the refusal is the command's own to report.
-                    let (statement, rows) = batch.map_err(Error::Refused)?;
-
-                    let (sql, values) = statement.build_sqlx($builder);
-                    sqlx::query_with(&sql, values)
-                        .execute(&mut *transaction)
-                        .await?;
-                    written += rows;
-                }
-
-                transaction.commit().await?;
-                Ok(written)
-            }};
-        }
-
-        match &self.backend {
-            Backend::Sqlite(pool) => run!(pool, SqliteQueryBuilder),
-            Backend::Postgres(pool) => run!(pool, PostgresQueryBuilder),
-            Backend::Turso(backend) => {
-                // The engine takes its statements together rather than one at a time, so
-                // the batches are built here and the transaction is its own.
-                let mut statements = Vec::new();
-                let mut written = 0;
-                for batch in &mut batches {
-                    let (statement, rows) = batch.map_err(Error::Refused)?;
-                    let (sql, values) = statement.build(SqliteQueryBuilder);
-                    let parameters = values
-                        .into_iter()
-                        .map(sea_value)
-                        .collect::<Result<Vec<_>, _>>()?;
-                    statements.push((sql, parameters));
-                    written += rows;
-                }
-
-                backend.execute_transaction(statements).await?;
-                Ok(written)
-            }
-        }
+        // A load takes the whole write lock. Its batches are one caller's own rows going
+        // into tables nobody else is touching, so overlapping buys nothing and a conflict
+        // at commit would mean re-reading the source.
+        self.engine.insert_all(Writing::Default, &mut batches).await
     }
 
     /// Read the columns an authentication gate needs for one user, `None` when no user
@@ -1130,41 +842,7 @@ impl RecordStore {
     /// whether it is disabled, so a record request never crosses into Python just to
     /// admit its caller.
     pub async fn gate_user(&self, id: uuid::Uuid) -> Result<Option<GateUser>, Error> {
-        const SQL: &str = "SELECT \"admin\", \"disabled\" FROM \"users\" WHERE \"id\" = ";
-
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let sql = format!("{SQL}?");
-                let row = sqlx::query(&sql)
-                    .bind(id.to_string())
-                    .fetch_optional(pool)
-                    .await?;
-                row.map(|row| {
-                    Ok(GateUser {
-                        id,
-                        admin: row.try_get("admin")?,
-                        disabled: row.try_get("disabled")?,
-                    })
-                })
-                .transpose()
-            }
-            Backend::Postgres(pool) => {
-                let sql = format!("{SQL}$1");
-                let row = sqlx::query(&sql).bind(id).fetch_optional(pool).await?;
-                row.map(|row| {
-                    Ok(GateUser {
-                        id,
-                        admin: row.try_get("admin")?,
-                        disabled: row.try_get("disabled")?,
-                    })
-                })
-                .transpose()
-            }
-            Backend::Turso(backend) => {
-                let sql = format!("{SQL}?");
-                backend.gate_user(&sql, id).await
-            }
-        }
+        self.engine.gate_user(id).await
     }
 
     /// Execute a compiled record query, decoding its rows for the given table.
@@ -1178,31 +856,8 @@ impl RecordStore {
         sql: &str,
         parameters: Vec<Parameter>,
     ) -> Result<Records, Error> {
-        let head = sql.trim_start();
-        if !starts_with_keyword(head, "select") && !starts_with_keyword(head, "with") {
-            return Err(Error::Decode("only SELECT statements execute here".into()));
-        }
-
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let rows = bind_sqlite(sqlx::query(sql), parameters)
-                    .fetch_all(pool)
-                    .await?;
-                DecodeRecords::decode(table, rows)
-            }
-            Backend::Postgres(pool) => {
-                let rows = bind_postgres(sqlx::query(sql), parameters)
-                    .fetch_all(pool)
-                    .await?;
-                DecodeRecords::decode(table, rows)
-            }
-            Backend::Turso(backend) => {
-                // Turso shares the SQLite dialect, parameters bind in their stored text
-                // forms.
-                let parameters = parameters.into_iter().map(parameter_value).collect();
-                backend.query(table, sql, parameters).await
-            }
-        }
+        assert_readonly(sql)?;
+        self.engine.query_records(table, sql, parameters).await
     }
 
     /// Execute a compiled record query, decoding its rows a chunk at a time.
@@ -1214,27 +869,12 @@ impl RecordStore {
         table: RecordTable,
         sql: &str,
         parameters: Vec<Parameter>,
-        sink: &mut impl FnMut(Records) -> Result<(), Error>,
+        sink: &mut (impl FnMut(Records) -> Result<(), Error> + Send),
     ) -> Result<(), Error> {
-        let head = sql.trim_start();
-        if !starts_with_keyword(head, "select") && !starts_with_keyword(head, "with") {
-            return Err(Error::Decode("only SELECT statements execute here".into()));
-        }
-
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let mut cursor = bind_sqlite(sqlx::query(sql), parameters).fetch(pool);
-                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
-            }
-            Backend::Postgres(pool) => {
-                let mut cursor = bind_postgres(sqlx::query(sql), parameters).fetch(pool);
-                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
-            }
-            Backend::Turso(backend) => {
-                let parameters = parameters.into_iter().map(parameter_value).collect();
-                backend.stream(table, sql, parameters, sink).await
-            }
-        }
+        assert_readonly(sql)?;
+        self.engine
+            .stream_query_records(table, sql, parameters, sink)
+            .await
     }
 
     /// Execute a statement that returns rows, decoding them by column.
@@ -1249,24 +889,7 @@ impl RecordStore {
         sql: &str,
         parameters: Vec<Parameter>,
     ) -> Result<Vec<crate::dynamic::Row>, Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => bind_sqlite(sqlx::query(sql), parameters)
-                .fetch_all(pool)
-                .await?
-                .iter()
-                .map(|row| crate::dynamic::sqlite_row(row, table))
-                .collect(),
-            Backend::Postgres(pool) => bind_postgres(sqlx::query(sql), parameters)
-                .fetch_all(pool)
-                .await?
-                .iter()
-                .map(crate::dynamic::postgres_row)
-                .collect(),
-            Backend::Turso(backend) => {
-                let parameters = parameters.into_iter().map(parameter_value).collect();
-                backend.query_dynamic(table, sql, parameters).await
-            }
-        }
+        self.engine.query_rows(table, sql, parameters).await
     }
 
     /// The chunked twin of [`fetch_dynamic`](Self::fetch_dynamic).
@@ -1279,36 +902,9 @@ impl RecordStore {
         table: Option<crate::dynamic::Table>,
         sql: &str,
         parameters: Vec<Parameter>,
-        sink: &mut impl FnMut(Vec<crate::dynamic::Row>) -> Result<(), Error>,
+        sink: &mut (impl FnMut(Vec<crate::dynamic::Row>) -> Result<(), Error> + Send),
     ) -> Result<(), Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let mut cursor = bind_sqlite(sqlx::query(sql), parameters).fetch(pool);
-                drain(
-                    &mut cursor,
-                    |rows| {
-                        rows.iter()
-                            .map(|row| crate::dynamic::sqlite_row(row, table))
-                            .collect()
-                    },
-                    sink,
-                )
-                .await
-            }
-            Backend::Postgres(pool) => {
-                let mut cursor = bind_postgres(sqlx::query(sql), parameters).fetch(pool);
-                drain(
-                    &mut cursor,
-                    |rows| rows.iter().map(crate::dynamic::postgres_row).collect(),
-                    sink,
-                )
-                .await
-            }
-            Backend::Turso(backend) => {
-                let parameters = parameters.into_iter().map(parameter_value).collect();
-                backend.stream_dynamic(table, sql, parameters, sink).await
-            }
-        }
+        self.engine.stream_rows(table, sql, parameters, sink).await
     }
 
     /// Execute a statement that returns no rows, answering how many it touched.
@@ -1317,20 +913,7 @@ impl RecordStore {
         sql: &str,
         parameters: Vec<Parameter>,
     ) -> Result<u64, Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => Ok(bind_sqlite(sqlx::query(sql), parameters)
-                .execute(pool)
-                .await?
-                .rows_affected()),
-            Backend::Postgres(pool) => Ok(bind_postgres(sqlx::query(sql), parameters)
-                .execute(pool)
-                .await?
-                .rows_affected()),
-            Backend::Turso(backend) => {
-                let parameters = parameters.into_iter().map(parameter_value).collect();
-                backend.execute_dynamic(sql, parameters).await
-            }
-        }
+        self.engine.execute(sql, parameters).await
     }
 
     /// Run a script of `;`-separated statements.
@@ -1340,66 +923,18 @@ impl RecordStore {
     /// the SQLite family needs before rebuilding a table does nothing inside a
     /// transaction, and a script sent whole is the driver's business to sequence.
     pub async fn execute_script(&self, sql: &str) -> Result<(), Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                sqlx::raw_sql(sql).execute(pool).await?;
-                Ok(())
-            }
-            Backend::Postgres(pool) => {
-                sqlx::raw_sql(sql).execute(pool).await?;
-                Ok(())
-            }
-            Backend::Turso(backend) => backend.execute_script(sql).await,
-        }
+        self.engine.execute_script(sql).await
     }
 }
 
-/// Bind compiled parameters onto a SQLite statement.
-///
-/// SQLite stores timestamps and UUIDs as text, so those bind in the stored form rather
-/// than as their own types, or equality against a stored row misses.
-fn bind_sqlite<'q>(
-    mut query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
-    parameters: Vec<Parameter>,
-) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
-    for parameter in parameters {
-        query = match parameter {
-            Parameter::Null => query.bind(None::<String>),
-            Parameter::Bool(value) => query.bind(value),
-            Parameter::Integer(value) => query.bind(value),
-            Parameter::Float(value) => query.bind(value),
-            Parameter::Text(value) => query.bind(value),
-            Parameter::Bytes(value) => query.bind(value),
-            Parameter::Timestamp(value) => query.bind(Parameter::timestamp_text(&value)),
-            Parameter::Uuid(value) => query.bind(value.to_string()),
-            Parameter::Json(value) => query.bind(value.to_string()),
-        };
+/// Refuse anything but a read, for the paths that only ever run one.
+fn assert_readonly(sql: &str) -> Result<(), Error> {
+    let head = sql.trim_start();
+    if starts_with_keyword(head, "select") || starts_with_keyword(head, "with") {
+        return Ok(());
     }
 
-    query
-}
-
-/// Bind compiled parameters onto a PostgreSQL statement, which takes timestamps and
-/// UUIDs as themselves.
-fn bind_postgres<'q>(
-    mut query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
-    parameters: Vec<Parameter>,
-) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    for parameter in parameters {
-        query = match parameter {
-            Parameter::Null => query.bind(None::<String>),
-            Parameter::Bool(value) => query.bind(value),
-            Parameter::Integer(value) => query.bind(value),
-            Parameter::Float(value) => query.bind(value),
-            Parameter::Text(value) => query.bind(value),
-            Parameter::Bytes(value) => query.bind(value),
-            Parameter::Timestamp(value) => query.bind(value),
-            Parameter::Uuid(value) => query.bind(value),
-            Parameter::Json(value) => query.bind(value),
-        };
-    }
-
-    query
+    Err(Error::Decode("only SELECT statements execute here".into()))
 }
 
 /// Apply a load's conflict mode to one insert, over the table's whole primary key.
@@ -1430,46 +965,7 @@ fn on_conflict(
     }
 }
 
-/// How many rows one streamed chunk carries.
-///
-/// A dump decodes, renders, and writes per chunk rather than whole, so memory stays flat
-/// over a table of any size. The size also decides how much of a result a caller can
-/// hold back before writing, which is what keeps a late refusal able to delegate.
-pub const CHUNK: usize = 1000;
-
-/// Walk a row cursor, decoding and handing over one chunk at a time.
-///
-/// A chunk decodes only once it is full, so a decode failure surfaces having produced no
-/// partial batch, and the trailing rows go over even when they do not fill one.
-async fn drain<Row, Batch, Cursor>(
-    cursor: &mut Cursor,
-    decode: impl Fn(Vec<Row>) -> Result<Batch, Error>,
-    sink: &mut impl FnMut(Batch) -> Result<(), Error>,
-) -> Result<(), Error>
-where
-    Cursor: futures_util::Stream<Item = Result<Row, sqlx::Error>> + Unpin,
-{
-    use futures_util::StreamExt;
-
-    let mut buffer = Vec::with_capacity(CHUNK);
-    let mut sent = false;
-    while let Some(row) = cursor.next().await {
-        buffer.push(row?);
-        if buffer.len() == CHUNK {
-            sink(decode(std::mem::take(&mut buffer))?)?;
-            sent = true;
-            buffer.reserve(CHUNK);
-        }
-    }
-
-    // An empty result still reaches the sink once, because a CSV dump writes its header
-    // row whether or not any record follows it.
-    if !buffer.is_empty() || !sent {
-        sink(decode(buffer)?)?;
-    }
-
-    Ok(())
-}
+pub use crate::backend::CHUNK;
 
 /// Check a case-insensitive keyword prefix.
 fn starts_with_keyword(text: &str, keyword: &str) -> bool {

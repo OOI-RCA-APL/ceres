@@ -327,7 +327,10 @@ pub(crate) struct Sink<'a> {
     /// The first chunk's bytes, until a second chunk forces them out.
     held: Option<Vec<u8>>,
     /// The destination, opened when the first write actually happens.
-    destination: Option<Box<dyn Write>>,
+    ///
+    /// `Send` because the store hands its chunks over from the executor's threads rather
+    /// than the caller's, so a sink has to be able to travel there.
+    destination: Option<Box<dyn Write + Send>>,
     /// Whether a header row still has to be written, which only the first chunk does.
     heading: bool,
     /// Whether the reader went away, which ends the dump rather than failing it.

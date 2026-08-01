@@ -4,32 +4,21 @@
 //! with sea-query per backend. Statement shape mirrors the query layer's writer, an
 //! `INSERT ... ON CONFLICT (id) DO UPDATE` setting every non-key column from `excluded`.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use ceres_entities::{
     Alert, Entities, Group, GroupMembership, GroupPermission, LogEntry, Message, MessageDirection,
     Particle, Records, Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
 };
-use sea_query::{
-    Alias, InsertStatement, OnConflict, PostgresQueryBuilder, Query, SimpleExpr, SqliteQueryBuilder,
-};
-use sea_query_binder::SqlxBinder;
-use sqlx::postgres::{PgPool, PgPoolOptions};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sea_query::{Alias, InsertStatement, OnConflict, Query, SimpleExpr};
+use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
+use crate::backend::{Engine, PostgresEngine, SqliteEngine, Writing};
 use crate::records::RecordTable;
 use crate::store::{Error, Parameter};
-use crate::turso::{TursoBackend, sea_value};
-
-/// The write pool or engine for one backend.
-///
-/// The Turso engine is boxed because it holds its own configuration inline rather than
-/// behind a pool handle, so left unboxed every writer would carry its size.
-enum Backend {
-    Sqlite(SqlitePool),
-    Postgres(PgPool),
-    Turso(Box<TursoBackend>),
-}
+use crate::turso::TursoBackend;
 
 /// How a backend expects record values bound.
 #[derive(Clone, Copy, PartialEq)]
@@ -46,7 +35,7 @@ pub(crate) enum Dialect {
 /// backend serializes writers anyway and one connection avoids lock churn against the
 /// query layer's own pool on the same file.
 pub struct RecordWriter {
-    backend: Backend,
+    engine: Arc<dyn Engine>,
 }
 
 impl RecordWriter {
@@ -77,7 +66,7 @@ impl RecordWriter {
         )
         .connect_lazy_with(options);
         Ok(Self {
-            backend: Backend::Sqlite(pool),
+            engine: Arc::new(SqliteEngine(pool)),
         })
     }
 
@@ -100,84 +89,70 @@ impl RecordWriter {
         let pool = crate::store::lifecycle(PgPoolOptions::new(), Vec::new(), on_connect, on_close)
             .connect_lazy_with(options);
         Ok(Self {
-            backend: Backend::Postgres(pool),
+            engine: Arc::new(PostgresEngine(pool)),
         })
     }
 
     /// Open a writer over a Turso database file.
     ///
     /// When `mvcc` is set, each connection enables MVCC journaling to match the store's
-    /// connections on the same file. Transactions open with a plain `BEGIN`, the
-    /// concurrent form is for the explicitly concurrent sections.
+    /// connections on the same file, and a flush then opens a transaction that may
+    /// overlap other writers.
     ///
     /// `on_connect` and `on_close` are the configuration's own statements for the two ends
     /// of a connection's life. The `init` statements are the store's to run, that being
     /// the engine a database opens for itself.
     pub fn turso(path: &str, mvcc: bool, on_connect: Vec<String>, on_close: Vec<String>) -> Self {
         Self {
-            backend: Backend::Turso(Box::new(TursoBackend::new(
+            engine: Arc::new(TursoBackend::new(
                 path,
                 mvcc,
                 Vec::new(),
                 on_connect,
                 on_close,
-            ))),
+            )),
         }
+    }
+
+    /// Whether a flush can overlap another writer on this database.
+    ///
+    /// `false` says a flush is serialized whatever it asked for, so it cannot lose a race
+    /// at commit and a caller never has to write it again.
+    ///
+    /// Nothing above this reads it yet. It exists so that asking for a concurrent
+    /// transaction is answerable rather than silently ignored, and it is what the tests
+    /// assert the setting against.
+    pub fn overlaps_writers(&self) -> bool {
+        self.engine.overlaps_writers()
     }
 
     /// Upsert every batch in one transaction.
     ///
     /// A flush is atomic, either every record in every batch lands or none do.
+    ///
+    /// The transaction asks to overlap other writers, because this is the one write path
+    /// that is frequent, independent, and safe to run again. Records are keyed by an ID
+    /// their producer minted, so two flushes rarely touch the same row, and a flush that
+    /// loses a race at commit is requeued by the buffer above and written next time. A
+    /// backend that cannot overlap runs it serialized instead, which is what
+    /// [`Self::overlaps_writers`] reports.
     pub async fn upsert(&self, batches: Vec<Records>) -> Result<(), Error> {
-        match &self.backend {
-            Backend::Sqlite(pool) => {
-                let mut transaction = pool.begin().await?;
-                for batch in batches {
-                    let Some(statement) = upsert_statement(&batch, Dialect::Sqlite) else {
-                        continue;
-                    };
-                    let (sql, values) = statement.build_sqlx(SqliteQueryBuilder);
-                    sqlx::query_with(&sql, values)
-                        .execute(&mut *transaction)
-                        .await?;
-                }
+        let dialect = match self.engine.dialect() {
+            crate::filter::SqlDialect::Postgres => Dialect::Postgres,
+            crate::filter::SqlDialect::SqliteText => Dialect::Sqlite,
+        };
+        let mut statements = batches.iter().filter_map(|batch| {
+            upsert_statement(batch, dialect).map(|statement| Ok((statement, batch.len())))
+        });
 
-                transaction.commit().await?;
-            }
-            Backend::Postgres(pool) => {
-                let mut transaction = pool.begin().await?;
-                for batch in batches {
-                    let Some(statement) = upsert_statement(&batch, Dialect::Postgres) else {
-                        continue;
-                    };
-                    let (sql, values) = statement.build_sqlx(PostgresQueryBuilder);
-                    sqlx::query_with(&sql, values)
-                        .execute(&mut *transaction)
-                        .await?;
-                }
-
-                transaction.commit().await?;
-            }
-            Backend::Turso(backend) => {
-                // Turso shares the SQLite dialect, so statements build identically and
-                // only the execution layer differs.
-                let mut statements = Vec::new();
-                for batch in batches {
-                    let Some(statement) = upsert_statement(&batch, Dialect::Sqlite) else {
-                        continue;
-                    };
-                    let (sql, values) = statement.build(SqliteQueryBuilder);
-                    let parameters = values
-                        .into_iter()
-                        .map(sea_value)
-                        .collect::<Result<Vec<_>, _>>()?;
-                    statements.push((sql, parameters));
-                }
-
-                backend.execute_transaction(statements).await?;
-            }
-        }
-
+        // The count is what was handed in rather than what landed, `upsert_statement`
+        // dropping all but the last of any repeated ID, and it is dropped here anyway. A
+        // flush is told to write what it holds rather than asked how much of it was new.
+        // The load path is what actually answers with this number, over batches that
+        // carry no duplicates.
+        self.engine
+            .insert_all(Writing::Concurrent, &mut statements)
+            .await?;
         Ok(())
     }
 }
@@ -549,6 +524,7 @@ mod tests {
     use super::*;
     use ceres_entities::{Address, LogEntry, Timestamp};
     use chrono::{TimeZone, Utc};
+    use sea_query::SqliteQueryBuilder;
 
     fn entry(id: u128, content: &str) -> LogEntry {
         LogEntry {

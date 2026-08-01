@@ -79,7 +79,10 @@ impl LoadFormat {
 pub(crate) const BATCH: usize = 1000;
 
 /// How a batch of wire objects becomes the rows it will write.
-type Convert<T> = Box<dyn Fn(&[Map<String, Value>]) -> Option<T>>;
+///
+/// `Send` because a load hands these batches to a backend, whose transaction runs on the
+/// executor's threads rather than the caller's.
+type Convert<T> = Box<dyn Fn(&[Map<String, Value>]) -> Option<T> + Send>;
 
 /// Walk an input's rows, decoding one batch at a time.
 ///

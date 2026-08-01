@@ -23,6 +23,7 @@ use tokio::sync::OnceCell;
 use turso::Value;
 use uuid::Uuid;
 
+use crate::backend::Writing;
 use crate::entities::EntityTable;
 use crate::records::{RecordTable, direction, json_text, level};
 use crate::store::{Error, Parameter};
@@ -148,6 +149,29 @@ impl TursoBackend {
         }
     }
 
+    /// Whether this engine was configured for MVCC journaling.
+    ///
+    /// MVCC is what lets two write transactions overlap. Without it the engine admits one
+    /// writer at a time, the same as SQLite, and `BEGIN CONCURRENT` is refused outright.
+    pub(crate) fn mvcc(&self) -> bool {
+        self.mvcc
+    }
+
+    /// Open a transaction on `connection`, in the form `writing` asks for.
+    ///
+    /// `BEGIN CONCURRENT` is what allows overlapping writers, and the engine accepts it
+    /// only under MVCC journaling, so a concurrent transaction asked of a database
+    /// without it opens plainly rather than failing. It is also refused around schema
+    /// changes, which is why a migration never asks for one.
+    async fn begin(&self, connection: &turso::Connection, writing: Writing) -> Result<(), Error> {
+        let statement = match writing {
+            Writing::Concurrent if self.mvcc => "BEGIN CONCURRENT",
+            Writing::Concurrent | Writing::Default => "BEGIN",
+        };
+        connection.execute(statement, ()).await?;
+        Ok(())
+    }
+
     /// Run the configuration's `close` statements on a connection being let go.
     async fn close(&self, connection: &turso::Connection) -> Result<(), Error> {
         for statement in &self.on_close {
@@ -179,7 +203,7 @@ impl TursoBackend {
         table: RecordTable,
         sql: &str,
         parameters: Vec<Value>,
-        sink: &mut impl FnMut(Records) -> Result<(), Error>,
+        sink: &mut (impl FnMut(Records) -> Result<(), Error> + ?Sized),
     ) -> Result<(), Error> {
         self.using(async |connection| {
             let mut rows = connection
@@ -271,7 +295,7 @@ impl TursoBackend {
         table: EntityTable,
         sql: &str,
         parameters: Vec<Value>,
-        sink: &mut impl FnMut(Entities) -> Result<(), Error>,
+        sink: &mut (impl FnMut(Entities) -> Result<(), Error> + ?Sized),
     ) -> Result<(), Error> {
         self.using(async |connection| {
             let mut rows = connection
@@ -319,7 +343,7 @@ impl TursoBackend {
         table: Option<crate::dynamic::Table>,
         sql: &str,
         parameters: Vec<Value>,
-        sink: &mut impl FnMut(Vec<crate::dynamic::Row>) -> Result<(), Error>,
+        sink: &mut (impl FnMut(Vec<crate::dynamic::Row>) -> Result<(), Error> + ?Sized),
     ) -> Result<(), Error> {
         self.using(async |connection| {
             let mut rows = connection
@@ -363,7 +387,9 @@ impl TursoBackend {
     /// project's own DDL files, which carry no statement holding a bare semicolon.
     pub(crate) async fn execute_script(&self, sql: &str) -> Result<(), Error> {
         self.using(async |connection| {
-            connection.execute("BEGIN", ()).await?;
+            // Plainly, never concurrently. A script is how a migration runs, and the
+            // engine refuses a schema change inside a concurrent transaction.
+            self.begin(connection, Writing::Default).await?;
             for statement in sql.split(';') {
                 if statement.trim().is_empty() {
                     continue;
@@ -392,7 +418,7 @@ impl TursoBackend {
         parameters: Vec<Value>,
     ) -> Result<u64, Error> {
         self.using(async |connection| {
-            connection.execute("BEGIN", ()).await?;
+            self.begin(connection, Writing::Default).await?;
             let affected = match connection
                 .execute(sql, turso::params_from_iter(parameters))
                 .await
@@ -425,7 +451,7 @@ impl TursoBackend {
         parameters: Vec<Value>,
     ) -> Result<Records, Error> {
         self.using(async |connection| {
-            connection.execute("BEGIN", ()).await?;
+            self.begin(connection, Writing::Default).await?;
             let decoded = async {
                 let mut rows = connection
                     .query(sql, turso::params_from_iter(parameters))
@@ -446,7 +472,7 @@ impl TursoBackend {
         parameters: Vec<Value>,
     ) -> Result<Entities, Error> {
         self.using(async |connection| {
-            connection.execute("BEGIN", ()).await?;
+            self.begin(connection, Writing::Default).await?;
             let decoded = async {
                 let mut rows = connection
                     .query(sql, turso::params_from_iter(parameters))
@@ -482,12 +508,17 @@ impl TursoBackend {
     }
 
     /// Execute statements in one transaction, rolling back if any of them fails.
+    ///
+    /// `writing` decides whether the transaction may overlap other writers. A concurrent
+    /// one that touched the same rows as another fails when it commits, so the caller
+    /// asking for it has to be willing to run these statements again.
     pub(crate) async fn execute_transaction(
         &self,
+        writing: Writing,
         statements: Vec<(String, Vec<Value>)>,
     ) -> Result<(), Error> {
         self.using(async |connection| {
-            connection.execute("BEGIN", ()).await?;
+            self.begin(connection, writing).await?;
             for (sql, parameters) in statements {
                 if let Err(error) = connection
                     .execute(&sql, turso::params_from_iter(parameters))
@@ -1177,5 +1208,208 @@ mod tests {
             Some(&crate::dynamic::Cell::Integer(2)),
             "both operations ran the close statement"
         );
+    }
+
+    /// Only MVCC journaling reports that writers can overlap.
+    ///
+    /// This is what a caller reads to know whether a concurrent transaction can lose a
+    /// race at commit, so it has to follow the setting rather than the request.
+    #[test]
+    fn overlapping_writers_are_reported_only_under_mvcc() {
+        use crate::backend::Engine;
+
+        let backend = |mvcc| TursoBackend::new("unused.turso", mvcc, vec![], vec![], vec![]);
+        assert!(!backend(false).overlaps_writers());
+        assert!(backend(true).overlaps_writers());
+    }
+
+    /// Two write transactions overlap on an MVCC database and both commit.
+    ///
+    /// This is the reason the backend exists. Each writer holds an open transaction while
+    /// the other writes, which under a single-writer engine would block or fail, and both
+    /// rows are there afterwards. `mvcc = false` is not asserted against, because the two
+    /// would simply serialize and still both land, which proves nothing either way.
+    #[tokio::test]
+    async fn concurrent_transactions_overlap_under_mvcc() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("concurrent.turso");
+        let path = path.to_str().expect("the path is text");
+
+        let store = RecordStore::turso(path, true, Vec::new(), Vec::new(), Vec::new());
+        store
+            .execute_script("CREATE TABLE probe (k TEXT PRIMARY KEY)")
+            .await
+            .expect("the table is created");
+        assert!(store.overlaps_writers(), "MVCC allows overlapping writers");
+
+        let backend = TursoBackend::new(path, true, vec![], vec![], vec![]);
+        let first = backend.connection().await.expect("the first connects");
+        let second = backend.connection().await.expect("the second connects");
+
+        // Both transactions are open at once, which is what a single writer forbids.
+        backend
+            .begin(&first, Writing::Concurrent)
+            .await
+            .expect("the first transaction opens");
+        backend
+            .begin(&second, Writing::Concurrent)
+            .await
+            .expect("the second transaction opens");
+
+        first
+            .execute("INSERT INTO probe VALUES ('a')", ())
+            .await
+            .expect("the first writes");
+        second
+            .execute("INSERT INTO probe VALUES ('b')", ())
+            .await
+            .expect("the second writes while the first is still open");
+
+        first
+            .execute("COMMIT", ())
+            .await
+            .expect("the first commits");
+        second
+            .execute("COMMIT", ())
+            .await
+            .expect("the second commits");
+
+        let rows = store
+            .fetch_dynamic(None, "SELECT COUNT(*) AS total FROM probe", Vec::new())
+            .await
+            .expect("the count is read");
+        assert_eq!(
+            rows.first()
+                .and_then(|row| row.first())
+                .map(|(_, cell)| cell),
+            Some(&crate::dynamic::Cell::Integer(2)),
+            "both overlapping transactions landed"
+        );
+    }
+
+    /// A plain transaction and a concurrent one still overlap under MVCC.
+    ///
+    /// This is the pair production actually runs. Only the record flush asks to be
+    /// concurrent, so every store write and every migration it overlaps with is opening
+    /// plainly, and a plain transaction that blocked a concurrent one would leave the
+    /// setting buying nothing where it matters.
+    #[tokio::test]
+    async fn a_plain_transaction_and_a_concurrent_one_overlap_under_mvcc() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("mixed.turso");
+        let path = path.to_str().expect("the path is text");
+
+        let store = RecordStore::turso(path, true, Vec::new(), Vec::new(), Vec::new());
+        store
+            .execute_script("CREATE TABLE probe (k TEXT PRIMARY KEY)")
+            .await
+            .expect("the table is created");
+
+        let backend = TursoBackend::new(path, true, vec![], vec![], vec![]);
+        let plain = backend.connection().await.expect("the plain one connects");
+        let concurrent = backend
+            .connection()
+            .await
+            .expect("the concurrent one connects");
+
+        backend
+            .begin(&plain, Writing::Default)
+            .await
+            .expect("the plain transaction opens");
+        plain
+            .execute("INSERT INTO probe VALUES ('plain')", ())
+            .await
+            .expect("the plain one writes");
+
+        backend
+            .begin(&concurrent, Writing::Concurrent)
+            .await
+            .expect("the concurrent transaction opens beside it");
+        concurrent
+            .execute("INSERT INTO probe VALUES ('concurrent')", ())
+            .await
+            .expect("the concurrent one writes while the plain one is still open");
+
+        plain
+            .execute("COMMIT", ())
+            .await
+            .expect("the plain commits");
+        concurrent
+            .execute("COMMIT", ())
+            .await
+            .expect("the concurrent commits");
+    }
+
+    /// Two concurrent transactions touching the same row settle at commit, not at write.
+    ///
+    /// This is the cost of asking to overlap, and the failure mode the record flush now
+    /// has to survive. What matters to the layer above is that the loser fails at all and
+    /// says something recognizable, because a flush that fails is requeued and written
+    /// again rather than lost.
+    #[tokio::test]
+    async fn a_concurrent_transaction_that_loses_a_race_fails() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("conflict.turso");
+        let path = path.to_str().expect("the path is text");
+
+        let store = RecordStore::turso(path, true, Vec::new(), Vec::new(), Vec::new());
+        store
+            .execute_script("CREATE TABLE probe (k TEXT PRIMARY KEY, v TEXT)")
+            .await
+            .expect("the table is created");
+
+        let backend = TursoBackend::new(path, true, vec![], vec![], vec![]);
+        let first = backend.connection().await.expect("the first connects");
+        let second = backend.connection().await.expect("the second connects");
+
+        backend
+            .begin(&first, Writing::Concurrent)
+            .await
+            .expect("the first transaction opens");
+        backend
+            .begin(&second, Writing::Concurrent)
+            .await
+            .expect("the second transaction opens");
+
+        // Both write the same key, which is the collision a concurrent transaction
+        // defers rather than blocks on.
+        first
+            .execute("INSERT INTO probe VALUES ('same', 'first')", ())
+            .await
+            .expect("the first writes");
+        let wrote = second
+            .execute("INSERT INTO probe VALUES ('same', 'second')", ())
+            .await;
+
+        first
+            .execute("COMMIT", ())
+            .await
+            .expect("the first commits");
+        let committed = second.execute("COMMIT", ()).await;
+
+        let refusal = match (&wrote, &committed) {
+            (Err(error), _) => error.to_string(),
+            (_, Err(error)) => error.to_string(),
+            _ => panic!("one of the two colliding writers has to lose"),
+        };
+
+        // The wording is what the Python layer's error translation reads, so it is pinned
+        // here rather than left to whatever the engine calls it next release. This one
+        // matches neither of that layer's constraint patterns, so it crosses as a plain
+        // value error, which is one of the failures a record flush requeues on. A release
+        // that reworded this would still requeue, but `test_a_write_conflict_requeues`
+        // in `tests/test_turso.py` is what says so from the other side.
+        assert!(
+            refusal.contains("Write-write conflict"),
+            "the refusal names why it lost, got {refusal:?}"
+        );
+
+        // Whatever the engine calls it, the loser's rows are still the caller's to write
+        // again, and the row that did land is the winner's.
+        let rows = store
+            .fetch_dynamic(None, "SELECT v FROM probe WHERE k = 'same'", Vec::new())
+            .await
+            .expect("the row is read");
+        assert_eq!(rows.len(), 1, "exactly one of the two writes landed");
     }
 }

@@ -737,6 +737,7 @@ name = "ceres-database"
 version = "0.0.0"
 dependencies = [
  "argon2",
+ "async-trait",
  "bcrypt",
  "ceres-entities",
  "chrono",
