@@ -196,8 +196,9 @@ class Database:
         """
         return None
 
-    def _store(self) -> Store:
-        """Return the native store this database's queries run through.
+    def _store(self) -> Store | None:
+        """Return the native store this database's queries run through, or `None` when a
+        second engine cannot safely join this database.
 
         One store serves the whole database, reads and writes alike, because a second
         pool over the same file is what the backends that withhold a native fetcher are
@@ -407,8 +408,8 @@ class Database:
         """
         return self._engine.connect()
 
-    async def use(self) -> AsyncConnection:
-        """Bootstrap an empty database through the migration chain, then open a new connection.
+    async def ready(self) -> None:
+        """Bootstrap an empty database through the migration chain.
 
         Databases that already have tables are left untouched here, `assert_schema_current`
         is what guards against stale schemas on those. Bootstrapping only happens once per
@@ -416,8 +417,9 @@ class Database:
         each run `initialized()` and `migrate()`, but `migrate()` serializes on the instance's
         migration lock, so migrations are still only applied once.
 
-        Returns:
-            An `AsyncConnection` ready for use against a bootstrapped database.
+        Every path that reaches the data has to come through here first, the native store's
+        as much as the query layer's, because a database nobody has bootstrapped has no
+        tables and, for a temporary one, no file either.
         """
         if not self._bootstrapped:
             if not await self.initialized():
@@ -425,6 +427,13 @@ class Database:
 
             self._bootstrapped = True
 
+    async def use(self) -> AsyncConnection:
+        """Bootstrap an empty database through the migration chain, then open a new connection.
+
+        Returns:
+            An `AsyncConnection` ready for use against a bootstrapped database.
+        """
+        await self.ready()
         return self.connect()
 
     async def ping(self) -> bool:
@@ -871,6 +880,13 @@ class TursoDatabase(SQLiteDatabase):
     @override
     def _create_store(self) -> Store:
         return Store.turso(str(self.path), self.config.mvcc)
+
+    @override
+    def _store(self) -> Store | None:
+        # Withheld for the same reason as the fetcher below, and the query layer is the
+        # other engine in that pair, so running it on a store here is exactly the two
+        # copies that lose each other's writes.
+        return None
 
     @override
     def _record_fetcher(self) -> RecordFetcher | None:

@@ -955,6 +955,27 @@ class _BaseStatementExecutor[
 
         return parse
 
+    async def _native_query(self) -> tuple[Any, str, list[Any]] | None:
+        """The store and the compiled statement this query runs, or `None` to keep it here.
+
+        A backend withholds its store when a second engine cannot safely join the
+        database, which is the only reason a query stays on the query layer. The clock
+        the compiler resolves age-relative conditions against is this session's, so a
+        frozen or faked time stays authoritative all the way down.
+        """
+        database = self._query._get_database()
+        store = database._store()
+        if store is None:
+            return None
+
+        # The store reads the database directly rather than through a connection the query
+        # layer opened, so the bootstrap that opening one would have done happens here.
+        await database.ready()
+
+        native = self._query._get_resolved_filter()._native_filter()
+        sql, parameters = native.compiled(database.type.value, now=utc())
+        return store, sql, parameters
+
     def _get_native_parser(self) -> Callable[[dict[str, Any]], EntityT | None]:
         """Build a parser over the column mappings the native store returns."""
         Entity = self._query._get_entity_class()
@@ -1026,6 +1047,37 @@ class SelectExecutor[
     @override
     async def _await(self) -> list[EntityT]:
         return await self.all()
+
+    @override
+    async def all(self) -> list[EntityT]:
+        """Execute the query and return all matching entities as a list."""
+        native = await self._native_query()
+        if native is None:
+            return await super().all()
+
+        store, sql, parameters = native
+        parse = self._get_native_parser()
+        entities: list[EntityT] = []
+        for values in await store.fetch(sql, parameters, self._native_table()):
+            entity = parse(values)
+            if entity is not None:
+                entities.append(entity)
+
+        return entities
+
+    @override
+    async def mappings(self) -> list[Mapping[str, Any]]:
+        """Execute the query and return raw row mappings without materializing entities."""
+        native = await self._native_query()
+        if native is None:
+            return await super().mappings()
+
+        store, sql, parameters = native
+        return await store.fetch(sql, parameters, self._native_table())
+
+    def _native_table(self) -> str:
+        """The table the fetched rows come from, which is what types their columns."""
+        return self._query._get_row_class().__tablename__
 
     @override
     async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
