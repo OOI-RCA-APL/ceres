@@ -3,7 +3,7 @@ from asyncio import Lock as AsyncLock
 from functools import cached_property
 from pathlib import Path
 from tempfile import gettempdir
-from typing import TYPE_CHECKING, Any, Self, final, override
+from typing import TYPE_CHECKING, Any, Protocol, Self, final, override
 
 from ceres_core import RecordFetcher, RecordWriter, Store
 
@@ -53,6 +53,7 @@ with __lazy_imports__(__name__):
 
 __all__ = [
     "Database",
+    "MigrationReporter",
     "SQLiteDatabase",
     "TursoDatabase",
     "PostgresDatabase",
@@ -75,6 +76,23 @@ CREATE TABLE IF NOT EXISTS migrations (
 """.strip()
 # The migrations table is intentionally not an entity row, it is bookkeeping owned by the
 # database layer.
+
+
+class MigrationReporter(Protocol):
+    """Told which migration is running, for a caller showing progress as they apply.
+
+    A migration is one script the driver runs whole, so there is nothing to report from
+    inside one. What a caller can show is which of them is running and how many are left,
+    which is what these two say.
+    """
+
+    def starting(self, migration: Migration, index: int, total: int) -> None:
+        """A migration is about to run. `index` is 0-based, `total` counts the pending."""
+        ...
+
+    def finished(self, migration: Migration) -> None:
+        """The migration that was running has landed and been recorded."""
+        ...
 
 
 def default_database_config() -> DatabaseConfig:
@@ -403,12 +421,17 @@ class Database:
         known = {migration.id for migration in MIGRATIONS}
         return [id for id in await self._get_applied_migration_ids() if id not in known]
 
-    async def migrate(self) -> list[int]:
+    async def migrate(self, reporter: MigrationReporter | None = None) -> list[int]:
         """Apply every pending migration in order, recording each as it completes.
 
         Holds an instance-level lock for the duration of the call, so concurrent callers on
         the same `Database` instance apply migrations one at a time instead of racing to
         insert the same migration ID.
+
+        Args:
+            reporter: Told which migration is starting and when it finished, for a caller
+                showing progress. A migration runs as one script, so there is nothing to
+                report from inside one, only which of them is running now.
 
         Returns:
             The IDs of the migrations that were applied.
@@ -417,9 +440,12 @@ class Database:
             DatabaseMigrationError: If a migration fails.
         """
         async with self._migrate_lock:
-            return await self._apply_pending_migrations()
+            return await self._apply_pending_migrations(reporter)
 
-    async def _apply_pending_migrations(self) -> list[int]:
+    async def _apply_pending_migrations(
+        self,
+        reporter: MigrationReporter | None = None,
+    ) -> list[int]:
         """Apply each pending migration in its own transaction.
 
         Returns:
@@ -429,8 +455,12 @@ class Database:
             DatabaseMigrationError: If a migration fails.
         """
         applied: list[int] = []
+        pending = await self.get_pending_migrations()
 
-        for migration in await self.get_pending_migrations():
+        for index, migration in enumerate(pending):
+            if reporter is not None:
+                reporter.starting(migration, index, len(pending))
+
             warning = DESTRUCTIVE_MIGRATIONS.get(migration.name)
             if warning is not None:
                 get_logger("ceres.database").warning(
@@ -460,6 +490,8 @@ class Database:
                     ) from error
 
             applied.append(migration.id)
+            if reporter is not None:
+                reporter.finished(migration)
 
         return applied
 

@@ -521,15 +521,48 @@ pub(crate) fn tabulate(rendered: &[u8], color: bool) -> String {
 
     for row in &rows {
         table.row(columns.iter().map(|column| match row.get(column) {
-            Some(Value::String(text)) => text.clone(),
+            Some(Value::String(text)) => printable(text),
             Some(Value::Null) | None => String::new(),
-            Some(value) => value.to_string(),
+            Some(value) => printable(&value.to_string()),
         }));
     }
 
     // The renderer draws the box without a trailing newline, which a table written to a
     // terminal needs so the next prompt starts on its own line.
     format!("{}\n", table.render(color))
+}
+
+/// Escape whatever a terminal would act on rather than show, for one table cell.
+///
+/// A message's payload is arbitrary instrument bytes carried as text, so a cell can hold
+/// anything. Two things go wrong if it reaches the terminal as it is. A carriage return
+/// or newline breaks the row across lines and takes the table's borders with it, which is
+/// the visible half. The other half is that an escape byte starts an ANSI sequence, so a
+/// device on the other end of a serial line could move the cursor, recolor the screen, or
+/// clear it, in an operator's terminal, just by being read.
+///
+/// Escaping is `\n`, `\r`, and `\t` for the three worth recognizing and `\u{..}` for
+/// everything else the Unicode standard calls a control, which is the same shape JSON
+/// would have shown, so a value looks the same whichever way it was asked for.
+fn printable(text: &str) -> String {
+    if !text.chars().any(char::is_control) {
+        return text.to_string();
+    }
+
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            _ if character.is_control() => {
+                escaped.push_str(&format!("\\u{{{:04x}}}", character as u32));
+            }
+            _ => escaped.push(character),
+        }
+    }
+
+    escaped
 }
 
 /// Draw a rendered result as a table, when a table is the shape asked for.
@@ -971,5 +1004,32 @@ mod tests {
         // An empty box would read as a rendering failure and a silent exit as a lost
         // result. Neither is what happened.
         assert_eq!(tabulate(b"", false), "No rows.\n");
+    }
+
+    #[test]
+    fn a_cell_holding_binary_stays_inside_its_row() {
+        // A message's payload is arbitrary instrument bytes. A newline in one used to
+        // break the row across lines and take the borders with it, and an escape byte
+        // reached the terminal as an ANSI sequence.
+        let rendered = "{\"data\":\"a\\r\\nb\\u0000c\\u001bd\"}\n".as_bytes();
+        let drawn = tabulate(rendered, false);
+
+        // Four lines of box and one of content, which is what one row looks like.
+        assert_eq!(drawn.lines().count(), 5, "{drawn}");
+        assert!(drawn.contains("a\\r\\nb\\u{0000}c\\u{001b}d"), "{drawn}");
+
+        // Nothing a terminal would act on survived into the output.
+        assert!(!drawn.contains('\r'), "{drawn}");
+        assert!(!drawn.contains('\u{0000}'), "{drawn}");
+        assert!(!drawn.contains('\u{001b}'), "{drawn}");
+    }
+
+    #[test]
+    fn ordinary_text_passes_through_a_cell_untouched() {
+        // Escaping only applies where something needs it, so a readable value stays
+        // readable rather than arriving full of backslashes.
+        assert_eq!(printable("@sensor.temp"), "@sensor.temp");
+        assert_eq!(printable("a value with spaces"), "a value with spaces");
+        assert_eq!(printable("ünïcode ✓"), "ünïcode ✓");
     }
 }

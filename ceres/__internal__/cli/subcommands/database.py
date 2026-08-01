@@ -1,5 +1,5 @@
 import sys
-from typing import override
+from typing import TYPE_CHECKING, override
 
 import anyio
 from pydantic_settings import CliSubCommand
@@ -11,9 +11,45 @@ from ceres.__internal__.cli.shared import (
     CLICommandGroup,
     get_confirmation,
     temporary_signal_handler,
+    write_progress,
 )
 from ceres.database.migrations import MIGRATIONS
 from ceres.timing import sdelta, utc
+
+if TYPE_CHECKING:
+    from rich.progress import Progress, TaskID
+
+    from ceres.database.migrations import Migration
+
+
+class MigrationProgress:
+    """Draw a bar per migration as the runner works through them.
+
+    Each migration gets its own bar rather than one bar for the batch, because they are
+    separate pieces of work of unrelated sizes and a single bar would imply a rate that
+    does not exist. The `N/M migrations` note beside each says where in the list it sits.
+
+    Satisfies `MigrationReporter` structurally, so the database layer never imports the
+    CLI to know how to be watched.
+    """
+
+    def __init__(self, progress: Progress) -> None:
+        self._progress = progress
+        self._task: TaskID | None = None
+
+    def starting(self, migration: Migration, index: int, total: int) -> None:
+        """Add this migration's bar, holding at zero while its script runs."""
+        self._task = self._progress.add_task(
+            f"{migration.id:04d} {migration.name}",
+            total=1,
+            note=f"{index + 1}/{total} migrations",
+        )
+
+    def finished(self, migration: Migration) -> None:
+        """Fill the bar of the migration that just landed."""
+        if self._task is not None:
+            self._progress.update(self._task, completed=1)
+            self._task = None
 
 
 class DDLCommand(CLICommand):
@@ -168,7 +204,9 @@ class MigrateCommand(CLICommand):
                 self.write(f"{migration.id}: {migration.name}")
 
             if get_confirmation("Apply the above migrations now?"):
-                applied = await database.migrate()
+                with write_progress() as progress:
+                    applied = await database.migrate(MigrationProgress(progress))
+
                 self.write(f"Applied {len(applied)} migration(s).")
             else:
                 self.write("Database has not been modified.")

@@ -12,7 +12,7 @@ import pytest
 from ceres.config import SQLiteDatabaseConfig
 from ceres.database import Database
 from ceres.database.migrations import load_migrations
-from ceres.error import DatabaseVersionError
+from ceres.error import DatabaseMigrationError, DatabaseVersionError
 
 
 @pytest.fixture
@@ -306,3 +306,54 @@ async def test_migration_3_converts_root_grants_and_deletes_root_state(database)
 
     rows = await store.fetch("SELECT COUNT(*) AS count FROM variables WHERE address = '@'", [])
     assert rows[0]["count"] == 0
+
+
+async def test_a_reporter_is_told_which_migration_is_running(database, monkeypatch, tmp_path):
+    """Progress is drawn from these calls, so they have to name each migration in order.
+
+    A migration runs as one script, so there is no progress to report from inside one.
+    What a caller can draw is which is running and how far through the list it is, and
+    that is exactly what `starting` carries.
+    """
+    _write(tmp_path, "0001-first.sql", "CREATE TABLE first (id INTEGER PRIMARY KEY);")
+    _write(tmp_path, "0002-second.sql", "CREATE TABLE second (id INTEGER PRIMARY KEY);")
+    monkeypatch.setattr("ceres.database.migrations.MIGRATIONS", load_migrations(tmp_path))
+
+    told: list[tuple[str, int, int, int]] = []
+
+    class Reporter:
+        def starting(self, migration, index, total):
+            told.append(("starting", migration.id, index, total))
+
+        def finished(self, migration):
+            told.append(("finished", migration.id, -1, -1))
+
+    assert await database.migrate(Reporter()) == [1, 2]
+    assert told == [
+        ("starting", 1, 0, 2),
+        ("finished", 1, -1, -1),
+        ("starting", 2, 0 + 1, 2),
+        ("finished", 2, -1, -1),
+    ]
+
+
+async def test_a_migration_that_fails_is_never_reported_as_finished(
+    database, monkeypatch, tmp_path
+):
+    """A bar that filled on a failed migration would say the opposite of what happened."""
+    _write(tmp_path, "0001-broken.sql", "CREATE TABLE broken (this is not sql);")
+    monkeypatch.setattr("ceres.database.migrations.MIGRATIONS", load_migrations(tmp_path))
+
+    told: list[str] = []
+
+    class Reporter:
+        def starting(self, migration, index, total):
+            told.append("starting")
+
+        def finished(self, migration):
+            told.append("finished")
+
+    with pytest.raises(DatabaseMigrationError):
+        await database.migrate(Reporter())
+
+    assert told == ["starting"], "the migration was announced but never completed"
