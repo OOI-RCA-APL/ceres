@@ -26,14 +26,16 @@ from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import Config
 from ceres.data import to_json, validate
+from ceres.group import Group, GroupMembership
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
 from ceres.particle import Particle
+from ceres.permission import GroupPermission, UserPermission
 from ceres.setting import Setting
 from ceres.user import User
 from ceres.variable import Variable
-from ceres.workspace import Workspace
+from ceres.workspace import Workspace, WorkspaceEdit
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,6 +55,11 @@ ENTITY_TABLES = {
     Variable: EntityTable.VARIABLES,
     Setting: EntityTable.SETTINGS,
     Workspace: EntityTable.WORKSPACES,
+    WorkspaceEdit: EntityTable.WORKSPACEEDITS,
+    Group: EntityTable.GROUPS,
+    GroupMembership: EntityTable.GROUPMEMBERSHIPS,
+    UserPermission: EntityTable.USERPERMISSIONS,
+    GroupPermission: EntityTable.GROUPPERMISSIONS,
 }
 """The non-record entities the CLI manages, whose filter language is a strict subset."""
 
@@ -413,6 +420,29 @@ def test_every_filter_field_is_classified() -> None:
         supported, delegated = entity_filter_keys(entity_table)
         assert not set(supported) & set(delegated)
         assert set(supported) | set(delegated) == _declared_keys(Entity), Entity.__name__
+
+
+def test_only_a_particle_class_has_no_native_form() -> None:
+    """Every filter key on every table compiles natively, but one.
+
+    This is what lets the query layer run on the native store rather than beside it. A
+    key that delegates is one the store cannot answer, so each new one would be a query
+    that has to keep a second execution path alive to serve it. A particle's `class`
+    names a Python type and so resolves before the filter is parsed at all, which is why
+    it is the exception rather than the start of a list.
+    """
+    delegated: dict[str, list[str]] = {}
+    for Record, table in RECORD_TABLES.items():
+        _, keys = record_filter_keys(table)
+        if keys:
+            delegated[Record.__name__] = sorted(keys)
+
+    for Entity, entity_table in ENTITY_TABLES.items():
+        _, keys = entity_filter_keys(entity_table)
+        if keys:
+            delegated[Entity.__name__] = sorted(keys)
+
+    assert delegated == {"Particle": ["class"]}
 
 
 def test_the_entity_grammar_is_a_subset_of_the_record_one() -> None:

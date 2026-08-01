@@ -155,6 +155,11 @@ pub enum EntityTable {
     Variables,
     Settings,
     Workspaces,
+    WorkspaceEdits,
+    Groups,
+    GroupMemberships,
+    UserPermissions,
+    GroupPermissions,
 }
 
 impl From<EntityTable> for ceres_database::EntityTable {
@@ -164,6 +169,11 @@ impl From<EntityTable> for ceres_database::EntityTable {
             EntityTable::Variables => Self::Variables,
             EntityTable::Settings => Self::Settings,
             EntityTable::Workspaces => Self::Workspaces,
+            EntityTable::WorkspaceEdits => Self::WorkspaceEdits,
+            EntityTable::Groups => Self::Groups,
+            EntityTable::GroupMemberships => Self::GroupMemberships,
+            EntityTable::UserPermissions => Self::UserPermissions,
+            EntityTable::GroupPermissions => Self::GroupPermissions,
         }
     }
 }
