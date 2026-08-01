@@ -8,8 +8,8 @@
 //! shape of a column rather than its value.
 
 use ceres_entities::{
-    Address, ComponentAccessLevel, Entities, Group, GroupMembership, GroupPermission,
-    PermissionTargetType, Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
+    Address, Entities, GrantLevel, Group, GroupMembership, GroupPermission, PermissionTargetType,
+    Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
 };
 use sea_query::{Alias, Asterisk, Order, Query, SelectStatement};
 use serde_json::Value;
@@ -486,8 +486,8 @@ fn target_type(value: String) -> Result<PermissionTargetType, Error> {
 }
 
 /// Decode a permission's access level from the text the column stores.
-fn access_level(value: String) -> Result<ComponentAccessLevel, Error> {
-    ComponentAccessLevel::parse(&value)
+fn access_level(value: String) -> Result<GrantLevel, Error> {
+    GrantLevel::parse(&value)
         .ok_or_else(|| Error::Decode(format!("{value:?} is not an access level")))
 }
 

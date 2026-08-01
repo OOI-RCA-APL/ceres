@@ -35,24 +35,18 @@ pub enum PermissionTargetType {
 /// The levels are a strict hierarchy, each implying the ones below it, but a permission
 /// filters on the level by equality rather than by rank, so the family here is a closed
 /// set of values rather than an ordered one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Python's `ComponentAccessLevel` carries a fourth level, `deny`, which a component
+/// declares as its own default and which means the absence of a grant. A row cannot hold
+/// it, the permission tables check for these three, so it is not a level here either.
+/// Leaving it out is what makes a create naming it fail while the row is still being
+/// read, rather than reaching the database and coming back as a constraint violation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, FilterValues)]
 #[serde(rename_all = "lowercase")]
-pub enum ComponentAccessLevel {
-    /// No access, which a component declares as its default rather than a grant holding.
-    Deny,
+pub enum GrantLevel {
     View,
     Operate,
     Manage,
-}
-
-/// The levels a permission row may hold, which is every level but `deny`.
-///
-/// `deny` means the absence of a grant, so the tables check for the other three and a
-/// row can never carry it. Writing the set out rather than deriving it from the enum
-/// keeps the wire surface to what is storable, so `--level deny` is refused by the
-/// argument parser rather than by the database.
-impl crate::FilterValues for ComponentAccessLevel {
-    const VALUES: &'static [&'static str] = &["view", "operate", "manage"];
 }
 
 /// An operator account.
@@ -152,7 +146,7 @@ pub struct UserPermission {
     /// so the Python filter gives the field no operation keys and neither does this.
     #[filterable(no_operations)]
     pub target: String,
-    pub level: ComponentAccessLevel,
+    pub level: GrantLevel,
 }
 
 /// A grant made to a group, which reaches every user in it.
@@ -162,7 +156,7 @@ pub struct GroupPermission {
     pub target_type: PermissionTargetType,
     #[filterable(no_operations)]
     pub target: String,
-    pub level: ComponentAccessLevel,
+    pub level: GrantLevel,
 }
 
 impl PermissionTargetType {
@@ -185,20 +179,18 @@ impl PermissionTargetType {
     }
 }
 
-impl ComponentAccessLevel {
+impl GrantLevel {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Deny => "deny",
             Self::View => "view",
             Self::Operate => "operate",
             Self::Manage => "manage",
         }
     }
 
-    /// Read an access level from its stored text.
+    /// Read a grant level from its stored text.
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "deny" => Some(Self::Deny),
             "view" => Some(Self::View),
             "operate" => Some(Self::Operate),
             "manage" => Some(Self::Manage),

@@ -90,7 +90,8 @@ impl Project {
 
         // The column types and the check constraints are the migrations' own, so a value
         // the surface admits but the schema refuses fails here the way it would in a real
-        // database.
+        // database. The foreign keys are left off, because nothing here asserts what a
+        // dangling reference does and creating them would mean creating `users` too.
         for statement in [
             "CREATE TABLE groups (id CHAR(32) NOT NULL, name TEXT NOT NULL, \
              description TEXT DEFAULT '' NOT NULL, CONSTRAINT pk_groups PRIMARY KEY (id), \
@@ -104,6 +105,12 @@ impl Project {
              CONSTRAINT ck_group_permissions__target_type \
              CHECK (target_type IN ('component', 'tag', 'all')), \
              CONSTRAINT ck_group_permissions__level CHECK (level IN ('view', 'operate', 'manage')))",
+            "CREATE TABLE user_permissions (user_id CHAR(32) NOT NULL, \
+             target_type VARCHAR NOT NULL, target TEXT NOT NULL, level VARCHAR NOT NULL, \
+             CONSTRAINT pk_user_permissions PRIMARY KEY (user_id, target_type, target), \
+             CONSTRAINT ck_user_permissions__target_type \
+             CHECK (target_type IN ('component', 'tag', 'all')), \
+             CONSTRAINT ck_user_permissions__level CHECK (level IN ('view', 'operate', 'manage')))",
         ] {
             sqlx::query(statement)
                 .execute(&pool)
@@ -667,12 +674,74 @@ async fn a_grant_filters_and_collects_on_its_enum_columns() {
 async fn a_grant_refuses_a_level_the_schema_cannot_store() {
     let project = Project::access().await;
 
-    // `deny` names the absence of a grant rather than one a row can hold, so the argument
-    // parser turns it away before a statement is built.
-    let output = project.run(&["group-permissions", "count", "--level", "deny"]);
-    assert!(!output.status.success());
-    let complaint = String::from_utf8_lossy(&output.stderr);
-    assert!(complaint.contains("deny"), "{complaint}");
+    // `deny` names the absence of a grant rather than a level a row can hold. It has to
+    // be turned away while the filter or the row is still being read, because a value
+    // that reaches the database comes back as a constraint violation naming the
+    // constraint, which tells the reader nothing about what they typed.
+    let filtered = project.run(&["group-permissions", "count", "--level", "deny"]);
+    assert!(!filtered.status.success());
+    let complaint = String::from_utf8_lossy(&filtered.stderr);
+    assert!(complaint.contains("invalid level"), "{complaint}");
+
+    let created = project.run(&[
+        "group-permissions",
+        "create",
+        "--group-id",
+        "019fbae5954c7321b29edfa121e5cdea",
+        "--target-type",
+        "tag",
+        "--target",
+        "indoor",
+        "--level",
+        "deny",
+    ]);
+    assert!(!created.status.success());
+    let refusal = String::from_utf8_lossy(&created.stderr);
+    assert!(
+        !refusal.contains("CHECK constraint"),
+        "the database answered instead of the surface: {refusal}"
+    );
+}
+
+#[tokio::test]
+async fn a_user_grant_reads_and_writes_like_a_group_grant() {
+    let project = Project::access().await;
+    let user = "019fbae594ef771394ae5a870bc1c722";
+
+    succeeded(&project.run(&[
+        "user-permissions",
+        "create",
+        "--user-id",
+        user,
+        "--target-type",
+        "component",
+        "--target",
+        "@motor",
+        "--level",
+        "operate",
+    ]));
+
+    let read =
+        succeeded(&project.run(&["user-permissions", "select", "--target-type", "component"]));
+    assert!(read.contains("\"target\":\"@motor\""), "{read}");
+    assert!(read.contains("\"level\":\"operate\""), "{read}");
+
+    // A grant covering everything carries an empty target, which is a value like any
+    // other rather than an absent one.
+    succeeded(&project.run(&[
+        "user-permissions",
+        "create",
+        "--user-id",
+        user,
+        "--target-type",
+        "all",
+        "--target",
+        "",
+        "--level",
+        "view",
+    ]));
+    let every = succeeded(&project.run(&["user-permissions", "count"]));
+    assert_eq!(every.trim(), "2", "{every}");
 }
 
 #[tokio::test]

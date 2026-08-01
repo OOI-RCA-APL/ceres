@@ -14,9 +14,9 @@
 //! its own driver for Turso databases and never constructs this backend beside it.
 
 use ceres_entities::{
-    Address, Alert, ComponentAccessLevel, Entities, Group, GroupMembership, GroupPermission,
-    LogEntry, Message, Particle, PermissionTargetType, Records, Setting, Timestamp, User,
-    UserPermission, Variable, Workspace, WorkspaceEdit,
+    Address, Alert, Entities, GrantLevel, Group, GroupMembership, GroupPermission, LogEntry,
+    Message, Particle, PermissionTargetType, Records, Setting, Timestamp, User, UserPermission,
+    Variable, Workspace, WorkspaceEdit,
 };
 use chrono::NaiveDateTime;
 use tokio::sync::OnceCell;
@@ -778,9 +778,9 @@ fn target_type(row: &turso::Row, index: usize) -> Result<PermissionTargetType, E
 }
 
 /// Decode a permission's access level from the text the column stores.
-fn access_level(row: &turso::Row, index: usize) -> Result<ComponentAccessLevel, Error> {
+fn access_level(row: &turso::Row, index: usize) -> Result<GrantLevel, Error> {
     let held = text(row, index)?;
-    ComponentAccessLevel::parse(&held)
+    GrantLevel::parse(&held)
         .ok_or_else(|| Error::Decode(format!("{held:?} is not an access level")))
 }
 

@@ -216,7 +216,7 @@ fn family_of(ty: &syn::Type) -> Family {
 fn known_enum(identifier: &syn::Ident) -> bool {
     identifier == "MessageDirection"
         || identifier == "PermissionTargetType"
-        || identifier == "ComponentAccessLevel"
+        || identifier == "GrantLevel"
 }
 
 /// Whether a type path's tail is one bare identifier.
