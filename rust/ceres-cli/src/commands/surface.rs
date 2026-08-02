@@ -412,15 +412,15 @@ fn output() -> Arg {
 fn row_arguments() -> Vec<Arg> {
     vec![
         output(),
-        Arg::new("data_format")
-            .long("data-format")
+        Arg::new("format")
+            .long("format")
             .short('f')
             .value_name("FORMAT")
             .value_parser(["json", "csv", "table"])
             .help_heading(OUTPUT)
             .help(
-                "Render as JSON lines, CSV, or a table. Inferred from --output, or from \
-                 whether anyone is reading, when unset.",
+                "Render as JSON lines, CSV, or a table. JSON lines unless --output names \
+                 a file the shape can be read from.",
             ),
         Arg::new("field")
             .long("field")
@@ -625,8 +625,8 @@ fn verb(table: Table, verb: &'static str, plural: &str, singular: &str) -> Comma
                     .help(format!("The file to read {plural} from.")),
             )
             .arg(
-                Arg::new("data_format")
-                    .long("data-format")
+                Arg::new("format")
+                    .long("format")
                     .value_name("FORMAT")
                     .value_parser(["json", "csv"])
                     .help("The file's shape. Inferred from its extension when unset."),

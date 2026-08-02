@@ -28,9 +28,9 @@ pub fn run(
 ) -> Result<()> {
     let invocation = Invocation::read(Table::Record(table), verb, matches);
 
-    // The shape follows who is reading and the color follows the flags, which are two
-    // questions rather than one. Turning color off leaves the same columns, uncolored.
-    let format = invocation.dump_format(crate::commands::dump::reading());
+    // The shape is what was asked for and the color follows the flags, which are two
+    // questions rather than one. Turning color off changes nothing about the shape.
+    let format = invocation.dump_format();
     let colored = invocation.colored(color);
 
     // A follow reads a running engine rather than the database, so it opens no store and
@@ -386,7 +386,7 @@ mod tests {
     #[test]
     fn the_destination_decides_the_shape_when_no_format_is_named() {
         // Nobody is reading, which is what a pipe or a redirect looks like.
-        let shape = |arguments: &[&str]| read(RecordTable::Messages, arguments).dump_format(false);
+        let shape = |arguments: &[&str]| read(RecordTable::Messages, arguments).dump_format();
 
         assert_eq!(shape(&["select", "--output", "rows.csv"]), DumpFormat::Csv);
         assert_eq!(
@@ -395,7 +395,7 @@ mod tests {
         );
         // A named format wins over the suffix, which is the point of naming one.
         assert_eq!(
-            shape(&["select", "--output", "rows.csv", "--data-format", "json"]),
+            shape(&["select", "--output", "rows.csv", "--format", "json"]),
             DumpFormat::Json
         );
     }

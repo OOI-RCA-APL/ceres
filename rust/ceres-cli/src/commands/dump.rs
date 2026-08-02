@@ -128,7 +128,7 @@ pub(crate) struct Invocation {
     /// The filter's wire pairs, or a create's field values.
     pub(crate) pairs: Vec<(String, String)>,
     pub(crate) output: Option<PathBuf>,
-    pub(crate) data_format: Option<String>,
+    pub(crate) format: Option<String>,
     /// Whether a CSV dump carries its header row.
     pub(crate) header: bool,
     /// Whether to ask before a write goes through.
@@ -164,7 +164,7 @@ impl Invocation {
             verb,
             pairs: surface::pairs(&keys, matches),
             output: text("output").map(PathBuf::from),
-            data_format: text("data_format"),
+            format: text("format"),
             // A header is written unless it was turned off, which is what makes a CSV
             // dump readable by default and pipeable on request.
             header: !flag("no-header").unwrap_or(false),
@@ -197,7 +197,7 @@ impl Invocation {
         &self,
     ) -> std::result::Result<(std::io::BufReader<std::fs::File>, LoadFormat), String> {
         let path = self.path.as_deref().expect("a load names its file");
-        let format = match &self.data_format {
+        let format = match &self.format {
             Some(named) => LoadFormat::parse(named),
             // An unnamed format comes from the extension.
             None => path
@@ -207,7 +207,7 @@ impl Invocation {
         };
         let Some(format) = format else {
             return Err(format!(
-                "Cannot tell what shape {} is in. Pass --data-format json or --data-format csv.",
+                "Cannot tell what shape {} is in. Pass --format json or --format csv.",
                 path.display()
             ));
         };
@@ -220,34 +220,22 @@ impl Invocation {
     /// The shape a dump renders in.
     ///
     /// A named format is taken as given, and a destination's suffix decides when none was
-    /// named. What is left is a dump nobody said anything about, which becomes a table
-    /// when there is someone there to read it and JSON lines otherwise. A person at a
-    /// terminal wants columns and a pipe wants one object per line, so neither has to ask
-    /// for what they were going to want anyway.
-    ///
-    /// `reading` is whether standard output is a terminal, and nothing else. The shape a
-    /// dump takes is a different question from whether it carries color, so turning color
-    /// off leaves a reader with the same columns they had, uncolored, rather than handing
-    /// them JSON they did not ask for.
-    pub(crate) fn dump_format(&self, reading: bool) -> DumpFormat {
-        match self.data_format.as_deref() {
+    /// named. Everything else is JSON lines, whoever is reading and whatever they are
+    /// reading it in. A dump is a thing to pipe into something else, and one that changed
+    /// shape depending on where it was pointed would be a dump nobody could write a script
+    /// against without first knowing how it was being run. Columns are a way of reading a
+    /// result rather than the result itself, so they are asked for.
+    pub(crate) fn dump_format(&self) -> DumpFormat {
+        match self.format.as_deref() {
             Some("csv") => return DumpFormat::Csv,
             Some("table") => return DumpFormat::Table,
             Some(_) => return DumpFormat::Json,
             None => {}
         }
 
-        if let Some(output) = &self.output {
-            return match output.extension() {
-                Some(suffix) if suffix == "csv" => DumpFormat::Csv,
-                _ => DumpFormat::Json,
-            };
-        }
-
-        if reading {
-            DumpFormat::Table
-        } else {
-            DumpFormat::Json
+        match self.output.as_ref().and_then(|output| output.extension()) {
+            Some(suffix) if suffix == "csv" => DumpFormat::Csv,
+            _ => DumpFormat::Json,
         }
     }
 
@@ -260,18 +248,16 @@ impl Invocation {
     }
 }
 
-/// Whether output is going somewhere a person is reading it right now.
-pub(crate) fn reading() -> bool {
-    std::io::IsTerminal::is_terminal(&std::io::stdout())
-}
-
 /// Whether color goes to standard output, the explicit flag winning over the environment.
+///
+/// Only color asks whether anyone is there to see it. The shape a dump takes does not,
+/// because a script reads the same JSON whether or not it happens to have a terminal.
 pub(crate) fn colored(color: Option<bool>) -> bool {
     match color {
         Some(color) => color,
         None if std::env::var_os("NO_COLOR").is_some() => false,
         None if std::env::var_os("FORCE_COLOR").is_some() => true,
-        None => reading(),
+        None => std::io::IsTerminal::is_terminal(&std::io::stdout()),
     }
 }
 
@@ -973,7 +959,7 @@ mod tests {
         // extension is loaded at all.
         let named = Invocation {
             path: Some(rows.clone()),
-            data_format: Some("csv".to_string()),
+            format: Some("csv".to_string()),
             ..Invocation::default()
         };
         let (_, format) = named.load_source().unwrap();
@@ -989,7 +975,7 @@ mod tests {
         }
         .load_source()
         .unwrap_err();
-        assert!(refused.contains("--data-format"), "{refused}");
+        assert!(refused.contains("--format"), "{refused}");
 
         // So is a file that is not there.
         let missing = Invocation {
@@ -1003,14 +989,13 @@ mod tests {
 
     #[test]
     fn the_shape_comes_from_the_named_format_or_the_destination() {
-        let shape = |data_format: Option<&str>, output: Option<&str>| {
+        let shape = |named: Option<&str>, output: Option<&str>| {
             Invocation {
-                data_format: data_format.map(str::to_string),
+                format: named.map(str::to_string),
                 output: output.map(PathBuf::from),
                 ..Invocation::default()
             }
-            // Nobody is reading, which is what a pipe or a redirect looks like.
-            .dump_format(false)
+            .dump_format()
         };
 
         assert_eq!(shape(None, None), DumpFormat::Json);
@@ -1018,31 +1003,25 @@ mod tests {
         assert_eq!(shape(None, Some("rows.json")), DumpFormat::Json);
         assert_eq!(shape(Some("csv"), None), DumpFormat::Csv);
         // Naming a format is how a reader overrides what the suffix would have said,
-        // columns included, which is the only way to get them anywhere but a terminal.
+        // columns included, columns being the shape nothing ever infers.
         assert_eq!(shape(Some("json"), Some("rows.csv")), DumpFormat::Json);
         assert_eq!(shape(Some("table"), None), DumpFormat::Table);
         assert_eq!(shape(Some("table"), Some("rows.txt")), DumpFormat::Table);
     }
 
     #[test]
-    fn a_dump_nobody_named_a_shape_for_follows_who_is_reading_it() {
-        let dump = |output: Option<&str>, reading| {
-            Invocation {
-                output: output.map(PathBuf::from),
-                ..Invocation::default()
-            }
-            .dump_format(reading)
-        };
+    fn a_dump_nobody_named_a_shape_for_is_json_lines() {
+        // A dump is a thing to pipe into something else. One that changed shape depending
+        // on where it was pointed could not be scripted against without first knowing how
+        // it was going to be run, so the shape does not depend on who is reading.
+        let dump = Invocation::default();
+        assert_eq!(dump.dump_format(), DumpFormat::Json);
 
-        // Someone at a terminal gets columns, and a pipe gets one object per line, so
-        // neither has to ask for what they were going to want anyway.
-        assert_eq!(dump(None, true), DumpFormat::Table);
-        assert_eq!(dump(None, false), DumpFormat::Json);
-
-        // A file is never a table, whatever the terminal is doing, because the point of
-        // naming a destination is feeding it to something else later.
-        assert_eq!(dump(Some("rows.json"), true), DumpFormat::Json);
-        assert_eq!(dump(Some("rows.csv"), true), DumpFormat::Csv);
+        // Color is the one thing that does ask, because nobody watching means nobody to
+        // see it, and it changes no byte a script would have read.
+        assert!(dump.colored(Some(true)));
+        assert!(!dump.colored(Some(false)));
+        assert_eq!(dump.dump_format(), DumpFormat::Json);
     }
 
     #[test]

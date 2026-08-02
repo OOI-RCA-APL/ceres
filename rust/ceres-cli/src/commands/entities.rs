@@ -35,9 +35,9 @@ pub fn run(
 ) -> Result<()> {
     let invocation = Invocation::read(Table::Entity(table), verb, matches);
 
-    // The shape follows who is reading and the color follows the flags, which are two
-    // questions rather than one. Turning color off leaves the same columns, uncolored.
-    let format = invocation.dump_format(crate::commands::dump::reading());
+    // The shape is what was asked for and the color follows the flags, which are two
+    // questions rather than one. Turning color off changes nothing about the shape.
+    let format = invocation.dump_format();
     let colored = invocation.colored(color);
 
     // The configuration is read before anything is built, because a user's own columns

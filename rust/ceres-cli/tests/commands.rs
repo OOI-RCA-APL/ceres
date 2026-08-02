@@ -142,13 +142,13 @@ impl Project {
         self.run_with(&["--no-color"], arguments, &[])
     }
 
-    /// Run the binary with color turned on, as it is for someone reading at a terminal.
+    /// Run the binary asking for columns, with color turned on.
     ///
-    /// Nothing here is a terminal, so the shape a terminal would have been given has to be
-    /// named. `FORCE_COLOR` only decides color, which is a separate question from shape.
+    /// Both have to be said, because neither is inferred. A dump is JSON lines whoever is
+    /// reading it, and `FORCE_COLOR` decides only color.
     fn watched(&self, arguments: &[&str]) -> Output {
         let mut named: Vec<&str> = arguments.to_vec();
-        named.extend(["--data-format", "table"]);
+        named.extend(["--format", "table"]);
         self.run_with(&[], &named, &[("FORCE_COLOR", "1")])
     }
 
@@ -232,7 +232,7 @@ async fn a_projection_selects_and_renames_the_output_fields() {
         "--address",
         "@motor",
         "name:label",
-        "--data-format",
+        "--format",
         "csv",
     ]));
 
@@ -391,7 +391,7 @@ async fn help_is_answered_without_starting_an_interpreter() {
 }
 
 #[tokio::test]
-async fn a_dump_someone_is_reading_is_drawn_as_a_table() {
+async fn a_dump_asked_for_columns_is_drawn_as_a_table() {
     let project = Project::seed().await;
 
     let table = succeeded(&project.watched(&["variables", "select", "--address", "@motor"]));
@@ -401,21 +401,21 @@ async fn a_dump_someone_is_reading_is_drawn_as_a_table() {
     // A table is columns, not one object per line.
     assert!(!table.contains('{'), "{table}");
 
-    // The same command with nothing reading it stays machine-readable, so a script that
-    // pipes this is unaffected by any of it.
+    // The same command without it is JSON lines, which is what every dump is unless it
+    // was asked to be something else, so a script reads the same bytes either way.
     let piped = succeeded(&project.run(&["variables", "select", "--address", "@motor"]));
     assert!(piped.starts_with('{'), "{piped}");
 }
 
 #[tokio::test]
-async fn turning_color_off_leaves_the_columns_it_was_going_to_draw() {
+async fn turning_color_off_leaves_the_columns_that_were_asked_for() {
     let project = Project::seed().await;
 
-    // Color and shape are separate questions. Saying "no color" used to answer both, so a
-    // reader who only wanted plain text was handed JSON instead of the table they had.
+    // Color and shape are separate questions, so answering one does not answer the other.
+    // A reader who wants columns without color gets exactly that.
     let bare = succeeded(&project.run_with(
         &[],
-        &["variables", "select", "--data-format", "table"],
+        &["variables", "select", "--format", "table"],
         &[("NO_COLOR", "1")],
     ));
     assert!(bare.contains('\u{256d}'), "{bare}");
@@ -461,7 +461,7 @@ async fn a_dump_written_to_a_file_carries_no_color_into_it() {
             &[
                 "variables",
                 "select",
-                "--data-format",
+                "--format",
                 format,
                 "--output",
                 &named,
@@ -639,7 +639,7 @@ async fn a_csv_dump_carries_its_header_even_with_no_rows() {
         "select",
         "--name",
         "nothing-matches-this",
-        "--data-format",
+        "--format",
         "csv",
     ]));
     assert_eq!(empty.trim(), "address,name,value");
@@ -650,7 +650,7 @@ async fn a_csv_dump_carries_its_header_even_with_no_rows() {
         "select",
         "--address",
         "@motor",
-        "--data-format",
+        "--format",
         "csv",
         "--no-header",
     ]));
