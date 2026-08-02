@@ -103,13 +103,20 @@ export function usePointerReorder(options: {
   function onPointerDown(index: number, event: PointerEvent) {
     suppressClick = false
 
-    // A row's own buttons own their presses, and a drag should only ever start from a plain left
-    // press.
-    if (event.button !== 0 || (event.target as HTMLElement).closest('button') != null) {
+    // A drag should only ever start from a plain left press.
+    if (event.button !== 0) {
       return
     }
 
     const elements = options.elements()
+
+    // An item's own buttons own their presses, so a tab is not dragged by its close button. The
+    // item itself is exempt, since a carousel dot is a button and is the very thing being dragged.
+    const pressed = (event.target as HTMLElement).closest('button')
+    if (pressed != null && pressed !== elements[index]) {
+      return
+    }
+
     const placements = elements.map(measure)
     if (placements.length === 0) {
       return
