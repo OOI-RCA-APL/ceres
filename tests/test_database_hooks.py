@@ -72,9 +72,7 @@ async def test_every_stage_of_a_connection_runs_the_statements_configured_for_it
         )
     )
     try:
-        # Migrating opens the connection the statements run on. It is called rather than
-        # `ready()` because the probe table would make an empty database look bootstrapped,
-        # `initialized()` asking whether the database holds any table at all.
+        # Migrating opens the connection the statements run on.
         await database.migrate()
         await database.users.count()
 
@@ -97,5 +95,31 @@ async def test_a_statement_the_backend_refuses_fails_the_connection_rather_than_
     try:
         with pytest.raises(Exception):
             await database.ready()
+    finally:
+        await database.dispose()
+
+
+@pytest.mark.databases("sqlite", "turso", "postgres")
+async def test_a_table_an_init_hook_created_does_not_pass_for_a_bootstrapped_database():
+    """A configuration that makes its own table still gets its migrations run.
+
+    An `init` hook runs on the connection that opens the database, which is before any
+    migration has. Reading "this database holds a table" as "this database is set up"
+    therefore leaves a project whose schema is never created, and the table the hook made
+    is the only one in it.
+    """
+    database = Database(
+        _configured(
+            DatabaseConfigHooks(init=[f"CREATE TABLE IF NOT EXISTS {_PROBE} (stage TEXT NOT NULL)"])
+        )
+    )
+    try:
+        assert not await database.initialized(), "the hook's own table is not this schema"
+
+        await database.ready()
+
+        assert await database.initialized()
+        # The schema is really there, rather than merely reported.
+        assert await database.users.count() == 0
     finally:
         await database.dispose()

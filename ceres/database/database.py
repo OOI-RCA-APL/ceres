@@ -534,19 +534,39 @@ class Database:
             await self._store().execute_script("\n".join(deletes))
 
     async def initialized(self) -> bool:
-        """Check whether the database already has tables in it.
+        """Check whether this schema has been created in the database.
+
+        The question is whether any table this schema owns is there, not whether the
+        database holds a table at all. A configuration's `init` hook runs on connections
+        opened before any migration has, and one that creates a table of its own would
+        otherwise make an empty database look bootstrapped, leaving a project whose
+        migrations never run and whose schema is never created.
 
         Returns:
-            `True` if any tables exist in the database, `False` on a fresh database.
+            `True` if any table this schema owns is present, `False` otherwise.
         """
         with wrap_database_errors():
-            return bool(await self._store().fetch(*self._table_names_query()))
+            rows = await self._store().fetch(*self._table_names_query())
+
+        present = {str(row["name"]) for row in rows}
+        return bool(present & self._owned_table_names())
+
+    @staticmethod
+    def _owned_table_names() -> set[str]:
+        """Every table name this schema is the author of.
+
+        The entity tables come from the native layer, which is the single authority on
+        what the schema holds, and `migrations` is added because it is bookkeeping owned
+        here rather than an entity row.
+        """
+        from ceres.__internal__.core import stored_columns
+
+        return {table for table, _ in stored_columns()} | {"migrations"}
 
     def _table_names_query(self) -> tuple[str, list[Any]]:
-        """A statement listing the tables a caller's own schema holds.
+        """A statement listing the tables in scope for this connection, each as `name`.
 
-        Answering wrongly means skipping the bootstrap of a database that has no tables, so
-        the wording follows what each backend counts as a table of the caller's. Neither
+        The wording follows what each backend counts as a table of the caller's. Neither
         backend's internal tables are the caller's, and on PostgreSQL neither is a table in
         a schema this connection does not resolve names against. Scoping to the search path
         rather than to every schema on the server is what makes the answer this database's
@@ -554,7 +574,7 @@ class Database:
         """
         if self.type.value == "postgres":
             return (
-                "SELECT tablename FROM pg_catalog.pg_tables "
+                "SELECT tablename AS name FROM pg_catalog.pg_tables "
                 "WHERE schemaname = ANY(current_schemas(false))",
                 [],
             )
