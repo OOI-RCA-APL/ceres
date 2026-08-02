@@ -13,16 +13,22 @@ use std::io::{IsTerminal, Write as _};
 #[derive(Debug, Clone, Copy)]
 pub struct Output {
     color: bool,
+    result_color: bool,
 }
 
 impl Output {
     /// Resolve output settings from the command line color override.
+    ///
+    /// The two streams are resolved separately, because they go to different places and a
+    /// run with one redirected and the other not is the ordinary case. Only the fallback
+    /// differs, so an explicit flag or `NO_COLOR` still answers for both at once.
     pub fn new(color: Option<bool>) -> Self {
-        let color = color
-            .or_else(color_from_environment)
-            .unwrap_or_else(|| std::io::stderr().is_terminal());
+        let resolved = color.or_else(color_from_environment);
 
-        Self { color }
+        Self {
+            color: resolved.unwrap_or_else(|| std::io::stderr().is_terminal()),
+            result_color: resolved.unwrap_or_else(|| std::io::stdout().is_terminal()),
+        }
     }
 
     /// Write a human-readable line to stderr.
@@ -31,10 +37,23 @@ impl Output {
         let _ = writeln!(stderr, "{}", message.as_ref());
     }
 
-    /// Write a structured result line to stdout.
+    /// Write a structured result line to stdout, colored the way a dump's rows are.
+    ///
+    /// What comes through here is an engine's own JSON answer, which is the same shape as
+    /// a row and worth reading the same way. Anything that is not JSON passes through
+    /// untouched, so a version string or a URL is still the plain text it was.
     pub fn put(&self, value: impl AsRef<str>) {
+        let value = value.as_ref();
+        let painted;
+        let value = if self.result_color {
+            painted = crate::highlight::text(value);
+            painted.as_str()
+        } else {
+            value
+        };
+
         let mut stdout = std::io::stdout().lock();
-        let _ = writeln!(stdout, "{}", value.as_ref());
+        let _ = writeln!(stdout, "{value}");
     }
 
     /// Render a table to stderr with a rounded box.

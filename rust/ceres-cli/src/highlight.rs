@@ -70,12 +70,17 @@ fn text_style(text: &str) -> &'static str {
 /// A line that will not parse is passed through as it is. There should not be one, and a
 /// dump that starts eating its own output would be a worse failure than an uncolored line.
 pub fn painted(bytes: Vec<u8>) -> Vec<u8> {
-    let Ok(text) = std::str::from_utf8(&bytes) else {
-        return bytes;
-    };
+    match std::str::from_utf8(&bytes) {
+        Ok(input) => text(input).into_bytes(),
+        // Nothing here can read what is not text, and a dump is not the place to find out.
+        Err(_) => bytes,
+    }
+}
 
-    let mut out = String::with_capacity(text.len() * 2);
-    for line in text.split_inclusive('\n') {
+/// Paint JSON lines held as text, which is what everything but a row dump has.
+pub fn text(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() * 2);
+    for line in input.split_inclusive('\n') {
         let trimmed = line.trim_end_matches(['\n', '\r']);
         match serde_json::from_str::<Value>(trimmed) {
             Ok(value) => {
@@ -86,7 +91,7 @@ pub fn painted(bytes: Vec<u8>) -> Vec<u8> {
         }
     }
 
-    out.into_bytes()
+    out
 }
 
 /// Write one value as colored JSON.
@@ -206,6 +211,15 @@ mod tests {
         // A dump that started eating its own output would be a worse failure than an
         // uncolored line.
         assert_eq!(painted(b"not json\n".to_vec()), b"not json\n");
+
+        // The same holds for what a command prints beside its rows, a version string and
+        // a console URL among them, neither of which is JSON and both of which go through
+        // the same painter.
+        assert_eq!(text("0.40.0"), "0.40.0");
+        assert_eq!(
+            text("http://localhost:8080/console"),
+            "http://localhost:8080/console"
+        );
     }
 
     #[test]
