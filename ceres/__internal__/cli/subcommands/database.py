@@ -23,11 +23,12 @@ if TYPE_CHECKING:
 
 
 class MigrationProgress:
-    """Draw a bar per migration as the runner works through them.
+    """Name the migration running now, and say how far through the list it is.
 
-    Each migration gets its own bar rather than one bar for the batch, because they are
-    separate pieces of work of unrelated sizes and a single bar would imply a rate that
-    does not exist. The `N/M migrations` note beside each says where in the list it sits.
+    One line for the whole run rather than one per migration, because a migration runs as
+    a single script and nothing can see inside one. All that can honestly be said is which
+    is running and how many have landed, so the spinner carries that work is happening and
+    the count carries the position. The spinner becomes a check when the last one lands.
 
     Satisfies `MigrationReporter` structurally, so the database layer never imports the
     CLI to know how to be watched.
@@ -36,20 +37,27 @@ class MigrationProgress:
     def __init__(self, progress: Progress) -> None:
         self._progress = progress
         self._task: TaskID | None = None
+        self._landed = 0
 
     def starting(self, migration: Migration, index: int, total: int) -> None:
-        """Add this migration's bar, holding at zero while its script runs."""
-        self._task = self._progress.add_task(
-            f"{migration.id:04d} {migration.name}",
-            total=1,
-            note=f"{index + 1}/{total} migrations",
-        )
+        """Name the migration now running and move the count on to it."""
+        label = f"{migration.id:04d} {migration.name}"
+        note = f"({index + 1}/{total})"
+
+        if self._task is None:
+            self._task = self._progress.add_task(label, total=total, note=note)
+        else:
+            self._progress.update(self._task, description=label, note=note)
 
     def finished(self, migration: Migration) -> None:
-        """Fill the bar of the migration that just landed."""
+        """Count the migration that just landed, which turns the spinner on the last one.
+
+        Nothing draws this number, but the task has to reach its total for the spinner to
+        become a check, and a migration that fails never gets counted.
+        """
+        self._landed += 1
         if self._task is not None:
-            self._progress.update(self._task, completed=1)
-            self._task = None
+            self._progress.update(self._task, completed=self._landed)
 
 
 class DDLCommand(CLICommand):
@@ -200,16 +208,36 @@ class MigrateCommand(CLICommand):
                 self.write("Database is up to date.")
                 return
 
-            for migration in pending:
-                self.write(f"{migration.id}: {migration.name}")
+            # A database nothing has been applied to is being created rather than
+            # migrated, so naming every migration and drawing a bar through them is noise.
+            # All of them are pending, and none is a change to something the reader
+            # already has, which makes the whole run one step rather than a list of them.
+            #
+            # Applied migrations rather than `initialized()`, because reading the applied
+            # set creates the table that records it, so by now the database has a table
+            # whether or not it had one when the command started.
+            bootstrapping = not await database.get_applied_migrations()
 
-            if get_confirmation("Apply the above migrations now?"):
+            if bootstrapping:
+                question = "Create the project database?"
+            else:
+                for migration in pending:
+                    self.write(f"{migration.id}: {migration.name}")
+
+                question = "Apply the above migrations now?"
+
+            if not get_confirmation(question):
+                self.write("Database has not been modified.")
+                return
+
+            if bootstrapping:
+                applied = await database.migrate()
+                self.write(f"Created the database with {len(applied)} migration(s).")
+            else:
                 with write_progress() as progress:
                     applied = await database.migrate(MigrationProgress(progress))
 
                 self.write(f"Applied {len(applied)} migration(s).")
-            else:
-                self.write("Database has not been modified.")
 
 
 class MigrationsCommand(CLICommand):

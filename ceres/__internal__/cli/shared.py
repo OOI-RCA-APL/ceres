@@ -245,10 +245,11 @@ _write = write
 def write_progress(file: IO[str] = sys.stderr):
     """Create a Rich progress context that draws itself while the block runs.
 
-    Each task is one piece of work whose insides cannot be measured, so a task's bar sits
-    at zero with a spinner beside it until the work finishes, then fills. That is honest
-    about what is known, and still shows which piece is running and how far through the
-    list it is.
+    A task is a list of pieces of work that finish one after another, drawn as a spinner,
+    what is running now, and how far through the list it is. There is no bar, because a
+    bar of whole steps only redraws the count beside it in a second shape, and nothing
+    here can see inside a step to fill one smoothly. The spinner carries that something is
+    happening and becomes a check when the list is done.
 
     Nothing is drawn when the stream is not a terminal, so a redirected or piped run
     writes its lines and no control codes.
@@ -260,13 +261,12 @@ def write_progress(file: IO[str] = sys.stderr):
         A `rich.progress.Progress` to add tasks to.
     """
     from rich.console import Console
-    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+    from rich.progress import Progress, SpinnerColumn, TextColumn
 
     interactive = file.isatty() if file else False
     with Progress(
         SpinnerColumn(finished_text="[green]✓[/green]"),
         TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
         TextColumn("{task.fields[note]}"),
         console=Console(file=file, force_terminal=interactive or None),
         disable=not interactive,
