@@ -4,6 +4,7 @@ mod cli;
 mod client;
 mod commands;
 mod error;
+mod highlight;
 mod output;
 mod project;
 mod runtime;

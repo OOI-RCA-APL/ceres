@@ -28,11 +28,15 @@ pub fn run(
 ) -> Result<()> {
     let invocation = Invocation::read(Table::Record(table), verb, matches);
 
-    let format = invocation.dump_format(color);
+    // The shape follows who is reading and the color follows the flags, which are two
+    // questions rather than one. Turning color off leaves the same columns, uncolored.
+    let format = invocation.dump_format(crate::commands::dump::reading());
+    let colored = invocation.colored(color);
+
     // A follow reads a running engine rather than the database, so it opens no store and
     // takes its own path from here.
     if invocation.verb.streams() {
-        return crate::commands::follow::run(table, &invocation, format, config);
+        return crate::commands::follow::run(table, &invocation, format, colored, config);
     }
 
     // A filtered verb parses its wire pairs, while `create` reads them as the new
@@ -119,8 +123,8 @@ pub fn run(
             // themselves when `--collect` asked for them.
             Verb::Delete if invocation.collect => {
                 let touched = store.delete_filter_returning(filter()).await?;
-                render(&touched, format, &projection, header)
-                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
+                render(&touched, format, &projection, header, colored)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
             }
             Verb::Delete => store
                 .delete_filter(filter())
@@ -133,8 +137,8 @@ pub fn run(
                     .expect("an update carries its assignments");
                 if invocation.collect {
                     let touched = store.update_filter_returning(filter(), assign).await?;
-                    render(&touched, format, &projection, header)
-                        .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
+                    render(&touched, format, &projection, header, colored)
+                        .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
                 } else {
                     store
                         .update_filter(filter(), assign)
@@ -163,8 +167,8 @@ pub fn run(
                         ceres_database::Conflict::Error,
                     )
                     .await?;
-                render(&incoming[0], format, &projection, header)
-                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
+                render(&incoming[0], format, &projection, header, colored)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
             }
             // A select streams, rendering and writing each chunk as the driver yields
             // it, so the dump never holds more than one chunk however large the table.
@@ -180,12 +184,12 @@ pub fn run(
                 let outcome = store
                     .stream_filter(filter(), &mut |records| {
                         let heading = sink.heading();
-                        let rendered = render(&records, format, &projection, heading)?;
+                        let rendered = render(&records, format, &projection, heading, colored)?;
                         sink.push(rendered).map_err(written)
                     })
                     .await;
 
-                finish(sink, outcome).map(|rendered| drawn(rendered, format, color))
+                finish(sink, outcome).map(|rendered| drawn(rendered, format, colored))
             }
         }
     });
@@ -208,6 +212,7 @@ fn render(
     format: DumpFormat,
     projection: &[(String, String)],
     header: bool,
+    colored: bool,
 ) -> std::result::Result<Vec<u8>, ceres_database::Error> {
     let rendered = match (format, projection.is_empty()) {
         // A table is drawn once the whole result is in hand, so each chunk
@@ -221,7 +226,9 @@ fn render(
             .to_csv_lines_projected(projection, header)
             .map(String::into_bytes),
     };
-    rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
+    rendered
+        .map(|bytes| crate::commands::dump::painted(bytes, format, colored))
+        .map_err(|error| ceres_database::Error::Decode(error.to_string()))
 }
 
 /// What to say about a filter the compiler will not take.
@@ -379,8 +386,7 @@ mod tests {
     #[test]
     fn the_destination_decides_the_shape_when_no_format_is_named() {
         // Nobody is reading, which is what a pipe or a redirect looks like.
-        let shape =
-            |arguments: &[&str]| read(RecordTable::Messages, arguments).dump_format(Some(false));
+        let shape = |arguments: &[&str]| read(RecordTable::Messages, arguments).dump_format(false);
 
         assert_eq!(shape(&["select", "--output", "rows.csv"]), DumpFormat::Csv);
         assert_eq!(

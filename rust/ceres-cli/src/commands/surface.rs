@@ -416,9 +416,12 @@ fn row_arguments() -> Vec<Arg> {
             .long("data-format")
             .short('f')
             .value_name("FORMAT")
-            .value_parser(["json", "csv"])
+            .value_parser(["json", "csv", "table"])
             .help_heading(OUTPUT)
-            .help("Render as JSON lines or CSV. Inferred from --output when unset."),
+            .help(
+                "Render as JSON lines, CSV, or a table. Inferred from --output, or from \
+                 whether anyone is reading, when unset.",
+            ),
         Arg::new("field")
             .long("field")
             .action(ArgAction::Append)

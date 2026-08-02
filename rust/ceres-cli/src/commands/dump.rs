@@ -224,9 +224,15 @@ impl Invocation {
     /// when there is someone there to read it and JSON lines otherwise. A person at a
     /// terminal wants columns and a pipe wants one object per line, so neither has to ask
     /// for what they were going to want anyway.
-    pub(crate) fn dump_format(&self, color: Option<bool>) -> DumpFormat {
+    ///
+    /// `reading` is whether standard output is a terminal, and nothing else. The shape a
+    /// dump takes is a different question from whether it carries color, so turning color
+    /// off leaves a reader with the same columns they had, uncolored, rather than handing
+    /// them JSON they did not ask for.
+    pub(crate) fn dump_format(&self, reading: bool) -> DumpFormat {
         match self.data_format.as_deref() {
             Some("csv") => return DumpFormat::Csv,
+            Some("table") => return DumpFormat::Table,
             Some(_) => return DumpFormat::Json,
             None => {}
         }
@@ -238,21 +244,34 @@ impl Invocation {
             };
         }
 
-        if watched(color) {
+        if reading {
             DumpFormat::Table
         } else {
             DumpFormat::Json
         }
     }
+
+    /// Whether this dump's output carries color.
+    ///
+    /// A dump named a file is never colored, whatever the terminal is doing, because the
+    /// escape sequences would land in the file rather than on a screen.
+    pub(crate) fn colored(&self, color: Option<bool>) -> bool {
+        self.output.is_none() && colored(color)
+    }
 }
 
 /// Whether output is going somewhere a person is reading it right now.
-pub(crate) fn watched(color: Option<bool>) -> bool {
+pub(crate) fn reading() -> bool {
+    std::io::IsTerminal::is_terminal(&std::io::stdout())
+}
+
+/// Whether color goes to standard output, the explicit flag winning over the environment.
+pub(crate) fn colored(color: Option<bool>) -> bool {
     match color {
         Some(color) => color,
         None if std::env::var_os("NO_COLOR").is_some() => false,
         None if std::env::var_os("FORCE_COLOR").is_some() => true,
-        None => std::io::IsTerminal::is_terminal(&std::io::stdout()),
+        None => reading(),
     }
 }
 
@@ -520,10 +539,24 @@ pub(crate) fn tabulate(rendered: &[u8], color: bool) -> String {
     }
 
     for row in &rows {
-        table.row(columns.iter().map(|column| match row.get(column) {
-            Some(Value::String(text)) => printable(text),
-            Some(Value::Null) | None => String::new(),
-            Some(value) => printable(&value.to_string()),
+        table.row(columns.iter().map(|column| {
+            // A column no row carries a value for is an empty cell rather than the word
+            // "null", which is also what a stored null looks like, so neither is colored.
+            let Some(value) = row.get(column).filter(|value| !value.is_null()) else {
+                return crate::output::Cell::default();
+            };
+
+            let text = match value {
+                // A string prints as its text rather than as quoted JSON, which is what
+                // makes a table readable where JSON lines are exact.
+                Value::String(text) => printable(text),
+                value => printable(&value.to_string()),
+            };
+
+            crate::output::Cell::styled(
+                text,
+                color.then(|| crate::highlight::style(value)).flatten(),
+            )
         }));
     }
 
@@ -565,17 +598,32 @@ fn printable(text: &str) -> String {
     escaped
 }
 
+/// Color one rendered chunk, for the shapes that carry color as they are written.
+///
+/// This runs per chunk rather than once at the end, so a dump too large to hold arrives
+/// colored the whole way down rather than only as far as its first chunk. A table takes
+/// its color when it is drawn instead, because it cannot be drawn until the last row is
+/// in, and CSV takes none, being a shape written to be read by something else.
+pub(crate) fn painted(bytes: Vec<u8>, format: DumpFormat, colored: bool) -> Vec<u8> {
+    if colored && format == DumpFormat::Json {
+        crate::highlight::painted(bytes)
+    } else {
+        bytes
+    }
+}
+
 /// Draw a rendered result as a table, when a table is the shape asked for.
 ///
 /// Every shape but a table is already the bytes it will be written as, so this is where
-/// the one that is not becomes them.
-pub(crate) fn drawn(rendered: Rendered, format: DumpFormat, color: Option<bool>) -> Rendered {
+/// the one that is not becomes them. Color reaches the other shapes as each chunk is
+/// rendered, because a table is the one that cannot be drawn until the last row is in.
+pub(crate) fn drawn(rendered: Rendered, format: DumpFormat, colored: bool) -> Rendered {
     if format != DumpFormat::Table {
         return rendered;
     }
 
     match rendered {
-        Rendered::Bytes(bytes) => Rendered::Text(tabulate(&bytes, watched(color))),
+        Rendered::Bytes(bytes) => Rendered::Text(tabulate(&bytes, colored)),
         // A result that reached the output already, or never produced one, has nothing
         // left to draw.
         other => other,
@@ -948,36 +996,53 @@ mod tests {
                 ..Invocation::default()
             }
             // Nobody is reading, which is what a pipe or a redirect looks like.
-            .dump_format(Some(false))
+            .dump_format(false)
         };
 
         assert_eq!(shape(None, None), DumpFormat::Json);
         assert_eq!(shape(None, Some("rows.csv")), DumpFormat::Csv);
         assert_eq!(shape(None, Some("rows.json")), DumpFormat::Json);
         assert_eq!(shape(Some("csv"), None), DumpFormat::Csv);
-        // Naming a format is how a reader overrides what the suffix would have said.
+        // Naming a format is how a reader overrides what the suffix would have said,
+        // columns included, which is the only way to get them anywhere but a terminal.
         assert_eq!(shape(Some("json"), Some("rows.csv")), DumpFormat::Json);
+        assert_eq!(shape(Some("table"), None), DumpFormat::Table);
+        assert_eq!(shape(Some("table"), Some("rows.txt")), DumpFormat::Table);
     }
 
     #[test]
     fn a_dump_nobody_named_a_shape_for_follows_who_is_reading_it() {
-        let dump = |output: Option<&str>, color| {
+        let dump = |output: Option<&str>, reading| {
             Invocation {
                 output: output.map(PathBuf::from),
                 ..Invocation::default()
             }
-            .dump_format(color)
+            .dump_format(reading)
         };
 
         // Someone at a terminal gets columns, and a pipe gets one object per line, so
         // neither has to ask for what they were going to want anyway.
-        assert_eq!(dump(None, Some(true)), DumpFormat::Table);
-        assert_eq!(dump(None, Some(false)), DumpFormat::Json);
+        assert_eq!(dump(None, true), DumpFormat::Table);
+        assert_eq!(dump(None, false), DumpFormat::Json);
 
         // A file is never a table, whatever the terminal is doing, because the point of
         // naming a destination is feeding it to something else later.
-        assert_eq!(dump(Some("rows.json"), Some(true)), DumpFormat::Json);
-        assert_eq!(dump(Some("rows.csv"), Some(true)), DumpFormat::Csv);
+        assert_eq!(dump(Some("rows.json"), true), DumpFormat::Json);
+        assert_eq!(dump(Some("rows.csv"), true), DumpFormat::Csv);
+    }
+
+    #[test]
+    fn a_dump_named_a_file_carries_no_color_however_the_terminal_is_set() {
+        let dump = |output: Option<&str>| Invocation {
+            output: output.map(PathBuf::from),
+            ..Invocation::default()
+        };
+
+        // Escape sequences written to a file are read back as the characters they are,
+        // so a redirected dump is uncolored even where a reader asked for color.
+        assert!(dump(None).colored(Some(true)));
+        assert!(!dump(Some("rows.json")).colored(Some(true)));
+        assert!(!dump(None).colored(Some(false)));
     }
 
     #[test]

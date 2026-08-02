@@ -35,7 +35,10 @@ pub fn run(
 ) -> Result<()> {
     let invocation = Invocation::read(Table::Entity(table), verb, matches);
 
-    let format = invocation.dump_format(color);
+    // The shape follows who is reading and the color follows the flags, which are two
+    // questions rather than one. Turning color off leaves the same columns, uncolored.
+    let format = invocation.dump_format(crate::commands::dump::reading());
+    let colored = invocation.colored(color);
 
     // The configuration is read before anything is built, because a user's own columns
     // are written under rules the database's own hashing configuration decides.
@@ -137,8 +140,8 @@ pub fn run(
             // themselves when `--collect` asked for them.
             Verb::Delete if invocation.collect => {
                 let touched = store.delete_entity_filter_returning(filter()).await?;
-                render(&touched, format, &projection, header)
-                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
+                render(&touched, format, &projection, header, colored)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
             }
             Verb::Delete => store
                 .delete_entity_filter(filter())
@@ -153,8 +156,8 @@ pub fn run(
                     let touched = store
                         .update_entity_filter_returning(filter(), assign, credentials)
                         .await?;
-                    render(&touched, format, &projection, header)
-                        .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
+                    render(&touched, format, &projection, header, colored)
+                        .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
                 } else {
                     store
                         .update_entity_filter(filter(), assign, credentials)
@@ -184,8 +187,8 @@ pub fn run(
                         ceres_database::Conflict::Error,
                     )
                     .await?;
-                render(&incoming[0], format, &projection, header)
-                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, color))
+                render(&incoming[0], format, &projection, header, colored)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
             }
             // A select streams, rendering and writing each chunk as the driver yields
             // it, so the dump never holds more than one chunk however large the table.
@@ -201,12 +204,12 @@ pub fn run(
                 let outcome = store
                     .stream_entity_filter(filter(), &mut |entities| {
                         let heading = sink.heading();
-                        let rendered = render(&entities, format, &projection, heading)?;
+                        let rendered = render(&entities, format, &projection, heading, colored)?;
                         sink.push(rendered).map_err(written)
                     })
                     .await;
 
-                finish(sink, outcome).map(|rendered| drawn(rendered, format, color))
+                finish(sink, outcome).map(|rendered| drawn(rendered, format, colored))
             }
         }
     });
@@ -263,6 +266,7 @@ fn render(
     format: DumpFormat,
     projection: &[(String, String)],
     header: bool,
+    colored: bool,
 ) -> std::result::Result<Vec<u8>, ceres_database::Error> {
     let rendered = match (format, projection.is_empty()) {
         // A table is drawn once the whole result is in hand, so each chunk
@@ -276,7 +280,9 @@ fn render(
             .to_csv_lines_projected(projection, header)
             .map(String::into_bytes),
     };
-    rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
+    rendered
+        .map(|bytes| crate::commands::dump::painted(bytes, format, colored))
+        .map_err(|error| ceres_database::Error::Decode(error.to_string()))
 }
 
 /// What to say about a filter the compiler will not take.

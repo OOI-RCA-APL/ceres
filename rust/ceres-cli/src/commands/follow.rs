@@ -29,6 +29,7 @@ pub fn run(
     table: RecordTable,
     invocation: &Invocation,
     format: DumpFormat,
+    colored: bool,
     config: Option<&Path>,
 ) -> Result<()> {
     // The filter parses here only to prove the query compiler understands it. The engine
@@ -61,7 +62,7 @@ pub fn run(
             Ok(_) => continue,
         };
 
-        let rendered = match render(table, &frame, format, &projection, &mut sink) {
+        let rendered = match render(table, &frame, format, &projection, colored, &mut sink) {
             Ok(rendered) => rendered,
             Err(message) => return deliver(invocation, Rendered::Failed(message)),
         };
@@ -93,6 +94,7 @@ fn render(
     frame: &str,
     format: DumpFormat,
     projection: &[(String, String)],
+    colored: bool,
     sink: &mut Sink<'_>,
 ) -> std::result::Result<Vec<u8>, String> {
     let Some(batches) = ceres_database::read(table, frame, ceres_database::LoadFormat::Json) else {
@@ -102,11 +104,16 @@ fn render(
         return Ok(Vec::new());
     };
 
+    // A stream has no end to draw a table at, so a follow that would have been drawn as
+    // one is JSON lines instead, and is colored as the JSON lines it actually is.
+    let format = match format {
+        DumpFormat::Table => DumpFormat::Json,
+        other => other,
+    };
+
     let heading = sink.heading();
     let rendered = match (format, projection.is_empty()) {
-        // A stream has no end to draw a table at, so it renders as JSON lines.
-        (DumpFormat::Table, true) => records.to_json_lines(),
-        (DumpFormat::Table, false) => records.to_json_lines_projected(projection),
+        (DumpFormat::Table, _) => unreachable!("a table became JSON lines above"),
         (DumpFormat::Json, true) => records.to_json_lines(),
         (DumpFormat::Json, false) => records.to_json_lines_projected(projection),
         (DumpFormat::Csv, true) => Ok(records.to_csv_lines(heading).into_bytes()),
@@ -114,5 +121,7 @@ fn render(
             .to_csv_lines_projected(projection, heading)
             .map(String::into_bytes),
     };
-    rendered.map_err(|error| error.to_string())
+    rendered
+        .map(|bytes| crate::commands::dump::painted(bytes, format, colored))
+        .map_err(|error| error.to_string())
 }

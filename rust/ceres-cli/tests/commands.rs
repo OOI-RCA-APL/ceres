@@ -142,9 +142,14 @@ impl Project {
         self.run_with(&["--no-color"], arguments, &[])
     }
 
-    /// Run the binary as though someone were reading its output at a terminal.
+    /// Run the binary with color turned on, as it is for someone reading at a terminal.
+    ///
+    /// Nothing here is a terminal, so the shape a terminal would have been given has to be
+    /// named. `FORCE_COLOR` only decides color, which is a separate question from shape.
     fn watched(&self, arguments: &[&str]) -> Output {
-        self.run_with(&[], arguments, &[("FORCE_COLOR", "1")])
+        let mut named: Vec<&str> = arguments.to_vec();
+        named.extend(["--data-format", "table"]);
+        self.run_with(&[], &named, &[("FORCE_COLOR", "1")])
     }
 
     /// Run the binary with explicit global flags and environment.
@@ -400,6 +405,59 @@ async fn a_dump_someone_is_reading_is_drawn_as_a_table() {
     // pipes this is unaffected by any of it.
     let piped = succeeded(&project.run(&["variables", "select", "--address", "@motor"]));
     assert!(piped.starts_with('{'), "{piped}");
+}
+
+#[tokio::test]
+async fn turning_color_off_leaves_the_columns_it_was_going_to_draw() {
+    let project = Project::seed().await;
+
+    // Color and shape are separate questions. Saying "no color" used to answer both, so a
+    // reader who only wanted plain text was handed JSON instead of the table they had.
+    let bare = succeeded(&project.run_with(
+        &[],
+        &["variables", "select", "--data-format", "table"],
+        &[("NO_COLOR", "1")],
+    ));
+    assert!(bare.contains('\u{256d}'), "{bare}");
+    assert!(!bare.contains('\u{1b}'), "{bare}");
+
+    // The same command with color on draws the same box, colored.
+    let colored = succeeded(&project.watched(&["variables", "select"]));
+    assert!(colored.contains('\u{256d}'), "{colored}");
+    assert!(colored.contains('\u{1b}'), "{colored}");
+}
+
+#[tokio::test]
+async fn a_dump_written_to_a_file_carries_no_color_into_it() {
+    let project = Project::seed().await;
+
+    // An escape sequence written to a file is read back as the characters it is made of,
+    // so a dump that named a destination is uncolored however the terminal is set.
+    for format in ["json", "table"] {
+        let path = project.path().join(format!("rows-{format}.out"));
+        let named = path.to_string_lossy().into_owned();
+        succeeded(&project.run_with(
+            &[],
+            &[
+                "variables",
+                "select",
+                "--data-format",
+                format,
+                "--output",
+                &named,
+            ],
+            &[("FORCE_COLOR", "1")],
+        ));
+
+        let written = std::fs::read_to_string(&path).expect("the dump wrote its file");
+        assert!(!written.contains('\u{1b}'), "{format}: {written}");
+        // Naming a shape is what reaches it anywhere but a terminal, so the file holds
+        // the shape that was asked for rather than the one a destination would infer.
+        match format {
+            "table" => assert!(written.contains('\u{256d}'), "{written}"),
+            _ => assert!(written.starts_with('{'), "{written}"),
+        }
+    }
 }
 
 #[tokio::test]

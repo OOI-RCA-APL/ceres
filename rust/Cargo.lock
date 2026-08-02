@@ -681,6 +681,7 @@ dependencies = [
  "ceres-config",
  "ceres-database",
  "ceres-entities",
+ "chrono",
  "clap",
  "libc",
  "plist",
@@ -694,6 +695,7 @@ dependencies = [
  "tokio",
  "tungstenite 0.30.0",
  "ureq",
+ "uuid",
 ]
 
 [[package]]
