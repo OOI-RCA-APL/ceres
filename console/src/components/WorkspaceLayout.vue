@@ -2,7 +2,6 @@
 import { useResizeObserver } from '@vueuse/core'
 import { onMounted } from 'vue'
 
-import CommonText from '@/components/CommonText.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
@@ -140,24 +139,17 @@ defineExpose({ element: $$(element) })
 
 <template>
   <div ref="element" :class="$style.root" data-layout>
-    <!-- A layout with nothing on it says so and offers the one thing there is to do with it, since
-    a widget can otherwise only arrive by being dragged in from somewhere that already has one. -->
+    <!-- A layout with nothing on it offers the one thing there is to do with it, since a widget
+    can otherwise only arrive by being dragged in from somewhere that already has one. The same
+    button the workspace carries under its own layout, so adding the first widget to a carousel
+    slide or a tab is the thing it already is elsewhere rather than something else to learn. -->
     <div
       v-if="rows.length === 0"
       :class="[$style.empty, 'column', 'flex-center']"
       @pointerdown="workspace.focusLayout(layoutId)"
     >
-      <common-text variant="description">Nothing here yet.</common-text>
-      <q-btn
-        class="q-mt-sm"
-        color="primary"
-        dense
-        flat
-        :icon="icons.add"
-        label="Add Widget"
-        no-caps
-        size="sm"
-      >
+      <q-btn aria-label="Add Widget" color="primary" :icon="icons.add" round size="8px" unelevated>
+        <q-tooltip class="bg-primary">Add Widget</q-tooltip>
         <workspace-add-widget-menu
           anchor="bottom middle"
           :layout-id="layoutId"
@@ -321,7 +313,6 @@ $fade: 210ms;
 // Enough of the layout to be worth pressing, which is what says a paste was meant for this one.
 .empty {
   min-height: 120px;
-  opacity: 0.7;
 }
 
 // What the drop marker is placed against.
