@@ -1144,6 +1144,14 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         # Create every top-level tree under a shared throwaway engine so absolute
         # cross-tree references resolve during checks exactly as they do at load time.
         engine = Engine()
+        # Building a component registers its connections, sieves, and jobs, and each
+        # registration emits an event. A check is a question, not a run, so those events
+        # describe a tree that is discarded a few lines below and nothing happened worth
+        # telling anyone about. The engine's own logging configuration is what the tree
+        # inherits, so turning the record toggles off there silences the whole check.
+        engine._config = Config(
+            logging=LoggingConfig(events=False, messages=False, particles=False, alerts=False)
+        )
         try:
             for config in self.components:
                 try:
