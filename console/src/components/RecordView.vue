@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import { cloneDeep } from 'lodash-es'
-import { debounce, QVirtualScroll } from 'quasar'
+import { debounce } from 'quasar'
 import { shallowReactive, nextTick, onMounted, reactive, watch, watchEffect, useSlots } from 'vue'
 
 import { AddressSelector } from '@/api/address'
@@ -16,6 +16,7 @@ import RecordViewAlert from '@/components/RecordViewAlert.vue'
 import RecordViewLogEntry from '@/components/RecordViewLogEntry.vue'
 import RecordViewMessage from '@/components/RecordViewMessage.vue'
 import RecordViewParticle from '@/components/RecordViewParticle.vue'
+import RecordViewScroller from '@/components/RecordViewScroller.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
@@ -138,17 +139,14 @@ const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / re
 const recordHeight = 24
 const recordLoadSizeInitial = $computed(() => Math.min(recordsVisible + 50, 1000))
 const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
-const recordSliceSize = 25
-
-// Rows kept drawn above and below the ones on screen, as a multiple of a screenful. Quasar keeps
-// one screenful either side, which at this row height is a few hundred pixels and is crossed
-// within a single frame of a quick scroll, so there is nothing already drawn to arrive into.
-const recordSliceRatio = 3
+// Screenfuls kept drawn above and below the ones on screen. Nothing here is measured, so a row
+// held in reserve costs only the drawing of it.
+const recordOverscan = 2
 const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
 const recordsUntilNearTop = 30
 
-let scroll = $shallowRef<QVirtualScroll | null>(null)
+let scroll = $shallowRef<{ scrollTo: (index: number) => void; refresh: () => void } | null>(null)
 let scrollElement = $shallowRef<HTMLDivElement | null>(null)
 
 let tableElement = $ref<HTMLElement | null>(null)
@@ -344,11 +342,16 @@ async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
+// Older records arrive above whatever is on screen, which would carry it down the list by exactly
+// their height. Adding that height back leaves the same records under the eye, so a scroll upwards
+// runs on rather than jumping.
 async function prependRecords(prepended: Record[]) {
-  const scrollTop = containerInfo.scrollTop
+  // Asked of the element rather than of the last reading taken from it. A reading is only as new
+  // as the last scroll event, and a scroll still under way has moved on since, so compensating
+  // from one would put the view back where the scrolling had already left.
+  const scrollTop = scrollElement?.scrollTop ?? containerInfo.scrollTop
   const height = prepended.length * recordHeight
   records.splice(0, 0, ...prepended)
-  scroll?.refresh(-1)
   await nextTick()
   scrollElement?.scrollTo({
     top: scrollTop + height,
@@ -379,12 +382,9 @@ async function appendRecords(appended: Record[]) {
       records.splice(0, records.length - recordCullCount)
       await scrollToBottom(100)
     } else {
-      scroll?.refresh(records.length + 1)
-      setTimeout(() => {
-        nextTick(() => {
-          scroll?.refresh(records.length + 1)
-        })
-      })
+      scroll?.scrollTo(records.length)
+      await nextTick()
+      scroll?.scrollTo(records.length)
     }
   }
 
@@ -666,22 +666,15 @@ useStream(debouncedFilter, async (record: Record) => {
           </span>
         </span>
       </transition-group>
-      <q-virtual-scroll
-        :ref="(instance: QVirtualScroll | null) => {
+      <record-view-scroller
+        :ref="(instance: any) => {
           scroll = instance;
-          scrollElement = instance?.$el as HTMLDivElement;
+          scrollElement = instance?.element ?? null;
         }"
         :class="['fit', $style.virtualScroll, records.length === 0 && $style.virtualScrollEmpty]"
-        dense
-        flat
+        :item-size="recordHeight"
         :items="records"
-        separator="cell"
-        square
-        type="table"
-        :virtual-scroll-item-size="recordHeight"
-        :virtual-scroll-slice-ratio-after="recordSliceRatio"
-        :virtual-scroll-slice-ratio-before="recordSliceRatio"
-        :virtual-scroll-slice-size="recordSliceSize"
+        :overscan="recordOverscan"
       >
         <template #default="{ item }">
           <record-view-message
@@ -702,7 +695,7 @@ useStream(debouncedFilter, async (record: Record) => {
           />
           <record-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
         </template>
-      </q-virtual-scroll>
+      </record-view-scroller>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
         <q-btn
           v-if="!isLoadingCurrent && !isFollowing"
