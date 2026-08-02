@@ -77,8 +77,12 @@ pub fn run(
     let guard = runtime.enter();
     // A database this cannot open is reported here, naming the configuration that made
     // it so, rather than being handed to another process to explain.
-    let store =
-        open_store(&meta.database, invocation.verb.writes()).map_err(crate::error::Exit::failed)?;
+    let store = open_store(
+        &meta.database,
+        project.directory(),
+        invocation.verb.writes(),
+    )
+    .map_err(crate::error::Exit::failed)?;
 
     drop(guard);
 

@@ -657,6 +657,7 @@ pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<()>
 /// about it made that so, because a database nobody can reach is the reader's to fix.
 pub(crate) fn open_store(
     config: &DatabaseConfig,
+    directory: &Path,
     writing: bool,
 ) -> std::result::Result<RecordStore, String> {
     // The configuration's connection hooks run here the way they do anywhere else it is
@@ -671,7 +672,7 @@ pub(crate) fn open_store(
 
     match config {
         DatabaseConfig::Sqlite(sqlite) => {
-            let path = existing(sqlite.path.as_deref())?;
+            let path = existing(sqlite.path.as_deref(), directory)?;
             let (on_init, on_connect, on_close) = hooks(&sqlite.shared);
             if writing {
                 RecordStore::sqlite_writable(&path, on_init, on_connect, on_close)
@@ -681,7 +682,7 @@ pub(crate) fn open_store(
             .map_err(|error| format!("Cannot open {path}. {error}"))
         }
         DatabaseConfig::Turso(turso) => {
-            let path = existing(turso.path.as_deref())?;
+            let path = existing(turso.path.as_deref(), directory)?;
             let (on_init, on_connect, on_close) = hooks(&turso.shared);
             Ok(RecordStore::turso(
                 &path, turso.mvcc, on_init, on_connect, on_close,
@@ -751,7 +752,10 @@ fn unsupported(key: &str) -> String {
 }
 
 /// Resolve a configured database path, which has to name a file that is there.
-fn existing(path: Option<&Path>) -> std::result::Result<String, String> {
+///
+/// A relative path is taken as naming a file beside the configuration that named it, so
+/// the same project opens the same database whatever directory the command ran from.
+fn existing(path: Option<&Path>, directory: &Path) -> std::result::Result<String, String> {
     let Some(path) = path else {
         return Err(
             "This project's database configuration names no path, so there is no file to              open."
@@ -759,7 +763,8 @@ fn existing(path: Option<&Path>) -> std::result::Result<String, String> {
         );
     };
 
-    let absolute = std::path::absolute(path)
+    let path = ceres_config::resolve_path(path, directory);
+    let absolute = std::path::absolute(&path)
         .map_err(|error| format!("Cannot resolve {}. {error}", path.display()))?;
     if !absolute.is_file() {
         return Err(format!(

@@ -21,7 +21,7 @@ pub use database::{
     PostgresDatabaseConfig, RawArgon2HashingConfig, RawBcryptHashingConfig, RawDatabaseConfig,
     RawDatabaseConfigHooks, RawHashingConfig, RawPostgresDatabaseConfig, RawSharedDatabaseConfig,
     RawSqliteDatabaseConfig, RawTursoDatabaseConfig, SharedDatabaseConfig, SqliteDatabaseConfig,
-    TursoDatabaseConfig,
+    TursoDatabaseConfig, resolve_path,
 };
 pub use error::{Problem, Problems};
 pub use logging::{Level, LogToggle, LoggingConfig, RawLoggingConfig};

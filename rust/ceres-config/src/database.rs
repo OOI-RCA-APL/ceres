@@ -17,6 +17,19 @@ use crate::values::{MaybeSequence, Secret};
 /// file literally named `:memory:`, which is what a bare path would otherwise create.
 const MEMORY_PATH: &str = ":memory:";
 
+/// Resolve a configured database path against the directory holding the configuration.
+///
+/// A relative path in `ceres.yaml` names a file beside that configuration, not one beside
+/// whatever directory a command happened to run from. Those are usually the same place,
+/// which is why the difference only surfaces with `--config` naming a project elsewhere,
+/// and that is exactly when getting it wrong creates an empty database in the wrong
+/// directory instead of reporting that it could not find the real one.
+///
+/// An absolute path is returned unchanged, because joining onto one discards the prefix.
+pub fn resolve_path(path: &Path, directory: &Path) -> PathBuf {
+    directory.join(path)
+}
+
 /// Reject the in-memory path, which no backend opens.
 fn validate_path(path: Option<&Path>, problems: &mut Problems) {
     if path == Some(Path::new(MEMORY_PATH)) {
@@ -502,6 +515,33 @@ impl TryFrom<RawDatabaseConfig> for DatabaseConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_relative_database_path_lands_beside_its_configuration() {
+        let resolved = resolve_path(
+            Path::new("./local/database.sqlite"),
+            Path::new("/projects/reef"),
+        );
+
+        assert_eq!(
+            resolved,
+            PathBuf::from("/projects/reef/./local/database.sqlite")
+        );
+        // What matters is the directory it lands in, whatever the join leaves in the
+        // middle, because that is what decides which file gets opened.
+        assert!(resolved.starts_with("/projects/reef"));
+    }
+
+    #[test]
+    fn an_absolute_database_path_ignores_the_configuration_directory() {
+        assert_eq!(
+            resolve_path(
+                Path::new("/var/lib/ceres.sqlite"),
+                Path::new("/projects/reef")
+            ),
+            PathBuf::from("/var/lib/ceres.sqlite")
+        );
+    }
 
     #[test]
     fn database_configurations_dispatch_by_type() {
