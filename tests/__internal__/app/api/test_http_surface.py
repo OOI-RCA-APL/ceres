@@ -105,11 +105,10 @@ async def _serve(
     """
     import asyncio
 
-    from ceres_core import NativeServer
-
     # Operations register on import, the same way the engine's server loads them.
     import ceres.__internal__.app.operations  # noqa: F401
     from ceres.__internal__.app.host import Host
+    from ceres.__internal__.core import NativeServer
 
     engine = Engine()
 

@@ -1,9 +1,9 @@
-//! Generate `ceres_core.pyi` whenever the extension module's sources change.
+//! Generate `ceres/__internal__/core.pyi` whenever the extension module's sources change.
 //!
 //! `ceres-core` is a build dependency, so this script links the compiled module, gathers its
-//! stub inventory, writes the polished stubs next to the extension crate's pyproject.toml,
-//! and formats them with the project's ruff. Building the workspace keeps the stubs current,
-//! and CI fails when a committed stub drifts.
+//! stub inventory, writes the polished stubs beside the module they describe inside the
+//! Python package, and formats them with the project's ruff. Building the workspace keeps
+//! the stubs current, and CI fails when a committed stub drifts.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,16 +17,20 @@ fn main() {
     println!("cargo::rerun-if-changed=../ceres-config/src");
 
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets this"));
-    let stub_path = manifest.join("../ceres-core/ceres_core.pyi");
+    let package = manifest.join("../../ceres/__internal__");
+    let stub_path = package.join("core.pyi");
 
     let stub = ceres_core::stub_info().expect("the stub inventory gathers");
     stub.generate().expect("the stubs generate");
 
-    // The generator resolves its output from the runtime manifest directory, which is this
-    // crate's while a build script runs, so the raw stubs land here and move into place.
-    let generated = manifest.join("ceres_core.pyi");
+    // The generator writes a package's stubs, so it makes a directory named for the module
+    // and puts an `__init__.pyi` inside it. This module is a single compiled file rather
+    // than a package, and a type checker looks for `core.pyi` beside it, so the generated
+    // stubs move up one level and the directory goes away.
+    let generated = package.join("core/__init__.pyi");
     let content = std::fs::read_to_string(&generated).expect("the generated stubs are readable");
     std::fs::remove_file(&generated).expect("the intermediate stubs remove");
+    std::fs::remove_dir(package.join("core")).expect("the intermediate directory removes");
     std::fs::write(&stub_path, polish(&content)).expect("the polished stubs write");
 
     format_with_ruff(&manifest, &stub_path);

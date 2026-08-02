@@ -195,8 +195,7 @@ class Writer:
         if writer is None:
             return False
 
-        from ceres_core import RecordTable
-
+        from ceres.__internal__.core import RecordTable
         from ceres.alert import Alert
         from ceres.logs import LogEntry
         from ceres.message import Message

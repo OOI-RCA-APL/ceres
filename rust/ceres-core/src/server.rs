@@ -369,7 +369,7 @@ pub fn openapi_schema(version: &str) -> PyResult<String> {
 /// awaitable until stopped. The web form carries the console and terminates TLS, the
 /// CLI form binds loopback on an ephemeral port and requires its token instead.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct NativeServer {
     state: Mutex<Option<(BoundServer, Router)>>,
     stopper: Stopper,

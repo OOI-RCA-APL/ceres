@@ -17,15 +17,15 @@ one differently, would write a row Python would not have written.
 """
 
 import pytest
-from ceres_core import (
+
+from ceres.__internal__.auth import get_password_hash_type, verify_password
+from ceres.__internal__.core import (
     hash_argon2,
     hash_bcrypt,
     normalize_email,
     special_use_domains,
     verify_bcrypt,
 )
-
-from ceres.__internal__.auth import get_password_hash_type, verify_password
 from ceres.config import Argon2HashingConfig, HashType
 from ceres.data import validate
 from ceres.data.types import Argon2Hash, BCryptHash, EmailAddress, Password

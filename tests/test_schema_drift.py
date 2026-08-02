@@ -16,8 +16,8 @@ compares the two descriptions on all three.
 from typing import Any
 
 import pytest
-from ceres_core import stored_columns
 
+from ceres.__internal__.core import stored_columns
 from ceres.database import Database, DatabaseType
 from tests import introspection
 

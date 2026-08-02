@@ -10,9 +10,9 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from ceres_core import NativeFilter
 
 from ceres import Engine
+from ceres.__internal__.core import NativeFilter
 from ceres.address import Address
 from ceres.config import Config
 from ceres.data import validate

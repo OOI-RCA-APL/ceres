@@ -7,8 +7,7 @@ from ceres.data import DataObject, uuid4
 from ceres.tasklet import Tasklet
 
 if TYPE_CHECKING:
-    from ceres_core import NativeServer as Native
-
+    from ceres.__internal__.core import NativeServer as Native
     from ceres.__internal__.project import LoadedProject
     from ceres.config import ServerConfig
     from ceres.engine import Engine
@@ -100,11 +99,10 @@ class Server(Tasklet):
     async def __run__(self) -> None:
         self._cli_token = str(uuid4())
 
-        from ceres_core import NativeServer
-
         # Operations register on import, so the module has to load before anything serves.
         import ceres.__internal__.app.operations  # noqa: F401
         from ceres.__internal__.app.host import Host
+        from ceres.__internal__.core import NativeServer
 
         host = Host(self._engine)
 

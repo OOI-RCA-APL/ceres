@@ -355,7 +355,7 @@ def _parsed_filter(table: str, dump: str) -> Any:
     into a copy that no longer says the same thing, and the copy would run the original's
     statement.
     """
-    from ceres_core import NativeFilter
+    from ceres.__internal__.core import NativeFilter
 
     return NativeFilter.from_json(table, dump)
 
@@ -1101,7 +1101,7 @@ class BaseEntityManager[
             upsert: When ``True``, use dialect-specific ``ON CONFLICT DO UPDATE`` to update
                 non-primary-key columns if the row already exists.
         """
-        from ceres_core import insert_compiled
+        from ceres.__internal__.core import insert_compiled
 
         values = data.__entity_to_column_values__()
         database = self.__database__
@@ -1122,7 +1122,7 @@ class BaseEntityManager[
 @cache
 def _stored_columns(table: str) -> frozenset[str]:
     """The columns the native layer reads and writes for `table`."""
-    from ceres_core import stored_columns
+    from ceres.__internal__.core import stored_columns
 
     for name, columns in stored_columns():
         if name == table:

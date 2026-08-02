@@ -38,7 +38,7 @@ macro_rules! delegate {
 
 /// A parsed filter, held natively and reused across calls.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct NativeFilter {
     filter: Parsed,
 }

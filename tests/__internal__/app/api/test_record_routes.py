@@ -3,9 +3,9 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from ceres_core import RecordBatch, RecordTable
 
 from ceres import Engine
+from ceres.__internal__.core import RecordBatch, RecordTable
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import Config, SQLiteDatabaseConfig

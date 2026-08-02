@@ -1,6 +1,6 @@
 """Password hashing and verification.
 
-Argon2 is the native implementation's, called through `ceres_core` rather than
+Argon2 is the native implementation's, called through `ceres.__internal__.core` rather than
 reimplemented here, so a password hashed by a native command and one hashed through the
 entity manager cannot drift apart. bcrypt stays on its Python library, being the
 configurable alternative rather than the default.
@@ -10,8 +10,7 @@ from typing import TypeGuard
 
 # The configuration getters return the native base classes, and the Python subclasses in
 # `ceres.config` extend them, so matching against the bases covers both.
-from ceres_core import Argon2HashingConfig, BCryptHashingConfig
-
+from ceres.__internal__.core import Argon2HashingConfig, BCryptHashingConfig
 from ceres.config import HashType as HashType
 from ceres.data import Argon2Hash, BCryptHash, Password, PasswordHash, validate
 
@@ -73,7 +72,7 @@ def get_password_hash(
     """
     match config:
         case BCryptHashingConfig():
-            from ceres_core import hash_bcrypt
+            from ceres.__internal__.core import hash_bcrypt
 
             hashed = hash_bcrypt(password, config.rounds)
             if hashed is None:
@@ -82,7 +81,7 @@ def get_password_hash(
             return BCryptHash(hashed)
 
         case Argon2HashingConfig():
-            from ceres_core import hash_argon2
+            from ceres.__internal__.core import hash_argon2
 
             hashed = hash_argon2(
                 password,
@@ -114,6 +113,6 @@ def verify_password(password: str, hash: PasswordHash) -> bool:
         `True` if the password matches the hash, `False` otherwise, an unrecognized hash
         format included.
     """
-    from ceres_core import verify_password as verify
+    from ceres.__internal__.core import verify_password as verify
 
     return verify(password, hash)

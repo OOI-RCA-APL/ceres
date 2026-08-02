@@ -76,10 +76,10 @@ from typing import (
 )
 
 from annotated_types import Ge, Le
-from ceres_core import PackingProgram
 from pydantic import BeforeValidator, PlainSerializer
 from pydantic_core import MISSING
 
+from ceres.__internal__.core import PackingProgram
 from ceres.__internal__.utilities.typing import (
     AnnotationInfo,
     extract_annotation,

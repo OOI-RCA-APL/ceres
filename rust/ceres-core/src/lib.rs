@@ -5,7 +5,7 @@
 //! integrate with Pydantic on the Python side through thin subclasses in `ceres.config`.
 //!
 //! Each class is declared once through the `python_config!` macro, which generates the whole
-//! binding surface. The type stubs in `ceres_core.pyi` are generated from these definitions
+//! binding surface. The type stubs in `ceres/__internal__/core.pyi` are generated from these
 //! by the `stub_gen` binary. Regenerate them after changing the module's surface.
 
 pub mod binary;
@@ -23,7 +23,6 @@ use std::path::PathBuf;
 use ceres_config::{ByteSize, TimeDelta};
 use ceres_macros::python_config;
 use pyo3::prelude::*;
-use pyo3_stub_gen::define_stub_info_gatherer;
 
 python_config! {
     /// Process-level options applied when running the engine as a system service.
@@ -141,7 +140,10 @@ python_config! {
     }
 }
 
-#[pymodule(gil_used = false)]
+// The module lands inside the `ceres` package as `ceres.__internal__.core`, so its
+// initializer has to be named for the last component. The crate keeps the name
+// `ceres_core`, which is what `ceres-stubs` links against.
+#[pymodule(name = "core", gil_used = false)]
 fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ServiceConfig>()?;
     module.add_class::<ConsoleConfig>()?;
@@ -187,4 +189,13 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-define_stub_info_gatherer!(stub_info);
+/// Gather the stub inventory, reading the packaging from the distribution this ships in.
+///
+/// `define_stub_info_gatherer!` looks for a `pyproject.toml` beside `Cargo.toml`, which is
+/// where a standalone extension package keeps its own. This module ships inside the `ceres`
+/// distribution instead, so the packaging that names it lives at the repository root and
+/// there is no manifest beside the crate to find.
+pub fn stub_info() -> pyo3_stub_gen::Result<pyo3_stub_gen::StubInfo> {
+    let manifest: &std::path::Path = env!("CARGO_MANIFEST_DIR").as_ref();
+    pyo3_stub_gen::StubInfo::from_pyproject_toml(manifest.join("../../pyproject.toml"))
+}

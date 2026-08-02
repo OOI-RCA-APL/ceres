@@ -17,7 +17,7 @@ use crate::fetcher::{extract_parameter, to_value_error};
 
 /// A natively-connected database the query layer reads and writes through.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct Store {
     store: Arc<RecordStore>,
 }
@@ -226,7 +226,7 @@ impl Store {
 
 /// A streamed result, handed over one chunk of rows at a time.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RowChunks {
     chunks: Arc<std::sync::Mutex<std::sync::mpsc::Receiver<StreamedRows>>>,
 }

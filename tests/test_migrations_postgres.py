@@ -13,8 +13,8 @@ whole module skips when no server is reachable, keeping the suite runnable offli
 import os
 
 import pytest
-from ceres_core import Store
 
+from ceres.__internal__.core import Store
 from ceres.database.migrations import MIGRATIONS
 from tests import postgres
 from tests.postgres import POSTGRES_URL

@@ -14,8 +14,6 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Annotated, Any, cast
 from uuid import UUID
 
-from ceres_core import RecordBatch
-
 from ceres.__internal__.app.handlers import components as component_handlers
 from ceres.__internal__.app.handlers import engine as engine_handlers
 from ceres.__internal__.app.handlers import permissions as permission_handlers
@@ -24,6 +22,7 @@ from ceres.__internal__.app.handlers import workspace_edits as edit_handlers
 from ceres.__internal__.app.handlers import workspaces as workspace_handlers
 from ceres.__internal__.app.host import Host, Raw, operation, stream
 from ceres.__internal__.app.shared import RECORD_TABLES, Actor, Limit, exclude_recursively
+from ceres.__internal__.core import RecordBatch
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.component import BaseOutput, ComponentFilter

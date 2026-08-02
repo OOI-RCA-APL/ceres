@@ -5,8 +5,7 @@ from pathlib import Path
 from tempfile import gettempdir
 from typing import TYPE_CHECKING, Any, Protocol, Self, final, override
 
-from ceres_core import RecordFetcher, RecordWriter, Store
-
+from ceres.__internal__.core import RecordFetcher, RecordWriter, Store
 from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
@@ -528,7 +527,7 @@ class Database:
         references it, so deleting in reverse empties a table only once nothing points at
         it. Adding a table there puts it in the right place by the same rule.
         """
-        from ceres_core import stored_columns
+        from ceres.__internal__.core import stored_columns
 
         deletes = [f"DELETE FROM {table};" for table, _ in reversed(stored_columns())]
         with wrap_database_errors():

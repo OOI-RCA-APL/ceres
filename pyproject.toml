@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
 
 [project]
 name = "ceres"
@@ -10,7 +10,6 @@ authors = [{ name = "Jake Ploskey", email = "jploskey@uw.edu" }]
 requires-python = ">=3.14"
 dependencies = [
     "aiohttp>=3.13.3,<4",
-    "ceres-core==0.40.0",
     "aiosmtplib>=5.1,<6",
     "anyio>=4.13,<5",
     "apscheduler>=3.11.2,<4",
@@ -53,15 +52,33 @@ docs = [
 [project.scripts]
 ceres = "ceres.__internal__.cli.main:main"
 
-[tool.hatch.build]
-packages = ["ceres"]
-include = ["./ceres/**/*.py", "./ceres/py.typed", "./ceres/static/", "./ceres/database/migrations/*.sql"]
+# The native core ships inside this distribution as `ceres._core` rather than as a
+# separate package, so there is one artifact to build and install rather than two that
+# have to agree on a version. The Rust crate keeps its own name, only the Python module
+# it lands as is renamed.
+[tool.maturin]
+module-name = "ceres.__internal__.core"
+manifest-path = "rust/ceres-core/Cargo.toml"
+python-source = "."
+features = ["extension-module"]
+# Data files the package reads at runtime, which are not Python and so are not picked up
+# by following the module tree. Migrations are the one that fails only once installed.
+include = [
+    { path = "ceres/py.typed", format = "wheel" },
+    { path = "ceres/static/**/*", format = "wheel" },
+    { path = "ceres/database/migrations/*.sql", format = "wheel" },
+]
 
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.uv.sources]
-ceres-core = { path = "rust/ceres-core" }
+# Rebuild when the Rust sources change, not only when the packaging files do.
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "rust/ceres-core/Cargo.toml" },
+    { file = "rust/ceres-core/src/**/*.rs" },
+    { file = "rust/ceres-config/Cargo.toml" },
+    { file = "rust/ceres-config/src/**/*.rs" },
+    { file = "ceres/__internal__/core.pyi" },
+]
 
 [tool.ruff]
 line-length = 100
@@ -111,7 +128,9 @@ runtime-evaluated-decorators = [
 
 [tool.pyright]
 include = ["ceres", "tests"]
-exclude = ["rust"]
+# The native core's stubs are generated from the Rust definitions, so they answer to the
+# generator rather than to the rules hand-written code is held to.
+exclude = ["rust", "ceres/__internal__/core.pyi"]
 typeCheckingMode = "standard"
 reportImplicitOverride = true
 reportIncompatibleVariableOverride = false

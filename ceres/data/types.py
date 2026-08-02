@@ -107,7 +107,7 @@ which the create and update models accept alongside this type.
 
 
 def _validate_email_address(value: str) -> str:
-    from ceres_core import normalize_email
+    from ceres.__internal__.core import normalize_email
 
     normalized = normalize_email(value)
     if normalized is None:

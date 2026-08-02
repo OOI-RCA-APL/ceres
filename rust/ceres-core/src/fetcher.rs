@@ -23,7 +23,7 @@ use crate::entities::{EntityTable, RecordBatch, RecordTable};
 /// a text bind, so the fact that a parameter is a document has to survive the trip out to
 /// Python and back rather than arriving as a string nobody can tell apart from a name.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct JsonParameter {
     pub(crate) value: serde_json::Value,
 }
@@ -93,7 +93,7 @@ pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter>
 /// Python layer resolves per-instance details like temporary SQLite paths. Connections
 /// open lazily on first use.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RecordFetcher {
     pub(crate) store: Arc<RecordStore>,
 }
@@ -428,7 +428,7 @@ pub fn entity_filter_keys(table: EntityTable) -> (Vec<&'static str>, Vec<&'stati
 /// Dropping this ends the query, because the next chunk it tries to hand over has
 /// nowhere to go.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RecordChunks {
     chunks: Arc<Mutex<Receiver<Result<Records, ceres_database::Error>>>>,
 }
@@ -574,7 +574,7 @@ pub(crate) fn to_value_error(error: ceres_database::Error) -> PyErr {
 /// transaction on the writer's own pool. Built from resolved connection parameters like
 /// the fetcher, and matching the query layer's connection semantics.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RecordWriter {
     writer: Arc<ceres_database::RecordWriter>,
 }

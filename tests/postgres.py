@@ -21,9 +21,9 @@ from threading import Thread
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from ceres_core import Store
 from pydantic import SecretStr
 
+from ceres.__internal__.core import Store
 from ceres.config import PostgresDatabaseConfig
 from ceres.data import uuid4
 
