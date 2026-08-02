@@ -10,7 +10,6 @@ update:
 	cd console && make update
 test:
 	uv run pytest -vv -s
-	cd console && make test
 test-postgres:
 	uv run pytest -vv -s --database postgres
 test-turso:
