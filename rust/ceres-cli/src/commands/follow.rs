@@ -64,7 +64,7 @@ pub fn run(
 
         let rendered = match render(table, &frame, format, &projection, colored, &mut sink) {
             Ok(rendered) => rendered,
-            Err(message) => return deliver(invocation, Rendered::Failed(message)),
+            Err(message) => return deliver(invocation, Rendered::Failed(message), colored),
         };
 
         if let Err(error) = sink.push(rendered) {
@@ -73,12 +73,16 @@ pub fn run(
                 return Ok(());
             }
 
-            return deliver(invocation, Rendered::Failed(written(error).to_string()));
+            return deliver(
+                invocation,
+                Rendered::Failed(written(error).to_string()),
+                colored,
+            );
         }
     }
 
     match sink.finish() {
-        Ok(Some(held)) => deliver(invocation, Rendered::Bytes(held)),
+        Ok(Some(held)) => deliver(invocation, Rendered::Bytes(held), colored),
         Ok(None) => Ok(()),
         // A stream that failed having already put frames out ends where it stopped.
         Err(_) => Ok(()),
@@ -113,9 +117,10 @@ fn render(
 
     let heading = sink.heading();
     let rendered = match (format, projection.is_empty()) {
-        (DumpFormat::Table, _) => unreachable!("a table became JSON lines above"),
-        (DumpFormat::Json, true) => records.to_json_lines(),
-        (DumpFormat::Json, false) => records.to_json_lines_projected(projection),
+        (DumpFormat::Json | DumpFormat::Table, true) => records.to_json_lines(),
+        (DumpFormat::Json | DumpFormat::Table, false) => {
+            records.to_json_lines_projected(projection)
+        }
         (DumpFormat::Csv, true) => Ok(records.to_csv_lines(heading).into_bytes()),
         (DumpFormat::Csv, false) => records
             .to_csv_lines_projected(projection, heading)

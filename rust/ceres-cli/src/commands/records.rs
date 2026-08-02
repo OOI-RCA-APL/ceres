@@ -203,7 +203,7 @@ pub fn run(
         Err(error) => return Err(crate::error::Exit::failed(error.to_string())),
     };
 
-    deliver(&invocation, rendered)
+    deliver(&invocation, rendered, colored)
 }
 
 /// Render one chunk of records in the shape the invocation asked for.

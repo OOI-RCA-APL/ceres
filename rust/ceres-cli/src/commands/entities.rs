@@ -223,7 +223,7 @@ pub fn run(
         Err(error) => return Err(crate::error::Exit::failed(error.to_string())),
     };
 
-    deliver(&invocation, rendered)
+    deliver(&invocation, rendered, colored)
 }
 
 /// The credential rules this database's writes follow, `None` when a configured

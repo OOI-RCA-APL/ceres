@@ -290,6 +290,12 @@ pub(crate) enum DumpFormat {
 /// What a native pass produced, ahead of writing it.
 pub(crate) enum Rendered {
     Bytes(Vec<u8>),
+    /// A one-value answer, which a count and a write's tally of what it touched are.
+    ///
+    /// These never pass through a chunk renderer, having no rows to render, so this is
+    /// the one shape that takes its color where it is written rather than where it is
+    /// made. A drawn table is [`Self::Bytes`] for that reason, being neither one value
+    /// nor something to color a second time.
     Text(String),
     /// An existence answer, which prints like Python's `bool` and sets the exit status.
     Exists(bool),
@@ -623,7 +629,7 @@ pub(crate) fn drawn(rendered: Rendered, format: DumpFormat, colored: bool) -> Re
     }
 
     match rendered {
-        Rendered::Bytes(bytes) => Rendered::Text(tabulate(&bytes, colored)),
+        Rendered::Bytes(bytes) => Rendered::Bytes(tabulate(&bytes, colored).into_bytes()),
         // A result that reached the output already, or never produced one, has nothing
         // left to draw.
         other => other,
@@ -680,7 +686,7 @@ pub(crate) fn confirmed(
 ///
 /// An existence check reports through its exit status as well as its output, so it
 /// writes first and then carries the status out.
-pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<()> {
+pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered, colored: bool) -> Result<()> {
     match rendered {
         // A stream placed its own output, so there is nothing left to write.
         Rendered::Written => return Ok(()),
@@ -692,7 +698,15 @@ pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered) -> Result<()>
     }
 
     let exists = rendered.exists();
-    write_output(invocation.output.as_deref(), &rendered.into_bytes())?;
+    // A one-value answer is colored here, having had no chunk renderer to be colored in.
+    // Rows and a drawn table arrive already colored, so neither is touched again.
+    let answer = matches!(rendered, Rendered::Text(_) | Rendered::Exists(_));
+    let mut bytes = rendered.into_bytes();
+    if colored && answer {
+        bytes = crate::highlight::painted(bytes);
+    }
+
+    write_output(invocation.output.as_deref(), &bytes)?;
     match exists {
         Some(false) => Err(crate::error::Exit::status(1)),
         _ => Ok(()),

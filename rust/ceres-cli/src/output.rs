@@ -3,6 +3,9 @@
 //! Human-readable messages and tables go to stderr, structured results go to stdout. Color
 //! resolves from the explicit flag first, then the `NO_COLOR` and `FORCE_COLOR` environment
 //! variables, then whether stderr is a terminal.
+//!
+//! A dump answers the same question against standard output instead, where its own rows
+//! are going, so the two resolve separately. See `commands::dump::colored`.
 
 use std::io::{IsTerminal, Write as _};
 

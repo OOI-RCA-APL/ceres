@@ -428,6 +428,26 @@ async fn turning_color_off_leaves_the_columns_it_was_going_to_draw() {
 }
 
 #[tokio::test]
+async fn a_one_value_answer_is_colored_like_the_same_value_in_a_row() {
+    let project = Project::seed().await;
+
+    // A count and an existence check never pass through a row renderer, so they used to
+    // come out plain where every value beside them was colored.
+    let counted = succeeded(&project.run_with(
+        &["--color"],
+        &["variables", "count", "--address", "@motor"],
+        &[],
+    ));
+    assert!(counted.contains('\u{1b}'), "{counted}");
+    assert!(counted.contains('2'), "{counted}");
+
+    // Piped, it stays the bare number a script captures.
+    let piped = succeeded(&project.run(&["variables", "count", "--address", "@motor"]));
+    assert_eq!(piped.trim(), "2");
+    assert!(!piped.contains('\u{1b}'), "{piped}");
+}
+
+#[tokio::test]
 async fn a_dump_written_to_a_file_carries_no_color_into_it() {
     let project = Project::seed().await;
 
