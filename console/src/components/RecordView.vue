@@ -139,6 +139,11 @@ const recordHeight = 24
 const recordLoadSizeInitial = $computed(() => Math.min(recordsVisible + 50, 1000))
 const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
 const recordSliceSize = 25
+
+// Rows kept drawn above and below the ones on screen, as a multiple of a screenful. Quasar keeps
+// one screenful either side, which at this row height is a few hundred pixels and is crossed
+// within a single frame of a quick scroll, so there is nothing already drawn to arrive into.
+const recordSliceRatio = 3
 const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
 const recordsUntilNearTop = 30
@@ -674,6 +679,8 @@ useStream(debouncedFilter, async (record: Record) => {
         square
         type="table"
         :virtual-scroll-item-size="recordHeight"
+        :virtual-scroll-slice-ratio-after="recordSliceRatio"
+        :virtual-scroll-slice-ratio-before="recordSliceRatio"
         :virtual-scroll-slice-size="recordSliceSize"
       >
         <template #default="{ item }">
