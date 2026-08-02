@@ -28,9 +28,9 @@ const workspace = useWorkspace()
 
 let index = $ref(0)
 
-const page = $computed(() => widget.tabs[index] ?? null)
+const shown = $computed(() => widget.tabs[index] ?? null)
 
-// Pages can be taken away from under it, so the position is kept inside what is actually there.
+// Tabs can be taken away from under it, so the position is kept inside what is actually there.
 watch(
   () => widget.tabs.length,
   (length) => {
@@ -40,7 +40,7 @@ watch(
   }
 )
 
-// Turning to a page is asking to work on it, so it becomes the layout a paste lands in and the one
+// Turning to a tab is asking to work on it, so it becomes the layout a paste lands in and the one
 // the keyboard acts on.
 function show(at: number) {
   index = Math.min(Math.max(at, 0), Math.max(0, widget.tabs.length - 1))
@@ -61,7 +61,7 @@ const reorder = usePointerReorder({
   onReorder: (from, to) => {
     widget.tabs = moved([...widget.tabs], from, to)
 
-    // The page being looked at stays the page being looked at, wherever it has just been put.
+    // The tab being looked at stays the tab being looked at, wherever it has just been put.
     if (index === from) {
       index = to
     } else if (index > from && index <= to) {
@@ -119,7 +119,7 @@ async function onTabKeydown(event: KeyboardEvent, at: number) {
 
   event.preventDefault()
   event.stopPropagation()
-  movePage(at, step)
+  moveTab(at, step)
 
   // The tab travels with the key, so focus goes with it rather than staying on whatever has taken
   // its place.
@@ -147,7 +147,7 @@ function isNaming(current: WidgetPage): boolean {
   return editingId === current.id || (shiftHeld.value && hoveredId === current.id)
 }
 
-// One menu per tab, reachable from the dots and from a right-click on the tab. Held by page rather
+// One menu per tab, reachable from the dots and from a right-click on the tab. Held by tab rather
 // than by position, since dragging renumbers the strip.
 const menus = new Map<string, QMenu>()
 
@@ -163,33 +163,33 @@ function showMenu(id: string, event: Event) {
   menus.get(id)?.show(event)
 }
 
-// Pages are added, named, arranged and taken away on the strip itself, since a page is a layout and
+// Tabs are added, named, arranged and taken away on the strip itself, since a tab is a layout and
 // a layout is arranged by working on it rather than by describing it somewhere else.
-function addPage() {
+function addTab() {
   widget.tabs = [...widget.tabs, { id: v7(), name: '', layout: [] }]
   show(widget.tabs.length - 1)
 }
 
-function deletePage(at: number) {
+function deleteTab(at: number) {
   widget.tabs = widget.tabs.filter((_, position) => position !== at)
   show(Math.min(index, widget.tabs.length - 1))
 }
 
-// A page copied carries copies of everything on it, since two things answering to one name would
+// A tab copied carries copies of everything on it, since two things answering to one name would
 // have whatever went looking take whichever it found first.
-function duplicatePage(at: number) {
+function duplicateTab(at: number) {
   const source = widget.tabs[at]
   if (source == null) {
     return
   }
 
-  const pages = [...widget.tabs]
-  pages.splice(at + 1, 0, withFreshPage(source))
-  widget.tabs = pages
+  const tabs = [...widget.tabs]
+  tabs.splice(at + 1, 0, withFreshPage(source))
+  widget.tabs = tabs
   show(at + 1)
 }
 
-function movePage(at: number, by: number) {
+function moveTab(at: number, by: number) {
   const to = at + by
   if (to < 0 || to >= widget.tabs.length) {
     return
@@ -201,11 +201,11 @@ function movePage(at: number, by: number) {
   }
 }
 
-/** Turn this strip into a carousel holding the same pages, in the same place. */
+/** Turn this strip into a carousel holding the same tabs as its slides, in the same place. */
 function convertToCarousel() {
   const carousel = createWidget('carousel') as CarouselWidget
   // A name that was only ever the default for a tab strip or a carousel is not a name anybody
-  // chose, so it gives way to the new kind's own rather than following the pages across.
+  // chose, so it gives way to the new kind's own rather than following the tabs across.
   if (widget.name !== defaultWidgetName('tabs')) {
     carousel.name = widget.name
   }
@@ -224,7 +224,7 @@ function convertToCarousel() {
         dense
         indicator-color="transparent"
         inline-label
-        :model-value="page?.id ?? null"
+        :model-value="shown?.id ?? null"
         no-caps
         shrink
       >
@@ -256,7 +256,7 @@ function convertToCarousel() {
               <inline-name-edit
                 :claim="editingId === current.id"
                 :editing="isNaming(current)"
-                :name="current.name !== '' ? current.name : `Page ${at + 1}`"
+                :name="current.name !== '' ? current.name : `Tab ${at + 1}`"
                 @rename="(value: string) => (current.name = value)"
                 @update:editing="(value: boolean) => (editingId = value ? current.id : null)"
               />
@@ -285,7 +285,7 @@ function convertToCarousel() {
                     <q-item-label>Rename</q-item-label>
                   </q-item-section>
                 </q-item>
-                <q-item v-close-popup clickable dense @click="duplicatePage(at)">
+                <q-item v-close-popup clickable dense @click="duplicateTab(at)">
                   <q-item-section avatar>
                     <q-icon :name="icons.duplicate" />
                   </q-item-section>
@@ -294,7 +294,7 @@ function convertToCarousel() {
                   </q-item-section>
                 </q-item>
                 <q-separator />
-                <q-item v-close-popup clickable dense :disable="at === 0" @click="movePage(at, -1)">
+                <q-item v-close-popup clickable dense :disable="at === 0" @click="moveTab(at, -1)">
                   <q-item-section avatar>
                     <q-icon :name="icons.menuLeft" />
                   </q-item-section>
@@ -307,7 +307,7 @@ function convertToCarousel() {
                   clickable
                   dense
                   :disable="at === widget.tabs.length - 1"
-                  @click="movePage(at, 1)"
+                  @click="moveTab(at, 1)"
                 >
                   <q-item-section avatar>
                     <q-icon :name="icons.menuRight" />
@@ -317,7 +317,7 @@ function convertToCarousel() {
                   </q-item-section>
                 </q-item>
                 <q-separator />
-                <q-item v-close-popup clickable dense @click="deletePage(at)">
+                <q-item v-close-popup clickable dense @click="deleteTab(at)">
                   <q-item-section avatar>
                     <q-icon :name="icons.delete" />
                   </q-item-section>
@@ -329,17 +329,17 @@ function convertToCarousel() {
             </q-menu>
             <q-btn
               class="faded-hover"
-              :class="[$style.close, current.id === page?.id && $style.closeShown]"
+              :class="[$style.close, current.id === shown?.id && $style.closeShown]"
               dense
               flat
               :icon="icons.close"
               round
               size="6.5px"
-              @click.stop="deletePage(at)"
+              @click.stop="deleteTab(at)"
               @mousedown.stop
               @touchstart.stop
             >
-              <q-tooltip class="bg-primary text-white" :delay="500">Delete Page</q-tooltip>
+              <q-tooltip class="bg-primary text-white" :delay="500">Delete Tab</q-tooltip>
             </q-btn>
           </div>
         </q-tab>
@@ -359,9 +359,9 @@ function convertToCarousel() {
         :icon="icons.add"
         round
         size="sm"
-        @click="addPage"
+        @click="addTab"
       >
-        <q-tooltip class="bg-primary text-white">Add Page</q-tooltip>
+        <q-tooltip class="bg-primary text-white">Add Tab</q-tooltip>
       </q-btn>
       <q-btn :class="$style.stripMenu" dense flat :icon="icons.more" round size="sm">
         <q-menu>
@@ -375,7 +375,7 @@ function convertToCarousel() {
               </q-item-section>
             </q-item>
             <q-separator />
-            <!-- How the strip is drawn, rather than what is on any one page, which is why it sits
+            <!-- How the strip is drawn, rather than what is on any one tab, which is why it sits
             under a rule at the end. The menu stays open, since seeing the strip take the setting is
             the point of choosing it. -->
             <q-item dense>
@@ -388,24 +388,24 @@ function convertToCarousel() {
       </q-btn>
     </div>
     <q-separator />
-    <div v-if="page == null" :class="[$style.empty, 'col', 'column', 'flex-center']">
-      <common-text variant="description">A tab strip shows one page at a time.</common-text>
+    <div v-if="shown == null" :class="[$style.empty, 'col', 'column', 'flex-center']">
+      <common-text variant="description">A tab strip shows one tab at a time.</common-text>
       <q-btn
         class="q-mt-sm"
         color="primary"
         dense
         flat
         :icon="icons.add"
-        label="Add Page"
+        label="Add Tab"
         no-caps
         size="sm"
-        @click="addPage"
+        @click="addTab"
       />
     </div>
-    <!-- A page is a workspace in miniature, arranged through the same editor the workspace itself
+    <!-- A tab is a workspace in miniature, arranged through the same editor the workspace itself
     is drawn by, so everything that can be done to a layout can be done to one. -->
-    <div v-else :class="[$style.page, 'overflow-auto', 'q-px-sm']">
-      <workspace-layout :key="page.id" :layout="page.layout" :layout-id="page.id" />
+    <div v-else :class="[$style.body, 'overflow-auto', 'q-px-sm']">
+      <workspace-layout :key="shown.id" :layout="shown.layout" :layout-id="shown.id" />
     </div>
   </div>
 </template>
@@ -419,12 +419,12 @@ function convertToCarousel() {
 }
 
 // Takes the room left over rather than asking for the room its contents want, so the strip above it
-// keeps its place however much a page happens to hold.
-.page {
+// keeps its place however much a tab happens to hold.
+.body {
   flex: 1 1 0;
   min-height: 0;
 
-  // Room for the scrollbar whether or not one is showing, so a page reflowing as rows are added
+  // Room for the scrollbar whether or not one is showing, so a tab reflowing as rows are added
   // does not leave the widgets at its right edge jumping under the hand arranging them.
   scrollbar-gutter: stable;
 }
@@ -515,7 +515,7 @@ function convertToCarousel() {
   @include strip.close;
 }
 
-// The page being shown keeps its close button visible, since that is the one most likely to go
+// The tab being shown keeps its close button visible, since that is the one most likely to go
 // next.
 .tab:hover .close,
 .closeShown {
