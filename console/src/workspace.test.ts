@@ -4,7 +4,8 @@ import {
   collectLayouts,
   layoutsWithin,
   planWidgetsMove,
-  planWidgetsWrap,
+  planWidgetsGroup,
+  planWidgetUngroup,
   resolveWidths,
   rootLayoutId,
   widgetWidthSubdivisions,
@@ -341,28 +342,28 @@ describe('planWidgetsMove', () => {
   })
 })
 
-describe('planWidgetsWrap', () => {
+describe('planWidgetsGroup', () => {
   it('says nothing about widgets the layout does not hold', () => {
-    expect(planWidgetsWrap([row('r1', widget('a'))], ['nowhere'], 'tabs')).toBeNull()
+    expect(planWidgetsGroup([row('r1', widget('a'))], ['nowhere'], 'tabs', 'widget')).toBeNull()
   })
 
-  it('stands the wrapper where the taken widget stood, at the width it held', () => {
+  it('stands the holder where the taken widget stood, at the width it held', () => {
     const rows = [row('r1', widget('a', 40), widget('b', 40), widget('c', 40))]
-    const plan = planWidgetsWrap(rows, ['b'], 'tabs')
+    const plan = planWidgetsGroup(rows, ['b'], 'tabs', 'widget')
 
     expect(plan?.rows.map((current) => current.widgets.map((held) => held.id))).toEqual([
-      ['a', plan?.wrapper.id, 'c'],
+      ['a', plan?.holder.id, 'c'],
     ])
-    expect(plan?.wrapper.type).toBe('tabs')
-    expect(plan?.wrapper.width).toBe(40)
+    expect(plan?.holder.type).toBe('tabs')
+    expect(plan?.holder.width).toBe(40)
   })
 
-  it('lands the taken widget on the one page, spread over the full width', () => {
+  it('lands the taken widget on one page, spread over the full width', () => {
     const rows = [row('r1', widget('a', 40), widget('b', 80))]
-    const plan = planWidgetsWrap(rows, ['a'], 'carousel')
-    const pages = plan == null ? [] : pagesOf(plan.wrapper)
+    const plan = planWidgetsGroup(rows, ['a'], 'carousel', 'widget')
+    const pages = plan == null ? [] : pagesOf(plan.holder)
 
-    expect(plan?.wrapper.type).toBe('carousel')
+    expect(plan?.holder.type).toBe('carousel')
     expect(pages.length).toBe(1)
     expect(pages[0]?.layout.map((current) => current.widgets.map((held) => held.id))).toEqual([
       ['a'],
@@ -370,47 +371,154 @@ describe('planWidgetsWrap', () => {
     expect(pages[0]?.layout[0]?.widgets[0]?.width).toBe(widgetWidthSubdivisions)
   })
 
-  it('takes a whole row as one full-width wrapper, keeping the row height', () => {
-    const rows = [row('r1', widget('a', 60), widget('b', 60)), row('r2', widget('c'))]
-    const plan = planWidgetsWrap(rows, ['a', 'b'], 'tabs')
-    const pages = plan == null ? [] : pagesOf(plan.wrapper)
-
-    expect(plan?.rows.map((current) => current.widgets.map((held) => held.id))).toEqual([
-      [plan?.wrapper.id],
-      ['c'],
-    ])
-    expect(plan?.wrapper.width).toBe(widgetWidthSubdivisions)
-    expect(pages[0]?.layout[0]?.height).toBe(250)
-    expect(pages[0]?.layout[0]?.widgets.map((held) => held.width)).toEqual([60, 60])
-  })
-
-  it('gathers widgets from several rows as one page row each, in layout order', () => {
+  it('deals a page per widget, named after it, in layout order', () => {
     const rows = [
       row('r1', widget('a', 60), widget('b', 60)),
       row('r2', widget('c', 40), widget('d', 40), widget('e', 40)),
     ]
-    const plan = planWidgetsWrap(rows, ['b', 'c'], 'tabs')
-    const pages = plan == null ? [] : pagesOf(plan.wrapper)
+    const plan = planWidgetsGroup(rows, ['b', 'c', 'e'], 'tabs', 'widget')
+    const pages = plan == null ? [] : pagesOf(plan.holder)
+
+    expect(pages.map((page) => page.name)).toEqual(['b', 'c', 'e'])
+    const shapes = pages.map((page) =>
+      page.layout.map((current) => current.widgets.map((held) => held.id))
+    )
+    expect(shapes).toEqual([[['b']], [['c']], [['e']]])
+    expect(pages.flatMap((page) => page.layout[0]?.widgets.map((held) => held.width))).toEqual([
+      120, 120, 120,
+    ])
+  })
+
+  it('deals a page per source row, keeping neighbours together', () => {
+    const rows = [
+      row('r1', widget('a', 60), widget('b', 60)),
+      row('r2', widget('c', 40), widget('d', 40), widget('e', 40)),
+    ]
+    const plan = planWidgetsGroup(rows, ['a', 'b', 'c', 'd'], 'tabs', 'row')
+    const pages = plan == null ? [] : pagesOf(plan.holder)
+
+    const shapes = pages.map((page) =>
+      page.layout.map((current) => current.widgets.map((held) => held.id))
+    )
+    expect(shapes).toEqual([[['a', 'b']], [['c', 'd']]])
+  })
+
+  it('gathers everything onto one page, a page row per source row, keeping heights', () => {
+    const rows = [
+      row('r1', widget('a', 60), widget('b', 60)),
+      row('r2', widget('c', 40), widget('d', 40), widget('e', 40)),
+    ]
+    const plan = planWidgetsGroup(rows, ['b', 'c'], 'tabs', 'none')
+    const pages = plan == null ? [] : pagesOf(plan.holder)
 
     expect(plan?.rows.map((current) => current.widgets.map((held) => held.id))).toEqual([
-      ['a', plan?.wrapper.id],
+      ['a', plan?.holder.id],
       ['d', 'e'],
     ])
+    expect(pages.length).toBe(1)
     expect(pages[0]?.layout.map((current) => current.widgets.map((held) => held.id))).toEqual([
       ['b'],
       ['c'],
     ])
-    expect(plan?.rows[1]?.widgets.map((held) => held.width)).toEqual([60, 60])
+    expect(pages[0]?.layout[0]?.height).toBe(250)
+  })
+
+  it('fills a shared page row in the proportions the widgets held', () => {
+    const rows = [row('r1', widget('a', 40), widget('b', 20), widget('c', 60))]
+    const plan = planWidgetsGroup(rows, ['a', 'b'], 'tabs', 'row')
+    const pages = plan == null ? [] : pagesOf(plan.holder)
+
+    expect(pages[0]?.layout[0]?.widgets.map((held) => held.width)).toEqual([80, 40])
+  })
+
+  it('deals a page row out evenly when a stored width is not positive', () => {
+    // A workspace can carry a broken width, and scaling proportions would only amplify it.
+    const rows = [row('r1', widget('a', 97), widget('b', -82))]
+    const plan = planWidgetsGroup(rows, ['a', 'b'], 'tabs', 'none')
+    const pages = plan == null ? [] : pagesOf(plan.holder)
+
+    expect(pages[0]?.layout[0]?.widgets.map((held) => held.width)).toEqual([60, 60])
+  })
+
+  it('lands the taken widgets without frames when asked to', () => {
+    const rows = [row('r1', widget('a', 60), widget('b', 60))]
+    const plan = planWidgetsGroup(rows, ['a', 'b'], 'tabs', 'widget', true)
+    const pages = plan == null ? [] : pagesOf(plan.holder)
+
+    expect(pages.flatMap((page) => page.layout[0]?.widgets.map((held) => held.frameless))).toEqual([
+      true,
+      true,
+    ])
+  })
+
+  it('takes a whole row as one full-width holder', () => {
+    const rows = [row('r1', widget('a', 60), widget('b', 60)), row('r2', widget('c'))]
+    const plan = planWidgetsGroup(rows, ['a', 'b'], 'tabs', 'widget')
+
+    expect(plan?.rows.map((current) => current.widgets.map((held) => held.id))).toEqual([
+      [plan?.holder.id],
+      ['c'],
+    ])
+    expect(plan?.holder.width).toBe(widgetWidthSubdivisions)
   })
 
   it('closes a row the taking empties', () => {
     const rows = [row('r1', widget('a')), row('r2', widget('b')), row('r3', widget('c'))]
-    const plan = planWidgetsWrap(rows, ['a', 'b'], 'tabs')
+    const plan = planWidgetsGroup(rows, ['a', 'b'], 'tabs', 'widget')
 
     expect(plan?.rows.map((current) => current.widgets.map((held) => held.id))).toEqual([
-      [plan?.wrapper.id],
+      [plan?.holder.id],
       ['c'],
     ])
+  })
+})
+
+describe('planWidgetUngroup', () => {
+  it('says nothing about a widget the layout does not hold', () => {
+    expect(planWidgetUngroup([row('r1', widget('a'))], 'nowhere')).toBeNull()
+  })
+
+  it('says nothing about a widget that holds no pages', () => {
+    expect(planWidgetUngroup([row('r1', widget('a'))], 'a')).toBeNull()
+  })
+
+  it('stands the pages rows where the widget stood, as they are', () => {
+    const holder = tabs('holder', [
+      { id: 't1', layout: [row('p1', widget('a', 60), widget('b', 60)), row('p2', widget('c'))] },
+    ])
+    const plan = planWidgetUngroup([row('r1', widget('x')), row('r2', holder)], 'holder')
+
+    expect(plan?.rows.map((current) => current.widgets.map((held) => held.id))).toEqual([
+      ['x'],
+      ['a', 'b'],
+      ['c'],
+    ])
+    expect(plan?.released.map((held) => held.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('flattens several pages in page order', () => {
+    const holder = carousel('holder', [
+      { id: 's1', layout: [row('p1', widget('a'))] },
+      { id: 's2', layout: [row('p2', widget('b'))] },
+    ])
+    const plan = planWidgetUngroup([row('r1', holder)], 'holder')
+
+    expect(plan?.rows.map((current) => current.widgets.map((held) => held.id))).toEqual([
+      ['a'],
+      ['b'],
+    ])
+  })
+
+  it('keeps a shared row ahead of what comes out, spread back over its width', () => {
+    const holder = tabs('holder', [{ id: 't1', layout: [row('p1', widget('a'))] }])
+    holder.width = 60
+    const plan = planWidgetUngroup([row('r1', widget('x', 60), holder)], 'holder')
+
+    expect(plan?.rows.map((current) => current.widgets.map((held) => held.id))).toEqual([
+      ['x'],
+      ['a'],
+    ])
+    expect(plan?.rows[0]?.widgets[0]?.width).toBe(widgetWidthSubdivisions)
   })
 })
 

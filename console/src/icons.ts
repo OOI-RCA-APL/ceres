@@ -86,6 +86,8 @@ const icons = {
   tab: 'mdi-tab',
   tabAdd: 'mdi-tab-plus',
   tabUnselected: 'mdi-tab-unselected',
+  groupWidgets: 'mdi-group',
+  ungroupWidgets: 'mdi-ungroup',
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',

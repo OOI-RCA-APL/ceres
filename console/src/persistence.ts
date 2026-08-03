@@ -1,6 +1,15 @@
 import { kebabCase, isEqual, camelCase, pick, difference, isArrayLike } from 'lodash-es'
 import { debounce, LocalStorage } from 'quasar'
-import { computed, isReactive, reactive, watch, MaybeRefOrGetter, toValue } from 'vue'
+import {
+  computed,
+  getCurrentScope,
+  isReactive,
+  onScopeDispose,
+  reactive,
+  watch,
+  MaybeRefOrGetter,
+  toValue,
+} from 'vue'
 import { Router } from 'vue-router'
 import Zod, { ZodArray, ZodBoolean, ZodNativeEnum, ZodNumber, ZodObject } from 'zod'
 
@@ -92,6 +101,19 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
       write()
     }, 50)
   )
+
+  // A consumer that confirms a choice and unmounts in the same breath would lose the debounced
+  // write, since the timer outlives the watcher that would have run it. Storage is flushed on the
+  // way out. The URL is not, because by then the location may already belong to another page.
+  if (getCurrentScope() != null) {
+    onScopeDispose(() => {
+      for (const method of methods.value) {
+        if (method.type === 'local-storage') {
+          writeToStorage(method, data)
+        }
+      }
+    })
+  }
 
   return data
 }

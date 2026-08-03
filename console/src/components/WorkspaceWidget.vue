@@ -5,6 +5,7 @@ import { watch } from 'vue'
 import CommonText from '@/components/CommonText.vue'
 import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
+import WorkspaceWidgetGroupDialog from '@/components/WorkspaceWidgetGroupDialog.vue'
 import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
@@ -46,6 +47,7 @@ const settingsComponent = $computed(() => {
 })
 
 let isShowingSettingsDialog = $ref(false)
+let isShowingGroupDialog = $ref(false)
 let reloads = $ref(0)
 
 // Held so the dots can open the same menu a right click does, at wherever the pointer is.
@@ -75,9 +77,9 @@ const conversion = $computed(() => {
   }
 })
 
-// Wrapping acts on everything picked out when this widget is among them, the same way dragging
+// Grouping acts on everything picked out when this widget is among them, the same way dragging
 // does, and on this widget alone otherwise.
-const wrapTargets = $computed(() =>
+const groupTargets = $computed(() =>
   workspace.isSelected(widget.id) && workspace.selectionLayout === layoutId
     ? [...workspace.selection]
     : [widget.id]
@@ -379,27 +381,31 @@ watch(
             <q-item-label>{{ conversion.label }}</q-item-label>
           </q-item-section>
         </q-item>
-        <!-- Wrapping puts the widget, or everything picked out with it, onto the first page of a
-        fresh pages widget standing in its place. -->
-        <q-item v-close-popup clickable dense @click="workspace.wrapWidgets(wrapTargets, 'tabs')">
+        <!-- Grouping puts the widget, or everything picked out with it, onto the pages of a fresh
+        tabs or carousel widget standing in its place. Which kind and how the pages are dealt are
+        ironed out in the dialog. -->
+        <q-item v-close-popup clickable dense @click="isShowingGroupDialog = true">
           <q-item-section avatar>
-            <q-icon :name="icons.tab" />
+            <q-icon :name="icons.groupWidgets" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>Wrap In Tabs</q-item-label>
+            <q-item-label>Group...</q-item-label>
           </q-item-section>
         </q-item>
+        <!-- The inverse, for a widget that holds pages. Their rows come out onto the layout where
+        the widget stands, and the widget itself goes away. -->
         <q-item
+          v-if="conversion != null"
           v-close-popup
           clickable
           dense
-          @click="workspace.wrapWidgets(wrapTargets, 'carousel')"
+          @click="workspace.ungroupWidget(widget.id)"
         >
           <q-item-section avatar>
-            <q-icon :name="icons.carousel" />
+            <q-icon :name="icons.ungroupWidgets" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>Wrap In Carousel</q-item-label>
+            <q-item-label>Ungroup</q-item-label>
           </q-item-section>
         </q-item>
         <q-separator />
@@ -432,6 +438,12 @@ watch(
         </q-item>
       </q-list>
     </q-menu>
+    <!-- Mounted only while showing, so its remembered choices are read fresh each time. -->
+    <workspace-widget-group-dialog
+      v-if="isShowingGroupDialog"
+      :widget-ids="groupTargets"
+      @close="isShowingGroupDialog = false"
+    />
     <!-- Hung off the card rather than off the button that opens it, so the menu can open it too on
     a widget that is wearing no header. -->
     <q-dialog v-if="settingsComponent != null" v-model="isShowingSettingsDialog">

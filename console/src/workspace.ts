@@ -1085,8 +1085,13 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return null
   }
 
-  /** Wrap the widgets named by `ids` in a fresh widget of `type`, standing in their place. */
-  function wrapWidgets(ids: string[], type: 'tabs' | 'carousel') {
+  /** Group the widgets named by `ids` under a fresh widget of `type`, standing in their place. */
+  function groupWidgets(
+    ids: string[],
+    type: 'tabs' | 'carousel',
+    split: GroupSplit = 'widget',
+    frameless: boolean = false
+  ) {
     if (data == null || ids.length === 0) {
       return null
     }
@@ -1094,22 +1099,45 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     // The named widgets all stand in one layout, since a selection never spans two, so the first
     // layout that answers with a plan is the one they were in.
     for (const layout of layoutRefs()) {
-      const plan = planWidgetsWrap(layout.rows, ids, type)
+      const plan = planWidgetsGroup(layout.rows, ids, type, split, frameless)
       if (plan == null) {
         continue
       }
 
       layout.set(plan.rows)
 
-      // The wrapper stands in for what it took, so it is what stays picked out.
+      // The holder stands in for what it took, so it is what stays picked out.
       selectionLayout = layout.id
-      selection = [plan.wrapper.id]
-      selectionAnchor = plan.wrapper.id
+      selection = [plan.holder.id]
+      selectionAnchor = plan.holder.id
 
-      return plan.wrapper
+      return plan.holder
     }
 
     return null
+  }
+
+  /** Dissolve the pages widget named `id`, its pages' rows standing in its place. */
+  function ungroupWidget(id: string) {
+    if (data == null) {
+      return
+    }
+
+    for (const layout of layoutRefs()) {
+      const plan = planWidgetUngroup(layout.rows, id)
+      if (plan == null) {
+        continue
+      }
+
+      layout.set(plan.rows)
+
+      // What the widget held is what now stands on the layout, so it is what stays picked out.
+      selectionLayout = layout.id
+      selection = plan.released.map((widget) => widget.id)
+      selectionAnchor = plan.released[plan.released.length - 1]?.id ?? null
+
+      return
+    }
   }
 
   function moveWidgets(ids: string[], placement: WidgetPlacement) {
@@ -1426,7 +1454,8 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     moveWidgets,
     duplicateWidget,
     replaceWidget,
-    wrapWidgets,
+    groupWidgets,
+    ungroupWidget,
     drag: null as Drag | null,
     selection: computed(() => selection),
     selectionLayout: computed(() => selectionLayout),
@@ -1855,19 +1884,49 @@ export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
   return widget
 }
 
-/** Wrap the widgets named by `ids` in a fresh widget of `type`, standing where the first stood.
+/** How grouping deals the taken widgets across the pages of the new widget. */
+export type GroupSplit = 'widget' | 'row' | 'none'
 
-The taken widgets land on the wrapper's one page, a page row for each layout row they were taken
-from, in layout order and at the heights those rows stood at, each spread back over the full width
-now that it has a row of its own. The wrapper takes the room the taken widgets held in its own
-row, rows the taking empties close up, and everything else keeps its place. Answers null when none
-of the named widgets stand in `rows`.
+/** Scale `widths` to fill a row, keeping the proportions they stood in.
+
+A width at or below zero poisons the proportions, and scaling would only amplify it, so a row
+holding one is dealt out evenly instead.
 */
-export function planWidgetsWrap(
+function filledWidths(widths: number[]): number[] {
+  if (widths.length === 0) {
+    return []
+  }
+
+  const usable = widths.every((width) => width > 0)
+  const basis = usable ? widths : widths.map(() => 1)
+  const basisTotal = usable ? widths.reduce((sum, current) => sum + current, 0) : widths.length
+  const scaled = basis.map((width) => Math.round((width * widgetWidthSubdivisions) / basisTotal))
+
+  // Rounding drift lands on the last width, so the row still adds up exactly.
+  const drift = widgetWidthSubdivisions - scaled.reduce((sum, current) => sum + current, 0)
+  scaled[scaled.length - 1] = (scaled[scaled.length - 1] ?? 0) + drift
+
+  return scaled
+}
+
+/** Group the widgets named by `ids` under a fresh widget of `type`, standing where the first
+stood.
+
+The taken widgets land on the holder's pages as `split` says, a page per taken widget in layout
+order and named after it, a page per layout row they were taken from, or all of them together on
+one page. Page rows keep the heights their layout rows stood at, and widgets sharing one fill it
+in the proportions they held. With `frameless` set the taken widgets land without their frames,
+which suits a page whose tab already carries the widget's name. The holder takes the room the
+taken widgets held in its own row, rows the taking empties close up, and everything else keeps
+its place. Answers null when none of the named widgets stand in `rows`.
+*/
+export function planWidgetsGroup(
   rows: WidgetRow[],
   ids: string[],
-  type: 'tabs' | 'carousel'
-): { rows: WidgetRow[]; wrapper: Widget } | null {
+  type: 'tabs' | 'carousel',
+  split: GroupSplit,
+  frameless: boolean = false
+): { rows: WidgetRow[]; holder: Widget } | null {
   const taking = new Set(ids)
 
   type Group = { row: WidgetRow; taken: Widget[]; staying: Widget[] }
@@ -1887,24 +1946,45 @@ export function planWidgetsWrap(
     return null
   }
 
-  const pageRows: WidgetRow[] = [...groups.values()].map(({ row, taken }) => {
-    const widths = resolveWidths(taken.map((widget) => widget.width))
+  const groupList = [...groups.values()]
+
+  function pageRow(source: WidgetRow, taken: Widget[]): WidgetRow {
+    const widths = filledWidths(taken.map((widget) => widget.width))
     return {
       id: v7(),
-      height: row.height,
-      collapsed: row.collapsed,
-      widgets: taken.map((widget, index) => ({ ...widget, width: widths[index] ?? widget.width })),
+      height: source.height,
+      collapsed: source.collapsed,
+      widgets: taken.map((widget, index) => ({
+        ...widget,
+        width: widths[index] ?? widget.width,
+        frameless: frameless || widget.frameless,
+      })),
     }
-  })
+  }
+
+  let pages: WidgetPage[]
+  if (split === 'widget') {
+    // Each page is named after its widget, since the strip then stands for the widgets on it.
+    pages = groupList.flatMap(({ row, taken }) =>
+      taken.map((widget) => ({ id: v7(), name: widget.name, layout: [pageRow(row, [widget])] }))
+    )
+  } else if (split === 'row') {
+    pages = groupList.map(({ row, taken }) => ({
+      id: v7(),
+      name: '',
+      layout: [pageRow(row, taken)],
+    }))
+  } else {
+    pages = [{ id: v7(), name: '', layout: groupList.map(({ row, taken }) => pageRow(row, taken)) }]
+  }
 
   const base = createWidget(type)
-  const page = pagesOf(base)[0] ?? { id: v7(), name: '', layout: [] }
-  const first = [...groups.values()][0] as Group
+  const first = groupList[0] as Group
   const width = Math.min(
     first.taken.reduce((sum, widget) => sum + widget.width, 0),
     widgetWidthSubdivisions
   )
-  const wrapper: Widget = { ...withPages(base, [{ ...page, layout: pageRows }]), width }
+  const holder: Widget = { ...withPages(base, pages), width }
 
   const result: WidgetRow[] = []
   for (const row of rows) {
@@ -1913,10 +1993,10 @@ export function planWidgetsWrap(
       result.push(row)
     } else if (group === first) {
       // Everything before the first taken widget is staying, so its index in the old row is also
-      // the wrapper's place among what stays.
+      // the holder's place among what stays.
       const at = row.widgets.findIndex((widget) => taking.has(widget.id))
       const widgets = [...group.staying]
-      widgets.splice(at, 0, wrapper)
+      widgets.splice(at, 0, holder)
       result.push({ ...row, widgets })
     } else if (group.staying.length > 0) {
       const widths = resolveWidths(group.staying.map((widget) => widget.width))
@@ -1930,7 +2010,54 @@ export function planWidgetsWrap(
     }
   }
 
-  return { rows: result, wrapper }
+  return { rows: result, holder }
+}
+
+/** Dissolve the pages widget named `id` back into `rows`, its pages' rows standing in its place.
+
+The pages' rows land where the widget's own row stands, in page order and as they are, and the
+widget goes away. A row the widget shared stays ahead of them for the widgets that remain on it.
+Answers null when no widget named `id` stands in `rows`, or when the named one holds no pages.
+*/
+export function planWidgetUngroup(
+  rows: WidgetRow[],
+  id: string
+): { rows: WidgetRow[]; released: Widget[] } | null {
+  const at = rows.findIndex((row) => row.widgets.some((widget) => widget.id === id))
+  if (at < 0) {
+    return null
+  }
+
+  const row = rows[at] as WidgetRow
+  const target = row.widgets.find((widget) => widget.id === id) as Widget
+  const pages = pagesOf(target)
+  if (pages.length === 0) {
+    return null
+  }
+
+  const landing = pages.flatMap((page) => page.layout)
+  const staying = row.widgets.filter((widget) => widget.id !== id)
+
+  const result = [...rows]
+  if (staying.length === 0) {
+    result.splice(at, 1, ...landing)
+  } else {
+    const widths = resolveWidths(staying.map((widget) => widget.width))
+    result.splice(
+      at,
+      1,
+      {
+        ...row,
+        widgets: staying.map((widget, index) => ({
+          ...widget,
+          width: widths[index] ?? widget.width,
+        })),
+      },
+      ...landing
+    )
+  }
+
+  return { rows: result, released: landing.flatMap((current) => current.widgets) }
 }
 
 /** The name the workspace's own layout goes by, as against one belonging to a widget's page. */
