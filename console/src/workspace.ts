@@ -237,6 +237,17 @@ export const WidgetPageModel = Zod.object({
 /** What a carousel calls its pages. */
 export type CarouselSlide = WidgetPage
 
+/** What a layout does with height it has been given and its rows have not asked for.
+
+A slide is as tall as the carousel holding it, whatever is on it, so there is usually height left
+over at the bottom. `last` gives it to the final row, which is where a table or a chart wants it,
+and `first` to the leading one, for a slide whose headline sits at the top and whose detail follows
+underneath. `even` shares it out, and `none` leaves it empty and the rows exactly the height they
+were dragged to.
+*/
+export type LayoutExpand = Zod.infer<typeof LayoutExpandModel>
+export const LayoutExpandModel = Zod.enum(['last', 'first', 'even', 'none'])
+
 export type CarouselWidget = BaseWidget & {
   type: 'carousel'
   slides: WidgetPage[]
@@ -246,6 +257,12 @@ export type CarouselWidget = BaseWidget & {
 
   /** Whether it moves on by itself, as against being stepped through by hand. */
   autoplay: boolean
+
+  /** What the slides do with the height left over once their rows have taken theirs. */
+  expand: LayoutExpand
+
+  /** Whether rows may also be squeezed below their own heights to fit the slide. */
+  shrink: boolean
 }
 
 export const CarouselWidgetModel = BaseWidgetModel.extend({
@@ -256,6 +273,11 @@ export const CarouselWidgetModel = BaseWidgetModel.extend({
   // Off to begin with. A panel that starts moving on its own the moment it is added takes the
   // page over before anyone has said what is meant to be on it.
   autoplay: Zod.boolean().catch(false),
+  // The bottom of a slide is where empty space shows, so the row at the bottom is given it.
+  expand: LayoutExpandModel.catch('last'),
+  // Off, since squeezing a row below the height it was dragged to is a thing to ask for rather
+  // than a thing to discover.
+  shrink: Zod.boolean().catch(false),
 })
 
 /** Pages shown one at a time, reached by name rather than in turn. */
@@ -263,6 +285,12 @@ export type TabsWidget = BaseWidget & {
   type: 'tabs'
   tabs: WidgetPage[]
   fill: boolean
+
+  /** What the tabs do with the height left over once their rows have taken theirs. */
+  expand: LayoutExpand
+
+  /** Whether rows may also be squeezed below their own heights to fit the tab. */
+  shrink: boolean
 }
 
 export const TabsWidgetModel = BaseWidgetModel.extend({
@@ -273,6 +301,11 @@ export const TabsWidgetModel = BaseWidgetModel.extend({
   // Whether the tabs share the width of the strip out between them rather than each taking only
   // the room its own name needs.
   fill: Zod.boolean().catch(false),
+  // The bottom of a tab is where empty space shows, so the row at the bottom is given it.
+  expand: LayoutExpandModel.catch('last'),
+  // Off, since squeezing a row below the height it was dragged to is a thing to ask for rather
+  // than a thing to discover.
+  shrink: Zod.boolean().catch(false),
 })
 
 export type Widget =
@@ -328,7 +361,15 @@ Said as a cast, because a carousel holds slides that hold rows that hold widgets
 gives up on a shape that reaches back into itself. The models still describe it exactly.
 */
 export function createWidget(type: WidgetType): Widget {
-  return widgetInfos[type].model.parse({ type }) as Widget
+  const widget = widgetInfos[type].model.parse({ type }) as Widget
+
+  // A carousel or a tab strip begins with a page, since one holding none has no layout at all and
+  // so nothing that a widget can be dragged onto or pasted into.
+  if ((widget.type === 'carousel' || widget.type === 'tabs') && pagesOf(widget).length === 0) {
+    return withPages(widget, [{ id: v7(), name: '', layout: [] }])
+  }
+
+  return widget
 }
 
 type WidgetOptionsInput = {
@@ -515,12 +556,18 @@ as are put on it, so a stored one becomes a widget holding the single button it 
 fields are left behind rather than carried, so the next write puts the new shape back.
 */
 export function upgradedWidget(widget: Widget): Widget {
+  const pages = pagesOf(widget).map((page) => ({
+    ...page,
+    layout: upgradedRows(page.layout),
+  }))
+
+  // A carousel or a tab strip always holds at least one page. One holding none has no layout, and
+  // so nothing that can be dragged onto or pasted into, which leaves it a widget with no way in.
   const upgraded = withPages(
     widget,
-    pagesOf(widget).map((page) => ({
-      ...page,
-      layout: upgradedRows(page.layout),
-    }))
+    pages.length === 0 && (widget.type === 'carousel' || widget.type === 'tabs')
+      ? [{ id: v7(), name: '', layout: [] }]
+      : pages
   )
 
   if (upgraded.type !== 'button') {
@@ -1746,6 +1793,28 @@ export function pagesOf(widget: Widget): WidgetPage[] {
   return []
 }
 
+/** The same pages shown the other way about, as a tab strip if it was a carousel and the reverse.
+
+Answers null for a widget that holds no pages, there being nothing to turn into anything. The
+pages themselves carry across untouched, keeping their names, their layouts and their IDs, so the
+widgets on them are neither moved nor rebuilt.
+*/
+export function convertedPagesWidget(widget: Widget): Widget | null {
+  if (widget.type !== 'carousel' && widget.type !== 'tabs') {
+    return null
+  }
+
+  const converted = createWidget(widget.type === 'carousel' ? 'tabs' : 'carousel')
+
+  // A name that was only ever the default for one kind is not a name anybody chose, so it gives
+  // way to the other kind's own rather than following the pages across.
+  if (widget.name !== defaultWidgetName(widget.type)) {
+    converted.name = widget.name
+  }
+
+  return withPages(converted, pagesOf(widget))
+}
+
 /** A copy of `widget` holding `pages` in place of the ones it held. */
 export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
   if (widget.type === 'carousel') {
@@ -1944,9 +2013,20 @@ hand is itself carrying.
 export function planWidgetsMove(
   layouts: Map<string, WidgetRow[]>,
   ids: string[],
-  placement: WidgetPlacement | null
+  placement: WidgetPlacement | null,
+
+  /** How tall each row actually stands, by row ID, where that differs from the height it was
+  given. A row on a carousel slide grows into the space left over or is squeezed to fit, so the
+  height it was dragged to is not the height anybody can see. A widget carried out of one arrives
+  at the size it was, rather than at a size it has not had for as long as it has been there. */
+  shown?: Map<string, number>
 ): WidgetMovePlan | null {
   const held = new Set(ids)
+
+  /** The height a row is actually standing at, which is what a widget leaving it carries away. */
+  function heightOf(row: WidgetRow): number {
+    return Math.round(shown?.get(row.id) ?? row.height)
+  }
 
   // The layout the widgets came out of. A drag holds widgets from one layout at a time, since
   // reaching into another lets go of whatever was picked out before.
@@ -2038,7 +2118,7 @@ export function planWidgetsMove(
         // A row the move empties is gone, which frees its ID for the row taking its place. Reusing
         // it is what lets a selection dropped back where it started read as no change at all.
         id: group.consumed ? group.row.id : v7(),
-        height: group.row.height,
+        height: heightOf(group.row),
         collapsed: group.row.collapsed,
         widgets: group.widgets.map((widget) => widget.id),
       }
@@ -2056,7 +2136,7 @@ export function planWidgetsMove(
   destinationRow.widgets.splice(placement.column, 0, ...carried.map((widget) => widget.id))
   destinationRow.height = Math.max(
     destinationRow.height,
-    ...groups.map((group) => group.row.height)
+    ...groups.map((group) => heightOf(group.row))
   )
 
   // Each arriving widget claims no more than an even share of the row it joins, and the widgets

@@ -3,24 +3,25 @@ import { useEventListener, useIntervalFn, useMediaQuery } from '@vueuse/core'
 import { v7 } from 'uuid'
 import { nextTick, watch } from 'vue'
 
-import CommonText from '@/components/CommonText.vue'
 import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
 import { useWidgetDrop } from '@/widget-drop'
 import {
-  createWidget,
-  defaultWidgetName,
+  convertedPagesWidget,
   layoutsWithin,
   useWorkspace,
   CarouselSlide,
   CarouselWidget,
-  TabsWidget,
+  WidgetRow,
 } from '@/workspace'
 
-const { widget } = defineProps<{
+const { widget, container } = defineProps<{
   widget: CarouselWidget
+
+  /** The workspace row this carousel sits in, whose height is the height its slides get. */
+  container?: WidgetRow
 }>()
 
 const workspace = useWorkspace()
@@ -97,6 +98,15 @@ useEventListener(window, 'pointerdown', (event: PointerEvent) => {
 })
 
 const slide = $computed(() => widget.slides[index] ?? null)
+
+// A slide is as tall as the carousel however little is on it, so the height left at the bottom
+// goes somewhere. The last row is the default, being where a table or a chart wants the room.
+const expandOptions = [
+  { label: 'Last Widget Row', value: 'last' },
+  { label: 'First Widget Row', value: 'first' },
+  { label: 'All Widget Rows', value: 'even' },
+  { label: "Don't Fill", value: 'none' },
+]
 
 // Also held still for as long as something is actually in hand anywhere in the workspace. A drag
 // measures the layouts on screen once and aims at those measurements for the rest of it, so a slide
@@ -235,7 +245,7 @@ function focusDotName(at: number) {
 
 /** Open the name of the slide at `at` and put the caret in it.
 
-Reached from a press on the slide already being shown, and from its menu. A tooltip still arriving
+Reached from a press on the dot of the slide already being shown. A tooltip still arriving
 settles by moving its own element, which drops whatever focus it held, so a tooltip that has to
 open first is left to say when it has finished and the caret is taken then.
 */
@@ -278,6 +288,12 @@ function deleteSlide() {
     return
   }
 
+  // Never down to none. A carousel holding no slides has no layout, so nothing could be dragged
+  // onto it or pasted into it, and taking the last slide away would leave it with no way back.
+  if (widget.slides.length <= 1) {
+    return
+  }
+
   const removing = slide
   widget.slides = widget.slides.filter((current) => current !== removing)
   show(index)
@@ -289,16 +305,10 @@ The pages travel as they are, under the names they already had, so what is on th
 into any of them means are untouched. Only how they are reached changes.
 */
 function convertToTabs() {
-  const tabs = createWidget('tabs') as TabsWidget
-  // A name that was only ever the default for a tab strip or a carousel is not a name anybody
-  // chose, so it gives way to the new kind's own rather than following the pages across.
-  if (widget.name !== defaultWidgetName('carousel')) {
-    tabs.name = widget.name
+  const tabs = convertedPagesWidget(widget)
+  if (tabs != null) {
+    workspace.replaceWidget(widget.id, tabs)
   }
-
-  tabs.tabs = widget.slides
-
-  workspace.replaceWidget(widget.id, tabs)
 }
 
 function moveSlide(by: number) {
@@ -328,19 +338,20 @@ function moveSlide(by: number) {
     @pointerenter="hovered = true"
     @pointerleave="onPointerLeave"
   >
+    <!-- The same button a layout with nothing on it offers, so adding the first slide is the thing
+    it already is everywhere else rather than something else to read. -->
     <div v-if="slide == null" :class="[$style.empty, 'col', 'column', 'flex-center']">
-      <common-text variant="description">A carousel shows one slide at a time.</common-text>
       <q-btn
-        class="q-mt-sm"
+        aria-label="Add Slide"
         color="primary"
-        dense
-        flat
         :icon="icons.add"
-        label="Add Slide"
-        no-caps
-        size="sm"
+        round
+        size="8px"
+        unelevated
         @click="addSlide"
-      />
+      >
+        <q-tooltip class="bg-primary">Add Slide</q-tooltip>
+      </q-btn>
     </div>
     <!-- A slide is a workspace in miniature, arranged through the same editor the workspace itself
     is drawn by, so everything that can be done to a layout can be done to one. -->
@@ -356,7 +367,13 @@ function moveSlide(by: number) {
           :leave-to-class="direction > 0 ? $style.offLeft : $style.offRight"
         >
           <div :key="slide.id" :class="[$style.slide, 'overflow-auto', 'q-px-sm']">
-            <workspace-layout :layout="slide.layout" :layout-id="slide.id" />
+            <workspace-layout
+              :expand="widget.expand"
+              :host="container"
+              :layout="slide.layout"
+              :layout-id="slide.id"
+              :shrink="widget.shrink"
+            />
           </div>
         </transition>
       </div>
@@ -473,15 +490,7 @@ function moveSlide(by: number) {
           at. -->
           <q-btn dense flat :icon="icons.more" round size="10px">
             <q-menu>
-              <q-list bordered dense>
-                <q-item v-close-popup clickable dense @click="editDotName(index)">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.rename" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Set Title</q-item-label>
-                  </q-item-section>
-                </q-item>
+              <q-list bordered class="q-pb-sm" dense>
                 <q-item v-close-popup clickable dense :disable="index === 0" @click="moveSlide(-1)">
                   <q-item-section avatar>
                     <q-icon :name="icons.menuLeft" />
@@ -505,7 +514,13 @@ function moveSlide(by: number) {
                   </q-item-section>
                 </q-item>
                 <q-separator />
-                <q-item v-close-popup clickable dense @click="deleteSlide">
+                <q-item
+                  v-close-popup
+                  clickable
+                  dense
+                  :disable="widget.slides.length <= 1"
+                  @click="deleteSlide"
+                >
                   <q-item-section avatar>
                     <q-icon :name="icons.delete" />
                   </q-item-section>
@@ -544,6 +559,25 @@ function moveSlide(by: number) {
                     />
                   </q-item-section>
                 </q-item>
+                <q-item v-if="widget.expand !== 'none'" dense>
+                  <q-item-section>
+                    <q-checkbox v-model="widget.shrink" dense label="Shrink" />
+                  </q-item-section>
+                </q-item>
+                <q-item dense>
+                  <q-item-section>
+                    <q-select
+                      v-model="widget.expand"
+                      dense
+                      emit-value
+                      label="Fill Slide Height"
+                      map-options
+                      :options="expandOptions"
+                      options-dense
+                      outlined
+                    />
+                  </q-item-section>
+                </q-item>
               </q-list>
             </q-menu>
           </q-btn>
@@ -564,7 +598,7 @@ function moveSlide(by: number) {
 }
 
 .empty {
-  opacity: 0.7;
+  min-height: 60px;
 }
 
 // Takes the room left over rather than asking for the room its contents want, so the band under it

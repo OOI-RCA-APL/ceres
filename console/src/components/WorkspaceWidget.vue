@@ -9,6 +9,7 @@ import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vu
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
 import {
+  convertedPagesWidget,
   createWidget,
   getWidgetInfo,
   useWorkspace,
@@ -57,6 +58,22 @@ function onReloadRequested() {
 function onSettingsRequested() {
   isShowingSettingsDialog = true
 }
+
+/** The same pages the other way about, for a widget that holds pages, or null for one that does
+not. Offered from the header as well as from the strip itself, since it is a change to the widget
+rather than to what is on any one of its pages. */
+const conversion = $computed(() => {
+  const converted = convertedPagesWidget(widget)
+  if (converted == null) {
+    return null
+  }
+
+  return {
+    widget: converted,
+    label: converted.type === 'tabs' ? 'Convert To Tabs' : 'Convert To Carousel',
+    icon: converted.type === 'tabs' ? icons.tab : icons.carousel,
+  }
+})
 
 // Hand the widget back as one of its kind with nothing set on it, which is what a stub already is
 // once it stops standing in for what it was hiding.
@@ -198,7 +215,7 @@ watch(
         </div>
         <div>
           <q-btn
-            class="faded-hover"
+            :class="['faded-hover', widget.name !== '' && 'q-ml-xs']"
             flat
             :icon="icons.more"
             round
@@ -248,15 +265,23 @@ watch(
     </div>
     <template v-if="!container.collapsed">
       <q-separator v-if="!widget.frameless" />
+      <!-- Padded only where there is a frame to pad it away from. A widget wearing none stands on
+      the layout itself, so it takes the whole of the space the frame would have taken rather than
+      sitting inset inside a box that is no longer drawn. -->
       <div
         :key="key"
-        :class="[$style.content, 'col-grow overflow-auto', info.options.paddingClass]"
+        :class="[
+          $style.content,
+          'col-grow overflow-auto',
+          !widget.frameless && info.options.paddingClass,
+        ]"
       >
         <workspace-widget-restricted v-if="widget.restricted" :widget />
         <component
           :is="info.component as any"
           v-else
-          :class="info.options.fullHeight && 'full-height'"
+          :class="(info.options.fullHeight || widget.frameless) && 'full-height'"
+          :container="container"
           :widget="widget"
           @reload-requested="onReloadRequested"
           @settings-requested="onSettingsRequested"
@@ -332,6 +357,20 @@ watch(
           </q-item-section>
           <workspace-add-widget-menu :column="column + 1" :layout-id="layoutId" :row="row" />
         </q-item>
+        <q-item
+          v-if="conversion != null"
+          v-close-popup
+          clickable
+          dense
+          @click="workspace.replaceWidget(widget.id, conversion.widget)"
+        >
+          <q-item-section avatar>
+            <q-icon :name="conversion.icon" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>{{ conversion.label }}</q-item-label>
+          </q-item-section>
+        </q-item>
         <q-separator />
         <!-- Held here as well as on the header, since a widget wearing no frame has no header to
         reach either of them from. -->
@@ -341,19 +380,6 @@ watch(
           </q-item-section>
           <q-item-section>
             <q-item-label>{{ widget.frameless ? 'Show Frame' : 'Hide Frame' }}</q-item-label>
-          </q-item-section>
-        </q-item>
-        <q-item
-          v-close-popup
-          clickable
-          dense
-          @click="container.collapsed = !container.collapsed"
-        >
-          <q-item-section avatar>
-            <q-icon :name="container.collapsed ? icons.menuDown : icons.menuUp" />
-          </q-item-section>
-          <q-item-section>
-            <q-item-label>{{ container.collapsed ? 'Expand Row' : 'Collapse Row' }}</q-item-label>
           </q-item-section>
         </q-item>
         <q-item v-close-popup clickable dense @click="onReloadRequested">

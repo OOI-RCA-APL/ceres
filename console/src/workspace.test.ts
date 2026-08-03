@@ -38,6 +38,8 @@ function carousel(id: string, slides: { id: string; layout: WidgetRow[] }[]): Ca
     frameless: false,
     interval: 15,
     autoplay: false,
+    expand: 'last',
+    shrink: false,
     slides: slides.map((slide) => ({ id: slide.id, name: '', layout: slide.layout })),
   }
 }
@@ -51,6 +53,8 @@ function tabs(id: string, pages: { id: string; layout: WidgetRow[] }[]): TabsWid
     restricted: false,
     frameless: false,
     fill: false,
+    expand: 'last',
+    shrink: false,
     tabs: pages.map((page) => ({ id: page.id, name: '', layout: page.layout })),
   }
 }
@@ -422,7 +426,10 @@ describe('a stored button widget', () => {
       id: 'w1',
       type: 'button',
       name: '',
-      buttons: [{ id: 'b1', action: 'one' }, { id: 'b2', action: 'two' }],
+      buttons: [
+        { id: 'b1', action: 'one' },
+        { id: 'b2', action: 'two' },
+      ],
       action: 'legacy',
     })
 
