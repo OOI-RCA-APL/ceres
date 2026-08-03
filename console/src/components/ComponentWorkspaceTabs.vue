@@ -156,12 +156,19 @@ function showMenu(id: string, event: Event) {
   menus.get(id)?.show(event)
 }
 
-function onTabClick(id: string) {
+function onTabClick(workspace: Workspace, event: MouseEvent) {
   if (reorder.consumeClick()) {
     return
   }
 
-  emit('select', id)
+  // Shift names the tab rather than turning to it, which is what holding shift over one already
+  // offers. The press is what makes the offer a real edit, so it outlasts shift being let go of.
+  if (event.shiftKey) {
+    openRename(workspace)
+    return
+  }
+
+  emit('select', workspace.id)
 }
 
 /** Which tab is showing its name as a field, whether offered or being typed into.
@@ -328,7 +335,8 @@ function promptDeleteById(workspace: Workspace) {
         :name="workspace.id"
         :style="reorder.styleFor(index)"
         v-bind="reorder.handlers(index)"
-        @click="onTabClick(workspace.id)"
+        @click="onTabClick(workspace, $event)"
+        @dblclick.stop="openRename(workspace)"
         @keydown="onTabKeydown($event, index)"
       >
         <div
