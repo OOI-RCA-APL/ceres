@@ -1085,6 +1085,33 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return null
   }
 
+  /** Wrap the widgets named by `ids` in a fresh widget of `type`, standing in their place. */
+  function wrapWidgets(ids: string[], type: 'tabs' | 'carousel') {
+    if (data == null || ids.length === 0) {
+      return null
+    }
+
+    // The named widgets all stand in one layout, since a selection never spans two, so the first
+    // layout that answers with a plan is the one they were in.
+    for (const layout of layoutRefs()) {
+      const plan = planWidgetsWrap(layout.rows, ids, type)
+      if (plan == null) {
+        continue
+      }
+
+      layout.set(plan.rows)
+
+      // The wrapper stands in for what it took, so it is what stays picked out.
+      selectionLayout = layout.id
+      selection = [plan.wrapper.id]
+      selectionAnchor = plan.wrapper.id
+
+      return plan.wrapper
+    }
+
+    return null
+  }
+
   function moveWidgets(ids: string[], placement: WidgetPlacement) {
     if (data == null) {
       return
@@ -1399,6 +1426,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     moveWidgets,
     duplicateWidget,
     replaceWidget,
+    wrapWidgets,
     drag: null as Drag | null,
     selection: computed(() => selection),
     selectionLayout: computed(() => selectionLayout),
@@ -1825,6 +1853,84 @@ export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
   }
 
   return widget
+}
+
+/** Wrap the widgets named by `ids` in a fresh widget of `type`, standing where the first stood.
+
+The taken widgets land on the wrapper's one page, a page row for each layout row they were taken
+from, in layout order and at the heights those rows stood at, each spread back over the full width
+now that it has a row of its own. The wrapper takes the room the taken widgets held in its own
+row, rows the taking empties close up, and everything else keeps its place. Answers null when none
+of the named widgets stand in `rows`.
+*/
+export function planWidgetsWrap(
+  rows: WidgetRow[],
+  ids: string[],
+  type: 'tabs' | 'carousel'
+): { rows: WidgetRow[]; wrapper: Widget } | null {
+  const taking = new Set(ids)
+
+  type Group = { row: WidgetRow; taken: Widget[]; staying: Widget[] }
+  const groups = new Map<WidgetRow, Group>()
+  for (const row of rows) {
+    const taken = row.widgets.filter((widget) => taking.has(widget.id))
+    if (taken.length > 0) {
+      groups.set(row, {
+        row,
+        taken,
+        staying: row.widgets.filter((widget) => !taking.has(widget.id)),
+      })
+    }
+  }
+
+  if (groups.size === 0) {
+    return null
+  }
+
+  const pageRows: WidgetRow[] = [...groups.values()].map(({ row, taken }) => {
+    const widths = resolveWidths(taken.map((widget) => widget.width))
+    return {
+      id: v7(),
+      height: row.height,
+      collapsed: row.collapsed,
+      widgets: taken.map((widget, index) => ({ ...widget, width: widths[index] ?? widget.width })),
+    }
+  })
+
+  const base = createWidget(type)
+  const page = pagesOf(base)[0] ?? { id: v7(), name: '', layout: [] }
+  const first = [...groups.values()][0] as Group
+  const width = Math.min(
+    first.taken.reduce((sum, widget) => sum + widget.width, 0),
+    widgetWidthSubdivisions
+  )
+  const wrapper: Widget = { ...withPages(base, [{ ...page, layout: pageRows }]), width }
+
+  const result: WidgetRow[] = []
+  for (const row of rows) {
+    const group = groups.get(row)
+    if (group == null) {
+      result.push(row)
+    } else if (group === first) {
+      // Everything before the first taken widget is staying, so its index in the old row is also
+      // the wrapper's place among what stays.
+      const at = row.widgets.findIndex((widget) => taking.has(widget.id))
+      const widgets = [...group.staying]
+      widgets.splice(at, 0, wrapper)
+      result.push({ ...row, widgets })
+    } else if (group.staying.length > 0) {
+      const widths = resolveWidths(group.staying.map((widget) => widget.width))
+      result.push({
+        ...row,
+        widgets: group.staying.map((widget, index) => ({
+          ...widget,
+          width: widths[index] ?? widget.width,
+        })),
+      })
+    }
+  }
+
+  return { rows: result, wrapper }
 }
 
 /** The name the workspace's own layout goes by, as against one belonging to a widget's page. */

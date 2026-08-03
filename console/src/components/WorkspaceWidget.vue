@@ -75,6 +75,14 @@ const conversion = $computed(() => {
   }
 })
 
+// Wrapping acts on everything picked out when this widget is among them, the same way dragging
+// does, and on this widget alone otherwise.
+const wrapTargets = $computed(() =>
+  workspace.isSelected(widget.id) && workspace.selectionLayout === layoutId
+    ? [...workspace.selection]
+    : [widget.id]
+)
+
 // Hand the widget back as one of its kind with nothing set on it, which is what a stub already is
 // once it stops standing in for what it was hiding.
 function onResetRequested() {
@@ -369,6 +377,29 @@ watch(
           </q-item-section>
           <q-item-section>
             <q-item-label>{{ conversion.label }}</q-item-label>
+          </q-item-section>
+        </q-item>
+        <!-- Wrapping puts the widget, or everything picked out with it, onto the first page of a
+        fresh pages widget standing in its place. -->
+        <q-item v-close-popup clickable dense @click="workspace.wrapWidgets(wrapTargets, 'tabs')">
+          <q-item-section avatar>
+            <q-icon :name="icons.tab" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Wrap In Tabs</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item
+          v-close-popup
+          clickable
+          dense
+          @click="workspace.wrapWidgets(wrapTargets, 'carousel')"
+        >
+          <q-item-section avatar>
+            <q-icon :name="icons.carousel" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Wrap In Carousel</q-item-label>
           </q-item-section>
         </q-item>
         <q-separator />
