@@ -366,8 +366,10 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       </div>
       <workspace-layout v-else ref="layoutView" :layout="data.layout" :layout-id="rootLayoutId" />
     </div>
+    <!-- Held back while the layout is empty, since a layout with nothing on it offers this same
+    button in the middle of itself and two of it on screen at once is one too many. -->
     <div
-      v-if="!isViewingOriginal && data != null"
+      v-if="!isViewingOriginal && data != null && data.layout.length > 0"
       class="row"
       :class="[$style.addWidgetRow, 'items-center', 'justify-center', 'q-mt-sm']"
     >
