@@ -390,6 +390,9 @@ function convertToCarousel() {
         no-caps
         shrink
       >
+        <!-- Middle-click closes a tab, the way it does in a browser, whose tab idioms this strip
+        already borrows. The press itself is swallowed so the browser's middle-press autoscroll
+        never engages on a strip that scrolls. -->
         <q-tab
           v-for="(current, at) in widget.tabs"
           :key="current.id"
@@ -408,6 +411,8 @@ function convertToCarousel() {
           @contextmenu.stop
           @dblclick.stop="startNaming(at)"
           @keydown="onTabKeydown($event, at)"
+          @mousedown.middle.prevent.stop
+          @mouseup.middle.stop="deleteTab(at)"
         >
           <div
             :class="[$style.tabInner, 'items-center', 'no-wrap', 'row']"
