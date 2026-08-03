@@ -796,9 +796,11 @@ watch(
 
 // A tooltip is normally only read, so Quasar has every one of them let presses through to whatever
 // is under it. This one is a field as well and has to take them, which needs both the weight to
-// beat that rule and the name twice over to outrank it.
+// beat that rule and the name twice over to outrank it. Larger than a tooltip's own text too,
+// since a field being typed into earns more than a caption's size.
 .dotTooltip.dotTooltip {
   pointer-events: auto !important;
+  font-size: 12px;
 }
 
 .actions {
