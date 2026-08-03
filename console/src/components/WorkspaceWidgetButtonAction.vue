@@ -278,13 +278,7 @@ function toggleLock() {
             <q-item-label>Configure...</q-item-label>
           </q-item-section>
         </q-item>
-        <q-item
-          v-close-popup
-          clickable
-          dense
-          :disable="!takesArguments"
-          @click="showArguments()"
-        >
+        <q-item v-close-popup clickable dense :disable="!takesArguments" @click="showArguments()">
           <q-item-section avatar>
             <q-icon :name="icons.edit" />
           </q-item-section>
