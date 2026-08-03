@@ -66,7 +66,8 @@ const icons = {
   open: 'mdi-open-in-new',
   operate: 'mdi-wrench',
   operations: 'mdi-cog-transfer',
-  overview: 'space_dashboard', // Material Icons
+  // A page with its top band highlighted, which is what the overview toggle collapses.
+  overview: 'mdi-page-layout-header',
   password: 'password', // Material Icons
   preferences: 'mdi-theme-light-dark',
   reload: 'mdi-cog-sync',
