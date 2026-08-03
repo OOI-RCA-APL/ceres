@@ -294,7 +294,7 @@ fn unpack_from<'py>(
 /// Models unpack to plain dictionaries, validation and model construction stay with the
 /// caller.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct PackingProgram {
     spec: Spec,
     size: usize,

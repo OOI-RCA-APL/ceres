@@ -14,15 +14,19 @@ __all__ = [
     "BCryptHashingConfig",
     "ConsoleConfig",
     "DatabaseConfigHooks",
+    "EntityTable",
+    "JsonParameter",
     "LoggingConfig",
+    "NativeFilter",
     "NativeServer",
     "PackingProgram",
     "PostgresDatabaseConfig",
     "RecordBatch",
+    "RecordChunks",
     "RecordFetcher",
-    "RecordFilter",
     "RecordTable",
     "RecordWriter",
+    "RowChunks",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
     "ServerCORSConfig",
@@ -30,11 +34,20 @@ __all__ = [
     "ServerConfig",
     "ServerSSLConfig",
     "ServiceConfig",
+    "Store",
     "TursoDatabaseConfig",
+    "entity_filter_keys",
+    "hash_argon2",
+    "hash_bcrypt",
+    "insert_compiled",
+    "normalize_email",
     "openapi_schema",
-    "parse_record_filter",
-    "record_filter_from_json",
     "record_filter_keys",
+    "special_use_domains",
+    "stored_columns",
+    "verify_argon2",
+    "verify_bcrypt",
+    "verify_password",
 ]
 
 class Argon2HashingConfig:
@@ -205,6 +218,20 @@ class DatabaseConfigHooks:
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
 
+@final
+class JsonParameter:
+    r"""
+    A whole JSON document as one statement parameter.
+
+    The columns that store a document bind it as one value, and PostgreSQL's `jsonb` refuses
+    a text bind, so the fact that a parameter is a document has to survive the trip out to
+    Python and back rather than arriving as a string nobody can tell apart from a name.
+    """
+    def __repr__(self) -> str:
+        r"""
+        The document's serialized form, which is what a text column stores.
+        """
+
 class LoggingConfig:
     r"""
     Per-component or per-engine logging configuration.
@@ -279,6 +306,90 @@ class LoggingConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
+
+@final
+class NativeFilter:
+    r"""
+    A parsed filter, held natively and reused across calls.
+    """
+    @property
+    def limit(self) -> int | None:
+        r"""
+        The filter's limit, `None` when unbounded.
+        """
+    @property
+    def offset(self) -> int | None:
+        r"""
+        The filter's offset, `None` when unset.
+        """
+    @staticmethod
+    def from_pairs(table: str, pairs: Sequence[tuple[str, str]]) -> NativeFilter:
+        r"""
+        Parse a filter from ordered wire query pairs.
+        """
+    @staticmethod
+    def from_json(table: str, json: str) -> NativeFilter:
+        r"""
+        Parse a filter from its serialized JSON form, the filter model's dump.
+        """
+    def where_sql(self, dialect: str, now: datetime | None = None) -> str | None:
+        r"""
+        The `WHERE` conditions as inline SQL for a dialect, `None` when the filter is
+        unconditional.
+
+        The text embeds into a statement the caller builds, so values render as literals
+        rather than binds. The caller's clock decides age-relative conditions, so a
+        session under a faked or frozen time stays authoritative.
+        """
+    def order_sql(self, dialect: str) -> str | None:
+        r"""
+        The `ORDER BY` terms as inline SQL for a dialect, including the table's default
+        ordering.
+        """
+    def compiled(
+        self, dialect: str, *, count: bool = False, now: datetime | None = None
+    ) -> tuple[str, list[Any]]:
+        r"""
+        Compile to SQL and its parameters for a dialect, a listing statement or a count.
+
+        The parameters arrive in placeholder order for a driver-level execute, `?` style
+        for the SQLite family and `$n` for PostgreSQL. The caller's clock decides
+        age-relative conditions, and the whole statement resolves it once, so `min_age`
+        and `max_age` in one filter cannot straddle a tick.
+        """
+    def exists_compiled(self, dialect: str, now: datetime | None = None) -> tuple[str, list[Any]]:
+        r"""
+        Compile the existence check to SQL and its parameters for a dialect.
+
+        The shape an `any` command runs, which stops at the first matching row.
+        """
+    def delete_compiled(
+        self, dialect: str, returning: bool = False, now: datetime | None = None
+    ) -> tuple[str, list[Any]]:
+        r"""
+        Compile the delete to SQL and its parameters for a dialect.
+
+        `returning` hands back the rows the statement removed, which is how a caller that
+        wants the entities it deleted gets them without a second query that would no
+        longer find them.
+        """
+    def update_compiled(
+        self, dialect: str, assign: str, returning: bool = False, now: datetime | None = None
+    ) -> tuple[str, list[Any]]:
+        r"""
+        Compile an update to SQL and its parameters for a dialect.
+
+        `assign` is the serialized JSON object of new values, and each one encodes into the
+        form its column stores, so the caller cannot write a value the column did not ask
+        for. A refusal carries the sentence naming the key and what it wanted.
+        """
+    def matches(self, record_json: str, now: datetime | None = None) -> bool:
+        r"""
+        Whether one serialized row matches this filter.
+
+        Query controls and subsampling do not participate, this reads a single row the way
+        live stream filtering does.
+        """
 
 @final
 class NativeServer:
@@ -484,6 +595,22 @@ class RecordBatch:
         """
 
 @final
+class RecordChunks:
+    r"""
+    A streamed record query's chunks, taken one await at a time.
+
+    Dropping this ends the query, because the next chunk it tries to hand over has
+    nowhere to go.
+    """
+    def next(self) -> Any:
+        r"""
+        The next chunk, as an awaitable `RecordBatch`, `None` once the query is spent.
+
+        Waiting for a chunk blocks a thread of its own rather than the event loop, so a
+        slow query leaves the caller's asyncio loop free.
+        """
+
+@final
 class RecordFetcher:
     r"""
     A natively-connected view of a Ceres database, serving record reads.
@@ -493,9 +620,25 @@ class RecordFetcher:
     open lazily on first use.
     """
     @staticmethod
-    def sqlite(path: str) -> RecordFetcher:
+    def sqlite(
+        path: str, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> RecordFetcher:
         r"""
         Open a fetcher over a SQLite database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life.
+        """
+    @staticmethod
+    def turso(
+        path: str, mvcc: bool, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> RecordFetcher:
+        r"""
+        Open a fetcher over a Turso database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life. The `init` statements are the store's to run, that being
+        the engine a database opens for itself.
         """
     @staticmethod
     def postgres(
@@ -505,12 +648,15 @@ class RecordFetcher:
         port: int | None = None,
         password: str | None = None,
         settings: Sequence[tuple[str, str]] = [],
+        parameters: Sequence[tuple[str, str]] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
     ) -> RecordFetcher:
         r"""
         Open a fetcher over a PostgreSQL database.
 
-        `settings` are per-connection server settings like `search_path`, matching the ones
-        the query layer passes its own driver.
+        `settings` are per-connection server settings like `search_path`. `on_connect` and
+        `on_close` are the configuration's own statements for a connection's two ends.
         """
     def fetch_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> Any:
         r"""
@@ -518,6 +664,14 @@ class RecordFetcher:
 
         The statement text and parameters come from the query layer's own compiler, so any
         filter it can express runs natively with identical semantics.
+        """
+    def stream_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> RecordChunks:
+        r"""
+        Execute a compiled record query, as chunks the caller walks one at a time.
+
+        The chunked twin of `fetch_sql`, for a dump that renders and writes as it reads.
+        The query runs on its own thread and hands each decoded chunk over, so the reader
+        sets the pace and neither side ever holds more than a chunk.
         """
     def fetch(self, table: RecordTable, limit: int | None = None, offset: int | None = None) -> Any:
         r"""
@@ -539,52 +693,6 @@ class RecordFetcher:
         """
 
 @final
-class RecordFilter:
-    r"""
-    A parsed record filter, held natively and reused across calls.
-    """
-    @property
-    def limit(self) -> int | None:
-        r"""
-        The filter's limit, `None` when unbounded.
-        """
-    @property
-    def offset(self) -> int | None:
-        r"""
-        The filter's offset, `None` when unset.
-        """
-    def where_sql(self, dialect: str, now: datetime | None = None) -> str | None:
-        r"""
-        The `WHERE` conditions as inline SQL for a dialect, `None` when the filter is
-        unconditional.
-
-        The text embeds into a statement the Python session builds, so values render
-        as literals rather than binds.
-        The caller's clock decides age-relative conditions, so a session under a faked
-        or frozen time stays authoritative.
-        """
-    def order_sql(self, dialect: str) -> str | None:
-        r"""
-        The `ORDER BY` terms as inline SQL for a dialect, including the table's
-        default ordering.
-        """
-    def compiled(self, dialect: str, *, count: bool = False) -> tuple[str, list[Any]]:
-        r"""
-        Compile to SQL and its parameters for a dialect, a listing statement or a
-        count.
-
-        The parameters arrive in placeholder order for a driver-level execute, `?`
-        style for the SQLite family and `$n` for PostgreSQL.
-        """
-    def matches(self, record_json: str, now: datetime | None = None) -> bool:
-        r"""
-        Whether one serialized record matches this filter.
-
-        Query controls and subsampling do not participate, this reads a single record
-        the way live stream filtering does.
-        """
-
-@final
 class RecordWriter:
     r"""
     A natively-connected writer for record entities.
@@ -594,9 +702,24 @@ class RecordWriter:
     the fetcher, and matching the query layer's connection semantics.
     """
     @staticmethod
-    def sqlite(path: str) -> RecordWriter:
+    def sqlite(
+        path: str, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> RecordWriter:
         r"""
         Open a writer over a SQLite database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life.
+        """
+    @staticmethod
+    def turso(
+        path: str, mvcc: bool, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
+    ) -> RecordWriter:
+        r"""
+        Open a writer over a Turso database file.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life.
         """
     @staticmethod
     def postgres(
@@ -606,9 +729,15 @@ class RecordWriter:
         port: int | None = None,
         password: str | None = None,
         settings: Sequence[tuple[str, str]] = [],
+        parameters: Sequence[tuple[str, str]] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
     ) -> RecordWriter:
         r"""
         Open a writer over a PostgreSQL database, with per-connection server settings.
+
+        `on_connect` and `on_close` are the configuration's own statements for the two ends
+        of a connection's life.
         """
     def write(self, groups: list[tuple[RecordTable, list[Any]]]) -> Any:
         r"""
@@ -618,6 +747,19 @@ class RecordWriter:
         `ValueError` when an entity cannot extract natively, before anything writes.
         """
 
+@final
+class RowChunks:
+    r"""
+    A streamed result, handed over one chunk of rows at a time.
+    """
+    def next(self) -> Any:
+        r"""
+        The next chunk of column mappings, `None` once the query is spent.
+
+        Waiting for a chunk blocks a thread of its own rather than the event loop, so a
+        slow query leaves the caller's asyncio loop free.
+        """
+
 class SQLiteDatabaseConfig:
     r"""
     Configuration for a SQLite-backed database, the default for local deployments.
@@ -625,8 +767,7 @@ class SQLiteDatabaseConfig:
     @property
     def path(self) -> Path | None:
         r"""
-        Path to the SQLite file. Omit to use a temporary on-disk file, or set to
-        `:memory:` (see `in_memory`) for a private in-memory database.
+        Path to the SQLite file. Omit to use a temporary on-disk file.
         """
     @property
     def hooks(self) -> DatabaseConfigHooks:
@@ -653,11 +794,6 @@ class SQLiteDatabaseConfig:
         r"""
         The backend selector for this configuration.
         """
-    @property
-    def is_memory(self) -> bool:
-        r"""
-        Whether `path` is the special `:memory:` sentinel used by `in_memory`.
-        """
     def __new__(
         cls,
         *,
@@ -682,14 +818,6 @@ class SQLiteDatabaseConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
-    @classmethod
-    def in_memory(cls) -> Self:
-        r"""
-        Build a config for a private in-memory database scoped to this process.
-
-        The returned database exists only in memory for the lifetime of its engine, useful
-        for tests and other short-lived, detached databases that should never touch disk.
-        """
 
 class ServerAuthenticationConfig:
     r"""
@@ -1039,6 +1167,82 @@ class ServiceConfig:
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
 
+@final
+class Store:
+    r"""
+    A natively-connected database the query layer reads and writes through.
+    """
+    @staticmethod
+    def sqlite(
+        path: str,
+        on_init: Sequence[str] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
+    ) -> Store:
+        r"""
+        Open a store over a SQLite database file.
+
+        `on_init`, `on_connect`, and `on_close` are the configuration's own statements for
+        the first connection and for the two ends of every connection's life, run after
+        this backend's.
+        """
+    @staticmethod
+    def turso(
+        path: str,
+        mvcc: bool,
+        on_init: Sequence[str] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
+    ) -> Store:
+        r"""
+        Open a store over a Turso database file.
+
+        `on_init`, `on_connect`, and `on_close` are the configuration's own statements for
+        the first connection and for the two ends of every connection's life, run after
+        this backend's.
+        """
+    @staticmethod
+    def postgres(
+        host: str,
+        database: str,
+        user: str,
+        port: int | None = None,
+        password: str | None = None,
+        settings: Sequence[tuple[str, str]] = [],
+        parameters: Sequence[tuple[str, str]] = [],
+        on_init: Sequence[str] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
+    ) -> Store:
+        r"""
+        Open a store over a PostgreSQL database.
+        """
+    def fetch(self, sql: str, parameters: list[Any], table: str | None = None) -> Any:
+        r"""
+        Execute a statement that returns rows, as an awaitable list of column mappings.
+
+        `table` names the table the rows come from, which is what says whether a column
+        of text holds a UUID, a timestamp, or a name. A statement belonging to no table,
+        which is what a migration runs, passes `None` and reads values as stored.
+        """
+    def stream(self, sql: str, parameters: list[Any], table: str | None = None) -> RowChunks:
+        r"""
+        Execute a statement that returns rows, as chunks read as they arrive.
+
+        The chunked twin of `fetch`. A caller iterating a result rather than collecting it
+        holds one chunk at a time, so a query over a large table costs a chunk of memory
+        rather than the whole result, and the first rows reach the caller before the last
+        ones have been read.
+        """
+    def execute(self, sql: str, parameters: list[Any]) -> Any:
+        r"""
+        Execute a statement that returns no rows, as an awaitable count of rows touched.
+        """
+    def execute_script(self, sql: str) -> Any:
+        r"""
+        Run a script of `;`-separated statements, as an awaitable.
+        """
+
 class TursoDatabaseConfig(SQLiteDatabaseConfig):
     r"""
     Configuration for a Turso-backed database, a SQLite-compatible file that allows
@@ -1047,8 +1251,7 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     @property
     def path(self) -> Path | None:
         r"""
-        Path to the database file. Omit to use a temporary on-disk file, or set to
-        `:memory:` (see `in_memory`) for a private in-memory database.
+        Path to the database file. Omit to use a temporary on-disk file.
         """
     @property
     def mvcc(self) -> bool:
@@ -1081,11 +1284,6 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
         r"""
         The backend selector for this configuration.
         """
-    @property
-    def is_memory(self) -> bool:
-        r"""
-        Whether `path` is the special `:memory:` sentinel used by `in_memory`.
-        """
     def __new__(
         cls,
         *,
@@ -1113,6 +1311,22 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     def __repr__(self) -> str: ...
 
 @final
+class EntityTable(Enum):
+    r"""
+    One of the non-record entity tables the entity commands manage.
+    """
+
+    USERS = ...
+    VARIABLES = ...
+    SETTINGS = ...
+    WORKSPACES = ...
+    WORKSPACEEDITS = ...
+    GROUPS = ...
+    GROUPMEMBERSHIPS = ...
+    USERPERMISSIONS = ...
+    GROUPPERMISSIONS = ...
+
+@final
 class RecordTable(Enum):
     r"""
     One of the record tables, the selector native record operations dispatch on.
@@ -1123,19 +1337,73 @@ class RecordTable(Enum):
     ALERTS = ...
     LOGS = ...
 
+def entity_filter_keys(table: EntityTable) -> tuple[list[str], list[str]]:
+    r"""
+    The native filter subset's key classification for one non-record entity table.
+
+    Answers `(supported, delegated)` like the record classification, and the same test
+    holds their union to exactly the fields the Python filter models declare.
+    """
+
+def hash_argon2(
+    password: str,
+    time_cost: int,
+    memory_cost: int,
+    parallelism: int,
+    hash_length: int,
+    salt_length: int,
+) -> str | None:
+    r"""
+    Hash a password with the given Argon2id parameters, `None` when they are out of range.
+
+    A value that already reads as a stored hash passes through, which is the user
+    manager's own rule.
+
+    This is the one Argon2 implementation the system has. The Python side calls it rather
+    than carrying a second one, so a hash written by a native command and a hash written
+    through the entity manager cannot drift apart.
+
+    The interpreter lock is released for the duration. Argon2 is deliberately expensive,
+    tens of milliseconds against the default memory cost, and holding the lock through it
+    would stall every other Python thread, the event loop included.
+    """
+
+def hash_bcrypt(password: str, rounds: int) -> str | None:
+    r"""
+    Hash a password with bcrypt at the given cost, `None` when the cost is out of range.
+
+    The other half of the one hashing implementation, for a database configured to use
+    bcrypt rather than the default. Releases the interpreter lock like the Argon2 pair.
+    """
+
+def insert_compiled(
+    table: str, dialect: str, values: str, upsert: bool = False
+) -> tuple[str, list[Any]]:
+    r"""
+    Compile one row's insert to SQL and its parameters for a dialect.
+
+    This takes a table rather than a filter, because an insert names the row it writes
+    instead of narrowing to rows that already exist. `values` is the serialized JSON object
+    of column values, and each one encodes into the form its column stores.
+
+    `upsert` decides what a collision on the primary key does. Left off, the collision
+    reaches the caller, which is what turns a duplicate into the error naming the column it
+    collided on. Turned on, every column outside the key takes the new row's value.
+    """
+
+def normalize_email(value: str) -> str | None:
+    r"""
+    Normalize an email address the way a native user write stores it, `None` for one
+    outside the subset the native path understands.
+
+    Exposed so the parity suite can hold the native subset against `email_validator`
+    itself, which is the direction that matters. An address this accepts and that library
+    rejects would be a row written natively that Python would have refused.
+    """
+
 def openapi_schema(version: str) -> str:
     r"""
     Serve the OpenAPI document describing the API, as JSON text.
-    """
-
-def parse_record_filter(table: RecordTable, pairs: Sequence[tuple[str, str]]) -> RecordFilter:
-    r"""
-    Parse a record filter from ordered wire query pairs.
-    """
-
-def record_filter_from_json(table: RecordTable, json: str) -> RecordFilter:
-    r"""
-    Parse a record filter from its serialized JSON form, the filter model's dump.
     """
 
 def record_filter_keys(table: RecordTable) -> tuple[list[str], list[str]]:
@@ -1144,4 +1412,51 @@ def record_filter_keys(table: RecordTable) -> tuple[list[str], list[str]]:
 
     Answers `(supported, delegated)`, and the classification test holds their union to
     exactly the fields the Python filter models declare.
+    """
+
+def special_use_domains() -> list[str]:
+    r"""
+    The reserved domain names the native email subset refuses.
+
+    Exposed so the parity suite can hold it against the validator library's own list. A
+    name added there and not here would be an address written natively that Python
+    refuses.
+    """
+
+def stored_columns() -> list[tuple[str, list[tuple[str, str]]]]:
+    r"""
+    Every column the native layer reads and writes, by table.
+
+    Each entry pairs a table name with its columns, and each column its name and the
+    family that decides how it decodes. This is the contract between the entity structs
+    and the schema the migrations create, and a column named here that the migrations do
+    not create is a decode failure on a live query rather than anything a build catches,
+    which is what the drift test exists to find first.
+
+    The order is load bearing. A table appears before anything holding a foreign key to
+    it, which is what lets a caller empty the schema by deleting in reverse.
+    `tables_precede_the_tables_that_reference_them` pins it.
+    """
+
+def verify_argon2(password: str, hash: str) -> bool | None:
+    r"""
+    Whether a password matches a stored Argon2 hash, `None` for any other algorithm.
+
+    The parameters come out of the encoded hash, so a stored one still verifies after the
+    configuration's parameters change. Releases the interpreter lock like `hash_argon2`,
+    and for the same reason, verifying costs what hashing costs.
+    """
+
+def verify_bcrypt(password: str, hash: str) -> bool | None:
+    r"""
+    Whether a password matches a stored bcrypt hash, `None` for any other algorithm.
+    """
+
+def verify_password(password: str, hash: str) -> bool:
+    r"""
+    Whether a password matches a stored hash of either algorithm.
+
+    The algorithm is read off the hash itself rather than taken from a configuration,
+    which is what lets a database keep verifying rows written before its hashing was
+    changed. A value that reads as neither algorithm's hash matches nothing.
     """

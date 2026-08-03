@@ -4,12 +4,20 @@ import pytest
 from pydantic import ValidationError, model_validator
 
 from ceres.address import AddressSelector
-from ceres.component import Component
+from ceres.component import Component, action
 from ceres.config import Config, ConfigCheckType
 from ceres.data import validate
 from ceres.engine import Engine
 from ceres.error import ComponentCombinedError, ConfigCombinedError
 from ceres.reference import Ref, unref
+
+
+class JobbedComponent(Component):
+    """A component with an action a configured job can call, so building it adds a job."""
+
+    @action
+    async def poke(self) -> None:
+        pass
 
 
 class BrokenComponent(Component):
@@ -30,7 +38,7 @@ def _config(component_names_to_classes: dict[str, str]) -> Config:
     return validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "components": [
                 {"name": name, "class": cls} for name, cls in component_names_to_classes.items()
             ],
@@ -176,7 +184,7 @@ def _cross_tree_config(target: str) -> Config:
     return validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "components": [
                 {
                     "name": "alpha",
@@ -222,3 +230,29 @@ async def test_dangling_cross_tree_reference_fails_strict_first_load() -> None:
 async def test_dangling_cross_tree_reference_fails_config_checks() -> None:
     with pytest.raises(ConfigCombinedError):
         await Config.load(_cross_tree_config("@beta.missing"), checks=(ConfigCheckType.COMPONENTS,))
+
+
+async def test_checking_a_configuration_logs_nothing_about_what_it_built(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A check builds every tree to prove it builds, and says nothing else about doing so."""
+    config = validate(
+        Config,
+        {
+            "database": {"type": "sqlite"},
+            "components": [
+                {
+                    "name": "jobbed",
+                    "class": "tests.test_engine:JobbedComponent",
+                    "jobs": [{"name": "poke", "action": "poke", "schedule": "0 * * * *"}],
+                }
+            ],
+        },
+    )
+
+    await Config.load(config, checks=(ConfigCheckType.COMPONENTS,))
+
+    # Adding the job emits an event, and a check discards the tree that emitted it a
+    # moment later, so nothing happened that anyone reading the verdict needs told.
+    captured = capsys.readouterr()
+    assert "job-added" not in captured.out + captured.err

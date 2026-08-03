@@ -574,7 +574,7 @@ async def test_component_system_get_resolved_access_falls_back_to_config_default
     config = validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "access": "operate",
             "components": [{"name": "leaf", "class": "ceres.component:Component"}],
         },
@@ -593,7 +593,7 @@ async def test_component_system_get_resolved_access_ancestor_wins_over_config_de
     config = validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "access": "operate",
             "components": [
                 {
@@ -625,7 +625,7 @@ async def test_component_system_get_inherited_tags_falls_back_to_config_default(
     config = validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "tags": ["site"],
             "components": [{"name": "leaf", "class": "ceres.component:Component"}],
         },

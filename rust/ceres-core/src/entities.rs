@@ -22,7 +22,7 @@ use uuid::Uuid;
 /// Built through `parse` from the raw row mappings a query produces, and serialized with
 /// `to_json` as the API's wire format for a record listing.
 #[gen_stub_pyclass]
-#[pyclass(module = "ceres_core", frozen)]
+#[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RecordBatch {
     pub(crate) records: Records,
 }
@@ -126,7 +126,13 @@ impl RecordBatch {
 
 /// One of the record tables, the selector native record operations dispatch on.
 #[gen_stub_pyclass_enum]
-#[pyclass(module = "ceres_core", eq, frozen, hash, rename_all = "UPPERCASE")]
+#[pyclass(
+    module = "ceres.__internal__.core",
+    eq,
+    frozen,
+    hash,
+    rename_all = "UPPERCASE"
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RecordTable {
     Messages,
@@ -142,6 +148,44 @@ impl From<RecordTable> for ceres_database::RecordTable {
             RecordTable::Particles => Self::Particles,
             RecordTable::Alerts => Self::Alerts,
             RecordTable::Logs => Self::Logs,
+        }
+    }
+}
+
+/// One of the non-record entity tables the entity commands manage.
+#[gen_stub_pyclass_enum]
+#[pyclass(
+    module = "ceres.__internal__.core",
+    eq,
+    frozen,
+    hash,
+    rename_all = "UPPERCASE"
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EntityTable {
+    Users,
+    Variables,
+    Settings,
+    Workspaces,
+    WorkspaceEdits,
+    Groups,
+    GroupMemberships,
+    UserPermissions,
+    GroupPermissions,
+}
+
+impl From<EntityTable> for ceres_database::EntityTable {
+    fn from(table: EntityTable) -> Self {
+        match table {
+            EntityTable::Users => Self::Users,
+            EntityTable::Variables => Self::Variables,
+            EntityTable::Settings => Self::Settings,
+            EntityTable::Workspaces => Self::Workspaces,
+            EntityTable::WorkspaceEdits => Self::WorkspaceEdits,
+            EntityTable::Groups => Self::Groups,
+            EntityTable::GroupMemberships => Self::GroupMemberships,
+            EntityTable::UserPermissions => Self::UserPermissions,
+            EntityTable::GroupPermissions => Self::GroupPermissions,
         }
     }
 }

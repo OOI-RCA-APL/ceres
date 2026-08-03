@@ -1,5 +1,5 @@
 import sys
-from typing import override
+from typing import TYPE_CHECKING, override
 
 import anyio
 from pydantic_settings import CliSubCommand
@@ -11,9 +11,53 @@ from ceres.__internal__.cli.shared import (
     CLICommandGroup,
     get_confirmation,
     temporary_signal_handler,
+    write_progress,
 )
 from ceres.database.migrations import MIGRATIONS
 from ceres.timing import sdelta, utc
+
+if TYPE_CHECKING:
+    from rich.progress import Progress, TaskID
+
+    from ceres.database.migrations import Migration
+
+
+class MigrationProgress:
+    """Name the migration running now, and say how far through the list it is.
+
+    One line for the whole run rather than one per migration, because a migration runs as
+    a single script and nothing can see inside one. All that can honestly be said is which
+    is running and how many have landed, so the spinner carries that work is happening and
+    the count carries the position. The spinner becomes a check when the last one lands.
+
+    Satisfies `MigrationReporter` structurally, so the database layer never imports the
+    CLI to know how to be watched.
+    """
+
+    def __init__(self, progress: Progress) -> None:
+        self._progress = progress
+        self._task: TaskID | None = None
+        self._landed = 0
+
+    def starting(self, migration: Migration, index: int, total: int) -> None:
+        """Name the migration now running and move the count on to it."""
+        label = f"{migration.id:04d} {migration.name}"
+        note = f"({index + 1}/{total})"
+
+        if self._task is None:
+            self._task = self._progress.add_task(label, total=total, note=note)
+        else:
+            self._progress.update(self._task, description=label, note=note)
+
+    def finished(self, migration: Migration) -> None:
+        """Count the migration that just landed, which turns the spinner on the last one.
+
+        Nothing draws this number, but the task has to reach its total for the spinner to
+        become a check, and a migration that fails never gets counted.
+        """
+        self._landed += 1
+        if self._task is not None:
+            self._progress.update(self._task, completed=self._landed)
 
 
 class DDLCommand(CLICommand):
@@ -71,11 +115,6 @@ class ShellCommand(CLICommand):
 
                 case DatabaseType.SQLITE | DatabaseType.TURSO:
                     assert isinstance(database, SQLiteDatabase)
-                    if database.config.is_memory:
-                        raise CLICommandFailed(
-                            "Database is in-memory and has no file to open a shell against."
-                        )
-
                     if isinstance(database, TursoDatabase) and database.config.mvcc:
                         raise CLICommandFailed(
                             "MVCC journaling makes the database file unreadable to "
@@ -85,7 +124,12 @@ class ShellCommand(CLICommand):
 
                     command = ["sqlite3", str(database.path)]
                     command.extend(["-cmd", f".output {os.devnull}"])
-                    for statement in database._get_connect_commands():
+                    # What the store sets on every connection it opens, so the shell sees the
+                    # database the way the running engine does. A shell without foreign keys
+                    # on would let a statement through that the engine would refuse.
+                    for statement in ("PRAGMA foreign_keys = ON", "PRAGMA busy_timeout = 30000"):
+                        command.extend(["-cmd", statement])
+                    for statement in database.config.hooks.connect or ():
                         command.extend(["-cmd", statement])
                     for statement in database.config.hooks.init or ():
                         command.extend(["-cmd", statement])
@@ -164,14 +208,36 @@ class MigrateCommand(CLICommand):
                 self.write("Database is up to date.")
                 return
 
-            for migration in pending:
-                self.write(f"{migration.id}: {migration.name}")
+            # A database nothing has been applied to is being created rather than
+            # migrated, so naming every migration and drawing a bar through them is noise.
+            # All of them are pending, and none is a change to something the reader
+            # already has, which makes the whole run one step rather than a list of them.
+            #
+            # Applied migrations rather than `initialized()`, because reading the applied
+            # set creates the table that records it, so by now the database has a table
+            # whether or not it had one when the command started.
+            bootstrapping = not await database.get_applied_migrations()
 
-            if get_confirmation("Apply the above migrations now?"):
-                applied = await database.migrate()
-                self.write(f"Applied {len(applied)} migration(s).")
+            if bootstrapping:
+                question = "Create the project database?"
             else:
+                for migration in pending:
+                    self.write(f"{migration.id}: {migration.name}")
+
+                question = "Apply the above migrations now?"
+
+            if not get_confirmation(question):
                 self.write("Database has not been modified.")
+                return
+
+            if bootstrapping:
+                applied = await database.migrate()
+                self.write(f"Created the database with {len(applied)} migration(s).")
+            else:
+                with write_progress() as progress:
+                    applied = await database.migrate(MigrationProgress(progress))
+
+                self.write(f"Applied {len(applied)} migration(s).")
 
 
 class MigrationsCommand(CLICommand):

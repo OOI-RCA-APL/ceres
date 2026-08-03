@@ -4,6 +4,7 @@ mod cli;
 mod client;
 mod commands;
 mod error;
+mod highlight;
 mod output;
 mod project;
 mod runtime;
@@ -11,11 +12,10 @@ mod selector;
 mod service;
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use ceres_database::RecordTable;
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, FromArgMatches};
 
 use crate::cli::{Cli, Command, ConsoleCommand, ServiceCommand};
 use crate::client::Client;
@@ -27,10 +27,30 @@ use crate::project::Project;
 fn main() -> ExitCode {
     // Delegation replays the original arguments untouched, so capture them before parsing.
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
-    let cli = Cli::parse();
-    let output = Output::new(cli.color_override());
+    let command = commands::surface::augment(Cli::command());
+    let matches = command.get_matches();
 
-    match run(cli, arguments, &output) {
+    // A table group's whole surface is generated, so it is dispatched from the matches
+    // directly. Everything else is declared and reads back into its own type.
+    if let Some((name, verb)) = matches.subcommand()
+        && let Some(table) = commands::surface::table(name)
+    {
+        let color = color_override(&matches);
+        let output = Output::new(color);
+        return report(table_command(table, &matches, color, verb), &output);
+    }
+
+    let cli = match Cli::from_arg_matches(&matches) {
+        Ok(cli) => cli,
+        Err(error) => error.exit(),
+    };
+    let output = Output::new(cli.color_override());
+    report(run(cli, arguments, &output), &output)
+}
+
+/// Turn a command's outcome into the process's exit status, reporting as it goes.
+fn report(outcome: Result<()>, output: &Output) -> ExitCode {
+    match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(exit) => {
             if let Some(message) = &exit.message {
@@ -39,6 +59,39 @@ fn main() -> ExitCode {
 
             ExitCode::from(exit.status.clamp(0, 255) as u8)
         }
+    }
+}
+
+/// The color choice the global flags made, read off the matches the groups share.
+fn color_override(matches: &clap::ArgMatches) -> Option<bool> {
+    let flag = |id| matches.try_get_one::<bool>(id).ok().flatten().copied();
+    match (flag("color"), flag("no_color")) {
+        (Some(true), _) => Some(true),
+        (_, Some(true)) => Some(false),
+        _ => None,
+    }
+}
+
+/// Run one verb of a table command group.
+fn table_command(
+    table: commands::surface::Table,
+    matches: &clap::ArgMatches,
+    color: Option<bool>,
+    verb: &clap::ArgMatches,
+) -> Result<()> {
+    use commands::surface::Table;
+
+    let config = matches
+        .try_get_one::<std::path::PathBuf>("config")
+        .ok()
+        .flatten();
+    let config = config.map(PathBuf::as_path);
+    let (name, verb) = verb.subcommand().expect("a group requires its verb");
+    let named = commands::dump::Verb::parse(name).expect("a declared verb");
+
+    match table {
+        Table::Record(table) => commands::records::run(table, config, color, named, verb),
+        Table::Entity(table) => commands::entities::run(table, config, color, named, verb),
     }
 }
 
@@ -58,28 +111,8 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
 
     match command {
         // Commands that load the engine or operate on the database run in the Python runtime.
-        Command::Run(_)
-        | Command::Check(_)
-        | Command::Database(_)
-        | Command::Generate(_)
-        | Command::Settings(_)
-        | Command::Users(_)
-        | Command::Variables(_)
-        | Command::Workspaces(_) => match runtime::delegate(arguments)? {},
-
-        // A plain JSON select or count over a record table runs natively, everything
-        // else delegates to the Python runtime.
-        Command::Messages(args) => {
-            records_or_delegate(RecordTable::Messages, config, &args.arguments, arguments)
-        }
-        Command::Particles(args) => {
-            records_or_delegate(RecordTable::Particles, config, &args.arguments, arguments)
-        }
-        Command::Alerts(args) => {
-            records_or_delegate(RecordTable::Alerts, config, &args.arguments, arguments)
-        }
-        Command::Logs(args) => {
-            records_or_delegate(RecordTable::Logs, config, &args.arguments, arguments)
+        Command::Run(_) | Command::Check(_) | Command::Database(_) | Command::Generate(_) => {
+            match runtime::delegate(arguments)? {}
         }
 
         Command::Reload => {
@@ -141,20 +174,6 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
             }
         }
     }
-}
-
-/// Serve a record command natively when it fits the native subset, or delegate.
-fn records_or_delegate(
-    table: RecordTable,
-    config: Option<&Path>,
-    raw: &[OsString],
-    arguments: Vec<OsString>,
-) -> Result<()> {
-    if commands::records::try_run(table, config, raw)? {
-        return Ok(());
-    }
-
-    match runtime::delegate(arguments)? {}
 }
 
 /// Run an engine operation that requires a running engine.

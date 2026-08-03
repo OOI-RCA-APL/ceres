@@ -36,6 +36,9 @@ pub struct FilterField {
 pub struct FieldOperation {
     pub key: &'static str,
     pub kind: OperationKind,
+    /// Whether the comparison folds case, which an email address's operations do and
+    /// no record field's do.
+    pub insensitive: bool,
 }
 
 /// How an operation filter matches within a field's content.
@@ -58,6 +61,12 @@ pub enum FieldFamily {
     Timestamp,
     /// Equality on text.
     Text,
+    /// Equality on an email address, which normalizes before it compares.
+    ///
+    /// The Python filter model types the field as a validated address, so a value it is
+    /// given is normalized before the comparison the same way a stored one was. Equality
+    /// that skipped that step would miss the row it was looking for.
+    Email,
     /// Equality over a closed set of values, a plain enum's variants.
     Values(&'static [&'static str]),
     /// Equality plus ordered bounds, `min_` and `max_` prefixed on the field's key.
@@ -67,6 +76,19 @@ pub enum FieldFamily {
     /// A JSON payload, whose operations match its serialized text and which carries
     /// no equality key of its own.
     Json,
+    /// Equality on a boolean, which takes one value rather than a set of them.
+    Boolean,
+    /// Equality on the serialized text of a JSON value, which carries no operations.
+    ///
+    /// A variable's value compares this way, on the text the column stores, so that
+    /// numbers, strings, and structures all compare by the same rule.
+    JsonValue,
+    /// Equality on a whole address, outside the selector grammar.
+    ///
+    /// A workspace's scope is the one address in the system filtered this way. It names
+    /// a subtree rather than a component, so matching it against a selector's segments
+    /// would mean something else entirely.
+    PlainAddress,
 }
 
 impl FieldFamily {
@@ -77,11 +99,26 @@ impl FieldFamily {
     pub fn native(&self) -> bool {
         !matches!(self, Self::Json)
     }
+
+    /// Whether the family takes one value rather than a set of them.
+    ///
+    /// A boolean filter is a scalar in the Python models, so a list is a validation
+    /// error rather than an `IN`.
+    pub fn scalar(&self) -> bool {
+        matches!(self, Self::Boolean)
+    }
 }
 
-/// An entity whose filterable fields are known at compile time.
+/// An entity whose fields are known at compile time.
 pub trait Filterable {
+    /// The fields a filter may name, which `#[filterable(skip)]` keeps a column out of.
     const FIELDS: &'static [FilterField];
+    /// Every column the entity stores, the skipped ones included.
+    ///
+    /// A column a filter cannot name is still one an update may assign and a create may
+    /// carry, a setting's value among them, so the write path reads this rather than the
+    /// filter surface.
+    const COLUMNS: &'static [FilterField];
 }
 
 /// A type with a closed set of admissible wire values.

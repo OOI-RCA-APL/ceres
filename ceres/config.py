@@ -4,20 +4,6 @@ from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
-from ceres_core import Argon2HashingConfig as _CoreArgon2HashingConfig
-from ceres_core import BCryptHashingConfig as _CoreBCryptHashingConfig
-from ceres_core import ConsoleConfig as _CoreConsoleConfig
-from ceres_core import DatabaseConfigHooks as _CoreDatabaseConfigHooks
-from ceres_core import LoggingConfig as _CoreLoggingConfig
-from ceres_core import PostgresDatabaseConfig as _CorePostgresDatabaseConfig
-from ceres_core import ServerAuthenticationConfig as _CoreServerAuthenticationConfig
-from ceres_core import ServerCompressionConfig as _CoreServerCompressionConfig
-from ceres_core import ServerConfig as _CoreServerConfig
-from ceres_core import ServerCORSConfig as _CoreServerCORSConfig
-from ceres_core import ServerSSLConfig as _CoreServerSSLConfig
-from ceres_core import ServiceConfig as _CoreServiceConfig
-from ceres_core import SQLiteDatabaseConfig as _CoreSQLiteDatabaseConfig
-from ceres_core import TursoDatabaseConfig as _CoreTursoDatabaseConfig
 from pydantic import (
     ByteSize,
     ConfigDict,
@@ -33,6 +19,20 @@ from pydantic import (
     model_validator,
 )
 
+from ceres.__internal__.core import Argon2HashingConfig as _CoreArgon2HashingConfig
+from ceres.__internal__.core import BCryptHashingConfig as _CoreBCryptHashingConfig
+from ceres.__internal__.core import ConsoleConfig as _CoreConsoleConfig
+from ceres.__internal__.core import DatabaseConfigHooks as _CoreDatabaseConfigHooks
+from ceres.__internal__.core import LoggingConfig as _CoreLoggingConfig
+from ceres.__internal__.core import PostgresDatabaseConfig as _CorePostgresDatabaseConfig
+from ceres.__internal__.core import ServerAuthenticationConfig as _CoreServerAuthenticationConfig
+from ceres.__internal__.core import ServerCompressionConfig as _CoreServerCompressionConfig
+from ceres.__internal__.core import ServerConfig as _CoreServerConfig
+from ceres.__internal__.core import ServerCORSConfig as _CoreServerCORSConfig
+from ceres.__internal__.core import ServerSSLConfig as _CoreServerSSLConfig
+from ceres.__internal__.core import ServiceConfig as _CoreServiceConfig
+from ceres.__internal__.core import SQLiteDatabaseConfig as _CoreSQLiteDatabaseConfig
+from ceres.__internal__.core import TursoDatabaseConfig as _CoreTursoDatabaseConfig
 from ceres.__internal__.interop import RustConfigModel
 from ceres.__internal__.utilities.collections import group_by, seq, uniq
 from ceres.__internal__.utilities.typing import as_component_system, as_engine
@@ -105,7 +105,7 @@ def _level_or_bool(value: bool | str) -> bool | Level:
 class LoggingConfig(RustConfigModel, _CoreLoggingConfig):
     """Per-component or per-engine logging configuration.
 
-    The fields and their validation live in the native `ceres_core.LoggingConfig`, this
+    The fields and their validation live in the native `ceres.__internal__.core.LoggingConfig`, this
     subclass wires the class into Pydantic and converts level values into `Level`. Each field
     controls a different sink, `output` and `store` set minimum levels for the streamed and
     persisted log streams, the boolean-or-level fields enable optional logging of specific
@@ -747,7 +747,7 @@ class ComponentConfig(DataObject):
 class ServiceConfig(RustConfigModel, _CoreServiceConfig):
     """Process-level options applied when running the engine as a system service.
 
-    The fields and their validation live in the native `ceres_core.ServiceConfig`, this
+    The fields and their validation live in the native `ceres.__internal__.core.ServiceConfig`, this
     subclass only wires the class into Pydantic.
     """
 
@@ -755,15 +755,17 @@ class ServiceConfig(RustConfigModel, _CoreServiceConfig):
 class ServerSSLConfig(RustConfigModel, _CoreServerSSLConfig):
     """TLS configuration for the engine's HTTP server.
 
-    The fields and their validation live in the native `ceres_core.ServerSSLConfig`, this
-    subclass only wires the class into Pydantic.
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerSSLConfig`, this subclass only wires the class into
+    Pydantic.
     """
 
 
 class ServerAuthenticationConfig(RustConfigModel, _CoreServerAuthenticationConfig):
     """Authentication settings for the engine's HTTP server.
 
-    The fields and their validation live in the native `ceres_core.ServerAuthenticationConfig`,
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerAuthenticationConfig`,
     this subclass only wires the class into Pydantic. The `secret` is never served over the
     API, the config routes drop it, along with every other credential in the configuration,
     through `scrub_credentials`.
@@ -773,23 +775,25 @@ class ServerAuthenticationConfig(RustConfigModel, _CoreServerAuthenticationConfi
 class ServerCORSConfig(RustConfigModel, _CoreServerCORSConfig):
     """Cross-origin resource sharing settings for the engine's HTTP server.
 
-    The fields and their validation live in the native `ceres_core.ServerCORSConfig`, this
-    subclass only wires the class into Pydantic.
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerCORSConfig`, this subclass only wires the class into
+    Pydantic.
     """
 
 
 class ServerCompressionConfig(RustConfigModel, _CoreServerCompressionConfig):
     """Response compression settings for the engine's HTTP server.
 
-    The fields and their validation live in the native `ceres_core.ServerCompressionConfig`,
-    this subclass only wires the class into Pydantic.
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerCompressionConfig`, this subclass only wires the class
+    into Pydantic.
     """
 
 
 class ServerConfig(RustConfigModel, _CoreServerConfig):
     """Configuration for the engine's HTTP server.
 
-    The fields and their validation live in the native `ceres_core.ServerConfig`, this
+    The fields and their validation live in the native `ceres.__internal__.core.ServerConfig`, this
     subclass only wires the class into Pydantic.
     """
 
@@ -797,7 +801,7 @@ class ServerConfig(RustConfigModel, _CoreServerConfig):
 class ConsoleConfig(RustConfigModel, _CoreConsoleConfig):
     """Branding and layout options for the engine's web console.
 
-    The fields and their validation live in the native `ceres_core.ConsoleConfig`, this
+    The fields and their validation live in the native `ceres.__internal__.core.ConsoleConfig`, this
     subclass only wires the class into Pydantic.
     """
 
@@ -805,8 +809,9 @@ class ConsoleConfig(RustConfigModel, _CoreConsoleConfig):
 class DatabaseConfigHooks(RustConfigModel, _CoreDatabaseConfigHooks):
     """SQL statements executed at well-known points in the database lifecycle.
 
-    The fields and their validation live in the native `ceres_core.DatabaseConfigHooks`, this
-    subclass only wires the class into Pydantic.
+    The fields and their validation live in the native
+    `ceres.__internal__.core.DatabaseConfigHooks`, this subclass only wires the class into
+    Pydantic.
     """
 
 
@@ -820,8 +825,9 @@ class HashType(StrEnum):
 class BCryptHashingConfig(RustConfigModel, _CoreBCryptHashingConfig):
     """Configuration for the bcrypt password hashing algorithm.
 
-    The fields and their validation live in the native `ceres_core.BCryptHashingConfig`, this
-    subclass wires the class into Pydantic and converts the selector into `HashType`.
+    The fields and their validation live in the native
+    `ceres.__internal__.core.BCryptHashingConfig`, this subclass wires the class into
+    Pydantic and converts the selector into `HashType`.
     """
 
     if TYPE_CHECKING:
@@ -839,7 +845,7 @@ class Argon2HashingConfig(RustConfigModel, _CoreArgon2HashingConfig):
 
     Default parameters mirror `argon2.profiles.RFC_9106_LOW_MEMORY`, callers can tune
     them to trade memory and CPU cost against latency. The fields and their validation
-    live in the native `ceres_core.Argon2HashingConfig`.
+    live in the native `ceres.__internal__.core.Argon2HashingConfig`.
     """
 
     if TYPE_CHECKING:
@@ -859,9 +865,9 @@ HashingConfig: TypeAlias = BCryptHashingConfig | Argon2HashingConfig
 class SQLiteDatabaseConfig(RustConfigModel, _CoreSQLiteDatabaseConfig):
     """Configuration for a SQLite-backed database, the default for local deployments.
 
-    The fields and their validation live in the native `ceres_core.SQLiteDatabaseConfig`,
-    this subclass wires the class into Pydantic and converts the selector into
-    `DatabaseType`.
+    The fields and their validation live in the native
+    `ceres.__internal__.core.SQLiteDatabaseConfig`, this subclass wires the class into
+    Pydantic and converts the selector into `DatabaseType`.
     """
 
     if TYPE_CHECKING:
@@ -879,7 +885,7 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     concurrent writers.
 
     Turso reads and writes the same file format as SQLite and takes the same path settings, so this
-    inherits them. What it adds is `BEGIN CONCURRENT`, which lets several connections write at once
+    inherits them. What it adds is MVCC journaling, which lets several connections write at once
     instead of serializing behind one writer.
 
     Left at its defaults this is a drop-in replacement for `SQLiteDatabaseConfig`. It writes an
@@ -893,11 +899,14 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     treat turning it on as a migration rather than as a setting. It is also off by default because
     overlapping writers are optimistic rather than blocking. Two transactions touching the same
     rows both proceed and the second fails when it commits, so a caller has to be prepared to
-    retry. Turning it on is necessary but not sufficient, a transaction also has to be opened
-    inside `Database.concurrent_transactions()`, which is how a caller says its writes are safe
-    to retry.
+    retry.
 
-    `pyturso` is not installed with Ceres. `pip install "ceres[turso]"` adds it.
+    What takes the setting up on is the record writer. A flush of buffered records opens a
+    transaction that may overlap other writers, and one that loses a race is put back and written
+    with the next flush. Every other write, and every migration, takes the write lock as it always
+    did, because those are neither frequent nor safe to run twice.
+
+    Turso is compiled into Ceres, so this backend needs nothing installed alongside it.
     """
 
     if TYPE_CHECKING:
@@ -920,9 +929,10 @@ def _secret_or_none(value: str | None) -> SecretStr | None:
 class PostgresDatabaseConfig(RustConfigModel, _CorePostgresDatabaseConfig):
     """Configuration for a PostgreSQL-backed database.
 
-    The fields and their validation live in the native `ceres_core.PostgresDatabaseConfig`,
-    this subclass wires the class into Pydantic, converts the selector into `DatabaseType`,
-    and wraps the password into `SecretStr`.
+    The fields and their validation live in the native
+    `ceres.__internal__.core.PostgresDatabaseConfig`, this subclass wires the class into
+    Pydantic, converts the selector into `DatabaseType`, and wraps the password into
+    `SecretStr`.
     """
 
     if TYPE_CHECKING:
@@ -1085,8 +1095,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
 
         database = Database(self.database)
         try:
-            async with database.connect():
-                pass
+            await database._store().fetch("SELECT 1", [])
         except Error as error:
             if isinstance(error, DatabaseError):
                 return [error]
@@ -1135,6 +1144,14 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         # Create every top-level tree under a shared throwaway engine so absolute
         # cross-tree references resolve during checks exactly as they do at load time.
         engine = Engine()
+        # Building a component registers its connections, sieves, and jobs, and each
+        # registration emits an event. A check is a question, not a run, so those events
+        # describe a tree that is discarded a few lines below and nothing happened worth
+        # telling anyone about. The engine's own logging configuration is what the tree
+        # inherits, so turning the record toggles off there silences the whole check.
+        engine._config = Config(
+            logging=LoggingConfig(events=False, messages=False, particles=False, alerts=False)
+        )
         try:
             for config in self.components:
                 try:

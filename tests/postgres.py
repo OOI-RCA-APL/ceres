@@ -19,16 +19,15 @@ import os
 from collections.abc import Coroutine
 from threading import Thread
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from pydantic import SecretStr
-from sqlalchemy import make_url, text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlalchemy.pool import NullPool
 
+from ceres.__internal__.core import Store
 from ceres.config import PostgresDatabaseConfig
 from ceres.data import uuid4
 
-DEFAULT_URL = "postgresql+asyncpg://ceres:ceres@localhost:5432/ceres_test"
+DEFAULT_URL = "postgresql://ceres:ceres@localhost:5432/ceres_test"
 """Server the PostgreSQL tests connect to unless told otherwise.
 
 This names a database of its own rather than the one a local deployment uses, because the suite
@@ -45,6 +44,22 @@ def use_url(url: str) -> None:
     global POSTGRES_URL
 
     POSTGRES_URL = url
+
+
+def _parts() -> dict[str, Any]:
+    """Split `POSTGRES_URL` into the arguments a native store connects with.
+
+    The scheme is ignored beyond being stripped, so a URL naming a driver Ceres no longer
+    uses still points at the same server.
+    """
+    split = urlsplit(POSTGRES_URL)
+    return {
+        "host": split.hostname or "localhost",
+        "port": split.port,
+        "database": unquote(split.path.lstrip("/")) or "ceres_test",
+        "user": unquote(split.username or "ceres"),
+        "password": unquote(split.password) if split.password is not None else None,
+    }
 
 
 _BATCH = 64
@@ -84,19 +99,15 @@ def _run(coroutine: Coroutine[Any, Any, None]) -> None:
 
 
 async def _execute(statements: list[str]) -> None:
-    engine = create_async_engine(POSTGRES_URL, poolclass=NullPool)
-    try:
-        async with engine.begin() as connection:
-            for statement in statements:
-                await connection.execute(text(statement))
-    finally:
-        await engine.dispose()
+    """Run administrative statements against the server itself, outside any test schema."""
+    store = Store.postgres(**_parts())
+    await store.execute_script("\n".join(f"{statement};" for statement in statements))
 
 
 def prepare() -> None:
     """Install the shared extensions once, before any schema is handed out.
 
-    `PostgresDatabase.ddl` asks for `pg_trgm` without naming a schema, so a migration run inside a
+    The baseline migration asks for `pg_trgm` without naming a schema, so a migration run inside a
     throwaway schema would install it there and take `gin_trgm_ops` down with that schema when it
     is recycled. Putting the extension in `public` first makes every later `IF NOT EXISTS` a no-op
     and keeps the operator classes resolvable for the whole run.
@@ -132,15 +143,11 @@ def _assert_byte_collation() -> None:
     collations: list[str] = []
 
     async def read() -> None:
-        engine = create_async_engine(POSTGRES_URL, poolclass=NullPool)
-        try:
-            async with engine.connect() as connection:
-                result = await connection.execute(
-                    text("SELECT datcollate FROM pg_database WHERE datname = current_database()")
-                )
-                collations.extend(row[0] for row in result)
-        finally:
-            await engine.dispose()
+        store = Store.postgres(**_parts())
+        rows = await store.fetch(
+            "SELECT datcollate FROM pg_database WHERE datname = current_database()", []
+        )
+        collations.extend(str(row["datcollate"]) for row in rows)
 
     _run(read())
 
@@ -178,31 +185,6 @@ def _refill() -> None:
     _available.extend(created)
 
 
-_engines: list[AsyncEngine] = []
-"""Engines opened during the current test, closed when it ends."""
-
-
-def track_engine(engine: AsyncEngine) -> AsyncEngine:
-    """Record an engine so the current test closes it on the way out."""
-    _engines.append(engine)
-    return engine
-
-
-async def close_engines() -> None:
-    """Close every connection the finished test opened.
-
-    Pooled connections stay open until something closes them, and letting the garbage collector
-    do it leaves the transport to be torn down outside the event loop that created it, which
-    asyncio reports as an unclosed transport. Closing here happens inside the test's own loop,
-    while that loop is still running.
-    """
-    engines = list(_engines)
-    _engines.clear()
-
-    for engine in engines:
-        await engine.dispose()
-
-
 def take_schema() -> str:
     """Claim a private, empty schema for one `Database`."""
     if not _available:
@@ -233,31 +215,17 @@ def drop_schemas() -> None:
 def database_config() -> PostgresDatabaseConfig:
     """Build a config for a private schema on the test server.
 
-    These databases pool their connections, the same as a deployment's. Opening one costs about
-    twenty times what a statement on an open one does, so a suite that reconnects per transaction
-    spends nearly all of its time on handshakes: the filter tests alone open thousands of sessions
-    apiece. A pool is what closes the gap between this backend and SQLite.
-
-    What a pool needs in exchange is somebody to close it. Every engine is tracked as it is built
-    and closed when the test that built it ends, so the server sees a handful of connections at a
-    time rather than one per test. That also keeps a connection from outliving the event loop it
-    was opened on, which asyncpg rejects outright.
+    The schema goes on the search path ahead of `public`, which is what makes one test's
+    tables invisible to the next. Everything else is the server this run was pointed at.
     """
-    url = make_url(POSTGRES_URL)
+    parts = _parts()
     schema = take_schema()
 
     return PostgresDatabaseConfig(
-        host=url.host or "localhost",
-        port=url.port,
-        database=url.database or "ceres_test",
-        user=url.username or "ceres",
-        password=SecretStr(url.password) if url.password is not None else None,
-        engine={
-            # Overflow is uncapped so that a test running more concurrent work than the pool holds
-            # opens connections instead of blocking on a checkout. Overflow connections close on
-            # return rather than being kept, so the idle count still settles back at `pool_size`.
-            "pool_size": 5,
-            "max_overflow": -1,
-            "connect_args": {"server_settings": {"search_path": f"{schema},public"}},
-        },
+        host=parts["host"],
+        port=parts["port"],
+        database=parts["database"],
+        user=parts["user"],
+        password=SecretStr(parts["password"]) if parts["password"] is not None else None,
+        engine={"connect_args": {"server_settings": {"search_path": f"{schema},public"}}},
     )

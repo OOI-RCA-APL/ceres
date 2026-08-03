@@ -46,6 +46,44 @@ impl Client {
         }
     }
 
+    /// Open a websocket against a streaming route, with the filter as query parameters.
+    ///
+    /// The engine compiles the query itself, so the pairs cross as typed rather than as
+    /// a re-serialized filter, and the route is the same path its listing is served on.
+    pub fn stream(
+        &self,
+        path: &str,
+        pairs: &[(String, String)],
+    ) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>>
+    {
+        let query: Vec<(&str, &str)> = pairs
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        let url = self.url(path, &query).replacen("http://", "ws://", 1);
+
+        let request = tungstenite::http::Request::builder()
+            .uri(&url)
+            .header("Authorization", &self.info.token)
+            // The handshake headers a client has to send for itself once the request is
+            // built by hand rather than from a bare URL.
+            .header("Host", format!("localhost:{}", self.info.port))
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header(
+                "Sec-WebSocket-Key",
+                tungstenite::handshake::client::generate_key(),
+            )
+            .body(())
+            .map_err(|error| failure!("Failed to build the stream request. {error}"))?;
+
+        match tungstenite::connect(request) {
+            Ok((socket, _)) => Ok(socket),
+            Err(error) => Err(failure!("Failed to open the stream. {error}")),
+        }
+    }
+
     /// Send a GET request and return the response body.
     pub fn get(&self, path: &str, query: &[(&str, &str)]) -> Result<String> {
         let request = agent(None)

@@ -1,0 +1,31 @@
+# This file sits at the repository root rather than beside the workspace, because cargo looks
+# for it by walking up from the directory it was invoked in. Builds start from both places,
+# the root when maturin builds the extension module and `rust/` for everything else, and only
+# a root copy is found from both.
+
+# Intermediate build artifacts live under cargo's cache home rather than target/, so rebuild
+# state does not accumulate in the repository. Nothing reclaims them there. `cargo clean` only
+# knows about target/, and `cargo clean gc -Z gc` covers the registry and git caches rather
+# than this, so it reports nothing to do while the directory grows without bound. It reached
+# 39 GB before anyone looked. Removing it is safe and costs a rebuild.
+[build]
+build-dir = "{cargo-cache-home}/build/{workspace-path-hash}"
+
+# Compile the extension module and regenerate its Python type stubs in one step. `make fix`
+# and `make build` run this too, and CI fails when committed stubs drift.
+[alias]
+stubs = "build -p ceres-stubs"
+
+# The bundled SQLite compiles with math functions, which the subsampling SQL's `floor`
+# needs. CPython's own SQLite ships them, so the native engine has to match.
+[env]
+LIBSQLITE3_FLAGS = "-DSQLITE_ENABLE_MATH_FUNCTIONS"
+
+# Python extension modules leave interpreter symbols unresolved until import time, so the
+# linker has to be told to allow that. Maturin does not pass these itself, and without them
+# the extension fails to link on macOS with "symbol(s) not found for architecture arm64".
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

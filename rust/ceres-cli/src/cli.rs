@@ -157,38 +157,9 @@ pub enum Command {
     /// Generate various project resources.
     #[command(disable_help_flag = true)]
     Generate(DelegatedArgs),
-
-    /// Manage alerts.
-    #[command(disable_help_flag = true)]
-    Alerts(DelegatedArgs),
-
-    /// Manage log entries.
-    #[command(disable_help_flag = true)]
-    Logs(DelegatedArgs),
-
-    /// Manage messages.
-    #[command(disable_help_flag = true)]
-    Messages(DelegatedArgs),
-
-    /// Manage particles.
-    #[command(disable_help_flag = true)]
-    Particles(DelegatedArgs),
-
-    /// Manage settings.
-    #[command(disable_help_flag = true)]
-    Settings(DelegatedArgs),
-
-    /// Manage users.
-    #[command(disable_help_flag = true)]
-    Users(DelegatedArgs),
-
-    /// Manage variables.
-    #[command(disable_help_flag = true)]
-    Variables(DelegatedArgs),
-
-    /// Manage workspaces.
-    #[command(disable_help_flag = true)]
-    Workspaces(DelegatedArgs),
+    // The eight table command groups are not declared here. Their whole surface is
+    // generated from the entity definitions at startup, which is what keeps the flags a
+    // table accepts and the filter keys its compiler serves from ever disagreeing.
 }
 
 #[derive(Debug, Subcommand)]

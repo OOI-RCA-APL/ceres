@@ -8,10 +8,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ceres_core import RecordTable
 from pydantic import AfterValidator
 from pydantic_core import PydanticKnownError
 
+from ceres.__internal__.core import RecordTable
 from ceres.error import NotFoundError
 
 if TYPE_CHECKING:

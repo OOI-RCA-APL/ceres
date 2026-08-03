@@ -65,7 +65,7 @@ fn toggle_to_python(py: Python<'_>, toggle: LogToggle) -> PyResult<Py<PyAny>> {
 /// the toggle fields enable optional logging of specific record types, accepting either a
 /// boolean or a minimum level.
 #[gen_stub_pyclass]
-#[pyclass(subclass, module = "ceres_core")]
+#[pyclass(subclass, module = "ceres.__internal__.core")]
 #[derive(Debug, Clone)]
 pub struct LoggingConfig {
     pub(crate) inner: ceres_config::LoggingConfig,

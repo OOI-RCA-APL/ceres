@@ -259,16 +259,15 @@ class Engine(Node):
 
         await self.__node_sync__()
 
-        # Hydrate every component's persisted state in a single connection, then start each
-        # top-level component that is enabled.
-        async with await self.database.use() as connection:
-            components = self.get_components()
-            for component in components:
-                await component.system.__node_sync__(connection)
+        # Hydrate every component's persisted state, then start each top-level component
+        # that is enabled.
+        await self.database.ready()
+        for component in self.get_components():
+            await component.system.__node_sync__()
 
-            for system in list(self._components.values()):
-                if system.enabled:
-                    system.start(all_enabled=True)
+        for system in list(self._components.values()):
+            if system.enabled:
+                system.start(all_enabled=True)
 
         try:
             await super().__run__()

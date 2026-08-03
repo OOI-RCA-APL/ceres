@@ -2,16 +2,54 @@ from asyncio import Event as AsyncEvent
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ceres.__internal__.utilities.collections import group_by
-from ceres.data import adapt
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncConnection
-
     from ceres.database import Database
     from ceres.entity import Entity
+
+
+def write_failures() -> tuple[type[BaseException], ...]:
+    """What a flush can fail with, and therefore what it puts its entities back for.
+
+    A flush that raises anything here still has entities nobody has written, so they go
+    back on the queue and go out with the next one. Anything outside this set is not a
+    write that failed, and letting it through unhandled is how it stays visible.
+
+    Every wording the store recognizes translates into one of the first four. A wording it
+    does not recognize stays the plain value error it raised, which is why that is here
+    too. A write conflict under Turso's MVCC journaling is exactly that case, the engine
+    calling it "Write-write conflict", and it is the reason a concurrent transaction is
+    safe to ask for.
+
+    Imported lazily and built once, because `ceres.error` is not a cheap import and a
+    flush is a hot path.
+    """
+    global _WRITE_FAILURES
+
+    if _WRITE_FAILURES is None:
+        from ceres.error import (
+            AlreadyExistsError,
+            DatabaseUnexpectedError,
+            DatabaseUnreachableError,
+            IntegrityError,
+        )
+
+        _WRITE_FAILURES = (
+            AlreadyExistsError,
+            DatabaseUnexpectedError,
+            DatabaseUnreachableError,
+            IntegrityError,
+            ValueError,
+        )
+
+    return _WRITE_FAILURES
+
+
+_WRITE_FAILURES: tuple[type[BaseException], ...] | None = None
+"""Cached by `write_failures`, which is what fills it."""
 
 
 @dataclass(slots=True)
@@ -109,8 +147,6 @@ class Writer:
         self._buffer = []
         self._flushes.append(flush)
 
-        from sqlalchemy.exc import DatabaseError
-
         try:
             # Wait for the previous flush to complete.
             if previous:
@@ -118,14 +154,8 @@ class Writer:
 
             database = self._database()
             if not await self._write_natively(database, flush.entities):
-                # Records arrive from many components at once and each flush writes rows
-                # nothing else is touching, which is exactly the shape a concurrent
-                # transaction suits. Backends without one ignore this.
-                with database.concurrent_transactions():
-                    async with await database.use() as connection:
-                        await self._write_entities(database, connection, flush.entities)
-                        await connection.commit()
-        except DatabaseError:
+                await self._write_entities(database, flush.entities)
+        except write_failures():
             if len(self._flushes) > 1:
                 next = self._flushes[1].entities
             else:
@@ -165,8 +195,7 @@ class Writer:
         if writer is None:
             return False
 
-        from ceres_core import RecordTable
-
+        from ceres.__internal__.core import RecordTable
         from ceres.alert import Alert
         from ceres.logs import LogEntry
         from ceres.message import Message
@@ -199,65 +228,19 @@ class Writer:
 
         return True
 
-    async def _write_entities(
-        self,
-        database: Database,
-        connection: AsyncConnection,
-        entities: Iterable[Entity],
-    ) -> None:
-        """Group entities by type and write each group to the database.
+    async def _write_entities(self, database: Database, entities: Iterable[Entity]) -> None:
+        """Upsert every entity in a flush, grouped so each type writes together.
+
+        This serves the entities the record writer does not hold, a typed particle payload
+        or a non-record type reaching the buffer. Each write is an upsert on the row's own
+        primary key, so a flush that fails part way and comes back rewrites what it already
+        wrote rather than colliding with it.
 
         Args:
-            database: The database instance providing dialect information.
-            connection: The active async connection to write through.
+            database: The database the entities belong to.
             entities: The entities to write.
         """
-        by_type: defaultdict[type[Entity], list[Entity]] = defaultdict(list)
         for cls, group in group_by(entities, type):
-            by_type[cls] = list(group)
-
-        for cls, entities in by_type.items():
-            await self._write_entities_of_cls(database, connection, cls, entities)
-
-    async def _write_entities_of_cls(
-        self,
-        database: Database,
-        connection: AsyncConnection,
-        cls: type[Entity],
-        entities: list[Entity],
-    ) -> None:
-        """Write a list of entities of the same type using an upsert statement.
-
-        Build an INSERT ... ON CONFLICT DO UPDATE statement appropriate for the database dialect
-        (SQLite or Postgres), then execute it with the serialized entity values.
-
-        Args:
-            database: The database instance providing dialect information.
-            connection: The active async connection to write through.
-            cls: The entity class for all entities in the list.
-            entities: The entities to upsert. Do nothing if empty.
-        """
-        if not entities:
-            return
-
-        from ceres.database import DatabaseType
-
-        match database.type:
-            case DatabaseType.SQLITE | DatabaseType.TURSO:
-                from sqlalchemy.dialects.sqlite import insert
-
-            case DatabaseType.POSTGRES:
-                from sqlalchemy.dialects.postgresql import insert
-
-        values: list[dict[str, Any]] = adapt(list[cls]).dump_python(
-            entities, include={"__all__": set(cls.__entity_columns__)}
-        )
-
-        statement = insert(cls.Row)
-        pk = cls.Row.__table__.primary_key.columns
-        upsert = {name: column for name, column in statement.excluded.items() if name not in pk}
-
-        await connection.execute(
-            statement.on_conflict_do_update(index_elements=pk.values(), set_=upsert),
-            values,
-        )
+            manager = cls.Manager(database)
+            for entity in group:
+                await manager._insert(entity, upsert=True)

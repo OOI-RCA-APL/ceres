@@ -1,11 +1,11 @@
-"""Parity between the native filter subset and the Python query layer.
+"""The two ways into the filter compiler have to read a wire value the same way.
 
-Every vector here feeds the same wire pairs to both sides. The Python side folds them
-into the Pydantic filter and executes through the query layer, the native side parses
-them into the Rust subset and executes through the record store, and the two must
-produce identical serialized records on every backend. Constructs outside the subset
-must decline rather than guess, and the classification test holds the subset's key
-lists to exactly the fields the Pydantic filters declare.
+One compiler serves both paths, but they reach it differently. The query layer validates
+the pairs through the Pydantic filter and hands the compiler its JSON dump, while the
+fetcher parses the same pairs into the subset directly. Every vector here goes down both
+and the records that come back must be byte-identical on every backend. Constructs outside
+the subset must decline rather than guess, and the classification test holds the subset's
+key lists to exactly the fields the Pydantic filters declare.
 """
 
 import json
@@ -13,23 +13,35 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from ceres_core import RecordTable, parse_record_filter, record_filter_keys
 
 from ceres import Engine
+from ceres.__internal__.core import (
+    EntityTable,
+    NativeFilter,
+    RecordTable,
+    entity_filter_keys,
+    record_filter_keys,
+)
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import Config
 from ceres.data import to_json, validate
+from ceres.group import Group, GroupMembership
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
 from ceres.particle import Particle
+from ceres.permission import GroupPermission, UserPermission
+from ceres.setting import Setting
+from ceres.user import User
+from ceres.variable import Variable
+from ceres.workspace import Workspace, WorkspaceEdit
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = pytest.mark.databases()
-"""Every backend, the subset must compile each dialect identically to SQLAlchemy."""
+"""Every backend, since a dialect is where the two paths could render differently."""
 
 RECORD_TABLES = {
     Message: RecordTable.MESSAGES,
@@ -37,6 +49,19 @@ RECORD_TABLES = {
     Alert: RecordTable.ALERTS,
     LogEntry: RecordTable.LOGS,
 }
+
+ENTITY_TABLES = {
+    User: EntityTable.USERS,
+    Variable: EntityTable.VARIABLES,
+    Setting: EntityTable.SETTINGS,
+    Workspace: EntityTable.WORKSPACES,
+    WorkspaceEdit: EntityTable.WORKSPACEEDITS,
+    Group: EntityTable.GROUPS,
+    GroupMembership: EntityTable.GROUPMEMBERSHIPS,
+    UserPermission: EntityTable.USERPERMISSIONS,
+    GroupPermission: EntityTable.GROUPPERMISSIONS,
+}
+"""The non-record entities the CLI manages, whose filter language is a strict subset."""
 
 NOW = datetime.now(UTC).replace(microsecond=83155)
 """The anchor seeded timestamps offset from.
@@ -320,7 +345,7 @@ async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None
 
                 # The native matcher must read each record the way the Python filter's
                 # in-memory matching does.
-                handle = parse_record_filter(table, pairs)
+                handle = NativeFilter.from_pairs(Record.__entity_naming__.table, pairs)
                 for entity in await engine.__manager__(Record).where(Record.Filter()):
                     record_json = to_json(entity)
                     assert handle.matches(record_json) == filter.matches(entity), (
@@ -377,6 +402,11 @@ async def test_constructs_outside_the_subset_decline(tmp_path: Path) -> None:
         await engine.database.dispose()
 
 
+def _declared_keys(Entity: Any) -> set[str]:
+    """The wire keys an entity's Pydantic filter declares."""
+    return {field.serialization_alias or name for name, field in Entity.Filter.model_fields.items()}
+
+
 def test_every_filter_field_is_classified() -> None:
     """The native key lists cover the Pydantic filters exactly, so new fields cannot
     ship unclassified.
@@ -384,9 +414,63 @@ def test_every_filter_field_is_classified() -> None:
     for Record, table in RECORD_TABLES.items():
         supported, delegated = record_filter_keys(table)
         assert not set(supported) & set(delegated)
+        assert set(supported) | set(delegated) == _declared_keys(Record), Record.__name__
 
-        declared = set()
-        for name, field in Record.Filter.model_fields.items():
-            declared.add(field.serialization_alias or name)
+    for Entity, entity_table in ENTITY_TABLES.items():
+        supported, delegated = entity_filter_keys(entity_table)
+        assert not set(supported) & set(delegated)
+        assert set(supported) | set(delegated) == _declared_keys(Entity), Entity.__name__
 
-        assert set(supported) | set(delegated) == declared, Record.__name__
+
+def test_only_a_particle_class_has_no_native_form() -> None:
+    """Every filter key on every table compiles natively, but one.
+
+    This is what lets the query layer run on the native store rather than beside it. A
+    key that delegates is one the store cannot answer, so each new one would be a query
+    that has to keep a second execution path alive to serve it. A particle's `class`
+    names a Python type and so resolves before the filter is parsed at all, which is why
+    it is the exception rather than the start of a list.
+    """
+    delegated: dict[str, list[str]] = {}
+    for Record, table in RECORD_TABLES.items():
+        _, keys = record_filter_keys(table)
+        if keys:
+            delegated[Record.__name__] = sorted(keys)
+
+    for Entity, entity_table in ENTITY_TABLES.items():
+        _, keys = entity_filter_keys(entity_table)
+        if keys:
+            delegated[Entity.__name__] = sorted(keys)
+
+    assert delegated == {"Particle": ["class"]}
+
+
+def test_the_entity_grammar_is_a_subset_of_the_record_one() -> None:
+    """No entity filter key exists that the record grammar has no notion of.
+
+    The Python entity filters descend from the same base the record ones extend, so a
+    key appearing here that no record table declares would mean a second grammar had
+    grown, which is the thing the shared compiler exists to prevent.
+    """
+    record_keys: set[str] = set()
+    for record_table in RECORD_TABLES.values():
+        supported, delegated = record_filter_keys(record_table)
+        record_keys |= set(supported) | set(delegated)
+
+    # Every key an entity brings is either shared with a record table or names one of
+    # that entity's own columns, never a construct the record grammar lacks.
+    constructs = {"order", "limit", "offset", "or", "and", "root", "address"}
+    for Entity, table in ENTITY_TABLES.items():
+        supported, delegated = entity_filter_keys(table)
+        columns = set(Entity.__entity_columns__)
+        for key in set(supported) | set(delegated):
+            base = key.rsplit("_", 1)[0]
+            assert (
+                key in record_keys
+                or key in constructs
+                or key in columns
+                or base in columns
+                # A computed predicate has no column of its own, matching a shape of
+                # one instead.
+                or key in {"internal", "placed_on_engine", "owned"}
+            ), f"{Entity.__name__} brings {key!r}, which the record grammar has no form of"

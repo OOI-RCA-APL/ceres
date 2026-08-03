@@ -59,13 +59,18 @@ class TestPassword:
         with pytest.raises(ValidationError):
             self.adapter.validate_python("")
 
-    def test_too_long_by_char_count_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            self.adapter.validate_python("a" * 33)
-
-    def test_max_char_length_accepted(self) -> None:
-        value = "a" * 32
+    def test_a_passphrase_is_accepted(self) -> None:
+        # The only cap is the one hashing imposes, so length alone is never a rejection.
+        value = "correct horse battery staple and then some more"
         assert self.adapter.validate_python(value) == value
+
+    def test_max_byte_length_accepted(self) -> None:
+        value = "a" * 72
+        assert self.adapter.validate_python(value) == value
+
+    def test_too_long_by_byte_count_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            self.adapter.validate_python("a" * 73)
 
     def test_multibyte_password_exceeding_72_bytes_rejected(self) -> None:
         # Each emoji is 4 bytes, so 19 emojis = 76 bytes > 72.

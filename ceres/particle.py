@@ -30,10 +30,7 @@ from typing import (
 
 import pydantic
 from pydantic import ConfigDict, Field, ImportString, SerializeAsAny, ValidationError
-from sqlalchemy import JSON, Index
-from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -51,7 +48,6 @@ from ceres.__internal__.record import (
     BaseRecordFilter,
     BaseRecordFilterArgs,
     BaseRecordOrder,
-    BaseRecordRow,
     BaseRecordUpdate,
 )
 from ceres.__internal__.utilities.classes import fields_cached_class_property
@@ -74,8 +70,6 @@ from ceres.timing import utc
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
     from ceres.address import Address
     from ceres.connection import Buffer
@@ -92,32 +86,6 @@ __all__ = [
     "GroupedRegexParticle",
     "ParseFailed",
 ]
-
-
-class ParticleRow(BaseRecordRow, kw_only=True):
-    """SQLAlchemy row model backing the `particles` table."""
-
-    __tablename__: ClassVar[str] = "particles"
-
-    type: Mapped[str] = mapped_column(TextMapper())
-    """Discriminator string identifying the concrete particle data class."""
-    data: Mapped[JSONSerializableDict] = mapped_column(JSON)
-    """Parsed payload serialized as a JSON object."""
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        # A trigram GIN index lets `type_contains`/`type_prefix`/`type_suffix` filters use
-        # an index instead of falling back to a sequential scan.
-        return (
-            *super().__get_table_args__(),
-            Index(
-                f"ix_{cls.__tablename__}__type",
-                cls.type,
-                postgresql_ops={"type": "gin_trgm_ops"},
-                postgresql_using="gin",
-            ),
-        )
 
 
 type ParticleField = (
@@ -266,6 +234,8 @@ class ParticleFilter(
 ):
     """Filter for selecting particles by class, type discriminator, or JSON data content."""
 
+    __table__: ClassVar[str] = "particles"
+
     cls: ImportString[builtins.type[ParticleT]] | None = Field(default=None, alias="class")
     """Filter by particles being instances of a specific data class."""
     type: MaybeSequence[str] | None = None
@@ -326,11 +296,6 @@ class ParticleFilter(
                 return False
 
         return True
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[ParticleRow]:
-        return ParticleRow
 
 
 class ParticleCreate(BaseRecordCreate, slots=True):
@@ -413,7 +378,6 @@ class ParticleQuery(  # type: ignore
 class ParticleManager(
     BaseEntityManager[
         "Particle",
-        ParticleRow,
         ParticleCreate,
         ParticleUpdate,
         ParticleFilter,
@@ -557,7 +521,7 @@ _particle_class_is_defined = False
 class Particle(
     BaseRecord,
     ParticleCreate,
-    ConcreteEntity[ParticleRow],
+    ConcreteEntity,
     Generic[DataT],
     slots=True,
 ):

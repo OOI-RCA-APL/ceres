@@ -186,12 +186,12 @@ ceres <entity> <operation> [FILTERS] [OPTIONS]
 
 ### Common Options
 
-| Option                   | Description                                   |
-| ------------------------ | --------------------------------------------- |
-| `--output FILE`          | Write results to a file.                      |
-| `--data-format json/csv` | Output format (inferred from file extension). |
-| `--field NAME[:ALIAS]`   | Select and optionally rename fields.          |
-| `--confirm`              | Prompt before update/delete (default: true).  |
+| Option                       | Description                                              |
+| ---------------------------- | -------------------------------------------------------- |
+| `--output FILE`              | Write results to a file.                                 |
+| `--format json/csv/table`    | Output format, JSON lines unless `--output` implies CSV. |
+| `--field NAME[:ALIAS]`       | Select and optionally rename fields.                     |
+| `--confirm`                  | Prompt before update/delete (default: true).             |
 
 ### Examples
 

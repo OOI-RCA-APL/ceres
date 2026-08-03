@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use ceres_macros::python_config;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 
 use crate::interop::{PyFieldType, ToPyValue};
@@ -66,8 +66,7 @@ python_config! {
         ceres_config::SqliteDatabaseConfig,
         ceres_config::RawSqliteDatabaseConfig
     ) {
-        /// Path to the SQLite file. Omit to use a temporary on-disk file, or set to
-        /// `:memory:` (see `in_memory`) for a private in-memory database.
+        /// Path to the SQLite file. Omit to use a temporary on-disk file.
         path: Option<PathBuf>,
         /// SQL statements executed at well-known points in the database lifecycle.
         #[python(shared, nested = DatabaseConfigHooks)]
@@ -91,8 +90,7 @@ python_config! {
         ceres_config::TursoDatabaseConfig,
         ceres_config::RawTursoDatabaseConfig
     ): SQLiteDatabaseConfig {
-        /// Path to the database file. Omit to use a temporary on-disk file, or set to
-        /// `:memory:` (see `in_memory`) for a private in-memory database.
+        /// Path to the database file. Omit to use a temporary on-disk file.
         path: Option<PathBuf>,
         /// Put the database in Turso's MVCC journal mode, which is what lets writers
         /// overlap. This converts the database file and the conversion cannot be undone.
@@ -171,24 +169,6 @@ impl SQLiteDatabaseConfig {
     fn r#type(&self) -> &'static str {
         "sqlite"
     }
-
-    /// Whether `path` is the special `:memory:` sentinel used by `in_memory`.
-    #[getter]
-    fn is_memory(&self) -> bool {
-        self.inner.is_memory()
-    }
-
-    /// Build a config for a private in-memory database scoped to this process.
-    ///
-    /// The returned database exists only in memory for the lifetime of its engine, useful
-    /// for tests and other short-lived, detached databases that should never touch disk.
-    #[classmethod]
-    #[gen_stub(override_return_type(type_repr = "Self"))]
-    fn in_memory(cls: &Bound<'_, PyType>) -> PyResult<Py<PyAny>> {
-        let kwargs = PyDict::new(cls.py());
-        kwargs.set_item("path", ceres_config::MEMORY_PATH)?;
-        Ok(cls.call((), Some(&kwargs))?.unbind())
-    }
 }
 
 #[gen_stub_pymethods]
@@ -198,12 +178,6 @@ impl TursoDatabaseConfig {
     #[getter]
     fn r#type(&self) -> &'static str {
         "turso"
-    }
-
-    /// Whether `path` is the special `:memory:` sentinel used by `in_memory`.
-    #[getter]
-    fn is_memory(&self) -> bool {
-        self.inner.is_memory()
     }
 }
 

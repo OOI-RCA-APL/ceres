@@ -3,9 +3,9 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from ceres_core import RecordBatch, RecordTable
 
 from ceres import Engine
+from ceres.__internal__.core import RecordBatch, RecordTable
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import Config, SQLiteDatabaseConfig
@@ -205,9 +205,13 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
     assert json.loads(batch.to_json()) == [json.loads(to_json(entity)) for entity in entities]
 
 
-async def test_in_memory_databases_report_no_native_fetcher() -> None:
-    database = Database(SQLiteDatabaseConfig.in_memory())
-    assert database._record_fetcher() is None
+async def test_a_temporary_database_still_reports_a_native_fetcher() -> None:
+    """A path nobody configured is still a path, so the native fetcher can join it."""
+    database = Database(SQLiteDatabaseConfig())
+    try:
+        assert database._record_fetcher() is not None
+    finally:
+        await database.dispose()
 
 
 async def test_native_writes_read_back_identically(tmp_path: Path) -> None:
@@ -252,7 +256,7 @@ async def test_native_writes_read_back_identically(tmp_path: Path) -> None:
 
 
 async def test_unsupported_flushes_decline_the_native_writer(tmp_path: Path) -> None:
-    """Typed payloads and non-record entities send the whole flush down the query layer."""
+    """A typed payload sends the whole flush down the query layer."""
     from ceres.__internal__.database.writer import Writer
 
     engine = await _build_engine_on_disk(tmp_path)
@@ -264,9 +268,6 @@ async def test_unsupported_flushes_decline_the_native_writer(tmp_path: Path) -> 
 
     typed = construct(Particle, address=Address("@sensor.temp"), type="sample", data=TypedData(a=1))
     assert not await writer._write_natively(db, [typed])
-
-    memory = Database(SQLiteDatabaseConfig.in_memory())
-    assert not await Writer(lambda: memory)._write_natively(memory, [])
 
 
 @pytest.mark.databases("postgres")
@@ -317,13 +318,21 @@ async def test_native_fetches_match_on_postgres(database: str) -> None:
 
 
 @pytest.mark.databases("turso")
-async def test_turso_databases_report_no_native_paths(database: str) -> None:
-    """Turso databases keep the query layer's paths, a second engine copy in the same
-    process would bypass Turso's file lock and corrupt the WAL.
+async def test_turso_databases_serve_the_native_paths(database: str) -> None:
+    """Turso reads and writes through the same engine everything else does.
+
+    Turso coordinates the engines sharing a file through in-process state and an fcntl
+    lock, and fcntl locks never conflict within one process, so two copies of the engine
+    here would overwrite each other's WAL frames. There is one copy now, which is what
+    makes this safe rather than the paths having become safe on their own.
     """
     db = Database()
-    assert db._record_fetcher() is None
-    assert db._record_writer() is None
+    try:
+        assert db._record_fetcher() is not None
+        assert db._record_writer() is not None
+        assert db._store() is not None
+    finally:
+        await db.dispose()
 
 
 async def test_typed_particle_queries_keep_the_materializing_path() -> None:

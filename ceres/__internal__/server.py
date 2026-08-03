@@ -7,8 +7,7 @@ from ceres.data import DataObject, uuid4
 from ceres.tasklet import Tasklet
 
 if TYPE_CHECKING:
-    from ceres_core import NativeServer as Native
-
+    from ceres.__internal__.core import NativeServer as Native
     from ceres.__internal__.project import LoadedProject
     from ceres.config import ServerConfig
     from ceres.engine import Engine
@@ -41,6 +40,7 @@ class Server(Tasklet):
         "_cli_token",
         "_native_cli",
         "_native_web",
+        "_web_port",
     )
 
     def __init__(self, engine: Engine, project: LoadedProject, config: ServerConfig) -> None:
@@ -48,6 +48,7 @@ class Server(Tasklet):
         self._project: Final = project
         self._config: Final = config
         self._cli_port: int | None = None
+        self._web_port: int | None = None
         self._cli_token: str | None = None
         self._native_cli: Native | None = None
         self._native_web: Native | None = None
@@ -62,6 +63,14 @@ class Server(Tasklet):
 
     @property
     def port(self) -> int | None:
+        """The port the web server bound, falling back to the configured one.
+
+        A configured `0` asks the operating system for a free port, so the bound one is
+        the only answer that means anything to a caller.
+        """
+        if self._web_port is not None:
+            return self._web_port
+
         return self._config.port
 
     @property
@@ -90,11 +99,10 @@ class Server(Tasklet):
     async def __run__(self) -> None:
         self._cli_token = str(uuid4())
 
-        from ceres_core import NativeServer
-
         # Operations register on import, so the module has to load before anything serves.
         import ceres.__internal__.app.operations  # noqa: F401
         from ceres.__internal__.app.host import Host
+        from ceres.__internal__.core import NativeServer
 
         host = Host(self._engine)
 
@@ -119,6 +127,7 @@ class Server(Tasklet):
                 _favicon(self._engine, ".svg", console),
                 records,
             )
+            self._web_port = self._native_web.port
 
         # The info file records the port the control server actually bound.
         self._project.write_cli_server_info(
@@ -126,10 +135,7 @@ class Server(Tasklet):
         )
 
         try:
-            await concurrently(
-                self._native_cli.serve() if self._native_cli is not None else None,
-                self._native_web.serve() if self._native_web is not None else None,
-            )
+            await concurrently(_serve(self._native_cli), _serve(self._native_web))
         finally:
             self._native_cli = None
             self._native_web = None
@@ -143,6 +149,16 @@ class Server(Tasklet):
         for server in (self._native_cli, self._native_web):
             if server is not None:
                 server.stop()
+
+
+async def _serve(server: Native | None) -> None:
+    """Run one native server to completion, doing nothing when there is none.
+
+    A native server's `serve` answers a future rather than a coroutine, and a task group
+    schedules coroutines, so awaiting it inside one is what makes it schedulable.
+    """
+    if server is not None:
+        await server.serve()
 
 
 def _favicon(engine: Engine, suffix: str, console: Path) -> Path:

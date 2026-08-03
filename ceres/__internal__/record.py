@@ -1,8 +1,6 @@
-from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Self, override
+from typing import Self, override
 
-from pydantic import Field, NonNegativeInt, PositiveInt, PrivateAttr, model_validator
-from sqlalchemy import Delete, Select, Update, select, text, tuple_
+from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 
 from ceres.__internal__.entity import (
     BaseAddressEntity,
@@ -11,7 +9,6 @@ from ceres.__internal__.entity import (
     BaseAddressEntityFilter,
     BaseAddressEntityFilterArgs,
     BaseAddressEntityOrder,
-    BaseAddressEntityRow,
     BaseAddressEntityUpdate,
     BaseEntity,
     BaseTimestampEntity,
@@ -20,7 +17,6 @@ from ceres.__internal__.entity import (
     BaseTimestampEntityFilter,
     BaseTimestampEntityFilterArgs,
     BaseTimestampEntityOrder,
-    BaseTimestampEntityRow,
     BaseTimestampEntityUpdate,
     BaseUUIDEntity,
     BaseUUIDEntityCreate,
@@ -28,26 +24,10 @@ from ceres.__internal__.entity import (
     BaseUUIDEntityFilter,
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
-    BaseUUIDEntityRow,
     BaseUUIDEntityUpdate,
 )
 from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTimeDelta, StrEnum
 from ceres.timing import utc
-
-if TYPE_CHECKING:
-    from ceres.database import DatabaseType
-
-
-class BaseRecordRow(
-    BaseTimestampEntityRow,
-    BaseAddressEntityRow,
-    BaseUUIDEntityRow,
-    kw_only=True,
-):
-    """Abstract SQLAlchemy row combining UUID, address, and timestamp columns for records."""
-
-    __abstract__: ClassVar[bool] = True
-
 
 type BaseRecordField = BaseUUIDEntityField | BaseAddressEntityField | BaseTimestampEntityField
 type BaseRecordOrder = BaseUUIDEntityOrder | BaseAddressEntityOrder | BaseTimestampEntityOrder
@@ -155,92 +135,11 @@ class BaseRecordFilter[
 
         return self
 
-    _native_cache: Any = PrivateAttr(default=None)
-
-    def _native_dump(self) -> str:
-        """Serialize this filter for the native compiler, in its wire JSON form."""
-        return self.model_dump_json(by_alias=True, exclude_none=True)
-
-    def _native_filter(self) -> Any:
-        """The native compiler's parsed form of this filter, built once and reused.
-
-        The compiler is the single authority on filter semantics. Statements execute
-        through the Python session, but their `WHERE` and `ORDER BY` come from here,
-        and in-memory matching reads records through the same parsed filter.
-        """
-        if self._native_cache is None:
-            from ceres_core import RecordTable, record_filter_from_json
-
-            tables = {
-                "messages": RecordTable.MESSAGES,
-                "particles": RecordTable.PARTICLES,
-                "alerts": RecordTable.ALERTS,
-                "logs": RecordTable.LOGS,
-            }
-            table = tables[self._get_row_cls().__tablename__]
-            self._native_cache = record_filter_from_json(table, self._native_dump())
-
-        return self._native_cache
-
     @override
     def matches(self, obj: RecordT) -> bool:  # type: ignore[override]
         from ceres.data import to_json
 
         return self._native_filter().matches(to_json(obj), utc())
-
-    @classmethod
-    @abstractmethod
-    @override
-    def _get_row_cls(cls) -> type[BaseRecordRow]: ...
-
-    @override
-    def apply[StatementT: Select[tuple[Any, ...]] | Update | Delete](
-        self,
-        statement: StatementT,
-        dialect: DatabaseType,
-        *,
-        always_use_subquery: bool = False,
-        ignore_where: bool = False,
-        ignore_order: bool = False,
-    ) -> StatementT:
-        """Apply the natively compiled filter criteria to `statement`.
-
-        The shape mirrors the base `apply`, `UPDATE` and `DELETE` statements that
-        carry pagination or `RETURNING` filter through a primary-key subquery, but the
-        `WHERE` and `ORDER BY` arrive as SQL the native compiler rendered.
-        """
-        native = self._native_filter()
-        name = dialect.value
-
-        # A colon in a rendered literal would read as a bind parameter marker inside
-        # `text()`, so every colon escapes to stay literal.
-        where_sql = None if ignore_where else native.where_sql(name, utc())
-        where = () if where_sql is None else (text(where_sql.replace(":", "\\:")),)
-        order_sql = None if ignore_order else native.order_sql(name)
-        order_by = () if order_sql is None else (text(order_sql.replace(":", "\\:")),)
-        limit = native.limit
-        offset = native.offset
-
-        if not always_use_subquery:
-            if isinstance(statement, Select):
-                return statement.where(*where).order_by(*order_by).limit(limit).offset(offset)
-
-            if limit is None and offset is None and not statement._returning:
-                return statement.where(*where)
-
-        pk = self._get_row_cls().__table__.primary_key.columns
-        pks = select(*pk).where(*where).order_by(*order_by).limit(limit).offset(offset)
-
-        pk = pk[0] if len(pk) == 1 else tuple_(*pk)
-
-        if isinstance(statement, Update | Delete):
-            return statement.where(pk.in_(pks))
-
-        return statement.where(pk.in_(pks)).order_by(*order_by)
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[OrderT]:
-        return "timestamp"  # type: ignore
 
 
 class BaseRecordCreate(

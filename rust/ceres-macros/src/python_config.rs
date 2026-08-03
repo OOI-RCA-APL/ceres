@@ -388,7 +388,7 @@ fn expand_class(definition: &ClassDefinition) -> TokenStream {
     quote! {
         #(#docs)*
         #[::pyo3_stub_gen::derive::gen_stub_pyclass]
-        #[::pyo3::pyclass(subclass, #extends module = "ceres_core")]
+        #[::pyo3::pyclass(subclass, #extends module = "ceres.__internal__.core")]
         #[derive(Debug, Clone)]
         pub struct #name {
             pub(crate) inner: #inner,

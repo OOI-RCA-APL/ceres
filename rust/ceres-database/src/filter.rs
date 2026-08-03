@@ -24,14 +24,18 @@
 use ceres_entities::{FieldFamily, FilterField, FilterValues, Level, OperationKind};
 use chrono::{Duration, NaiveDateTime, SubsecRound, Utc};
 use sea_query::{
-    Alias, Asterisk, BinOper, Expr, ExprTrait, Func, LikeExpr, Order, Query, SelectStatement,
-    SimpleExpr, Value,
+    Alias, Asterisk, BinOper, DeleteStatement, Expr, ExprTrait, Func, LikeExpr, Order, Query,
+    SelectStatement, SimpleExpr, UpdateStatement, Value,
 };
 use uuid::Uuid;
 
 use serde_norway::Value as Yaml;
 
-use crate::records::RecordTable;
+use ceres_entities::Address;
+
+use crate::credentials::normalize_email;
+use crate::entities::EntityTable;
+use crate::records::{Computed, RecordTable, Schema, Shape};
 use crate::selector::{AddressSelector, valid_address};
 use crate::store::Parameter;
 
@@ -82,6 +86,8 @@ enum KeyRole {
     Clock(ClockOp),
     /// One of the ordered bounds a level field brings.
     Bound(BoundOp),
+    /// A key matching a shape of a column rather than its value.
+    Computed(Computed),
     Order,
     Limit,
     Offset,
@@ -137,6 +143,8 @@ enum Values {
     Texts(Vec<String>),
     Stamps(Vec<NaiveDateTime>),
     Bytes(Vec<Vec<u8>>),
+    /// One boolean, which its family takes in place of a set.
+    Boolean(bool),
 }
 
 /// One field operation filter, matching within the field's content.
@@ -188,6 +196,8 @@ struct FilterNode {
     /// Level bounds as indexes into the level family's ordered values.
     min_level: Option<usize>,
     max_level: Option<usize>,
+    /// Computed predicates, each with whether the shape must hold or must not.
+    computed: Vec<(Computed, bool)>,
     /// Whether the node can match at all, an explicitly empty value list matching
     /// nothing the way the Python layer's empty `IN` does.
     impossible: bool,
@@ -197,77 +207,28 @@ struct FilterNode {
     or_children: Vec<FilterNode>,
 }
 
-/// A parsed record filter, the tree's root plus the query controls.
+/// A parsed filter, the tree's root plus the query controls.
+///
+/// Every statement builds from the schema alone, so the record and entity filters are
+/// each this core plus the table enum they name, and one compiler serves both.
 #[derive(Clone, Debug, PartialEq)]
-pub struct RecordFilter {
-    table: RecordTable,
+struct Filter {
+    schema: Schema,
     node: FilterNode,
     order: Vec<OrderTerm>,
     limit: Option<u64>,
     offset: Option<u64>,
 }
 
-impl RecordFilter {
-    /// The field and query filter keys the native compiler serves for a table.
-    ///
-    /// Generated from the entity's field families, never written out. Equality for
-    /// every native family, each field's operation filters, the window operators a
-    /// timestamp brings, the ordered bounds a level brings, and the query keys.
-    pub fn supported_keys(table: RecordTable) -> Vec<&'static str> {
-        let mut keys = Vec::new();
-        for field in table.fields() {
-            for operation in field.operations {
-                keys.push(operation.key);
-            }
-
-            if !field.family.native() {
-                continue;
-            }
-
-            keys.push(field.key);
-            match field.family {
-                FieldFamily::Address => {
-                    keys.push("root");
-                }
-                FieldFamily::Timestamp => {
-                    keys.extend(["after", "before", "timespan", "max_age", "min_age"]);
-                    keys.extend(["after_hour", "before_hour", "after_minute", "before_minute"]);
-                    keys.extend(["subsample_every", "subsample", "subsample_select"]);
-                }
-                FieldFamily::Level => {
-                    keys.extend(bound_keys(field));
-                }
-                _ => {}
-            }
-        }
-
-        keys.extend(["order", "limit", "offset", "or", "and"]);
-        keys
-    }
-
-    /// The filter keys the compiler knowingly delegates for a table.
-    ///
-    /// What remains is Python's structural query filters, shared by every table, plus
-    /// its Python-only constructs, and the classification test holds the union of this
-    /// list and the supported one to exactly what the Pydantic models declare so a new
-    /// filter field cannot ship unclassified.
-    pub fn delegated_keys(table: RecordTable) -> Vec<&'static str> {
-        // A particle's `class` filters by a Python type, which has no native form.
-        if table == RecordTable::Particles {
-            return vec!["class"];
-        }
-
-        Vec::new()
-    }
-
+impl Filter {
     /// Parse query pairs into a filter, refusing what cannot compile natively.
     ///
     /// Repeated keys collect into lists, matching how the Python layer folds ordered
     /// pairs before validating.
-    pub fn parse(table: RecordTable, pairs: &[(String, String)]) -> Result<Self, Refusal> {
+    fn parse(schema: Schema, pairs: &[(String, String)]) -> Result<Self, Refusal> {
         let mut parsed = Parsed::default();
         for (key, value) in pairs {
-            parsed.apply(table, key, &WireValue::Text(value))?;
+            parsed.apply(schema, key, &WireValue::Text(value))?;
         }
 
         let Parsed {
@@ -278,7 +239,7 @@ impl RecordFilter {
             ..
         } = parsed.finish()?;
         Ok(Self {
-            table,
+            schema,
             node,
             order,
             limit,
@@ -286,19 +247,35 @@ impl RecordFilter {
         })
     }
 
-    /// The table this filter queries.
-    pub fn table(&self) -> RecordTable {
-        self.table
-    }
+    /// Parse a filter from its serialized JSON form, the Python filter model's dump.
+    ///
+    /// JSON is a YAML subset, so this reads through the same parser the subfilter
+    /// values use, one grammar for every front-end.
+    fn from_json(schema: Schema, text: &str) -> Result<Self, Refusal> {
+        let value = parse_yaml(text)?;
+        let Yaml::Mapping(mapping) = value else {
+            return Err(Refusal::invalid("a filter must be a mapping"));
+        };
 
-    /// The parsed limit, which callers cap before executing on the server.
-    pub fn limit(&self) -> Option<u64> {
-        self.limit
+        let Parsed {
+            node,
+            order,
+            limit,
+            offset,
+            ..
+        } = Parsed::from_yaml(schema, &mapping)?;
+        Ok(Self {
+            schema,
+            node,
+            order,
+            limit,
+            offset,
+        })
     }
 
     /// Cap the limit, defaulting an absent one, the way the route's `Limit` wrapper
     /// does. A limit above the cap is a validation error.
-    pub fn with_limit_cap(mut self, cap: u64) -> Result<Self, Refusal> {
+    fn with_limit_cap(mut self, cap: u64) -> Result<Self, Refusal> {
         match self.limit {
             None => self.limit = Some(cap),
             Some(limit) if limit > cap => {
@@ -312,52 +289,76 @@ impl RecordFilter {
         Ok(self)
     }
 
-    /// Parse a filter from its serialized JSON form, the Python filter model's dump.
-    ///
-    /// JSON is a YAML subset, so this reads through the same parser the subfilter
-    /// values use, one grammar for every front-end.
-    pub fn from_json(table: RecordTable, text: &str) -> Result<Self, Refusal> {
-        let value = parse_yaml(text)?;
-        let Yaml::Mapping(mapping) = value else {
-            return Err(Refusal::invalid("a filter must be a mapping"));
-        };
-
-        let Parsed {
-            node,
-            order,
-            limit,
-            offset,
-            ..
-        } = Parsed::from_yaml(table, &mapping)?;
-        Ok(Self {
-            table,
-            node,
-            order,
-            limit,
-            offset,
-        })
-    }
-
     /// Compile to SQL and its bound parameters, in the dialect's placeholder style.
     ///
     /// The parameters arrive in placeholder order, ready for a driver-level execute,
     /// `?` for the SQLite family and `$n` for PostgreSQL.
-    pub fn compiled(&self, dialect: SqlDialect, count: bool) -> (String, Vec<Value>) {
+    pub fn compiled(
+        &self,
+        dialect: SqlDialect,
+        count: bool,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
         let statement = if count {
-            self.count_statement(dialect)
+            self.count_statement(dialect, now)
         } else {
-            self.statement(dialect)
+            self.statement(dialect, now)
         };
-        let (sql, values) = match dialect {
-            SqlDialect::SqliteText => statement.build(sea_query::SqliteQueryBuilder),
-            SqlDialect::Postgres => statement.build(sea_query::PostgresQueryBuilder),
-        };
-        (sql, values.0)
+        build(statement, dialect)
     }
 
-    /// The filter's offset, `None` when unset.
-    pub fn offset(&self) -> Option<u64> {
-        self.offset
+    /// Compile the existence check to SQL and its bound parameters.
+    pub fn exists_compiled(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
+        build(self.exists_statement(dialect, now), dialect)
+    }
+
+    /// Compile the delete to SQL and its bound parameters.
+    ///
+    /// `returning` hands back the rows the statement removed, which is how a caller that
+    /// wants the entities it deleted gets them without a second query that would no longer
+    /// find them.
+    pub fn delete_compiled(
+        &self,
+        dialect: SqlDialect,
+        returning: bool,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
+        let mut statement = self.delete_statement(dialect, now);
+        if returning {
+            statement.returning_all();
+        }
+
+        build(statement, dialect)
+    }
+
+    /// Compile an update to SQL and its bound parameters, for one assignment object.
+    ///
+    /// The object is the same JSON an `update` command carries, and each value encodes
+    /// into the form its column stores, so a caller cannot write a value the column did
+    /// not ask for. A refusal carries the sentence naming the key and what it wanted.
+    pub fn update_compiled(
+        &self,
+        dialect: SqlDialect,
+        assign: &serde_json::Map<String, serde_json::Value>,
+        returning: bool,
+        now: Option<NaiveDateTime>,
+    ) -> Result<(String, Vec<Value>), Refusal> {
+        let writer = match dialect {
+            SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
+            SqlDialect::Postgres => crate::writer::Dialect::Postgres,
+        };
+        let assignments =
+            crate::assign::assignments(self.schema, assign, writer).map_err(Refusal::Invalid)?;
+        let mut statement = self.update_statement(dialect, &assignments, now);
+        if returning {
+            statement.returning_all();
+        }
+
+        Ok(build(statement, dialect))
     }
 
     /// The combined `WHERE` conditions rendered as inline SQL, `None` when the filter
@@ -366,10 +367,8 @@ impl RecordFilter {
     /// The text embeds into a statement another engine builds, the Python session's,
     /// so values render as literals rather than binds.
     pub fn where_sql(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> Option<String> {
-        let now = now
-            .unwrap_or_else(|| Utc::now().naive_utc())
-            .trunc_subsecs(6);
-        let conditions = self.node.combined_conditions(self.table, dialect, now);
+        let now = resolve_now(now);
+        let conditions = self.node.combined_conditions(self.schema, dialect, now);
         if conditions.is_empty() {
             return None;
         }
@@ -406,22 +405,18 @@ impl RecordFilter {
         let fields: std::collections::HashMap<&str, &serde_json::value::RawValue> =
             serde_json::from_str(record_json)
                 .map_err(|error| format!("unreadable record: {error}"))?;
-        let now = now
-            .unwrap_or_else(|| Utc::now().naive_utc())
-            .trunc_subsecs(6);
-        Ok(self.node.matches(self.table, &fields, now))
+        let now = resolve_now(now);
+        Ok(self.node.matches(self.schema, &fields, now))
     }
 
     /// Build the listing statement, mirroring the Python layer's `apply`.
-    pub fn statement(&self, dialect: SqlDialect) -> SelectStatement {
-        // `now` truncates to microseconds so arithmetic and rendering match Python's
-        // `datetime` resolution exactly, and every node shares one instant.
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+    pub fn statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> SelectStatement {
+        let now = resolve_now(now);
         let mut statement = Query::select();
         statement
             .column(Asterisk)
-            .from(Alias::new(self.table.name()));
-        for condition in self.node.combined_conditions(self.table, dialect, now) {
+            .from(Alias::new(self.schema.name()));
+        for condition in self.node.combined_conditions(self.schema, dialect, now) {
             statement.and_where(condition);
         }
 
@@ -448,14 +443,18 @@ impl RecordFilter {
     ///
     /// A limit or offset bounds the count itself, matching the Python layer, which
     /// counts over the paged primary-key subquery in that case.
-    pub fn count_statement(&self, dialect: SqlDialect) -> SelectStatement {
-        let now = Utc::now().naive_utc().trunc_subsecs(6);
+    pub fn count_statement(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> SelectStatement {
+        let now = resolve_now(now);
         if self.limit.is_none() && self.offset.is_none() {
             let mut statement = Query::select();
             statement
                 .expr(Expr::cust("COUNT(*)"))
-                .from(Alias::new(self.table.name()));
-            for condition in self.node.combined_conditions(self.table, dialect, now) {
+                .from(Alias::new(self.schema.name()));
+            for condition in self.node.combined_conditions(self.schema, dialect, now) {
                 statement.and_where(condition);
             }
 
@@ -463,10 +462,12 @@ impl RecordFilter {
         }
 
         let mut inner = Query::select();
-        inner
-            .column(Alias::new("id"))
-            .from(Alias::new(self.table.name()));
-        for condition in self.node.combined_conditions(self.table, dialect, now) {
+        inner.from(Alias::new(self.schema.name()));
+        for column in self.schema.key {
+            inner.column(Alias::new(*column));
+        }
+
+        for condition in self.node.combined_conditions(self.schema, dialect, now) {
             inner.and_where(condition);
         }
 
@@ -491,25 +492,393 @@ impl RecordFilter {
         statement
     }
 
-    /// The order terms, the record default of ascending timestamp when none given.
+    /// Build the existence statement, `SELECT EXISTS (...)`.
+    ///
+    /// Ordering never changes whether a row exists, and the Python layer ignores it here
+    /// too, so the inner query carries only the conditions and the page bounds.
+    pub fn exists_statement(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> SelectStatement {
+        let now = resolve_now(now);
+        let mut inner = Query::select();
+        inner.column(Asterisk).from(Alias::new(self.schema.name()));
+        for condition in self.node.combined_conditions(self.schema, dialect, now) {
+            inner.and_where(condition);
+        }
+
+        if let Some(limit) = self.limit {
+            inner.limit(limit);
+        } else if self.offset.is_some() && dialect == SqlDialect::SqliteText {
+            inner.limit(i64::MAX as u64);
+        }
+
+        if let Some(offset) = self.offset {
+            inner.offset(offset);
+        }
+
+        let mut statement = Query::select();
+        statement.expr(Expr::exists(inner));
+        statement
+    }
+
+    /// The primary keys the filter's page selects, `None` when the filter names no
+    /// page and the caller can therefore match rows in place.
+    fn paged_keys(&self, dialect: SqlDialect, now: NaiveDateTime) -> Option<SelectStatement> {
+        if self.limit.is_none() && self.offset.is_none() {
+            return None;
+        }
+
+        let mut keys = Query::select();
+        keys.from(Alias::new(self.schema.name()));
+        for column in self.schema.key {
+            keys.column(Alias::new(*column));
+        }
+
+        for condition in self.node.combined_conditions(self.schema, dialect, now) {
+            keys.and_where(condition);
+        }
+
+        for term in self.order_terms() {
+            order_by(&mut keys, term, dialect);
+        }
+
+        if let Some(limit) = self.limit {
+            keys.limit(limit);
+        } else if dialect == SqlDialect::SqliteText {
+            keys.limit(i64::MAX as u64);
+        }
+
+        if let Some(offset) = self.offset {
+            keys.offset(offset);
+        }
+
+        Some(keys)
+    }
+
+    /// The primary key as one expression, a bare column for a single key and a row
+    /// value for a composite one.
+    ///
+    /// This is what a paged write narrows on, and the Python layer builds the same two
+    /// forms from the row's primary key constraint.
+    fn key_expression(&self) -> SimpleExpr {
+        match self.schema.key {
+            [column] => Expr::col(Alias::new(*column)).into(),
+            columns => Expr::tuple(
+                columns
+                    .iter()
+                    .map(|column| Expr::col(Alias::new(*column)).into()),
+            )
+            .into(),
+        }
+    }
+
+    /// Build the delete statement, mirroring the Python layer's `apply`.
+    ///
+    /// Without a page the conditions apply in place. With one the statement deletes the
+    /// keys its ordered page names, because a `DELETE` carries neither ordering nor
+    /// pagination of its own.
+    fn delete_statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> DeleteStatement {
+        let now = resolve_now(now);
+        let mut statement = Query::delete();
+        statement.from_table(Alias::new(self.schema.name()));
+        match self.paged_keys(dialect, now) {
+            Some(keys) => {
+                statement.and_where(self.key_expression().in_subquery(keys));
+            }
+            None => {
+                for condition in self.node.combined_conditions(self.schema, dialect, now) {
+                    statement.and_where(condition);
+                }
+            }
+        }
+
+        statement
+    }
+
+    /// Build the update statement for a set of encoded assignments.
+    fn update_statement(
+        &self,
+        dialect: SqlDialect,
+        assignments: &[crate::assign::Assignment],
+        now: Option<NaiveDateTime>,
+    ) -> UpdateStatement {
+        let now = resolve_now(now);
+        let mut statement = Query::update();
+        statement.table(Alias::new(self.schema.name()));
+        for assignment in assignments {
+            statement.value(Alias::new(assignment.column), assignment.value.clone());
+        }
+
+        match self.paged_keys(dialect, now) {
+            Some(keys) => {
+                statement.and_where(self.key_expression().in_subquery(keys));
+            }
+            None => {
+                for condition in self.node.combined_conditions(self.schema, dialect, now) {
+                    statement.and_where(condition);
+                }
+            }
+        }
+
+        statement
+    }
+
+    /// The order terms, the table's own default columns when the filter names none.
+    ///
+    /// Every default order column is a filterable field, which the schema tests hold
+    /// each table to, because an unresolved one would silently list unordered.
     fn order_terms(&self) -> Vec<OrderTerm> {
         if !self.order.is_empty() {
             return self.order.clone();
         }
 
-        self.table
-            .fields()
+        self.schema
+            .order
             .iter()
-            .find(|field| field.family == FieldFamily::Timestamp)
-            .map(|field| {
-                vec![OrderTerm {
-                    field,
-                    ascending: true,
-                }]
+            .filter_map(|column| {
+                self.schema
+                    .fields()
+                    .iter()
+                    .find(|field| field.key == *column)
+                    .map(|field| OrderTerm {
+                        field,
+                        ascending: true,
+                    })
             })
-            .unwrap_or_default()
+            .collect()
     }
 }
+
+/// Give a filter wrapper the statement surface its core already builds.
+///
+/// The wrappers differ only in the table enum they carry and what a caller may ask of
+/// them, so the shared surface is generated rather than written twice.
+macro_rules! filter_surface {
+    ($name:ident, $table:ty) => {
+        impl $name {
+            /// The field and query filter keys the native compiler serves for a table.
+            ///
+            /// Generated from the entity's field families, never written out. Equality
+            /// for every native family, each field's operation filters, the operators a
+            /// family brings, the table's computed predicates, and the query keys.
+            pub fn supported_keys(table: $table) -> Vec<&'static str> {
+                schema_keys(table.schema())
+            }
+
+            /// The filter keys the compiler knowingly delegates for a table.
+            ///
+            /// What remains is Python's structural query filters, shared by every table,
+            /// plus its Python-only constructs, and the classification test holds the
+            /// union of this list and the supported one to exactly what the Pydantic
+            /// models declare so a new filter field cannot ship unclassified.
+            pub fn delegated_keys(table: $table) -> Vec<&'static str> {
+                table.schema().delegated.to_vec()
+            }
+
+            /// Every filter key this table serves, with the argument form its family
+            /// gives it.
+            ///
+            /// A parser builds from this rather than from a list of names, so it cannot
+            /// disagree with the compiler about whether a key is a bare flag or takes a
+            /// value.
+            pub fn keys(table: $table) -> Vec<FilterKey> {
+                filter_keys(table.schema())
+            }
+
+            /// Every column a create may name, with the argument form its family gives
+            /// it.
+            ///
+            /// A write names columns rather than filter keys, which is a different
+            /// surface. A user's password hash is a column no filter exposes, and a
+            /// filter's operations and windows name no column at all.
+            pub fn columns(table: $table) -> Vec<FilterKey> {
+                column_keys(table.schema())
+            }
+
+            /// Parse query pairs into a filter, refusing what cannot compile natively.
+            pub fn parse(table: $table, pairs: &[(String, String)]) -> Result<Self, Refusal> {
+                Ok(Self {
+                    table,
+                    filter: Filter::parse(table.schema(), pairs)?,
+                })
+            }
+
+            /// Parse a filter from its serialized JSON form, the Python filter model's
+            /// dump.
+            pub fn from_json(table: $table, text: &str) -> Result<Self, Refusal> {
+                Ok(Self {
+                    table,
+                    filter: Filter::from_json(table.schema(), text)?,
+                })
+            }
+
+            /// The table this filter queries.
+            pub fn table(&self) -> $table {
+                self.table
+            }
+
+            /// The parsed limit, which callers cap before executing on the server.
+            pub fn limit(&self) -> Option<u64> {
+                self.filter.limit
+            }
+
+            /// The filter's offset, `None` when unset.
+            pub fn offset(&self) -> Option<u64> {
+                self.filter.offset
+            }
+
+            /// Cap the limit, defaulting an absent one, the way the route's `Limit`
+            /// wrapper does. A limit above the cap is a validation error.
+            pub fn with_limit_cap(self, cap: u64) -> Result<Self, Refusal> {
+                Ok(Self {
+                    table: self.table,
+                    filter: self.filter.with_limit_cap(cap)?,
+                })
+            }
+
+            /// Build the listing statement, mirroring the Python layer's `apply`.
+            pub fn statement(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> SelectStatement {
+                self.filter.statement(dialect, now)
+            }
+
+            /// Build the count statement.
+            pub fn count_statement(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> SelectStatement {
+                self.filter.count_statement(dialect, now)
+            }
+
+            /// Build the existence statement, `SELECT EXISTS (...)`.
+            pub fn exists_statement(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> SelectStatement {
+                self.filter.exists_statement(dialect, now)
+            }
+
+            /// Build the delete statement, mirroring the Python layer's `apply`.
+            pub fn delete_statement(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> DeleteStatement {
+                self.filter.delete_statement(dialect, now)
+            }
+
+            /// Compile to SQL and its bound parameters, in the dialect's placeholder
+            /// style.
+            ///
+            /// The parameters arrive in placeholder order, ready for a driver-level
+            /// execute, `?` for the SQLite family and `$n` for PostgreSQL.
+            pub fn compiled(
+                &self,
+                dialect: SqlDialect,
+                count: bool,
+                now: Option<NaiveDateTime>,
+            ) -> (String, Vec<Value>) {
+                self.filter.compiled(dialect, count, now)
+            }
+
+            /// Compile the existence check to SQL and its bound parameters.
+            pub fn exists_compiled(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> (String, Vec<Value>) {
+                self.filter.exists_compiled(dialect, now)
+            }
+
+            /// Compile the delete to SQL and its bound parameters.
+            pub fn delete_compiled(
+                &self,
+                dialect: SqlDialect,
+                returning: bool,
+                now: Option<NaiveDateTime>,
+            ) -> (String, Vec<Value>) {
+                self.filter.delete_compiled(dialect, returning, now)
+            }
+
+            /// Compile an update to SQL and its bound parameters, for one assignment
+            /// object.
+            pub fn update_compiled(
+                &self,
+                dialect: SqlDialect,
+                assign: &serde_json::Map<String, serde_json::Value>,
+                returning: bool,
+                now: Option<NaiveDateTime>,
+            ) -> Result<(String, Vec<Value>), Refusal> {
+                self.filter.update_compiled(dialect, assign, returning, now)
+            }
+
+            /// The combined `WHERE` conditions rendered as inline SQL, `None` when the
+            /// filter is unconditional.
+            pub fn where_sql(
+                &self,
+                dialect: SqlDialect,
+                now: Option<NaiveDateTime>,
+            ) -> Option<String> {
+                self.filter.where_sql(dialect, now)
+            }
+
+            /// The `ORDER BY` terms rendered as inline SQL, `None` when the table brings
+            /// no default ordering.
+            pub fn order_sql(&self, dialect: SqlDialect) -> Option<String> {
+                self.filter.order_sql(dialect)
+            }
+
+            /// Whether one serialized row matches this filter, like the Python filter's
+            /// `matches`.
+            pub fn matches(
+                &self,
+                record_json: &str,
+                now: Option<NaiveDateTime>,
+            ) -> Result<bool, String> {
+                self.filter.matches(record_json, now)
+            }
+
+            /// Build the update statement for a set of encoded assignments.
+            pub(crate) fn update_statement(
+                &self,
+                dialect: SqlDialect,
+                assignments: &[crate::assign::Assignment],
+                now: Option<NaiveDateTime>,
+            ) -> UpdateStatement {
+                self.filter.update_statement(dialect, assignments, now)
+            }
+        }
+    };
+}
+
+/// A parsed record filter, the compiled core plus the record table it names.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordFilter {
+    table: RecordTable,
+    filter: Filter,
+}
+
+filter_surface!(RecordFilter, RecordTable);
+
+/// A parsed entity filter, the compiled core plus the entity table it names.
+///
+/// The non-record filter language is a strict subset of the record one, the entity
+/// filters descending from the same Pydantic base, so this is the same core over a
+/// schema that simply carries fewer families.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntityFilter {
+    table: EntityTable,
+    filter: Filter,
+}
+
+filter_surface!(EntityFilter, EntityTable);
 
 /// One wire value mid-parse, plain text from query pairs or YAML from a subfilter.
 enum WireValue<'a> {
@@ -529,6 +898,19 @@ impl WireValue<'_> {
     }
 
     /// The value as the scalars it lists, one for plain text.
+    /// The value as one whole, for a field that compares on a serialized structure.
+    ///
+    /// Plain wire text is already the text a value column stores, and a YAML value
+    /// serializes to the same JSON the Python side writes, so a mapping and a sequence
+    /// both cross as themselves rather than as the scalars inside them.
+    fn whole(&self, key: &str) -> Result<String, Refusal> {
+        match self {
+            Self::Text(text) => json_text(text),
+            Self::Yaml(value) => serde_json::to_string(value)
+                .map_err(|_| Refusal::invalid(format!("invalid {key} value"))),
+        }
+    }
+
     fn scalars(&self, key: &str) -> Result<Vec<String>, Refusal> {
         match self {
             Self::Text(text) => Ok(vec![(*text).to_string()]),
@@ -546,6 +928,21 @@ impl WireValue<'_> {
     }
 }
 
+/// The instant age-relative conditions compare against, the caller's clock when it names
+/// one and the wall clock otherwise.
+///
+/// A caller naming one is how a Python session under a faked or frozen time stays
+/// authoritative, because the clock the filter language means is the one the session
+/// reads. Truncating to microseconds matches Python's `datetime` resolution exactly, so
+/// arithmetic and rendering agree on both sides.
+///
+/// One statement resolves this once and shares it across every node it builds, which is
+/// what keeps `min_age` and `max_age` in the same filter from straddling a tick.
+fn resolve_now(now: Option<NaiveDateTime>) -> NaiveDateTime {
+    now.unwrap_or_else(|| Utc::now().naive_utc())
+        .trunc_subsecs(6)
+}
+
 /// One YAML scalar in the text form the wire parsers read, `None` for the rest.
 ///
 /// Booleans stay out deliberately, the Python filter fields reject them everywhere a
@@ -553,9 +950,26 @@ impl WireValue<'_> {
 fn yaml_scalar(value: &Yaml) -> Option<String> {
     match value {
         Yaml::String(text) => Some(text.clone()),
+        // Only a field whose value can be null reaches here holding one, and its stored
+        // text is the JSON spelling.
+        Yaml::Null => Some("null".to_string()),
         Yaml::Number(number) => Some(number.to_string()),
+        // A filter model dumps a boolean field as a JSON boolean rather than as the text
+        // a query string carries, and both spell it the same way.
+        Yaml::Bool(held) => Some(held.to_string()),
         _ => None,
     }
+}
+
+/// Whether naming `None` for a field filters for null rather than not filtering.
+///
+/// A value column stores its JSON text, `null` included, so the null is one of the
+/// values it compares against. Every other family reads an absent value as no filter.
+fn nullable(schema: Schema, key: &str) -> bool {
+    schema
+        .fields
+        .iter()
+        .any(|field| field.key == key && field.family == FieldFamily::JsonValue)
 }
 
 /// Parse one wire YAML value the way the Python `FromYAML` reads it, empty text
@@ -585,10 +999,24 @@ struct Parsed {
 
 impl Parsed {
     /// Apply one wire key to this node.
-    fn apply(&mut self, table: RecordTable, key: &str, value: &WireValue) -> Result<(), Refusal> {
+    fn apply(&mut self, table: Schema, key: &str, value: &WireValue) -> Result<(), Refusal> {
         match resolve(table, key)? {
             KeyRole::Equality(field) => {
+                // A value column compares on the whole serialized value, so a structure
+                // is one value rather than a set of them and a list is a list rather
+                // than a choice between its elements.
+                if field.family == FieldFamily::JsonValue {
+                    self.node.push_equality(field, &value.whole(key)?)?;
+                    return Ok(());
+                }
+
+                // A boolean field takes one value rather than a set, so a list of them
+                // is a validation error the Python model owns.
                 let scalars = value.scalars(key)?;
+                if field.family.scalar() && scalars.len() != 1 {
+                    return Err(Refusal::invalid(format!("{key} takes one value")));
+                }
+
                 if scalars.is_empty() {
                     self.node.impossible = true;
                 }
@@ -596,6 +1024,18 @@ impl Parsed {
                 for scalar in scalars {
                     self.node.push_equality(field, &scalar)?;
                 }
+            }
+            // A computed key takes one boolean, holding the shape or its opposite.
+            KeyRole::Computed(predicate) => {
+                let scalar = value.scalar(key)?;
+                let sense = match scalar.as_str() {
+                    "true" | "True" => true,
+                    "false" | "False" => false,
+                    other => {
+                        return Err(Refusal::invalid(format!("invalid boolean {other:?}")));
+                    }
+                };
+                self.node.computed.push((predicate, sense));
             }
             KeyRole::Operation(field, kind) => {
                 let scalars = value.scalars(key)?;
@@ -737,15 +1177,18 @@ impl Parsed {
     }
 
     /// Parse one subfilter from its YAML mapping.
-    fn from_yaml(table: RecordTable, mapping: &serde_norway::Mapping) -> Result<Self, Refusal> {
+    fn from_yaml(table: Schema, mapping: &serde_norway::Mapping) -> Result<Self, Refusal> {
         let mut parsed = Self::default();
         for (key, value) in mapping {
             let Some(key) = key.as_str() else {
                 return Err(Refusal::invalid("subfilter keys must be strings"));
             };
 
-            // A null value leaves its field unset, like the Python models.
-            if matches!(value, Yaml::Null) {
+            // A null value leaves its field unset, like the Python models, except on a
+            // field whose own value can be null. A variable's value compares on the text
+            // its column stores, and `null` is one of the texts it stores, so naming it
+            // is a filter rather than the absence of one.
+            if matches!(value, Yaml::Null) && !nullable(table, key) {
                 continue;
             }
 
@@ -830,7 +1273,7 @@ impl Parsed {
 /// A plain text value parses as YAML first. The result is one subfilter mapping, a
 /// sequence of them, or nothing, and a sequence element may itself be YAML text of
 /// one mapping, the way the Python `FromYAML` layers read it.
-fn group_children(table: RecordTable, value: &WireValue) -> Result<Vec<Parsed>, Refusal> {
+fn group_children(table: Schema, value: &WireValue) -> Result<Vec<Parsed>, Refusal> {
     let parsed;
     let value = match value {
         WireValue::Text(text) => {
@@ -879,6 +1322,14 @@ impl FilterNode {
             }
             FieldFamily::Timestamp => Values::Stamps(vec![parse_timestamp(value)?]),
             FieldFamily::Text => Values::Texts(vec![value.to_string()]),
+            // The filter model types this field as a validated address, so the value
+            // compares in the same normalized form the stored one was written in. One
+            // outside the subset the normalizer understands delegates, because comparing
+            // it unnormalized would silently miss the row it names.
+            FieldFamily::Email => match normalize_email(value) {
+                Some(normalized) => Values::Texts(vec![normalized]),
+                None => return Err(Refusal::Delegated),
+            },
             FieldFamily::Values(admissible) => {
                 if !admissible.contains(&value) {
                     return Err(Refusal::invalid(format!("invalid {} {value:?}", field.key)));
@@ -895,6 +1346,24 @@ impl FilterNode {
             // A JSON field carries no equality key, only its operation filters, so its
             // own key never resolves here.
             FieldFamily::Json => return Err(Refusal::Delegated),
+            // A boolean takes one value, so naming the key twice is a conflict rather
+            // than a set, the way a scalar field is in the Python models.
+            FieldFamily::Boolean => {
+                let parsed = match value {
+                    "true" | "True" => true,
+                    "false" | "False" => false,
+                    _ => return Err(Refusal::invalid(format!("invalid boolean {value:?}"))),
+                };
+                Values::Boolean(parsed)
+            }
+            // A value compares on the serialized text the column stores, so the wire
+            // text parses as YAML and re-serializes into that form.
+            FieldFamily::JsonValue => Values::Texts(vec![json_text(value)?]),
+            // A plain address compares whole, outside the selector grammar.
+            FieldFamily::PlainAddress => {
+                Address::parse(value).map_err(Refusal::Invalid)?;
+                Values::Texts(vec![value.to_string()])
+            }
         };
 
         match self
@@ -908,6 +1377,11 @@ impl FilterNode {
                 (Values::Texts(existing), Values::Texts(mut more)) => existing.append(&mut more),
                 (Values::Stamps(existing), Values::Stamps(more)) => existing.extend(more),
                 (Values::Bytes(existing), Values::Bytes(more)) => existing.extend(more),
+                // A scalar field takes one value, so a second is a validation error
+                // rather than the set a repeated key builds elsewhere.
+                (Values::Boolean(_), _) => {
+                    return Err(Refusal::invalid(format!("{} takes one value", field.key)));
+                }
                 _ => return Err(Refusal::Delegated),
             },
         }
@@ -945,7 +1419,7 @@ impl FilterNode {
     /// node holding, or any `or` node holding on its own.
     fn matches(
         &self,
-        table: RecordTable,
+        table: Schema,
         fields: &std::collections::HashMap<&str, &serde_json::value::RawValue>,
         now: NaiveDateTime,
     ) -> bool {
@@ -963,12 +1437,22 @@ impl FilterNode {
     /// Whether a record satisfies this node's own conditions.
     fn matches_own(
         &self,
-        table: RecordTable,
+        table: Schema,
         fields: &std::collections::HashMap<&str, &serde_json::value::RawValue>,
         now: NaiveDateTime,
     ) -> bool {
         if self.impossible {
             return false;
+        }
+
+        for (predicate, sense) in &self.computed {
+            let held = fields
+                .get(predicate.column)
+                .copied()
+                .is_some_and(|raw| holds(predicate.shape, raw));
+            if held != *sense {
+                return false;
+            }
         }
 
         for field in table.fields() {
@@ -985,9 +1469,18 @@ impl FilterNode {
                     (Values::Bytes(patterns), _) => text
                         .as_deref()
                         .is_some_and(|text| patterns.contains(&latin1_bytes(text))),
+                    // A value column compares on the serialized text of whatever it
+                    // holds, so the raw wire JSON is the thing to compare.
+                    (Values::Texts(texts), FieldFamily::JsonValue) => raw
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok())
+                        .map(|value| value.to_string())
+                        .is_some_and(|held| texts.contains(&held)),
                     (Values::Texts(texts), _) => text
                         .as_deref()
                         .is_some_and(|text| texts.iter().any(|candidate| candidate == text)),
+                    (Values::Boolean(wanted), _) => raw
+                        .and_then(|raw| serde_json::from_str::<bool>(raw.get()).ok())
+                        .is_some_and(|held| held == *wanted),
                 };
                 if !held {
                     return false;
@@ -1023,9 +1516,16 @@ impl FilterNode {
                             text.clone()
                         };
                         subject.as_deref().is_some_and(|subject| {
-                            patterns
-                                .iter()
-                                .any(|pattern| text_matches(subject, held_values.kind, pattern))
+                            // A case-folding operation lowers both sides, the way the
+                            // Python matcher does before comparing.
+                            let subject = fold(subject, operation.insensitive);
+                            patterns.iter().any(|pattern| {
+                                text_matches(
+                                    &subject,
+                                    held_values.kind,
+                                    &fold(pattern, operation.insensitive),
+                                )
+                            })
                         })
                     }
                     Values::Bytes(patterns) => text.as_deref().is_some_and(|text| {
@@ -1164,7 +1664,7 @@ impl FilterNode {
     /// matches everything.
     fn combined_conditions(
         &self,
-        table: RecordTable,
+        table: Schema,
         dialect: SqlDialect,
         now: NaiveDateTime,
     ) -> Vec<SimpleExpr> {
@@ -1202,7 +1702,7 @@ impl FilterNode {
     /// The `WHERE` conditions, in the entity's field order.
     fn conditions(
         &self,
-        table: RecordTable,
+        table: Schema,
         dialect: SqlDialect,
         now: NaiveDateTime,
     ) -> Vec<SimpleExpr> {
@@ -1211,10 +1711,22 @@ impl FilterNode {
             conditions.push(Expr::value(false));
         }
 
+        for (predicate, sense) in &self.computed {
+            let condition = shape_condition(*predicate, dialect);
+            conditions.push(if *sense { condition } else { condition.not() });
+        }
+
         for field in table.fields() {
             let column = Expr::col(Alias::new(field.key));
             if let Some(values) = self.values_of(field) {
                 conditions.push(match values {
+                    // A value column holds JSON, and the comparison is against its
+                    // text, so the column casts before it compares, matching the cast
+                    // the Python filter applies.
+                    Values::Texts(texts) if field.family == FieldFamily::JsonValue => match_values(
+                        Expr::expr(column.clone().cast_as(Alias::new("TEXT"))),
+                        texts.iter().cloned().map(Value::from),
+                    ),
                     Values::Uuids(ids) => {
                         match_values(column.clone(), ids.iter().map(|id| id_value(*id, dialect)))
                     }
@@ -1228,6 +1740,7 @@ impl FilterNode {
                     Values::Bytes(patterns) => {
                         match_values(column.clone(), patterns.iter().cloned().map(Value::from))
                     }
+                    Values::Boolean(wanted) => column.clone().eq(*wanted),
                 });
             }
 
@@ -1352,7 +1865,7 @@ impl FilterNode {
     fn subsample_conditions(
         &self,
         conditions: &mut Vec<SimpleExpr>,
-        table: RecordTable,
+        table: Schema,
         key: &'static str,
         now: NaiveDateTime,
         dialect: SqlDialect,
@@ -1462,7 +1975,13 @@ impl FilterNode {
                     } else {
                         column.into()
                     };
-                    match_text_patterns(subject, held.kind, patterns, dialect)
+                    match_text_patterns(
+                        subject,
+                        held.kind,
+                        patterns,
+                        dialect,
+                        operation.insensitive,
+                    )
                 }
                 Values::Bytes(patterns) => {
                     match_bytes_patterns(field.key, held.kind, patterns, dialect)
@@ -1474,8 +1993,196 @@ impl FilterNode {
     }
 }
 
+/// The field and query filter keys the native compiler serves for a table.
+///
+/// Generated from the entity's field families, never written out. Equality for every
+/// native family, each field's operation filters, the window operators a timestamp
+/// brings, the ordered bounds a level brings, the table's computed predicates, and the
+/// query keys every table shares.
+pub(crate) fn schema_keys(table: Schema) -> Vec<&'static str> {
+    filter_keys(table).into_iter().map(|key| key.key).collect()
+}
+
+/// One filter key and the argument form that carries it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FilterKey {
+    pub key: &'static str,
+    /// Whether the key is a bare flag or takes a value, which its family decides.
+    pub arity: Arity,
+    /// What the key does, which a generated help text is written from.
+    pub role: Role,
+    /// The field the key filters on, for the keys that name one.
+    ///
+    /// An operation and a window belong to a field whose name their own key does not
+    /// always carry, a log's `contains` naming its content and a timestamp's `after`
+    /// naming nothing at all.
+    pub field: Option<&'static str>,
+}
+
+/// How a filter key arrives on the command line.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Arity {
+    /// A `--key` and `--no-key` pair carrying no value of its own, which a scalar
+    /// boolean is in the Python models and therefore in its generated CLI.
+    Flag,
+    /// A `--key value` pair, repeatable where the field folds a list.
+    Value,
+}
+
+/// What a filter key does, which decides the help text generated for it.
+///
+/// Carried here rather than inferred from the key's spelling, because the role is known
+/// exactly where the key is generated and guessing it back from a name is how a help
+/// text comes to describe the wrong thing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Role {
+    /// Compare a field whole, several values matching any of them.
+    Equality,
+    /// Match within a field's content.
+    Operation(OperationKind),
+    /// The address that relative selector segments resolve against.
+    Root,
+    /// Bound a timestamp, absolutely or by age.
+    Window(Window),
+    /// Bound an ordered field, a log level being the one that has them.
+    Bound,
+    /// Hold a shape of a column rather than a value of it.
+    Computed,
+    /// Order, limit, or offset the result rather than narrow it.
+    Query,
+    /// Combine whole subfilters.
+    Group,
+}
+
+/// Which way a window bounds a timestamp.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Window {
+    /// An absolute bound, `after` and `before`.
+    Absolute,
+    /// A bound relative to now, `max_age` and `min_age`.
+    Age,
+    /// A span, `timespan`.
+    Span,
+    /// A bound on the time of day rather than the date.
+    Clock,
+    /// Thin the result to one row per interval.
+    Subsample,
+}
+
+/// Every filter key a table serves, with the argument form its family gives it.
+///
+/// Generated from the entity's fields rather than written out, so a parser built from
+/// this cannot disagree with the compiler about what a key is or how it arrives. A flat
+/// list of names would drop exactly the information a parser needs, which is how a
+/// boolean came to be lexed as though it took a value.
+pub(crate) fn filter_keys(table: Schema) -> Vec<FilterKey> {
+    let keyed = |key, arity, role, field| FilterKey {
+        key,
+        arity,
+        role,
+        field,
+    };
+
+    let mut keys = Vec::new();
+    for field in table.fields() {
+        // A field's own key comes before the operations that search within it, because
+        // the order here is the order they are listed in, and a reader looking for a
+        // field wants the whole-value comparison first.
+        //
+        // A field whose own key is delegated still brings its operations, which is how
+        // an email address filters on its parts without comparing whole.
+        if field.family.native() && !table.delegated.contains(&field.key) {
+            let arity = if field.family.scalar() {
+                Arity::Flag
+            } else {
+                Arity::Value
+            };
+            keys.push(keyed(field.key, arity, Role::Equality, Some(field.key)));
+        }
+
+        // An operation matches within a field's content, so it always takes a value,
+        // whatever form the field's own key takes. It names the field it searches, which
+        // its own key does not always carry.
+        keys.extend(field.operations.iter().map(|operation| {
+            keyed(
+                operation.key,
+                Arity::Value,
+                Role::Operation(operation.kind),
+                Some(field.key),
+            )
+        }));
+
+        if !field.family.native() || table.delegated.contains(&field.key) {
+            continue;
+        }
+
+        let window = |key, kind| keyed(key, Arity::Value, Role::Window(kind), Some(field.key));
+        match field.family {
+            FieldFamily::Address => {
+                keys.push(keyed("root", Arity::Value, Role::Root, Some(field.key)));
+            }
+            FieldFamily::Timestamp => {
+                keys.extend(["after", "before"].map(|key| window(key, Window::Absolute)));
+                keys.push(window("timespan", Window::Span));
+                keys.extend(["max_age", "min_age"].map(|key| window(key, Window::Age)));
+                keys.extend(
+                    ["after_hour", "before_hour", "after_minute", "before_minute"]
+                        .map(|key| window(key, Window::Clock)),
+                );
+                keys.extend(
+                    ["subsample_every", "subsample", "subsample_select"]
+                        .map(|key| window(key, Window::Subsample)),
+                );
+            }
+            FieldFamily::Level => keys.extend(
+                bound_keys(field).map(|key| keyed(key, Arity::Value, Role::Bound, Some(field.key))),
+            ),
+            _ => {}
+        }
+    }
+
+    // A computed predicate has no column and answers a yes or no, so it is a flag like
+    // any other boolean.
+    keys.extend(table.computed.iter().map(|predicate| {
+        keyed(
+            predicate.key,
+            Arity::Flag,
+            Role::Computed,
+            Some(predicate.column),
+        )
+    }));
+    keys.extend(
+        ["order", "limit", "offset"].map(|key| keyed(key, Arity::Value, Role::Query, None)),
+    );
+    keys.extend(["or", "and"].map(|key| keyed(key, Arity::Value, Role::Group, None)));
+    keys
+}
+
+/// Every column a create may name, with the argument form its family gives it.
+///
+/// Generated from the entity's columns for the same reason the filter keys are, so the
+/// parser and the writer cannot disagree about what a create accepts.
+pub(crate) fn column_keys(table: Schema) -> Vec<FilterKey> {
+    table
+        .columns
+        .iter()
+        .map(|field| FilterKey {
+            key: field.key,
+            arity: if field.family.scalar() {
+                Arity::Flag
+            } else {
+                Arity::Value
+            },
+            // A column names itself, and a write assigns it whole rather than matching
+            // within it.
+            role: Role::Equality,
+            field: Some(field.key),
+        })
+        .collect()
+}
+
 /// Resolve what one wire key means for a table, from the entity's field families.
-fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
+fn resolve(table: Schema, key: &str) -> Result<KeyRole, Refusal> {
     match key {
         "order" => return Ok(KeyRole::Order),
         "limit" => return Ok(KeyRole::Limit),
@@ -1483,6 +2190,19 @@ fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
         "or" => return Ok(KeyRole::Group(GroupOp::Or)),
         "and" => return Ok(KeyRole::Group(GroupOp::And)),
         _ => {}
+    }
+
+    // The delegated list wins over the field families, because a key can name a field
+    // the compiler would otherwise serve and still belong to Python, an email address's
+    // equality being the one that does.
+    if table.delegated.contains(&key) {
+        return Err(Refusal::Delegated);
+    }
+
+    for predicate in table.computed {
+        if predicate.key == key {
+            return Ok(KeyRole::Computed(*predicate));
+        }
     }
 
     for field in table.fields() {
@@ -1548,10 +2268,6 @@ fn resolve(table: RecordTable, key: &str) -> Result<KeyRole, Refusal> {
         }
     }
 
-    if RecordFilter::delegated_keys(table).contains(&key) {
-        return Err(Refusal::Delegated);
-    }
-
     // The Python filter models forbid extra fields, so an unrecognized key is a
     // validation error rather than a construct awaiting its port.
     Err(Refusal::invalid(format!("unknown filter key {key:?}")))
@@ -1599,7 +2315,18 @@ fn speedate_config() -> speedate::TimeConfig {
 /// Parse a wire timestamp on the grammar the Python `DateTime` accepts, ISO forms,
 /// epoch numbers, and bare dates, aware values normalizing to UTC and naive ones read
 /// as UTC.
-fn parse_timestamp(text: &str) -> Result<NaiveDateTime, Refusal> {
+/// The compact JSON text a value column stores, parsed from the wire's YAML form.
+///
+/// The Python filter compares `to_json(self.value)` against the column cast to text, so
+/// the comparison is on serialized form and a number, a string, and a structure all
+/// compare by the same rule.
+fn json_text(value: &str) -> Result<String, Refusal> {
+    let parsed: serde_json::Value = serde_norway::from_str(value)
+        .map_err(|_| Refusal::invalid(format!("invalid value {value:?}")))?;
+    Ok(parsed.to_string())
+}
+
+pub(crate) fn parse_timestamp(text: &str) -> Result<NaiveDateTime, Refusal> {
     let config = speedate::DateTimeConfig {
         time_config: speedate_config(),
         ..Default::default()
@@ -1694,7 +2421,7 @@ fn parse_duration(text: &str) -> Result<Duration, Refusal> {
 /// timestamps.
 #[expect(clippy::too_many_arguments)]
 fn bucket_condition(
-    table: RecordTable,
+    table: Schema,
     key: &'static str,
     origin: NaiveDateTime,
     width: i64,
@@ -1795,7 +2522,7 @@ fn clock_part(key: &'static str, part: &str, format: &str, dialect: SqlDialect) 
 
 /// Parse an order value, `field`, `field:asc`, or `field:desc` over the entity's
 /// filterable fields.
-fn parse_order(table: RecordTable, text: &str) -> Result<OrderTerm, Refusal> {
+fn parse_order(table: Schema, text: &str) -> Result<OrderTerm, Refusal> {
     let (base, ascending) = match text.split_once(':') {
         None => (text, true),
         Some((base, "asc")) => (base, true),
@@ -1874,11 +2601,41 @@ fn tokenize_bytes(value: &[u8]) -> String {
 /// When every pattern is empty the whole match is true, even for a null subject,
 /// which is the one place the Python layer answers with a bare `true` rather than a
 /// comparison.
+/// Whether one record's wire value holds a computed predicate's shape.
+fn holds(shape: Shape, raw: &serde_json::value::RawValue) -> bool {
+    match shape {
+        Shape::Internal => serde_json::from_str::<String>(raw.get())
+            .is_ok_and(|name| name.starts_with("__") && name.ends_with("__")),
+        Shape::Literal(wanted) => {
+            serde_json::from_str::<String>(raw.get()).is_ok_and(|held| held == wanted)
+        }
+        Shape::Present => raw.get() != "null",
+    }
+}
+
+/// Compile a computed predicate's shape into the condition that holds it.
+fn shape_condition(predicate: Computed, dialect: SqlDialect) -> SimpleExpr {
+    let column = || SimpleExpr::from(Expr::col(Alias::new(predicate.column)));
+    match predicate.shape {
+        // An internal name both opens and closes with a double underscore, which is two
+        // pattern matches rather than one, each escaped by its backend's own rules.
+        Shape::Internal => {
+            let marker = ["__".to_string()];
+            match_text_patterns(column(), OperationKind::Prefix, &marker, dialect, false).and(
+                match_text_patterns(column(), OperationKind::Suffix, &marker, dialect, false),
+            )
+        }
+        Shape::Literal(wanted) => Expr::col(Alias::new(predicate.column)).eq(wanted),
+        Shape::Present => Expr::col(Alias::new(predicate.column)).is_not_null(),
+    }
+}
+
 fn match_text_patterns(
     subject: SimpleExpr,
     kind: OperationKind,
     patterns: &[String],
     dialect: SqlDialect,
+    insensitive: bool,
 ) -> SimpleExpr {
     if patterns.iter().all(|pattern| pattern.is_empty()) {
         return Expr::value(true);
@@ -1886,16 +2643,34 @@ fn match_text_patterns(
 
     patterns
         .iter()
-        .map(|pattern| match dialect {
-            SqlDialect::SqliteText => {
-                let pattern = with_wildcards(glob_escape(pattern), kind, '*');
-                subject
-                    .clone()
-                    .binary(BinOper::Custom("GLOB"), Expr::val(pattern))
-            }
-            SqlDialect::Postgres => {
-                let pattern = with_wildcards(like_escape(pattern), kind, '%');
-                subject.clone().like(LikeExpr::new(pattern).escape('^'))
+        .map(|pattern| {
+            let escaped = with_wildcards(like_escape(pattern), kind, '%');
+            match (dialect, insensitive) {
+                // Case folding is `ILIKE` on PostgreSQL and a pair of `lower` calls on
+                // the SQLite family, which is what SQLAlchemy renders `ilike` as there.
+                // Lowering the pattern in SQL rather than in Rust keeps the fold the
+                // backend's own, ASCII-only, instead of Rust's Unicode one.
+                // The placeholder in a custom expression is the dialect's own, `?` on
+                // the SQLite family and a numbered `$` on PostgreSQL.
+                (SqlDialect::SqliteText, true) => Expr::cust_with_exprs(
+                    "lower(?) LIKE lower(?) ESCAPE '^'",
+                    [subject.clone(), Expr::val(escaped).into()],
+                ),
+                (SqlDialect::Postgres, true) => Expr::cust_with_exprs(
+                    "$1 ILIKE $2 ESCAPE '^'",
+                    [subject.clone(), Expr::val(escaped).into()],
+                ),
+                // A case-sensitive match on the SQLite family is `GLOB`, because `LIKE`
+                // there folds ASCII case whether or not it was asked to.
+                (SqlDialect::SqliteText, false) => {
+                    let pattern = with_wildcards(glob_escape(pattern), kind, '*');
+                    subject
+                        .clone()
+                        .binary(BinOper::Custom("GLOB"), Expr::val(pattern))
+                }
+                (SqlDialect::Postgres, false) => {
+                    subject.clone().like(LikeExpr::new(escaped).escape('^'))
+                }
             }
         })
         .reduce(|combined, condition| combined.or(condition))
@@ -1954,6 +2729,18 @@ fn match_bytes_patterns(
         .unwrap_or_else(|| Expr::value(false))
 }
 
+/// Lower a value for a case-folding comparison, leaving it alone for a plain one.
+///
+/// Python's `str.lower` folds by Unicode, so the in-memory comparison does too, which
+/// is deliberately not the ASCII fold the backends apply in SQL.
+fn fold(text: &str, insensitive: bool) -> std::borrow::Cow<'_, str> {
+    if insensitive {
+        std::borrow::Cow::Owned(text.to_lowercase())
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
 /// Whether a text value matches one pattern by an operation's kind.
 fn text_matches(value: &str, kind: OperationKind, pattern: &str) -> bool {
     match kind {
@@ -1985,6 +2772,19 @@ fn record_timestamp(text: Option<&str>) -> Option<NaiveDateTime> {
 }
 
 /// Render a statement in a dialect and return what follows a fixed prefix.
+/// Render a statement in the dialect's placeholder style, `?` for the SQLite family
+/// and `$n` for PostgreSQL.
+fn build<S: sea_query::QueryStatementBuilder>(
+    statement: S,
+    dialect: SqlDialect,
+) -> (String, Vec<Value>) {
+    let (sql, values) = match dialect {
+        SqlDialect::SqliteText => statement.build_any(&sea_query::SqliteQueryBuilder),
+        SqlDialect::Postgres => statement.build_any(&sea_query::PostgresQueryBuilder),
+    };
+    (sql, values.0)
+}
+
 fn rendered_after(statement: &SelectStatement, dialect: SqlDialect, prefix: &str) -> String {
     let rendered = match dialect {
         SqlDialect::SqliteText => statement.to_string(sea_query::SqliteQueryBuilder),
@@ -2046,7 +2846,11 @@ fn order_by(statement: &mut SelectStatement, term: OrderTerm, dialect: SqlDialec
 
     let text = matches!(
         term.field.family,
-        FieldFamily::Address | FieldFamily::Text | FieldFamily::Values(_) | FieldFamily::Level
+        FieldFamily::Address
+            | FieldFamily::PlainAddress
+            | FieldFamily::Text
+            | FieldFamily::Values(_)
+            | FieldFamily::Level
     );
     if dialect == SqlDialect::Postgres && text {
         let collated = format!("\"{}\" COLLATE \"C\"", term.field.key);
@@ -2067,6 +2871,209 @@ mod tests {
             .iter()
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect()
+    }
+
+    /// One entity filter's listing SQL in the SQLite dialect.
+    fn entity_sql(table: EntityTable, entries: &[(&str, &str)]) -> String {
+        EntityFilter::parse(table, &pairs(entries))
+            .expect("the filter parses")
+            .statement(SqlDialect::SqliteText, None)
+            .to_string(SqliteQueryBuilder)
+    }
+
+    #[test]
+    fn every_entity_lists_in_its_own_default_order() {
+        // An unresolved default order column would list unordered, which the Python
+        // path never does, so each table's rendering is pinned here.
+        let ordering = |table| {
+            entity_sql(table, &[])
+                .split_once(" ORDER BY ")
+                .map(|(_, tail)| tail.to_string())
+                .unwrap_or_default()
+        };
+
+        assert_eq!(ordering(EntityTable::Users), "\"username\" ASC");
+        assert_eq!(
+            ordering(EntityTable::Variables),
+            "\"address\" ASC, \"name\" ASC"
+        );
+        // A setting sorts by name alone, though its key is the owner and the name.
+        assert_eq!(ordering(EntityTable::Settings), "\"name\" ASC");
+        assert_eq!(ordering(EntityTable::Workspaces), "\"name\" ASC");
+    }
+
+    #[test]
+    fn one_statement_resolves_the_clock_once() {
+        // A caller's clock reaches every age-relative condition in the statement, and
+        // reaches all of them as the same instant. Resolving per condition would let
+        // `min_age` and `max_age` straddle a tick and render a window that excludes a
+        // row sitting exactly on the boundary.
+        let now = NaiveDateTime::parse_from_str("2026-07-31 12:00:00", "%Y-%m-%d %H:%M:%S")
+            .expect("the instant parses");
+        let sql = RecordFilter::parse(
+            RecordTable::Messages,
+            &pairs(&[("max_age", "PT1H"), ("min_age", "PT1H")]),
+        )
+        .expect("the filter parses")
+        .statement(SqlDialect::SqliteText, Some(now))
+        .to_string(SqliteQueryBuilder);
+
+        // Both bounds land on the same hour-old instant, so the pair reads as one point
+        // rather than as a window whose ends were measured a tick apart.
+        assert!(
+            sql.contains("\"timestamp\" > '2026-07-31 11:00:00.000000'")
+                && sql.contains("\"timestamp\" <= '2026-07-31 11:00:00.000000'"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn a_composite_key_narrows_a_paged_write_by_row_value() {
+        // Without a page the conditions apply in place, whatever the key looks like.
+        let plain = EntityFilter::parse(EntityTable::Variables, &pairs(&[("name", "x")]))
+            .unwrap()
+            .delete_statement(SqlDialect::SqliteText, None)
+            .to_string(SqliteQueryBuilder);
+        assert_eq!(
+            plain, "DELETE FROM \"variables\" WHERE \"name\" = 'x'",
+            "{plain}"
+        );
+
+        // With one, the whole key tuple has to name the page, the way the Python layer
+        // builds `tuple_(*pk).in_(...)` for a composite primary key.
+        let paged = EntityFilter::parse(EntityTable::Variables, &pairs(&[("limit", "2")]))
+            .unwrap()
+            .delete_statement(SqlDialect::SqliteText, None)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            paged.starts_with(
+                "DELETE FROM \"variables\" WHERE (\"address\", \"name\") IN \
+                 (SELECT \"address\", \"name\" FROM \"variables\""
+            ),
+            "{paged}"
+        );
+
+        // A single key column stays a plain membership test.
+        let single = EntityFilter::parse(EntityTable::Users, &pairs(&[("limit", "2")]))
+            .unwrap()
+            .delete_statement(SqlDialect::SqliteText, None)
+            .to_string(SqliteQueryBuilder);
+        assert!(
+            single.starts_with("DELETE FROM \"users\" WHERE \"id\" IN (SELECT \"id\""),
+            "{single}"
+        );
+    }
+
+    #[test]
+    fn an_email_filters_by_its_parts_and_delegates_whole() {
+        // Equality normalizes the value first, because the filter model types the field
+        // as a validated address and so compares a normalized one against the column.
+        let sql = entity_sql(EntityTable::Users, &[("email", "Ada@Example.COM")]);
+        assert!(sql.contains("\"email\" = 'ada@example.com'"), "{sql}");
+        assert!(EntityFilter::supported_keys(EntityTable::Users).contains(&"email"));
+        assert!(EntityFilter::supported_keys(EntityTable::Users).contains(&"email_contains"));
+
+        // An address the normalizer does not understand delegates, rather than comparing
+        // unnormalized and quietly missing the row it names.
+        assert_eq!(
+            EntityFilter::parse(EntityTable::Users, &pairs(&[("email", "a@localhost")])),
+            Err(Refusal::Delegated)
+        );
+
+        // The operations fold case, which on the SQLite family is a pair of `lower`
+        // calls and on PostgreSQL is `ILIKE`, matching what SQLAlchemy renders.
+        let sql = entity_sql(EntityTable::Users, &[("email_prefix", "Ada")]);
+        assert!(
+            sql.contains("lower(\"email\") LIKE lower('Ada%') ESCAPE '^'"),
+            "{sql}"
+        );
+
+        let postgres = EntityFilter::parse(EntityTable::Users, &pairs(&[("email_prefix", "Ada")]))
+            .unwrap()
+            .statement(SqlDialect::Postgres, None)
+            .to_string(sea_query::PostgresQueryBuilder);
+        assert!(
+            postgres.contains("\"email\" ILIKE 'Ada%' ESCAPE '^'"),
+            "{postgres}"
+        );
+
+        // A username does not fold, so it keeps the case-sensitive rendering every
+        // record text field has.
+        let sql = entity_sql(EntityTable::Users, &[("username_prefix", "Ada")]);
+        assert!(sql.contains("\"username\" GLOB 'Ada*'"), "{sql}");
+    }
+
+    #[test]
+    fn the_entity_grammar_is_the_record_one_without_the_record_families() {
+        // A variable's address takes the selector grammar and its root, and its name
+        // takes the text operations.
+        let keys = EntityFilter::supported_keys(EntityTable::Variables);
+        for key in [
+            "address",
+            "root",
+            "name",
+            "name_contains",
+            "value",
+            "internal",
+        ] {
+            assert!(keys.contains(&key), "{key} missing from {keys:?}");
+        }
+
+        // No entity carries a timestamp or a level, so the window, clock, subsample,
+        // and bound operators never reach their surface.
+        for key in ["after", "before_hour", "subsample_every", "min_level"] {
+            assert!(!keys.contains(&key), "{key} present in {keys:?}");
+            assert!(matches!(
+                EntityFilter::parse(EntityTable::Variables, &pairs(&[(key, "1")])),
+                Err(Refusal::Invalid(_))
+            ));
+        }
+
+        // The query keys every table shares are here, subfilter groups included.
+        for key in ["order", "limit", "offset", "or", "and"] {
+            assert!(keys.contains(&key), "{key} missing from {keys:?}");
+        }
+    }
+
+    #[test]
+    fn computed_predicates_match_a_shape_of_a_column() {
+        // An internal variable's name both opens and closes with a double underscore.
+        let sql = entity_sql(EntityTable::Variables, &[("internal", "true")]);
+        assert!(
+            sql.contains("\"name\" GLOB '__*'") && sql.contains("\"name\" GLOB '*__'"),
+            "{sql}"
+        );
+
+        // A workspace is placed on the engine when its scope is the engine's address,
+        // and owned when it names an owner at all.
+        let sql = entity_sql(EntityTable::Workspaces, &[("placed_on_engine", "false")]);
+        assert!(sql.contains("\"scope\" = '~'"), "{sql}");
+        let sql = entity_sql(EntityTable::Workspaces, &[("owned", "true")]);
+        assert!(sql.contains("\"owner_id\" IS NOT NULL"), "{sql}");
+    }
+
+    #[test]
+    fn a_boolean_takes_one_value_and_a_json_value_compares_as_text() {
+        // The Python models type these as scalars, so a list is a validation error
+        // rather than a set membership test.
+        assert!(matches!(
+            EntityFilter::parse(
+                EntityTable::Users,
+                &pairs(&[("admin", "true"), ("admin", "false")])
+            ),
+            Err(Refusal::Invalid(_))
+        ));
+        let sql = entity_sql(EntityTable::Users, &[("admin", "true")]);
+        assert!(sql.contains("\"admin\" = TRUE"), "{sql}");
+
+        // A variable's value compares on the column's text, so a number compares as a
+        // number rather than as its quoted form.
+        let sql = entity_sql(EntityTable::Variables, &[("value", "5")]);
+        assert!(sql.contains("CAST(\"value\" AS TEXT) = '5'"), "{sql}");
+
+        // A null is a value like any other, selecting the rows that hold one.
+        let sql = entity_sql(EntityTable::Variables, &[("value", "null")]);
+        assert!(sql.contains("CAST(\"value\" AS TEXT) = 'null'"), "{sql}");
     }
 
     #[test]
@@ -2096,7 +3103,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("\"timestamp\" IN (SELECT MIN(\"timestamp\") FROM \"particles\""),
@@ -2106,7 +3113,7 @@ mod tests {
         assert!(sql.contains("/ 60000000) AS INTEGER)"), "{sql}");
 
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("GROUP BY date_bin(INTERVAL '60000000 microseconds', \"timestamp\", TIMESTAMPTZ '2026-07-30 00:00:00.000000+00')"),
@@ -2125,7 +3132,7 @@ mod tests {
         )
         .unwrap();
         let sql = counted
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("SELECT MAX(\"timestamp\")"), "{sql}");
         assert!(sql.contains("/ 60000000) AS INTEGER)"), "{sql}");
@@ -2261,7 +3268,7 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert_eq!(
             sql,
@@ -2274,7 +3281,7 @@ mod tests {
     fn single_values_compile_to_equality_and_lists_to_in() {
         let single = RecordFilter::parse(RecordTable::Logs, &pairs(&[("level", "info")])).unwrap();
         let sql = single
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"level\" = 'info'"), "{sql}");
 
@@ -2284,7 +3291,7 @@ mod tests {
         )
         .unwrap();
         let sql = several
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"level\" IN ('info', 'error')"), "{sql}");
     }
@@ -2301,7 +3308,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains(
@@ -2318,7 +3325,7 @@ mod tests {
         )
         .unwrap();
         let sql = open
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("WHERE \"connection\" = 'serial' OR TRUE"),
@@ -2332,7 +3339,7 @@ mod tests {
         )
         .unwrap();
         let sql = both
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("WHERE \"connection\" = 'serial' AND \"direction\" = 'send'"),
@@ -2346,7 +3353,7 @@ mod tests {
         )
         .unwrap();
         let sql = nested
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("WHERE \"connection\" = 'network' AND \"direction\" = 'send'"),
@@ -2367,7 +3374,7 @@ mod tests {
         assert_eq!(filter.limit(), Some(3));
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("ORDER BY \"timestamp\" DESC LIMIT 3 OFFSET 2"),
@@ -2413,7 +3420,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("GLOB '@deck.*'"), "{sql}");
 
@@ -2423,7 +3430,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("\"address\" = '@a' OR (\"address\" GLOB '@b.*')"),
@@ -2440,13 +3447,13 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"type\" GLOB '*temp_high*'"), "{sql}");
         assert!(sql.contains("\"type\" GLOB 'd[[]o]or*'"), "{sql}");
 
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("\"type\" LIKE '%temp^_high%' ESCAPE '^'"),
@@ -2464,7 +3471,7 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("(\"content\" GLOB '*warm*') OR (\"content\" GLOB '*cold*')"),
@@ -2479,7 +3486,7 @@ mod tests {
                 .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("CAST(\"data\" AS TEXT) GLOB '*sensor*'"),
@@ -2496,14 +3503,14 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("instr(\"data\", x'6162') > 0"), "{sql}");
         assert!(sql.contains("substr(\"data\", 1, 1) = x'78'"), "{sql}");
         assert!(sql.contains("substr(\"data\", -2) = x'797A'"), "{sql}");
 
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("ceres_tokenize_bytes(\"data\") LIKE '%61 62 %' ESCAPE '^'"),
@@ -2528,7 +3535,7 @@ mod tests {
         .unwrap();
 
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("\"data\" IN (x'6162', x'6364')"), "{sql}");
     }
@@ -2539,7 +3546,7 @@ mod tests {
         let all_empty =
             RecordFilter::parse(RecordTable::Logs, &pairs(&[("contains", "")])).unwrap();
         let sql = all_empty
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(sql.contains("WHERE TRUE"), "{sql}");
 
@@ -2550,7 +3557,7 @@ mod tests {
         )
         .unwrap();
         let sql = mixed
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains("(\"content\" GLOB '**') OR (\"content\" GLOB '*x*')"),
@@ -2563,7 +3570,7 @@ mod tests {
         let filter =
             RecordFilter::parse(RecordTable::Messages, &pairs(&[("order", "data:desc")])).unwrap();
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(sql.contains("ORDER BY \"data\" DESC"), "{sql}");
     }
@@ -2573,7 +3580,7 @@ mod tests {
         let filter =
             RecordFilter::parse(RecordTable::Particles, &pairs(&[("limit", "5")])).unwrap();
         let sql = filter
-            .count_statement(SqlDialect::SqliteText)
+            .count_statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert_eq!(
             sql,
@@ -2586,14 +3593,14 @@ mod tests {
     fn uuid_columns_never_collate_on_postgres() {
         let by_id = RecordFilter::parse(RecordTable::Logs, &pairs(&[("order", "id")])).unwrap();
         let sql = by_id
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(sql.contains("ORDER BY \"id\" ASC"), "{sql}");
 
         let by_content =
             RecordFilter::parse(RecordTable::Logs, &pairs(&[("order", "content:desc")])).unwrap();
         let sql = by_content
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("ORDER BY \"content\" COLLATE \"C\" DESC"),
@@ -2649,7 +3656,7 @@ mod tests {
         )
         .unwrap();
         let sql = filter
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains(
@@ -2660,7 +3667,7 @@ mod tests {
         );
 
         let sql = filter
-            .statement(SqlDialect::Postgres)
+            .statement(SqlDialect::Postgres, None)
             .to_string(sea_query::PostgresQueryBuilder);
         assert!(
             sql.contains("(date_part('hour', \"timestamp\" AT TIME ZONE 'UTC')) >= 9"),
@@ -2674,7 +3681,7 @@ mod tests {
         )
         .unwrap();
         let sql = wrapped
-            .statement(SqlDialect::SqliteText)
+            .statement(SqlDialect::SqliteText, None)
             .to_string(SqliteQueryBuilder);
         assert!(
             sql.contains(

@@ -13,12 +13,18 @@
 //! the two copies overwrite each other's WAL frames. That is why the Python layer keeps
 //! its own driver for Turso databases and never constructs this backend beside it.
 
-use ceres_entities::{Address, Alert, LogEntry, Message, Particle, Records, Timestamp};
+use ceres_entities::{
+    Address, Alert, Entities, GrantLevel, Group, GroupMembership, GroupPermission, LogEntry,
+    Message, Particle, PermissionTargetType, Records, Setting, Timestamp, User, UserPermission,
+    Variable, Workspace, WorkspaceEdit,
+};
 use chrono::NaiveDateTime;
 use tokio::sync::OnceCell;
 use turso::Value;
 use uuid::Uuid;
 
+use crate::backend::Writing;
+use crate::entities::EntityTable;
 use crate::records::{RecordTable, direction, json_text, level};
 use crate::store::{Error, Parameter};
 
@@ -29,15 +35,29 @@ use crate::store::{Error, Parameter};
 pub(crate) struct TursoBackend {
     path: String,
     mvcc: bool,
+    on_init: Vec<String>,
+    on_connect: Vec<String>,
+    on_close: Vec<String>,
     database: OnceCell<turso::Database>,
+    started: OnceCell<()>,
 }
 
 impl TursoBackend {
-    pub(crate) fn new(path: &str, mvcc: bool) -> Self {
+    pub(crate) fn new(
+        path: &str,
+        mvcc: bool,
+        on_init: Vec<String>,
+        on_connect: Vec<String>,
+        on_close: Vec<String>,
+    ) -> Self {
         Self {
             path: path.to_string(),
             mvcc,
+            on_init,
+            on_connect,
+            on_close,
             database: OnceCell::new(),
+            started: OnceCell::new(),
         }
     }
 
@@ -46,12 +66,11 @@ impl TursoBackend {
         let database = self
             .database
             .get_or_try_init(|| async {
-                // The file's lifecycle belongs to the Python layer, opening a missing
-                // path would create an empty database beside the real one.
-                if !std::path::Path::new(&self.path).exists() {
-                    return Err(Error::Connect(format!("no database file at {}", self.path)));
-                }
-
+                // A missing file is created, because this is what runs a database's
+                // migrations and a database has no file before its first one. Callers that
+                // mean to read an existing database check for it themselves and say so, an
+                // empty database being a worse answer than a refusal for anyone who pointed
+                // at the wrong path.
                 turso::Builder::new_local(&self.path)
                     .build()
                     .await
@@ -63,6 +82,21 @@ impl TursoBackend {
         // `auto_vacuum`, which Turso rejects. A pragma only takes effect once its result
         // rows are read, so they run through the draining helper.
         let connection = database.connect()?;
+
+        // The `init` statements belong to the database rather than to a connection, so
+        // they run on whichever one opens first and on no other. A failure leaves them
+        // un-run, so the next connection tries again rather than the database going
+        // without them.
+        self.started
+            .get_or_try_init(|| async {
+                for statement in &self.on_init {
+                    pragma(&connection, statement).await?;
+                }
+
+                Ok::<(), Error>(())
+            })
+            .await?;
+
         pragma(&connection, "PRAGMA busy_timeout = 30000").await?;
         pragma(&connection, "PRAGMA foreign_keys = ON").await?;
         if self.mvcc {
@@ -83,7 +117,68 @@ impl TursoBackend {
             }
         }
 
+        // The configuration's own statements come last, so one of them can override what
+        // this set, which is the point of being able to configure them.
+        for statement in &self.on_connect {
+            pragma(&connection, statement).await?;
+        }
+
         Ok(connection)
+    }
+
+    /// Run one operation on a connection of its own, from open through close.
+    ///
+    /// A connection here lives for exactly one operation, so this is the release point a
+    /// pooling backend gets from handing a connection back, and where the configuration's
+    /// `close` statements belong. They run whether the operation succeeded or failed, and
+    /// after any transaction it opened has settled, which is what a statement like
+    /// `PRAGMA incremental_vacuum` needs to do anything at all.
+    async fn using<T>(
+        &self,
+        work: impl AsyncFnOnce(&turso::Connection) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let connection = self.connection().await?;
+        let outcome = work(&connection).await;
+
+        // A failing close statement is only worth reporting when the operation itself
+        // succeeded, because the caller is waiting on that error, not this one.
+        let closed = self.close(&connection).await;
+        match outcome {
+            Ok(held) => closed.map(|()| held),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Whether this engine was configured for MVCC journaling.
+    ///
+    /// MVCC is what lets two write transactions overlap. Without it the engine admits one
+    /// writer at a time, the same as SQLite, and `BEGIN CONCURRENT` is refused outright.
+    pub(crate) fn mvcc(&self) -> bool {
+        self.mvcc
+    }
+
+    /// Open a transaction on `connection`, in the form `writing` asks for.
+    ///
+    /// `BEGIN CONCURRENT` is what allows overlapping writers, and the engine accepts it
+    /// only under MVCC journaling, so a concurrent transaction asked of a database
+    /// without it opens plainly rather than failing. It is also refused around schema
+    /// changes, which is why a migration never asks for one.
+    async fn begin(&self, connection: &turso::Connection, writing: Writing) -> Result<(), Error> {
+        let statement = match writing {
+            Writing::Concurrent if self.mvcc => "BEGIN CONCURRENT",
+            Writing::Concurrent | Writing::Default => "BEGIN",
+        };
+        connection.execute(statement, ()).await?;
+        Ok(())
+    }
+
+    /// Run the configuration's `close` statements on a connection being let go.
+    async fn close(&self, connection: &turso::Connection) -> Result<(), Error> {
+        for statement in &self.on_close {
+            pragma(connection, statement).await?;
+        }
+
+        Ok(())
     }
 
     /// Execute a query and decode its rows for the given record table.
@@ -93,11 +188,40 @@ impl TursoBackend {
         sql: &str,
         parameters: Vec<Value>,
     ) -> Result<Records, Error> {
-        let connection = self.connection().await?;
-        let mut rows = connection
-            .query(sql, turso::params_from_iter(parameters))
-            .await?;
-        decode(table, &mut rows).await
+        self.using(async |connection| {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+            decode(table, &mut rows, usize::MAX).await
+        })
+        .await
+    }
+
+    /// Walk a result set, handing over one chunk of records at a time.
+    pub(crate) async fn stream(
+        &self,
+        table: RecordTable,
+        sql: &str,
+        parameters: Vec<Value>,
+        sink: &mut (impl FnMut(Records) -> Result<(), Error> + ?Sized),
+    ) -> Result<(), Error> {
+        self.using(async |connection| {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+
+            // A batch shorter than the chunk means the cursor is spent, and an empty
+            // result still goes over once so a CSV dump writes its header row.
+            loop {
+                let records = decode(table, &mut rows, crate::store::CHUNK).await?;
+                let complete = records.len() == crate::store::CHUNK;
+                sink(records)?;
+                if !complete {
+                    return Ok(());
+                }
+            }
+        })
+        .await
     }
 
     /// Read a gate user row, `None` when no user carries the ID.
@@ -106,23 +230,25 @@ impl TursoBackend {
         sql: &str,
         id: uuid::Uuid,
     ) -> Result<Option<crate::store::GateUser>, Error> {
-        let connection = self.connection().await?;
-        let mut rows = connection
-            .query(sql, turso::params_from_iter([Value::Text(id.to_string())]))
-            .await?;
-        let Some(row) = rows.next().await? else {
-            return Ok(None);
-        };
+        self.using(async |connection| {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter([Value::Text(id.to_string())]))
+                .await?;
+            let Some(row) = rows.next().await? else {
+                return Ok(None);
+            };
 
-        let flag = |value: Value| match value {
-            Value::Integer(value) => Ok(value != 0),
-            other => Err(Error::Decode(format!("{other:?} is not a flag"))),
-        };
-        Ok(Some(crate::store::GateUser {
-            id,
-            admin: flag(row.get_value(0)?)?,
-            disabled: flag(row.get_value(1)?)?,
-        }))
+            let flag = |value: Value| match value {
+                Value::Integer(value) => Ok(value != 0),
+                other => Err(Error::Decode(format!("{other:?} is not a flag"))),
+            };
+            Ok(Some(crate::store::GateUser {
+                id,
+                admin: flag(row.get_value(0)?)?,
+                disabled: flag(row.get_value(1)?)?,
+            }))
+        })
+        .await
     }
 
     /// Execute a single-value count query.
@@ -131,43 +257,286 @@ impl TursoBackend {
         sql: &str,
         parameters: Vec<Value>,
     ) -> Result<u64, Error> {
-        let connection = self.connection().await?;
-        let mut rows = connection
-            .query(sql, turso::params_from_iter(parameters))
-            .await?;
-        let Some(row) = rows.next().await? else {
-            return Ok(0);
-        };
+        self.using(async |connection| {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+            let Some(row) = rows.next().await? else {
+                return Ok(0);
+            };
 
-        match row.get_value(0)? {
-            Value::Integer(count) => Ok(count.max(0) as u64),
-            other => Err(Error::Decode(format!("{other:?} is not a count"))),
-        }
+            match row.get_value(0)? {
+                Value::Integer(count) => Ok(count.max(0) as u64),
+                other => Err(Error::Decode(format!("{other:?} is not a count"))),
+            }
+        })
+        .await
     }
 
-    /// Execute statements in one transaction, rolling back if any of them fails.
-    pub(crate) async fn execute_transaction(
+    /// Execute a query and decode its rows for the given entity table.
+    pub(crate) async fn query_entities(
         &self,
-        statements: Vec<(String, Vec<Value>)>,
+        table: EntityTable,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<Entities, Error> {
+        self.using(async |connection| {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+            decode_entities(table, &mut rows, usize::MAX).await
+        })
+        .await
+    }
+
+    /// Walk an entity result set, handing over one chunk at a time.
+    pub(crate) async fn stream_entities(
+        &self,
+        table: EntityTable,
+        sql: &str,
+        parameters: Vec<Value>,
+        sink: &mut (impl FnMut(Entities) -> Result<(), Error> + ?Sized),
     ) -> Result<(), Error> {
-        let connection = self.connection().await?;
-        connection.execute("BEGIN", ()).await?;
-        for (sql, parameters) in statements {
-            if let Err(error) = connection
-                .execute(&sql, turso::params_from_iter(parameters))
-                .await
-            {
+        self.using(async |connection| {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+
+            loop {
+                let entities = decode_entities(table, &mut rows, crate::store::CHUNK).await?;
+                let complete = entities.len() == crate::store::CHUNK;
+                sink(entities)?;
+                if !complete {
+                    return Ok(());
+                }
+            }
+        })
+        .await
+    }
+
+    /// Execute a statement that returns rows, decoding them by column.
+    pub(crate) async fn query_dynamic(
+        &self,
+        table: Option<crate::dynamic::Table>,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<Vec<crate::dynamic::Row>, Error> {
+        self.using(async |connection| {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+            let names = rows.column_names();
+
+            let mut decoded = Vec::new();
+            while let Some(row) = rows.next().await? {
+                decoded.push(crate::dynamic::turso_row(&row, &names, table)?);
+            }
+
+            Ok(decoded)
+        })
+        .await
+    }
+
+    /// The chunked twin of `query_dynamic`, handing rows over as they are read.
+    pub(crate) async fn stream_dynamic(
+        &self,
+        table: Option<crate::dynamic::Table>,
+        sql: &str,
+        parameters: Vec<Value>,
+        sink: &mut (impl FnMut(Vec<crate::dynamic::Row>) -> Result<(), Error> + ?Sized),
+    ) -> Result<(), Error> {
+        self.using(async |connection| {
+            let mut rows = connection
+                .query(sql, turso::params_from_iter(parameters))
+                .await?;
+            let names = rows.column_names();
+
+            let mut chunk = Vec::with_capacity(crate::store::CHUNK);
+            while let Some(row) = rows.next().await? {
+                chunk.push(crate::dynamic::turso_row(&row, &names, table)?);
+                if chunk.len() >= crate::store::CHUNK {
+                    sink(std::mem::take(&mut chunk))?;
+                    chunk.reserve(crate::store::CHUNK);
+                }
+            }
+
+            // The trailing rows go over even when they do not fill a chunk.
+            if !chunk.is_empty() {
+                sink(chunk)?;
+            }
+
+            Ok(())
+        })
+        .await
+    }
+
+    /// Execute a statement that returns no rows, answering how many it touched.
+    pub(crate) async fn execute_dynamic(
+        &self,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<u64, Error> {
+        self.execute_write(sql, parameters).await
+    }
+
+    /// Run a script of `;`-separated statements in one transaction.
+    ///
+    /// Turso's own `execute_batch` opens a transaction of its own, which would commit
+    /// part way through a migration and leave a failure half applied, so the statements
+    /// run one at a time inside the transaction opened here. The scripts are the
+    /// project's own DDL files, which carry no statement holding a bare semicolon.
+    pub(crate) async fn execute_script(&self, sql: &str) -> Result<(), Error> {
+        self.using(async |connection| {
+            // Plainly, never concurrently. A script is how a migration runs, and the
+            // engine refuses a schema change inside a concurrent transaction.
+            self.begin(connection, Writing::Default).await?;
+            for statement in sql.split(';') {
+                if statement.trim().is_empty() {
+                    continue;
+                }
+
+                if let Err(error) = connection.execute(statement, ()).await {
+                    let _ = connection.execute("ROLLBACK", ()).await;
+                    return Err(error.into());
+                }
+            }
+
+            if let Err(error) = connection.execute("COMMIT", ()).await {
                 let _ = connection.execute("ROLLBACK", ()).await;
                 return Err(error.into());
             }
-        }
+
+            Ok(())
+        })
+        .await
+    }
+
+    /// Execute one write in its own transaction, answering how many rows changed.
+    pub(crate) async fn execute_write(
+        &self,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<u64, Error> {
+        self.using(async |connection| {
+            self.begin(connection, Writing::Default).await?;
+            let affected = match connection
+                .execute(sql, turso::params_from_iter(parameters))
+                .await
+            {
+                Ok(affected) => affected,
+                Err(error) => {
+                    let _ = connection.execute("ROLLBACK", ()).await;
+                    return Err(error.into());
+                }
+            };
+
+            if let Err(error) = connection.execute("COMMIT", ()).await {
+                let _ = connection.execute("ROLLBACK", ()).await;
+                return Err(error.into());
+            }
+
+            Ok(affected)
+        })
+        .await
+    }
+
+    /// Execute one write that hands its rows back, in its own transaction.
+    ///
+    /// `RETURNING` is SQLite's, which this engine implements, so a write says what it
+    /// touched without a second query racing it.
+    pub(crate) async fn query_write(
+        &self,
+        table: RecordTable,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<Records, Error> {
+        self.using(async |connection| {
+            self.begin(connection, Writing::Default).await?;
+            let decoded = async {
+                let mut rows = connection
+                    .query(sql, turso::params_from_iter(parameters))
+                    .await?;
+                decode(table, &mut rows, usize::MAX).await
+            }
+            .await;
+            self.settle(connection, decoded).await
+        })
+        .await
+    }
+
+    /// The entity form of [`Self::query_write`].
+    pub(crate) async fn query_write_entities(
+        &self,
+        table: EntityTable,
+        sql: &str,
+        parameters: Vec<Value>,
+    ) -> Result<Entities, Error> {
+        self.using(async |connection| {
+            self.begin(connection, Writing::Default).await?;
+            let decoded = async {
+                let mut rows = connection
+                    .query(sql, turso::params_from_iter(parameters))
+                    .await?;
+                decode_entities(table, &mut rows, usize::MAX).await
+            }
+            .await;
+            self.settle(connection, decoded).await
+        })
+        .await
+    }
+
+    /// Commit what a write produced, or roll back what it failed at.
+    async fn settle<T>(
+        &self,
+        connection: &turso::Connection,
+        outcome: Result<T, Error>,
+    ) -> Result<T, Error> {
+        let held = match outcome {
+            Ok(held) => held,
+            Err(error) => {
+                let _ = connection.execute("ROLLBACK", ()).await;
+                return Err(error);
+            }
+        };
 
         if let Err(error) = connection.execute("COMMIT", ()).await {
             let _ = connection.execute("ROLLBACK", ()).await;
             return Err(error.into());
         }
 
-        Ok(())
+        Ok(held)
+    }
+
+    /// Execute statements in one transaction, rolling back if any of them fails.
+    ///
+    /// `writing` decides whether the transaction may overlap other writers. A concurrent
+    /// one that touched the same rows as another fails when it commits, so the caller
+    /// asking for it has to be willing to run these statements again.
+    pub(crate) async fn execute_transaction(
+        &self,
+        writing: Writing,
+        statements: Vec<(String, Vec<Value>)>,
+    ) -> Result<(), Error> {
+        self.using(async |connection| {
+            self.begin(connection, writing).await?;
+            for (sql, parameters) in statements {
+                if let Err(error) = connection
+                    .execute(&sql, turso::params_from_iter(parameters))
+                    .await
+                {
+                    let _ = connection.execute("ROLLBACK", ()).await;
+                    return Err(error.into());
+                }
+            }
+
+            if let Err(error) = connection.execute("COMMIT", ()).await {
+                let _ = connection.execute("ROLLBACK", ()).await;
+                return Err(error.into());
+            }
+
+            Ok(())
+        })
+        .await
     }
 }
 
@@ -195,6 +564,7 @@ pub(crate) fn parameter_value(parameter: Parameter) -> Value {
         Parameter::Bytes(value) => Value::Blob(value),
         Parameter::Timestamp(value) => Value::Text(Parameter::timestamp_text(&value)),
         Parameter::Uuid(value) => Value::Text(value.to_string()),
+        Parameter::Json(value) => Value::Text(value.to_string()),
     }
 }
 
@@ -236,8 +606,15 @@ pub(crate) fn sea_value(value: sea_query::Value) -> Result<Value, Error> {
     })
 }
 
-/// Decode a result set into natively-held records.
-async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, Error> {
+/// Decode up to `limit` rows of a result set into natively-held records.
+///
+/// The cursor keeps its place, so calling this again resumes where it stopped, and a
+/// batch shorter than the limit means the result set is exhausted.
+async fn decode(
+    table: RecordTable,
+    rows: &mut turso::Rows,
+    limit: usize,
+) -> Result<Records, Error> {
     let columns = Columns {
         names: rows.column_names(),
     };
@@ -248,7 +625,9 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
             let direction_column = columns.index("direction")?;
             let data = columns.index("data")?;
             let mut records = Vec::new();
-            while let Some(row) = rows.next().await? {
+            while records.len() < limit
+                && let Some(row) = rows.next().await?
+            {
                 records.push(Message {
                     id: id(&row, &columns)?,
                     address: address(&row, &columns)?,
@@ -265,7 +644,9 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
             let kind = columns.index("type")?;
             let data = columns.index("data")?;
             let mut records = Vec::new();
-            while let Some(row) = rows.next().await? {
+            while records.len() < limit
+                && let Some(row) = rows.next().await?
+            {
                 records.push(Particle {
                     id: id(&row, &columns)?,
                     address: address(&row, &columns)?,
@@ -283,7 +664,9 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
             let kind = columns.index("type")?;
             let data = columns.index("data")?;
             let mut records = Vec::new();
-            while let Some(row) = rows.next().await? {
+            while records.len() < limit
+                && let Some(row) = rows.next().await?
+            {
                 records.push(Alert {
                     id: id(&row, &columns)?,
                     address: address(&row, &columns)?,
@@ -300,7 +683,9 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
             let level_column = columns.index("level")?;
             let content = columns.index("content")?;
             let mut records = Vec::new();
-            while let Some(row) = rows.next().await? {
+            while records.len() < limit
+                && let Some(row) = rows.next().await?
+            {
                 records.push(LogEntry {
                     id: id(&row, &columns)?,
                     address: address(&row, &columns)?,
@@ -316,6 +701,199 @@ async fn decode(table: RecordTable, rows: &mut turso::Rows) -> Result<Records, E
 }
 
 /// The column names of a result set, resolving fields to positions.
+/// Decode up to `limit` rows for the given entity table.
+///
+/// The columns are read by name rather than by position, because a `RETURNING *` and a
+/// listing do not have to order them the same way.
+async fn decode_entities(
+    table: EntityTable,
+    rows: &mut turso::Rows,
+    limit: usize,
+) -> Result<Entities, Error> {
+    let columns = Columns {
+        names: rows.column_names(),
+    };
+
+    match table {
+        EntityTable::Users => {
+            let username = columns.index("username")?;
+            let email = columns.index("email")?;
+            let password = columns.index("password")?;
+            let admin = columns.index("admin")?;
+            let disabled = columns.index("disabled")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(User {
+                    id: id(&row, &columns)?,
+                    username: text(&row, username)?,
+                    email: text(&row, email)?,
+                    password: text(&row, password)?,
+                    admin: boolean(&row, admin)?,
+                    disabled: boolean(&row, disabled)?,
+                });
+            }
+
+            Ok(Entities::Users(entities))
+        }
+        EntityTable::Variables => {
+            let name = columns.index("name")?;
+            let value = columns.index("value")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(Variable {
+                    address: address(&row, &columns)?,
+                    name: text(&row, name)?,
+                    value: json(&row, value)?,
+                });
+            }
+
+            Ok(Entities::Variables(entities))
+        }
+        EntityTable::Settings => {
+            let user = columns.index("user_id")?;
+            let name = columns.index("name")?;
+            let value = columns.index("value")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(Setting {
+                    user_id: uuid(&row, user)?,
+                    name: text(&row, name)?,
+                    value: json(&row, value)?,
+                });
+            }
+
+            Ok(Entities::Settings(entities))
+        }
+        EntityTable::Workspaces => {
+            let name = columns.index("name")?;
+            let scope = columns.index("scope")?;
+            let owner = columns.index("owner_id")?;
+            let shown = columns.index("show_when_logged_out")?;
+            let data = columns.index("data")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                let held = json(&row, data)?;
+                let serde_json::Value::Object(held) = held else {
+                    return Err(Error::Decode(
+                        "a workspace's data is not an object".to_string(),
+                    ));
+                };
+                entities.push(Workspace {
+                    id: id(&row, &columns)?,
+                    name: text(&row, name)?,
+                    // Addresses were validated when written, so the value is trusted on
+                    // the way out the way a record's address is.
+                    scope: Address::trusted(text(&row, scope)?),
+                    owner_id: optional_text(&row, owner)?
+                        .map(|held| {
+                            held.parse()
+                                .map_err(|_| Error::Decode(format!("{held:?} is not a UUID")))
+                        })
+                        .transpose()?,
+                    show_when_logged_out: boolean(&row, shown)?,
+                    data: held,
+                });
+            }
+
+            Ok(Entities::Workspaces(entities))
+        }
+        EntityTable::WorkspaceEdits => {
+            let user = columns.index("user_id")?;
+            let workspace = columns.index("workspace_id")?;
+            let data = columns.index("data")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(WorkspaceEdit {
+                    user_id: uuid(&row, user)?,
+                    workspace_id: uuid(&row, workspace)?,
+                    data: object(&row, data, "a workspace edit's data")?,
+                });
+            }
+
+            Ok(Entities::WorkspaceEdits(entities))
+        }
+        EntityTable::Groups => {
+            let name = columns.index("name")?;
+            let description = columns.index("description")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(Group {
+                    id: id(&row, &columns)?,
+                    name: text(&row, name)?,
+                    description: text(&row, description)?,
+                });
+            }
+
+            Ok(Entities::Groups(entities))
+        }
+        EntityTable::GroupMemberships => {
+            let user = columns.index("user_id")?;
+            let group = columns.index("group_id")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(GroupMembership {
+                    user_id: uuid(&row, user)?,
+                    group_id: uuid(&row, group)?,
+                });
+            }
+
+            Ok(Entities::GroupMemberships(entities))
+        }
+        EntityTable::UserPermissions => {
+            let user = columns.index("user_id")?;
+            let kind = columns.index("target_type")?;
+            let target = columns.index("target")?;
+            let level = columns.index("level")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(UserPermission {
+                    user_id: uuid(&row, user)?,
+                    target_type: target_type(&row, kind)?,
+                    target: text(&row, target)?,
+                    level: access_level(&row, level)?,
+                });
+            }
+
+            Ok(Entities::UserPermissions(entities))
+        }
+        EntityTable::GroupPermissions => {
+            let group = columns.index("group_id")?;
+            let kind = columns.index("target_type")?;
+            let target = columns.index("target")?;
+            let level = columns.index("level")?;
+            let mut entities = Vec::new();
+            while entities.len() < limit
+                && let Some(row) = rows.next().await?
+            {
+                entities.push(GroupPermission {
+                    group_id: uuid(&row, group)?,
+                    target_type: target_type(&row, kind)?,
+                    target: text(&row, target)?,
+                    level: access_level(&row, level)?,
+                });
+            }
+
+            Ok(Entities::GroupPermissions(entities))
+        }
+    }
+}
+
 struct Columns {
     names: Vec<String>,
 }
@@ -361,6 +939,62 @@ fn optional_text(row: &turso::Row, index: usize) -> Result<Option<String>, Error
         Value::Text(text) => Ok(Some(text)),
         other => Err(Error::Decode(format!("expected text, found {other:?}"))),
     }
+}
+
+fn uuid(row: &turso::Row, index: usize) -> Result<Uuid, Error> {
+    let held = text(row, index)?;
+    held.parse()
+        .map_err(|_| Error::Decode(format!("{held:?} is not a UUID")))
+}
+
+/// Decode a boolean column, which SQLite stores as an integer.
+fn boolean(row: &turso::Row, index: usize) -> Result<bool, Error> {
+    match row.get_value(index)? {
+        Value::Integer(held) => Ok(held != 0),
+        other => Err(Error::Decode(format!(
+            "expected a boolean, found {other:?}"
+        ))),
+    }
+}
+
+/// Decode a JSON column, stored as its text the way the query layer writes it.
+fn json(row: &turso::Row, index: usize) -> Result<serde_json::Value, Error> {
+    match row.get_value(index)? {
+        Value::Null => Ok(serde_json::Value::Null),
+        Value::Text(held) => serde_json::from_str(&held)
+            .map_err(|error| Error::Decode(format!("{held:?} is not JSON. {error}"))),
+        Value::Integer(held) => Ok(held.into()),
+        Value::Real(held) => Ok(serde_json::Number::from_f64(held)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null)),
+        other => Err(Error::Decode(format!("expected JSON, found {other:?}"))),
+    }
+}
+
+/// Decode a JSON object column, naming what was expected when the value is not one.
+fn object(
+    row: &turso::Row,
+    index: usize,
+    what: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
+    match json(row, index)? {
+        serde_json::Value::Object(held) => Ok(held),
+        _ => Err(Error::Decode(format!("{what} is not an object"))),
+    }
+}
+
+/// Decode a permission's target type from the text the column stores.
+fn target_type(row: &turso::Row, index: usize) -> Result<PermissionTargetType, Error> {
+    let held = text(row, index)?;
+    PermissionTargetType::parse(&held)
+        .ok_or_else(|| Error::Decode(format!("{held:?} is not a permission target type")))
+}
+
+/// Decode a permission's access level from the text the column stores.
+fn access_level(row: &turso::Row, index: usize) -> Result<GrantLevel, Error> {
+    let held = text(row, index)?;
+    GrantLevel::parse(&held)
+        .ok_or_else(|| Error::Decode(format!("{held:?} is not an access level")))
 }
 
 fn blob(row: &turso::Row, index: usize) -> Result<Vec<u8>, Error> {
@@ -428,7 +1062,7 @@ mod tests {
             data: vec![0, 65, 255],
         };
 
-        let writer = RecordWriter::turso(path, mvcc);
+        let writer = RecordWriter::turso(path, mvcc, Vec::new(), Vec::new());
         writer
             .upsert(vec![
                 Records::Particles(vec![first.clone(), second.clone()]),
@@ -437,7 +1071,7 @@ mod tests {
             .await
             .unwrap();
 
-        let store = RecordStore::turso(path, mvcc);
+        let store = RecordStore::turso(path, mvcc, Vec::new(), Vec::new(), Vec::new());
         let records = store
             .fetch(RecordTable::Particles, None, None)
             .await
@@ -502,12 +1136,280 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_files_refuse_to_open() {
-        let store = RecordStore::turso("/nonexistent/records.turso", false);
-        let error = store
-            .fetch(RecordTable::Logs, None, None)
+    async fn a_missing_file_is_created_but_a_missing_directory_is_not() {
+        // A database has no file before its first migration, so opening one creates it.
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("fresh.turso");
+        let store = RecordStore::turso(
+            path.to_str().expect("the path is text"),
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        // Nothing has created the schema, so the table is missing rather than the file.
+        assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
+        assert!(path.exists(), "opening the database created its file");
+
+        // A path whose directory does not exist is still someone pointing at nothing.
+        let store = RecordStore::turso(
+            "/nonexistent/records.turso",
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
+    }
+
+    /// A `close` statement runs at the end of every operation, whatever kind it was.
+    ///
+    /// The connection here lives for one operation, so its close is the operation's end,
+    /// and a statement that counts its own runs shows how many operations reached it.
+    #[tokio::test]
+    async fn a_close_statement_runs_at_the_end_of_every_operation() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("closed.turso");
+        let path = path.to_str().expect("the path is text");
+
+        // The counter is a table rather than a pragma, a pragma's effect not being
+        // something a later query can read back.
+        let store = RecordStore::turso(path, false, Vec::new(), Vec::new(), Vec::new());
+        store
+            .execute_script("CREATE TABLE closes (id INTEGER PRIMARY KEY AUTOINCREMENT)")
             .await
-            .unwrap_err();
-        assert!(matches!(error, Error::Connect(_)));
+            .expect("the counter table is created");
+
+        let counted = RecordStore::turso(
+            path,
+            false,
+            Vec::new(),
+            Vec::new(),
+            vec!["INSERT INTO closes DEFAULT VALUES".to_string()],
+        );
+        // A read and a write, because a write settles a transaction before its close.
+        counted
+            .execute_dynamic("CREATE TABLE probe (id INTEGER PRIMARY KEY)", Vec::new())
+            .await
+            .expect("the write runs");
+        counted
+            .fetch_dynamic(None, "SELECT * FROM probe", Vec::new())
+            .await
+            .expect("the read runs");
+
+        let rows = store
+            .fetch_dynamic(None, "SELECT COUNT(*) AS total FROM closes", Vec::new())
+            .await
+            .expect("the count is read");
+        assert_eq!(
+            rows.first()
+                .and_then(|row| row.first())
+                .map(|(_, cell)| cell),
+            Some(&crate::dynamic::Cell::Integer(2)),
+            "both operations ran the close statement"
+        );
+    }
+
+    /// Only MVCC journaling reports that writers can overlap.
+    ///
+    /// This is what a caller reads to know whether a concurrent transaction can lose a
+    /// race at commit, so it has to follow the setting rather than the request.
+    #[test]
+    fn overlapping_writers_are_reported_only_under_mvcc() {
+        use crate::backend::DatabaseBackend;
+
+        let backend = |mvcc| TursoBackend::new("unused.turso", mvcc, vec![], vec![], vec![]);
+        assert!(!backend(false).overlaps_writers());
+        assert!(backend(true).overlaps_writers());
+    }
+
+    /// Two write transactions overlap on an MVCC database and both commit.
+    ///
+    /// This is the reason the backend exists. Each writer holds an open transaction while
+    /// the other writes, which under a single-writer engine would block or fail, and both
+    /// rows are there afterwards. `mvcc = false` is not asserted against, because the two
+    /// would simply serialize and still both land, which proves nothing either way.
+    #[tokio::test]
+    async fn concurrent_transactions_overlap_under_mvcc() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("concurrent.turso");
+        let path = path.to_str().expect("the path is text");
+
+        let store = RecordStore::turso(path, true, Vec::new(), Vec::new(), Vec::new());
+        store
+            .execute_script("CREATE TABLE probe (k TEXT PRIMARY KEY)")
+            .await
+            .expect("the table is created");
+        assert!(store.overlaps_writers(), "MVCC allows overlapping writers");
+
+        let backend = TursoBackend::new(path, true, vec![], vec![], vec![]);
+        let first = backend.connection().await.expect("the first connects");
+        let second = backend.connection().await.expect("the second connects");
+
+        // Both transactions are open at once, which is what a single writer forbids.
+        backend
+            .begin(&first, Writing::Concurrent)
+            .await
+            .expect("the first transaction opens");
+        backend
+            .begin(&second, Writing::Concurrent)
+            .await
+            .expect("the second transaction opens");
+
+        first
+            .execute("INSERT INTO probe VALUES ('a')", ())
+            .await
+            .expect("the first writes");
+        second
+            .execute("INSERT INTO probe VALUES ('b')", ())
+            .await
+            .expect("the second writes while the first is still open");
+
+        first
+            .execute("COMMIT", ())
+            .await
+            .expect("the first commits");
+        second
+            .execute("COMMIT", ())
+            .await
+            .expect("the second commits");
+
+        let rows = store
+            .fetch_dynamic(None, "SELECT COUNT(*) AS total FROM probe", Vec::new())
+            .await
+            .expect("the count is read");
+        assert_eq!(
+            rows.first()
+                .and_then(|row| row.first())
+                .map(|(_, cell)| cell),
+            Some(&crate::dynamic::Cell::Integer(2)),
+            "both overlapping transactions landed"
+        );
+    }
+
+    /// A plain transaction and a concurrent one still overlap under MVCC.
+    ///
+    /// This is the pair production actually runs. Only the record flush asks to be
+    /// concurrent, so every store write and every migration it overlaps with is opening
+    /// plainly, and a plain transaction that blocked a concurrent one would leave the
+    /// setting buying nothing where it matters.
+    #[tokio::test]
+    async fn a_plain_transaction_and_a_concurrent_one_overlap_under_mvcc() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("mixed.turso");
+        let path = path.to_str().expect("the path is text");
+
+        let store = RecordStore::turso(path, true, Vec::new(), Vec::new(), Vec::new());
+        store
+            .execute_script("CREATE TABLE probe (k TEXT PRIMARY KEY)")
+            .await
+            .expect("the table is created");
+
+        let backend = TursoBackend::new(path, true, vec![], vec![], vec![]);
+        let plain = backend.connection().await.expect("the plain one connects");
+        let concurrent = backend
+            .connection()
+            .await
+            .expect("the concurrent one connects");
+
+        backend
+            .begin(&plain, Writing::Default)
+            .await
+            .expect("the plain transaction opens");
+        plain
+            .execute("INSERT INTO probe VALUES ('plain')", ())
+            .await
+            .expect("the plain one writes");
+
+        backend
+            .begin(&concurrent, Writing::Concurrent)
+            .await
+            .expect("the concurrent transaction opens beside it");
+        concurrent
+            .execute("INSERT INTO probe VALUES ('concurrent')", ())
+            .await
+            .expect("the concurrent one writes while the plain one is still open");
+
+        plain
+            .execute("COMMIT", ())
+            .await
+            .expect("the plain commits");
+        concurrent
+            .execute("COMMIT", ())
+            .await
+            .expect("the concurrent commits");
+    }
+
+    /// Two concurrent transactions touching the same row settle at commit, not at write.
+    ///
+    /// This is the cost of asking to overlap, and the failure mode the record flush now
+    /// has to survive. What matters to the layer above is that the loser fails at all and
+    /// says something recognizable, because a flush that fails is requeued and written
+    /// again rather than lost.
+    #[tokio::test]
+    async fn a_concurrent_transaction_that_loses_a_race_fails() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("conflict.turso");
+        let path = path.to_str().expect("the path is text");
+
+        let store = RecordStore::turso(path, true, Vec::new(), Vec::new(), Vec::new());
+        store
+            .execute_script("CREATE TABLE probe (k TEXT PRIMARY KEY, v TEXT)")
+            .await
+            .expect("the table is created");
+
+        let backend = TursoBackend::new(path, true, vec![], vec![], vec![]);
+        let first = backend.connection().await.expect("the first connects");
+        let second = backend.connection().await.expect("the second connects");
+
+        backend
+            .begin(&first, Writing::Concurrent)
+            .await
+            .expect("the first transaction opens");
+        backend
+            .begin(&second, Writing::Concurrent)
+            .await
+            .expect("the second transaction opens");
+
+        // Both write the same key, which is the collision a concurrent transaction
+        // defers rather than blocks on.
+        first
+            .execute("INSERT INTO probe VALUES ('same', 'first')", ())
+            .await
+            .expect("the first writes");
+        let wrote = second
+            .execute("INSERT INTO probe VALUES ('same', 'second')", ())
+            .await;
+
+        first
+            .execute("COMMIT", ())
+            .await
+            .expect("the first commits");
+        let committed = second.execute("COMMIT", ()).await;
+
+        let refusal = match (&wrote, &committed) {
+            (Err(error), _) => error.to_string(),
+            (_, Err(error)) => error.to_string(),
+            _ => panic!("one of the two colliding writers has to lose"),
+        };
+
+        // The wording is what the Python layer's error translation reads, so it is pinned
+        // here rather than left to whatever the engine calls it next release. This one
+        // matches neither of that layer's constraint patterns, so it crosses as a plain
+        // value error, which is one of the failures a record flush requeues on. A release
+        // that reworded this would still requeue, but `test_a_write_conflict_requeues`
+        // in `tests/test_turso.py` is what says so from the other side.
+        assert!(
+            refusal.contains("Write-write conflict"),
+            "the refusal names why it lost, got {refusal:?}"
+        );
+
+        // Whatever the engine calls it, the loser's rows are still the caller's to write
+        // again, and the row that did land is the winner's.
+        let rows = store
+            .fetch_dynamic(None, "SELECT v FROM probe WHERE k = 'same'", Vec::new())
+            .await
+            .expect("the row is read");
+        assert_eq!(rows.len(), 1, "exactly one of the two writes landed");
     }
 }

@@ -11,9 +11,9 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from ceres_core import NativeServer
 
 from ceres import Engine
+from ceres.__internal__.core import NativeServer
 from ceres.config import Config
 from ceres.data import to_json, validate
 from ceres.user import User

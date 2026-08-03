@@ -1,496 +1,402 @@
 //! Native record dumps.
 //!
-//! An uncolored JSON or CSV `select` or `count` over a record table runs entirely
-//! natively, the filter parses into the native subset, the database opens read-only
-//! through the native store, and the output renders in one pass, projected or not, so
-//! the interpreter never starts.
-//!
-//! The command carries no filter flag surface of its own. Every `--key value` token
-//! pair lexes into the same wire pairs the server parses, and the native filter subset,
-//! which the entities' `Filterable` derives generate, is the single authority on what
-//! is admitted. Anything else, an unknown key, a construct outside the subset, an
-//! unknown format, colorized terminal output, or a database the native store cannot
-//! join, delegates to the Python runtime, which either serves it or produces the
-//! canonical error. Failures follow the same rule, the native attempt renders its whole
-//! output before writing anything, and any error along the way delegates rather than
-//! surfacing a message of its own.
+//! A record command runs entirely natively when the shared rules in [`dump`] admit it,
+//! the filter parses into the native subset, the database opens through the native store,
+//! and the output renders in one pass, projected or not, so the interpreter never starts.
+//! This module holds only what a record means, its filter, its rows, and its renderers.
 
-use std::ffi::OsString;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use ceres_config::DatabaseConfig;
-use ceres_database::{RecordFilter, RecordStore, RecordTable};
+use ceres_database::{RecordFilter, RecordTable};
+use ceres_entities::Records;
+use clap::ArgMatches;
 
+use crate::commands::dump::{
+    DumpFormat, Invocation, Rendered, Sink, Verb, deliver, drawn, finish, open_store, written,
+};
+use crate::commands::surface::Table;
 use crate::error::Result;
 use crate::project::Project;
 
-/// What a record invocation asked for, lexed without a declared flag surface.
-#[derive(Debug, Default, PartialEq)]
-struct Invocation {
-    counting: bool,
-    /// The filter's wire pairs, every flag that is not an output control.
-    pairs: Vec<(String, String)>,
-    output: Option<PathBuf>,
-    data_format: Option<String>,
-    config: Option<PathBuf>,
-    /// The explicit color choice, `--color` or `--no-color`.
+/// Run one record command.
+pub fn run(
+    table: RecordTable,
+    config: Option<&Path>,
     color: Option<bool>,
-    /// The explicit header choice, `--header` or `--no-header`.
-    header: Option<bool>,
-    /// Positional field specs, `field` or `field:alias`, in argument order.
-    positional_fields: Vec<String>,
-    /// The `--field` spec, a repeated flag keeping only its last value.
-    flag_field: Option<String>,
-}
+    verb: Verb,
+    matches: &ArgMatches,
+) -> Result<()> {
+    let invocation = Invocation::read(Table::Record(table), verb, matches);
 
-impl Invocation {
-    /// Lex raw arguments, `None` for anything the native path cannot represent.
-    fn lex(raw: &[OsString]) -> Option<Self> {
-        let mut tokens = raw.iter().map(|token| token.to_str());
-        let mut invocation = Self {
-            counting: match tokens.next()?? {
-                "select" => false,
-                "count" => true,
-                _ => return None,
-            },
-            ..Self::default()
-        };
+    // The shape is what was asked for and the color follows the flags, which are two
+    // questions rather than one. Turning color off changes nothing about the shape.
+    let format = invocation.dump_format();
+    let colored = invocation.colored(color);
 
-        let mut tokens = tokens.peekable();
-        while let Some(token) = tokens.next() {
-            let token = token?;
-            let Some(flag) = token.strip_prefix("--") else {
-                // A bare token is one positional field spec. The Python parser splits
-                // positional lists on commas and reads bracketed values as JSON, so
-                // only a plain spec lexes and anything fancier delegates.
-                if token.contains(',') || token.starts_with('[') {
-                    return None;
-                }
-
-                invocation.positional_fields.push(token.to_string());
-                continue;
-            };
-
-            // `--flag=value` and `--flag value` both lex, a flag at the end or before
-            // another flag carries no value and delegates.
-            let (flag, mut value) = match flag.split_once('=') {
-                Some((flag, value)) => (flag, Some(value.to_string())),
-                None => (flag, None),
-            };
-
-            match flag {
-                "color" => invocation.color = Some(true),
-                "no-color" => invocation.color = Some(false),
-                "header" => invocation.header = Some(true),
-                "no-header" => invocation.header = Some(false),
-                _ => {
-                    if value.is_none() {
-                        let next = tokens.peek()?.as_ref()?;
-                        if next.starts_with("--") {
-                            return None;
-                        }
-
-                        value = Some((*next).to_string());
-                        tokens.next();
-                    }
-
-                    let value = value?;
-                    match flag {
-                        "output" => invocation.output = Some(PathBuf::from(value)),
-                        "data-format" => invocation.data_format = Some(value),
-                        "config" => invocation.config = Some(PathBuf::from(value)),
-                        "field" => invocation.flag_field = Some(value),
-                        key => invocation.pairs.push((key.replace('-', "_"), value)),
-                    }
-                }
-            }
-        }
-
-        Some(invocation)
+    // A follow reads a running engine rather than the database, so it opens no store and
+    // takes its own path from here.
+    if invocation.verb.streams() {
+        return crate::commands::follow::run(table, &invocation, format, colored, config);
     }
 
-    /// The merged field projection as ordered `(field, alias)` pairs, empty when
-    /// every field is output.
-    ///
-    /// Positional specs come first in argument order, then the `--field` spec, each
-    /// splitting on its first colon and a repeated field name replacing the alias in
-    /// place, which is how the Python command's dict merge behaves.
-    fn projection(&self) -> Vec<(String, String)> {
-        let mut projection: Vec<(String, String)> = Vec::new();
-        let specs = self
-            .positional_fields
-            .iter()
-            .chain(self.flag_field.as_ref());
-        for spec in specs {
-            let (field, alias) = match spec.split_once(':') {
-                Some((field, alias)) => (field.to_string(), alias.to_string()),
-                None => (spec.clone(), spec.clone()),
-            };
-
-            match projection.iter_mut().find(|(name, _)| *name == field) {
-                Some((_, existing)) => *existing = alias,
-                None => projection.push((field, alias)),
-            }
-        }
-
-        projection
-    }
-
-    /// The format a native one-pass dump can render, `None` when the invocation must
-    /// delegate, for an unknown format or colorized output. Mirrors the Python
-    /// command's color resolution.
-    fn dump_format(&self) -> Option<DumpFormat> {
-        // A count carries no output surface at all, no fields, no output file, no
-        // format, and no header choice, so any of them on one is an argument error
-        // the Python command owns.
-        if self.counting
-            && (!self.positional_fields.is_empty()
-                || self.flag_field.is_some()
-                || self.output.is_some()
-                || self.data_format.is_some()
-                || self.header.is_some())
-        {
-            return None;
-        }
-
-        let format = match self.data_format.as_deref() {
-            Some("json") => DumpFormat::Json,
-            Some("csv") => DumpFormat::Csv,
-            Some(_) => return None,
-            None => match &self.output {
-                Some(output) if output.extension().is_some_and(|suffix| suffix == "csv") => {
-                    DumpFormat::Csv
-                }
-                _ => DumpFormat::Json,
-            },
+    // A filtered verb parses its wire pairs, while `create` reads them as the new
+    // record's field values and `load` opens a file it will walk as it writes.
+    let mut filter = None;
+    let mut incoming = Vec::new();
+    let mut source = None;
+    if invocation.verb.filters() {
+        let parsed = RecordFilter::parse(table, &invocation.pairs).map_err(refused)?;
+        filter = Some(parsed);
+    } else if invocation.verb == Verb::Create {
+        let Some(built) = ceres_database::build(table, &invocation.pairs) else {
+            return Err(crate::error::Exit::failed(
+                "This create names a value that cannot be stored as given. Check the \
+                 types each field takes with --help.",
+            ));
         };
 
-        let plain = match self.color {
-            Some(true) => false,
-            Some(false) => true,
-            None => {
-                if std::env::var_os("FORCE_COLOR").is_some() {
-                    return None;
-                }
-
-                std::env::var_os("NO_COLOR").is_some()
-                    || self.output.is_some()
-                    || !std::io::IsTerminal::is_terminal(&std::io::stdout())
-            }
+        incoming.push(built);
+    } else {
+        // A file that will not open is this command's failure to report, not a reason
+        // to hand the whole load to another process.
+        let (file, load_format) = invocation
+            .load_source()
+            .map_err(crate::error::Exit::failed)?;
+        let Some(batches) = ceres_database::batches(table, file, load_format) else {
+            return Err(crate::error::Exit::failed(
+                "The file's first row does not name the columns to load.",
+            ));
         };
-        plain.then_some(format)
+
+        source = Some(batches);
     }
-}
 
-/// The dump formats a native pass renders.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum DumpFormat {
-    Json,
-    Csv,
-}
-
-/// Attempt one record command natively, `false` meaning the caller delegates.
-pub fn try_run(table: RecordTable, config: Option<&Path>, raw: &[OsString]) -> Result<bool> {
-    let Some(invocation) = Invocation::lex(raw) else {
-        return Ok(false);
-    };
-    let Some(format) = invocation.dump_format() else {
-        return Ok(false);
-    };
-
-    let Ok(filter) = RecordFilter::parse(table, &invocation.pairs) else {
-        return Ok(false);
-    };
-
-    let config = invocation.config.as_deref().or(config);
-    let Ok(project) = Project::discover(config) else {
-        return Ok(false);
-    };
-    let Ok(meta) = project.load_meta() else {
-        return Ok(false);
-    };
+    let project = Project::discover(config)?;
+    let meta = project.load_meta()?;
     // Pool construction spawns maintenance tasks, so the runtime has to exist first.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("the runtime always builds");
     let guard = runtime.enter();
-    let Some(store) = open_store(&meta.database) else {
-        return Ok(false);
-    };
+    // A database this cannot open is reported here, naming the configuration that made
+    // it so, rather than being handed to another process to explain.
+    let store = open_store(
+        &meta.database,
+        project.directory(),
+        invocation.verb.writes(),
+    )
+    .map_err(crate::error::Exit::failed)?;
 
     drop(guard);
 
     // The whole result renders before anything writes, so a failure here can still
     // delegate without having produced partial output.
-    let projection = invocation.projection();
-    let header = invocation.header.unwrap_or(true);
+    let projection = invocation.projection.clone();
+    let header = invocation.header;
     let rendered = runtime.block_on(async {
-        if invocation.counting {
-            store
-                .count_filter(&filter)
+        let filter = || {
+            filter
+                .as_ref()
+                .expect("a filtered verb parsed its filter above")
+        };
+
+        // A filtered write says how much it is about to change and waits for an answer.
+        // The count costs a round trip, which is why it is only taken when someone is
+        // actually going to be asked.
+        if invocation.verb.confirms() && invocation.confirm {
+            let affected = store.count_filter(filter()).await?;
+            match crate::commands::dump::confirmed(invocation.verb, affected, table.name()) {
+                Ok(true) => {}
+                Ok(false) => return Ok(Rendered::Declined),
+                Err(message) => return Ok(Rendered::Failed(message)),
+            }
+        }
+
+        match invocation.verb {
+            Verb::Count => store
+                .count_filter(filter())
                 .await
-                .map(|count| format!("{count}\n").into_bytes())
-        } else {
-            let records = store.fetch_filter(&filter).await?;
-            let rendered = match (format, projection.is_empty()) {
-                (DumpFormat::Json, true) => records.to_json_lines(),
-                (DumpFormat::Json, false) => records.to_json_lines_projected(&projection),
-                (DumpFormat::Csv, true) => Ok(records.to_csv_lines(header).into_bytes()),
-                (DumpFormat::Csv, false) => records
-                    .to_csv_lines_projected(&projection, header)
-                    .map(String::into_bytes),
-            };
-            rendered.map_err(|error| ceres_database::Error::Decode(error.to_string()))
+                .map(|count| Rendered::Text(format!("{count}\n"))),
+            Verb::Any => store.any_filter(filter()).await.map(Rendered::Exists),
+            // A filtered write reports how many rows it touched, or the rows
+            // themselves when `--collect` asked for them.
+            Verb::Delete if invocation.collect => {
+                let touched = store.delete_filter_returning(filter()).await?;
+                render(&touched, format, &projection, header, colored)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
+            }
+            Verb::Delete => store
+                .delete_filter(filter())
+                .await
+                .map(|affected| Rendered::Text(format!("{affected}\n"))),
+            Verb::Update => {
+                let assign = invocation
+                    .assign
+                    .as_deref()
+                    .expect("an update carries its assignments");
+                if invocation.collect {
+                    let touched = store.update_filter_returning(filter(), assign).await?;
+                    render(&touched, format, &projection, header, colored)
+                        .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
+                } else {
+                    store
+                        .update_filter(filter(), assign)
+                        .await
+                        .map(|affected| Rendered::Text(format!("{affected}\n")))
+                }
+            }
+            // A load reports how many rows it wrote, which the reader counts as it
+            // walks the file, whatever the conflict mode then did with them.
+            Verb::Load => {
+                let conflict = invocation
+                    .conflict()
+                    .expect("a load resolved its conflict mode above");
+                let batches = source.take().expect("a load opened its file above");
+                store
+                    .load_records(batches, conflict)
+                    .await
+                    .map(|written| Rendered::Text(format!("{written}\n")))
+            }
+            // A follow took its own path before the store opened.
+            Verb::Follow => unreachable!("a follow never reaches the store"),
+            Verb::Create => {
+                store
+                    .load_records(
+                        incoming.iter().cloned().map(Ok),
+                        ceres_database::Conflict::Error,
+                    )
+                    .await?;
+                render(&incoming[0], format, &projection, header, colored)
+                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
+            }
+            // A select streams, rendering and writing each chunk as the driver yields
+            // it, so the dump never holds more than one chunk however large the table.
+            Verb::Select => {
+                // A table holds every chunk, because a column is only as wide as its
+                // widest cell. Every other shape streams, so a dump of any size holds
+                // one chunk however large the table.
+                let mut sink = if format == DumpFormat::Table {
+                    Sink::collecting()
+                } else {
+                    Sink::new(invocation.output.as_deref(), header)
+                };
+                let outcome = store
+                    .stream_filter(filter(), &mut |records| {
+                        let heading = sink.heading();
+                        let rendered = render(&records, format, &projection, heading, colored)?;
+                        sink.push(rendered).map_err(written)
+                    })
+                    .await;
+
+                finish(sink, outcome).map(|rendered| drawn(rendered, format, colored))
+            }
         }
     });
-    let Ok(rendered) = rendered else {
-        return Ok(false);
+    let rendered = match rendered {
+        Ok(rendered) => rendered,
+        // A refusal names what the command asked for that the writer will not do, and
+        // nothing was written, so this is its own failure to report.
+        Err(ceres_database::Error::Refused(message)) => {
+            return Err(crate::error::Exit::failed(message));
+        }
+        Err(error) => return Err(crate::error::Exit::failed(error.to_string())),
     };
 
-    write_output(invocation.output.as_deref(), &rendered)
+    deliver(&invocation, rendered, colored)
 }
 
-/// Open the native store for a configured database, `None` when it cannot join.
+/// Render one chunk of records in the shape the invocation asked for.
+fn render(
+    records: &Records,
+    format: DumpFormat,
+    projection: &[(String, String)],
+    header: bool,
+    colored: bool,
+) -> std::result::Result<Vec<u8>, ceres_database::Error> {
+    let rendered = match (format, projection.is_empty()) {
+        // A table is drawn once the whole result is in hand, so each chunk
+        // renders as JSON lines here and the drawing happens at the end.
+        (DumpFormat::Table, true) => records.to_json_lines(),
+        (DumpFormat::Table, false) => records.to_json_lines_projected(projection),
+        (DumpFormat::Json, true) => records.to_json_lines(),
+        (DumpFormat::Json, false) => records.to_json_lines_projected(projection),
+        (DumpFormat::Csv, true) => Ok(records.to_csv_lines(header).into_bytes()),
+        (DumpFormat::Csv, false) => records
+            .to_csv_lines_projected(projection, header)
+            .map(String::into_bytes),
+    };
+    rendered
+        .map(|bytes| crate::commands::dump::painted(bytes, format, colored))
+        .map_err(|error| ceres_database::Error::Decode(error.to_string()))
+}
+
+/// What to say about a filter the compiler will not take.
 ///
-/// The rules mirror the Python layer's own native-pool gating, an in-memory or
-/// unpathed file database is private to its instance, and a PostgreSQL configuration
-/// carrying driver-specific connection arguments cannot be reproduced faithfully.
-fn open_store(config: &DatabaseConfig) -> Option<RecordStore> {
-    match config {
-        DatabaseConfig::Sqlite(sqlite) => {
-            if sqlite.is_memory() {
-                return None;
-            }
-
-            let path = absolute_existing(sqlite.path.as_deref()?)?;
-            RecordStore::sqlite(&path).ok()
+/// An invalid value carries its own sentence, and a construct outside the grammar names
+/// itself, because both are things the reader wrote and can change.
+pub(crate) fn refused(refusal: ceres_database::Refusal) -> crate::error::Exit {
+    crate::error::Exit::failed(match refusal {
+        ceres_database::Refusal::Invalid(message) => message,
+        ceres_database::Refusal::Delegated => {
+            "This filter uses a construct the query compiler does not serve.".to_string()
         }
-        DatabaseConfig::Turso(turso) => {
-            let path = absolute_existing(turso.path.as_deref()?)?;
-            Some(RecordStore::turso(&path, turso.mvcc))
-        }
-        DatabaseConfig::Postgres(postgres) => {
-            if postgres.shared.query.is_some() {
-                return None;
-            }
-
-            let mut settings = Vec::new();
-            for (key, value) in &postgres.shared.engine {
-                if key != "connect_args" {
-                    return None;
-                }
-
-                let arguments = value.as_object()?;
-                for (name, value) in arguments {
-                    if name != "server_settings" {
-                        return None;
-                    }
-
-                    for (setting, text) in value.as_object()? {
-                        settings.push((setting.clone(), text.as_str()?.to_string()));
-                    }
-                }
-            }
-
-            RecordStore::postgres(
-                &postgres.host,
-                postgres.port,
-                &postgres.database,
-                &postgres.user,
-                postgres.password.as_ref().map(|secret| secret.expose()),
-                settings,
-            )
-            .ok()
-        }
-    }
-}
-
-/// Resolve a database path like the Python layer, absolute against the working
-/// directory, and only when the file exists, a missing one delegates so the canonical
-/// connection error comes from Python.
-fn absolute_existing(path: &Path) -> Option<String> {
-    let absolute = std::path::absolute(path).ok()?;
-    if !absolute.is_file() {
-        return None;
-    }
-
-    Some(absolute.to_string_lossy().into_owned())
-}
-
-/// Write the rendered output to the destination the command named.
-fn write_output(output: Option<&Path>, rendered: &[u8]) -> Result<bool> {
-    match output {
-        Some(path) => {
-            let Ok(mut file) = std::fs::File::create(path) else {
-                // The Python command owns the failure message for an unwritable output.
-                return Ok(false);
-            };
-            if file.write_all(rendered).is_err() {
-                return Ok(false);
-            }
-        }
-        None => {
-            let stdout = std::io::stdout();
-            let mut lock = stdout.lock();
-            let _ = lock.write_all(rendered);
-        }
-    }
-
-    Ok(true)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::surface;
 
-    fn raw(arguments: &[&str]) -> Vec<OsString> {
-        arguments.iter().map(OsString::from).collect()
+    /// Parse one invocation the way the binary does.
+    fn read(table: RecordTable, arguments: &[&str]) -> Invocation {
+        let table = Table::Record(table);
+        let matches = surface::group(table)
+            .try_get_matches_from(std::iter::once(table.group()).chain(arguments.iter().copied()))
+            .expect("the arguments parse");
+        let (verb, matches) = matches.subcommand().expect("a verb was named");
+        Invocation::read(table, Verb::parse(verb).expect("a declared verb"), matches)
     }
 
     #[test]
-    fn only_select_and_count_lex() {
-        assert!(Invocation::lex(&raw(&["select"])).is_some());
-        assert!(Invocation::lex(&raw(&["count", "--limit", "5"])).is_some());
-        assert!(Invocation::lex(&raw(&["create"])).is_none());
-        assert!(Invocation::lex(&raw(&[])).is_none());
-    }
+    fn a_filter_reads_as_the_wire_pairs_the_compiler_takes() {
+        let invocation = read(
+            RecordTable::Messages,
+            &[
+                "select",
+                "--address",
+                "@sensor.temp",
+                "--max-age=2h",
+                "--order",
+                "timestamp:desc",
+            ],
+        );
 
-    #[test]
-    fn every_unclaimed_flag_becomes_a_wire_pair() {
-        let invocation = Invocation::lex(&raw(&[
-            "select",
-            "--address",
-            "@sensor.temp",
-            "--max-age=2h",
-            "--order",
-            "timestamp:desc",
-            "--limit",
-            "10",
-        ]))
-        .unwrap();
-
-        assert!(
-            invocation
-                .pairs
-                .contains(&("max_age".to_string(), "2h".to_string()))
+        assert_eq!(
+            invocation.pairs,
+            vec![
+                ("address".to_string(), "@sensor.temp".to_string()),
+                ("max_age".to_string(), "2h".to_string()),
+                ("order".to_string(), "timestamp:desc".to_string()),
+            ]
         );
         assert!(RecordFilter::parse(RecordTable::Messages, &invocation.pairs).is_ok());
-
-        // Unknown keys lex into pairs too, and the filter is what refuses them.
-        let unknown = Invocation::lex(&raw(&["select", "--nope", "x"])).unwrap();
-        assert!(RecordFilter::parse(RecordTable::Messages, &unknown.pairs).is_err());
     }
 
     #[test]
-    fn valueless_flags_delegate() {
-        assert!(Invocation::lex(&raw(&["select", "--help"])).is_none());
-        assert!(Invocation::lex(&raw(&["select", "--limit"])).is_none());
-        assert!(Invocation::lex(&raw(&["select", "--limit", "--offset", "2"])).is_none());
+    fn an_unknown_key_is_an_argument_error_rather_than_a_filter_one() {
+        // The surface is what refuses a key nobody declared, so it never reaches the
+        // compiler and the reader is told which flag was wrong rather than being handed
+        // a validation dump.
+        let table = Table::Record(RecordTable::Messages);
+        let refused = surface::group(table)
+            .try_get_matches_from(["messages", "select", "--nope", "x"])
+            .unwrap_err();
+
+        assert_eq!(refused.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
     #[test]
-    fn projections_lex_and_merge_like_the_python_command() {
-        let lex = |arguments: &[&str]| Invocation::lex(&raw(arguments)).unwrap();
+    fn a_repeated_key_folds_into_a_set() {
+        let invocation = read(
+            RecordTable::Messages,
+            &["select", "--address", "@a", "--address", "@b"],
+        );
 
-        // Positional specs keep argument order, aliases split on the first colon.
-        let invocation = lex(&["select", "content", "id:the id", "--no-color"]);
         assert_eq!(
-            invocation.projection(),
+            invocation.pairs,
             vec![
-                ("content".to_string(), "content".to_string()),
-                ("id".to_string(), "the id".to_string()),
+                ("address".to_string(), "@a".to_string()),
+                ("address".to_string(), "@b".to_string()),
             ]
         );
-        assert_eq!(invocation.dump_format(), Some(DumpFormat::Json));
+    }
 
-        // The last `--field` wins and overrides a positional alias in place.
-        let invocation = lex(&[
-            "select",
-            "id:first",
-            "level",
-            "--field",
-            "id",
-            "--field=id:last",
-            "--no-color",
-        ]);
+    #[test]
+    fn a_projection_merges_its_positional_and_flagged_halves() {
+        // The last spelling of a field wins, and a comma-separated spec names several
+        // fields at once so a projection can be typed rather than repeated.
+        let invocation = read(
+            RecordTable::Messages,
+            &["select", "id:first,timestamp", "--field", "id:last"],
+        );
+
         assert_eq!(
-            invocation.projection(),
+            invocation.projection,
             vec![
                 ("id".to_string(), "last".to_string()),
-                ("level".to_string(), "level".to_string()),
+                ("timestamp".to_string(), "timestamp".to_string()),
             ]
         );
-
-        // The Python parser splits positional lists on commas and reads bracketed
-        // values as JSON, so those delegate wholesale.
-        assert!(Invocation::lex(&raw(&["select", "id,content"])).is_none());
-        assert!(Invocation::lex(&raw(&["select", "[\"id\"]"])).is_none());
-
-        // A count has no output surface, so fields, an output file, or a format on
-        // one delegates.
-        assert_eq!(
-            lex(&["count", "--field", "id", "--no-color"]).dump_format(),
-            None
-        );
-        assert_eq!(lex(&["count", "id", "--no-color"]).dump_format(), None);
-        assert_eq!(lex(&["count", "--output", "rows.json"]).dump_format(), None);
-        assert_eq!(
-            lex(&["count", "--data-format", "csv", "--no-color"]).dump_format(),
-            None
-        );
-        assert_eq!(
-            lex(&["count", "--no-header", "--no-color"]).dump_format(),
-            None
-        );
-        assert_eq!(
-            lex(&["count", "--limit", "5", "--no-color"]).dump_format(),
-            Some(DumpFormat::Json)
-        );
-
-        // The header choice lexes as a bare boolean flag and stays native on select.
-        let invocation = lex(&["select", "--no-header", "--output", "rows.csv"]);
-        assert_eq!(invocation.header, Some(false));
-        assert_eq!(invocation.dump_format(), Some(DumpFormat::Csv));
     }
 
     #[test]
-    fn projection_format_and_color_gate_the_native_path() {
-        let lex = |arguments: &[&str]| Invocation::lex(&raw(arguments)).unwrap();
+    fn a_csv_dump_carries_its_header_unless_it_is_turned_off() {
+        assert!(read(RecordTable::Messages, &["select"]).header);
+        assert!(!read(RecordTable::Messages, &["select", "--no-header"]).header);
+        // The two spellings override each other, so the last one written wins.
+        assert!(
+            read(
+                RecordTable::Messages,
+                &["select", "--no-header", "--header"]
+            )
+            .header
+        );
+    }
 
-        assert_eq!(
-            lex(&["select", "--field", "id", "--no-color"]).dump_format(),
-            Some(DumpFormat::Json)
+    #[test]
+    fn a_filtered_write_asks_unless_it_was_told_not_to() {
+        // Nothing about the environment turns the question off. A script that would have
+        // been stopped by the prompt has to keep being stopped by it, because the
+        // alternative is a filter matching more than its author meant and the rows going
+        // away with nobody watching.
+        assert!(read(RecordTable::Messages, &["delete"]).confirm);
+        assert!(read(RecordTable::Messages, &["update", "--assign", "{}"]).confirm);
+        assert!(!read(RecordTable::Messages, &["delete", "--no-confirm"]).confirm);
+        // The short spelling is the one that gets typed at a terminal.
+        assert!(!read(RecordTable::Messages, &["delete", "-y"]).confirm);
+        // The two spellings override each other, so the last one written wins.
+        assert!(
+            read(
+                RecordTable::Messages,
+                &["delete", "--no-confirm", "--confirm"]
+            )
+            .confirm
         );
+    }
+
+    #[test]
+    fn an_unattended_write_is_refused_rather_than_assumed() {
+        // Tests do not run at a terminal, which is the case this is about. Asking with
+        // nobody there cannot be read as a yes.
+        let refused = crate::commands::dump::confirmed(Verb::Delete, 400, "messages")
+            .expect_err("there is no terminal to answer at");
+
+        assert!(refused.contains("400 messages"), "{refused}");
+        assert!(refused.contains("--no-confirm"), "{refused}");
+
+        // A verb with no prompt is unaffected, whatever the terminal is doing.
         assert_eq!(
-            lex(&["select", "id", "--no-color"]).dump_format(),
-            Some(DumpFormat::Json)
+            crate::commands::dump::confirmed(Verb::Select, 400, "messages"),
+            Ok(true)
         );
+    }
+
+    #[test]
+    fn the_destination_decides_the_shape_when_no_format_is_named() {
+        // Nobody is reading, which is what a pipe or a redirect looks like.
+        let shape = |arguments: &[&str]| read(RecordTable::Messages, arguments).dump_format();
+
+        assert_eq!(shape(&["select", "--output", "rows.csv"]), DumpFormat::Csv);
         assert_eq!(
-            lex(&["select", "--data-format", "csv", "--no-color"]).dump_format(),
-            Some(DumpFormat::Csv)
+            shape(&["select", "--output", "rows.json"]),
+            DumpFormat::Json
         );
+        // A named format wins over the suffix, which is the point of naming one.
         assert_eq!(
-            lex(&["select", "--output", "rows.csv"]).dump_format(),
-            Some(DumpFormat::Csv)
-        );
-        assert_eq!(
-            lex(&["select", "--output", "rows.json"]).dump_format(),
-            Some(DumpFormat::Json)
-        );
-        assert_eq!(
-            lex(&["select", "--data-format", "yaml", "--no-color"]).dump_format(),
-            None
-        );
-        assert_eq!(lex(&["select", "--color"]).dump_format(), None);
-        assert_eq!(
-            lex(&["select", "--no-color"]).dump_format(),
-            Some(DumpFormat::Json)
-        );
-        assert_eq!(
-            lex(&["select", "--output", "out.json", "--no-color"]).dump_format(),
-            Some(DumpFormat::Json)
+            shape(&["select", "--output", "rows.csv", "--format", "json"]),
+            DumpFormat::Json
         );
     }
 }

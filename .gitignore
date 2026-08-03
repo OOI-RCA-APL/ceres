@@ -6,6 +6,10 @@ poetry.toml
 *.lock
 
 # Python
+# The native core compiles into the package it ships in, so an editable install leaves the
+# built module beside the sources. The committed artifact is the stub next to it.
+ceres/__internal__/core*.so
+ceres/__internal__/core*.pyd
 __pycache__/
 .mypy_cache/
 .pytest_cache/

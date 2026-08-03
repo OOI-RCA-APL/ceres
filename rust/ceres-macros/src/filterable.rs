@@ -27,16 +27,22 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
     };
 
     let mut entries = Vec::new();
+    let mut columns = Vec::new();
     for field in &fields.named {
         let identifier = field.ident.as_ref().expect("named fields carry names");
         let key = wire_name(field)?.unwrap_or_else(|| identifier.to_string());
-        let family = family_of(&field.ty);
+        let family = match family_of(&field.ty) {
+            Family::Address if marked(field, "plain") => Family::PlainAddress,
+            Family::Text if marked(field, "email") => Family::Email,
+            family => family,
+        };
 
         let entry = match &family {
             Family::Uuid => quote! { ceres_entities::FieldFamily::Uuid },
             Family::Address => quote! { ceres_entities::FieldFamily::Address },
             Family::Timestamp => quote! { ceres_entities::FieldFamily::Timestamp },
             Family::Text => quote! { ceres_entities::FieldFamily::Text },
+            Family::Email => quote! { ceres_entities::FieldFamily::Email },
             Family::Values(ty) => quote! {
                 ceres_entities::FieldFamily::Values(
                     <#ty as ceres_entities::FilterValues>::VALUES,
@@ -45,22 +51,40 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             Family::Level => quote! { ceres_entities::FieldFamily::Level },
             Family::Bytes => quote! { ceres_entities::FieldFamily::Bytes },
             Family::Json => quote! { ceres_entities::FieldFamily::Json },
+            Family::Boolean => quote! { ceres_entities::FieldFamily::Boolean },
+            Family::JsonValue => quote! { ceres_entities::FieldFamily::JsonValue },
+            Family::PlainAddress => quote! { ceres_entities::FieldFamily::PlainAddress },
             Family::Unfilterable => continue,
         };
 
-        let operations = operation_entries(&key, &family, bare_operations(field));
-        entries.push(quote! {
+        let operations = if marked(field, "no_operations") {
+            Vec::new()
+        } else {
+            operation_entries(
+                &key,
+                &family,
+                bare_operations(field),
+                marked(field, "insensitive"),
+            )
+        };
+        let column = quote! {
             ceres_entities::FilterField {
                 key: #key,
                 family: #entry,
                 operations: &[#(#operations),*],
             }
-        });
+        };
+        columns.push(column.clone());
+        // A skipped field is still a column, it simply carries no filter surface.
+        if !marked(field, "skip") {
+            entries.push(column);
+        }
     }
 
     Ok(quote! {
         impl ceres_entities::Filterable for #name {
             const FIELDS: &'static [ceres_entities::FilterField] = &[#(#entries),*];
+            const COLUMNS: &'static [ceres_entities::FilterField] = &[#(#columns),*];
         }
     })
 }
@@ -97,16 +121,25 @@ enum Family {
     Address,
     Timestamp,
     Text,
+    Email,
     Level,
     Values(Box<syn::Type>),
     Bytes,
     Json,
+    Boolean,
+    JsonValue,
+    PlainAddress,
     Unfilterable,
 }
 
 /// The operation filters a family carries, generated as literal entries so the tables
 /// stay `'static`.
-fn operation_entries(key: &str, family: &Family, bare: bool) -> Vec<TokenStream> {
+fn operation_entries(
+    key: &str,
+    family: &Family,
+    bare: bool,
+    insensitive: bool,
+) -> Vec<TokenStream> {
     let variants = [
         (
             "contains",
@@ -116,7 +149,7 @@ fn operation_entries(key: &str, family: &Family, bare: bool) -> Vec<TokenStream>
         ("suffix", quote! { ceres_entities::OperationKind::Suffix }),
     ];
     match family {
-        Family::Text | Family::Bytes | Family::Json => variants
+        Family::Text | Family::Email | Family::Bytes | Family::Json => variants
             .iter()
             .map(|(variant, kind)| {
                 let operation_key = if bare {
@@ -128,6 +161,7 @@ fn operation_entries(key: &str, family: &Family, bare: bool) -> Vec<TokenStream>
                     ceres_entities::FieldOperation {
                         key: #operation_key,
                         kind: #kind,
+                        insensitive: #insensitive,
                     }
                 }
             })
@@ -159,6 +193,9 @@ fn family_of(ty: &syn::Type) -> Family {
             _ => Family::Unfilterable,
         },
         "Map" => Family::Json,
+        "bool" => Family::Boolean,
+        // A bare JSON value filters by equality on its serialized text.
+        "Value" => Family::JsonValue,
         "Option" => match first_type_argument(segment) {
             Some(inner) => family_of(&inner),
             None => Family::Unfilterable,
@@ -178,6 +215,8 @@ fn family_of(ty: &syn::Type) -> Family {
 /// here, and referencing one that stops implementing `FilterValues` fails to compile.
 fn known_enum(identifier: &syn::Ident) -> bool {
     identifier == "MessageDirection"
+        || identifier == "PermissionTargetType"
+        || identifier == "GrantLevel"
 }
 
 /// Whether a type path's tail is one bare identifier.
@@ -206,20 +245,31 @@ fn first_type_argument(segment: &syn::PathSegment) -> Option<syn::Type> {
 
 /// Whether the field carries `#[filterable(bare_operations)]`.
 fn bare_operations(field: &syn::Field) -> bool {
+    marked(field, "bare_operations")
+}
+
+/// Whether the field carries the given `#[filterable(...)]` marker.
+///
+/// `skip` drops a field whose type would otherwise filter, for a column the Python
+/// filter does not expose. `plain` takes an address out of the selector grammar.
+/// `insensitive` folds case in the field's operation filters, which an email address's
+/// do. `no_operations` keeps a text field's own key while dropping the `contains`,
+/// `prefix`, and `suffix` variants, which a permission target filters without.
+fn marked(field: &syn::Field, name: &str) -> bool {
     for attribute in &field.attrs {
         if !attribute.path().is_ident("filterable") {
             continue;
         }
 
-        let mut bare = false;
+        let mut found = false;
         let _ = attribute.parse_nested_meta(|meta| {
-            if meta.path.is_ident("bare_operations") {
-                bare = true;
+            if meta.path.is_ident(name) {
+                found = true;
             }
 
             Ok(())
         });
-        if bare {
+        if found {
             return true;
         }
     }

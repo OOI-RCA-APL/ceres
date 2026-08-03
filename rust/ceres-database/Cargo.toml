@@ -7,8 +7,17 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+argon2 = "0.5"
+# The backend trait has async methods and is held behind `dyn`, which the language cannot
+# express on its own until async fns in traits become dyn-compatible.
+async-trait = "0.1"
+bcrypt = { version = "0.19", default-features = false, features = ["std"] }
 ceres-entities = { path = "../ceres-entities" }
 chrono = "0.4"
+csv = "1"
+email_address = { version = "0.2", default-features = false }
+idna = "1"
+futures-util = { version = "0.3.33", default-features = false, features = ["std"] }
 sea-query = { version = "0.32", features = [
     "with-chrono",
     "with-json",
@@ -21,6 +30,7 @@ sea-query-binder = { version = "0.7", features = [
     "with-json",
     "with-uuid",
 ] }
+serde = "1"
 serde_json = "1"
 serde_norway = "0.9.42"
 speedate = "0.17.0"
@@ -33,6 +43,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "uuid",
 ] }
 thiserror = "2"
+unicode-normalization = "0.1"
 # Sync primitives only, the runtime itself comes through the caller's executor. Turso's
 # default features are off because they register a global mimalloc allocator, which a
 # library must never impose on its host process.

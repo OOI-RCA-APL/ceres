@@ -7,7 +7,6 @@ from collections.abc import (
     AsyncIterable,
     Callable,
     Collection,
-    Iterable,
     Iterator,
     Mapping,
     Sequence,
@@ -16,17 +15,14 @@ from collections.abc import (
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from datetime import date, datetime, timedelta
 from enum import StrEnum
-from os import PathLike
 from pathlib import Path
 from types import NoneType
 from typing import (
     IO,
-    TYPE_CHECKING,
     Annotated,
     Any,
     Literal,
     Self,
-    cast,
     overload,
     override,
 )
@@ -38,41 +34,28 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    FilePath,
-    Json,
-    NewPath,
     TypeAdapter,
     ValidationError,
-    create_model,
     model_validator,
 )
 from pydantic_settings import (
     CliImplicitFlag,
-    CliSubCommand,
     NoDecode,
     SettingsError,
     get_subcommand,
 )
-from pydantic_settings.sources import CliPositionalArg
 
-from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.lazy import __lazy_imports__
 from ceres.__internal__.project import LoadedProject, Project
-from ceres.__internal__.utilities.case import ucamelcase
-from ceres.__internal__.utilities.collections import seq
 from ceres.data import (
     DataModel,
     DataObject,
     FromYAML,
-    MaybeSequence,
-    adapt,
     from_json,
     to_dict,
     to_json,
     validate_json,
 )
-from ceres.database import DatabaseType
-from ceres.entity import EntityType
 from ceres.error import Error
 
 with __lazy_imports__(__name__):
@@ -256,6 +239,40 @@ def write(
 
 
 _write = write
+
+
+@contextmanager
+def write_progress(file: IO[str] = sys.stderr):
+    """Create a Rich progress context that draws itself while the block runs.
+
+    A task is a list of pieces of work that finish one after another, drawn as a spinner,
+    what is running now, and how far through the list it is. There is no bar, because a
+    bar of whole steps only redraws the count beside it in a second shape, and nothing
+    here can see inside a step to fill one smoothly. The spinner carries that something is
+    happening and becomes a check when the list is done.
+
+    Nothing is drawn when the stream is not a terminal, so a redirected or piped run
+    writes its lines and no control codes.
+
+    Args:
+        file: The output stream to draw on. Defaults to stderr.
+
+    Yields:
+        A `rich.progress.Progress` to add tasks to.
+    """
+    from rich.console import Console
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    interactive = file.isatty() if file else False
+    with Progress(
+        SpinnerColumn(finished_text="[green]✓[/green]"),
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("{task.fields[note]}"),
+        console=Console(file=file, force_terminal=interactive or None),
+        disable=not interactive,
+        transient=False,
+    ) as progress:
+        yield progress
 
 
 @contextmanager
@@ -613,11 +630,8 @@ class CLICommand(DataModel):
         database = Database(config.database)
 
         if require_connect:
-            try:
-                async with database.connect():
-                    pass
-            except Exception as exception:
-                raise CLICommandFailed(f"Failed to connect to database: {exception}")
+            if not await database.ping():
+                raise CLICommandFailed("Failed to connect to database.")
 
             if require_initialized:
                 if not await database.initialized():
@@ -672,9 +686,14 @@ class CLICommand(DataModel):
                 model_config = config
 
         # If only we could pass `extra = "ignore"` to the validation method itself, but we can't.
-        intermediate = validate_json(IgnoreExtra, to_json(self))
+        #
+        # Set-ness has to survive both hops. A command names only the fields its invocation
+        # mentioned, and models that read set-ness as a sentinel, a variable filter's `value`
+        # among them, distinguish a field given a null from one left out entirely. Dumping
+        # the whole command would mark every field of the result set and erase that.
+        intermediate = validate_json(IgnoreExtra, to_json(self, exclude_unset=True))
         # Convert the `IgnoreExtra` instance with exactly matching fields into `model_cls`.
-        return validate_json(data_object_class, to_json(intermediate))
+        return validate_json(data_object_class, to_json(intermediate, exclude_unset=True))
 
     def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         """Collect and return all nested `CLICommand` instances from this command's fields.
@@ -924,575 +943,6 @@ class CLIClientError(CLICommandFailed, ClientError):
     """Error raised when an HTTP or WebSocket request to the CLI server fails."""
 
     pass
-
-
-class CLIDataOutputCommand(CLICommand):
-    """CLI command that writes structured output to a file or stdout."""
-
-    output: FilePath | NewPath | None = None
-    """
-    Output file to write data to. Data format will be inferred from the provided file extension. If
-    unspecified, data is written to stdout.
-    """
-
-    data_format: CLIDataFormat | None = None
-    """
-    Specify the data output format, as either "json" (JSONL) or "csv". Defaults to "json", unless
-    `--output` is specified, in which case the format can be inferred from the file extension.
-    """
-
-    field: MaybeSequence[str] | None = None
-    """
-    Specify entity field name(s) to include in output data. If unspecified, all fields are output.
-    Specifying a colon after a field name in the format `--field <field>:<alias>` will rename the
-    field in the output data to the provided alias.
-    """
-
-    header: bool = True
-    """
-    Include a header row in CSV output. Pass `--no-header` to output data rows only.
-    """
-
-    @override
-    async def put(
-        self,
-        data: object,
-        file: IO[str] | None = None,
-        *,
-        end: str = "\n",
-        flush: bool = False,
-        color: bool | None = None,
-        data_format: CLIDataFormat | None = None,
-        fields: Sequence[str] | Mapping[str, str] | None = None,
-        header: bool | None = None,
-    ) -> None:
-        """Write data using the command's configured output file, format, and field selection."""
-        # A file this call opens must close with it, or its final buffer never
-        # reaches disk.
-        opened: IO[str] | None = None
-        if file is None:
-            if self.output is not None:
-                try:
-                    opened = open(self.output, "w")
-                except FileNotFoundError:
-                    raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
-                except OSError:
-                    raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
-
-                file = opened
-
-        if file is None:
-            file = sys.stdout
-
-        assert file is not None
-
-        data_format = data_format or self.data_format
-        if self.output is not None:
-            data_format = _resolve_data_format(self.output, data_format)
-
-        fields = _resolve_fields(fields) if fields is not None else self.resolved_fields()
-
-        try:
-            await super().put(
-                data,
-                file,
-                end=end,
-                flush=flush,
-                color=color,
-                data_format=data_format,
-                fields=fields,
-                header=header if header is not None else self.header,
-            )
-        finally:
-            if opened is not None:
-                opened.close()
-
-    def resolved_fields(self) -> Mapping[str, str] | None:
-        """The command's field projection as a name-to-alias mapping, `None` when
-        every field is output.
-
-        A lone `--field` value is a single spec, never a character sequence.
-        """
-        if self.field is None:
-            return None
-
-        return _resolve_fields(seq(self.field))
-
-    def native_dump_format(self) -> CLIDataFormat | None:
-        """The format a native one-pass dump can render, `None` when entities must
-        materialize.
-
-        Colorized output routes through Rich, so only an uncolored dump can ship as
-        one pre-rendered pass.
-        """
-        data_format = self.data_format
-        if self.output is not None:
-            data_format = _resolve_data_format(self.output, data_format)
-
-        color = self.color
-        if color is None:
-            color = _get_color_enabled_by_variables()
-
-        if color is None:
-            color = self.output is None and sys.stdout.isatty()
-
-        if color:
-            return None
-
-        return data_format or CLIDataFormat.JSON
-
-    def plain_json_output(self) -> bool:
-        """Whether output is plain JSON lines, with no color."""
-        return self.native_dump_format() is CLIDataFormat.JSON
-
-    def put_text(self, text: str) -> None:
-        """Write already-rendered output through the command's configured destination."""
-        if self.output is not None:
-            try:
-                file = open(self.output, "w")
-            except FileNotFoundError:
-                raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
-            except OSError:
-                raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
-
-            with file:
-                file.write(text)
-        else:
-            sys.stdout.write(text)
-
-
-class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
-    """CLI data output command that additionally accepts positional field selection arguments."""
-
-    fields: CliPositionalArg[list[str] | None] = None
-    """
-    Specify entity field name(s) to include in output data. If unspecified, all fields are output.
-    Specifying a colon after a field name in the format `<field>:<alias>` will rename the field in
-    the output data to the provided alias. Fields provided here and with `--field` option(s) are
-    merged, with `--field` option(s) taking precedence over these positional arguments.
-    """
-
-    @override
-    def resolved_fields(self) -> Mapping[str, str] | None:
-        """Merge positional field selections with `--field` options, the options
-        taking precedence by field name."""
-        flagged = None if self.field is None else _resolve_fields(seq(self.field))
-        return {
-            **(_resolve_fields(self.fields) or {}),
-            **(flagged or {}),
-        } or None
-
-
-async def dump_records_natively(
-    database: Any,
-    Entity: type[Any],
-    query: Any,
-    data_format: CLIDataFormat = CLIDataFormat.JSON,
-    fields: Mapping[str, str] | None = None,
-    *,
-    header: bool = True,
-) -> str | None:
-    """Render a record query as JSON or CSV lines in one native pass, `None` when it
-    cannot.
-
-    The query compiles here and executes through the native fetcher, so rows never
-    become Python objects and records render once, in Rust. A field projection, a
-    name-to-alias mapping, selects and renames the output fields, and `header` gates
-    the CSV header row. Only the record tables on a native backend qualify, and a
-    query carrying a transform needs Python objects and takes the materializing path
-    instead.
-    """
-    from ceres.__internal__.app.shared import RECORD_TABLES
-
-    table = RECORD_TABLES.get(Entity.__entity_naming__.table)
-    if table is None or query._get_transform() is not None:
-        return None
-
-    fetcher = database._record_fetcher()
-    if fetcher is None:
-        return None
-
-    projection = None if fields is None else list(fields.items())
-    sql, parameters = await query.compiled()
-    try:
-        batch = await fetcher.fetch_sql(table, sql, parameters)
-    except TypeError, ValueError:
-        # The native engine can lag the Python one in corner cases. The dump stays
-        # correct through the materializing path, just slower.
-        return None
-
-    if data_format is CLIDataFormat.CSV:
-        return batch.to_csv_lines(projection, header=header)
-
-    return batch.to_json_lines(projection).decode()
-
-
-def create_entity_select_command(Entity: type[Entity]):
-    """Create a CLI subcommand class that retrieves and outputs entities matching a filter."""
-    naming = Entity.__entity_naming__
-
-    class SelectCommand(CLIDataOutputSelectionCommand, cast("type", Entity.Filter)):
-        f"""
-        Retrieve {naming.plural}.
-        """
-        fields: CliPositionalArg[list[str] | None] = None
-
-        @override
-        async def __run__(self) -> None:
-            filter = self.read(Entity.Filter)
-            async with self.use_database() as database:
-                query = database.__manager__(Entity).where(filter)
-
-                # An uncolored JSON or CSV dump of a record table renders natively in
-                # one pass, projected or not, which is what makes a select over a
-                # large table fast.
-                data_format = self.native_dump_format()
-                if data_format is not None:
-                    dumped = await dump_records_natively(
-                        database,
-                        Entity,
-                        query,
-                        data_format,
-                        self.resolved_fields(),
-                        header=self.header,
-                    )
-                    if dumped is not None:
-                        self.put_text(dumped)
-                        return
-
-                fields = self.resolved_fields()
-                data_format = self.data_format
-                if self.output is not None:
-                    data_format = _resolve_data_format(self.output, data_format)
-
-                if fields is None and data_format is CLIDataFormat.CSV:
-                    # An entity's columns are its model fields, so a CSV select still
-                    # writes its header when no rows match.
-                    fields = {name: name for name in Entity.__pydantic_fields__}
-
-                await self.put(query.select(), fields=fields)
-
-    return SelectCommand
-
-
-def create_entity_count_command(Entity: type[Entity]):
-    """Create a CLI subcommand class that counts entities matching a filter."""
-    naming = Entity.__entity_naming__
-
-    class CountCommand(CLICommand, cast("type", Entity.Filter)):
-        f"""
-        Count {naming.plural}.
-        """
-
-        @override
-        async def __run__(self) -> None:
-            filter = self.read(Entity.Filter)
-            async with self.use_database() as database:
-                await self.put(await database.__manager__(Entity).where(filter).count())
-
-    return CountCommand
-
-
-def create_entity_any_command(Entity: type[Entity]):
-    """Create a CLI subcommand class that checks if any entities match a filter."""
-    naming = Entity.__entity_naming__
-
-    class AnyCommand(CLICommand, cast("type", Entity.Filter)):
-        f"""
-        Check if one or more {naming.plural} match the provided filter.
-        """
-
-        @override
-        async def __run__(self) -> None:
-            filter = self.read(Entity.Filter)
-            async with self.use_database() as database:
-                exists = await database.__manager__(Entity).where(filter).any()
-                await self.put(exists)
-                raise CLICommandExit(0 if exists else 1)
-
-    return AnyCommand
-
-
-def create_entity_create_command(Entity: type[Entity]):
-    """Create a CLI subcommand class that creates a new entity from provided fields."""
-    naming = Entity.__entity_naming__
-
-    class CreateCommand(CLIDataOutputCommand, cast("type", Entity.Create.Model)):
-        f"""
-        Create a new {naming.singular}.
-        """
-
-        @override
-        async def __run__(self) -> None:
-            data = self.read(Entity.Create)
-            async with self.use_database() as database:
-                await self.put(await database.__manager__(Entity).create(data))
-
-    return CreateCommand
-
-
-def create_entity_update_command(Entity: type[Entity]):
-    """Create a CLI subcommand class that updates entities matching a filter with assigned values."""
-    naming = Entity.__entity_naming__
-
-    class UpdateCommand(CLIDataOutputCommand, cast("type", Entity.Filter)):
-        f"""
-        Update {naming.plural}. Return the number updated.
-        """
-
-        assign: Assign[Entity.Update]
-        f"""Values to assign to matched {naming.plural}. Specified as a JSON or YAML object."""
-        confirm: Confirm = True
-        """Confirm before updating."""
-        collect: bool = False
-        """Stream updated entities to stdout. Ordering is not preserved."""
-
-        @override
-        async def __run__(self) -> None:
-            async with self.use_database() as database:
-                filter = self.read(Entity.Filter)
-                manager = database.__manager__(Entity)
-                if self.confirm:
-                    count = await manager.where(filter).count()
-                    get_confirmation(f"Update {count} {naming.plural}?", abort=True)
-
-                result = manager.where(filter).update(self.assign)
-                await self.put(result if self.collect else await result)
-
-    return UpdateCommand
-
-
-def create_entity_delete_command(Entity: type[Entity]):
-    """Create a CLI subcommand class that deletes entities matching a filter."""
-    naming = Entity.__entity_naming__
-
-    class DeleteCommand(CLIDataOutputCommand, cast("type", Entity.Filter)):
-        f"""
-        Delete {naming.plural}. Return the number deleted.
-        """
-
-        confirm: Confirm = True
-        """Confirm before deleting."""
-        collect: bool = False
-        """Stream deleted entities to stdout. Ordering is not preserved."""
-
-        @override
-        async def __run__(self) -> None:
-            async with self.use_database() as database:
-                filter = self.read(Entity.Filter)
-                manager = database.__manager__(Entity)
-                if self.confirm:
-                    count = await manager.where(filter).count()
-                    get_confirmation(f"Delete {count} {naming.plural}?", abort=True)
-
-                result = manager.where(filter).delete()
-                await self.put(result if self.collect else await result)
-
-    return DeleteCommand
-
-
-def create_entity_follow_command(Entity: type[Entity]):
-    """Create a CLI subcommand class that streams new entities over a WebSocket connection."""
-    naming = Entity.__entity_naming__
-
-    class FollowCommand(CLIDataOutputSelectionCommand, cast("type", Entity.Filter)):
-        f"""
-        Follow new {naming.plural}.
-        """
-
-        @override
-        async def __run__(self) -> None:
-            client = await self.use_client()
-            filter = self.read(Entity.Filter)
-            return await self.put(client.stream(naming.route, params=filter, result=Entity))
-
-    return FollowCommand
-
-
-if TYPE_CHECKING:
-    from ceres.entity import Entity
-
-
-def create_entity_load_command(Entity: type[Entity]):
-    """Create a CLI subcommand class that bulk-loads entities from a JSON or CSV file."""
-    naming = Entity.__entity_naming__
-
-    class LoadCommand(CLICommand):
-        f"""
-        Load {naming.plural} from file. Return the number loaded.
-        """
-
-        path: CliPositionalArg[FilePath]
-        f"""File path to load {naming.plural} from."""
-
-        data_format: CLIDataFormat | None = None
-        """
-        Specify the data format for the input file, as either "json" (JSONL) or "csv". If
-        unspecified, this will be inferred from the file extension.
-        """
-
-        on_conflict: CLIDataConflict = CLIDataConflict.ERROR
-        """
-        Specify how to handle primary key conflicts in the event one occurs. If "error", raise an
-        error, and roll back any previous entity inserts. If "ignore", just skip updating the
-        existing entity and continue loading. If "update", update the existing entity with the
-        incoming values and continue loading.
-        """
-
-        @override
-        async def __run__(self) -> None:
-            count = await self._load(
-                self.path,
-                EntityType.from_class(Entity),
-                self.data_format,
-                self.on_conflict,
-            )
-            self.write(count, sys.stdout)
-
-        async def _load(
-            self,
-            path: str | PathLike,
-            entity_type: EntityType,
-            data_format: CLIDataFormat | None = None,
-            on_conflict: CLIDataConflict = CLIDataConflict.ERROR,
-        ) -> int:
-            path = Path(path)
-            data_format = _resolve_data_format(path, data_format)
-            cls = entity_type.cls
-
-            batch: list[Entity] = []
-            batch_size = 1000
-            count = 0
-
-            async def flush() -> None:
-                nonlocal count
-
-                match database.type:
-                    case DatabaseType.POSTGRES:
-                        from sqlalchemy.dialects.postgresql import insert
-                    case DatabaseType.SQLITE | DatabaseType.TURSO:
-                        from sqlalchemy.dialects.sqlite import insert
-
-                statement = insert(cls.Row).values([dict(entity) for entity in batch])
-                match on_conflict:
-                    case CLIDataConflict.ERROR:
-                        pass
-                    case CLIDataConflict.IGNORE:
-                        statement = statement.on_conflict_do_nothing(
-                            cls.Row.__table__.primary_key,
-                        )
-                    case CLIDataConflict.UPDATE:
-                        statement = statement.on_conflict_do_update(
-                            cls.Row.__table__.primary_key,
-                            set_={
-                                column: column
-                                for column in cls.Row.__table__.columns
-                                if column.name not in cls.Row.__table__.primary_key.columns
-                            },
-                        )
-
-                await connection.execute(statement)
-                count += len(batch)
-                batch.clear()
-
-            async with self.use_database() as database:
-                with wrap_database_errors():
-                    async with database.connect() as connection:
-                        async with connection.begin():
-                            try:
-                                match data_format:
-                                    case CLIDataFormat.JSON:
-                                        adapter = adapt(Iterable[Json[cls]])
-
-                                        for entity in adapter.validate_python(open(path)):
-                                            batch.append(entity)
-                                            if len(batch) >= batch_size:
-                                                await flush()
-
-                                        if batch:
-                                            await flush()
-                                    case CLIDataFormat.CSV:
-                                        from csv import DictReader
-
-                                        adapter = adapt(Iterable[cls])
-
-                                        with open(path) as stream:
-                                            reader = DictReader(stream)
-                                            for entity in adapter.validate_python(reader):
-                                                batch.append(entity)
-                                                if len(batch) >= batch_size:
-                                                    await flush()
-
-                                        if batch:
-                                            await flush()
-
-                            except FileNotFoundError:
-                                raise CLICommandFailed(
-                                    f"Input file '{str(self.path)!r}' not found."
-                                )
-                            except OSError:
-                                raise CLICommandFailed(f"Failed to read input file: {str(path)!r}")
-                            except ValidationError as error:
-                                raise CLICommandFailed(str(error.errors()))
-
-                            await connection.commit()
-
-            return count
-
-    return LoadCommand
-
-
-EntitySubCommandMapping = Mapping[str, type[CLICommand]]
-
-_COMMAND_CREATORS = {
-    "select": create_entity_select_command,
-    "follow": create_entity_follow_command,
-    "count": create_entity_count_command,
-    "any": create_entity_any_command,
-    "create": create_entity_create_command,
-    "update": create_entity_update_command,
-    "delete": create_entity_delete_command,
-    "load": create_entity_load_command,
-}
-
-
-def create_entity_command(
-    Entity: type[Entity],
-    overrides: EntitySubCommandMapping | None = None,
-    *,
-    follow: bool = False,
-) -> type[CLICommandGroup]:
-    """Build a command group with standard CRUD subcommands for the given entity type.
-
-    Generate select, count, any, create, update, delete, and load subcommands. Optionally include
-    a follow (streaming) subcommand. Custom subcommand classes can be provided via `overrides`.
-
-    Args:
-        Entity: The entity class to generate commands for.
-        overrides: A mapping of subcommand names to custom command classes that replace the
-            generated defaults.
-        follow: If True, include a follow subcommand for live streaming.
-
-    Returns:
-        A dynamically created `CLICommandGroup` subclass with the entity's subcommands.
-    """
-    mapping = dict(overrides or {})
-
-    for name, creator in _COMMAND_CREATORS.items():
-        if name == "follow" and not follow:
-            continue
-        if name not in mapping:
-            mapping[name] = creator(Entity)
-
-    fields: Any = {key: (CliSubCommand[cls], ...) for key, cls in mapping.items()}
-    naming = Entity.__entity_naming__
-
-    return create_model(
-        f"{ucamelcase(naming.plural)}Command",
-        **fields,
-        __base__=CLICommandGroup,
-        __doc__=f"Manage {naming.plural}.",
-    )
 
 
 @contextmanager
