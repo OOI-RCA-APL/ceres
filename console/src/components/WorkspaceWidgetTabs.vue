@@ -9,6 +9,7 @@ import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
 import { useModifiers } from '@/modifiers'
+import { usePersisted } from '@/persistence'
 import { moved, usePointerReorder } from '@/reorder'
 import { useWidgetDrop } from '@/widget-drop'
 import {
@@ -33,6 +34,28 @@ const drop = useWidgetDrop()
 let index = $ref(0)
 
 const shown = $computed(() => widget.tabs[index] ?? null)
+
+// Which tab is open is this browser's own place in the workspace rather than part of it, so it
+// survives a reload here and goes nowhere else. Held as the tab's ID rather than its position, so
+// tabs reordered or deleted from another seat cannot restore somebody else's tab.
+const persisted = usePersisted({
+  schema: ({ object, string }) => object({ tab: string().nullable().catch(null).default(null) }),
+  methods: [{ type: 'local-storage', key: ['widget-tab', widget.id] }],
+})
+
+const remembered = widget.tabs.findIndex((tab) => tab.id === persisted.tab)
+if (remembered >= 0) {
+  // The position alone, without `show`, which would steal the workspace's focused layout on
+  // every reload for every strip on it.
+  index = remembered
+}
+
+watch(
+  () => shown?.id ?? null,
+  (id) => {
+    persisted.tab = id
+  }
+)
 
 // A tab is as tall as the strip's widget however little is on it, so the height left at the bottom
 // goes somewhere. The last row is the default, being where a table or a chart wants the room.
