@@ -6,6 +6,7 @@ import { nextTick, watch } from 'vue'
 import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
+import { usePersisted } from '@/persistence'
 import { moved, usePointerReorder } from '@/reorder'
 import { useWidgetDrop } from '@/widget-drop'
 import {
@@ -98,6 +99,28 @@ useEventListener(window, 'pointerdown', (event: PointerEvent) => {
 })
 
 const slide = $computed(() => widget.slides[index] ?? null)
+
+// Which slide is open is this browser's own place in the workspace rather than part of it, so it
+// survives a reload here and goes nowhere else. Held as the slide's ID rather than its position,
+// so slides reordered or deleted from another seat cannot restore somebody else's slide.
+const persisted = usePersisted({
+  schema: ({ object, string }) => object({ slide: string().nullable().catch(null).default(null) }),
+  methods: [{ type: 'local-storage', key: ['widget-slide', widget.id] }],
+})
+
+const remembered = widget.slides.findIndex((current) => current.id === persisted.slide)
+if (remembered >= 0) {
+  // The position alone, without focusing the slide's layout, which would steal the workspace's
+  // focused layout on every reload for every carousel on it.
+  index = remembered
+}
+
+watch(
+  () => slide?.id ?? null,
+  (id) => {
+    persisted.slide = id
+  }
+)
 
 // A slide is as tall as the carousel however little is on it, so the height left at the bottom
 // goes somewhere. The last row is the default, being where a table or a chart wants the room.
@@ -323,6 +346,111 @@ function moveSlide(by: number) {
   widget.slides = slides
   index = to
 }
+
+// A widget carried over the band is being brought to a slide rather than to the one on show, so
+// the carousel turns to whichever dot it is held over and the drop lands there. Held over for a
+// moment first, since crossing the band on the way somewhere else is not a change of mind.
+const dwellBeforeTurning = 280
+
+let turning: ReturnType<typeof setTimeout> | null = null
+
+// What the wait is for, so travelling across a dot does not start it over on every step of the
+// pointer. `undefined` is nothing waited for, and null is the band's own room around the dots.
+let awaited: number | null | undefined = undefined
+
+function stopTurning() {
+  if (turning != null) {
+    clearTimeout(turning)
+    turning = null
+  }
+
+  awaited = undefined
+}
+
+// A slide offered rather than made. Nothing but a drawing, so a workspace saved mid-drag holds no
+// trace of it. It becomes a slide the moment a widget is let go of on it, and not before.
+let ghost = $ref(false)
+
+function onBandPointerLeave() {
+  stopTurning()
+  ghost = false
+}
+
+/** Whichever dot the pointer is over, or null for the band's own room around them. */
+function onBandPointerOver(event: PointerEvent) {
+  if (workspace.drag == null) {
+    return
+  }
+
+  const over = (event.target as HTMLElement | null)?.closest('button') ?? null
+  const at = over == null ? -1 : dots.indexOf(over as HTMLElement)
+  turnWhileDragging(at >= 0 ? at : null)
+}
+
+function turnWhileDragging(at: number | null) {
+  if (awaited === at) {
+    return
+  }
+
+  stopTurning()
+  awaited = at
+
+  if (workspace.drag == null) {
+    return
+  }
+
+  turning = setTimeout(() => {
+    turning = null
+    awaited = undefined
+
+    // A slide of its own for a widget dropped into the band's spare room, since that room is the
+    // one place a carousel can be added to by carrying something to it.
+    if (at == null) {
+      ghost = true
+      return
+    }
+
+    show(at, at - index)
+    focusSlide()
+
+    // The slide it turned to was never on screen when the drag was measured, and it takes its
+    // travel to arrive, so it is measured once it has come to rest.
+    setTimeout(() => drop.remeasure(), 300)
+  }, dwellBeforeTurning)
+}
+
+/** Take the widget in hand onto a slide of its own, made here and now for it to land on.
+
+Runs on the ghost's own `pointerup`, which arrives before the drop system's window-level release,
+so the slide exists and holds the widget by the time release runs. Release then finds nothing to
+do, since the band is no place a plain drop can land.
+*/
+function onGhostDrop() {
+  const drag = workspace.drag
+  if (drag == null || !drop.active) {
+    return
+  }
+
+  const opened: CarouselSlide = { id: v7(), name: '', layout: [] }
+  widget.slides = [...widget.slides, opened]
+  workspace.moveWidgets(
+    drag.widgets.map((held) => held.id),
+    { layout: opened.id, row: 0, column: null }
+  )
+  show(widget.slides.length - 1)
+  focusSlide()
+  ghost = false
+}
+
+// An offer not taken goes away with the drag that asked for it.
+watch(
+  () => workspace.drag != null,
+  (dragging) => {
+    if (!dragging) {
+      ghost = false
+    }
+  }
+)
 </script>
 
 <template>
@@ -384,8 +512,15 @@ function moveSlide(by: number) {
     <template v-if="slide != null">
       <q-separator />
       <!-- Laid out in three, with the outer two the same width whatever they hold, so the dots sit
-      at the middle of the carousel rather than at the middle of whatever room the buttons left. -->
-      <div :class="[$style.controls, 'items-center', 'q-px-sm']">
+      at the middle of the carousel rather than at the middle of whatever room the buttons left.
+      The band answers a drag itself, by turning to whichever dot is held over or offering a new
+      slide, so it is no place to drop a widget beside the carousel's own widget. -->
+      <div
+        :class="[$style.controls, 'items-center', 'q-px-sm']"
+        data-no-drop
+        @pointerleave="onBandPointerLeave"
+        @pointerover="onBandPointerOver"
+      >
         <div />
         <div :class="[$style.steps, 'items-center', 'justify-center', 'no-wrap', 'row']">
           <!-- Only worth steering when there is somewhere to steer to. -->
@@ -405,6 +540,7 @@ function moveSlide(by: number) {
                 reorder.isHeld(at) && $style.dotHeld,
                 reorder.isGrabbed(at) && $style.dotGrabbed,
               ]"
+              :data-drop-layout="workspace.drag != null ? current.id : undefined"
               :style="reorder.styleFor(at)"
               type="button"
               v-bind="reorder.handlers(at)"
@@ -440,7 +576,7 @@ function moveSlide(by: number) {
               into the field is what turns the offer into a real edit. -->
               <q-tooltip
                 :class="[$style.dotTooltip, 'bg-primary', 'text-white']"
-                :model-value="shownDot === at && !reorder.isDragging"
+                :model-value="shownDot === at && !reorder.isDragging && workspace.drag == null"
                 no-parent-event
                 :offset="[0, 6]"
                 @pointerenter="pointAtDot(at)"
@@ -470,6 +606,15 @@ function moveSlide(by: number) {
               <q-tooltip class="bg-primary">Next</q-tooltip>
             </q-btn>
           </template>
+          <!-- The slide a drop into the band would make, drawn rather than made. Its own pointerup
+          is what makes it real, so letting go anywhere else leaves no trace of it. -->
+          <button
+            v-if="ghost"
+            aria-label="New Slide"
+            :class="$style.ghostDot"
+            type="button"
+            @pointerup="onGhostDrop"
+          />
         </div>
         <div :class="[$style.actions, 'items-center', 'no-wrap', 'row']">
           <q-btn
@@ -716,6 +861,18 @@ function moveSlide(by: number) {
 
 .dotSwapping {
   transition: none;
+}
+
+// Drawn as an offer rather than as a dot, wearing the same dashed border and tint every drop
+// target wears, so it reads as a place to let go rather than as a slide that already exists.
+.ghostDot {
+  width: 30px;
+  height: 14px;
+  padding: 0;
+  border: 2px dashed $primary;
+  border-radius: 7px;
+  margin: 0 1.5px;
+  background-color: rgba($primary, 0.1);
 }
 
 // The ring closes clockwise from the top, drawn as a circle whose dash is drawn back in over the
