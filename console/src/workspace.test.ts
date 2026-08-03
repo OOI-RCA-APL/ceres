@@ -96,6 +96,32 @@ describe('resolveWidths', () => {
   it('has nothing to say about an empty row', () => {
     expect(resolveWidths([])).toEqual([])
   })
+
+  it('never squeezes a width below the floor, whatever the excess asks', () => {
+    // The even spread alone would take the first width to -75.
+    expect(resolveWidths([30, 300])).toEqual([1, 119])
+  })
+
+  it('repairs a row already holding a negative width', () => {
+    const resolved = resolveWidths([170, -50])
+
+    expect(resolved.every((width) => width >= 1)).toBe(true)
+    expect(resolved.reduce((sum, current) => sum + current, 0)).toBe(120)
+  })
+
+  it('keeps the total exact when the shares round unevenly', () => {
+    const resolved = resolveWidths([40, 40, 41])
+
+    expect(resolved.reduce((sum, current) => sum + current, 0)).toBe(120)
+  })
+
+  it('holds the floor for widths after the handle', () => {
+    const resolved = resolveWidths([115, 30, 5], 0, 'after')
+
+    expect(resolved[0]).toBe(115)
+    expect(resolved.slice(1).every((width) => width >= 1)).toBe(true)
+    expect(resolved.reduce((sum, current) => sum + current, 0)).toBe(120)
+  })
 })
 
 describe('pagesOf', () => {

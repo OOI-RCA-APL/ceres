@@ -1374,6 +1374,28 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   })
 
+  // A stored width can be broken, negative from an old resize or a total drifted off the row's
+  // span, and a broken row draws wider than the workspace itself. Any row found holding one is
+  // spread back over the full span, proportionally where the proportions are usable, so a broken
+  // width can never reach the screen however it got into the data.
+  watchEffect(() => {
+    for (const layout of layoutRefs()) {
+      for (const row of layout.rows) {
+        const widths = row.widgets.map((widget) => widget.width)
+        const total = widths.reduce((sum, current) => sum + current, 0)
+        if (
+          widths.length > 0 &&
+          (total !== widgetWidthSubdivisions || widths.some((width) => width <= 0))
+        ) {
+          const fixed = filledWidths(widths)
+          for (const [index, widget] of row.widgets.entries()) {
+            widget.width = fixed[index] ?? widget.width
+          }
+        }
+      }
+    }
+  })
+
   async function afterFetch() {
     if (data == null) {
       data = (await workspaces.getEdit(id))?.data ?? deepClone(workspace?.data ?? null) ?? null
@@ -1768,10 +1790,17 @@ export const useWorkspaces = defineStore('workspaces', () => {
 export const widgetWidthSubdivisions = 120
 export const minWidgetWidthPixels = 100
 
+// The narrowest a width may be squeezed to. Taking a width below this, let alone below zero,
+// stores a widget nothing can see or grab, and a negative width draws its neighbours out past
+// the row's own edge.
+const minWidthUnits = 1
+
 /** Spread a row's widths back over `widgetWidthSubdivisions`, without touching any widget.
 
 `keepIndices` names widths to leave alone, either absorbing the difference into every other width
-or, with `adjustMode` set to `after`, only into the ones that follow the last of them.
+or, with `adjustMode` set to `after`, only into the ones that follow the last of them. No width is
+taken below `minWidthUnits`, whatever the excess asks for, and the answered widths always total
+`widgetWidthSubdivisions` while any width is left to give.
 */
 export function resolveWidths(
   widths: number[],
@@ -1787,8 +1816,10 @@ export function resolveWidths(
   ).filter((index) => index >= 0)
 
   const totalWidthUnits = widths.reduce((sum, current) => sum + current, 0)
-  const excessWidthUnits = totalWidthUnits - widgetWidthSubdivisions
-  if (excessWidthUnits === 0) {
+  if (
+    totalWidthUnits === widgetWidthSubdivisions &&
+    widths.every((width) => width >= minWidthUnits)
+  ) {
     return [...widths]
   }
 
@@ -1805,14 +1836,72 @@ export function resolveWidths(
     }
   }
 
-  const excessWidthUnitsPerWidget = excessWidthUnits / adjusted.length
-
-  const resolved = [...widths]
-  for (const index of adjusted) {
-    resolved[index] -= excessWidthUnitsPerWidget
+  if (adjusted.length === 0) {
+    adjusted = indices
   }
 
-  return resolved.map((width) => Math.round(width))
+  const resolved = [...widths]
+
+  // A width already below the floor gives nothing, so it is lifted first and the lift joins the
+  // excess the others have to absorb.
+  for (const index of indices) {
+    const width = resolved[index] ?? 0
+    if (width < minWidthUnits) {
+      resolved[index] = minWidthUnits
+    }
+  }
+
+  // Spread the excess over the adjustable widths, evenly, in passes. A width that would be taken
+  // below the floor stops there, and what it could not give is spread over the rest on the next
+  // pass, so one pass per width bounds the loop.
+  for (let pass = 0; pass <= widths.length; pass++) {
+    const excess = resolved.reduce((sum, current) => sum + current, 0) - widgetWidthSubdivisions
+    if (excess === 0) {
+      break
+    }
+
+    const givers =
+      excess > 0 ? adjusted.filter((index) => (resolved[index] ?? 0) > minWidthUnits) : adjusted
+    if (givers.length === 0) {
+      break
+    }
+
+    const share = excess / givers.length
+    for (const index of givers) {
+      const width = resolved[index] ?? 0
+      resolved[index] = excess > 0 ? Math.max(width - share, minWidthUnits) : width - share
+    }
+  }
+
+  // Round to whole units without letting the rounding move the total, pushing the drift one unit
+  // at a time onto the adjustable widths, into the widest when taking so nothing crosses the
+  // floor.
+  const rounded = resolved.map((width) => Math.round(width))
+  let drift =
+    Math.round(resolved.reduce((sum, current) => sum + current, 0)) -
+    rounded.reduce((sum, current) => sum + current, 0)
+  while (drift !== 0) {
+    const step = Math.sign(drift)
+    const candidates =
+      step > 0 ? adjusted : adjusted.filter((index) => (rounded[index] ?? 0) > minWidthUnits)
+    if (candidates.length === 0) {
+      break
+    }
+
+    const target = candidates.reduce((best, index) =>
+      step < 0
+        ? (rounded[index] ?? 0) > (rounded[best] ?? 0)
+          ? index
+          : best
+        : (rounded[index] ?? 0) < (rounded[best] ?? 0)
+        ? index
+        : best
+    )
+    rounded[target] = (rounded[target] ?? 0) + step
+    drift -= step
+  }
+
+  return rounded
 }
 
 export function resolveWidgetWidths(
