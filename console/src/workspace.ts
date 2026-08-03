@@ -321,6 +321,19 @@ export type Widget =
   | CarouselWidget
   | TabsWidget
 
+/** A widget of a kind this console has no model for.
+
+Another console version can store kinds this one has never heard of, and parsing used to drop
+them, which deleted the widget for everyone the next time anybody saved the workspace. Everything
+the widget carries rides along untouched instead, for the console that does know it, and this one
+draws a placeholder saying so. Typed as `Widget` all the same, so the layouts hold it like any
+other, with `getWidgetInfo` answering for the kinds the infos do not.
+*/
+export const UnknownWidgetModel = BaseWidgetModel.extend({
+  type: Zod.string(),
+  name: Zod.string().catch(''),
+}).passthrough()
+
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
   ParticlesWidgetModel,
@@ -333,17 +346,18 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   ButtonWidgetModel,
   CarouselWidgetModel,
   TabsWidgetModel,
-])
+]).or(UnknownWidgetModel) as unknown as Zod.ZodType<Widget>
 
 export type WidgetType = Widget['type']
-export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos]
+export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos] | typeof unknownWidgetInfo
 export type WidgetComponent = (typeof widgetInfos)[WidgetType]['component']
 
 const defaultMinHeight = 150
 const defaultPaddingClass = 'q-pa-sm'
 
 export function getWidgetInfo(type: WidgetType): WidgetInfo {
-  return widgetInfos[type]
+  // A stored widget can carry a kind this console has no model for, whatever its type claims.
+  return (widgetInfos as Partial<Record<string, WidgetInfo>>)[type] ?? unknownWidgetInfo
 }
 
 /** The name a widget of `type` carries when nothing has been made of it.
@@ -505,6 +519,18 @@ export const widgetInfos = {
       fullHeight: false,
     }),
   },
+} as const
+
+// Answers for every kind the infos above do not, with a placeholder saying the kind is not one
+// this console knows. Outside `widgetInfos` itself, so no menu offers creating one.
+const unknownWidgetInfo = {
+  type: 'unknown',
+  name: 'Unknown Widget',
+  model: UnknownWidgetModel,
+  component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetUnknown.vue')),
+  options: widgetOptions({
+    fullHeight: false,
+  }),
 } as const
 
 /** Written out for the same reason `WidgetPage` is, being the other half of the same circle. */
@@ -955,7 +981,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   function openedRow(widgets: Widget[], opening: Widget): WidgetRow {
     return WidgetRowModel.parse({
       widgets,
-      height: widgetInfos[opening.type].options.minHeight,
+      height: getWidgetInfo(opening.type).options.minHeight,
     })
   }
 
@@ -983,7 +1009,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       layout.set([...rows, openedRow(widgets, widget)])
     } else {
       const rowObject = rows[row]
-      const minHeight = widgetInfos[widget.type].options.minHeight
+      const minHeight = getWidgetInfo(widget.type).options.minHeight
       if (rowObject.height < minHeight) {
         rowObject.height = minHeight
       }
@@ -2524,7 +2550,8 @@ export function widgetTargetSignature(widget: Widget): string {
     values.push(widget.query)
   }
   if ('filter' in widget) {
-    values.push(widget.filter.address)
+    // Guarded, since an unknown kind can carry a `filter` of any shape at all.
+    values.push((widget.filter as { address?: unknown } | null)?.address)
   }
   if ('particles' in widget) {
     values.push(widget.particles.map((particle) => particle.address?.toString() ?? null))

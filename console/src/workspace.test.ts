@@ -548,6 +548,29 @@ describe('planWidgetUngroup', () => {
   })
 })
 
+describe('a stored widget of an unknown kind', () => {
+  it('is kept exactly as it came rather than dropped', () => {
+    const data = WorkspaceDataModel.parse({
+      layout: [
+        {
+          id: 'r1',
+          height: 250,
+          collapsed: false,
+          widgets: [
+            { id: 'w1', name: 'UI', width: 120, type: 'ui', interfaceAddress: '@driver' },
+            { id: 'w2', name: 'w2', width: 120, type: 'logs', filter: {} },
+          ],
+        },
+      ],
+    })
+    const held = data.layout[0]?.widgets[0] as unknown as { type: string; interfaceAddress: string }
+
+    expect(held?.type).toBe('ui')
+    expect(held?.interfaceAddress).toBe('@driver')
+    expect(data.layout[0]?.widgets[1]?.type).toBe('logs')
+  })
+})
+
 describe('a stored button widget', () => {
   /** The widgets a stored workspace holds, once it has been read the way the app reads one. */
   function loaded(...widgets: unknown[]): Widget[] {
