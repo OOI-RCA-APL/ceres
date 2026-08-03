@@ -642,14 +642,15 @@ function convertToCarousel() {
   @include strip.tab;
 }
 
-// Drawn as an outline rather than as a tab, since it is being offered rather than made. Wide
-// enough to be worth letting go over, and faded the way an unshown tab is.
+// Drawn as an offer rather than as a tab, wearing the same dashed border and tint every drop
+// target wears, so it reads as a place to let go rather than as a tab that already exists.
 .ghost {
   flex: 0 0 auto;
   min-width: 60px;
-  opacity: 0.7;
-  outline: 1px dashed currentColor;
-  outline-offset: -2px;
+  border: 2px dashed $primary;
+  border-radius: 4px;
+  background-color: rgba($primary, 0.1);
+  color: $primary;
 }
 
 // The grip and the close button sit against the tab's own edges rather than inside the row, so they
