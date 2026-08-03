@@ -77,10 +77,21 @@ useResizeObserver(
 const rowsInView = $computed(() => Math.max(1, Math.ceil(viewport / itemSize)))
 const buffer = $computed(() => Math.ceil(rowsInView * overscan))
 
-const from = $computed(() => Math.max(0, Math.floor(start / itemSize) - buffer))
-const to = $computed(() =>
-  Math.min(items.length, Math.ceil((start + viewport) / itemSize) + buffer)
-)
+// How many rows of travel the drawn window ignores before it moves. Redrawing at every row would
+// relayout the table on nearly every frame of a scroll, and the stutter of that is visible in the
+// scrollbar even when the rows themselves glide. Between steps nothing in here changes at all, so
+// the browser scrolls composited content and touches no layout. The buffer is what makes the
+// coarseness safe, being several times deeper than a step.
+const stride = 8
+
+const from = $computed(() => {
+  const stepped = Math.floor(Math.floor(start / itemSize) / stride) * stride
+  return Math.max(0, stepped - buffer)
+})
+const to = $computed(() => {
+  const stepped = Math.floor(Math.floor(start / itemSize) / stride) * stride
+  return Math.min(items.length, stepped + stride + rowsInView + buffer)
+})
 
 const shown = $computed(() => items.slice(from, to))
 const above = $computed(() => from * itemSize)
@@ -108,26 +119,41 @@ function keyFor(item: unknown, index: number) {
   return typeof id === 'string' || typeof id === 'number' ? id : index
 }
 
-/** Put row `index` on screen, which is the whole of what following the newest record needs. */
-function scrollTo(index: number) {
+/** Move to `top`, and draw for there in the same breath.
+
+A scroll the user makes is heard about through an event, which is soon enough because the position
+has only moved as far as a hand can move it. A move made in code goes as far as it likes, and the
+event announcing it arrives a frame later, so drawing for the old position in the meantime leaves
+whatever the jump crossed undrawn. Setting both together is what keeps that frame from being blank.
+*/
+function moveTo(top: number) {
   const box = scroller
   if (box == null) {
     return
   }
 
-  box.scrollTop = Math.max(0, Math.min(index, items.length)) * itemSize
+  box.scrollTop = top
+
+  // Read back rather than assumed, since the box clamps what it was asked for to what it has.
+  start = box.scrollTop
+}
+
+/** Put row `index` on screen, which is the whole of what following the newest record needs. */
+function scrollTo(index: number) {
+  moveTo(Math.max(0, Math.min(index, items.length)) * itemSize)
 }
 
 /** Nothing is measured, so there is nothing to measure again. Kept for the callers that ask. */
 function refresh() {}
 
-defineExpose({ scrollTo, refresh, element: $$(scroller) })
+defineExpose({ scrollTo, moveTo, refresh, element: $$(scroller) })
 </script>
 
 <template>
   <q-markup-table
     ref="table"
     class="q-virtual-scroll q-virtual-scroll--vertical scroll"
+    :class="$style.root"
     dense
     flat
     separator="cell"
@@ -151,3 +177,18 @@ defineExpose({ scrollTo, refresh, element: $$(scroller) })
     </tbody>
   </q-markup-table>
 </template>
+
+<style module>
+/* The browser must not anchor the scroll against anything in here. Chrome holds the content under
+the eye still when layout above it changes, by silently moving the scroll position, and here the
+layout above changes on every step of a scroll, because that is what virtualization is: the top
+spacer gives up a row's height and the row takes its place. Anchored on the table or a spacer,
+that reads as the content jumping, and the correction feeds itself, moving the scroll, which moves
+the window, which shifts the layout again, so a small upward scroll accelerates to the top of the
+list on its own. The scroller keeps the content still by its own arithmetic, so the browser has
+nothing to correct. */
+.root,
+.root * {
+  overflow-anchor: none;
+}
+</style>

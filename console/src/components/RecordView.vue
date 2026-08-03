@@ -144,9 +144,21 @@ const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
 const recordOverscan = 2
 const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
-const recordsUntilNearTop = 30
+// How far above the top the records above start being fetched. Deep enough that the request has
+// long landed before the top is reached, so arriving there shows records rather than a wait, and
+// so the fetch happens while there is still plenty of list left to scroll through.
+const recordsUntilNearTop = 400
 
-let scroll = $shallowRef<{ scrollTo: (index: number) => void; refresh: () => void } | null>(null)
+// How far above the top the records above are actually put in. Short of the top rather than at it,
+// so a scroll that is still travelling runs straight on into them instead of arriving at the end
+// of the list and losing its momentum while they are placed.
+const recordsUntilPlacingPrevious = 60
+
+let scroll = $shallowRef<{
+  scrollTo: (index: number) => void
+  moveTo: (top: number) => void
+  refresh: () => void
+} | null>(null)
 let scrollElement = $shallowRef<HTMLDivElement | null>(null)
 
 let tableElement = $ref<HTMLElement | null>(null)
@@ -164,7 +176,16 @@ const recordsPending = shallowReactive<Record[]>([])
 let lastLoadedCurrent = $shallowRef<Datetime | null>(null)
 let lastLoadedPrevious = $shallowRef<Datetime | null>(null)
 
+/** Older records already fetched and waiting to be put in, which is what stops the top of the
+list being a wait for a request. Nothing here is drawn, so it costs the list no height. */
+const previousBuffer = shallowReactive<Record[]>([])
+
 const earliestRecordTimestamp = $computed(() => records[0]?.timestamp ?? null)
+
+/** The oldest record held anywhere, drawn or waiting, which is where the next fetch carries on. */
+const earliestHeldTimestamp = $computed(
+  () => previousBuffer[0]?.timestamp ?? earliestRecordTimestamp
+)
 
 const documentVisibility = $(useDocumentVisibility())
 const isDocumentVisible = $computed(() => documentVisibility === 'visible')
@@ -249,7 +270,7 @@ async function scrollToBottom(duration = 1000, interval = 50) {
     setTimeout(() => {
       nextTick(() => {
         if (scrollElement != null) {
-          scrollElement.scrollTop = containerInfo.scrollHeight * 2
+          scroll?.moveTo(containerInfo.scrollHeight * 2)
         }
       })
     })
@@ -270,7 +291,11 @@ async function scrollToBottom(duration = 1000, interval = 50) {
 
 let isFollowing = $ref(true)
 
+/** When the scroller last moved for any reason, which is what says a scroll is in progress. */
+let lastScrolledAt = 0
+
 async function onScroll() {
+  lastScrolledAt = performance.now()
   updateContainerInfo()
   if (isScrollingToBottom) {
     isFollowing = true
@@ -278,23 +303,52 @@ async function onScroll() {
     isFollowing = isAtBottom()
   }
 
-  if (isExhausted || isLoadingCurrent || isLoadingPrevious || !isDocumentVisible) {
+  if (isLoadingCurrent || !isDocumentVisible) {
     return
   }
 
-  if (lastLoadedCurrent == null || utc().diff(lastLoadedCurrent) < 1000) {
-    return
+  // Fetched well before they are wanted, so reaching the top does not mean waiting on a request.
+  if (isWithinReachOfTop()) {
+    void fetchPrevious()
   }
-  if (lastLoadedPrevious != null && utc().diff(lastLoadedPrevious) < 1000) {
+
+  // Held back until the scroll is over, or until they are the only thing left to show. Putting
+  // them in grows the scrollable extent, and a scrollbar's thumb is sized and placed by that
+  // extent, so growing it mid-gesture is what the thumb shows as a jump.
+  if (previousBuffer.length > 0) {
+    if (isCloseToTop()) {
+      void placePrevious()
+    } else {
+      placePreviousOnceStill()
+    }
+  }
+}
+
+/** How long the scroller must hold still before the list may grow underneath it. */
+const stillnessBeforeLoading = 180
+
+let placePreviousTimer: ReturnType<typeof setTimeout> | null = null
+
+function placePreviousOnceStill() {
+  if (placePreviousTimer != null) {
     return
   }
 
-  if (!isNearTop()) {
-    return
-  }
+  placePreviousTimer = setTimeout(() => {
+    placePreviousTimer = null
 
-  isLoadingPrevious = true
-  await loadPrevious()
+    if (previousBuffer.length === 0) {
+      return
+    }
+
+    // Still moving, so wait out another stretch of quiet rather than growing the list now.
+    if (performance.now() - lastScrolledAt < stillnessBeforeLoading) {
+      placePreviousOnceStill()
+      return
+    }
+
+    void placePrevious()
+  }, stillnessBeforeLoading)
 }
 
 watchEffect((onCleanup) => {
@@ -306,12 +360,22 @@ watchEffect((onCleanup) => {
   })
 })
 
-function isNearTop() {
+/** Close enough to the top that the records above ought to be on their way. */
+function isWithinReachOfTop() {
   if (scrollElement == null) {
     return false
   }
 
   return containerInfo.scrollTop <= recordsUntilNearTop * recordHeight
+}
+
+/** Close enough to the top that the records above are wanted now, before the top is reached. */
+function isCloseToTop() {
+  if (scrollElement == null) {
+    return false
+  }
+
+  return containerInfo.scrollTop <= recordsUntilPlacingPrevious * recordHeight
 }
 
 function isAtBottom() {
@@ -352,10 +416,11 @@ async function prependRecords(prepended: Record[]) {
   const scrollTop = scrollElement?.scrollTop ?? containerInfo.scrollTop
   const height = prepended.length * recordHeight
   records.splice(0, 0, ...prepended)
+
+  // Only once the rows are there can the position move past where they end, since a box refuses to
+  // scroll further than it reaches.
   await nextTick()
-  scrollElement?.scrollTo({
-    top: scrollTop + height,
-  })
+  scroll?.moveTo(scrollTop + height)
   await nextTick()
 }
 
@@ -391,14 +456,27 @@ async function appendRecords(appended: Record[]) {
   await nextTick()
 }
 
-async function loadPrevious() {
+async function fetchPrevious() {
+  if (isExhausted || isLoadingPrevious || previousBuffer.length > 0) {
+    return
+  }
+
+  if (lastLoadedCurrent == null || utc().diff(lastLoadedCurrent) < 1000) {
+    return
+  }
+  if (lastLoadedPrevious != null && utc().diff(lastLoadedPrevious) < 1000) {
+    return
+  }
+
   isLoadingPrevious = true
 
   const key = filterKey
   try {
     const results: Record[] = await get({
       ...filter,
-      before: earliestRecordTimestamp == null ? filter.before : earliestRecordTimestamp,
+      // Counted from the oldest record held anywhere, so what is already waiting in the buffer is
+      // not asked for a second time.
+      before: earliestHeldTimestamp == null ? filter.before : earliestHeldTimestamp,
       order: 'timestamp:desc',
       limit: recordLoadSize,
     })
@@ -408,11 +486,26 @@ async function loadPrevious() {
     }
 
     isExhausted = results.length === 0
-    await prependRecords(results.reverse())
+    previousBuffer.splice(0, 0, ...results.reverse())
     lastLoadedPrevious = utc()
+
+    // The top may have been come up on while these were still on their way, and there is nothing
+    // above to scroll to that would ask for them again, so they go in the moment they land.
+    if (isCloseToTop()) {
+      await placePrevious()
+    }
   } finally {
     isLoadingPrevious = false
   }
+}
+
+/** Put the records waiting above the list into it, keeping what is on screen where it is. */
+async function placePrevious() {
+  if (previousBuffer.length === 0) {
+    return
+  }
+
+  await prependRecords(previousBuffer.splice(0))
 }
 
 async function loadCurrent() {
@@ -421,6 +514,7 @@ async function loadCurrent() {
   isLoadingCurrent = true
   records.splice(0)
   recordsPending.splice(0)
+  previousBuffer.splice(0)
 
   const key = filterKey
   try {
@@ -435,7 +529,9 @@ async function loadCurrent() {
     }
 
     isExhausted = results.length === 0
-    const appended = [...results.reverse(), ...recordsPending]
+
+    // Taken out of pending rather than copied, so a later flush cannot land them a second time.
+    const appended = [...results.reverse(), ...recordsPending.splice(0)]
     await appendRecords(appended)
     lastLoadedCurrent = utc()
     await scrollToBottom()
@@ -462,6 +558,7 @@ watch(
   async () => {
     records.splice(0)
     recordsPending.splice(0)
+    previousBuffer.splice(0)
     isLoadingCurrent = true
     debouncedLoadCurrent()
   }
@@ -469,9 +566,43 @@ watch(
 
 const debouncedFilter = debouncedComputed(() => cloneDeep(filter), 750)
 
+/** Whether arriving records should wait rather than land in the list right away.
+
+A record appended mid-scroll grows the list under the scrollbar, and the thumb recomputing against
+a new total once or twice a second reads as stutter. The new records belong below the viewport of
+someone reading history, so nothing visible is lost by holding them until the scrolling pauses.
+At the bottom the view is following and the whole point is watching them arrive.
+*/
+function shouldHoldAppends() {
+  return !isFollowing && performance.now() - lastScrolledAt < 400
+}
+
+let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushPendingSoon() {
+  if (pendingFlushTimer != null) {
+    return
+  }
+
+  pendingFlushTimer = setTimeout(async () => {
+    pendingFlushTimer = null
+    if (recordsPending.length === 0) {
+      return
+    }
+
+    if (isLoadingCurrent || shouldHoldAppends()) {
+      flushPendingSoon()
+      return
+    }
+
+    await appendRecords(recordsPending.splice(0))
+  }, 300)
+}
+
 useStream(debouncedFilter, async (record: Record) => {
-  if (isLoadingCurrent) {
+  if (isLoadingCurrent || shouldHoldAppends()) {
     recordsPending.push(record)
+    flushPendingSoon()
   } else {
     await appendRecords([record])
   }
