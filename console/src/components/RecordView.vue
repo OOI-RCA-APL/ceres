@@ -406,6 +406,33 @@ async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
+// Every record in the list, by ID, so one cannot land twice however it arrives. The initial fetch
+// races the stream, a reconnecting stream replays records it already sent, and a page of older
+// records can share its boundary timestamp with a record already held. A duplicate ID draws the
+// same row twice and trips Vue's key warning. Kept in step by the two functions below, cleared
+// when the list is, and rebuilt after a cull, so membership costs one lookup per record.
+const heldRecordIds = new Set<string>()
+
+function rebuildHeldRecordIds() {
+  heldRecordIds.clear()
+  for (const record of records) {
+    heldRecordIds.add(record.id)
+  }
+}
+
+/** The records of `incoming` not already in the list, each counted as held on the way through. */
+function onlyNewRecords(incoming: Record[]) {
+  const fresh: Record[] = []
+  for (const record of incoming) {
+    if (!heldRecordIds.has(record.id)) {
+      heldRecordIds.add(record.id)
+      fresh.push(record)
+    }
+  }
+
+  return fresh
+}
+
 // Older records arrive above whatever is on screen, which would carry it down the list by exactly
 // their height. Adding that height back leaves the same records under the eye, so a scroll upwards
 // runs on rather than jumping.
@@ -414,8 +441,9 @@ async function prependRecords(prepended: Record[]) {
   // as the last scroll event, and a scroll still under way has moved on since, so compensating
   // from one would put the view back where the scrolling had already left.
   const scrollTop = scrollElement?.scrollTop ?? containerInfo.scrollTop
-  const height = prepended.length * recordHeight
-  records.splice(0, 0, ...prepended)
+  const fresh = onlyNewRecords(prepended)
+  const height = fresh.length * recordHeight
+  records.splice(0, 0, ...fresh)
 
   // Only once the rows are there can the position move past where they end, since a box refuses to
   // scroll further than it reaches.
@@ -426,14 +454,15 @@ async function prependRecords(prepended: Record[]) {
 
 async function appendRecords(appended: Record[]) {
   const follow = isFollowing
+  const fresh = onlyNewRecords(appended)
   let resort = false
-  if (appended.length > 0 && records.length > 0) {
-    if (appended[appended.length - 1].timestamp < records[records.length - 1].timestamp) {
+  if (fresh.length > 0 && records.length > 0) {
+    if (fresh[fresh.length - 1].timestamp < records[records.length - 1].timestamp) {
       resort = true
     }
   }
 
-  records.push(...appended)
+  records.push(...fresh)
   if (resort) {
     // Compared directly rather than with localeCompare. These are ISO timestamps, so the result is
     // the same either way, but nothing here depends on a locale and saying otherwise misleads.
@@ -445,6 +474,7 @@ async function appendRecords(appended: Record[]) {
   if (follow) {
     if (records.length > recordCullThreshold) {
       records.splice(0, records.length - recordCullCount)
+      rebuildHeldRecordIds()
       await scrollToBottom(100)
     } else {
       scroll?.scrollTo(records.length)
@@ -515,6 +545,7 @@ async function loadCurrent() {
   records.splice(0)
   recordsPending.splice(0)
   previousBuffer.splice(0)
+  heldRecordIds.clear()
 
   const key = filterKey
   try {
@@ -543,6 +574,7 @@ async function loadCurrent() {
 
 async function onScrollToBottomClicked() {
   records.splice(0, records.length - recordCullCount)
+  rebuildHeldRecordIds()
   await nextTick()
   await scrollToBottom(250)
 }
@@ -559,6 +591,7 @@ watch(
     records.splice(0)
     recordsPending.splice(0)
     previousBuffer.splice(0)
+    heldRecordIds.clear()
     isLoadingCurrent = true
     debouncedLoadCurrent()
   }
