@@ -35,7 +35,7 @@
 | `ceres/__internal__/utilities/typing.py` | 86% |
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
-| `ceres/__internal__/workspace_redaction.py` | 91% |
+| `ceres/__internal__/workspace_redaction.py` | 92% |
 | `ceres/__main__.py` | 40% |
 | `ceres/access.py` | 99% |
 | `ceres/address.py` | 98% |
