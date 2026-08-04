@@ -136,14 +136,18 @@ export const useComponents = defineStore('components', () => {
     })
   }
 
+  // The signal cancels the action as well as the request, since the engine ties the running
+  // procedure to the request that asked for it and a client gone away cancels it.
   async function call(
     address: Address,
     procedure: string,
-    args: MaybeRef<Record<string, any>> = {}
+    args: MaybeRef<Record<string, any>> = {},
+    options: { signal?: AbortSignal } = {}
   ) {
     return await client.post(`/api/components/${address}/procedures/${procedure}/call`, {
       data: unref(args),
       parse: AnyResultModel,
+      init: { signal: options.signal },
     })
   }
 

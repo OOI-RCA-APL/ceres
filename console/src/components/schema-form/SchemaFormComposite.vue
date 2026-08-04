@@ -15,8 +15,15 @@ const label = $computed(() => (path.length === 0 ? undefined : form.getLabel(pat
 
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
-const isShowingHeader = $computed(() => label != null || description != null || !isRequired)
 const isRoot = $computed(() => path.length === 0)
+
+// The form's own heading belongs to the root alone, drawn under the root description so the
+// fields that follow read as what it names.
+const title = $computed(() => (isRoot ? form.title : undefined))
+
+const isShowingHeader = $computed(
+  () => label != null || description != null || title != null || !isRequired
+)
 
 const description = $computed(() => form.getDescription(path))
 
@@ -51,6 +58,7 @@ function create() {
                 {{ description }}
               </common-text>
             </div>
+            <common-text v-if="title != null" variant="th">{{ title }}</common-text>
             <div :class="[$style.buttons, 'col-shrink justify-end row']">
               <schema-form-node-clear-button
                 v-if="!isRequired && modelValue !== undefined"

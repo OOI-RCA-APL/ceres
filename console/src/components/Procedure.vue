@@ -58,6 +58,9 @@ const options = $computed(() => {
 const form = useSchemaForm({
   ...(options as any),
   schema: () => procedure.arguments.json_schema,
+  // Only fields deserve a heading. A procedure taking nothing still shows its description, and an
+  // "Arguments" heading over no arguments would only promise fields that never come.
+  title: () => (form.isEmpty ? undefined : 'Arguments'),
   async onSubmit(args) {
     sentAt = utc()
     receivedAt = null
