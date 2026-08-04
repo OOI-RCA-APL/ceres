@@ -1,6 +1,15 @@
 import { kebabCase, isEqual, camelCase, pick, difference, isArrayLike } from 'lodash-es'
 import { debounce, LocalStorage } from 'quasar'
-import { computed, isReactive, reactive, watch, MaybeRefOrGetter, toValue } from 'vue'
+import {
+  computed,
+  getCurrentScope,
+  isReactive,
+  onScopeDispose,
+  reactive,
+  watch,
+  MaybeRefOrGetter,
+  toValue,
+} from 'vue'
 import { Router } from 'vue-router'
 import Zod, { ZodArray, ZodBoolean, ZodNativeEnum, ZodNumber, ZodObject } from 'zod'
 
@@ -51,13 +60,24 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
   const schema = typeof options.schema == 'function' ? options.schema(Zod) : options.schema
   const methods = computed(() => toValue(options.methods))
 
+  // The methods last actually read or written, held for the flush on dispose. The methods can
+  // derive from the route, and by the time the scope is being torn down the route may already
+  // belong to another page, so asking the computed again then can throw where these stay what
+  // they were.
+  let lastMethods: PersistenceMethod<TData>[] = []
+
+  function currentMethods() {
+    lastMethods = methods.value
+    return lastMethods
+  }
+
   let data = (options.data ?? schema.parse({})) as TData
   if (!isReactive(data)) {
     data = reactive(data) as TData
   }
 
   function read() {
-    for (const method of methods.value) {
+    for (const method of currentMethods()) {
       let loaded: Partial<TData> | null = null
       if (method.type === 'local-storage') {
         loaded = readFromStorage(resolveKey(method.key), schema)
@@ -74,7 +94,7 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
   }
 
   function write() {
-    for (const method of methods.value) {
+    for (const method of currentMethods()) {
       if (method.type === 'local-storage') {
         writeToStorage(method, data)
       } else if (method.type === 'url') {
@@ -92,6 +112,19 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
       write()
     }, 50)
   )
+
+  // A consumer that confirms a choice and unmounts in the same breath would lose the debounced
+  // write, since the timer outlives the watcher that would have run it. Storage is flushed on the
+  // way out. The URL is not, because by then the location may already belong to another page.
+  if (getCurrentScope() != null) {
+    onScopeDispose(() => {
+      for (const method of lastMethods) {
+        if (method.type === 'local-storage') {
+          writeToStorage(method, data)
+        }
+      }
+    })
+  }
 
   return data
 }

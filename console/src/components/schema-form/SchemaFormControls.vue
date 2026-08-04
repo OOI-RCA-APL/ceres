@@ -5,10 +5,20 @@ const {
   form,
   executeLabel = 'Execute',
   resetLabel = 'Reset',
+  cancelLabel,
 } = defineProps<{
   form?: SchemaForm | null
+
   executeLabel?: string
   resetLabel?: string
+
+  /** A label for a cancel button, offered only when set, for a form standing somewhere that can
+  be backed out of. */
+  cancelLabel?: string
+}>()
+
+const emit = defineEmits<{
+  cancel: []
 }>()
 
 function submit() {
@@ -30,6 +40,7 @@ function reset() {
         :disable="form == null || !form.canSubmit"
         :label="executeLabel"
         :loading="form?.state === 'submitting'"
+        no-caps
         unelevated
         @click="submit"
       />
@@ -41,9 +52,13 @@ function reset() {
         dense
         :disable="form == null || form.readonly || form.isInitialValue"
         :label="resetLabel"
+        no-caps
         unelevated
         @click="reset"
       />
+    </div>
+    <div v-if="cancelLabel != null" class="col">
+      <q-btn class="full-width" dense flat :label="cancelLabel" no-caps @click="emit('cancel')" />
     </div>
   </div>
 </template>

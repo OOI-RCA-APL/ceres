@@ -47,6 +47,10 @@ const BaseWidgetModel = Zod.object({
   // Fraction of row width out of 120, not pixels.
   width: Zod.number().catch(() => widgetWidthSubdivisions),
   restricted: Zod.boolean().catch(false),
+
+  // Whether the widget stands on the layout without a card and a header around it. What it shows
+  // is then all there is of it, and the handle it is arranged by comes up over it on hover.
+  frameless: Zod.boolean().catch(false),
 })
 
 export type MessageDataDisplay = Zod.infer<typeof MessageDataDisplayModel>
@@ -158,10 +162,10 @@ export const ColorModel = Zod.enum(['primary', 'positive', 'warning', 'negative'
 export type ButtonStyling = Zod.infer<typeof ButtonStylingModel>
 export const ButtonStylingModel = Zod.enum(['flat', 'outlined'])
 
-export type ButtonWidget = Zod.infer<typeof ButtonWidgetModel>
-export const ButtonWidgetModel = BaseWidgetModel.extend({
-  type: Zod.literal('button'),
-  name: Zod.string().catch(''),
+/** One action a button widget offers, and how pressing it behaves. */
+export type ButtonAction = Zod.infer<typeof ButtonActionModel>
+export const ButtonActionModel = Zod.object({
+  id: Zod.string().catch(() => v7()),
   label: Zod.string().nullish(),
   address: AddressModel.nullish(),
   action: Zod.string().nullish(),
@@ -169,9 +173,172 @@ export const ButtonWidgetModel = BaseWidgetModel.extend({
   color: ColorModel.nullish().catch(undefined),
   styling: ButtonStylingModel.nullish().catch(undefined),
   tooltip: Zod.string().nullish().catch(undefined),
+
+  // Pressing a button asks for the action's arguments before running it, since an action worth
+  // putting on a workspace is usually one that takes some. Locked, the arguments it was left with
+  // are the arguments it runs with, and pressing it runs it. On unless said otherwise, the same
+  // as the confirm, so a fresh button starts with both safeguards up.
+  locked: Zod.boolean().catch(true),
+
+  /** Whether running it asks first. On unless said otherwise, since a workspace button is easy
+  to press by accident and an action worth a button is rarely one to run by surprise. */
+  confirm: Zod.boolean().catch(true),
 })
 
-export type Widget = Zod.infer<typeof WidgetModel>
+/** Controls offered side by side, laid out as a bar. Buttons are the one kind it holds so far. */
+export type ControlsWidget = BaseWidget & {
+  type: 'controls'
+  buttons: ButtonAction[]
+}
+
+export const ControlsWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('controls'),
+  name: Zod.string().catch('Controls'),
+  buttons: safeArrayOf(ButtonActionModel),
+})
+
+/** A controls widget as one may still be stored, from when it was the button widget.
+
+Stored under the old kind, and possibly still holding the single action's fields itself, from when
+it offered exactly one. The fields are named here rather than on `ControlsWidget`, so that the rest
+of the app can only reach a button through `buttons` and cannot pick up a shape `upgradedWidget`
+has already put behind it.
+*/
+type StoredButtonWidget = Omit<ControlsWidget, 'type'> & { type: 'button' } & Partial<
+    Omit<ButtonAction, 'id' | 'locked' | 'confirm'>
+  >
+
+const StoredButtonWidgetModel = ControlsWidgetModel.extend({
+  type: Zod.literal('button'),
+
+  // What the widget held when it offered one action and held its fields itself. Kept so that a
+  // stored workspace still parses, and folded into `buttons` by `upgradedWidget` as it loads.
+  label: Zod.string().nullish(),
+  address: AddressModel.nullish(),
+  action: Zod.string().nullish(),
+  arguments: Zod.record(Zod.string(), Zod.any()).nullish(),
+  color: ColorModel.nullish().catch(undefined),
+  styling: ButtonStylingModel.nullish().catch(undefined),
+  tooltip: Zod.string().nullish().catch(undefined),
+})
+
+/** A layout held under a name of its own, which is what a carousel slide and a tab both are.
+
+Written out rather than inferred, since a page holds rows, a row holds widgets, and a widget may
+hold pages of its own. Naming the types breaks a circle the compiler cannot see the end of.
+*/
+export type WidgetPage = {
+  id: string
+  name: string
+  layout: WidgetRow[]
+}
+
+export const WidgetPageModel = Zod.object({
+  id: Zod.string().catch(() => v7()),
+  name: Zod.string().catch(''),
+  layout: safeArrayOf(Zod.lazy(() => WidgetRowModel)),
+}) as unknown as Zod.ZodType<WidgetPage>
+
+/** What a carousel calls its pages. */
+export type CarouselSlide = WidgetPage
+
+/** What a layout does with height it has been given and its rows have not asked for.
+
+A slide is as tall as the carousel holding it, whatever is on it, so there is usually height left
+over at the bottom. `last` gives it to the final row, which is where a table or a chart wants it,
+and `first` to the leading one, for a slide whose headline sits at the top and whose detail follows
+underneath. `even` shares it out, and `none` leaves it empty and the rows exactly the height they
+were dragged to.
+*/
+export type LayoutExpand = Zod.infer<typeof LayoutExpandModel>
+export const LayoutExpandModel = Zod.enum(['last', 'first', 'even', 'none'])
+
+export type CarouselWidget = BaseWidget & {
+  type: 'carousel'
+  slides: WidgetPage[]
+
+  /** How long each slide is shown, in seconds. */
+  interval: number
+
+  /** Whether it moves on by itself, as against being stepped through by hand. */
+  autoplay: boolean
+
+  /** What the slides do with the height left over once their rows have taken theirs. */
+  expand: LayoutExpand
+
+  /** Whether rows may also be squeezed below their own heights to fit the slide. */
+  shrink: boolean
+}
+
+export const CarouselWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('carousel'),
+  name: Zod.string().catch('Carousel'),
+  slides: safeArrayOf(WidgetPageModel),
+  interval: Zod.number().min(1).max(3600).catch(15),
+  // Off to begin with. A panel that starts moving on its own the moment it is added takes the
+  // page over before anyone has said what is meant to be on it.
+  autoplay: Zod.boolean().catch(false),
+  // The bottom of a slide is where empty space shows, so the row at the bottom is given it.
+  expand: LayoutExpandModel.catch('last'),
+  // Off, since squeezing a row below the height it was dragged to is a thing to ask for rather
+  // than a thing to discover.
+  shrink: Zod.boolean().catch(false),
+})
+
+/** Pages shown one at a time, reached by name rather than in turn. */
+export type TabsWidget = BaseWidget & {
+  type: 'tabs'
+  tabs: WidgetPage[]
+  fill: boolean
+
+  /** What the tabs do with the height left over once their rows have taken theirs. */
+  expand: LayoutExpand
+
+  /** Whether rows may also be squeezed below their own heights to fit the tab. */
+  shrink: boolean
+}
+
+export const TabsWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('tabs'),
+  name: Zod.string().catch('Tabs'),
+  tabs: safeArrayOf(WidgetPageModel),
+
+  // Whether the tabs share the width of the strip out between them rather than each taking only
+  // the room its own name needs.
+  fill: Zod.boolean().catch(false),
+  // The bottom of a tab is where empty space shows, so the row at the bottom is given it.
+  expand: LayoutExpandModel.catch('last'),
+  // Off, since squeezing a row below the height it was dragged to is a thing to ask for rather
+  // than a thing to discover.
+  shrink: Zod.boolean().catch(false),
+})
+
+export type Widget =
+  | MessagesWidget
+  | ParticlesWidget
+  | AlertsWidget
+  | LogsWidget
+  | ProceduresWidget
+  | ChartWidget
+  | ValueWidget
+  | VideoWidget
+  | ControlsWidget
+  | CarouselWidget
+  | TabsWidget
+
+/** A widget of a kind this console has no model for.
+
+Another console version can store kinds this one has never heard of, and parsing used to drop
+them, which deleted the widget for everyone the next time anybody saved the workspace. Everything
+the widget carries rides along untouched instead, for the console that does know it, and this one
+draws a placeholder saying so. Typed as `Widget` all the same, so the layouts hold it like any
+other, with `getWidgetInfo` answering for the kinds the infos do not.
+*/
+export const UnknownWidgetModel = BaseWidgetModel.extend({
+  type: Zod.string(),
+  name: Zod.string().catch(''),
+}).passthrough()
+
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
   ParticlesWidgetModel,
@@ -181,18 +348,51 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   ChartWidgetModel,
   ValueWidgetModel,
   VideoWidgetModel,
-  ButtonWidgetModel,
-])
+  ControlsWidgetModel,
+  // The kind the controls widget was stored under before it grew past buttons. Parsed with its
+  // own model rather than left to the unknown fallback, and turned into `controls` by
+  // `upgradedWidget` as it loads.
+  StoredButtonWidgetModel,
+  CarouselWidgetModel,
+  TabsWidgetModel,
+]).or(UnknownWidgetModel) as unknown as Zod.ZodType<Widget>
 
 export type WidgetType = Widget['type']
-export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos]
+export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos] | typeof unknownWidgetInfo
 export type WidgetComponent = (typeof widgetInfos)[WidgetType]['component']
 
 const defaultMinHeight = 150
 const defaultPaddingClass = 'q-pa-sm'
 
 export function getWidgetInfo(type: WidgetType): WidgetInfo {
-  return widgetInfos[type]
+  // A stored widget can carry a kind this console has no model for, whatever its type claims.
+  return (widgetInfos as Partial<Record<string, WidgetInfo>>)[type] ?? unknownWidgetInfo
+}
+
+/** The name a widget of `type` carries when nothing has been made of it.
+
+A name nobody chose should not outlive the kind of widget it was the default for, so turning one
+kind into another compares against this to tell a chosen name from an inherited one.
+*/
+export function defaultWidgetName(type: WidgetType): string {
+  return createWidget(type).name
+}
+
+/** Build a widget of `type`, whose defaults are whatever its own model says they are.
+
+Said as a cast, because a carousel holds slides that hold rows that hold widgets, and the compiler
+gives up on a shape that reaches back into itself. The models still describe it exactly.
+*/
+export function createWidget(type: WidgetType): Widget {
+  const widget = widgetInfos[type].model.parse({ type }) as Widget
+
+  // A carousel or a tab strip begins with a page, since one holding none has no layout at all and
+  // so nothing that a widget can be dragged onto or pasted into.
+  if ((widget.type === 'carousel' || widget.type === 'tabs') && pagesOf(widget).length === 0) {
+    return withPages(widget, [{ id: v7(), name: '', layout: [] }])
+  }
+
+  return widget
 }
 
 type WidgetOptionsInput = {
@@ -294,27 +494,81 @@ export const widgetInfos = {
       paddingClass: [],
     }),
   },
-  button: {
-    type: 'button',
-    name: 'Button',
-    model: ButtonWidgetModel,
-    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetButton.vue')),
-    settingsComponent: defineAsyncComponent(
-      () => import('@/components/WorkspaceWidgetButtonSettings.vue')
-    ),
+  tabs: {
+    type: 'tabs',
+    name: 'Tabs',
+    model: TabsWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetTabs.vue')),
+    // No settings of its own, for the same reason a carousel has none. Its pages are arranged on
+    // the strip that names them.
     options: widgetOptions({
-      minHeight: 50,
+      paddingClass: [],
+    }),
+  },
+  carousel: {
+    type: 'carousel',
+    name: 'Carousel',
+    model: CarouselWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetCarousel.vue')),
+    // No settings of its own. A carousel is arranged on the carousel, and how it runs is set from
+    // the band of controls under its slides, beside the slides those settings act on.
+    options: widgetOptions({
+      paddingClass: [],
+    }),
+  },
+  controls: {
+    type: 'controls',
+    name: 'Controls',
+    model: ControlsWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetControls.vue')),
+    // No settings of its own. Each control is configured from the control itself, since a widget
+    // holding several has nothing left to say about all of them at once.
+    options: widgetOptions({
+      minHeight: 90,
       fullHeight: false,
     }),
   },
 } as const
 
-export type WidgetRow = Zod.infer<typeof WidgetRowModel>
+// Answers for every kind the infos above do not, with a placeholder saying the kind is not one
+// this console knows. Outside `widgetInfos` itself, so no menu offers creating one.
+const unknownWidgetInfo = {
+  type: 'unknown',
+  name: 'Unknown Widget',
+  model: UnknownWidgetModel,
+  component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetUnknown.vue')),
+  options: widgetOptions({
+    fullHeight: false,
+  }),
+} as const
+
+/** Written out for the same reason `WidgetPage` is, being the other half of the same circle. */
+export type WidgetRow = {
+  id: string
+  height: number
+  collapsed: boolean
+  widgets: Widget[]
+}
+
 export const WidgetRowModel = Zod.object({
   id: Zod.string().catch(() => v7()),
   height: Zod.number().catch(250),
   collapsed: Zod.boolean().catch(false),
   widgets: safeArrayOf(WidgetModel),
+}) as unknown as Zod.ZodType<WidgetRow>
+
+/** Widgets on the system clipboard, laid out the way they were taken.
+
+Rows are kept rather than a flat list, so a block copied out of a workspace comes back with the
+shape it had, the same as one dragged across it. The marker is what tells a paste of widgets apart
+from a paste of any other text.
+*/
+export type WidgetClipboard = Zod.infer<typeof WidgetClipboardModel>
+export const WidgetClipboardModel = Zod.object({
+  ceres: Zod.literal('widgets'),
+  // Upgraded on the way in, since a copy may have been taken before the workspace it came from
+  // was, or taken from a workspace nobody has opened since.
+  rows: safeArrayOf(WidgetRowModel).transform(upgradedRows),
 })
 
 export type WorkspaceMeta = Zod.infer<typeof WorkspaceMetaModel>
@@ -330,10 +584,60 @@ export const WorkspaceMetaModel = Zod.object({
   order: Zod.number().nullish().catch(undefined),
 })
 
+/** A widget as the app understands it now, whatever shape it was stored in.
+
+The controls widget was stored as `button`, and before that it offered one action and held that
+action's fields itself. A stored one becomes a controls widget holding the buttons it always was,
+and the old kind and fields are left behind rather than carried, so the next write puts the new
+shape back.
+*/
+export function upgradedWidget(widget: Widget): Widget {
+  const pages = pagesOf(widget).map((page) => ({
+    ...page,
+    layout: upgradedRows(page.layout),
+  }))
+
+  // A carousel or a tab strip always holds at least one page. One holding none has no layout, and
+  // so nothing that can be dragged onto or pasted into, which leaves it a widget with no way in.
+  const upgraded = withPages(
+    widget,
+    pages.length === 0 && (widget.type === 'carousel' || widget.type === 'tabs')
+      ? [{ id: v7(), name: '', layout: [] }]
+      : pages
+  )
+
+  const stored = upgraded as Widget | StoredButtonWidget
+  if (stored.type !== 'button') {
+    return upgraded
+  }
+
+  const { label, address, action, color, styling, tooltip, arguments: values, ...rest } = stored
+  const held = { label, address, action, color, styling, tooltip }
+
+  // A button widget was stored with empty arguments whether or not anything was ever made of it,
+  // so the fields a user could have set are what say there is a button here to carry over.
+  const wasConfigured = Object.values(held).some((value) => value != null)
+  if (stored.buttons.length > 0 || !wasConfigured) {
+    return { ...rest, type: 'controls', buttons: stored.buttons }
+  }
+
+  return {
+    ...rest,
+    type: 'controls',
+    buttons: [ButtonActionModel.parse({ ...held, arguments: values ?? {} })],
+  }
+}
+
+export function upgradedRows(rows: WidgetRow[]): WidgetRow[] {
+  return rows.map((row) => ({ ...row, widgets: row.widgets.map(upgradedWidget) }))
+}
+
 export type WorkspaceDataInput = Zod.input<typeof WorkspaceDataModel>
 export type WorkspaceData = Zod.infer<typeof WorkspaceDataModel>
 export const WorkspaceDataModel = Zod.object({
-  layout: WidgetRowModel.array().catch(() => []),
+  layout: WidgetRowModel.array()
+    .catch(() => [])
+    .transform(upgradedRows),
   meta: WorkspaceMetaModel.catch(() => ({ order: undefined })),
 })
 
@@ -400,8 +704,10 @@ export const WorkspaceEditModel = Zod.object({
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
-/** Handlers a `Workspace.vue` instance exposes to whatever renders its `header-prepend` slot,
-so a scoped workspace's tab strip can drive the same actions the standalone header would.
+/** Handlers a `Workspace.vue` instance exposes to whatever renders its `header-prepend` slot.
+
+A workspace is always shown on a tab strip, on the home page or on the component it is placed on,
+so the strip is what a workspace is acted on through and this is what it drives.
 */
 export type WorkspaceHeaderActions = {
   rename: (name: string) => void
@@ -428,10 +734,18 @@ export type WorkspaceHeaderState = {
 }
 
 export type Drag = {
+  /** The widget the press landed on, which is the one the cursor carries a name for. */
   widget: Widget
-  row: number
-  column: number
+
+  /** Everything in hand, in layout order, `widget` among it. */
+  widgets: Widget[]
+
+  /** The layout it all came out of, which is one layout since a selection is made in one. */
+  layout: string
 }
+
+/** How a widget joins what is already picked out when it is chosen. */
+export type SelectMode = 'replace' | 'toggle' | 'extend'
 
 function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   const auth = useAuth()
@@ -647,24 +961,61 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     })
   }
 
-  function insertWidget(widget: Widget, row: number, column: number = 0) {
+  /** Every layout this workspace holds, its own and each carousel slide's, in that order. */
+  function layoutRefs(): WorkspaceLayoutRef[] {
     if (data == null) {
+      return []
+    }
+
+    const current = data
+    return collectLayouts(current.layout, (rows) => (current.layout = rows))
+  }
+
+  function layoutMap(): Map<string, WidgetRow[]> {
+    return new Map(layoutRefs().map((layout) => [layout.id, layout.rows]))
+  }
+
+  function findLayout(id: string): WorkspaceLayoutRef | null {
+    return layoutRefs().find((layout) => layout.id === id) ?? null
+  }
+
+  /** A row opened to hold `widget`, as tall as that widget asks to be and no taller.
+
+  A row is otherwise opened at the height a row of charts wants, which leaves a button or a value
+  sitting at the top of a band of nothing that has to be dragged shut by hand every time.
+  */
+  function openedRow(widgets: Widget[], opening: Widget): WidgetRow {
+    return WidgetRowModel.parse({
+      widgets,
+      height: getWidgetInfo(opening.type).options.minHeight,
+    })
+  }
+
+  function insertWidget(
+    widget: Widget,
+    row: number,
+    column: number = 0,
+    layoutId: string = rootLayoutId
+  ) {
+    const layout = findLayout(layoutId)
+    if (layout == null) {
       return
     }
 
-    row = Math.min(data.layout.length, row)
-    const widgets = [...(data.layout[row]?.widgets ?? [])]
+    const rows = layout.rows
+    row = Math.min(rows.length, row)
+    const widgets = [...(rows[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
     widget.width = Math.min(widgetWidthSubdivisions / widgets.length, widget.width)
     resolveWidgetWidths(widgets, widgets.indexOf(widget))
 
     if (row < 0) {
-      data.layout = [WidgetRowModel.parse({ widgets }), ...data.layout]
-    } else if (data.layout[row] == null) {
-      data.layout = [...data.layout, WidgetRowModel.parse({ widgets })]
+      layout.set([openedRow(widgets, widget), ...rows])
+    } else if (rows[row] == null) {
+      layout.set([...rows, openedRow(widgets, widget)])
     } else {
-      const rowObject = data.layout[row]
-      const minHeight = widgetInfos[widget.type].options.minHeight
+      const rowObject = rows[row]
+      const minHeight = getWidgetInfo(widget.type).options.minHeight
       if (rowObject.height < minHeight) {
         rowObject.height = minHeight
       }
@@ -673,140 +1024,407 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   }
 
-  function addWidget(type: WidgetType, row: number, column: number = 0) {
+  function addWidget(
+    type: WidgetType,
+    row: number,
+    column: number = 0,
+    layoutId: string = rootLayoutId
+  ) {
     if (data == null) {
       return null
     }
 
-    const widget = widgetInfos[type].model.parse({ type })
-    insertWidget(widget, row, column)
+    const widget = createWidget(type)
+    insertWidget(widget, row, column, layoutId)
 
     return widget
+  }
+
+  function deleteWidgets(ids: string[]) {
+    if (data == null || ids.length === 0) {
+      return
+    }
+
+    const removed = new Set(ids)
+
+    // Every layout is asked, since a widget is deleted by name rather than by where it sits and a
+    // carousel slide holds widgets the same way the workspace does.
+    for (const layout of layoutRefs()) {
+      const rows: WidgetRow[] = []
+      let changed = false
+
+      for (const row of layout.rows) {
+        const remaining = row.widgets.filter((widget) => !removed.has(widget.id))
+        if (remaining.length === row.widgets.length) {
+          rows.push(row)
+          continue
+        }
+
+        changed = true
+        if (remaining.length === 0) {
+          continue
+        }
+
+        resolveWidgetWidths(remaining)
+        rows.push({ ...row, widgets: remaining })
+      }
+
+      if (changed) {
+        layout.set(rows)
+      }
+    }
   }
 
   function deleteWidget(id: string) {
-    if (data == null) {
-      return null
-    }
-
-    for (const [i, row] of data.layout.entries()) {
-      const widget = row.widgets.find((widget) => widget.id === id) ?? null
-      if (widget != null) {
-        row.widgets = row.widgets.filter((widget) => widget.id !== id)
-        resolveWidgetWidths(row.widgets)
-
-        if (row.widgets.length === 0) {
-          data.layout = data.layout.filter((_, index) => index !== i)
-        }
-
-        return widget
-      }
-    }
-
-    return null
+    deleteWidgets([id])
   }
 
   function getWidget(id: string) {
-    return data?.layout.flatMap((row) => row.widgets).find((widget) => widget.id === id) ?? null
-  }
-
-  function getWidgetPosition(id: string): [row: number, column: number] | null {
-    for (const [rowIndex, row] of data?.layout.entries() ?? []) {
-      const columnIndex = row.widgets.findIndex((widget) => widget.id === id)
-      if (columnIndex !== -1) {
-        return [rowIndex, columnIndex]
+    for (const layout of layoutRefs()) {
+      const found = layout.rows.flatMap((row) => row.widgets).find((widget) => widget.id === id)
+      if (found != null) {
+        return found
       }
     }
 
     return null
   }
 
-  function getWidgetAt(row: number, column: number) {
-    return data?.layout[row]?.widgets[column] ?? null
-  }
+  /** Put `replacement` where the widget named `id` stands, keeping its name and its width.
 
-  function moveWidget(id: string, toRow: number, toColumn?: number | null) {
-    if (data == null) {
-      return null
-    }
-
-    const position = getWidgetPosition(id)
-    if (position == null) {
-      return null
-    }
-    const [fromRow, fromColumn] = position
-
-    const sourceRow = data.layout[fromRow] ?? null
-    if (sourceRow == null) {
-      return null
-    }
-
-    const widget = sourceRow.widgets[fromColumn] ?? null
-    if (widget == null) {
-      return null
-    }
-
-    sourceRow.widgets = sourceRow.widgets.filter((_, index) => index !== fromColumn)
-
-    // If there is no column specified, create a new row.
-    if (toColumn == null) {
-      let layout = [...data.layout]
-      const destinationRow: WidgetRow = {
-        id: v7(),
-        height: sourceRow.height,
-        widgets: [widget],
-        collapsed: sourceRow.collapsed,
+  A widget turned into another kind is the same widget in the same place, so what the layout says
+  about it stays as it was and only what it is changes.
+  */
+  function replaceWidget(id: string, replacement: Widget) {
+    for (const layout of layoutRefs()) {
+      const existing = layout.rows.flatMap((row) => row.widgets).find((widget) => widget.id === id)
+      if (existing == null) {
+        continue
       }
 
-      layout.splice(toRow, 0, destinationRow)
-      layout = layout.filter((row) => row != null && row.widgets.length > 0)
-      data.layout = layout
+      const kept: Widget = { ...replacement, id: existing.id, width: existing.width }
+      layout.set(
+        layout.rows.map((row) =>
+          row.widgets.some((widget) => widget.id === id)
+            ? { ...row, widgets: row.widgets.map((widget) => (widget.id === id ? kept : widget)) }
+            : row
+        )
+      )
 
-      resolveWidgetWidths(sourceRow.widgets)
-      resolveWidgetWidths(destinationRow.widgets)
-      return widget
+      return kept
     }
 
-    const destinationRow = data.layout[toRow] ?? null
-    if (destinationRow == null) {
-      resolveWidgetWidths(sourceRow.widgets)
+    return null
+  }
+
+  /** Group the widgets named by `ids` under a fresh widget of `type`, standing in their place. */
+  function groupWidgets(
+    ids: string[],
+    type: 'tabs' | 'carousel',
+    split: GroupSplit = 'widget',
+    frameless: boolean = false
+  ) {
+    if (data == null || ids.length === 0) {
       return null
     }
 
-    destinationRow.widgets = [...destinationRow.widgets]
-    destinationRow.widgets.splice(toColumn, 0, widget)
-    destinationRow.widgets = destinationRow.widgets.filter((current) => current != null)
-    destinationRow.height = Math.max(destinationRow.height, sourceRow.height)
+    // The named widgets all stand in one layout, since a selection never spans two, so the first
+    // layout that answers with a plan is the one they were in.
+    for (const layout of layoutRefs()) {
+      const plan = planWidgetsGroup(layout.rows, ids, type, split, frameless)
+      if (plan == null) {
+        continue
+      }
 
-    resolveWidgetWidths(sourceRow.widgets)
-    widget.width = Math.min(widgetWidthSubdivisions / destinationRow.widgets.length, widget.width)
-    resolveWidgetWidths(destinationRow.widgets, destinationRow.widgets.indexOf(widget))
+      layout.set(plan.rows)
 
-    data.layout = data.layout.filter((row) => row != null && row.widgets.length > 0)
+      // The holder stands in for what it took, so it is what stays picked out.
+      selectionLayout = layout.id
+      selection = [plan.holder.id]
+      selectionAnchor = plan.holder.id
 
-    return widget
+      return plan.holder
+    }
+
+    return null
   }
 
-  function duplicateWidget(id: string, toRow: number, toColumn: number) {
+  /** Dissolve the pages widget named `id`, its pages' rows standing in its place. */
+  function ungroupWidget(id: string) {
+    if (data == null) {
+      return
+    }
+
+    for (const layout of layoutRefs()) {
+      const plan = planWidgetUngroup(layout.rows, id)
+      if (plan == null) {
+        continue
+      }
+
+      layout.set(plan.rows)
+
+      // What the widget held is what now stands on the layout, so it is what stays picked out.
+      selectionLayout = layout.id
+      selection = plan.released.map((widget) => widget.id)
+      selectionAnchor = plan.released[plan.released.length - 1]?.id ?? null
+
+      return
+    }
+  }
+
+  function moveWidgets(ids: string[], placement: WidgetPlacement) {
+    if (data == null) {
+      return
+    }
+
+    const refs = layoutRefs()
+    const layouts = new Map(refs.map((layout) => [layout.id, layout.rows]))
+    const plan = planWidgetsMove(layouts, ids, placement)
+    if (plan == null) {
+      return
+    }
+
+    // A drop that lands widgets back where they came from arrives at the layout already on screen,
+    // which is not worth rewriting every row for, nor sending to the server as an edit.
+    if (planIsCurrent(plan, layouts)) {
+      return
+    }
+
+    const widgets = widgetsIn(layouts)
+
+    for (const [widgetId, width] of Object.entries(plan.widths)) {
+      const widget = widgets.get(widgetId)
+      if (widget != null) {
+        widget.width = width
+      }
+    }
+
+    // What is picked out goes with it, so a widget dragged into a carousel slide is still the
+    // widget being worked on once it arrives and Delete still has something to act on.
+    if (selection.length > 0 && selection.every((id) => ids.includes(id))) {
+      selectionLayout = placement.layout
+    }
+
+    for (const [layoutId, rows] of Object.entries(plan.layouts)) {
+      const layout = refs.find((candidate) => candidate.id === layoutId) ?? null
+      layout?.set(
+        rows.map((row) => ({
+          id: row.id,
+          height: row.height,
+          collapsed: row.collapsed,
+          widgets: row.widgets
+            .map((widgetId) => widgets.get(widgetId))
+            .filter((widget) => widget != null),
+        }))
+      )
+    }
+  }
+
+  // Widgets picked out to be acted on together, held as IDs so a layout rebuilt underneath them
+  // keeps the same ones picked out.
+  let selection = $ref<string[]>([])
+
+  // Which layout they were picked out of. What is picked out belongs to one layout at a time,
+  // since a selection spanning a carousel slide and the workspace around it has no one order to
+  // read it in and nowhere a copy of it could land.
+  let selectionLayout = $ref<string>(rootLayoutId)
+
+  // The widget a range extends from, which is whichever one was last chosen on its own.
+  let selectionAnchor = $ref<string | null>(null)
+
+  function widgetOrder(layoutId: string = selectionLayout): string[] {
+    const rows = layoutMap().get(layoutId) ?? []
+
+    return rows.flatMap((row) => row.widgets.map((widget) => widget.id))
+  }
+
+  function isSelected(id: string) {
+    return selection.includes(id)
+  }
+
+  function clearSelection() {
+    selection = []
+    selectionAnchor = null
+  }
+
+  /** Work in `layoutId` from now on, without anything in it picked out.
+
+  A layout with nothing on it has no widget to pick out, so pressing it is the only way it can say
+  that it is the one being worked in. A paste has to land somewhere, and an empty carousel slide
+  that had just been pressed is the likeliest somewhere it was meant for.
+  */
+  function focusLayout(layoutId: string) {
+    selectionLayout = layoutId
+    selection = []
+    selectionAnchor = null
+  }
+
+  function selectWidget(id: string, mode: SelectMode = 'replace', layoutId: string = rootLayoutId) {
+    // Reaching into another layout lets go of what was picked out in the one before it, so there
+    // is nothing left to extend from or toggle against.
+    if (layoutId !== selectionLayout) {
+      selectionLayout = layoutId
+      selection = [id]
+      selectionAnchor = id
+      return
+    }
+
+    const order = widgetOrder(layoutId)
+
+    if (mode === 'extend' && selectionAnchor != null) {
+      const from = order.indexOf(selectionAnchor)
+      const to = order.indexOf(id)
+      if (from !== -1 && to !== -1) {
+        selection = order.slice(Math.min(from, to), Math.max(from, to) + 1)
+        return
+      }
+    }
+
+    if (mode === 'toggle') {
+      selection = isSelected(id)
+        ? selection.filter((current) => current !== id)
+        : [...selection, id]
+      selectionAnchor = id
+      return
+    }
+
+    selection = [id]
+    selectionAnchor = id
+  }
+
+  /** What is picked out, as text for the system clipboard, or null when nothing is. */
+  function copySelection(): string | null {
+    const layout = findLayout(selectionLayout)
+    if (layout == null || selection.length === 0) {
+      return null
+    }
+
+    const rows = layout.rows
+      .map((row) => ({ ...row, widgets: row.widgets.filter((widget) => isSelected(widget.id)) }))
+      .filter((row) => row.widgets.length > 0)
+
+    return JSON.stringify({ ceres: 'widgets', rows } satisfies WidgetClipboard, null, 2)
+  }
+
+  /** Put the widgets `text` holds into the layout, and pick them out. Returns how many landed.
+
+  Text that is not a copy of some widgets lands nothing, since a paste of anything else belongs to
+  whatever else is on the page.
+  */
+  function pasteWidgets(text: string): number {
+    // Widgets land beside whatever they were taken from, which is the layout that is being worked
+    // in even when the paste came from another workspace entirely.
+    const layout = findLayout(selectionLayout) ?? findLayout(rootLayoutId)
+    if (layout == null) {
+      return 0
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return 0
+    }
+
+    const clipboard = WidgetClipboardModel.safeParse(parsed).data ?? null
+    if (clipboard == null) {
+      return 0
+    }
+
+    const pasted: WidgetRow[] = []
+    for (const row of clipboard.rows) {
+      // Fresh IDs, so pasting twice leaves two of everything rather than one the layout holds in
+      // two places.
+      const widgets = row.widgets.map(withFreshIds)
+      if (widgets.length === 0) {
+        continue
+      }
+
+      resolveWidgetWidths(widgets)
+      pasted.push({ id: v7(), height: row.height, collapsed: row.collapsed, widgets })
+    }
+
+    if (pasted.length === 0) {
+      return 0
+    }
+
+    // Landing under what is picked out puts a paste beside the thing it was taken from, rather
+    // than at the far end of a workspace the user would then have to go looking down.
+    let after = layout.rows.length
+    for (const [index, row] of layout.rows.entries()) {
+      if (row.widgets.some((widget) => isSelected(widget.id))) {
+        after = index + 1
+      }
+    }
+
+    const rows = [...layout.rows]
+    rows.splice(after, 0, ...pasted)
+    layout.set(rows)
+
+    selectionLayout = layout.id
+    selection = pasted.flatMap((row) => row.widgets.map((widget) => widget.id))
+    selectionAnchor = selection[selection.length - 1] ?? null
+
+    return selection.length
+  }
+
+  // A widget that is deleted, or that belongs to a layout an undo replaced, cannot stay picked
+  // out, so the selection follows whatever the layout actually holds. A carousel taken away takes
+  // its slides with it, so the layout the selection was made in may be gone as well.
+  watchEffect(() => {
+    const present = new Set(widgetOrder(selectionLayout))
+    const kept = selection.filter((id) => present.has(id))
+    if (kept.length !== selection.length) {
+      selection = kept
+      if (selectionAnchor != null && !present.has(selectionAnchor)) {
+        selectionAnchor = null
+      }
+    }
+  })
+
+  function duplicateWidget(
+    id: string,
+    toRow: number,
+    toColumn: number,
+    layoutId: string = rootLayoutId
+  ) {
     const widget = getWidget(id)
     if (widget == null) {
       return null
     }
 
-    const copy: Widget = deepClone(widget)
-    copy.id = v7()
-
-    insertWidget(copy, toRow, toColumn)
+    const copy = withFreshIds(deepClone(widget))
+    insertWidget(copy, toRow, toColumn, layoutId)
     return copy
   }
 
   watchEffect(() => {
-    if (data == null) {
-      return
+    for (const layout of layoutRefs()) {
+      if (layout.rows.some((row) => row.widgets.length === 0)) {
+        layout.set(layout.rows.filter((row) => row.widgets.length > 0))
+      }
     }
+  })
 
-    if (data.layout.some((row) => row.widgets.length === 0)) {
-      data.layout = data.layout.filter((row) => row.widgets.length > 0)
+  // A stored width can be broken, negative from an old resize or a total drifted off the row's
+  // span, and a broken row draws wider than the workspace itself. Any row found holding one is
+  // spread back over the full span, proportionally where the proportions are usable, so a broken
+  // width can never reach the screen however it got into the data.
+  watchEffect(() => {
+    for (const layout of layoutRefs()) {
+      for (const row of layout.rows) {
+        const widths = row.widgets.map((widget) => widget.width)
+        const total = widths.reduce((sum, current) => sum + current, 0)
+        if (
+          widths.length > 0 &&
+          (total !== widgetWidthSubdivisions || widths.some((width) => width <= 0))
+        ) {
+          const fixed = filledWidths(widths)
+          for (const [index, widget] of row.widgets.entries()) {
+            widget.width = fixed[index] ?? widget.width
+          }
+        }
+      }
     }
   })
 
@@ -882,14 +1500,30 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     revert,
     exportFile,
     getWidget,
-    getWidgetAt,
-    getWidgetPosition,
+    layouts: computed(() => layoutRefs()),
     insertWidget,
     addWidget,
     deleteWidget,
-    moveWidget,
+    deleteWidgets,
+    moveWidgets,
     duplicateWidget,
+    replaceWidget,
+    groupWidgets,
+    ungroupWidget,
     drag: null as Drag | null,
+    selection: computed(() => selection),
+    selectionLayout: computed(() => selectionLayout),
+    selectedWidgets: computed(() => {
+      const rows = layoutMap().get(selectionLayout) ?? []
+
+      return rows.flatMap((row) => row.widgets).filter((widget) => isSelected(widget.id))
+    }),
+    isSelected,
+    selectWidget,
+    clearSelection,
+    focusLayout,
+    copySelection,
+    pasteWidgets,
     // A workspace is placed on a component or on the engine root, and its access is that
     // placement's access. A private workspace belongs to its owner alone, whatever the placement
     // says, since nobody else can see it at all.
@@ -1188,45 +1822,715 @@ export const useWorkspaces = defineStore('workspaces', () => {
 export const widgetWidthSubdivisions = 120
 export const minWidgetWidthPixels = 100
 
-export function resolveWidgetWidths(
-  widgets: Widget[],
-  keepIndex?: number,
+// The narrowest a width may be squeezed to. Taking a width below this, let alone below zero,
+// stores a widget nothing can see or grab, and a negative width draws its neighbours out past
+// the row's own edge.
+const minWidthUnits = 1
+
+/** Spread a row's widths back over `widgetWidthSubdivisions`, without touching any widget.
+
+`keepIndices` names widths to leave alone, either absorbing the difference into every other width
+or, with `adjustMode` set to `after`, only into the ones that follow the last of them. No width is
+taken below `minWidthUnits`, whatever the excess asks for, and the answered widths always total
+`widgetWidthSubdivisions` while any width is left to give.
+*/
+export function resolveWidths(
+  widths: number[],
+  keepIndices?: number | number[],
   adjustMode: 'after' | 'other' = 'other'
-) {
-  if (widgets.length === 0) {
-    return
-  }
-  if (keepIndex != null && keepIndex < 0) {
-    keepIndex = undefined
+): number[] {
+  if (widths.length === 0) {
+    return []
   }
 
-  const totalWidthUnits = widgets.reduce((sum, current) => sum + current.width, 0)
-  const excessWidthUnits = totalWidthUnits - widgetWidthSubdivisions
-  if (excessWidthUnits === 0) {
-    return
+  const kept = (
+    keepIndices == null ? [] : Array.isArray(keepIndices) ? keepIndices : [keepIndices]
+  ).filter((index) => index >= 0)
+
+  const totalWidthUnits = widths.reduce((sum, current) => sum + current, 0)
+  if (
+    totalWidthUnits === widgetWidthSubdivisions &&
+    widths.every((width) => width >= minWidthUnits)
+  ) {
+    return [...widths]
   }
 
-  let adjusted: Widget[]
-  if (keepIndex == null) {
-    adjusted = widgets
+  const indices = widths.map((_, index) => index)
+
+  let adjusted: number[]
+  if (kept.length === 0) {
+    adjusted = indices
   } else {
     if (adjustMode === 'after') {
-      adjusted = widgets.slice(keepIndex + 1)
+      adjusted = indices.slice(Math.max(...kept) + 1)
     } else {
-      adjusted = widgets.filter((_, index) => index !== keepIndex)
+      adjusted = indices.filter((index) => !kept.includes(index))
     }
   }
 
-  const excessWidthUnitsPerWidget = excessWidthUnits / adjusted.length
-
-  for (const widget of adjusted) {
-    widget.width -= excessWidthUnitsPerWidget
+  if (adjusted.length === 0) {
+    adjusted = indices
   }
 
-  for (const widget of widgets) {
-    if (Math.round(widget.width) !== widget.width) {
-      widget.width = Math.round(widget.width)
+  const resolved = [...widths]
+
+  // A width already below the floor gives nothing, so it is lifted first and the lift joins the
+  // excess the others have to absorb.
+  for (const index of indices) {
+    const width = resolved[index] ?? 0
+    if (width < minWidthUnits) {
+      resolved[index] = minWidthUnits
     }
+  }
+
+  // Spread the excess over the adjustable widths, evenly, in passes. A width that would be taken
+  // below the floor stops there, and what it could not give is spread over the rest on the next
+  // pass, so one pass per width bounds the loop.
+  for (let pass = 0; pass <= widths.length; pass++) {
+    const excess = resolved.reduce((sum, current) => sum + current, 0) - widgetWidthSubdivisions
+    if (excess === 0) {
+      break
+    }
+
+    const givers =
+      excess > 0 ? adjusted.filter((index) => (resolved[index] ?? 0) > minWidthUnits) : adjusted
+    if (givers.length === 0) {
+      break
+    }
+
+    const share = excess / givers.length
+    for (const index of givers) {
+      const width = resolved[index] ?? 0
+      resolved[index] = excess > 0 ? Math.max(width - share, minWidthUnits) : width - share
+    }
+  }
+
+  // Round to whole units without letting the rounding move the total, pushing the drift one unit
+  // at a time onto the adjustable widths, into the widest when taking so nothing crosses the
+  // floor.
+  const rounded = resolved.map((width) => Math.round(width))
+  let drift =
+    Math.round(resolved.reduce((sum, current) => sum + current, 0)) -
+    rounded.reduce((sum, current) => sum + current, 0)
+  while (drift !== 0) {
+    const step = Math.sign(drift)
+    const candidates =
+      step > 0 ? adjusted : adjusted.filter((index) => (rounded[index] ?? 0) > minWidthUnits)
+    if (candidates.length === 0) {
+      break
+    }
+
+    const target = candidates.reduce((best, index) =>
+      step < 0
+        ? (rounded[index] ?? 0) > (rounded[best] ?? 0)
+          ? index
+          : best
+        : (rounded[index] ?? 0) < (rounded[best] ?? 0)
+        ? index
+        : best
+    )
+    rounded[target] = (rounded[target] ?? 0) + step
+    drift -= step
+  }
+
+  return rounded
+}
+
+export function resolveWidgetWidths(
+  widgets: Widget[],
+  keepIndices?: number | number[],
+  adjustMode: 'after' | 'other' = 'other'
+) {
+  const resolved = resolveWidths(
+    widgets.map((widget) => widget.width),
+    keepIndices,
+    adjustMode
+  )
+
+  for (const [index, widget] of widgets.entries()) {
+    if (widget.width !== resolved[index]) {
+      widget.width = resolved[index]
+    }
+  }
+}
+
+/** The layouts a widget holds under names of its own, or none where it holds no layouts.
+
+The one way to reach them. Everything that walks the layouts of a workspace goes through here, so a
+widget that holds pages is understood by all of it the moment it is named here, rather than by
+however many places happened to remember to ask.
+*/
+export function pagesOf(widget: Widget): WidgetPage[] {
+  if (widget.type === 'carousel') {
+    return widget.slides
+  }
+  if (widget.type === 'tabs') {
+    return widget.tabs
+  }
+
+  return []
+}
+
+/** The same pages shown the other way about, as a tab strip if it was a carousel and the reverse.
+
+Answers null for a widget that holds no pages, there being nothing to turn into anything. The
+pages themselves carry across untouched, keeping their names, their layouts and their IDs, so the
+widgets on them are neither moved nor rebuilt.
+*/
+export function convertedPagesWidget(widget: Widget): Widget | null {
+  if (widget.type !== 'carousel' && widget.type !== 'tabs') {
+    return null
+  }
+
+  const converted = createWidget(widget.type === 'carousel' ? 'tabs' : 'carousel')
+
+  // A name that was only ever the default for one kind is not a name anybody chose, so it gives
+  // way to the other kind's own rather than following the pages across.
+  if (widget.name !== defaultWidgetName(widget.type)) {
+    converted.name = widget.name
+  }
+
+  return withPages(converted, pagesOf(widget))
+}
+
+/** A copy of `widget` holding `pages` in place of the ones it held. */
+export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
+  if (widget.type === 'carousel') {
+    return { ...widget, slides: pages }
+  }
+  if (widget.type === 'tabs') {
+    return { ...widget, tabs: pages }
+  }
+
+  return widget
+}
+
+/** How grouping deals the taken widgets across the pages of the new widget. */
+export type GroupSplit = 'widget' | 'row' | 'none'
+
+/** Scale `widths` to fill a row, keeping the proportions they stood in.
+
+A width at or below zero poisons the proportions, and scaling would only amplify it, so a row
+holding one is dealt out evenly instead.
+*/
+function filledWidths(widths: number[]): number[] {
+  if (widths.length === 0) {
+    return []
+  }
+
+  const usable = widths.every((width) => width > 0)
+  const basis = usable ? widths : widths.map(() => 1)
+  const basisTotal = usable ? widths.reduce((sum, current) => sum + current, 0) : widths.length
+  const scaled = basis.map((width) => Math.round((width * widgetWidthSubdivisions) / basisTotal))
+
+  // Rounding drift lands on the last width, so the row still adds up exactly.
+  const drift = widgetWidthSubdivisions - scaled.reduce((sum, current) => sum + current, 0)
+  scaled[scaled.length - 1] = (scaled[scaled.length - 1] ?? 0) + drift
+
+  return scaled
+}
+
+/** Group the widgets named by `ids` under a fresh widget of `type`, standing where the first
+stood.
+
+The taken widgets land on the holder's pages as `split` says, a page per taken widget in layout
+order and named after it, a page per layout row they were taken from, or all of them together on
+one page. Page rows keep the heights their layout rows stood at, and widgets sharing one fill it
+in the proportions they held. With `frameless` set the taken widgets land without their frames,
+which suits a page whose tab already carries the widget's name. The holder takes the room the
+taken widgets held in its own row, rows the taking empties close up, and everything else keeps
+its place. Answers null when none of the named widgets stand in `rows`.
+*/
+export function planWidgetsGroup(
+  rows: WidgetRow[],
+  ids: string[],
+  type: 'tabs' | 'carousel',
+  split: GroupSplit,
+  frameless: boolean = false
+): { rows: WidgetRow[]; holder: Widget } | null {
+  const taking = new Set(ids)
+
+  type Group = { row: WidgetRow; taken: Widget[]; staying: Widget[] }
+  const groups = new Map<WidgetRow, Group>()
+  for (const row of rows) {
+    const taken = row.widgets.filter((widget) => taking.has(widget.id))
+    if (taken.length > 0) {
+      groups.set(row, {
+        row,
+        taken,
+        staying: row.widgets.filter((widget) => !taking.has(widget.id)),
+      })
+    }
+  }
+
+  if (groups.size === 0) {
+    return null
+  }
+
+  const groupList = [...groups.values()]
+
+  function pageRow(source: WidgetRow, taken: Widget[]): WidgetRow {
+    const widths = filledWidths(taken.map((widget) => widget.width))
+    return {
+      id: v7(),
+      height: source.height,
+      collapsed: source.collapsed,
+      widgets: taken.map((widget, index) => ({
+        ...widget,
+        width: widths[index] ?? widget.width,
+        frameless: frameless || widget.frameless,
+      })),
+    }
+  }
+
+  let pages: WidgetPage[]
+  if (split === 'widget') {
+    // Each page is named after its widget, since the strip then stands for the widgets on it.
+    pages = groupList.flatMap(({ row, taken }) =>
+      taken.map((widget) => ({ id: v7(), name: widget.name, layout: [pageRow(row, [widget])] }))
+    )
+  } else if (split === 'row') {
+    pages = groupList.map(({ row, taken }) => ({
+      id: v7(),
+      name: '',
+      layout: [pageRow(row, taken)],
+    }))
+  } else {
+    pages = [{ id: v7(), name: '', layout: groupList.map(({ row, taken }) => pageRow(row, taken)) }]
+  }
+
+  const base = createWidget(type)
+  const first = groupList[0] as Group
+  const width = Math.min(
+    first.taken.reduce((sum, widget) => sum + widget.width, 0),
+    widgetWidthSubdivisions
+  )
+  const holder: Widget = { ...withPages(base, pages), width }
+
+  const result: WidgetRow[] = []
+  for (const row of rows) {
+    const group = groups.get(row)
+    if (group == null) {
+      result.push(row)
+    } else if (group === first) {
+      // Everything before the first taken widget is staying, so its index in the old row is also
+      // the holder's place among what stays.
+      const at = row.widgets.findIndex((widget) => taking.has(widget.id))
+      const widgets = [...group.staying]
+      widgets.splice(at, 0, holder)
+      result.push({ ...row, widgets })
+    } else if (group.staying.length > 0) {
+      const widths = resolveWidths(group.staying.map((widget) => widget.width))
+      result.push({
+        ...row,
+        widgets: group.staying.map((widget, index) => ({
+          ...widget,
+          width: widths[index] ?? widget.width,
+        })),
+      })
+    }
+  }
+
+  return { rows: result, holder }
+}
+
+/** Dissolve the pages widget named `id` back into `rows`, its pages' rows standing in its place.
+
+The pages' rows land where the widget's own row stands, in page order and as they are, and the
+widget goes away. A row the widget shared stays ahead of them for the widgets that remain on it.
+Answers null when no widget named `id` stands in `rows`, or when the named one holds no pages.
+*/
+export function planWidgetUngroup(
+  rows: WidgetRow[],
+  id: string
+): { rows: WidgetRow[]; released: Widget[] } | null {
+  const at = rows.findIndex((row) => row.widgets.some((widget) => widget.id === id))
+  if (at < 0) {
+    return null
+  }
+
+  const row = rows[at] as WidgetRow
+  const target = row.widgets.find((widget) => widget.id === id) as Widget
+  const pages = pagesOf(target)
+  if (pages.length === 0) {
+    return null
+  }
+
+  const landing = pages.flatMap((page) => page.layout)
+  const staying = row.widgets.filter((widget) => widget.id !== id)
+
+  const result = [...rows]
+  if (staying.length === 0) {
+    result.splice(at, 1, ...landing)
+  } else {
+    const widths = resolveWidths(staying.map((widget) => widget.width))
+    result.splice(
+      at,
+      1,
+      {
+        ...row,
+        widgets: staying.map((widget, index) => ({
+          ...widget,
+          width: widths[index] ?? widget.width,
+        })),
+      },
+      ...landing
+    )
+  }
+
+  return { rows: result, released: landing.flatMap((current) => current.widgets) }
+}
+
+/** The name the workspace's own layout goes by, as against one belonging to a widget's page. */
+export const rootLayoutId = 'root'
+
+/** A layout a workspace holds, under the name a placement calls it by.
+
+The workspace has one of its own, and every carousel slide anywhere inside it has another. They are
+all arranged the same way, so naming them is the whole of what tells them apart.
+*/
+export type WorkspaceLayoutRef = {
+  id: string
+  rows: WidgetRow[]
+
+  /** Put a rearranged layout back where this one came from. */
+  set: (rows: WidgetRow[]) => void
+}
+
+/** Collect every layout reachable from `root`, the workspace's own first. */
+export function collectLayouts(
+  root: WidgetRow[],
+  setRoot: (rows: WidgetRow[]) => void
+): WorkspaceLayoutRef[] {
+  const found: WorkspaceLayoutRef[] = [{ id: rootLayoutId, rows: root, set: setRoot }]
+
+  function visit(rows: WidgetRow[]) {
+    for (const row of rows) {
+      for (const widget of row.widgets) {
+        for (const page of pagesOf(widget)) {
+          found.push({
+            id: page.id,
+            rows: page.layout,
+            set: (replacement) => (page.layout = replacement),
+          })
+          visit(page.layout)
+        }
+      }
+    }
+  }
+
+  visit(root)
+
+  return found
+}
+
+/** A copy of `widget` under fresh IDs, all the way down.
+
+A widget may carry pages that name layouts of their own, holding rows that hold further widgets, so
+a copy keeping any of those names would leave two things answering to one. Everything that goes
+looking by name takes whichever it finds first, which is the other one about half the time.
+*/
+export function withFreshIds(widget: Widget): Widget {
+  const copy: Widget = { ...widget, id: v7() }
+
+  // The buttons on a bar answer to names of their own, for the same reason a page does.
+  if (copy.type === 'controls') {
+    copy.buttons = copy.buttons.map((button) => ({ ...button, id: v7() }))
+  }
+
+  return withPages(copy, pagesOf(copy).map(withFreshPage))
+}
+
+/** A copy of `page` under fresh IDs, all the way down, for the same reason. */
+export function withFreshPage(page: WidgetPage): WidgetPage {
+  return {
+    ...page,
+    id: v7(),
+    layout: page.layout.map((row) => ({
+      ...row,
+      id: v7(),
+      widgets: row.widgets.map(withFreshIds),
+    })),
+  }
+}
+
+/** Every layout held inside `widgets`, however deep, which no drop may land inside. */
+export function layoutsWithin(widgets: Widget[]): Set<string> {
+  const found = new Set<string>()
+
+  function visit(list: Widget[]) {
+    for (const widget of list) {
+      for (const page of pagesOf(widget)) {
+        found.add(page.id)
+        visit(page.layout.flatMap((row) => row.widgets))
+      }
+    }
+  }
+
+  visit(widgets)
+
+  return found
+}
+
+/** Where a widget in hand would land.
+
+Both indices read against the layout with that widget already taken out of it, which is the layout
+its owner is looking at while the drag is in progress.
+*/
+export type WidgetPlacement = {
+  /** Which layout it lands in, the workspace's own or a carousel slide's. */
+  layout: string
+
+  /** Row to drop into, or the index the new row takes when `column` is null. */
+  row: number
+
+  /** Insertion index within that row, or null to open a row of its own. */
+  column: number | null
+}
+
+/** A row of a planned layout, in widget IDs, so it can be drawn before it is applied. */
+export type PlannedRow = {
+  id: string
+  height: number
+  collapsed: boolean
+  widgets: string[]
+}
+
+/** The layouts a move settles on, so they can be drawn before the move is applied.
+
+A move touches the layout the widgets left and the one they arrive in, which are the same layout
+whenever a drag stays where it started. Layouts the move leaves alone are absent.
+*/
+export type WidgetMovePlan = {
+  layouts: Record<string, PlannedRow[]>
+
+  /** The widths the move settles on, by widget ID. Widgets left at their own width are absent. */
+  widths: Record<string, number>
+}
+
+/** Every widget in `layouts`, by ID. */
+function widgetsIn(layouts: Map<string, WidgetRow[]>): Map<string, Widget> {
+  return new Map(
+    [...layouts.values()]
+      .flatMap((rows) => rows.flatMap((row) => row.widgets))
+      .map((widget) => [widget.id, widget])
+  )
+}
+
+/** Whether a plan describes the layouts that are already there, down to the widths. */
+function planIsCurrent(plan: WidgetMovePlan, layouts: Map<string, WidgetRow[]>): boolean {
+  for (const [layoutId, rows] of Object.entries(plan.layouts)) {
+    const current = layouts.get(layoutId) ?? null
+    if (current == null || rows.length !== current.length) {
+      return false
+    }
+
+    for (const [index, row] of rows.entries()) {
+      const currentRow = current[index]
+      if (
+        row.id !== currentRow.id ||
+        row.height !== currentRow.height ||
+        row.collapsed !== currentRow.collapsed ||
+        row.widgets.length !== currentRow.widgets.length
+      ) {
+        return false
+      }
+
+      for (const [position, widgetId] of row.widgets.entries()) {
+        if (widgetId !== currentRow.widgets[position].id) {
+          return false
+        }
+      }
+    }
+  }
+
+  const widgets = widgetsIn(layouts)
+
+  return Object.entries(plan.widths).every(
+    ([widgetId, width]) => widgets.get(widgetId)?.width === width
+  )
+}
+
+/** Work out the layouts that moving `ids` to `placement` produces, changing nothing.
+
+Widgets in hand keep the rows they came from when the drop opens rows of its own, so a block of a
+workspace taken from several rows arrives with the shape it had. A drop into an existing row has
+only the one row to arrive in, so the whole selection goes there side by side. Where they arrive
+need not be where they came from, since a carousel slide is arranged the same way a workspace is
+and a widget travels between the two.
+
+A null `placement` plans the removal alone, which is the layout to show while widgets are in hand
+with nowhere yet chosen for them. Returns null when no layout holds any of `ids`, when the
+placement names a row that is not there to drop into, or when it names a layout that a widget in
+hand is itself carrying.
+*/
+export function planWidgetsMove(
+  layouts: Map<string, WidgetRow[]>,
+  ids: string[],
+  placement: WidgetPlacement | null,
+
+  /** How tall each row actually stands, by row ID, where that differs from the height it was
+  given. A row on a carousel slide grows into the space left over or is squeezed to fit, so the
+  height it was dragged to is not the height anybody can see. A widget carried out of one arrives
+  at the size it was, rather than at a size it has not had for as long as it has been there. */
+  shown?: Map<string, number>
+): WidgetMovePlan | null {
+  const held = new Set(ids)
+
+  /** The height a row is actually standing at, which is what a widget leaving it carries away. */
+  function heightOf(row: WidgetRow): number {
+    return Math.round(shown?.get(row.id) ?? row.height)
+  }
+
+  // The layout the widgets came out of. A drag holds widgets from one layout at a time, since
+  // reaching into another lets go of whatever was picked out before.
+  let sourceId: string | null = null
+  let source: WidgetRow[] | null = null
+  for (const [layoutId, rows] of layouts) {
+    if (rows.some((row) => row.widgets.some((widget) => held.has(widget.id)))) {
+      sourceId = layoutId
+      source = rows
+      break
+    }
+  }
+  if (sourceId == null || source == null) {
+    return null
+  }
+
+  const widths: Record<string, number> = {}
+
+  // What is in hand, grouped by the row each part of it came from, both in layout order. A group
+  // is what becomes a row again when the drop opens rows rather than joining one.
+  const groups: { row: WidgetRow; widgets: Widget[]; consumed: boolean }[] = []
+
+  // Taking the widgets out comes first, so a placement means the same thing here as it did to the
+  // hand that chose it.
+  const rows = source.map((row) => {
+    const taken = row.widgets.filter((widget) => held.has(widget.id))
+    const remaining = row.widgets.filter((widget) => !held.has(widget.id))
+
+    if (taken.length > 0) {
+      groups.push({ row, widgets: taken, consumed: remaining.length === 0 })
+
+      const resolved = resolveWidths(remaining.map((widget) => widget.width))
+      for (const [index, widget] of remaining.entries()) {
+        widths[widget.id] = resolved[index]
+      }
+    }
+
+    return {
+      id: row.id,
+      height: row.height,
+      collapsed: row.collapsed,
+      widgets: remaining.map((widget) => widget.id),
+    }
+  })
+
+  if (groups.length === 0) {
+    return null
+  }
+
+  const kept = rows.filter((row) => row.widgets.length > 0)
+  if (placement == null) {
+    return { layouts: { [sourceId]: kept }, widths }
+  }
+
+  const carried = groups.flatMap((group) => group.widgets)
+
+  // A carousel cannot be dropped onto a slide of its own. The layout would then hold the widget
+  // holding it, and nothing walking it would ever reach the end.
+  if (layoutsWithin(carried).has(placement.layout)) {
+    return null
+  }
+
+  // Arriving back where they left is the same layout twice, so the rows they are taken out of are
+  // the rows they go into. Arriving somewhere else leaves the layout they left as it is.
+  const intoSource = placement.layout === sourceId
+  const target = intoSource
+    ? kept
+    : layouts.get(placement.layout)?.map((row) => ({
+        id: row.id,
+        height: row.height,
+        collapsed: row.collapsed,
+        widgets: row.widgets.map((widget) => widget.id),
+      })) ?? null
+  if (target == null) {
+    return null
+  }
+
+  const planned = () =>
+    intoSource ? { [sourceId]: kept } : { [sourceId]: kept, [placement.layout]: target }
+
+  if (placement.column == null) {
+    const opened = groups.map((group) => {
+      const resolved = resolveWidths(group.widgets.map((widget) => widget.width))
+      for (const [index, widget] of group.widgets.entries()) {
+        widths[widget.id] = resolved[index]
+      }
+
+      return {
+        // A row the move empties is gone, which frees its ID for the row taking its place. Reusing
+        // it is what lets a selection dropped back where it started read as no change at all.
+        id: group.consumed ? group.row.id : v7(),
+        height: heightOf(group.row),
+        collapsed: group.row.collapsed,
+        widgets: group.widgets.map((widget) => widget.id),
+      }
+    })
+
+    target.splice(placement.row, 0, ...opened)
+    return { layouts: planned(), widths }
+  }
+
+  const destinationRow = target[placement.row] ?? null
+  if (destinationRow == null) {
+    return null
+  }
+
+  destinationRow.widgets.splice(placement.column, 0, ...carried.map((widget) => widget.id))
+  destinationRow.height = Math.max(
+    destinationRow.height,
+    ...groups.map((group) => heightOf(group.row))
+  )
+
+  // Each arriving widget claims no more than an even share of the row it joins, and the widgets
+  // already there give up the difference. Rejoining the row it came from works out to the widths
+  // that row already had, since its share is the one it just gave up. Read across every layout,
+  // since an arriving widget's own width comes from the one it left.
+  const currentWidths = widgetsIn(layouts)
+  const share = widgetWidthSubdivisions / destinationRow.widgets.length
+  const resolved = resolveWidths(
+    destinationRow.widgets.map((widgetId) => {
+      const width = currentWidths.get(widgetId)?.width ?? 0
+
+      return held.has(widgetId) ? Math.min(share, width) : width
+    }),
+    carried.map((_, offset) => (placement.column ?? 0) + offset)
+  )
+  for (const [index, widgetId] of destinationRow.widgets.entries()) {
+    widths[widgetId] = resolved[index]
+  }
+
+  return { layouts: planned(), widths }
+}
+
+/** The one component a widget is pointed at, or null when it is pointed at none.
+
+A button widget is pointed at as many components as it holds buttons, so it answers with none. The
+header's shortcut is for a widget that is a view of one thing.
+*/
+export function widgetTargetSelector(widget: Widget): Address | AddressSelector | null {
+  if (widget.restricted) {
+    return null
+  }
+
+  switch (widget.type) {
+    case 'procedures':
+      return widget.procedureAddress ?? null
+    case 'value':
+      return widget.particleAddress ?? null
+    default:
+      return null
   }
 }
 
@@ -1252,10 +2556,14 @@ export function widgetTargetSignature(widget: Widget): string {
     values.push(widget.query)
   }
   if ('filter' in widget) {
-    values.push(widget.filter.address)
+    // Guarded, since an unknown kind can carry a `filter` of any shape at all.
+    values.push((widget.filter as { address?: unknown } | null)?.address)
   }
   if ('particles' in widget) {
     values.push(widget.particles.map((particle) => particle.address?.toString() ?? null))
+  }
+  if ('buttons' in widget) {
+    values.push(widget.buttons.map((button) => button.address?.toString() ?? null))
   }
 
   return JSON.stringify(values.map((value) => value?.toString() ?? null))

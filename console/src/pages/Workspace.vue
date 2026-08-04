@@ -1,30 +1,27 @@
 <script lang="ts" setup>
-import { useElementBounding, useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
-import { QPopupEdit, colors } from 'quasar'
-import { computed, onMounted, reactive, watchEffect, watch } from 'vue'
+import { useElementBounding, useEventListener, useMouse } from '@vueuse/core'
+import { colors } from 'quasar'
+import { computed, reactive, watchEffect, watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import FullPage, { appHeaderHeight, densePageHeaderHeight } from '@/components/FullPage.vue'
-import ResizeHandle from '@/components/ResizeHandle.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
-import WorkspaceGap from '@/components/WorkspaceGap.vue'
-import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
+import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
+import WorkspaceWidgetGroupDialog from '@/components/WorkspaceWidgetGroupDialog.vue'
 import { useDialogs } from '@/dialogs'
 import { NotFoundError } from '@/errors'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { deepClone } from '@/utilities'
+import { provideWidgetDrop } from '@/widget-drop'
 import {
   provideWorkspace,
-  resolveWidgetWidths,
-  widgetWidthSubdivisions,
-  Widget,
+  rootLayoutId,
   Workspace,
   WorkspaceData,
   WorkspaceHeaderActions,
   WorkspaceHeaderState,
-  getWidgetInfo,
 } from '@/workspace'
 
 const { id, stickyTop } = defineProps<{
@@ -53,7 +50,11 @@ const bottomRoom = $computed(
   () => `calc(100vh - ${(stickyTop ?? appHeaderHeight) + densePageHeaderHeight + 1}px)`
 )
 
-const layout = $ref<HTMLDivElement | null>(null)
+const layoutView = $ref<InstanceType<typeof WorkspaceLayout> | null>(null)
+
+/** The box the widgets are laid out in, which a drag is measured against. */
+const layoutElement = $computed(() => layoutView?.element ?? null)
+
 let original = $ref<WorkspaceData | null>(null)
 let isViewingOriginal = $computed(() => original != null)
 
@@ -103,55 +104,123 @@ watch(
     }
   }
 )
-let renamePopup = $ref<QPopupEdit | null>(null)
-let layoutWidth = $ref<number | null>(null)
+// Started here and reached by every layout drawn under this page, since a carousel slide is
+// arranged the same way the workspace is and a drag crosses freely between them.
+const drop = provideWidgetDrop(workspace)
 
-useEventListener(window, 'mouseup', () => {
-  workspace.drag = null
+function isTyping(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+
+  return (
+    element?.isContentEditable === true || ['INPUT', 'TEXTAREA'].includes(element?.tagName ?? '')
+  )
+}
+
+// Copy, cut and paste carry widgets through the system clipboard, so a block of a workspace can be
+// taken to another workspace or another window. Text the user has actually highlighted is left to
+// the browser, since copying a value out of a widget is the more likely thing to want.
+useEventListener(window, 'copy', (event: ClipboardEvent) => {
+  const text = onCopy(event)
+  if (text != null) {
+    notify.success(`${workspace.selection.length} widget(s) copied.`)
+  }
 })
 
-const isApple = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent)
-const undoShortcut = isApple ? '⌘Z' : 'Ctrl+Z'
-const redoShortcut = isApple ? '⇧⌘Z' : 'Ctrl+Y'
+useEventListener(window, 'cut', (event: ClipboardEvent) => {
+  const count = workspace.selection.length
+  const text = onCopy(event)
+  if (text != null) {
+    workspace.deleteWidgets([...workspace.selection])
+    notify.success(`${count} widget(s) cut.`)
+  }
+})
 
-// Undo and redo on the usual shortcuts, skipped while the user is typing so a text field keeps
-// its own history. Redo accepts both spellings, since editors are split between them.
+useEventListener(window, 'paste', (event: ClipboardEvent) => {
+  if (isTyping(event.target)) {
+    return
+  }
+
+  const pasted = workspace.pasteWidgets(event.clipboardData?.getData('text/plain') ?? '')
+  if (pasted > 0) {
+    event.preventDefault()
+  }
+})
+
+function onCopy(event: ClipboardEvent): string | null {
+  if (isTyping(event.target) || (window.getSelection()?.toString() ?? '') !== '') {
+    return null
+  }
+
+  const text = workspace.copySelection()
+  if (text == null) {
+    return null
+  }
+
+  event.preventDefault()
+  event.clipboardData?.setData('text/plain', text)
+
+  return text
+}
+
+// The widgets the group dialog was opened for, or null while it is closed. Named here as well as
+// in each widget's menu, so the keyboard can reach grouping without a widget menu open.
+let groupDialogIds = $ref<string[] | null>(null)
+
+// Shortcuts that act on the workspace, skipped while the user is typing so a text field keeps its
+// own behavior.
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+  if (isTyping(event.target)) {
     return
   }
 
-  const target = event.target as HTMLElement | null
-  if (target?.isContentEditable || ['INPUT', 'TEXTAREA'].includes(target?.tagName ?? '')) {
+  // Undo and redo on the usual shortcuts. Redo accepts both spellings, since editors are split
+  // between them.
+  if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+    const key = event.key.toLowerCase()
+    if (key === 'z' && !event.shiftKey) {
+      event.preventDefault()
+      workspace.undo()
+    } else if ((key === 'z' && event.shiftKey) || key === 'y') {
+      event.preventDefault()
+      workspace.redo()
+    } else if (key === 'g' && workspace.selection.length > 0) {
+      // Group and ungroup on the shortcuts design tools taught, acting on what is picked out.
+      // Ungrouping quietly does nothing when the one picked-out widget holds no pages.
+      event.preventDefault()
+      if (event.shiftKey) {
+        if (workspace.selection.length === 1 && workspace.selection[0] != null) {
+          workspace.ungroupWidget(workspace.selection[0])
+        }
+      } else {
+        groupDialogIds = [...workspace.selection]
+      }
+    }
+
     return
   }
 
-  const key = event.key.toLowerCase()
-  if (key === 'z' && !event.shiftKey) {
+  // Delete takes out whatever is picked out, in one step that a single undo puts back. Both
+  // spellings, since the key a Mac keyboard labels delete reports itself as backspace.
+  if (
+    (event.key === 'Delete' || event.key === 'Backspace') &&
+    workspace.drag == null &&
+    workspace.selection.length > 0
+  ) {
     event.preventDefault()
-    workspace.undo()
-  } else if ((key === 'z' && event.shiftKey) || key === 'y') {
-    event.preventDefault()
-    workspace.redo()
-  }
-})
-
-useResizeObserver($$(layout), (resizes) => {
-  for (const resize of resizes) {
-    layoutWidth = resize.contentRect.width
+    workspace.deleteWidgets([...workspace.selection])
   }
 })
 
 // The action bar floats over the window rather than sitting in the page, so its center is taken
 // from the widgets it acts on. Half the window is somewhere left of them whenever the drawer is
 // open, which reads as misaligned against everything else on the page.
-const layoutBounds = useElementBounding($$(layout))
+const layoutBounds = useElementBounding($$(layoutElement))
 const actionBarStyle = $computed(() => ({
   left: `${layoutBounds.x.value + layoutBounds.width.value / 2}px`,
 }))
 
 watchEffect(() => {
-  if (workspace.drag != null) {
+  if (drop.active) {
     document.body.style.cursor = 'grabbing'
   } else {
     document.body.style.cursor = 'unset'
@@ -250,35 +319,8 @@ function promptRevert() {
     })
 }
 
-function resolveAllWidgetWidths() {
-  if (data == null) {
-    return
-  }
-
-  for (const row of data.layout) {
-    resolveWidgetWidths(row.widgets)
-  }
-}
-
-function getWidgetWidthStyle(widget: Widget) {
-  if (layoutWidth == null) {
-    return undefined
-  }
-
-  const width = `${Math.round((widget.width / widgetWidthSubdivisions) * layoutWidth).toFixed(1)}px`
-
-  return {
-    maxWidth: width,
-    minWidth: width,
-  }
-}
-
-onMounted(() => {
-  resolveAllWidgetWidths()
-})
-
-// Exposed through the `header-prepend` slot so a scoped workspace's tab strip can drive these
-// same handlers instead of the built-in header, which that slot replaces.
+// Exposed through the `header-prepend` slot, which is the tab strip a workspace is shown on and
+// the only place these are reached from. This page draws the widgets and nothing around them.
 const headerActions: WorkspaceHeaderActions = {
   rename: (value) => {
     name = value
@@ -306,212 +348,27 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 </script>
 
 <template>
-  <full-page :class="$style.root" :dense="$slots['header-prepend'] != null" :sticky-top="stickyTop">
+  <full-page :class="$style.root" dense :sticky-top="stickyTop">
     <div
-      v-if="workspace.drag != null"
+      v-if="drop.active && workspace.drag != null"
       key="dragged-widget-icon"
       :class="$style.draggedWidgetIcon"
       :style="draggedWidgetIconStyle"
     >
-      <q-card bordered class="q-px-xs" flat>
+      <q-card bordered class="items-center q-px-xs row" flat>
         <common-text variant="th">
           {{ workspace.drag.widget.name }}
         </common-text>
+        <q-badge
+          v-if="workspace.drag.widgets.length > 1"
+          class="q-ml-xs"
+          color="primary"
+          :label="`+${workspace.drag.widgets.length - 1}`"
+        />
       </q-card>
     </div>
     <template #header-append>
       <slot :actions="headerActions" name="header-prepend" :state="headerState" />
-      <template v-if="!$slots['header-prepend']">
-        <div @dblclick="renamePopup?.show()">
-          <common-text
-            class="q-ml-md q-mr-sm"
-            :class="workspace.canManage && $style.nameEditable"
-            variant="title2"
-          >
-            {{ name }}
-          </common-text>
-          <q-popup-edit
-            v-if="workspace.canManage && workspace.data != null"
-            ref="renamePopup"
-            v-slot="scope"
-            v-model="name"
-            anchor="bottom left"
-            auto-save
-            :class="$style.popupEdit"
-            :cover="false"
-            no-parent-event
-            self="top left"
-            :validate="(value: string) => value.trim() !== ''"
-          >
-            <q-card bordered class="q-pa-sm" flat>
-              <q-input
-                v-model.trim="scope.value"
-                autofocus
-                dense
-                filled
-                label="Workspace Name"
-                @keyup.enter="scope.set()"
-              />
-            </q-card>
-          </q-popup-edit>
-        </div>
-        <q-btn
-          v-if="workspace.data != null"
-          class="faded-hover q-ml-xs"
-          flat
-          :icon="icons.more"
-          round
-          size="8px"
-        >
-          <q-menu anchor="top right" :offset="[8, 5]" self="top left">
-            <q-card bordered>
-              <q-list dense>
-                <q-item v-close-popup clickable dense @click="openSettings">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.settings" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Settings</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item clickable dense :disable="!workspace.canUndo" @click="workspace.undo()">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.discard" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Undo</q-item-label>
-                  </q-item-section>
-                  <q-item-section side>
-                    <span :class="$style.shortcut">{{ undoShortcut }}</span>
-                  </q-item-section>
-                </q-item>
-                <q-item clickable dense :disable="!workspace.canRedo" @click="workspace.redo()">
-                  <q-item-section avatar>
-                    <q-icon :class="$style.redoIcon" :name="icons.discard" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Redo</q-item-label>
-                  </q-item-section>
-                  <q-item-section side>
-                    <span :class="$style.shortcut">{{ redoShortcut }}</span>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item clickable dense>
-                  <q-item-section avatar>
-                    <q-icon :name="icons.add" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Add Widget</q-item-label>
-                  </q-item-section>
-                  <workspace-add-widget-menu
-                    anchor="top right"
-                    :offset="[8, 0]"
-                    :row="-1"
-                    self="top left"
-                  />
-                  <q-item-section side>
-                    <q-icon :name="icons.menuRight" size="16px" />
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item v-close-popup clickable dense @click="duplicate">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.duplicate" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Duplicate</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-item v-close-popup clickable dense @click="exportFile">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.export" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Export</q-item-label>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <q-item
-                  v-if="workspace.canManage"
-                  v-close-popup
-                  clickable
-                  dense
-                  @click="promptDelete"
-                >
-                  <q-item-section avatar>
-                    <q-icon :name="icons.delete" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Delete</q-item-label>
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-card>
-          </q-menu>
-        </q-btn>
-        <q-space />
-        <div class="q-mr-md">
-          <q-btn
-            v-if="workspace.edited && isViewingOriginal"
-            class="q-mr-sm"
-            clickable
-            color="warning"
-            dense
-            flat
-            :icon="icons.revertToOriginal"
-            label="Revert to Original Version"
-            style="padding-top: 2px; padding-bottom: 2px"
-            @click="promptRevert"
-          />
-          <q-btn
-            v-if="workspace.edited && isViewingOriginal"
-            clickable
-            dense
-            :icon="icons.close"
-            round
-            size="12px"
-            unelevated
-            @click="stopViewingOriginal"
-          />
-          <q-chip
-            v-else-if="workspace.edited"
-            class="q-px-sm"
-            clickable
-            color="warning"
-            dense
-            :icon="icons.workingCopy"
-            label="Working Copy"
-            size="12px"
-            text-color="white"
-          >
-            <q-icon class="q-ml-xs" :name="icons.menuDown" />
-            <q-menu :offset="[0, 10]">
-              <q-card bordered>
-                <q-list dense>
-                  <q-item clickable :disable="!workspace.canEdit" @click="promptCommit">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.confirm" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>Commit Changes</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                  <q-item clickable @click="startViewingOriginal">
-                    <q-item-section avatar>
-                      <q-icon :name="icons.viewOriginal" />
-                    </q-item-section>
-                    <q-item-section>
-                      <q-item-label>View Original</q-item-label>
-                    </q-item-section>
-                  </q-item>
-                </q-list>
-              </q-card>
-            </q-menu>
-          </q-chip>
-        </div>
-      </template>
     </template>
     <div
       :key="key"
@@ -519,117 +376,22 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       :class="$style.layout"
       :style="isViewingOriginal && { border: `1px dashed ${colors.getPaletteColor('warning')}` }"
     >
-      <div v-if="workspace.loading" ref="layout" class="q-py-lg" />
-      <div v-else-if="data == null" ref="layout" class="q-py-lg text-center">
+      <div v-if="workspace.loading" class="q-py-lg" />
+      <div v-else-if="data == null" class="q-py-lg text-center">
         <div>No workspace named "{{ name }}" exists.</div>
       </div>
-      <div v-else ref="layout">
-        <div
-          v-for="(row, i) in data.layout"
-          :key="row.id"
-          class="full-width no-wrap q-my-sm relative-position row"
-          :style="{
-            height: row.collapsed ? undefined : `${row.height}px`,
-          }"
-        >
-          <workspace-gap
-            v-if="workspace.drag != null"
-            :class="$style.gapVerticalTop"
-            direction="vertical"
-            :row="i"
-          />
-          <workspace-gap
-            v-if="workspace.drag != null && i === data.layout.length - 1"
-            v-show="workspace.drag != null"
-            :class="$style.gapVerticalBottom"
-            direction="vertical"
-            :row="i + 1"
-          />
-          <resize-handle
-            v-if="workspace.drag == null && !row.collapsed"
-            v-model="row.height"
-            :class="$style.verticalResizeHandle"
-            direction="vertical"
-            :min="
-              Math.max(
-                ...row.widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight ?? 50),
-                50
-              )
-            "
-            :step="5"
-            visibility="hover"
-          />
-          <div
-            v-for="(widget, j) in row.widgets"
-            :key="widget.id"
-            :class="[
-              j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow',
-              'relative-position',
-              row.widgets.length === 1
-                ? ''
-                : j === 0
-                ? 'q-pr-xs'
-                : j === row.widgets.length - 1
-                ? 'q-pl-xs'
-                : 'q-px-xs',
-            ]"
-            :style="j < row.widgets.length - 1 ? getWidgetWidthStyle(widget) : undefined"
-          >
-            <template v-if="workspace.drag != null">
-              <workspace-gap
-                v-if="j === 0"
-                :class="$style.gapHorizontalLeft"
-                :column="j"
-                direction="horizontal"
-                :row="i"
-              />
-              <workspace-gap
-                v-else
-                :class="$style.gapHorizontalMiddle"
-                :column="j - 1"
-                direction="horizontal"
-                :row="i"
-              />
-              <workspace-gap
-                v-if="workspace.drag != null && j === row.widgets.length - 1"
-                :class="$style.gapHorizontalRight"
-                :column="j + 1"
-                direction="horizontal"
-                :row="i"
-              />
-            </template>
-            <resize-handle
-              v-if="layoutWidth && workspace.drag == null && j < row.widgets.length - 1"
-              :class="$style.horizontalResizeHandle"
-              direction="horizontal"
-              :min="100"
-              :model-value="(widget.width / widgetWidthSubdivisions) * layoutWidth"
-              :step="1 / widgetWidthSubdivisions"
-              visibility="hover"
-              @update:model-value="
-                (pixels) => {
-                  if (layoutWidth == null) {
-                    return
-                  }
-
-                  widget.width = Math.round((pixels / layoutWidth) * widgetWidthSubdivisions)
-                  resolveWidgetWidths(row.widgets, j, 'after')
-                }
-              "
-            />
-            <workspace-widget
-              :class="workspace.drag?.widget === widget && $style.draggedWidget"
-              :column="j"
-              :container="row"
-              :row="i"
-              :widget="widget"
-            />
-          </div>
-        </div>
-      </div>
+      <workspace-layout v-else ref="layoutView" :layout="data.layout" :layout-id="rootLayoutId" />
     </div>
+    <!-- Mounted only while showing, so its remembered choices are read fresh each time. -->
+    <workspace-widget-group-dialog
+      v-if="groupDialogIds != null"
+      :widget-ids="groupDialogIds"
+      @close="groupDialogIds = null"
+    />
+    <!-- Held back while the layout is empty, since a layout with nothing on it offers this same
+    button in the middle of itself and two of it on screen at once is one too many. -->
     <div
-      v-if="!isViewingOriginal && data != null"
+      v-if="!isViewingOriginal && data != null && data.layout.length > 0"
       class="row"
       :class="[$style.addWidgetRow, 'items-center', 'justify-center', 'q-mt-sm']"
     >
@@ -707,34 +469,6 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   overflow-x: hidden;
 }
 
-.shortcut {
-  font-size: 11px;
-  opacity: 0.6;
-}
-
-// Redo is the undo arrow mirrored, which reads as its opposite without needing a second icon.
-.redoIcon {
-  transform: scaleX(-1);
-}
-
-.nameEditable:hover {
-  opacity: 0.6;
-}
-
-.verticalResizeHandle {
-  position: absolute;
-  left: 0px;
-  bottom: -4.5px;
-  z-index: 1;
-}
-
-.horizontalResizeHandle {
-  position: absolute;
-  right: -0.5px;
-  top: 0px;
-  z-index: 1;
-}
-
 .addWidgetRow {
   padding: 4px 0;
 }
@@ -774,49 +508,9 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
 
-.popupEdit {
-  box-shadow: unset !important;
-  padding: 0 !important;
-}
-
-@mixin gap {
-  position: absolute;
-}
-
-.gapVerticalTop {
-  @include gap;
-  top: -10px;
-  left: 0;
-}
-
-.gapVerticalBottom {
-  @include gap;
-  bottom: -10px;
-  left: 0;
-}
-
-.gapHorizontalLeft {
-  @include gap;
-  left: -5px;
-}
-
-.gapHorizontalMiddle {
-  @include gap;
-  left: -6px;
-}
-
-.gapHorizontalRight {
-  @include gap;
-  right: -5px;
-}
-
 .draggedWidgetIcon {
   position: fixed;
   z-index: 5000;
   pointer-events: none;
-}
-
-.draggedWidget {
-  opacity: 0.5;
 }
 </style>

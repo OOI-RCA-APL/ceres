@@ -1,0 +1,908 @@
+<script lang="ts" setup>
+import { useEventListener, useIntervalFn, useMediaQuery } from '@vueuse/core'
+import { v7 } from 'uuid'
+import { nextTick, watch } from 'vue'
+
+import InlineNameEdit from '@/components/InlineNameEdit.vue'
+import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
+import icons from '@/icons'
+import { usePersisted } from '@/persistence'
+import { moved, usePointerReorder } from '@/reorder'
+import { useWidgetDrop } from '@/widget-drop'
+import {
+  convertedPagesWidget,
+  layoutsWithin,
+  useWorkspace,
+  CarouselSlide,
+  CarouselWidget,
+  WidgetRow,
+} from '@/workspace'
+
+const { widget, container } = defineProps<{
+  widget: CarouselWidget
+
+  /** The workspace row this carousel sits in, whose height is the height its slides get. */
+  container?: WidgetRow
+}>()
+
+const workspace = useWorkspace()
+const drop = useWidgetDrop()
+
+let index = $ref(0)
+
+// Which way the last change went, so a slide arrives from the side it would have come from. A
+// carousel reaching its end and starting over is still going forwards, so this follows what was
+// asked for rather than which index is larger.
+let direction = $ref(1)
+
+// Paused by hand, or for as long as someone is working in it. A slide moving on under someone
+// reading it is the one thing a rotating panel must not do.
+//
+// What counts as working in it depends on what the machine can tell. Where there is a pointer to
+// hover with, it takes the focus and the pointer both, so a carousel reached into and then left
+// alone carries on by itself the moment the pointer moves away. Where there is no hovering to be
+// done, the focus is the whole of the answer.
+let paused = $ref(false)
+let focused = $ref(false)
+let hovered = $ref(false)
+
+const canHover = useMediaQuery('(hover: hover)')
+
+const root = $ref<HTMLElement | null>(null)
+
+// A widget picked out on one of its slides counts as well. Pressing a widget's header takes the
+// press over so it can start a drag, which means the browser never moves the focus and nothing
+// here would otherwise know the carousel was being worked in at all.
+const holdsSelection = $computed(
+  () => workspace.selection.length > 0 && layoutsWithin([widget]).has(workspace.selectionLayout)
+)
+
+const engaged = $computed(() => {
+  const reached = focused || holdsSelection
+
+  return canHover ? reached && hovered : reached
+})
+
+// The pointer moving onto a menu this carousel opened has not left it, since the menu is drawn at
+// the far end of the page while still belonging to what opened it.
+function onPointerLeave(event: PointerEvent) {
+  const next = event.relatedTarget as HTMLElement | null
+  if (next?.closest('.q-menu, .q-dialog, .q-popup-edit') != null) {
+    return
+  }
+
+  hovered = false
+}
+
+// Focus moving between two things inside the carousel never leaves it, and the focus landing
+// nowhere at all is reported as no destination rather than as somewhere outside.
+function onFocusOut(event: FocusEvent) {
+  const next = event.relatedTarget as Node | null
+  if (next == null || root == null || !root.contains(next)) {
+    focused = false
+  }
+}
+
+// Worked out from where the press landed rather than left to the focus alone. A widget's header
+// takes its own press over so that it can start a drag, and a press the page never gets to handle
+// moves the focus neither onto a carousel nor off one.
+//
+// Overlays are exempt. A menu or a dialog opened from in here is drawn at the far end of the page
+// and is still this carousel being used, so reaching into one must not let it start moving again.
+useEventListener(window, 'pointerdown', (event: PointerEvent) => {
+  const target = event.target as HTMLElement | null
+  if (target?.closest('.q-menu, .q-dialog, .q-popup-edit') != null) {
+    return
+  }
+
+  focused = root != null && target != null && root.contains(target)
+})
+
+const slide = $computed(() => widget.slides[index] ?? null)
+
+// Which slide is open is this browser's own place in the workspace rather than part of it, so it
+// survives a reload here and goes nowhere else. Held as the slide's ID rather than its position,
+// so slides reordered or deleted from another seat cannot restore somebody else's slide.
+const persisted = usePersisted({
+  schema: ({ object, string }) => object({ slide: string().nullable().catch(null).default(null) }),
+  methods: [{ type: 'local-storage', key: ['widget-slide', widget.id] }],
+})
+
+const remembered = widget.slides.findIndex((current) => current.id === persisted.slide)
+if (remembered >= 0) {
+  // The position alone, without focusing the slide's layout, which would steal the workspace's
+  // focused layout on every reload for every carousel on it.
+  index = remembered
+}
+
+watch(
+  () => slide?.id ?? null,
+  (id) => {
+    persisted.slide = id
+  }
+)
+
+// A slide is as tall as the carousel however little is on it, so the height left at the bottom
+// goes somewhere. The last row is the default, being where a table or a chart wants the room.
+const expandOptions = [
+  { label: 'Last Widget Row', value: 'last' },
+  { label: 'First Widget Row', value: 'first' },
+  { label: 'All Widget Rows', value: 'even' },
+  { label: "Don't Fill", value: 'none' },
+]
+
+// Also held still for as long as something is actually in hand anywhere in the workspace. A drag
+// measures the layouts on screen once and aims at those measurements for the rest of it, so a slide
+// moving on would take the layout being aimed at off the page.
+//
+// A drag that has not travelled yet does not count. Pressing any widget's header anywhere takes
+// hold of it in case the press turns into a drag, and treating that as one would restart the wait
+// every time a widget was so much as clicked.
+const isRunning = $computed(
+  () => widget.autoplay && !paused && !engaged && !drop.active && widget.slides.length > 1
+)
+
+// Slides can be taken away from under it, so the position is kept inside what is actually there.
+watch(
+  () => widget.slides.length,
+  (length) => {
+    if (index >= length) {
+      index = 0
+    }
+  }
+)
+
+function show(next: number, by: number = 1) {
+  direction = by < 0 ? -1 : 1
+
+  const length = widget.slides.length
+  if (length === 0) {
+    index = 0
+    return
+  }
+
+  index = ((next % length) + length) % length
+}
+
+// Stepping through by hand restarts the wait, so a slide reached deliberately is shown for as long
+// as any other rather than for whatever was left of the one before it.
+const { pause, resume } = useIntervalFn(
+  () => show(index + 1),
+  () => Math.max(widget.interval, 1) * 1000
+)
+
+watch(
+  () => isRunning,
+  (running) => (running ? resume() : pause()),
+  { immediate: true }
+)
+
+// Turning to a slide is asking to work on it, so it becomes the layout a paste lands in and the
+// one the keyboard acts on. Only when it was turned to deliberately. A carousel advancing on its
+// own is nobody asking for anything, and it must not move the ground under whoever is editing.
+function focusSlide() {
+  if (slide != null) {
+    workspace.focusLayout(slide.id)
+  }
+}
+
+function step(by: number) {
+  show(index + by, by)
+  focusSlide()
+
+  if (isRunning) {
+    pause()
+    resume()
+  }
+}
+
+// The dots stand for the slides, so dragging one carries its slide with it. Driven the same way
+// the workspace tab strip is, since it is the same gesture on the same kind of row.
+let dots = $ref<HTMLElement[]>([])
+
+const reorder = usePointerReorder({
+  axis: 'horizontal',
+  elements: () => dots.filter((dot) => dot != null),
+  onReorder: (from, to) => {
+    widget.slides = moved([...widget.slides], from, to)
+
+    // The slide being looked at stays the slide being looked at, wherever it has just been put.
+    if (index === from) {
+      index = to
+    } else if (index > from && index <= to) {
+      index--
+    } else if (index < from && index >= to) {
+      index++
+    }
+  },
+})
+
+// A slide is named on the dot that stands for it. The tooltip holding the name is the field for it
+// as well, so reading a slide's name and changing it are the same place rather than two.
+//
+// Which dot is being pointed at, and which one is being typed into. Typing outlasts pointing, so a
+// name half entered is not taken away by the pointer wandering off the tooltip holding it.
+let pointedDot = $ref<number | null>(null)
+let typedDot = $ref<number | null>(null)
+let leaving: ReturnType<typeof setTimeout> | null = null
+
+const shownDot = $computed(() => typedDot ?? pointedDot)
+
+// The gap between a dot and the tooltip under it is crossed with the pointer over neither, so
+// leaving is given a moment to be reconsidered rather than acted on the instant it happens.
+const leaveDelay = 180
+
+function pointAtDot(at: number) {
+  if (leaving != null) {
+    clearTimeout(leaving)
+    leaving = null
+  }
+
+  pointedDot = at
+}
+
+function leaveDot() {
+  if (leaving != null) {
+    clearTimeout(leaving)
+  }
+
+  leaving = setTimeout(() => {
+    pointedDot = null
+    leaving = null
+  }, leaveDelay)
+}
+
+/** Take the caret to the name of the slide at `at`, if that is the name being asked for.
+
+The field is always there to be clicked into, so this only has to take the focus.
+*/
+function focusDotName(at: number) {
+  if (typedDot !== at) {
+    return
+  }
+
+  // Asked for by the dot it belongs to. The tooltip of whichever dot was pointed at before may
+  // still be on its way out, and taking the first field on the page would find that one.
+  document.querySelector<HTMLInputElement>(`.q-tooltip [data-slide-dot="${at}"] input`)?.focus()
+}
+
+/** Open the name of the slide at `at` and put the caret in it.
+
+Reached from a press on the dot of the slide already being shown. A tooltip still arriving
+settles by moving its own element, which drops whatever focus it held, so a tooltip that has to
+open first is left to say when it has finished and the caret is taken then.
+*/
+async function editDotName(at: number) {
+  typedDot = at
+  pointAtDot(at)
+
+  await nextTick()
+  focusDotName(at)
+}
+
+function onDotClick(at: number) {
+  // A press that turned into a drag has already done what it was for.
+  if (reorder.consumeClick()) {
+    return
+  }
+
+  // Pressing the slide already being shown is asking about it rather than asking for it, which is
+  // the one thing left to do to a dot once turning to it would change nothing.
+  if (at === index) {
+    void editDotName(at)
+    return
+  }
+
+  step(at - index)
+}
+
+// Slides are added, named and taken away on the carousel itself, since a slide is a layout and a
+// layout is arranged by working on it rather than by describing it somewhere else. A new one is
+// shown at once, so the next thing done lands on the slide that was just asked for.
+function addSlide() {
+  const slide: CarouselSlide = { id: v7(), name: '', layout: [] }
+  widget.slides = [...widget.slides, slide]
+  index = widget.slides.length - 1
+  workspace.focusLayout(slide.id)
+}
+
+function deleteSlide() {
+  if (slide == null) {
+    return
+  }
+
+  // Never down to none. A carousel holding no slides has no layout, so nothing could be dragged
+  // onto it or pasted into it, and taking the last slide away would leave it with no way back.
+  if (widget.slides.length <= 1) {
+    return
+  }
+
+  const removing = slide
+  widget.slides = widget.slides.filter((current) => current !== removing)
+  show(index)
+}
+
+/** Turn this carousel into a tab strip holding the same pages, in the same place.
+
+The pages travel as they are, under the names they already had, so what is on them and what a drop
+into any of them means are untouched. Only how they are reached changes.
+*/
+function convertToTabs() {
+  const tabs = convertedPagesWidget(widget)
+  if (tabs != null) {
+    workspace.replaceWidget(widget.id, tabs)
+  }
+}
+
+function moveSlide(by: number) {
+  const to = index + by
+  if (slide == null || to < 0 || to >= widget.slides.length) {
+    return
+  }
+
+  const slides = [...widget.slides]
+  slides.splice(index, 1)
+  slides.splice(to, 0, slide)
+  widget.slides = slides
+  index = to
+}
+
+// A widget carried over the band is being brought to a slide rather than to the one on show, so
+// the carousel turns to whichever dot it is held over and the drop lands there. Held over for a
+// moment first, since crossing the band on the way somewhere else is not a change of mind.
+const dwellBeforeTurning = 280
+
+let turning: ReturnType<typeof setTimeout> | null = null
+
+// What the wait is for, so travelling across a dot does not start it over on every step of the
+// pointer. `undefined` is nothing waited for, and null is the band's own room around the dots.
+let awaited: number | null | undefined = undefined
+
+function stopTurning() {
+  if (turning != null) {
+    clearTimeout(turning)
+    turning = null
+  }
+
+  awaited = undefined
+}
+
+// A slide offered rather than made. Nothing but a drawing, so a workspace saved mid-drag holds no
+// trace of it. It becomes a slide the moment a widget is let go of on it, and not before.
+let ghost = $ref(false)
+
+function onBandPointerLeave() {
+  stopTurning()
+  ghost = false
+}
+
+/** Whichever dot the pointer is over, or null for the band's own room around them. */
+function onBandPointerOver(event: PointerEvent) {
+  if (workspace.drag == null) {
+    return
+  }
+
+  const over = (event.target as HTMLElement | null)?.closest('button') ?? null
+  const at = over == null ? -1 : dots.indexOf(over as HTMLElement)
+  turnWhileDragging(at >= 0 ? at : null)
+}
+
+function turnWhileDragging(at: number | null) {
+  if (awaited === at) {
+    return
+  }
+
+  stopTurning()
+  awaited = at
+
+  if (workspace.drag == null) {
+    return
+  }
+
+  turning = setTimeout(() => {
+    turning = null
+    awaited = undefined
+
+    // A slide of its own for a widget dropped into the band's spare room, since that room is the
+    // one place a carousel can be added to by carrying something to it.
+    if (at == null) {
+      ghost = true
+      return
+    }
+
+    show(at, at - index)
+    focusSlide()
+
+    // The slide it turned to was never on screen when the drag was measured, and it takes its
+    // travel to arrive, so it is measured once it has come to rest.
+    setTimeout(() => drop.remeasure(), 300)
+  }, dwellBeforeTurning)
+}
+
+/** Take the widget in hand onto a slide of its own, made here and now for it to land on.
+
+Runs on the ghost's own `pointerup`, which arrives before the drop system's window-level release,
+so the slide exists and holds the widget by the time release runs. Release then finds nothing to
+do, since the band is no place a plain drop can land.
+*/
+function onGhostDrop() {
+  const drag = workspace.drag
+  if (drag == null || !drop.active) {
+    return
+  }
+
+  const opened: CarouselSlide = { id: v7(), name: '', layout: [] }
+  widget.slides = [...widget.slides, opened]
+  workspace.moveWidgets(
+    drag.widgets.map((held) => held.id),
+    { layout: opened.id, row: 0, column: null }
+  )
+  show(widget.slides.length - 1)
+  focusSlide()
+  ghost = false
+}
+
+// An offer not taken goes away with the drag that asked for it.
+watch(
+  () => workspace.drag != null,
+  (dragging) => {
+    if (!dragging) {
+      ghost = false
+    }
+  }
+)
+</script>
+
+<template>
+  <!-- Focusable itself, so that pressing anywhere on it counts as reaching into it even where
+  there is nothing of its own to focus. Out of the tab order, since the things inside it are the
+  things worth tabbing to and reaching any of them focuses this all the same. -->
+  <div
+    ref="root"
+    :class="[$style.root, 'column', 'full-height', 'no-wrap']"
+    tabindex="-1"
+    @focusin="focused = true"
+    @focusout="onFocusOut"
+    @pointerenter="hovered = true"
+    @pointerleave="onPointerLeave"
+  >
+    <!-- The same button a layout with nothing on it offers, so adding the first slide is the thing
+    it already is everywhere else rather than something else to read. -->
+    <div v-if="slide == null" :class="[$style.empty, 'col', 'column', 'flex-center']">
+      <q-btn
+        aria-label="Add Slide"
+        color="primary"
+        :icon="icons.add"
+        round
+        size="8px"
+        unelevated
+        @click="addSlide"
+      >
+        <q-tooltip class="bg-primary">Add Slide</q-tooltip>
+      </q-btn>
+    </div>
+    <!-- A slide is a workspace in miniature, arranged through the same editor the workspace itself
+    is drawn by, so everything that can be done to a layout can be done to one. -->
+    <template v-else>
+      <!-- Slides travel sideways, arriving from the side the carousel is heading towards and
+      leaving to the other. Both are on screen for as long as it takes, which is what makes turning
+      to the next one read as one thing giving way to another rather than as a swap. -->
+      <div :class="[$style.viewport, 'col']">
+        <transition
+          :enter-active-class="$style.travelling"
+          :enter-from-class="direction > 0 ? $style.offRight : $style.offLeft"
+          :leave-active-class="$style.travelling"
+          :leave-to-class="direction > 0 ? $style.offLeft : $style.offRight"
+        >
+          <div :key="slide.id" :class="[$style.slide, 'overflow-auto', 'q-px-sm']">
+            <workspace-layout
+              :expand="widget.expand"
+              :host="container"
+              :layout="slide.layout"
+              :layout-id="slide.id"
+              :shrink="widget.shrink"
+            />
+          </div>
+        </transition>
+      </div>
+    </template>
+    <!-- Stepping through a carousel is its own band under the slide, dressed the way a widget's
+    header is, so it reads as the carousel's own chrome rather than as something laid on the slide.
+    Held back until there is a slide, since the empty state asks for one itself. -->
+    <template v-if="slide != null">
+      <q-separator />
+      <!-- Laid out in three, with the outer two the same width whatever they hold, so the dots sit
+      at the middle of the carousel rather than at the middle of whatever room the buttons left.
+      The band answers a drag itself, by turning to whichever dot is held over or offering a new
+      slide, so it is no place to drop a widget beside the carousel's own widget. -->
+      <div
+        :class="[$style.controls, 'items-center', 'q-px-sm']"
+        data-no-drop
+        @pointerleave="onBandPointerLeave"
+        @pointerover="onBandPointerOver"
+      >
+        <div />
+        <div :class="[$style.steps, 'items-center', 'justify-center', 'no-wrap', 'row']">
+          <!-- Only worth steering when there is somewhere to steer to. -->
+          <template v-if="widget.slides.length > 1">
+            <q-btn dense flat :icon="icons.menuLeft" round size="10px" @click="step(-1)">
+              <q-tooltip class="bg-primary">Previous</q-tooltip>
+            </q-btn>
+            <button
+              v-for="(current, at) in widget.slides"
+              :key="current.id"
+              ref="dots"
+              aria-label="Show slide"
+              :class="[
+                $style.dot,
+                at === index && $style.dotCurrent,
+                reorder.isSwapping && $style.dotSwapping,
+                reorder.isHeld(at) && $style.dotHeld,
+                reorder.isGrabbed(at) && $style.dotGrabbed,
+              ]"
+              :data-drop-layout="workspace.drag != null ? current.id : undefined"
+              :style="reorder.styleFor(at)"
+              type="button"
+              v-bind="reorder.handlers(at)"
+              @click="onDotClick(at)"
+              @pointerenter="pointAtDot(at)"
+              @pointerleave="leaveDot"
+            >
+              <!-- How long is left of this slide, drawn as a ring closing around its dot. Keyed on
+            the slide so the sweep starts over each time one is turned to, which is also when the
+            wait itself restarts. Gone whenever the carousel is not advancing, since the wait is
+            reset rather than held wherever it had got to, and a part-drawn ring would claim
+            otherwise. -->
+              <svg
+                v-if="isRunning && at === index"
+                :key="index"
+                :class="$style.sweep"
+                viewBox="0 0 24 24"
+              >
+                <!-- Timed on the circle rather than on the box around it, since the circle is what
+              carries the animation and a duration set anywhere else never reaches it. -->
+                <circle
+                  cx="12"
+                  cy="12"
+                  fill="none"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  :style="{ animationDuration: `${Math.max(widget.interval, 1)}s` }"
+                />
+              </svg>
+              <!-- The name, and the field for it, are the same thing. Offered rather than claimed,
+              so pointing at a dot never takes the caret from wherever it already was, and a press
+              into the field is what turns the offer into a real edit. -->
+              <q-tooltip
+                :class="[$style.dotTooltip, 'bg-primary', 'text-white']"
+                :model-value="shownDot === at && !reorder.isDragging && workspace.drag == null"
+                no-parent-event
+                :offset="[0, 6]"
+                @pointerenter="pointAtDot(at)"
+                @pointerleave="leaveDot"
+                @show="focusDotName(at)"
+                @update:model-value="
+                  (shown: boolean) => {
+                    if (!shown) {
+                      pointedDot = null
+                      typedDot = null
+                    }
+                  }
+                "
+              >
+                <div :data-slide-dot="at">
+                  <inline-name-edit
+                    :claim="false"
+                    :editing="true"
+                    :name="current.name !== '' ? current.name : `Slide ${at + 1}`"
+                    @rename="(value: string) => (current.name = value)"
+                    @update:editing="(editing: boolean) => (typedDot = editing ? at : null)"
+                  />
+                </div>
+              </q-tooltip>
+            </button>
+            <q-btn dense flat :icon="icons.menuRight" round size="10px" @click="step(1)">
+              <q-tooltip class="bg-primary">Next</q-tooltip>
+            </q-btn>
+          </template>
+          <!-- The slide a drop into the band would make, drawn rather than made. Its own pointerup
+          is what makes it real, so letting go anywhere else leaves no trace of it. -->
+          <button
+            v-if="ghost"
+            aria-label="New Slide"
+            :class="$style.ghostDot"
+            type="button"
+            @pointerup="onGhostDrop"
+          />
+        </div>
+        <div :class="[$style.actions, 'items-center', 'no-wrap', 'row']">
+          <q-btn
+            v-if="widget.autoplay && widget.slides.length > 1"
+            dense
+            flat
+            :icon="paused ? icons.start : icons.pause"
+            round
+            size="10px"
+            @click="paused = !paused"
+          >
+            <q-tooltip class="bg-primary">{{ paused ? 'Resume' : 'Pause' }}</q-tooltip>
+          </q-btn>
+          <q-btn dense flat :icon="icons.add" round size="10px" @click="addSlide">
+            <q-tooltip class="bg-primary">Add Slide</q-tooltip>
+          </q-btn>
+          <!-- The slide being shown is the one these act on, since it is the one being looked
+          at. -->
+          <q-btn dense flat :icon="icons.more" round size="10px">
+            <q-menu>
+              <q-list bordered class="q-pb-sm" dense>
+                <q-item v-close-popup clickable dense :disable="index === 0" @click="moveSlide(-1)">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.menuLeft" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Move Slide Earlier</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item
+                  v-close-popup
+                  clickable
+                  dense
+                  :disable="index === widget.slides.length - 1"
+                  @click="moveSlide(1)"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="icons.menuRight" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Move Slide Later</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item
+                  v-close-popup
+                  clickable
+                  dense
+                  :disable="widget.slides.length <= 1"
+                  @click="deleteSlide"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="icons.delete" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Delete Slide</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item v-close-popup clickable dense @click="convertToTabs">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.tab" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Convert To Tabs</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <!-- How the carousel runs, rather than what is on any one slide, which is why these
+                sit under a rule at the end. The menu stays open, since setting a wait and watching
+                it take effect is one thing being done rather than two. -->
+                <q-item dense>
+                  <q-item-section>
+                    <q-checkbox v-model="widget.autoplay" dense label="Autoplay" />
+                  </q-item-section>
+                </q-item>
+                <q-item v-if="widget.autoplay" dense>
+                  <q-item-section>
+                    <q-input
+                      v-model.number="widget.interval"
+                      dense
+                      label="Seconds Per Slide"
+                      :max="3600"
+                      :min="1"
+                      outlined
+                      type="number"
+                    />
+                  </q-item-section>
+                </q-item>
+                <q-item v-if="widget.expand !== 'none'" dense>
+                  <q-item-section>
+                    <q-checkbox v-model="widget.shrink" dense label="Shrink" />
+                  </q-item-section>
+                </q-item>
+                <q-item dense>
+                  <q-item-section>
+                    <q-select
+                      v-model="widget.expand"
+                      dense
+                      emit-value
+                      label="Fill Slide Height"
+                      map-options
+                      :options="expandOptions"
+                      options-dense
+                      outlined
+                    />
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </q-btn>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<style lang="scss" module>
+@use 'sass:color';
+
+// Takes the focus so that reaching into it can be told from passing over it, and shows nothing for
+// it. The focus is only being watched here, not being offered as somewhere to type.
+.root:focus,
+.root:focus-visible {
+  outline: none;
+}
+
+.empty {
+  min-height: 60px;
+}
+
+// Takes the room left over rather than asking for the room its contents want, so the band under it
+// keeps its place however much a slide happens to hold. What a slide travels through, which is why
+// nothing is drawn outside it.
+.viewport {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+// Laid over the viewport rather than in it, so the slide arriving and the slide leaving pass each
+// other rather than standing one after the other.
+.slide {
+  position: absolute;
+  inset: 0;
+
+  // Room for the scrollbar whether or not one is showing. A slide is as tall as its rows say, so
+  // one arrives and goes as rows are added and resized, and content that reflowed each time it did
+  // would leave the widgets at the right edge jumping under the hand arranging them.
+  scrollbar-gutter: stable;
+}
+
+// Long enough to be followed across the width of a widget, and short enough not to be waited on.
+.travelling {
+  transition: transform 260ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.offRight {
+  transform: translateX(100%);
+}
+
+.offLeft {
+  transform: translateX(-100%);
+}
+
+// Three columns with the outer two forced to the same width, which is what holds the middle one at
+// the centre of the band however many buttons sit at the end of it.
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.steps {
+  gap: 6px;
+}
+
+// A tooltip is normally only read, so Quasar has every one of them let presses through to whatever
+// is under it. This one is a field as well and has to take them, which needs both the weight to
+// beat that rule and the name twice over to outrank it. Larger than a tooltip's own text too,
+// since a field being typed into earns more than a caption's size.
+.dotTooltip.dotTooltip {
+  pointer-events: auto !important;
+  font-size: 12px;
+}
+
+.actions {
+  gap: 6px;
+  justify-self: end;
+}
+
+:global(.light) .controls {
+  background-color: color.adjust(white, $lightness: -1%);
+}
+
+// Small enough to sit under a slide without competing with it, and large enough to aim at. Drawn
+// in its own right rather than as a faded shade of whatever text colour it inherits, which left it
+// too near the band behind it to make out.
+.dot {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  margin: 0 1.5px;
+  cursor: pointer;
+  transition: background-color 160ms ease-out, transform 160ms ease;
+  touch-action: none;
+}
+
+:global(.dark) .dot {
+  background-color: #ffffff8c;
+}
+
+:global(.dark) .dot:hover {
+  background-color: #ffffffd9;
+}
+
+:global(.light) .dot {
+  background-color: #00000073;
+}
+
+:global(.light) .dot:hover {
+  background-color: #000000b3;
+}
+
+// Qualified the same way, or the theme rules above would beat it on specificity.
+:global(.dark) .dotCurrent,
+:global(.light) .dotCurrent {
+  background-color: $primary;
+}
+
+.dotHeld {
+  z-index: 2;
+}
+
+// The held dot tracks the pointer directly, so it must not smooth its own movement. It regains the
+// transition once released, which is what animates it into the gap.
+.dotGrabbed {
+  cursor: grabbing;
+  transition: background-color 160ms ease-out;
+}
+
+.dotSwapping {
+  transition: none;
+}
+
+// Drawn as an offer rather than as a dot, wearing the same dashed border and tint every drop
+// target wears, so it reads as a place to let go rather than as a slide that already exists.
+.ghostDot {
+  width: 30px;
+  height: 14px;
+  padding: 0;
+  border: 2px dashed $primary;
+  border-radius: 7px;
+  margin: 0 1.5px;
+  background-color: rgba($primary, 0.1);
+}
+
+// The ring closes clockwise from the top, drawn as a circle whose dash is drawn back in over the
+// wait. An outline rather than a fill, so the dot underneath still says which slide is showing.
+@keyframes sweep {
+  from {
+    stroke-dashoffset: 62.83;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.sweep {
+  position: absolute;
+  inset: -5px;
+  color: $primary;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.sweep circle {
+  stroke-dasharray: 62.83;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  animation-name: sweep;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+</style>

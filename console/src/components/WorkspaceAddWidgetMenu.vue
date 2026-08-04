@@ -1,15 +1,18 @@
 <script lang="ts" setup>
-import { useWorkspace, widgetInfos, WidgetType } from '@/workspace'
+import { rootLayoutId, useWorkspace, widgetInfos, WidgetType } from '@/workspace'
 
-const { row, column } = defineProps<{
+const { row, column, layoutId } = defineProps<{
   row: number
   column?: number
+
+  /** Which layout the row and column count against. The workspace's own unless said otherwise. */
+  layoutId?: string
 }>()
 
 const workspace = useWorkspace()
 
 function add(type: WidgetType) {
-  return workspace.addWidget(type, row, column)
+  return workspace.addWidget(type, row, column, layoutId ?? rootLayoutId)
 }
 </script>
 

@@ -156,12 +156,19 @@ function showMenu(id: string, event: Event) {
   menus.get(id)?.show(event)
 }
 
-function onTabClick(id: string) {
+function onTabClick(workspace: Workspace, event: MouseEvent) {
   if (reorder.consumeClick()) {
     return
   }
 
-  emit('select', id)
+  // Shift names the tab rather than turning to it, which is what holding shift over one already
+  // offers. The press is what makes the offer a real edit, so it outlasts shift being let go of.
+  if (event.shiftKey) {
+    openRename(workspace)
+    return
+  }
+
+  emit('select', workspace.id)
 }
 
 /** Which tab is showing its name as a field, whether offered or being typed into.
@@ -328,7 +335,8 @@ function promptDeleteById(workspace: Workspace) {
         :name="workspace.id"
         :style="reorder.styleFor(index)"
         v-bind="reorder.handlers(index)"
-        @click="onTabClick(workspace.id)"
+        @click="onTabClick(workspace, $event)"
+        @dblclick.stop="openRename(workspace)"
         @keydown="onTabKeydown($event, index)"
       >
         <div
@@ -712,19 +720,13 @@ function promptDeleteById(workspace: Workspace) {
 </template>
 
 <style lang="scss" module>
-// Each tab carries the workspace icon so the group reads as workspaces rather than as page
-// sections, and the selected one is marked by a filled block instead of an underline, which sits
-// better in a header rail that already uses chips and icon buttons.
+@use '@/css/tab-strip' as strip;
 
-// The strip takes the full height of the header row it sits in and its tabs stretch to fill it,
-// so the selected tab's fill runs from the top of the header into the separator beneath it, the
-// way a tab is expected to meet the surface it belongs to.
-// The strip takes the full height of the header row it sits in and its tabs stretch to fill it,
-// so the selected tab's fill runs from the top of the header into the separator beneath it, the
-// way a tab is expected to meet the surface it belongs to.
-//
-// The picker floats over the trailing edge rather than reserving space beside the tabs, so it
-// stays in the same place however long the strip grows and the tabs pass beneath it.
+// The strip takes the full height of the header row it sits in and its tabs stretch to fill it, so
+// the selected tab's fill runs from the top of the header into the separator beneath it, the way a
+// tab is expected to meet the surface it belongs to. The picker floats over the trailing edge
+// rather than reserving space beside the tabs, so it stays in the same place however long the strip
+// grows and the tabs pass beneath it.
 .root {
   position: relative;
   flex: 1;
@@ -743,78 +745,38 @@ function promptDeleteById(workspace: Workspace) {
 }
 
 .tabs {
+  @include strip.scroller;
+}
+
+// Stretched to the header's full height on top of what the strip clears, so the selected tab's
+// fill reaches the separator under the header.
+.tabs .tab {
+  @include strip.tabUnpadded;
+
   height: 100%;
-  flex: 0 1 auto;
-  min-width: 0;
 }
 
-// A strip that outgrows its container scrolls, the way a browser's tab bar does. Quasar's own
-// answer is a pair of arrow buttons, which cost width in a header that has none to spare and are
-// awkward next to tabs that are also draggable.
-.tabs :global(.q-tabs__content) {
-  overflow-x: auto;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
+.tab :global(.q-tab__content) {
+  @include strip.tabContentUnpadded;
 }
 
-.tabs :global(.q-tabs__arrow) {
-  display: none;
+// Each tab carries the workspace icon so the group reads as workspaces rather than as page
+// sections, and the selected one is marked by a filled block instead of an underline, which sits
+// better in a header rail that already uses chips and icon buttons.
+.tab {
+  @include strip.tab;
 }
 
-// Quasar's dense tabs force their own horizontal padding, so the tab's own spacing is carried by
-// the row inside it instead of fighting that rule.
-// The grip and the close button sit against the tab's own edges rather than inside the row, so
-// they cost the same width whether they are showing or not and the label never moves under the
-// pointer. Both are positioned against the tab itself, which means Quasar's own tab padding has
-// to go, with the spacing carried by the row inside instead.
+// The grip and the close button sit against the tab's own edges rather than inside the row, so they
+// cost the same width whether they are showing or not and the label never moves.
 .tabInner {
   height: 100%;
   padding: 0 20px 0 19px;
 }
 
-// An invisible strip along the tab's leading edge, reaching past the workspace icon, that carries
-// the grab cursor. Nothing is drawn in it, so it costs no width and the label never moves.
+// Reaching past the workspace icon, so the whole leading edge of the tab says it can be dragged.
 .grip {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 32px;
-  cursor: grab;
-}
-
-// Quasar's dense tabs impose a 36px minimum on the tab and pad its content box vertically, which
-// together push the tab taller than the header it sits in. Both need matching specificity to
-// override, so the minimum is cleared through the strip and the padding through the inner box.
-.tabs .tab {
-  height: 100%;
-  min-height: 0;
-  padding: 0;
-}
-
-.tab :global(.q-tab__content) {
-  padding: 0;
-}
-
-.tab {
-  border-radius: 4px 4px 0 0;
-  opacity: 0.7;
-  transition: background-color 0.2s, opacity 0.2s, transform 0.16s ease;
-  touch-action: none;
-
-  &:hover {
-    opacity: 1;
-  }
-
-  &:global(.q-tab--active) {
-    opacity: 1;
-    background-color: $primary;
-    color: white;
-  }
+  @include strip.grip(32px);
 }
 
 .tabIcon {
@@ -823,67 +785,48 @@ function promptDeleteById(workspace: Workspace) {
 }
 
 .label {
-  max-width: 160px;
-  overflow: hidden;
+  @include strip.label;
+
   font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-// A workspace with local changes rings its menu button rather than carrying an icon of its own.
-// The ring is drawn as an outline so it takes no space, which keeps a tab exactly as wide edited
-// as it is clean, and leaves the tab with one icon instead of two.
-// A workspace with local changes rings its menu dots rather than carrying an icon of its own. The
-// ring is drawn on the dots themselves so it sits tight against them and leaves the button's hit
-// area alone, and being an outline it takes no space, keeping a tab exactly as wide edited as it
-// is clean. Quasar buttons carry `no-outline`, which clears outlines with `!important`, so this
-// has to be forced back on.
-// The close button holds its place whether or not it is showing, so a tab stays exactly as wide
-// hovered as it is at rest and the strip does not shuffle under the pointer. The selected tab
-// keeps it visible, since that is the one most likely to be closed next.
 // The extra pixel matches the nudge on the menu button beside it, so the two sit on one line.
 .close {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  opacity: 0;
-  transform: translateY(calc(-50% + 1px));
-  transition: opacity 0.15s;
+  @include strip.close(1px);
 }
 
+// The selected tab keeps its close button visible, since that is the one most likely to be closed
+// next.
 .tab:hover .close,
 .closeShown {
   opacity: 1;
 }
 
+// A workspace with local changes rings its menu dots rather than carrying an icon of its own. The
+// ring is drawn on the dots themselves so it sits tight against them and leaves the button's hit
+// area alone, and being an outline it takes no space, keeping a tab exactly as wide edited as it is
+// clean. Quasar buttons carry `no-outline`, which clears outlines with `!important`, so this has to
+// be forced back on.
 .editedRing :global(.q-icon) {
   border-radius: 50%;
   outline: 1px dotted currentColor !important;
   outline-offset: 0;
 }
 
-// While a drag is in progress the strip must not clip the lifted tab, and hover highlighting on
-// the tabs sliding aside would read as a second thing happening at once.
 .arranging {
-  &:hover {
-    opacity: inherit;
-  }
+  @include strip.arranging;
 }
 
 .held {
-  z-index: 2;
-  opacity: 1;
+  @include strip.held;
 }
 
-// The held tab tracks the pointer directly, so it must not smooth its own movement. It regains
-// the transition once released, which is what animates it into the gap.
 .grabbed {
-  cursor: grabbing;
-  transition: background-color 0.2s, opacity 0.2s;
+  @include strip.grabbed;
 }
 
 .swapping {
-  transition: none;
+  @include strip.swapping;
 }
 
 // Wide enough for a workspace name and its placement without the menu sizing itself to whatever
@@ -892,44 +835,19 @@ function promptDeleteById(workspace: Workspace) {
   min-width: 280px;
 }
 
-// Pinned to the trailing edge of the strip rather than carried along by it, so it stays where it
-// was however far the tabs scroll. It carries the surface it sits on out around itself, which is
-// what makes the tabs read as passing underneath rather than colliding with it.
+.add {
+  @include strip.add;
+  @include strip.fadedIcon;
+}
+
+.addCentered {
+  @include strip.addCentered;
+}
+
 // Flush against the trailing edge with that side squared off, so no sliver of a tab shows past it
 // and the strip ends on the button rather than beside it.
-// Sits in the row beside the last tab by default, which is where there is room for it while the
-// strip still fits.
-.add {
-  align-self: center;
-  flex: none;
-  border-radius: 50%;
-}
-
-// An empty strip has nothing for the button to sit against, so it takes the middle instead. Left
-// in the row rather than positioned over it, because it is then the only thing giving an empty
-// strip its height and taking it out of flow collapses the strip onto itself.
-.addCentered {
-  margin: 0 auto;
-}
-
-// Once the tabs scroll there is no end of the row to sit beside, so the button pins to the
-// trailing edge with that side squared off against it, over the page's own surface so the tabs
-// read as passing underneath.
 .addAnchored {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  z-index: 2;
-  border-radius: 50% 0 0 50%;
-  transform: translateY(-50%);
-}
-
-.add :global(.q-icon) {
-  opacity: 0.7;
-}
-
-.add:hover :global(.q-icon) {
-  opacity: 1;
+  @include strip.addAnchored(0);
 }
 
 :global(.dark) .addAnchored,

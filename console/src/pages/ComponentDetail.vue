@@ -452,22 +452,22 @@ const configHighlighted = $computed(() =>
         {{ component?.address?.toString() ?? address.toString() }}
       </common-text>
       <status-badge v-if="component" :address class="q-ml-sm" :scale="0.65" />
-      <q-separator class="q-ml-md" inset vertical />
+      <q-space />
       <q-btn
-        class="q-ml-sm"
+        class="q-mr-sm"
         :color="persisted.overviewCollapsed ? undefined : 'primary'"
         dense
         flat
-        :icon="icons.overview"
-        :icon-right="persisted.overviewCollapsed ? icons.menuDown : icons.menuUp"
+        :icon="persisted.overviewCollapsed ? icons.menuDown : icons.menuUp"
+        :icon-right="icons.overview"
         size="sm"
         @click="persisted.overviewCollapsed = !persisted.overviewCollapsed"
       >
         <q-tooltip class="bg-primary text-white">
-          {{ persisted.overviewCollapsed ? 'Show' : 'Hide' }} Overview
+          {{ persisted.overviewCollapsed ? 'Show' : 'Hide' }} Details
         </q-tooltip>
       </q-btn>
-      <q-space />
+      <!-- Flush with the right edge of the widgets below, whose cards sit half a gutter in. -->
       <q-chip
         v-if="effectiveAccess != null"
         class="q-mr-sm q-px-sm"
