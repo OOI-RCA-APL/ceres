@@ -537,10 +537,9 @@ impl RecordStore {
         let values = match serde_norway::from_str(assign) {
             Ok(serde_json::Value::Object(values)) => values,
             Ok(_) => {
-                return Err(
-                    "--assign takes an object of column names and values, like                      `{\"name\": \"rate\"}`."
-                        .to_string(),
-                );
+                return Err("--assign takes an object of column names and values, like \
+                     `{\"name\": \"rate\"}`."
+                    .to_string());
             }
             Err(error) => return Err(format!("--assign is not readable as JSON or YAML. {error}")),
         };
@@ -972,7 +971,8 @@ pub use crate::backend::CHUNK;
 
 /// Check a case-insensitive keyword prefix.
 fn starts_with_keyword(text: &str, keyword: &str) -> bool {
-    text.len() >= keyword.len() && text[..keyword.len()].eq_ignore_ascii_case(keyword)
+    text.get(..keyword.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(keyword))
 }
 
 #[cfg(test)]
@@ -1161,5 +1161,16 @@ mod tests {
             RecordTable::Messages
         );
         assert!(RecordTable::parse("users").is_err());
+    }
+
+    #[test]
+    fn readonly_check_reads_keywords_and_survives_multibyte_text() {
+        assert!(assert_readonly("SELECT 1").is_ok());
+        assert!(assert_readonly("  with x as (select 1) select * from x").is_ok());
+        assert!(assert_readonly("DELETE FROM logs").is_err());
+
+        // A keyword-length prefix that splits a multibyte character is a refusal, not a
+        // panic.
+        assert!(assert_readonly("aéé").is_err());
     }
 }

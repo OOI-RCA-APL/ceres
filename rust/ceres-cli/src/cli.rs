@@ -157,7 +157,7 @@ pub enum Command {
     /// Generate various project resources.
     #[command(disable_help_flag = true)]
     Generate(DelegatedArgs),
-    // The eight table command groups are not declared here. Their whole surface is
+    // The table command groups are not declared here. Their whole surface is
     // generated from the entity definitions at startup, which is what keeps the flags a
     // table accepts and the filter keys its compiler serves from ever disagreeing.
 }

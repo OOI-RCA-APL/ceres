@@ -795,7 +795,9 @@ pub(crate) fn open_store(
 /// What to say about a driver argument this cannot reproduce.
 fn unsupported(key: &str) -> String {
     format!(
-        "The database configuration sets `{key}`, which is an argument for a Python          database library rather than something this connects with. Remove it, or move          what it does into `connect_args.server_settings`."
+        "The database configuration sets `{key}`, which is an argument for a Python \
+         database library rather than something this connects with. Remove it, or move \
+         what it does into `connect_args.server_settings`."
     )
 }
 
@@ -806,7 +808,8 @@ fn unsupported(key: &str) -> String {
 fn existing(path: Option<&Path>, directory: &Path) -> std::result::Result<String, String> {
     let Some(path) = path else {
         return Err(
-            "This project's database configuration names no path, so there is no file to              open."
+            "This project's database configuration names no path, so there is no file to \
+             open."
                 .to_string(),
         );
     };

@@ -1,6 +1,6 @@
 //! The declared argument surface of the table commands.
 //!
-//! The eight entity and record groups take the same verbs over the same controls,
+//! The entity and record groups take the same verbs over the same controls,
 //! differing only in the fields their table holds, so the whole tree is generated from
 //! the entity definitions rather than written out. A filter argument comes from the
 //! table's filter keys and a create's arguments from its columns, each key already
@@ -20,8 +20,8 @@ use clap::{Arg, ArgAction, Command};
 
 /// The verbs a table command takes.
 ///
-/// `follow` reads a running engine rather than the database, so only the record tables
-/// components fill declare it.
+/// `follow` reads a running engine rather than the database, so only the
+/// component-filled record tables declare it.
 pub(crate) const VERBS: [&str; 8] = [
     "select", "count", "any", "create", "update", "delete", "load", "follow",
 ];
@@ -94,8 +94,8 @@ impl Table {
         }
     }
 
-    /// Whether the table streams new rows from a running engine, which the record
-    /// tables components fill do and the operator-edited tables do not.
+    /// Whether the table streams new rows from a running engine, which the
+    /// component-filled record tables do and the operator-edited tables do not.
     fn follows(self) -> bool {
         matches!(self, Self::Record(_))
     }
@@ -656,7 +656,7 @@ mod tests {
                 .map(|verb| verb.get_name())
                 .collect();
 
-            // Only the record tables components fill can be followed, and every other
+            // Only the component-filled record tables can be followed, and every other
             // verb belongs to every group.
             let expected: Vec<_> = VERBS
                 .iter()
