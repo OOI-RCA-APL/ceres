@@ -31,10 +31,23 @@ _ADDRESS_KEYS = (
 )
 """Widget configuration keys that hold a component address or selector."""
 
+_PAGE_KEYS = (
+    "slides",
+    "tabs",
+)
+"""Widget configuration keys holding pages, each of which is a layout of its own."""
+
 
 def _iter_raw_values(widget: dict[str, Any]) -> Iterator[Any]:
     for key in _ADDRESS_KEYS:
         yield widget.get(key)
+
+    # A button widget holds one entry per action it offers, each naming its own component.
+    buttons = widget.get("buttons")
+    if isinstance(buttons, list):
+        for button in buttons:
+            if isinstance(button, dict):
+                yield button.get("address")
 
     # The video widget's `query` field encodes a component address as
     # `@component::queries::name` (or a relative address in place of `@component`). Only the
@@ -92,14 +105,15 @@ def iter_widget_targets(widget: dict[str, Any], scope: Address | None) -> Iterat
         yield from _selector_bases(value, scope)
 
 
-def _iter_widget_slots(data: dict[str, Any]) -> Iterator[tuple[list[Any], int]]:
-    """Yield `(widgets, index)` for every widget slot in `data`'s layout.
+def _iter_layout_slots(layout: Any) -> Iterator[tuple[list[Any], int]]:
+    """Yield `(widgets, index)` for every widget slot in `layout`, however deeply held.
 
     Each yielded pair identifies a widget's list and its position, so a caller can read or
-    replace the widget in place. Only slots holding a dict widget are yielded, malformed layout
+    replace the widget in place. A carousel slide and a tab page each hold a layout arranged
+    exactly as a workspace's is, so the widgets on one are reached the same way and are subject
+    to the same redaction. Only slots holding a dict widget are yielded, malformed layout
     structure and non-dict entries are skipped rather than raised on.
     """
-    layout = data.get("layout")
     if not isinstance(layout, list):
         return
 
@@ -112,8 +126,24 @@ def _iter_widget_slots(data: dict[str, Any]) -> Iterator[tuple[list[Any], int]]:
             continue
 
         for index, widget in enumerate(widgets):
-            if isinstance(widget, dict):
-                yield widgets, index
+            if not isinstance(widget, dict):
+                continue
+
+            yield widgets, index
+
+            for key in _PAGE_KEYS:
+                pages = widget.get(key)
+                if not isinstance(pages, list):
+                    continue
+
+                for page in pages:
+                    if isinstance(page, dict):
+                        yield from _iter_layout_slots(page.get("layout"))
+
+
+def _iter_widget_slots(data: dict[str, Any]) -> Iterator[tuple[list[Any], int]]:
+    """Yield `(widgets, index)` for every widget slot anywhere in `data`'s layout."""
+    yield from _iter_layout_slots(data.get("layout"))
 
 
 def redact_workspace_data(

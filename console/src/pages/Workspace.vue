@@ -7,6 +7,7 @@ import CommonText from '@/components/CommonText.vue'
 import FullPage, { appHeaderHeight, densePageHeaderHeight } from '@/components/FullPage.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
+import WorkspaceWidgetGroupDialog from '@/components/WorkspaceWidgetGroupDialog.vue'
 import { useDialogs } from '@/dialogs'
 import { NotFoundError } from '@/errors'
 import icons from '@/icons'
@@ -161,6 +162,10 @@ function onCopy(event: ClipboardEvent): string | null {
   return text
 }
 
+// The widgets the group dialog was opened for, or null while it is closed. Named here as well as
+// in each widget's menu, so the keyboard can reach grouping without a widget menu open.
+let groupDialogIds = $ref<string[] | null>(null)
+
 // Shortcuts that act on the workspace, skipped while the user is typing so a text field keeps its
 // own behavior.
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
@@ -178,6 +183,17 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
     } else if ((key === 'z' && event.shiftKey) || key === 'y') {
       event.preventDefault()
       workspace.redo()
+    } else if (key === 'g' && workspace.selection.length > 0) {
+      // Group and ungroup on the shortcuts design tools taught, acting on what is picked out.
+      // Ungrouping quietly does nothing when the one picked-out widget holds no pages.
+      event.preventDefault()
+      if (event.shiftKey) {
+        if (workspace.selection.length === 1 && workspace.selection[0] != null) {
+          workspace.ungroupWidget(workspace.selection[0])
+        }
+      } else {
+        groupDialogIds = [...workspace.selection]
+      }
     }
 
     return
@@ -366,8 +382,16 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       </div>
       <workspace-layout v-else ref="layoutView" :layout="data.layout" :layout-id="rootLayoutId" />
     </div>
+    <!-- Mounted only while showing, so its remembered choices are read fresh each time. -->
+    <workspace-widget-group-dialog
+      v-if="groupDialogIds != null"
+      :widget-ids="groupDialogIds"
+      @close="groupDialogIds = null"
+    />
+    <!-- Held back while the layout is empty, since a layout with nothing on it offers this same
+    button in the middle of itself and two of it on screen at once is one too many. -->
     <div
-      v-if="!isViewingOriginal && data != null"
+      v-if="!isViewingOriginal && data != null && data.layout.length > 0"
       class="row"
       :class="[$style.addWidgetRow, 'items-center', 'justify-center', 'q-mt-sm']"
     >

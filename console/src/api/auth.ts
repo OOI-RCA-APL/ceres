@@ -5,6 +5,22 @@ import Zod from 'zod'
 import { useClient } from '@/api/client'
 import { DateTimeModel } from '@/api/shared'
 import { User, UserModel, useUsers } from '@/api/users'
+import { duration, utc, Datetime } from '@/time'
+
+// setTimeout folds its delay into a signed 32 bit integer, so anything past ~24.8 days overflows
+// and fires immediately. A 30 day token scheduled naively therefore refreshes in a tight loop.
+// Waking daily is far inside that limit, and an early refresh just schedules the next one.
+const maxRefreshDelayMs = duration(1, 'day').asMilliseconds()
+
+/** Milliseconds to wait before refreshing an identity that expires at `expires`.
+
+Aimed a minute before the expiry, never negative, and capped a day out so the delay stays inside
+what `setTimeout` can count to.
+*/
+export function refreshDelayMs(expires: string, now: Datetime = utc()): number {
+  const delay = duration(utc(expires).subtract(1, 'minute').diff(now)).asMilliseconds()
+  return Math.min(Math.max(delay, 0), maxRefreshDelayMs)
+}
 
 export type Identity = Zod.infer<typeof IdentityModel>
 export const IdentityModel = Zod.object({

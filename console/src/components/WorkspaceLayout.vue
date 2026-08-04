@@ -2,7 +2,6 @@
 import { useResizeObserver } from '@vueuse/core'
 import { onMounted } from 'vue'
 
-import CommonText from '@/components/CommonText.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
@@ -14,16 +13,41 @@ import {
   resolveWidgetWidths,
   useWorkspace,
   widgetWidthSubdivisions,
+  LayoutExpand,
   Widget,
   WidgetRow,
 } from '@/workspace'
 
-const { layout, layoutId } = defineProps<{
+const {
+  layout,
+  layoutId,
+  expand = 'none',
+  shrink = false,
+  host,
+} = defineProps<{
   /** The rows this editor arranges. Written in place, so it is the layout itself. */
   layout: WidgetRow[]
 
   /** What a drag calls this layout, which is what tells it apart from the others on screen. */
   layoutId: string
+
+  /** What to do with height the layout has been given and its rows have not asked for.
+
+  Left alone by default, which is right for the workspace's own layout: that one is as tall as
+  what it holds, so there is never anything left over to give away.
+  */
+  expand?: LayoutExpand
+
+  /** Whether rows may be squeezed below their own heights so that everything fits without
+  scrolling. Only meaningful where the layout has a height of its own to fit into. */
+  shrink?: boolean
+
+  /** The row this whole layout is drawn inside, where there is one.
+
+  A row that fills has no height of its own to speak of, so dragging its handle would move a number
+  nothing reads. What the drag is really asking for is a taller box to fill, which is this.
+  */
+  host?: WidgetRow
 }>()
 
 const workspace = useWorkspace()
@@ -128,6 +152,38 @@ function getWidgetWidthStyle(widget: Widget, isLast: boolean) {
   return isLast ? { minWidth: width } : { maxWidth: width, minWidth: width }
 }
 
+/** Take a row to `height`, carrying the box around it along where the row fills that box.
+
+A filling row is as tall as whatever is left over, so changing its own height alone would move a
+number nothing reads. Moving the box by the same amount is what makes the drag do what it looks
+like it is doing, and keeps the row's own height meaningful for whenever it stops filling.
+*/
+function setRowHeight(row: WidgetRow, index: number, height: number) {
+  const change = height - row.height
+  row.height = height
+
+  if (host != null && isFilling(row, index)) {
+    host.height = Math.max(shortestHost, host.height + change)
+  }
+}
+
+/** Below this a carousel or a tab strip has no room left for the thing it is made of. */
+const shortestHost = 80
+
+/** Whether this row takes a share of the height left over. A collapsed row never does, being
+already as short as it goes. */
+function isFilling(row: WidgetRow, index: number) {
+  if (expand === 'none' || row.collapsed) {
+    return false
+  }
+
+  if (expand === 'even') {
+    return true
+  }
+
+  return expand === 'first' ? index === 0 : index === rows.length - 1
+}
+
 onMounted(() => {
   for (const row of layout) {
     resolveWidgetWidths(row.widgets)
@@ -139,25 +195,18 @@ defineExpose({ element: $$(element) })
 </script>
 
 <template>
-  <div ref="element" :class="$style.root" data-layout>
-    <!-- A layout with nothing on it says so and offers the one thing there is to do with it, since
-    a widget can otherwise only arrive by being dragged in from somewhere that already has one. -->
+  <div ref="element" :class="[$style.root, shrink && $style.rootFitting]" data-layout>
+    <!-- A layout with nothing on it offers the one thing there is to do with it, since a widget
+    can otherwise only arrive by being dragged in from somewhere that already has one. The same
+    button the workspace carries under its own layout, so adding the first widget to a carousel
+    slide or a tab is the thing it already is elsewhere rather than something else to learn. -->
     <div
       v-if="rows.length === 0"
       :class="[$style.empty, 'column', 'flex-center']"
       @pointerdown="workspace.focusLayout(layoutId)"
     >
-      <common-text variant="description">Nothing here yet.</common-text>
-      <q-btn
-        class="q-mt-sm"
-        color="primary"
-        dense
-        flat
-        :icon="icons.add"
-        label="Add Widget"
-        no-caps
-        size="sm"
-      >
+      <q-btn aria-label="Add Widget" color="primary" :icon="icons.add" round size="8px" unelevated>
+        <q-tooltip class="bg-primary">Add Widget</q-tooltip>
         <workspace-add-widget-menu
           anchor="bottom middle"
           :layout-id="layoutId"
@@ -185,6 +234,11 @@ defineExpose({ element: $$(element) })
     having been redrawn. Rendered under a tag of its own, since working out whether a row can be
     moved at all needs an element to test against and a fragment has none. -->
     <transition-group
+      :class="[
+        $style.rows,
+        expand !== 'none' && $style.rowsFilling,
+        shrink && $style.rowsShrinking,
+      ]"
       :enter-active-class="$style.rowEnterActive"
       :enter-from-class="$style.rowEnterFrom"
       :leave-active-class="drop.active ? undefined : $style.rowClosing"
@@ -196,7 +250,8 @@ defineExpose({ element: $$(element) })
       <div
         v-for="(row, i) in rows"
         :key="row.id"
-        class="full-width q-my-sm relative-position"
+        class="full-width relative-position"
+        :class="isFilling(row, i) && $style.rowFilling"
         data-row
         :style="{
           height: row.collapsed ? undefined : `${row.height}px`,
@@ -204,7 +259,6 @@ defineExpose({ element: $$(element) })
       >
         <resize-handle
           v-if="!drop.active && !row.collapsed"
-          v-model="row.height"
           :class="$style.verticalResizeHandle"
           direction="vertical"
           :min="
@@ -213,10 +267,12 @@ defineExpose({ element: $$(element) })
               50
             )
           "
+          :model-value="row.height"
           :readout="false"
           :step="5"
           visibility="hover"
           @update:dragging="(dragging: boolean) => (resizingRow = dragging ? row : null)"
+          @update:model-value="(value: number) => setRowHeight(row, i, value)"
         />
         <!-- A row is sized in pixels rather than in shares of anything, so its height is what
         it says, laid over the row the same way each widget says its share of one. -->
@@ -318,10 +374,55 @@ $easeOut: cubic-bezier(0.2, 0, 0, 1);
 $settle: 240ms;
 $fade: 210ms;
 
-// Enough of the layout to be worth pressing, which is what says a paste was meant for this one.
+// The rows and the space between them, said in one place rather than as a margin on each row.
+// Margins between flex items do not collapse the way they do between blocks, so a layout that
+// fills would otherwise stand its rows twice as far apart as one that does not.
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+// Rows laid down the height of the layout rather than only as far as they reach, so that whatever
+// is left at the bottom can be given to one of them. Rows keep the height they were dragged to,
+// since only the ones marked as filling may take more.
+.rowsFilling {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.rows > * {
+  flex: 0 0 auto;
+}
+
+// Only the rows that fill are squeezed, since they are the ones whose height was never really
+// theirs. A row left at the height it was dragged to keeps it, so height taken away from a slide
+// comes out of the row that was taking up the slack rather than out of all of them evenly.
+// A filling row already gives height up when asked, so all this does is stop the others being
+// asked at all.
+.rowsShrinking {
+  min-height: 0;
+}
+
+.rowsShrinking > * {
+  flex-shrink: 0;
+}
+
+// Grown from the height it was dragged to rather than in place of it, so a row that fills is still
+// at least as tall as it was asked to be.
+.rows > .rowFilling {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+// Enough of the layout to be worth pressing, which is what says a paste was meant for this one,
+// and all of it wherever the layout has a size of its own. On a carousel slide or a tab that means
+// the button sits in the middle of the space rather than at the top of it, and in the workspace's
+// own layout, which is only as tall as what it holds, the floor below is the whole of the height.
 .empty {
+  flex: 1 1 auto;
   min-height: 120px;
-  opacity: 0.7;
 }
 
 // What the drop marker is placed against.
@@ -331,14 +432,24 @@ $fade: 210ms;
 // nothing can be dropped onto a box that is not there. The workspace's own layout is laid out in a
 // box that grows to fit it, where a share of nothing in particular comes to nothing and this has
 // no effect.
+// Held to exactly the height it has been given, rather than growing past it, which is what makes
+// squeezing the rows possible at all. Left to grow, a layout simply gets taller than its slide and
+// scrolls, and nothing is ever asked to give any height up.
+.rootFitting {
+  height: 100%;
+  min-height: 0;
+}
+
 .root {
   position: relative;
   min-height: 100%;
 
-  // Holds the rows' own margins inside the box rather than letting them escape it. Without this
-  // the first and last margins fall outside the height, so a layout asked to fill its container
-  // stands exactly that much taller than it and scrolls when it has no reason to.
-  display: flow-root;
+  // Laid out as a column so that a layout with nothing on it can take the whole of the height it
+  // has been given. This holds the rows' own margins inside the box as well, which is what the box
+  // is for: left to collapse, the first and last margins fall outside the height, so a layout
+  // asked to fill its container stands exactly that much taller than it and scrolls for no reason.
+  display: flex;
+  flex-direction: column;
 }
 
 // Drawn where the next target is and nowhere in between. Travelling there would have a line lying

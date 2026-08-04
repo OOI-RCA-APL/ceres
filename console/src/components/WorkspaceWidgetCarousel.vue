@@ -3,16 +3,26 @@ import { useEventListener, useIntervalFn, useMediaQuery } from '@vueuse/core'
 import { v7 } from 'uuid'
 import { nextTick, watch } from 'vue'
 
-import CommonText from '@/components/CommonText.vue'
 import InlineNameEdit from '@/components/InlineNameEdit.vue'
 import WorkspaceLayout from '@/components/WorkspaceLayout.vue'
 import icons from '@/icons'
+import { usePersisted } from '@/persistence'
 import { moved, usePointerReorder } from '@/reorder'
 import { useWidgetDrop } from '@/widget-drop'
-import { layoutsWithin, CarouselSlide, CarouselWidget, useWorkspace } from '@/workspace'
+import {
+  convertedPagesWidget,
+  layoutsWithin,
+  useWorkspace,
+  CarouselSlide,
+  CarouselWidget,
+  WidgetRow,
+} from '@/workspace'
 
-const { widget } = defineProps<{
+const { widget, container } = defineProps<{
   widget: CarouselWidget
+
+  /** The workspace row this carousel sits in, whose height is the height its slides get. */
+  container?: WidgetRow
 }>()
 
 const workspace = useWorkspace()
@@ -89,6 +99,37 @@ useEventListener(window, 'pointerdown', (event: PointerEvent) => {
 })
 
 const slide = $computed(() => widget.slides[index] ?? null)
+
+// Which slide is open is this browser's own place in the workspace rather than part of it, so it
+// survives a reload here and goes nowhere else. Held as the slide's ID rather than its position,
+// so slides reordered or deleted from another seat cannot restore somebody else's slide.
+const persisted = usePersisted({
+  schema: ({ object, string }) => object({ slide: string().nullable().catch(null).default(null) }),
+  methods: [{ type: 'local-storage', key: ['widget-slide', widget.id] }],
+})
+
+const remembered = widget.slides.findIndex((current) => current.id === persisted.slide)
+if (remembered >= 0) {
+  // The position alone, without focusing the slide's layout, which would steal the workspace's
+  // focused layout on every reload for every carousel on it.
+  index = remembered
+}
+
+watch(
+  () => slide?.id ?? null,
+  (id) => {
+    persisted.slide = id
+  }
+)
+
+// A slide is as tall as the carousel however little is on it, so the height left at the bottom
+// goes somewhere. The last row is the default, being where a table or a chart wants the room.
+const expandOptions = [
+  { label: 'Last Widget Row', value: 'last' },
+  { label: 'First Widget Row', value: 'first' },
+  { label: 'All Widget Rows', value: 'even' },
+  { label: "Don't Fill", value: 'none' },
+]
 
 // Also held still for as long as something is actually in hand anywhere in the workspace. A drag
 // measures the layouts on screen once and aims at those measurements for the rest of it, so a slide
@@ -227,7 +268,7 @@ function focusDotName(at: number) {
 
 /** Open the name of the slide at `at` and put the caret in it.
 
-Reached from a press on the slide already being shown, and from its menu. A tooltip still arriving
+Reached from a press on the dot of the slide already being shown. A tooltip still arriving
 settles by moving its own element, which drops whatever focus it held, so a tooltip that has to
 open first is left to say when it has finished and the caret is taken then.
 */
@@ -270,9 +311,27 @@ function deleteSlide() {
     return
   }
 
+  // Never down to none. A carousel holding no slides has no layout, so nothing could be dragged
+  // onto it or pasted into it, and taking the last slide away would leave it with no way back.
+  if (widget.slides.length <= 1) {
+    return
+  }
+
   const removing = slide
   widget.slides = widget.slides.filter((current) => current !== removing)
   show(index)
+}
+
+/** Turn this carousel into a tab strip holding the same pages, in the same place.
+
+The pages travel as they are, under the names they already had, so what is on them and what a drop
+into any of them means are untouched. Only how they are reached changes.
+*/
+function convertToTabs() {
+  const tabs = convertedPagesWidget(widget)
+  if (tabs != null) {
+    workspace.replaceWidget(widget.id, tabs)
+  }
 }
 
 function moveSlide(by: number) {
@@ -287,6 +346,111 @@ function moveSlide(by: number) {
   widget.slides = slides
   index = to
 }
+
+// A widget carried over the band is being brought to a slide rather than to the one on show, so
+// the carousel turns to whichever dot it is held over and the drop lands there. Held over for a
+// moment first, since crossing the band on the way somewhere else is not a change of mind.
+const dwellBeforeTurning = 280
+
+let turning: ReturnType<typeof setTimeout> | null = null
+
+// What the wait is for, so travelling across a dot does not start it over on every step of the
+// pointer. `undefined` is nothing waited for, and null is the band's own room around the dots.
+let awaited: number | null | undefined = undefined
+
+function stopTurning() {
+  if (turning != null) {
+    clearTimeout(turning)
+    turning = null
+  }
+
+  awaited = undefined
+}
+
+// A slide offered rather than made. Nothing but a drawing, so a workspace saved mid-drag holds no
+// trace of it. It becomes a slide the moment a widget is let go of on it, and not before.
+let ghost = $ref(false)
+
+function onBandPointerLeave() {
+  stopTurning()
+  ghost = false
+}
+
+/** Whichever dot the pointer is over, or null for the band's own room around them. */
+function onBandPointerOver(event: PointerEvent) {
+  if (workspace.drag == null) {
+    return
+  }
+
+  const over = (event.target as HTMLElement | null)?.closest('button') ?? null
+  const at = over == null ? -1 : dots.indexOf(over as HTMLElement)
+  turnWhileDragging(at >= 0 ? at : null)
+}
+
+function turnWhileDragging(at: number | null) {
+  if (awaited === at) {
+    return
+  }
+
+  stopTurning()
+  awaited = at
+
+  if (workspace.drag == null) {
+    return
+  }
+
+  turning = setTimeout(() => {
+    turning = null
+    awaited = undefined
+
+    // A slide of its own for a widget dropped into the band's spare room, since that room is the
+    // one place a carousel can be added to by carrying something to it.
+    if (at == null) {
+      ghost = true
+      return
+    }
+
+    show(at, at - index)
+    focusSlide()
+
+    // The slide it turned to was never on screen when the drag was measured, and it takes its
+    // travel to arrive, so it is measured once it has come to rest.
+    setTimeout(() => drop.remeasure(), 300)
+  }, dwellBeforeTurning)
+}
+
+/** Take the widget in hand onto a slide of its own, made here and now for it to land on.
+
+Runs on the ghost's own `pointerup`, which arrives before the drop system's window-level release,
+so the slide exists and holds the widget by the time release runs. Release then finds nothing to
+do, since the band is no place a plain drop can land.
+*/
+function onGhostDrop() {
+  const drag = workspace.drag
+  if (drag == null || !drop.active) {
+    return
+  }
+
+  const opened: CarouselSlide = { id: v7(), name: '', layout: [] }
+  widget.slides = [...widget.slides, opened]
+  workspace.moveWidgets(
+    drag.widgets.map((held) => held.id),
+    { layout: opened.id, row: 0, column: null }
+  )
+  show(widget.slides.length - 1)
+  focusSlide()
+  ghost = false
+}
+
+// An offer not taken goes away with the drag that asked for it.
+watch(
+  () => workspace.drag != null,
+  (dragging) => {
+    if (!dragging) {
+      ghost = false
+    }
+  }
+)
 </script>
 
 <template>
@@ -302,19 +466,20 @@ function moveSlide(by: number) {
     @pointerenter="hovered = true"
     @pointerleave="onPointerLeave"
   >
+    <!-- The same button a layout with nothing on it offers, so adding the first slide is the thing
+    it already is everywhere else rather than something else to read. -->
     <div v-if="slide == null" :class="[$style.empty, 'col', 'column', 'flex-center']">
-      <common-text variant="description">A carousel shows one slide at a time.</common-text>
       <q-btn
-        class="q-mt-sm"
+        aria-label="Add Slide"
         color="primary"
-        dense
-        flat
         :icon="icons.add"
-        label="Add Slide"
-        no-caps
-        size="sm"
+        round
+        size="8px"
+        unelevated
         @click="addSlide"
-      />
+      >
+        <q-tooltip class="bg-primary">Add Slide</q-tooltip>
+      </q-btn>
     </div>
     <!-- A slide is a workspace in miniature, arranged through the same editor the workspace itself
     is drawn by, so everything that can be done to a layout can be done to one. -->
@@ -330,7 +495,13 @@ function moveSlide(by: number) {
           :leave-to-class="direction > 0 ? $style.offLeft : $style.offRight"
         >
           <div :key="slide.id" :class="[$style.slide, 'overflow-auto', 'q-px-sm']">
-            <workspace-layout :layout="slide.layout" :layout-id="slide.id" />
+            <workspace-layout
+              :expand="widget.expand"
+              :host="container"
+              :layout="slide.layout"
+              :layout-id="slide.id"
+              :shrink="widget.shrink"
+            />
           </div>
         </transition>
       </div>
@@ -341,8 +512,15 @@ function moveSlide(by: number) {
     <template v-if="slide != null">
       <q-separator />
       <!-- Laid out in three, with the outer two the same width whatever they hold, so the dots sit
-      at the middle of the carousel rather than at the middle of whatever room the buttons left. -->
-      <div :class="[$style.controls, 'items-center', 'q-px-sm']">
+      at the middle of the carousel rather than at the middle of whatever room the buttons left.
+      The band answers a drag itself, by turning to whichever dot is held over or offering a new
+      slide, so it is no place to drop a widget beside the carousel's own widget. -->
+      <div
+        :class="[$style.controls, 'items-center', 'q-px-sm']"
+        data-no-drop
+        @pointerleave="onBandPointerLeave"
+        @pointerover="onBandPointerOver"
+      >
         <div />
         <div :class="[$style.steps, 'items-center', 'justify-center', 'no-wrap', 'row']">
           <!-- Only worth steering when there is somewhere to steer to. -->
@@ -362,6 +540,7 @@ function moveSlide(by: number) {
                 reorder.isHeld(at) && $style.dotHeld,
                 reorder.isGrabbed(at) && $style.dotGrabbed,
               ]"
+              :data-drop-layout="workspace.drag != null ? current.id : undefined"
               :style="reorder.styleFor(at)"
               type="button"
               v-bind="reorder.handlers(at)"
@@ -397,7 +576,7 @@ function moveSlide(by: number) {
               into the field is what turns the offer into a real edit. -->
               <q-tooltip
                 :class="[$style.dotTooltip, 'bg-primary', 'text-white']"
-                :model-value="shownDot === at && !reorder.isDragging"
+                :model-value="shownDot === at && !reorder.isDragging && workspace.drag == null"
                 no-parent-event
                 :offset="[0, 6]"
                 @pointerenter="pointAtDot(at)"
@@ -427,6 +606,15 @@ function moveSlide(by: number) {
               <q-tooltip class="bg-primary">Next</q-tooltip>
             </q-btn>
           </template>
+          <!-- The slide a drop into the band would make, drawn rather than made. Its own pointerup
+          is what makes it real, so letting go anywhere else leaves no trace of it. -->
+          <button
+            v-if="ghost"
+            aria-label="New Slide"
+            :class="$style.ghostDot"
+            type="button"
+            @pointerup="onGhostDrop"
+          />
         </div>
         <div :class="[$style.actions, 'items-center', 'no-wrap', 'row']">
           <q-btn
@@ -447,15 +635,7 @@ function moveSlide(by: number) {
           at. -->
           <q-btn dense flat :icon="icons.more" round size="10px">
             <q-menu>
-              <q-list bordered dense>
-                <q-item v-close-popup clickable dense @click="editDotName(index)">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.rename" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Set Title</q-item-label>
-                  </q-item-section>
-                </q-item>
+              <q-list bordered class="q-pb-sm" dense>
                 <q-item v-close-popup clickable dense :disable="index === 0" @click="moveSlide(-1)">
                   <q-item-section avatar>
                     <q-icon :name="icons.menuLeft" />
@@ -479,12 +659,27 @@ function moveSlide(by: number) {
                   </q-item-section>
                 </q-item>
                 <q-separator />
-                <q-item v-close-popup clickable dense @click="deleteSlide">
+                <q-item
+                  v-close-popup
+                  clickable
+                  dense
+                  :disable="widget.slides.length <= 1"
+                  @click="deleteSlide"
+                >
                   <q-item-section avatar>
                     <q-icon :name="icons.delete" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Delete Slide</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item v-close-popup clickable dense @click="convertToTabs">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.tab" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Convert To Tabs</q-item-label>
                   </q-item-section>
                 </q-item>
                 <q-separator />
@@ -509,6 +704,25 @@ function moveSlide(by: number) {
                     />
                   </q-item-section>
                 </q-item>
+                <q-item v-if="widget.expand !== 'none'" dense>
+                  <q-item-section>
+                    <q-checkbox v-model="widget.shrink" dense label="Shrink" />
+                  </q-item-section>
+                </q-item>
+                <q-item dense>
+                  <q-item-section>
+                    <q-select
+                      v-model="widget.expand"
+                      dense
+                      emit-value
+                      label="Fill Slide Height"
+                      map-options
+                      :options="expandOptions"
+                      options-dense
+                      outlined
+                    />
+                  </q-item-section>
+                </q-item>
               </q-list>
             </q-menu>
           </q-btn>
@@ -529,7 +743,7 @@ function moveSlide(by: number) {
 }
 
 .empty {
-  opacity: 0.7;
+  min-height: 60px;
 }
 
 // Takes the room left over rather than asking for the room its contents want, so the band under it
@@ -582,9 +796,11 @@ function moveSlide(by: number) {
 
 // A tooltip is normally only read, so Quasar has every one of them let presses through to whatever
 // is under it. This one is a field as well and has to take them, which needs both the weight to
-// beat that rule and the name twice over to outrank it.
+// beat that rule and the name twice over to outrank it. Larger than a tooltip's own text too,
+// since a field being typed into earns more than a caption's size.
 .dotTooltip.dotTooltip {
   pointer-events: auto !important;
+  font-size: 12px;
 }
 
 .actions {
@@ -647,6 +863,18 @@ function moveSlide(by: number) {
 
 .dotSwapping {
   transition: none;
+}
+
+// Drawn as an offer rather than as a dot, wearing the same dashed border and tint every drop
+// target wears, so it reads as a place to let go rather than as a slide that already exists.
+.ghostDot {
+  width: 30px;
+  height: 14px;
+  padding: 0;
+  border: 2px dashed $primary;
+  border-radius: 7px;
+  margin: 0 1.5px;
+  background-color: rgba($primary, 0.1);
 }
 
 // The ring closes clockwise from the top, drawn as a circle whose dash is drawn back in over the

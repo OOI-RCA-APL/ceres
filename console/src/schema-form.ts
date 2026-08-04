@@ -35,6 +35,10 @@ export type SchemaFormOptions = {
   readonly?: MaybeRefOrGetter<boolean>
   schema?: MaybeRefOrGetter<Schema>
   persist?: MaybeRefOrGetter<KeyInput>
+
+  /** A heading drawn inside the form, under the root description and over the fields, so what the
+  fields are for is said by the form itself rather than floated above it. */
+  title?: MaybeRefOrGetter<string | undefined>
   onSubmit?: (value: any) => MaybePromise<SchemaFormState | void>
   onUpdate?: (value: any) => MaybePromise<void>
 }
@@ -67,6 +71,7 @@ export function useSchemaForm(options: SchemaFormOptions) {
   const onUpdate = $computed(() => options.onUpdate ?? (() => {}))
   const onSubmit = $computed(() => options.onSubmit ?? (() => {}))
   const persist = $computed(() => toValue(options.persist))
+  const title = $computed(() => toValue(options.title))
 
   let state = $ref<SchemaFormState>(readonly ?? false ? 'viewing' : 'editing')
 
@@ -515,6 +520,7 @@ export function useSchemaForm(options: SchemaFormOptions) {
   return reactive({
     value: $$(value),
     schema: computed(() => rootSchema),
+    title: computed(() => title),
     state: computed(() => state),
     canSubmit: computed(() => canSubmit),
     editable: computed(() => state === 'editing'),

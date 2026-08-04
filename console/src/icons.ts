@@ -24,6 +24,8 @@ const icons = {
   closeOthers: 'mdi-close-box-outline',
   configuration: 'mdi-cogs',
   confirm: 'mdi-check',
+  // A question in a speech bubble, which is what a confirm dialog is.
+  confirmDialog: 'mdi-comment-question-outline',
   connection: 'route', // Material Icons
   copy: 'mdi-content-copy',
   darkMode: 'dark_mode',
@@ -41,6 +43,8 @@ const icons = {
   enable: 'mdi-check-circle-outline',
   export: 'mdi-download',
   filter: 'mdi-filter',
+  frame: 'mdi-border-all-variant',
+  frameless: 'mdi-border-none-variant',
   grab: 'mdi-grab',
   help: 'mdi-help',
   home: 'mdi-home',
@@ -51,6 +55,7 @@ const icons = {
   leave: 'mdi-exit-run',
   lightMode: 'light_mode', // Material Icons
   locked: 'mdi-lock-outline',
+  unlocked: 'mdi-lock-open-variant-outline',
   logout: 'mdi-logout', // Material Icons
   manage: 'mdi-cog',
   manager: 'mdi-account-star',
@@ -63,7 +68,8 @@ const icons = {
   open: 'mdi-open-in-new',
   operate: 'mdi-wrench',
   operations: 'mdi-cog-transfer',
-  overview: 'space_dashboard', // Material Icons
+  // A page with its top band highlighted, which is what the overview toggle collapses.
+  overview: 'mdi-page-layout-header',
   password: 'password', // Material Icons
   preferences: 'mdi-theme-light-dark',
   reload: 'mdi-cog-sync',
@@ -79,9 +85,12 @@ const icons = {
   start: 'mdi-play',
   stop: 'mdi-stop',
   submit: 'mdi-check',
+  carousel: 'mdi-view-carousel-outline',
   tab: 'mdi-tab',
   tabAdd: 'mdi-tab-plus',
   tabUnselected: 'mdi-tab-unselected',
+  groupWidgets: 'mdi-group',
+  ungroupWidgets: 'mdi-ungroup',
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',
