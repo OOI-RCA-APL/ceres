@@ -2,8 +2,9 @@
 
 All notable changes are recorded here, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/), with an "Unreleased" section collecting
-changes as they land. Releasing a version retitles that section to the version and date,
-and the release workflow refuses a version that has no entry here.
+changes as they land. `make release` retitles that section to the version and date and
+creates the GitHub release from it, so this file is the only place release notes are
+written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 

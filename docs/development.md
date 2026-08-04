@@ -54,6 +54,7 @@ This guide covers setting up a development environment for working on Ceres itse
 | `make fix`      | Auto-fix lint issues and reformat code.          |
 | `make coverage` | Generate the coverage report.                    |
 | `make build`    | Build the Python package and console.            |
+| `make release`  | Cut a release from the changelog.                |
 | `make build-docs` | Build documentation with mkdocs.               |
 
 ## Code Style
@@ -144,6 +145,47 @@ deletes rows and drops schemas wholesale. Set `CERES_TEST_POSTGRES_URL` to point
 Every test gets a private schema, so the two runs assert exactly the same things. Two modules are
 backend-specific by nature and stay that way: `tests/test_migrations.py` reads `sqlite_master`, and
 `tests/test_migrations_postgres.py` replays the migrations against PostgreSQL on either run.
+
+## Releasing
+
+The "Unreleased" section of `CHANGELOG.md` is the release notes, shipped verbatim, and
+`version` in `pyproject.toml` is the version being released. To release:
+
+1. Edit the "Unreleased" section until it reads right. It is an ordinary file change, so
+   reword, reorder, and commit as usual.
+2. Preview the release:
+
+    ```sh
+    make release-check
+    ```
+
+    This runs every check a release runs, reporting each problem rather than stopping at
+    the first, and shows exactly what a release would do, the `CHANGELOG.md` diff, the
+    commit, and the GitHub release title and body.
+
+3. Commit and push. A release refuses a dirty tree or an unsynced `main`, so the state
+   being released is always the state on GitHub.
+4. Cut the release:
+
+    ```sh
+    make release
+    ```
+
+The script retitles the changelog section to the version and date, commits and pushes
+that, and creates the GitHub release with the entry as its notes, which triggers the
+wheel builds and the PyPI publish. Nothing rewrites the notes along the way, what the
+file says is what the release says.
+
+Publishing a GitHub release is the only trigger. Pushing to `main` runs ordinary CI and
+never builds wheels or publishes, and neither does pushing a tag by hand. The release
+pipeline also reruns the full CI checks itself before building, so the released commit is
+verified by the pipeline that releases it rather than trusting an earlier run, which
+means the checks run twice on release day, once for the push and once as the release
+gate. That redundancy is deliberate.
+
+To fix release notes after publishing, edit the changelog entry in a normal commit and
+mirror it with `gh release edit <version> --notes-file <file>`. The published release
+body is editable without touching the tag or re-triggering the pipeline.
 
 ## Documentation
 

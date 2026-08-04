@@ -28,6 +28,10 @@ schema:
 	uv run ./scripts/update-schema.py
 schema-check:
 	uv run ./scripts/update-schema.py --check
+release:
+	uv run ./scripts/release.py
+release-check:
+	uv run ./scripts/release.py --dry-run
 test-all:
 	uv run ./scripts/test-all-python-versions.py
 lint:
