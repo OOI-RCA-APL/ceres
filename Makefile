@@ -1,9 +1,8 @@
 .PHONY: *
 build: install
 	cd console && make build
-	cd rust && cargo build --release
 	mkdir -p ceres.__internal__.core.data/scripts
-	cp rust/target/release/ceres ceres.__internal__.core.data/scripts/ceres
+	touch ceres.__internal__.core.data/scripts/.keep
 	uv build
 install:
 	uv sync

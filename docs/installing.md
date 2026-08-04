@@ -31,8 +31,9 @@ pip install ceres
 Ceres ships pre-built wheels for Linux (x86_64 and aarch64), macOS (Apple Silicon and
 Intel), and Windows (x64), for both the standard and free-threaded CPython builds, so
 installing never compiles anything. On a platform without a pre-built wheel, the install
-falls back to building from source, which requires a [Rust](https://rustup.rs) toolchain,
-and the `ceres` command is then available as `python -m ceres`.
+falls back to building from source, which requires [rustup](https://rustup.rs) and takes
+a while, but produces the same result, the build pins its own toolchain and the `ceres`
+command is included. `python -m ceres` remains available as an alternative invocation.
 
 ## Installing a Specific Version
 

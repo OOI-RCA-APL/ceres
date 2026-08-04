@@ -34,3 +34,10 @@ repository = "https://github.com/jploskey/ceres"
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
+
+# The CLI binary ships in the wheel as an artifact dependency of the extension's build
+# script, and build dependencies compile under this override profile, which defaults to
+# opt-level 0. Without the override a release wheel would carry an unoptimized binary
+# nearly three times the size of a real release build.
+[profile.release.build-override]
+opt-level = 3

@@ -60,10 +60,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: false
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt, clippy
+      # No explicit Rust install. The preinstalled rustup resolves rust-toolchain.toml on
+      # the first cargo command, fetching the pinned nightly and its components, so the
+      # pin lives in exactly one place.
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:

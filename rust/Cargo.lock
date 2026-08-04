@@ -716,6 +716,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "ceres-binary",
+ "ceres-cli",
  "ceres-config",
  "ceres-database",
  "ceres-entities",

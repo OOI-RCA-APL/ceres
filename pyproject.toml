@@ -55,12 +55,14 @@ docs = [
 # Python module it lands as is renamed.
 #
 # The native `ceres` command ships in the same wheel through maturin's data-directory
-# convention. `make build` stages the compiled binary in
-# `ceres.__internal__.core.data/scripts/`, which maturin picks up by name and installers
-# unpack onto the environment's `bin`. The directory is deliberately not configured with
-# the `data` option, because a configured directory is required to exist and would fail
-# sdist builds, while the conventional one is skipped silently when absent, leaving
-# `python -m ceres` as the command on installs built from source.
+# convention. Building the extension builds the CLI binary as an artifact dependency, and
+# `ceres-core`'s build script stages it in `ceres.__internal__.core.data/scripts/`, which
+# maturin picks up by name and installers unpack onto the environment's `bin`. Maturin
+# only honors the directory when it exists before the build starts, so `make build` and
+# the release workflow create it up front, and the sdist ships a `.keep` marker inside so
+# extraction creates it there too. The directory is deliberately not configured with the
+# `data` option, because a configured directory that is missing fails the build outright,
+# while the conventional one is skipped silently.
 [tool.maturin]
 module-name = "ceres.__internal__.core"
 manifest-path = "rust/ceres-core/Cargo.toml"
@@ -68,10 +70,20 @@ python-source = "."
 features = ["extension-module"]
 # Data files the package reads at runtime, which are not Python and so are not picked up
 # by following the module tree. Migrations are the one that fails only once installed.
+#
+# The sdist entries make source installs equivalent to our own builds. The toolchain and
+# cargo config files pin the nightly and enable the unstable features the build relies on
+# (`bindeps`, `build-dir`) along with the SQLite math functions and the macOS linker
+# arguments. The `.keep` marker exists so extracting the sdist creates the wheel data
+# directory, which maturin requires before the build starts, and `ceres-core`'s build
+# script removes it while staging the CLI binary in its place.
 include = [
     { path = "ceres/py.typed", format = "wheel" },
     { path = "ceres/static/**/*", format = "wheel" },
     { path = "ceres/database/migrations/*.sql", format = "wheel" },
+    { path = "rust-toolchain.toml", format = "sdist" },
+    { path = ".cargo/config.toml", format = "sdist" },
+    { path = "ceres.__internal__.core.data/scripts/.keep", format = "sdist" },
 ]
 
 # Rebuild when the Rust sources change, not only when the packaging files do.

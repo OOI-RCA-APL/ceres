@@ -37,11 +37,10 @@ jobs:
     uses: ./.github/workflows/ci.yaml
 
   # One job per platform, each emitting wheels for every interpreter. The native CLI
-  # binary links no Python, so each job builds it once and both interpreter wheels carry
-  # the same copy, staged through maturin's data-directory convention (see
-  # pyproject.toml). On Linux the binary compiles inside the same manylinux container as
-  # the extension, because a binary linked against the runner's glibc would not run on
-  # the older systems the wheel tag promises.
+  # binary builds as an artifact dependency of the extension, compiled for the same
+  # target inside the same cargo invocation, and `ceres-core`'s build script stages it
+  # into the wheel data directory. The directory is created up front because maturin
+  # only honors it when it exists before the build starts.
   build:
     needs: check
     strategy:
@@ -70,40 +69,20 @@ jobs:
           python-version: |
             3.14
             3.14t
-      - name: Install Rust
-        if: runner.os != 'Linux'
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          targets: ${{ matrix.target }}
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
           key: ${{ matrix.target }}
-      - name: Build CLI Binary
-        if: runner.os != 'Linux'
+      - name: Create Wheel Data Directory
         shell: bash
-        run: |
-          cd rust && cargo build --release -p ceres-cli --target ${{ matrix.target }}
-          cd ..
-          mkdir -p ceres.__internal__.core.data/scripts
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "rust/target/${{ matrix.target }}/release/ceres.exe" \
-              ceres.__internal__.core.data/scripts/ceres.exe
-          else
-            cp "rust/target/${{ matrix.target }}/release/ceres" \
-              ceres.__internal__.core.data/scripts/ceres
-          fi
+        run: mkdir -p ceres.__internal__.core.data/scripts
       - name: Build Wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           args: --release --interpreter 3.14 3.14t --out dist
           manylinux: auto
-          before-script-linux: |
-            cd rust && cargo build --release -p ceres-cli && cd ..
-            mkdir -p ceres.__internal__.core.data/scripts
-            cp rust/target/release/ceres ceres.__internal__.core.data/scripts/ceres
       - name: Smoke Test
         # A cross-compiled wheel cannot import on this runner, so only wheels matching
         # the runner's own architecture install and run here.
@@ -130,6 +109,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      # The marker rides in the sdist so extracting it creates the wheel data directory,
+      # which maturin requires to exist before a build starts. The extension's build
+      # script replaces it with the CLI binary.
+      - name: Create Wheel Data Marker
+        run: mkdir -p ceres.__internal__.core.data/scripts && touch ceres.__internal__.core.data/scripts/.keep
       - name: Build Sdist
         uses: PyO3/maturin-action@v1
         with:

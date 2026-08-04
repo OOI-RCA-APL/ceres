@@ -1,0 +1,9 @@
+# Pinned to an exact nightly rather than the floating channel, because the build relies on
+# unstable cargo features (`bindeps`, `build-dir`) and nothing outside this repository ever
+# compiles these crates. Every environment that builds them, development machines, CI, and
+# sdist installs, resolves this file, so advancing the pin is a deliberate, tested change
+# instead of ambient toolchain drift. The file lives at the repository root so builds
+# started from the root (maturin) and from `rust/` both find it by walking up.
+[toolchain]
+channel = "nightly-2026-04-05"
+components = ["rustfmt", "clippy"]

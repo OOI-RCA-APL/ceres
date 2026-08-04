@@ -16,6 +16,12 @@ build-dir = "{cargo-cache-home}/build/{workspace-path-hash}"
 [alias]
 stubs = "build -p ceres-stubs"
 
+# Artifact dependencies, which `ceres-core` uses to build the native CLI binary alongside
+# the extension module and stage it into the wheel. Unstable, which the pinned nightly in
+# rust-toolchain.toml accounts for.
+[unstable]
+bindeps = true
+
 # The bundled SQLite compiles with math functions, which the subsampling SQL's `floor`
 # needs. CPython's own SQLite ships them, so the native engine has to match.
 [env]
