@@ -1,0 +1,160 @@
+name: release
+# Wheels build only when a release is published, never on push. A release is rare and
+# deliberate, so the expensive multi-platform matrix spends nothing between releases.
+on:
+  release:
+    types: [published]
+
+jobs:
+  # The release must agree with the repository about what version it is, and the version
+  # must have a changelog entry. Failing here costs seconds, failing in the build matrix
+  # costs the whole matrix.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Check Tag Matches Project Version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
+          if [ "$tag" != "$version" ]; then
+            echo "Release tag $tag does not match pyproject.toml version $version"
+            exit 1
+          fi
+      - name: Check Changelog Has an Entry
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          if ! grep -q "^## \[$tag\]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no entry for $tag"
+            exit 1
+          fi
+
+  # The same lint and test gates as CI, via workflow_call, so a release cannot build from
+  # a commit the ordinary checks would have rejected.
+  check:
+    needs: version
+    uses: ./.github/workflows/ci.yaml
+
+  # One job per platform, each emitting wheels for every interpreter. The native CLI
+  # binary links no Python, so each job builds it once and both interpreter wheels carry
+  # the same copy, staged through maturin's data-directory convention (see
+  # pyproject.toml). On Linux the binary compiles inside the same manylinux container as
+  # the extension, because a binary linked against the runner's glibc would not run on
+  # the older systems the wheel tag promises.
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+          # Cross-compiled from the arm runner, so macOS needs one runner, not two.
+          - os: macos-15
+            target: x86_64-apple-darwin
+            cross: true
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install Pythons
+        uses: actions/setup-python@v6
+        with:
+          python-version: |
+            3.14
+            3.14t
+      - name: Install Rust
+        if: runner.os != 'Linux'
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: ${{ matrix.target }}
+      - name: Build CLI Binary
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          cd rust && cargo build --release -p ceres-cli --target ${{ matrix.target }}
+          cd ..
+          mkdir -p ceres.__internal__.core.data/scripts
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "rust/target/${{ matrix.target }}/release/ceres.exe" \
+              ceres.__internal__.core.data/scripts/ceres.exe
+          else
+            cp "rust/target/${{ matrix.target }}/release/ceres" \
+              ceres.__internal__.core.data/scripts/ceres
+          fi
+      - name: Build Wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --interpreter 3.14 3.14t --out dist
+          manylinux: auto
+          before-script-linux: |
+            cd rust && cargo build --release -p ceres-cli && cd ..
+            mkdir -p ceres.__internal__.core.data/scripts
+            cp rust/target/release/ceres ceres.__internal__.core.data/scripts/ceres
+      - name: Smoke Test
+        # A cross-compiled wheel cannot import on this runner, so only wheels matching
+        # the runner's own architecture install and run here.
+        if: matrix.cross != true
+        shell: bash
+        # The local wheel satisfies `ceres` because the released version is not on PyPI
+        # until the publish job after this one, while the dependencies resolve normally.
+        run: |
+          pip install --find-links dist ceres
+          ceres --version
+          python -c "import ceres; print(ceres.__name__, 'imports')"
+      - name: Upload Wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.target }}
+          path: dist
+
+  # The sdist is the source of record and the fallback for platforms outside the matrix.
+  # Building from it compiles the extension but stages no CLI binary, so those installs
+  # use `python -m ceres`.
+  sdist:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Build Sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - name: Upload Sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+  publish:
+    needs: [build, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted publishing exchanges this token with PyPI, so no long-lived secret exists.
+      id-token: write
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

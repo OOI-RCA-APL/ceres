@@ -1,6 +1,10 @@
 # Project
 .venv
 dist/
+# The native CLI binary staged for the wheel's data scripts, populated by `make build`.
+# Maturin picks the directory up by its name, `<module-name>.data` beside pyproject.toml,
+# and skips it silently when absent, which keeps sdist builds working without it.
+ceres.__internal__.core.data/
 site/
 poetry.toml
 *.lock

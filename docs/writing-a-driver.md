@@ -17,7 +17,7 @@ You want to connect to the sensor, parse each line into structured data, and sto
 ```sh
 mkdir sensor-driver && cd sensor-driver
 uv init
-uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git
+uv add ceres
 source .venv/bin/activate
 ```
 

@@ -6,6 +6,9 @@ on:
   pull_request:
     branches:
       - main
+  # The release workflow runs these same checks as its gate before building wheels, so the
+  # two cannot drift apart.
+  workflow_call:
 jobs:
   main:
     strategy:

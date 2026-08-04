@@ -2,10 +2,14 @@
 build: install
 	cd console && make build
 	cd rust && cargo build --release
+	mkdir -p ceres.__internal__.core.data/scripts
+	cp rust/target/release/ceres ceres.__internal__.core.data/scripts/ceres
 	uv build
 install:
 	uv sync
 	cd console && make install
+	cd rust && cargo build --release -p ceres-cli
+	ln -sf ../../rust/target/release/ceres .venv/bin/ceres
 update:
 	uv update
 	cd console && make update

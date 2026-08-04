@@ -8,6 +8,7 @@ This guide covers setting up a development environment for working on Ceres itse
 - [Make](https://www.gnu.org/software/make)
 - [Python 3.14+](https://www.python.org)
 - [uv](https://docs.astral.sh/uv)
+- [Rust](https://rustup.rs) (nightly, selected automatically by `rust-toolchain.toml`)
 - [Node.js 24+](https://nodejs.org) (for the web console)
 
 ## Setup
@@ -15,7 +16,7 @@ This guide covers setting up a development environment for working on Ceres itse
 1. Clone the repository.
 
     ```sh
-    git clone git@github.com:OOI-RCA-APL/ceres.git
+    git clone https://github.com/OOI-RCA-APL/ceres.git
     cd ceres
     ```
 

@@ -7,12 +7,12 @@
 
 ## Creating a Project
 
-Initialize a new project with `uv` and add Ceres as a dependency from GitHub.
+Initialize a new project with `uv` and add Ceres as a dependency.
 
 ```sh
 mkdir my-project && cd my-project
 uv init
-uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git
+uv add ceres
 ```
 
 Activate the virtual environment to make the `ceres` command available.
@@ -25,42 +25,21 @@ ceres --version
 You can also install with `pip` if you prefer.
 
 ```sh
-pip install git+ssh://git@github.com/OOI-RCA-APL/ceres.git
+pip install ceres
 ```
+
+Ceres ships pre-built wheels for Linux (x86_64 and aarch64), macOS (Apple Silicon and
+Intel), and Windows (x64), for both the standard and free-threaded CPython builds, so
+installing never compiles anything. On a platform without a pre-built wheel, the install
+falls back to building from source, which requires a [Rust](https://rustup.rs) toolchain,
+and the `ceres` command is then available as `python -m ceres`.
 
 ## Installing a Specific Version
 
-Append `@<version>` to the URL, where `<version>` is a tag from [releases](https://github.com/OOI-RCA-APL/ceres/releases).
+Constrain the version as you would any dependency. Released versions are listed on
+[PyPI](https://pypi.org/project/ceres/) and described in the
+[changelog](https://github.com/OOI-RCA-APL/ceres/blob/main/CHANGELOG.md).
 
 ```sh
-uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git@0.39.0
+uv add ceres==0.41.0
 ```
-
-## GitHub Deploy Keys
-
-When deploying to a server that does not have your personal SSH credentials, you need a [GitHub deploy key](https://docs.github.com/en/rest/deploy-keys/deploy-keys?apiVersion=2022-11-28) for the repository.
-
-1. Generate a key pair on the server.
-
-    ```sh
-    ssh-keygen -t ed25519 -f ~/.ssh/ceres-deploy-key -N ""
-    ```
-
-2. Add the public key (`~/.ssh/ceres-deploy-key.pub`) to the [OOI-RCA-APL/ceres](https://github.com/OOI-RCA-APL/ceres) repository as a deploy key. If you don't have permissions, send the public key to a repository admin.
-
-3. Configure SSH to use the deploy key for this repository. Add the following to `~/.ssh/config`:
-
-    ```
-    Host ceres.github.com
-        Hostname github.com
-        IdentityFile=~/.ssh/ceres-deploy-key
-    ```
-
-4. Tell Git to route requests for this repository through the alias.
-
-    ```sh
-    git config --global url.'ssh://git@ceres.github.com/OOI-RCA-APL/ceres.git'.insteadOf \
-        'ssh://git@github.com/OOI-RCA-APL/ceres.git'
-    ```
-
-After this, `uv add` and `pip install` commands will use the deploy key automatically.

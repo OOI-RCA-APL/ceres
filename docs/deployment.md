@@ -17,7 +17,6 @@ On the deployment server, you need:
 
 - Python 3.14+
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- A GitHub deploy key for the Ceres repository (see [Installing: Deploy keys](installing.md#github-deploy-keys))
 - PostgreSQL (if using PostgreSQL instead of SQLite)
 
 ## Project Setup
@@ -27,7 +26,7 @@ Create a project directory, initialize it, and install Ceres.
 ```sh
 mkdir /opt/my-project && cd /opt/my-project
 uv init
-uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git
+uv add ceres
 ```
 
 Create your `ceres.yaml`. A production configuration typically looks like this:
@@ -189,7 +188,7 @@ To upgrade to a new version:
 
 ```sh
 cd /opt/my-project
-uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git@<new-version>
+uv add ceres==<new-version>
 ceres service stop
 ceres service start
 ```

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ceres"
-version = "0.40.0"
+version = "0.41.0"
 description = "APL - Ceres"
 authors = [{ name = "Jake Ploskey", email = "jploskey@uw.edu" }]
 requires-python = ">=3.14"
@@ -49,13 +49,18 @@ docs = [
     "black>=24.10,<25",
 ]
 
-[project.scripts]
-ceres = "ceres.__internal__.cli.main:main"
-
-# The native core ships inside this distribution as `ceres._core` rather than as a
-# separate package, so there is one artifact to build and install rather than two that
-# have to agree on a version. The Rust crate keeps its own name, only the Python module
-# it lands as is renamed.
+# The native core ships inside this distribution as `ceres.__internal__.core` rather
+# than as a separate package, so there is one artifact to build and install rather than
+# two that have to agree on a version. The Rust crate keeps its own name, only the
+# Python module it lands as is renamed.
+#
+# The native `ceres` command ships in the same wheel through maturin's data-directory
+# convention. `make build` stages the compiled binary in
+# `ceres.__internal__.core.data/scripts/`, which maturin picks up by name and installers
+# unpack onto the environment's `bin`. The directory is deliberately not configured with
+# the `data` option, because a configured directory is required to exist and would fail
+# sdist builds, while the conventional one is skipped silently when absent, leaving
+# `python -m ceres` as the command on installs built from source.
 [tool.maturin]
 module-name = "ceres.__internal__.core"
 manifest-path = "rust/ceres-core/Cargo.toml"
