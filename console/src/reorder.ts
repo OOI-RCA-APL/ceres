@@ -23,6 +23,8 @@ type Drag = {
   originScroll: number
   /** Where the pointer was last seen, so the edge scroll can carry on without it moving. */
   pointer: number
+  /** The element the handlers sit on, which takes the pointer once the press becomes a drag. */
+  capture: HTMLElement
 }
 
 const dragThreshold = 4
@@ -130,10 +132,10 @@ export function usePointerReorder(options: {
       moved: false,
       originScroll: scrollOf(),
       pointer: coordinate(event),
+      capture: event.currentTarget as HTMLElement,
     }
     offset = 0
     target = index
-    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
 
     document.body.classList.add('reordering')
     lastTravel = performance.now()
@@ -213,6 +215,14 @@ export function usePointerReorder(options: {
     const delta = drag.pointer - drag.origin + (scrollOf() - drag.originScroll)
     if (!drag.moved && Math.abs(delta) < dragThreshold) {
       return
+    }
+
+    // The pointer is only captured once the press has become a drag. Captured at the press, the
+    // browser retargets the click that follows release onto the capturing element, which silences
+    // the click of anything the handlers merely wrap rather than sit on, a button in a bar most
+    // of all.
+    if (!drag.moved) {
+      drag.capture.setPointerCapture(drag.pointerId)
     }
 
     drag.moved = true
