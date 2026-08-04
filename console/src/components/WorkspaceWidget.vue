@@ -343,7 +343,7 @@ watch(
             <q-icon :name="icons.settings" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>Settings...</q-item-label>
+            <q-item-label>Settings ...</q-item-label>
           </q-item-section>
         </q-item>
         <q-item
@@ -400,7 +400,7 @@ watch(
             <q-icon :name="icons.groupWidgets" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>Group...</q-item-label>
+            <q-item-label>Group ...</q-item-label>
           </q-item-section>
         </q-item>
         <!-- The inverse, for a widget that holds pages. Their rows come out onto the layout where
