@@ -13,7 +13,7 @@ import {
   pagesOf,
   withFreshIds,
   withFreshPage,
-  ButtonWidget,
+  ControlsWidget,
   CarouselWidget,
   TabsWidget,
   Widget,
@@ -237,8 +237,8 @@ describe('withFreshIds', () => {
   })
 
   it('renames the buttons on a bar, which answer to names of their own', () => {
-    const original = { ...widget('bar'), type: 'button', buttons: [{ id: 'b1' }] } as Widget
-    const copy = withFreshIds(original) as ButtonWidget
+    const original = { ...widget('bar'), type: 'controls', buttons: [{ id: 'b1' }] } as Widget
+    const copy = withFreshIds(original) as ControlsWidget
 
     expect(copy.buttons[0].id).not.toBe('b1')
   })
@@ -581,9 +581,15 @@ describe('a stored button widget', () => {
     return data.layout[0].widgets
   }
 
-  function buttonsOf(widget: Widget): ButtonWidget['buttons'] {
-    return (widget as ButtonWidget).buttons
+  function buttonsOf(widget: Widget): ControlsWidget['buttons'] {
+    return (widget as ControlsWidget).buttons
   }
+
+  it('comes back as a controls widget, the kind it is stored under now', () => {
+    const [upgraded] = loaded({ id: 'w1', type: 'button', name: '' })
+
+    expect(upgraded.type).toBe('controls')
+  })
 
   it('becomes a widget holding the single button it always was', () => {
     const [upgraded] = loaded({
@@ -621,11 +627,11 @@ describe('a stored button widget', () => {
     expect(upgraded).not.toHaveProperty('arguments')
   })
 
-  it('comes back asking for its arguments and asking nothing else', () => {
+  it('comes back with both safeguards up, locked arguments and a confirm', () => {
     const [upgraded] = loaded({ id: 'w1', type: 'button', name: '', action: 'restart' })
 
-    expect(buttonsOf(upgraded)[0].locked).toBe(false)
-    expect(buttonsOf(upgraded)[0].confirm).toBe(false)
+    expect(buttonsOf(upgraded)[0].locked).toBe(true)
+    expect(buttonsOf(upgraded)[0].confirm).toBe(true)
   })
 
   it('is written back and read again as exactly what it was', () => {
@@ -637,7 +643,9 @@ describe('a stored button widget', () => {
       action: 'restart',
       arguments: { force: true },
     })
-    buttonsOf(first)[0].confirm = true
+    // Both safeguards are on by default, so turning them off is what has to survive the trip.
+    buttonsOf(first)[0].confirm = false
+    buttonsOf(first)[0].locked = false
 
     // The trip a workspace makes every time it is saved and opened again.
     const [second] = loaded(JSON.parse(JSON.stringify(first)))
@@ -648,7 +656,7 @@ describe('a stored button widget', () => {
     expect(button.address?.toString()).toBe('@engine.thing')
     expect(button.action).toBe('restart')
     expect(button.arguments).toEqual({ force: true })
-    expect(button.confirm).toBe(true)
+    expect(button.confirm).toBe(false)
     expect(button.locked).toBe(false)
   })
 
@@ -717,13 +725,13 @@ describe('a stored button widget', () => {
     expect(buttonsOf(inside).map((button) => button.action)).toEqual(['restart'])
   })
 
-  it('wears no frame of its own, unlike a widget that is a view of something', () => {
+  it('wears a frame by default, the same as every other widget', () => {
     const [button, chart] = loaded(
       { id: 'w1', type: 'button', name: '' },
       { id: 'w2', type: 'chart', name: 'Chart' }
     )
 
-    expect(button.frameless).toBe(true)
+    expect(button.frameless).toBe(false)
     expect(chart.frameless).toBe(false)
   })
 })

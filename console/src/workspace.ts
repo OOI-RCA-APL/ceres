@@ -176,38 +176,43 @@ export const ButtonActionModel = Zod.object({
 
   // Pressing a button asks for the action's arguments before running it, since an action worth
   // putting on a workspace is usually one that takes some. Locked, the arguments it was left with
-  // are the arguments it runs with, and pressing it runs it.
-  locked: Zod.boolean().catch(false),
+  // are the arguments it runs with, and pressing it runs it. On unless said otherwise, the same
+  // as the confirm, so a fresh button starts with both safeguards up.
+  locked: Zod.boolean().catch(true),
 
-  /** Whether running it asks first, for an action that would be unwelcome by accident. */
-  confirm: Zod.boolean().catch(false),
+  /** Whether running it asks first. On unless said otherwise, since a workspace button is easy
+  to press by accident and an action worth a button is rarely one to run by surprise. */
+  confirm: Zod.boolean().catch(true),
 })
 
-/** Actions offered side by side, laid out as a bar rather than one to a widget. */
-export type ButtonWidget = BaseWidget & {
-  type: 'button'
+/** Controls offered side by side, laid out as a bar. Buttons are the one kind it holds so far. */
+export type ControlsWidget = BaseWidget & {
+  type: 'controls'
   buttons: ButtonAction[]
 }
 
-/** A button widget as one may still be stored, from when it offered a single action.
-
-The fields it held are named here rather than on `ButtonWidget`, so that the rest of the app can
-only reach a button's action through `buttons` and cannot pick up a shape `upgradedWidget` has
-already put behind it.
-*/
-type StoredButtonWidget = ButtonWidget & Partial<Omit<ButtonAction, 'id' | 'locked' | 'confirm'>>
-
-export const ButtonWidgetModel = BaseWidgetModel.extend({
-  type: Zod.literal('button'),
-  name: Zod.string().catch(''),
+export const ControlsWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('controls'),
+  name: Zod.string().catch('Controls'),
   buttons: safeArrayOf(ButtonActionModel),
+})
 
-  // A button widget wears no frame of its own by default, being a bar of controls rather than a
-  // view of something.
-  frameless: Zod.boolean().catch(true),
+/** A controls widget as one may still be stored, from when it was the button widget.
 
-  // What a button widget held when it offered one action and held its fields itself. Kept so that
-  // a stored workspace still parses, and folded into `buttons` by `upgradedWidget` as it loads.
+Stored under the old kind, and possibly still holding the single action's fields itself, from when
+it offered exactly one. The fields are named here rather than on `ControlsWidget`, so that the rest
+of the app can only reach a button through `buttons` and cannot pick up a shape `upgradedWidget`
+has already put behind it.
+*/
+type StoredButtonWidget = Omit<ControlsWidget, 'type'> & { type: 'button' } & Partial<
+    Omit<ButtonAction, 'id' | 'locked' | 'confirm'>
+  >
+
+const StoredButtonWidgetModel = ControlsWidgetModel.extend({
+  type: Zod.literal('button'),
+
+  // What the widget held when it offered one action and held its fields itself. Kept so that a
+  // stored workspace still parses, and folded into `buttons` by `upgradedWidget` as it loads.
   label: Zod.string().nullish(),
   address: AddressModel.nullish(),
   action: Zod.string().nullish(),
@@ -317,7 +322,7 @@ export type Widget =
   | ChartWidget
   | ValueWidget
   | VideoWidget
-  | ButtonWidget
+  | ControlsWidget
   | CarouselWidget
   | TabsWidget
 
@@ -343,7 +348,11 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   ChartWidgetModel,
   ValueWidgetModel,
   VideoWidgetModel,
-  ButtonWidgetModel,
+  ControlsWidgetModel,
+  // The kind the controls widget was stored under before it grew past buttons. Parsed with its
+  // own model rather than left to the unknown fallback, and turned into `controls` by
+  // `upgradedWidget` as it loads.
+  StoredButtonWidgetModel,
   CarouselWidgetModel,
   TabsWidgetModel,
 ]).or(UnknownWidgetModel) as unknown as Zod.ZodType<Widget>
@@ -507,15 +516,15 @@ export const widgetInfos = {
       paddingClass: [],
     }),
   },
-  button: {
-    type: 'button',
-    name: 'Button',
-    model: ButtonWidgetModel,
-    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetButton.vue')),
-    // No settings of its own. Each button is configured from the button itself, since a widget
+  controls: {
+    type: 'controls',
+    name: 'Controls',
+    model: ControlsWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetControls.vue')),
+    // No settings of its own. Each control is configured from the control itself, since a widget
     // holding several has nothing left to say about all of them at once.
     options: widgetOptions({
-      minHeight: 50,
+      minHeight: 90,
       fullHeight: false,
     }),
   },
@@ -577,9 +586,10 @@ export const WorkspaceMetaModel = Zod.object({
 
 /** A widget as the app understands it now, whatever shape it was stored in.
 
-A button widget once offered one action and held that action's fields itself. It now offers as many
-as are put on it, so a stored one becomes a widget holding the single button it always was. The old
-fields are left behind rather than carried, so the next write puts the new shape back.
+The controls widget was stored as `button`, and before that it offered one action and held that
+action's fields itself. A stored one becomes a controls widget holding the buttons it always was,
+and the old kind and fields are left behind rather than carried, so the next write puts the new
+shape back.
 */
 export function upgradedWidget(widget: Widget): Widget {
   const pages = pagesOf(widget).map((page) => ({
@@ -596,30 +606,26 @@ export function upgradedWidget(widget: Widget): Widget {
       : pages
   )
 
-  if (upgraded.type !== 'button') {
+  const stored = upgraded as Widget | StoredButtonWidget
+  if (stored.type !== 'button') {
     return upgraded
   }
 
-  const {
-    label,
-    address,
-    action,
-    color,
-    styling,
-    tooltip,
-    arguments: values,
-    ...rest
-  } = upgraded as StoredButtonWidget
+  const { label, address, action, color, styling, tooltip, arguments: values, ...rest } = stored
   const held = { label, address, action, color, styling, tooltip }
 
   // A button widget was stored with empty arguments whether or not anything was ever made of it,
   // so the fields a user could have set are what say there is a button here to carry over.
   const wasConfigured = Object.values(held).some((value) => value != null)
-  if (upgraded.buttons.length > 0 || !wasConfigured) {
-    return { ...rest, buttons: upgraded.buttons }
+  if (stored.buttons.length > 0 || !wasConfigured) {
+    return { ...rest, type: 'controls', buttons: stored.buttons }
   }
 
-  return { ...rest, buttons: [ButtonActionModel.parse({ ...held, arguments: values ?? {} })] }
+  return {
+    ...rest,
+    type: 'controls',
+    buttons: [ButtonActionModel.parse({ ...held, arguments: values ?? {} })],
+  }
 }
 
 export function upgradedRows(rows: WidgetRow[]): WidgetRow[] {
@@ -2228,7 +2234,7 @@ export function withFreshIds(widget: Widget): Widget {
   const copy: Widget = { ...widget, id: v7() }
 
   // The buttons on a bar answer to names of their own, for the same reason a page does.
-  if (copy.type === 'button') {
+  if (copy.type === 'controls') {
     copy.buttons = copy.buttons.map((button) => ({ ...button, id: v7() }))
   }
 

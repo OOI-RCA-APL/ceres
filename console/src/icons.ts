@@ -24,6 +24,8 @@ const icons = {
   closeOthers: 'mdi-close-box-outline',
   configuration: 'mdi-cogs',
   confirm: 'mdi-check',
+  // A question in a speech bubble, which is what a confirm dialog is.
+  confirmDialog: 'mdi-comment-question-outline',
   connection: 'route', // Material Icons
   copy: 'mdi-content-copy',
   darkMode: 'dark_mode',
