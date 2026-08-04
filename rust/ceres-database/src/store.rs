@@ -584,34 +584,6 @@ impl RecordStore {
         self.backend.write_entities(table, statement.into()).await
     }
 
-    /// Fetch an entity listing, ordered by the entity's own default.
-    pub async fn fetch_entities(
-        &self,
-        table: EntityTable,
-        limit: Option<u64>,
-        offset: Option<u64>,
-    ) -> Result<Entities, Error> {
-        if limit == Some(0) {
-            return Ok(table.empty());
-        }
-
-        self.backend
-            .select_entities(table, table.listing(limit, offset))
-            .await
-    }
-
-    /// Fetch the entities a parsed native filter matches.
-    pub async fn fetch_entity_filter(&self, filter: &EntityFilter) -> Result<Entities, Error> {
-        if filter.limit() == Some(0) {
-            return Ok(filter.table().empty());
-        }
-
-        let statement = filter.statement(self.dialect(), None);
-        self.backend
-            .select_entities(filter.table(), statement)
-            .await
-    }
-
     /// Count the entities a parsed native filter matches.
     pub async fn count_entity_filter(&self, filter: &EntityFilter) -> Result<u64, Error> {
         if filter.limit() == Some(0) {
@@ -1120,13 +1092,18 @@ mod tests {
         pool.close().await;
 
         let store = RecordStore::sqlite(path, Vec::new(), Vec::new()).unwrap();
-        let Entities::Variables(variables) = store
-            .fetch_entities(EntityTable::Variables, None, None)
+        let filter = EntityFilter::parse(EntityTable::Variables, &[]).expect("an empty filter");
+        let mut variables = Vec::new();
+        store
+            .stream_entity_filter(&filter, &mut |entities| {
+                let Entities::Variables(chunk) = entities else {
+                    panic!("expected variables");
+                };
+                variables.extend(chunk);
+                Ok(())
+            })
             .await
-            .expect("the listing reads")
-        else {
-            panic!("expected variables");
-        };
+            .expect("the listing reads");
 
         // Ordered by the entity's own default, which is the key tuple.
         let held: Vec<(&str, serde_json::Value)> = variables

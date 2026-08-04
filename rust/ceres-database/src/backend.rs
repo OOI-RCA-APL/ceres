@@ -95,13 +95,6 @@ pub(crate) trait DatabaseBackend: Send + Sync {
         statement: SelectStatement,
     ) -> Result<Records, Error>;
 
-    /// The entity form of [`Self::select_records`].
-    async fn select_entities(
-        &self,
-        table: EntityTable,
-        statement: SelectStatement,
-    ) -> Result<Entities, Error>;
-
     /// Run a select, handing decoded records over a chunk at a time.
     async fn stream_records(
         &self,
@@ -311,16 +304,6 @@ macro_rules! sqlx_backend {
                 let (sql, values) = statement.build_sqlx($builder);
                 let rows = sqlx::query_with(&sql, values).fetch_all(&self.0).await?;
                 DecodeRecords::decode(table, rows)
-            }
-
-            async fn select_entities(
-                &self,
-                table: EntityTable,
-                statement: SelectStatement,
-            ) -> Result<Entities, Error> {
-                let (sql, values) = statement.build_sqlx($builder);
-                let rows = sqlx::query_with(&sql, values).fetch_all(&self.0).await?;
-                DecodeEntities::decode(table, rows)
             }
 
             async fn stream_records(
@@ -644,15 +627,6 @@ impl DatabaseBackend for crate::turso::TursoBackend {
     ) -> Result<Records, Error> {
         let (sql, parameters) = turso_sql(statement)?;
         self.query(table, &sql, parameters).await
-    }
-
-    async fn select_entities(
-        &self,
-        table: EntityTable,
-        statement: SelectStatement,
-    ) -> Result<Entities, Error> {
-        let (sql, parameters) = turso_sql(statement)?;
-        self.query_entities(table, &sql, parameters).await
     }
 
     async fn stream_records(

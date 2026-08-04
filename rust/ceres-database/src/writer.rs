@@ -114,18 +114,6 @@ impl RecordWriter {
         }
     }
 
-    /// Whether a flush can overlap another writer on this database.
-    ///
-    /// `false` says a flush is serialized whatever it asked for, so it cannot lose a race
-    /// at commit and a caller never has to write it again.
-    ///
-    /// Nothing above this reads it yet. It exists so that asking for a concurrent
-    /// transaction is answerable rather than silently ignored, and it is what the tests
-    /// assert the setting against.
-    pub fn overlaps_writers(&self) -> bool {
-        self.backend.overlaps_writers()
-    }
-
     /// Upsert every batch in one transaction.
     ///
     /// A flush is atomic, either every record in every batch lands or none do.
@@ -135,7 +123,7 @@ impl RecordWriter {
     /// their producer minted, so two flushes rarely touch the same row, and a flush that
     /// loses a race at commit is requeued by the buffer above and written next time. A
     /// backend that cannot overlap runs it serialized instead, which is what
-    /// [`Self::overlaps_writers`] reports.
+    /// [`RecordStore::overlaps_writers`](crate::RecordStore::overlaps_writers) reports.
     pub async fn upsert(&self, batches: Vec<Records>) -> Result<(), Error> {
         let dialect = match self.backend.dialect() {
             crate::filter::SqlDialect::Postgres => Dialect::Postgres,

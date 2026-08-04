@@ -23,7 +23,5 @@ pub use entities::{
 pub use filterable::{
     FieldFamily, FieldOperation, FilterField, FilterValues, Filterable, OperationKind,
 };
-pub use records::{
-    Alert, CsvRecord, LogEntry, Message, MessageDirection, Particle, Records, latin1, to_json_array,
-};
+pub use records::{Alert, LogEntry, Message, MessageDirection, Particle, Records, latin1};
 pub use timestamp::Timestamp;

@@ -22,13 +22,10 @@ pub use axum;
 
 pub use api::schema::document as openapi_document;
 pub use app::{AppConfig, ConsolePaths, build_router};
-pub use auth::{Actor, AuthSettings, Identity, MintedToken, bearer_token};
-pub use cookie::CookieType;
-pub use error::{ApiError, Problem};
-pub use host::{Answer, GateUser, Host, HostError, NoHost, Served, StreamClose, UserRecord};
+pub use auth::AuthSettings;
+pub use host::{Answer, GateUser, Host, HostError, Served, StreamClose, UserRecord};
 pub use layers::{apply_compression, apply_cors};
-pub use scrub::scrub_credentials;
-pub use serve::{BoundServer, Error as ServeError, Stopper};
+pub use serve::{BoundServer, Stopper};
 
 #[cfg(test)]
 mod tests {
@@ -38,6 +35,7 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+    use crate::host::NoHost;
 
     /// Send one request through a router and return the response.
     macro_rules! request {

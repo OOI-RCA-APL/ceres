@@ -15,14 +15,12 @@ __all__ = [
     "ConsoleConfig",
     "DatabaseConfigHooks",
     "EntityTable",
-    "JsonParameter",
     "LoggingConfig",
     "NativeFilter",
     "NativeServer",
     "PackingProgram",
     "PostgresDatabaseConfig",
     "RecordBatch",
-    "RecordChunks",
     "RecordFetcher",
     "RecordTable",
     "RecordWriter",
@@ -218,20 +216,6 @@ class DatabaseConfigHooks:
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
 
-@final
-class JsonParameter:
-    r"""
-    A whole JSON document as one statement parameter.
-
-    The columns that store a document bind it as one value, and PostgreSQL's `jsonb` refuses
-    a text bind, so the fact that a parameter is a document has to survive the trip out to
-    Python and back rather than arriving as a string nobody can tell apart from a name.
-    """
-    def __repr__(self) -> str:
-        r"""
-        The document's serialized form, which is what a text column stores.
-        """
-
 class LoggingConfig:
     r"""
     Per-component or per-engine logging configuration.
@@ -317,11 +301,6 @@ class NativeFilter:
         r"""
         The filter's limit, `None` when unbounded.
         """
-    @property
-    def offset(self) -> int | None:
-        r"""
-        The filter's offset, `None` when unset.
-        """
     @staticmethod
     def from_pairs(table: str, pairs: Sequence[tuple[str, str]]) -> NativeFilter:
         r"""
@@ -331,20 +310,6 @@ class NativeFilter:
     def from_json(table: str, json: str) -> NativeFilter:
         r"""
         Parse a filter from its serialized JSON form, the filter model's dump.
-        """
-    def where_sql(self, dialect: str, now: datetime | None = None) -> str | None:
-        r"""
-        The `WHERE` conditions as inline SQL for a dialect, `None` when the filter is
-        unconditional.
-
-        The text embeds into a statement the caller builds, so values render as literals
-        rather than binds. The caller's clock decides age-relative conditions, so a
-        session under a faked or frozen time stays authoritative.
-        """
-    def order_sql(self, dialect: str) -> str | None:
-        r"""
-        The `ORDER BY` terms as inline SQL for a dialect, including the table's default
-        ordering.
         """
     def compiled(
         self, dialect: str, *, count: bool = False, now: datetime | None = None
@@ -558,7 +523,6 @@ class RecordBatch:
         Row values arrive through the database layer's column mappers, so they are trusted
         rather than revalidated here.
         """
-    def __len__(self) -> int: ...
     @staticmethod
     def record_to_json(table: RecordTable, record: Any) -> bytes:
         r"""
@@ -571,43 +535,6 @@ class RecordBatch:
     def to_json(self) -> bytes:
         r"""
         Serialize the batch as a JSON array in the API's wire format.
-        """
-    def to_json_lines(self, fields: Sequence[tuple[str, str]] | None = None) -> bytes:
-        r"""
-        Serialize the batch as JSON lines in the wire format, one record per line.
-
-        The shape a CLI record dump writes, so a select can produce its whole output in
-        one native pass. A field projection, ordered `(field, alias)` pairs, renders
-        each line as an object of the aliased wire values, unknown or absent fields
-        serializing as null.
-        """
-    def to_csv_lines(
-        self, fields: Sequence[tuple[str, str]] | None = None, *, header: bool = True
-    ) -> str:
-        r"""
-        Render the batch as CSV lines in the wire cell forms, under a header row
-        unless suppressed.
-
-        The shape a CSV record dump writes, quoted the way the Python `csv` writer
-        quotes, so a select can produce its whole output in one native pass. A field
-        projection, ordered `(field, alias)` pairs, selects the columns, with the
-        aliases as the header row.
-        """
-
-@final
-class RecordChunks:
-    r"""
-    A streamed record query's chunks, taken one await at a time.
-
-    Dropping this ends the query, because the next chunk it tries to hand over has
-    nowhere to go.
-    """
-    def next(self) -> Any:
-        r"""
-        The next chunk, as an awaitable `RecordBatch`, `None` once the query is spent.
-
-        Waiting for a chunk blocks a thread of its own rather than the event loop, so a
-        slow query leaves the caller's asyncio loop free.
         """
 
 @final
@@ -664,32 +591,6 @@ class RecordFetcher:
 
         The statement text and parameters come from the query layer's own compiler, so any
         filter it can express runs natively with identical semantics.
-        """
-    def stream_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> RecordChunks:
-        r"""
-        Execute a compiled record query, as chunks the caller walks one at a time.
-
-        The chunked twin of `fetch_sql`, for a dump that renders and writes as it reads.
-        The query runs on its own thread and hands each decoded chunk over, so the reader
-        sets the pace and neither side ever holds more than a chunk.
-        """
-    def fetch(self, table: RecordTable, limit: int | None = None, offset: int | None = None) -> Any:
-        r"""
-        Fetch a record listing ordered by timestamp, as an awaitable `RecordBatch`.
-        """
-    def fetch_pairs(self, table: RecordTable, pairs: Sequence[tuple[str, str]]) -> Any:
-        r"""
-        Fetch the records matching filter query pairs, as an awaitable `RecordBatch`.
-
-        The pairs parse against the native filter subset, and a request outside it
-        answers `None` synchronously so the caller delegates to the query layer.
-        """
-    def count_pairs(self, table: RecordTable, pairs: Sequence[tuple[str, str]]) -> Any:
-        r"""
-        Count the records matching filter query pairs, as an awaitable count.
-
-        Like `fetch_pairs`, a request outside the native subset answers `None`
-        synchronously so the caller delegates.
         """
 
 @final

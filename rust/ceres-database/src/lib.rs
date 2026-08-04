@@ -24,15 +24,13 @@ pub use assign::insert_compiled;
 pub use backend::Writing;
 pub use ceres_entities::OperationKind;
 pub use credentials::{
-    Argon2Params, Credentials, Hashing, SPECIAL_USE_DOMAINS, is_password_hash, normalize_email,
-    valid_password, verify_argon2, verify_bcrypt,
+    Argon2Params, Credentials, Hashing, SPECIAL_USE_DOMAINS, normalize_email, verify_argon2,
+    verify_bcrypt,
 };
 pub use dynamic::{Cell, Row, Table};
 pub use entities::EntityTable;
 pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, Role, SqlDialect, Window};
-pub use load::{
-    Conflict, LoadFormat, batches, build, build_entity, entity_batches, read, read_entities,
-};
+pub use load::{Conflict, LoadFormat, batches, build, build_entity, entity_batches, read};
 pub use records::RecordTable;
 pub use sea_query::Value as BindValue;
 pub use store::{Error, GateUser, Parameter, RecordStore};

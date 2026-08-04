@@ -107,36 +107,6 @@ impl NativeFilter {
         delegate!(self, limit())
     }
 
-    /// The filter's offset, `None` when unset.
-    #[getter]
-    fn offset(&self) -> Option<u64> {
-        delegate!(self, offset())
-    }
-
-    /// The `WHERE` conditions as inline SQL for a dialect, `None` when the filter is
-    /// unconditional.
-    ///
-    /// The text embeds into a statement the caller builds, so values render as literals
-    /// rather than binds. The caller's clock decides age-relative conditions, so a
-    /// session under a faked or frozen time stays authoritative.
-    #[pyo3(signature = (dialect, now = None))]
-    fn where_sql(
-        &self,
-        dialect: &str,
-        now: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> PyResult<Option<String>> {
-        let dialect = dialect_of(dialect)?;
-        let now = now.map(|now| now.naive_utc());
-        Ok(delegate!(self, where_sql(dialect, now)))
-    }
-
-    /// The `ORDER BY` terms as inline SQL for a dialect, including the table's default
-    /// ordering.
-    fn order_sql(&self, dialect: &str) -> PyResult<Option<String>> {
-        let dialect = dialect_of(dialect)?;
-        Ok(delegate!(self, order_sql(dialect)))
-    }
-
     /// Compile to SQL and its parameters for a dialect, a listing statement or a count.
     ///
     /// The parameters arrive in placeholder order for a driver-level execute, `?` style
@@ -300,14 +270,6 @@ fn bind_value<'py>(
         Value::ChronoDateTime(value) => value.map(|value| value.and_utc()).into_bound_py_any(py)?,
         Value::ChronoDateTimeUtc(value) => value.map(|value| *value).into_bound_py_any(py)?,
         Value::Uuid(value) => value.map(|value| *value).into_bound_py_any(py)?,
-        // A document stays marked as one rather than becoming a string, because the column
-        // it lands in may be `jsonb`, which refuses a text bind.
-        Value::Json(value) => match value {
-            Some(value) => {
-                Bound::new(py, crate::fetcher::JsonParameter { value: *value })?.into_any()
-            }
-            None => py.None().into_bound(py),
-        },
         other => {
             return Err(PyValueError::new_err(format!(
                 "{other:?} is not a value the compiler binds"

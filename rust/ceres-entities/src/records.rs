@@ -137,7 +137,7 @@ fn csv_row(cells: &[Option<String>], lines: &mut String) {
 }
 
 /// A record's fields as the CSV cells the Python row extraction produces.
-pub trait CsvRecord {
+pub(crate) trait CsvRecord {
     /// The header cells, the entity's field names in declaration order.
     const CSV_HEADER: &'static str;
 
@@ -214,7 +214,7 @@ impl CsvRecord for LogEntry {
 ///
 /// An empty sequence still renders the header, so the output always carries its
 /// schema.
-pub fn to_csv_lines<T: CsvRecord>(records: &[T], header: bool) -> String {
+pub(crate) fn to_csv_lines<T: CsvRecord>(records: &[T], header: bool) -> String {
     let mut lines = String::new();
     if header {
         lines.push_str(T::CSV_HEADER);
@@ -229,12 +229,12 @@ pub fn to_csv_lines<T: CsvRecord>(records: &[T], header: bool) -> String {
 }
 
 /// Serialize a sequence of records as one JSON array.
-pub fn to_json_array<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
+pub(crate) fn to_json_array<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
     serde_json::to_vec(records)
 }
 
 /// Serialize a sequence's first record, `null` when the sequence is empty.
-pub fn to_json_first<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
+pub(crate) fn to_json_first<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
     match records.first() {
         Some(record) => serde_json::to_vec(record),
         None => Ok(b"null".to_vec()),
@@ -242,7 +242,7 @@ pub fn to_json_first<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>>
 }
 
 /// Serialize a sequence of records as JSON lines, one record per line.
-pub fn to_json_lines<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
+pub(crate) fn to_json_lines<T: Serialize>(records: &[T]) -> serde_json::Result<Vec<u8>> {
     let mut lines = Vec::new();
     for record in records {
         serde_json::to_writer(&mut lines, record)?;
@@ -297,7 +297,7 @@ fn projected_cell(value: Value) -> Option<String> {
 }
 
 /// Serialize projected records as JSON lines, one aliased object per line.
-pub fn to_json_lines_projected<T: Serialize>(
+pub(crate) fn to_json_lines_projected<T: Serialize>(
     records: &[T],
     fields: &[(String, String)],
 ) -> serde_json::Result<Vec<u8>> {
@@ -314,7 +314,7 @@ pub fn to_json_lines_projected<T: Serialize>(
 ///
 /// An empty sequence still renders the header, so the output always carries its
 /// schema.
-pub fn to_csv_lines_projected<T: Serialize>(
+pub(crate) fn to_csv_lines_projected<T: Serialize>(
     records: &[T],
     fields: &[(String, String)],
     header: bool,

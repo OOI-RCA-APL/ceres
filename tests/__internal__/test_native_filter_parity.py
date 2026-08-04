@@ -2,10 +2,11 @@
 
 One compiler serves both paths, but they reach it differently. The query layer validates
 the pairs through the Pydantic filter and hands the compiler its JSON dump, while the
-fetcher parses the same pairs into the subset directly. Every vector here goes down both
-and the records that come back must be byte-identical on every backend. Constructs outside
-the subset must decline rather than guess, and the classification test holds the subset's
-key lists to exactly the fields the Pydantic filters declare.
+wire path parses the same pairs into the subset directly through `NativeFilter.from_pairs`.
+Every vector here goes down both and the records that come back must be byte-identical on
+every backend. Constructs outside the subset must refuse rather than guess, and the
+classification test holds the subset's key lists to exactly the fields the Pydantic
+filters declare.
 """
 
 import json
@@ -333,19 +334,21 @@ async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None
                     json.loads(to_json(entity))
                     for entity in await engine.__manager__(Record).where(filter)
                 ]
-                awaitable = fetcher.fetch_pairs(table, pairs)
-                assert awaitable is not None, f"{Record.__name__} declined {pairs}"
-                native = json.loads((await awaitable).to_json())
+                handle = NativeFilter.from_pairs(Record.__entity_naming__.table, pairs)
+                dialect = engine.database.type.value
+                sql, parameters = handle.compiled(dialect)
+                batch = await fetcher.fetch_sql(table, sql, parameters)
+                native = json.loads(batch.to_json())
                 assert native == expected, f"{Record.__name__} diverged on {pairs}"
 
                 expected_count = await engine.__manager__(Record).where(filter).count()
-                counting = fetcher.count_pairs(table, pairs)
-                assert counting is not None
-                assert await counting == expected_count, f"count diverged on {pairs}"
+                count_sql, count_parameters = handle.compiled(dialect, count=True)
+                rows = await engine.database._store().fetch(count_sql, count_parameters)
+                native_count = next(iter(rows[0].values())) if rows else 0
+                assert native_count == expected_count, f"count diverged on {pairs}"
 
                 # The native matcher must read each record the way the Python filter's
                 # in-memory matching does.
-                handle = NativeFilter.from_pairs(Record.__entity_naming__.table, pairs)
                 for entity in await engine.__manager__(Record).where(Record.Filter()):
                     record_json = to_json(entity)
                     assert handle.matches(record_json) == filter.matches(entity), (
@@ -372,34 +375,28 @@ async def test_exact_timestamps_match_in_both_stored_precisions(tmp_path: Path) 
             ]
             assert expected, f"expected a seeded message at index {index}"
 
-            awaitable = fetcher.fetch_pairs(RecordTable.MESSAGES, pairs)
-            assert awaitable is not None
-            assert json.loads((await awaitable).to_json()) == expected
+            handle = NativeFilter.from_pairs(Message.__entity_naming__.table, pairs)
+            sql, parameters = handle.compiled(engine.database.type.value)
+            batch = await fetcher.fetch_sql(RecordTable.MESSAGES, sql, parameters)
+            assert json.loads(batch.to_json()) == expected
     finally:
         await engine.database.dispose()
 
 
-async def test_constructs_outside_the_subset_decline(tmp_path: Path) -> None:
-    """Delegated keys, malformed values, and selector addresses all answer `None`."""
-    engine = await _build_engine(tmp_path)
-    fetcher = engine.database._record_fetcher()
-    assert fetcher is not None
-
-    try:
-        for pairs in [
-            [("subsample", "10")],
-            [("address", "@a,@b")],
-            [("or", '{"limit": 5}')],
-            [("or", "not: [valid")],
-            [("after", "yesterday")],
-            [("timespan", "-PT5S")],
-            [("after_hour", "25")],
-            [("unknown", "1")],
-        ]:
-            assert fetcher.fetch_pairs(RecordTable.MESSAGES, pairs) is None, f"{pairs}"
-            assert fetcher.count_pairs(RecordTable.MESSAGES, pairs) is None, f"{pairs}"
-    finally:
-        await engine.database.dispose()
+def test_constructs_outside_the_subset_refuse() -> None:
+    """Delegated keys, malformed values, and selector addresses all refuse to parse."""
+    for pairs in [
+        [("subsample", "10")],
+        [("address", "@a,@b")],
+        [("or", '{"limit": 5}')],
+        [("or", "not: [valid")],
+        [("after", "yesterday")],
+        [("timespan", "-PT5S")],
+        [("after_hour", "25")],
+        [("unknown", "1")],
+    ]:
+        with pytest.raises(ValueError):
+            NativeFilter.from_pairs(Message.__entity_naming__.table, pairs)
 
 
 def _declared_keys(Entity: Any) -> set[str]:

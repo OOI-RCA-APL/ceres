@@ -257,18 +257,6 @@ pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Re
         .ok()
 }
 
-/// Read a whole entity input into batches, like the record `read`.
-pub fn read_entities(
-    table: EntityTable,
-    text: &str,
-    format: LoadFormat,
-    credentials: Option<Credentials>,
-) -> Option<Vec<Entities>> {
-    entity_batches(table, text.as_bytes(), format, credentials)?
-        .collect::<Result<_, _>>()
-        .ok()
-}
-
 /// Build the one record a create names from its field values, `None` when a field or a
 /// value falls outside what the native types represent faithfully.
 ///

@@ -82,7 +82,7 @@ macro_rules! identity_field {
     };
 }
 
-identity_field!(String, PathBuf, bool, u16, u32, u64, i64, f64, Vec<String>);
+identity_field!(String, PathBuf, bool, u16, u64, i64, Vec<String>);
 
 impl<T: PyFieldType> PyFieldType for Option<T> {
     type Input = Option<T::Input>;

@@ -1,41 +1,19 @@
 //! The native record fetcher.
 //!
 //! Bridges `ceres-database` into asyncio. A fetcher holds a lazily-connecting pool over the
-//! same database the Python layer resolved, and `fetch` returns an awaitable producing a
-//! [`RecordBatch`](crate::entities::RecordBatch), so a record listing goes from the driver
-//! to JSON without any Python entity objects in between.
+//! same database the Python layer resolved, and `fetch_sql` returns an awaitable producing
+//! a [`RecordBatch`](crate::entities::RecordBatch), so a record listing goes from the
+//! driver to JSON without any Python entity objects in between.
 
-use std::sync::mpsc::{Receiver, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ceres_database::{Parameter, RecordStore};
-use ceres_entities::Records;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes as PyBytesType, PyFloat, PyInt, PyString};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use crate::entities::{EntityTable, RecordBatch, RecordTable};
-
-/// A whole JSON document as one statement parameter.
-///
-/// The columns that store a document bind it as one value, and PostgreSQL's `jsonb` refuses
-/// a text bind, so the fact that a parameter is a document has to survive the trip out to
-/// Python and back rather than arriving as a string nobody can tell apart from a name.
-#[gen_stub_pyclass]
-#[pyclass(module = "ceres.__internal__.core", frozen)]
-pub struct JsonParameter {
-    pub(crate) value: serde_json::Value,
-}
-
-#[gen_stub_pymethods]
-#[pymethods]
-impl JsonParameter {
-    /// The document's serialized form, which is what a text column stores.
-    fn __repr__(&self) -> String {
-        format!("JsonParameter({})", self.value)
-    }
-}
 
 /// Extract a compiled statement parameter, one of the primitives bind processors produce.
 pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
@@ -75,10 +53,6 @@ pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter>
 
     if let Ok(id) = value.extract::<uuid::Uuid>() {
         return Ok(Parameter::Uuid(id));
-    }
-
-    if let Ok(json) = value.extract::<PyRef<'_, JsonParameter>>() {
-        return Ok(Parameter::Json(json.value.clone()));
     }
 
     Err(PyTypeError::new_err(format!(
@@ -213,121 +187,6 @@ impl RecordFetcher {
             Ok(RecordBatch { records })
         })
     }
-
-    /// Execute a compiled record query, as chunks the caller walks one at a time.
-    ///
-    /// The chunked twin of `fetch_sql`, for a dump that renders and writes as it reads.
-    /// The query runs on its own thread and hands each decoded chunk over, so the reader
-    /// sets the pace and neither side ever holds more than a chunk.
-    fn stream_sql(
-        &self,
-        table: RecordTable,
-        sql: String,
-        #[gen_stub(override_type(type_repr = "list[typing.Any]"))] parameters: Vec<
-            Bound<'_, PyAny>,
-        >,
-    ) -> PyResult<RecordChunks> {
-        let table = table.into();
-        let parameters = parameters
-            .iter()
-            .map(extract_parameter)
-            .collect::<PyResult<Vec<_>>>()?;
-        let store = self.store.clone();
-        // One chunk of depth lets the query read ahead of the reader by exactly one,
-        // which overlaps the two without letting either run away from the other.
-        let (sender, receiver) = sync_channel(1);
-        let runtime = pyo3_async_runtimes::tokio::get_runtime();
-        let handle = runtime.handle().clone();
-        runtime.spawn_blocking(move || {
-            let outcome = handle.block_on(async {
-                let mut sink = |records: Records| {
-                    // A closed channel is the reader having gone away, which ends the
-                    // query rather than reporting anything.
-                    sender
-                        .send(Ok(records))
-                        .map_err(|_| ceres_database::Error::Decode("the reader stopped".into()))
-                };
-                store.stream_sql(table, &sql, parameters, &mut sink).await
-            });
-
-            if let Err(error) = outcome {
-                // The reader raises whatever the query could not finish. A send that
-                // fails here is the reader already gone, which needs no report.
-                let _ = sender.send(Err(error));
-            }
-        });
-
-        Ok(RecordChunks {
-            chunks: Arc::new(Mutex::new(receiver)),
-        })
-    }
-
-    /// Fetch a record listing ordered by timestamp, as an awaitable `RecordBatch`.
-    #[pyo3(signature = (table, limit=None, offset=None))]
-    fn fetch<'py>(
-        &self,
-        py: Python<'py>,
-        table: RecordTable,
-        limit: Option<u64>,
-        offset: Option<u64>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let table = table.into();
-        let store = self.store.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let records = store
-                .fetch(table, limit, offset)
-                .await
-                .map_err(to_value_error)?;
-            Ok(RecordBatch { records })
-        })
-    }
-
-    /// Fetch the records matching filter query pairs, as an awaitable `RecordBatch`.
-    ///
-    /// The pairs parse against the native filter subset, and a request outside it
-    /// answers `None` synchronously so the caller delegates to the query layer.
-    #[gen_stub(override_return_type(type_repr = "typing.Any"))]
-    fn fetch_pairs<'py>(
-        &self,
-        py: Python<'py>,
-        table: RecordTable,
-        pairs: Vec<(String, String)>,
-    ) -> PyResult<Option<Bound<'py, PyAny>>> {
-        let table = table.into();
-        let Ok(filter) = ceres_database::RecordFilter::parse(table, &pairs) else {
-            return Ok(None);
-        };
-
-        let store = self.store.clone();
-        let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let records = store.fetch_filter(&filter).await.map_err(to_value_error)?;
-            Ok(RecordBatch { records })
-        })?;
-        Ok(Some(awaitable))
-    }
-
-    /// Count the records matching filter query pairs, as an awaitable count.
-    ///
-    /// Like `fetch_pairs`, a request outside the native subset answers `None`
-    /// synchronously so the caller delegates.
-    #[gen_stub(override_return_type(type_repr = "typing.Any"))]
-    fn count_pairs<'py>(
-        &self,
-        py: Python<'py>,
-        table: RecordTable,
-        pairs: Vec<(String, String)>,
-    ) -> PyResult<Option<Bound<'py, PyAny>>> {
-        let table = table.into();
-        let Ok(filter) = ceres_database::RecordFilter::parse(table, &pairs) else {
-            return Ok(None);
-        };
-
-        let store = self.store.clone();
-        let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            store.count_filter(&filter).await.map_err(to_value_error)
-        })?;
-        Ok(Some(awaitable))
-    }
 }
 
 /// Every column the native layer reads and writes, by table.
@@ -421,44 +280,6 @@ pub fn entity_filter_keys(table: EntityTable) -> (Vec<&'static str>, Vec<&'stati
         ceres_database::EntityFilter::supported_keys(table),
         ceres_database::EntityFilter::delegated_keys(table),
     )
-}
-
-/// A streamed record query's chunks, taken one await at a time.
-///
-/// Dropping this ends the query, because the next chunk it tries to hand over has
-/// nowhere to go.
-#[gen_stub_pyclass]
-#[pyclass(module = "ceres.__internal__.core", frozen)]
-pub struct RecordChunks {
-    chunks: Arc<Mutex<Receiver<Result<Records, ceres_database::Error>>>>,
-}
-
-#[gen_stub_pymethods]
-#[pymethods]
-impl RecordChunks {
-    /// The next chunk, as an awaitable `RecordBatch`, `None` once the query is spent.
-    ///
-    /// Waiting for a chunk blocks a thread of its own rather than the event loop, so a
-    /// slow query leaves the caller's asyncio loop free.
-    fn next<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let chunks = self.chunks.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let received = pyo3_async_runtimes::tokio::get_runtime()
-                .spawn_blocking(move || {
-                    let receiver = chunks.lock().expect("the chunks outlive every reader");
-                    receiver.recv()
-                })
-                .await
-                .map_err(|error| PyValueError::new_err(error.to_string()))?;
-
-            match received {
-                // A disconnected channel is the query having run to its end.
-                Err(_) => Ok(None),
-                Ok(Ok(records)) => Ok(Some(RecordBatch { records })),
-                Ok(Err(error)) => Err(to_value_error(error)),
-            }
-        })
-    }
 }
 
 /// Normalize an email address the way a native user write stores it, `None` for one

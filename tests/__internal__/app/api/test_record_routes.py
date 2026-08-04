@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from ceres import Engine
-from ceres.__internal__.core import RecordBatch, RecordTable
+from ceres.__internal__.core import NativeFilter, RecordBatch, RecordTable
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import Config, SQLiteDatabaseConfig
@@ -91,7 +91,7 @@ async def test_native_record_batches_serialize_identically_to_the_python_path() 
         native = json.loads(batch.to_json())
 
         assert native == expected
-        assert len(batch) == len(entities)
+        assert len(native) == len(entities)
 
 
 async def test_live_records_serialize_natively_like_pydantic() -> None:
@@ -142,16 +142,23 @@ async def test_native_fetches_serialize_identically_to_the_python_path(
     fetcher = engine.database._record_fetcher()
     assert fetcher is not None
 
+    dialect = engine.database.type.value
     for Record in (Message, Particle, Alert, LogEntry):
         entities = await engine.__manager__(Record).where()
         assert entities, f"expected a written {Record.__name__}"
         expected = [json.loads(to_json(entity)) for entity in entities]
 
-        batch = await fetcher.fetch(RECORD_TABLES[Record])
+        sql, parameters = NativeFilter.from_pairs(Record.__entity_naming__.table, []).compiled(
+            dialect
+        )
+        batch = await fetcher.fetch_sql(RECORD_TABLES[Record], sql, parameters)
         assert json.loads(batch.to_json()) == expected
 
-    limited = await fetcher.fetch(RecordTable.PARTICLES, 1, 0)
-    assert len(limited) == 1
+    sql, parameters = NativeFilter.from_pairs(
+        Particle.__entity_naming__.table, [("limit", "1")]
+    ).compiled(dialect)
+    limited = await fetcher.fetch_sql(RecordTable.PARTICLES, sql, parameters)
+    assert len(json.loads(limited.to_json())) == 1
 
 
 async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) -> None:

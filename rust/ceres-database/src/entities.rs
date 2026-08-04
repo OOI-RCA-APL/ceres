@@ -11,7 +11,6 @@ use ceres_entities::{
     Address, Entities, GrantLevel, Group, GroupMembership, GroupPermission, PermissionTargetType,
     Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
 };
-use sea_query::{Alias, Asterisk, Order, Query, SelectStatement};
 use serde_json::Value;
 use sqlx::Row;
 use sqlx::postgres::PgRow;
@@ -194,25 +193,6 @@ impl EntityTable {
                 computed: &[],
             },
         }
-    }
-
-    /// Build the listing statement, ordered like the entity's own default.
-    pub(crate) fn listing(&self, limit: Option<u64>, offset: Option<u64>) -> SelectStatement {
-        let mut statement = Query::select();
-        statement.column(Asterisk).from(Alias::new(self.name()));
-        for column in self.schema().order {
-            statement.order_by(Alias::new(*column), Order::Asc);
-        }
-
-        if let Some(limit) = limit {
-            statement.limit(limit);
-        }
-
-        if let Some(offset) = offset {
-            statement.offset(offset);
-        }
-
-        statement
     }
 
     pub(crate) fn empty(&self) -> Entities {
@@ -541,8 +521,6 @@ fn sqlite_value(row: &SqliteRow) -> Result<Value, Error> {
 
 #[cfg(test)]
 mod tests {
-    use sea_query::SqliteQueryBuilder;
-
     use super::*;
 
     #[test]
@@ -552,22 +530,6 @@ mod tests {
             EntityTable::Variables
         );
         assert!(EntityTable::parse("messages").is_err());
-    }
-
-    #[test]
-    fn listings_order_by_the_entity_default() {
-        assert_eq!(
-            EntityTable::Variables
-                .listing(None, None)
-                .to_string(SqliteQueryBuilder),
-            "SELECT * FROM \"variables\" ORDER BY \"address\" ASC, \"name\" ASC"
-        );
-        assert_eq!(
-            EntityTable::Users
-                .listing(Some(5), None)
-                .to_string(SqliteQueryBuilder),
-            "SELECT * FROM \"users\" ORDER BY \"username\" ASC LIMIT 5"
-        );
     }
 
     #[test]

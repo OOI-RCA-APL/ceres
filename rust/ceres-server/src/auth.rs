@@ -140,10 +140,6 @@ impl Actor {
         self.unrestricted || self.user.as_ref().is_some_and(|user| user.admin)
     }
 
-    pub fn authenticated(&self) -> bool {
-        self.unrestricted || self.user.is_some()
-    }
-
     /// Require an enabled, authenticated user, unless the actor is unrestricted.
     pub fn require_authenticated(&self) -> Result<(), ApiError> {
         if self.unrestricted {

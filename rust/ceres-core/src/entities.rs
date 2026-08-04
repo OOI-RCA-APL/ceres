@@ -46,10 +46,6 @@ impl RecordBatch {
         Ok(Self { records })
     }
 
-    fn __len__(&self) -> usize {
-        self.records.len()
-    }
-
     /// Serialize one live record entity as JSON in the API's wire format.
     ///
     /// Reads the entity object's attributes rather than row values, so streamed records
@@ -79,48 +75,6 @@ impl RecordBatch {
             .to_json_array()
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(PyBytes::new(py, &serialized))
-    }
-
-    /// Serialize the batch as JSON lines in the wire format, one record per line.
-    ///
-    /// The shape a CLI record dump writes, so a select can produce its whole output in
-    /// one native pass. A field projection, ordered `(field, alias)` pairs, renders
-    /// each line as an object of the aliased wire values, unknown or absent fields
-    /// serializing as null.
-    #[pyo3(signature = (fields=None))]
-    fn to_json_lines<'py>(
-        &self,
-        py: Python<'py>,
-        fields: Option<Vec<(String, String)>>,
-    ) -> PyResult<Bound<'py, PyBytes>> {
-        let serialized = match &fields {
-            Some(fields) => self.records.to_json_lines_projected(fields),
-            None => self.records.to_json_lines(),
-        }
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        Ok(PyBytes::new(py, &serialized))
-    }
-
-    /// Render the batch as CSV lines in the wire cell forms, under a header row
-    /// unless suppressed.
-    ///
-    /// The shape a CSV record dump writes, quoted the way the Python `csv` writer
-    /// quotes, so a select can produce its whole output in one native pass. A field
-    /// projection, ordered `(field, alias)` pairs, selects the columns, with the
-    /// aliases as the header row.
-    #[pyo3(signature = (fields=None, *, header=true))]
-    fn to_csv_lines(
-        &self,
-        fields: Option<Vec<(String, String)>>,
-        header: bool,
-    ) -> PyResult<String> {
-        match &fields {
-            Some(fields) => self
-                .records
-                .to_csv_lines_projected(fields, header)
-                .map_err(|error| PyValueError::new_err(error.to_string())),
-            None => Ok(self.records.to_csv_lines(header)),
-        }
     }
 }
 

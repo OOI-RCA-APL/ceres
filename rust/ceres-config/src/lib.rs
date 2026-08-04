@@ -29,7 +29,7 @@ pub use meta::ConfigMeta;
 pub use server::{
     RawServerAuthenticationConfig, RawServerCompressionConfig, RawServerConfig,
     RawServerCorsConfig, RawServerSslConfig, ServerAuthenticationConfig, ServerCompressionConfig,
-    ServerConfig, ServerCorsConfig, ServerSslConfig, TLS_SERVER_PROTOCOL,
+    ServerConfig, ServerCorsConfig, ServerSslConfig,
 };
 pub use types::{
     ConsoleConfig, NAME_PATTERN, Name, RawConsoleConfig, RawServiceConfig, ServiceConfig,

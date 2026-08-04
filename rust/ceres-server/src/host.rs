@@ -227,8 +227,10 @@ pub trait Host: Send + Sync + 'static {
 }
 
 /// A host for applications that never cross the boundary, tests and stubs.
-pub struct NoHost;
+#[cfg(test)]
+pub(crate) struct NoHost;
 
+#[cfg(test)]
 #[async_trait::async_trait]
 impl Host for NoHost {
     async fn user(&self, _id: Uuid) -> Result<Option<UserRecord>, HostError> {

@@ -273,22 +273,6 @@ impl TursoBackend {
         .await
     }
 
-    /// Execute a query and decode its rows for the given entity table.
-    pub(crate) async fn query_entities(
-        &self,
-        table: EntityTable,
-        sql: &str,
-        parameters: Vec<Value>,
-    ) -> Result<Entities, Error> {
-        self.using(async |connection| {
-            let mut rows = connection
-                .query(sql, turso::params_from_iter(parameters))
-                .await?;
-            decode_entities(table, &mut rows, usize::MAX).await
-        })
-        .await
-    }
-
     /// Walk an entity result set, handing over one chunk at a time.
     pub(crate) async fn stream_entities(
         &self,
