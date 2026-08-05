@@ -8,8 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ceres_entities::{
-    Alert, Entities, Group, GroupMembership, GroupPermission, LogEntry, Message, MessageDirection,
-    Particle, Records, Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
+    Alert, Entities, Filterable, Group, GroupMembership, GroupPermission, LogEntry, Message,
+    MessageDirection, Particle, Records, Setting, User, UserPermission, Variable, Workspace,
+    WorkspaceEdit,
 };
 use sea_query::{Alias, InsertStatement, OnConflict, Query, SimpleExpr};
 use sqlx::postgres::PgPoolOptions;
@@ -138,18 +139,10 @@ impl RecordWriter {
 /// Build the multi-row upsert for one batch, or `None` when the batch is empty.
 fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStatement> {
     let rows = match records {
-        Records::Messages(messages) => dedupe_last(messages, |message| message.id)
-            .map(|message| message_values(message, dialect))
-            .collect::<Vec<_>>(),
-        Records::Particles(particles) => dedupe_last(particles, |particle| particle.id)
-            .map(|particle| particle_values(particle, dialect))
-            .collect(),
-        Records::Alerts(alerts) => dedupe_last(alerts, |alert| alert.id)
-            .map(|alert| alert_values(alert, dialect))
-            .collect(),
-        Records::LogEntries(entries) => dedupe_last(entries, |entry| entry.id)
-            .map(|entry| entry_values(entry, dialect))
-            .collect(),
+        Records::Messages(messages) => deduped_rows(messages, |message| message.id, dialect),
+        Records::Particles(particles) => deduped_rows(particles, |particle| particle.id, dialect),
+        Records::Alerts(alerts) => deduped_rows(alerts, |alert| alert.id, dialect),
+        Records::LogEntries(entries) => deduped_rows(entries, |entry| entry.id, dialect),
     };
 
     let table = crate::records::table_of(records);
@@ -177,22 +170,10 @@ fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStat
 /// conflict mode decides what happens.
 pub(crate) fn load_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStatement> {
     let rows = match records {
-        Records::Messages(messages) => messages
-            .iter()
-            .map(|message| message_values(message, dialect))
-            .collect::<Vec<_>>(),
-        Records::Particles(particles) => particles
-            .iter()
-            .map(|particle| particle_values(particle, dialect))
-            .collect(),
-        Records::Alerts(alerts) => alerts
-            .iter()
-            .map(|alert| alert_values(alert, dialect))
-            .collect(),
-        Records::LogEntries(entries) => entries
-            .iter()
-            .map(|entry| entry_values(entry, dialect))
-            .collect(),
+        Records::Messages(messages) => rows(messages, dialect),
+        Records::Particles(particles) => rows(particles, dialect),
+        Records::Alerts(alerts) => rows(alerts, dialect),
+        Records::LogEntries(entries) => rows(entries, dialect),
     };
 
     crate::records::table_of(records).insert_into(rows)
@@ -204,42 +185,15 @@ pub(crate) fn entity_load_statement(
     dialect: SqlDialect,
 ) -> Option<InsertStatement> {
     let rows = match entities {
-        Entities::Users(users) => users
-            .iter()
-            .map(|user| user_values(user, dialect))
-            .collect::<Vec<_>>(),
-        Entities::Variables(variables) => variables
-            .iter()
-            .map(|variable| variable_values(variable, dialect))
-            .collect(),
-        Entities::Settings(settings) => settings
-            .iter()
-            .map(|setting| setting_values(setting, dialect))
-            .collect(),
-        Entities::Workspaces(workspaces) => workspaces
-            .iter()
-            .map(|workspace| workspace_values(workspace, dialect))
-            .collect(),
-        Entities::WorkspaceEdits(edits) => edits
-            .iter()
-            .map(|edit| workspace_edit_values(edit, dialect))
-            .collect(),
-        Entities::Groups(groups) => groups
-            .iter()
-            .map(|group| group_values(group, dialect))
-            .collect(),
-        Entities::GroupMemberships(memberships) => memberships
-            .iter()
-            .map(|membership| group_membership_values(membership, dialect))
-            .collect(),
-        Entities::UserPermissions(permissions) => permissions
-            .iter()
-            .map(|permission| user_permission_values(permission, dialect))
-            .collect(),
-        Entities::GroupPermissions(permissions) => permissions
-            .iter()
-            .map(|permission| group_permission_values(permission, dialect))
-            .collect(),
+        Entities::Users(users) => rows(users, dialect),
+        Entities::Variables(variables) => rows(variables, dialect),
+        Entities::Settings(settings) => rows(settings, dialect),
+        Entities::Workspaces(workspaces) => rows(workspaces, dialect),
+        Entities::WorkspaceEdits(edits) => rows(edits, dialect),
+        Entities::Groups(groups) => rows(groups, dialect),
+        Entities::GroupMemberships(memberships) => rows(memberships, dialect),
+        Entities::UserPermissions(permissions) => rows(permissions, dialect),
+        Entities::GroupPermissions(permissions) => rows(permissions, dialect),
     };
 
     open_insert(
@@ -250,107 +204,149 @@ pub(crate) fn entity_load_statement(
 }
 
 /// The columns an entity batch binds, in the order its value builder writes them.
+///
+/// This is the derive's wire-key order, so the list cannot drift from the serialized
+/// form the value builders align with.
 pub(crate) fn entity_columns(entities: &Entities) -> &'static [&'static str] {
     match entities {
-        Entities::Users(_) => &["id", "username", "email", "password", "admin", "disabled"],
-        Entities::Variables(_) => &["address", "name", "value"],
-        Entities::Settings(_) => &["user_id", "name", "value"],
-        Entities::Workspaces(_) => &[
-            "id",
-            "name",
-            "scope",
-            "owner_id",
-            "show_when_logged_out",
-            "data",
-        ],
-        Entities::WorkspaceEdits(_) => &["user_id", "workspace_id", "data"],
-        Entities::Groups(_) => &["id", "name", "description"],
-        Entities::GroupMemberships(_) => &["user_id", "group_id"],
-        Entities::UserPermissions(_) => &["user_id", "target_type", "target", "level"],
-        Entities::GroupPermissions(_) => &["group_id", "target_type", "target", "level"],
+        Entities::Users(_) => User::WIRE_KEYS,
+        Entities::Variables(_) => Variable::WIRE_KEYS,
+        Entities::Settings(_) => Setting::WIRE_KEYS,
+        Entities::Workspaces(_) => Workspace::WIRE_KEYS,
+        Entities::WorkspaceEdits(_) => WorkspaceEdit::WIRE_KEYS,
+        Entities::Groups(_) => Group::WIRE_KEYS,
+        Entities::GroupMemberships(_) => GroupMembership::WIRE_KEYS,
+        Entities::UserPermissions(_) => UserPermission::WIRE_KEYS,
+        Entities::GroupPermissions(_) => GroupPermission::WIRE_KEYS,
     }
 }
 
-fn user_values(user: &User, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(user.id, dialect),
-        user.username.clone().into(),
-        user.email.clone().into(),
-        user.password.clone().into(),
-        user.admin.into(),
-        user.disabled.into(),
-    ]
+/// The row one entity or record binds, in its table's column order.
+///
+/// Implemented here rather than beside the types, because binding is sea-query's
+/// business and `ceres-entities` knows nothing of it, which is exactly the local trait
+/// the orphan rule asks for. The entity impls align with [`Filterable::WIRE_KEYS`],
+/// which [`entity_columns`] serves, while the record tables bind the stored subset
+/// [`RecordTable::column_names`] names, a particle's transient span having no column.
+trait RowValues {
+    /// The stored column values, in the table's column order.
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr>;
 }
 
-fn variable_values(variable: &Variable, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        variable.address.as_str().into(),
-        variable.name.clone().into(),
-        bare_json_value(&variable.value, dialect),
-    ]
+/// Bind every item of a batch, in order.
+fn rows<T: RowValues>(items: &[T], dialect: SqlDialect) -> Vec<Vec<SimpleExpr>> {
+    items.iter().map(|item| item.row_values(dialect)).collect()
 }
 
-fn setting_values(setting: &Setting, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(setting.user_id, dialect),
-        setting.name.clone().into(),
-        bare_json_value(&setting.value, dialect),
-    ]
+/// Bind a batch keeping only the last row per key, the multi-row upsert rule.
+fn deduped_rows<T: RowValues, K: std::hash::Hash + Eq>(
+    records: &[T],
+    key: impl Fn(&T) -> K,
+    dialect: SqlDialect,
+) -> Vec<Vec<SimpleExpr>> {
+    dedupe_last(records, key)
+        .map(|record| record.row_values(dialect))
+        .collect()
 }
 
-fn workspace_values(workspace: &Workspace, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(workspace.id, dialect),
-        workspace.name.clone().into(),
-        workspace.scope.as_str().into(),
-        match workspace.owner_id {
-            Some(owner) => id_value(owner, dialect),
-            None => SimpleExpr::Keyword(sea_query::Keyword::Null),
-        },
-        workspace.show_when_logged_out.into(),
-        json_value(&workspace.data, dialect),
-    ]
+impl RowValues for User {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.id, dialect),
+            self.username.clone().into(),
+            self.email.clone().into(),
+            self.password.clone().into(),
+            self.admin.into(),
+            self.disabled.into(),
+        ]
+    }
 }
 
-fn workspace_edit_values(edit: &WorkspaceEdit, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(edit.user_id, dialect),
-        id_value(edit.workspace_id, dialect),
-        json_value(&edit.data, dialect),
-    ]
+impl RowValues for Variable {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            self.address.as_str().into(),
+            self.name.clone().into(),
+            bare_json_value(&self.value, dialect),
+        ]
+    }
 }
 
-fn group_values(group: &Group, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(group.id, dialect),
-        group.name.clone().into(),
-        group.description.clone().into(),
-    ]
+impl RowValues for Setting {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.user_id, dialect),
+            self.name.clone().into(),
+            bare_json_value(&self.value, dialect),
+        ]
+    }
 }
 
-fn group_membership_values(membership: &GroupMembership, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(membership.user_id, dialect),
-        id_value(membership.group_id, dialect),
-    ]
+impl RowValues for Workspace {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.id, dialect),
+            self.name.clone().into(),
+            self.scope.as_str().into(),
+            match self.owner_id {
+                Some(owner) => id_value(owner, dialect),
+                None => SimpleExpr::Keyword(sea_query::Keyword::Null),
+            },
+            self.show_when_logged_out.into(),
+            json_value(&self.data, dialect),
+        ]
+    }
 }
 
-fn user_permission_values(permission: &UserPermission, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(permission.user_id, dialect),
-        permission.target_type.as_str().into(),
-        permission.target.clone().into(),
-        permission.level.as_str().into(),
-    ]
+impl RowValues for WorkspaceEdit {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.user_id, dialect),
+            id_value(self.workspace_id, dialect),
+            json_value(&self.data, dialect),
+        ]
+    }
 }
 
-fn group_permission_values(permission: &GroupPermission, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(permission.group_id, dialect),
-        permission.target_type.as_str().into(),
-        permission.target.clone().into(),
-        permission.level.as_str().into(),
-    ]
+impl RowValues for Group {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.id, dialect),
+            self.name.clone().into(),
+            self.description.clone().into(),
+        ]
+    }
+}
+
+impl RowValues for GroupMembership {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.user_id, dialect),
+            id_value(self.group_id, dialect),
+        ]
+    }
+}
+
+impl RowValues for UserPermission {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.user_id, dialect),
+            self.target_type.as_str().into(),
+            self.target.clone().into(),
+            self.level.as_str().into(),
+        ]
+    }
+}
+
+impl RowValues for GroupPermission {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.group_id, dialect),
+            self.target_type.as_str().into(),
+            self.target.clone().into(),
+            self.level.as_str().into(),
+        ]
+    }
 }
 
 /// Bind a bare JSON value, stored as its text on the SQLite family.
@@ -403,49 +399,57 @@ fn open_insert(
     Some(statement)
 }
 
-fn message_values(message: &Message, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(message.id, dialect),
-        message.address.as_str().into(),
-        timestamp_value(&message.timestamp, dialect),
-        message.connection.clone().into(),
-        match message.direction {
-            MessageDirection::Send => "send".into(),
-            MessageDirection::Receive => "receive".into(),
-        },
-        message.data.clone().into(),
-    ]
+impl RowValues for Message {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.id, dialect),
+            self.address.as_str().into(),
+            timestamp_value(&self.timestamp, dialect),
+            self.connection.clone().into(),
+            match self.direction {
+                MessageDirection::Send => "send".into(),
+                MessageDirection::Receive => "receive".into(),
+            },
+            self.data.clone().into(),
+        ]
+    }
 }
 
-fn particle_values(particle: &Particle, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(particle.id, dialect),
-        particle.address.as_str().into(),
-        timestamp_value(&particle.timestamp, dialect),
-        particle.kind.clone().into(),
-        json_value(&particle.data, dialect),
-    ]
+impl RowValues for Particle {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.id, dialect),
+            self.address.as_str().into(),
+            timestamp_value(&self.timestamp, dialect),
+            self.kind.clone().into(),
+            json_value(&self.data, dialect),
+        ]
+    }
 }
 
-fn alert_values(alert: &Alert, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(alert.id, dialect),
-        alert.address.as_str().into(),
-        timestamp_value(&alert.timestamp, dialect),
-        alert.level.as_str().into(),
-        alert.kind.clone().into(),
-        json_value(&alert.data, dialect),
-    ]
+impl RowValues for Alert {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.id, dialect),
+            self.address.as_str().into(),
+            timestamp_value(&self.timestamp, dialect),
+            self.level.as_str().into(),
+            self.kind.clone().into(),
+            json_value(&self.data, dialect),
+        ]
+    }
 }
 
-fn entry_values(entry: &LogEntry, dialect: SqlDialect) -> Vec<SimpleExpr> {
-    vec![
-        id_value(entry.id, dialect),
-        entry.address.as_str().into(),
-        timestamp_value(&entry.timestamp, dialect),
-        entry.level.as_str().into(),
-        entry.content.clone().into(),
-    ]
+impl RowValues for LogEntry {
+    fn row_values(&self, dialect: SqlDialect) -> Vec<SimpleExpr> {
+        vec![
+            id_value(self.id, dialect),
+            self.address.as_str().into(),
+            timestamp_value(&self.timestamp, dialect),
+            self.level.as_str().into(),
+            self.content.clone().into(),
+        ]
+    }
 }
 
 /// Iterate a batch keeping only the last record per key.
