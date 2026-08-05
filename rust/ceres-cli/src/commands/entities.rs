@@ -301,13 +301,13 @@ fn refused(refusal: ceres_database::Refusal) -> crate::error::Exit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::surface;
 
     /// Parse one invocation the way the binary does.
     fn read(table: EntityTable, arguments: &[&str]) -> Invocation {
         let table = Table::Entity(table);
-        let matches = surface::group(table)
-            .try_get_matches_from(std::iter::once(table.group()).chain(arguments.iter().copied()))
+        let matches = table
+            .command()
+            .try_get_matches_from(std::iter::once(table.plural()).chain(arguments.iter().copied()))
             .expect("the arguments parse");
         let (verb, matches) = matches.subcommand().expect("a verb was named");
         Invocation::read(table, Verb::parse(verb).expect("a declared verb"), matches)
@@ -448,7 +448,7 @@ mod tests {
             EntityTable::Settings,
             EntityTable::Workspaces,
         ] {
-            let group = surface::group(Table::Entity(table));
+            let group = Table::Entity(table).command();
             assert!(group.find_subcommand("follow").is_none());
             assert!(group.find_subcommand("select").is_some());
         }

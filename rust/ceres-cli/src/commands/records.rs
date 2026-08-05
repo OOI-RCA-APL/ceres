@@ -247,13 +247,12 @@ pub(crate) fn refused(refusal: ceres_database::Refusal) -> crate::error::Exit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::surface;
-
     /// Parse one invocation the way the binary does.
     fn read(table: RecordTable, arguments: &[&str]) -> Invocation {
         let table = Table::Record(table);
-        let matches = surface::group(table)
-            .try_get_matches_from(std::iter::once(table.group()).chain(arguments.iter().copied()))
+        let matches = table
+            .command()
+            .try_get_matches_from(std::iter::once(table.plural()).chain(arguments.iter().copied()))
             .expect("the arguments parse");
         let (verb, matches) = matches.subcommand().expect("a verb was named");
         Invocation::read(table, Verb::parse(verb).expect("a declared verb"), matches)
@@ -290,7 +289,8 @@ mod tests {
         // compiler and the reader is told which flag was wrong rather than being handed
         // a validation dump.
         let table = Table::Record(RecordTable::Messages);
-        let refused = surface::group(table)
+        let refused = table
+            .command()
             .try_get_matches_from(["messages", "select", "--nope", "x"])
             .unwrap_err();
 

@@ -57,7 +57,7 @@ impl Table {
     ///
     /// A table whose name is two words hyphenates here, the way a flag's wire key does,
     /// so `user_permissions` is reached as `ceres user-permissions`.
-    pub(crate) fn group(self) -> &'static str {
+    pub(crate) fn plural(self) -> &'static str {
         match self {
             Self::Record(RecordTable::Alerts) => "alerts",
             Self::Record(RecordTable::Logs) => "logs",
@@ -186,6 +186,192 @@ impl Table {
             Self::Record(table) => RecordFilter::columns(table),
             Self::Entity(table) => EntityFilter::columns(table),
         }
+    }
+
+    /// The table one group name manages, `None` for a name that is not a table group.
+    pub(crate) fn from_group(name: &str) -> Option<Self> {
+        Self::all().into_iter().find(|table| table.plural() == name)
+    }
+
+    /// Build the whole command group for this table.
+    pub(crate) fn command(self) -> Command {
+        let plural = self.plural();
+        let mut command = Command::new(plural)
+            .about(format!("Manage {plural}"))
+            .subcommand_required(true)
+            .arg_required_else_help(true);
+
+        for verb in VERBS {
+            if verb == "follow" && !self.follows() {
+                continue;
+            }
+
+            command = command.subcommand(self.verb(verb));
+        }
+
+        command
+    }
+
+    /// Build one verb of this table's command group.
+    fn verb(self, verb: &'static str) -> Command {
+        let plural = self.plural();
+        let singular = self.singular();
+        let mut command = Command::new(verb);
+        if let Some(examples) = self.examples(verb) {
+            command = command.after_help(examples);
+        }
+
+        match verb {
+            "select" => command
+                .about(format!("Retrieve {plural}"))
+                .arg(field_positional())
+                .args(row_arguments())
+                .args(self.filter_arguments()),
+            "follow" => command
+                .about(format!("Follow new {plural} as they arrive"))
+                .arg(field_positional())
+                .args(row_arguments())
+                .args(self.filter_arguments()),
+            "count" => command
+                .about(format!("Count {plural}"))
+                .arg(output())
+                .args(self.filter_arguments()),
+            "any" => command
+                .about(format!(
+                    "Check whether any {plural} match, reporting through the exit status"
+                ))
+                .arg(output())
+                .args(self.filter_arguments()),
+            "create" => command
+                .about(format!("Create a {singular}"))
+                .args(row_arguments())
+                .args(self.create_arguments()),
+            "update" => command
+                .about(format!("Update {plural}, reporting how many changed"))
+                .arg(
+                    Arg::new("assign")
+                        .long("assign")
+                        .required(true)
+                        .value_name("OBJECT")
+                        .help("Values to assign, as a JSON or YAML object."),
+                )
+                .args(write_arguments("updated"))
+                .args(row_arguments())
+                .args(self.filter_arguments()),
+            "delete" => command
+                .about(format!("Delete {plural}, reporting how many were removed"))
+                .args(write_arguments("deleted"))
+                .args(row_arguments())
+                .args(self.filter_arguments()),
+            "load" => command
+                .about(format!("Load {plural} from a file, reporting how many"))
+                .arg(
+                    Arg::new("path")
+                        .required(true)
+                        .value_name("PATH")
+                        .help(format!("The file to read {plural} from.")),
+                )
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .value_parser(["json", "csv"])
+                        .help("The file's shape. Inferred from its extension when unset."),
+                )
+                .arg(
+                    Arg::new("on_conflict")
+                        .long("on-conflict")
+                        .value_name("MODE")
+                        .value_parser(["error", "ignore", "update"])
+                        .default_value("error")
+                        .help("What to do about a row whose key already exists."),
+                ),
+            _ => unreachable!("every declared verb is built above"),
+        }
+    }
+
+    /// The filter arguments this table's verbs take.
+    fn filter_arguments(self) -> Vec<Arg> {
+        let plural = self.plural();
+        self.keys()
+            .into_iter()
+            .flat_map(|key| argument(key, filter_help(key, plural), FILTERING))
+            .collect()
+    }
+
+    /// The arguments a create takes, one per column it may fill.
+    fn create_arguments(self) -> Vec<Arg> {
+        let singular = self.singular();
+        self.columns()
+            .into_iter()
+            .flat_map(|key| {
+                let field = long(key.key);
+                let help = match key.arity {
+                    Arity::Flag => format!("Mark the {singular} {field}."),
+                    Arity::Value => format!("The {singular}'s {field}."),
+                };
+                argument(key, help, VALUES)
+            })
+            .collect()
+    }
+
+    /// Worked examples for one verb, shown under its help.
+    ///
+    /// Each one uses the table's own fields, because an example naming a field the
+    /// reader does not have is worse than none. The generic shape of a verb is already
+    /// in its argument list, so these show the combinations worth knowing about instead.
+    fn examples(self, verb: &str) -> Option<String> {
+        let plural = self.plural();
+        let filter = self.example_filter();
+        let lines: Vec<String> = match verb {
+            "select" => vec![
+                format!("ceres {plural} select"),
+                format!("ceres {plural} select {filter}"),
+                format!("ceres {plural} select --limit 20 --order id:desc"),
+                format!("ceres {plural} select --output rows.csv"),
+            ],
+            "follow" => vec![
+                format!("ceres {plural} follow"),
+                format!("ceres {plural} follow {filter}"),
+            ],
+            "count" => vec![
+                format!("ceres {plural} count"),
+                format!("ceres {plural} count {filter}"),
+            ],
+            "any" => vec![
+                format!("ceres {plural} any {filter}"),
+                format!("ceres {plural} any {filter} && echo found"),
+            ],
+            "create" => vec![format!("ceres {plural} create {}", self.example_create())],
+            "update" => vec![
+                format!(
+                    "ceres {plural} update {filter} --assign '{}'",
+                    self.example_assign()
+                ),
+                format!(
+                    "ceres {plural} update {filter} --assign '{}' --no-confirm",
+                    self.example_assign()
+                ),
+            ],
+            "delete" => vec![
+                format!("ceres {plural} delete {filter}"),
+                format!("ceres {plural} delete {filter} --no-confirm"),
+            ],
+            "load" => vec![
+                format!("ceres {plural} load rows.jsonl"),
+                format!("ceres {plural} load rows.csv --on-conflict update"),
+            ],
+            _ => return None,
+        };
+
+        let mut rendered = String::from("Examples:\n");
+        for line in lines {
+            rendered.push_str("  ");
+            rendered.push_str(&line);
+            rendered.push('\n');
+        }
+
+        Some(rendered)
     }
 }
 
@@ -368,33 +554,6 @@ const OUTPUT: &str = "Output";
 const WRITING: &str = "Writing";
 const VALUES: &str = "Values";
 
-/// The filter arguments a table's verbs take.
-fn filter_arguments(table: Table) -> Vec<Arg> {
-    let plural = table.group();
-    table
-        .keys()
-        .into_iter()
-        .flat_map(|key| argument(key, filter_help(key, plural), FILTERING))
-        .collect()
-}
-
-/// The arguments a create takes, one per column it may fill.
-fn create_arguments(table: Table) -> Vec<Arg> {
-    let singular = table.singular();
-    table
-        .columns()
-        .into_iter()
-        .flat_map(|key| {
-            let field = long(key.key);
-            let help = match key.arity {
-                Arity::Flag => format!("Mark the {singular} {field}."),
-                Arity::Value => format!("The {singular}'s {field}."),
-            };
-            argument(key, help, VALUES)
-        })
-        .collect()
-}
-
 /// The destination a verb writes to, which every verb declares.
 fn output() -> Arg {
     Arg::new("output")
@@ -478,169 +637,9 @@ fn write_arguments(verb: &str) -> Vec<Arg> {
 
 /// Add every table command group to the declared command tree.
 pub(crate) fn augment(command: Command) -> Command {
-    Table::all()
-        .into_iter()
-        .fold(command, |command, table| command.subcommand(group(table)))
-}
-
-/// The table one group name manages, `None` for a command that is not a table group.
-pub(crate) fn table(name: &str) -> Option<Table> {
-    Table::all().into_iter().find(|table| table.group() == name)
-}
-
-/// Build the whole command group for one table.
-pub(crate) fn group(table: Table) -> Command {
-    let plural = table.group();
-    let singular = table.singular();
-    let mut command = Command::new(plural)
-        .about(format!("Manage {plural}"))
-        .subcommand_required(true)
-        .arg_required_else_help(true);
-
-    for verb in VERBS {
-        if verb == "follow" && !table.follows() {
-            continue;
-        }
-
-        command = command.subcommand(self::verb(table, verb, plural, singular));
-    }
-
-    command
-}
-
-/// Worked examples for one verb, shown under its help.
-///
-/// Each one uses the table's own fields, because an example naming a field the reader
-/// does not have is worse than none. The generic shape of a verb is already in its
-/// argument list, so these show the combinations worth knowing about instead.
-fn examples(table: Table, verb: &str) -> Option<String> {
-    let plural = table.group();
-    let filter = table.example_filter();
-    let lines: Vec<String> = match verb {
-        "select" => vec![
-            format!("ceres {plural} select"),
-            format!("ceres {plural} select {filter}"),
-            format!("ceres {plural} select --limit 20 --order id:desc"),
-            format!("ceres {plural} select --output rows.csv"),
-        ],
-        "follow" => vec![
-            format!("ceres {plural} follow"),
-            format!("ceres {plural} follow {filter}"),
-        ],
-        "count" => vec![
-            format!("ceres {plural} count"),
-            format!("ceres {plural} count {filter}"),
-        ],
-        "any" => vec![
-            format!("ceres {plural} any {filter}"),
-            format!("ceres {plural} any {filter} && echo found"),
-        ],
-        "create" => vec![format!("ceres {plural} create {}", table.example_create())],
-        "update" => vec![
-            format!(
-                "ceres {plural} update {filter} --assign '{}'",
-                table.example_assign()
-            ),
-            format!(
-                "ceres {plural} update {filter} --assign '{}' --no-confirm",
-                table.example_assign()
-            ),
-        ],
-        "delete" => vec![
-            format!("ceres {plural} delete {filter}"),
-            format!("ceres {plural} delete {filter} --no-confirm"),
-        ],
-        "load" => vec![
-            format!("ceres {plural} load rows.jsonl"),
-            format!("ceres {plural} load rows.csv --on-conflict update"),
-        ],
-        _ => return None,
-    };
-
-    let mut rendered = String::from("Examples:\n");
-    for line in lines {
-        rendered.push_str("  ");
-        rendered.push_str(&line);
-        rendered.push('\n');
-    }
-
-    Some(rendered)
-}
-
-/// Build one verb of a table's command group.
-fn verb(table: Table, verb: &'static str, plural: &str, singular: &str) -> Command {
-    let mut command = Command::new(verb);
-    if let Some(examples) = examples(table, verb) {
-        command = command.after_help(examples);
-    }
-
-    match verb {
-        "select" => command
-            .about(format!("Retrieve {plural}"))
-            .arg(field_positional())
-            .args(row_arguments())
-            .args(filter_arguments(table)),
-        "follow" => command
-            .about(format!("Follow new {plural} as they arrive"))
-            .arg(field_positional())
-            .args(row_arguments())
-            .args(filter_arguments(table)),
-        "count" => command
-            .about(format!("Count {plural}"))
-            .arg(output())
-            .args(filter_arguments(table)),
-        "any" => command
-            .about(format!(
-                "Check whether any {plural} match, reporting through the exit status"
-            ))
-            .arg(output())
-            .args(filter_arguments(table)),
-        "create" => command
-            .about(format!("Create a {singular}"))
-            .args(row_arguments())
-            .args(create_arguments(table)),
-        "update" => command
-            .about(format!("Update {plural}, reporting how many changed"))
-            .arg(
-                Arg::new("assign")
-                    .long("assign")
-                    .required(true)
-                    .value_name("OBJECT")
-                    .help("Values to assign, as a JSON or YAML object."),
-            )
-            .args(write_arguments("updated"))
-            .args(row_arguments())
-            .args(filter_arguments(table)),
-        "delete" => command
-            .about(format!("Delete {plural}, reporting how many were removed"))
-            .args(write_arguments("deleted"))
-            .args(row_arguments())
-            .args(filter_arguments(table)),
-        "load" => command
-            .about(format!("Load {plural} from a file, reporting how many"))
-            .arg(
-                Arg::new("path")
-                    .required(true)
-                    .value_name("PATH")
-                    .help(format!("The file to read {plural} from.")),
-            )
-            .arg(
-                Arg::new("format")
-                    .long("format")
-                    .value_name("FORMAT")
-                    .value_parser(["json", "csv"])
-                    .help("The file's shape. Inferred from its extension when unset."),
-            )
-            .arg(
-                Arg::new("on_conflict")
-                    .long("on-conflict")
-                    .value_name("MODE")
-                    .value_parser(["error", "ignore", "update"])
-                    .default_value("error")
-                    .help("What to do about a row whose key already exists."),
-            ),
-        _ => unreachable!("every declared verb is built above"),
-    }
+    Table::all().into_iter().fold(command, |command, table| {
+        command.subcommand(table.command())
+    })
 }
 
 #[cfg(test)]
@@ -650,7 +649,7 @@ mod tests {
     #[test]
     fn every_group_declares_its_verbs() {
         for table in Table::all() {
-            let command = group(table);
+            let command = table.command();
             let declared: Vec<_> = command
                 .get_subcommands()
                 .map(|verb| verb.get_name())
@@ -663,7 +662,7 @@ mod tests {
                 .filter(|verb| **verb != "follow" || table.follows())
                 .copied()
                 .collect();
-            assert_eq!(declared, expected, "{}", table.group());
+            assert_eq!(declared, expected, "{}", table.plural());
         }
     }
 
@@ -673,7 +672,7 @@ mod tests {
         // models generated, so a script passing either half keeps working. Dropping the
         // negated half is the easy mistake, and it is silent.
         let workspaces = Table::Entity(EntityTable::Workspaces);
-        let select = group(workspaces);
+        let select = workspaces.command();
         let select = select.find_subcommand("select").unwrap();
         let longs: Vec<_> = select
             .get_arguments()
@@ -705,7 +704,7 @@ mod tests {
         // A user's password is a column no filter exposes, so a create surface built
         // from the filter keys would leave no way to set one.
         let users = Table::Entity(EntityTable::Users);
-        let create = group(users);
+        let create = users.command();
         let create = create.find_subcommand("create").unwrap();
         let longs: Vec<_> = create
             .get_arguments()
@@ -721,7 +720,7 @@ mod tests {
 
     #[test]
     fn the_surface_parses_what_the_python_commands_took() {
-        let variables = group(Table::Entity(EntityTable::Variables));
+        let variables = Table::Entity(EntityTable::Variables).command();
 
         // A repeated value key folds into a set, which is how an `IN` is written.
         let matches = variables

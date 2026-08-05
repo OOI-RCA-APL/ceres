@@ -33,7 +33,7 @@ fn main() -> ExitCode {
     // A table group's whole surface is generated, so it is dispatched from the matches
     // directly. Everything else is declared and reads back into its own type.
     if let Some((name, verb)) = matches.subcommand()
-        && let Some(table) = commands::surface::table(name)
+        && let Some(table) = commands::surface::Table::from_group(name)
     {
         let color = color_override(&matches);
         let output = Output::new(color);
