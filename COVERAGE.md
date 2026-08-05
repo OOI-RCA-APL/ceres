@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:d76d4a65d7faf349 -->
+<!-- coverage:fingerprint:2b0942b290fcf554 -->
 
 ## Python
 
@@ -12,9 +12,9 @@
 | `ceres/__internal__/auth.py` | 94% |
 | `ceres/__internal__/database/__init__.py` | 100% |
 | `ceres/__internal__/database/errors.py` | 100% |
-| `ceres/__internal__/database/writer.py` | 83% |
+| `ceres/__internal__/database/writer.py` | 82% |
 | `ceres/__internal__/entity.py` | 94% |
-| `ceres/__internal__/filter.py` | 95% |
+| `ceres/__internal__/filter.py` | 100% |
 | `ceres/__internal__/interop.py` | 86% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |
@@ -124,7 +124,7 @@
 | `rust/ceres-cli/src/service.rs` | 44% |
 | `rust/ceres-config/src/database.rs` | 89% |
 | `rust/ceres-config/src/error.rs` | 95% |
-| `rust/ceres-config/src/logging.rs` | 92% |
+| `rust/ceres-config/src/logging.rs` | 91% |
 | `rust/ceres-config/src/meta.rs` | 88% |
 | `rust/ceres-config/src/server.rs` | 95% |
 | `rust/ceres-config/src/types.rs` | 100% |
@@ -133,13 +133,13 @@
 | `rust/ceres-core/src/connection.rs` | 0% |
 | `rust/ceres-core/src/database.rs` | 14% |
 | `rust/ceres-core/src/entities.rs` | 0% |
-| `rust/ceres-core/src/fetcher.rs` | 33% |
 | `rust/ceres-core/src/filters.rs` | 0% |
 | `rust/ceres-core/src/interop.rs` | 12% |
-| `rust/ceres-core/src/lib.rs` | 10% |
+| `rust/ceres-core/src/lib.rs` | 11% |
 | `rust/ceres-core/src/logging.rs` | 6% |
 | `rust/ceres-core/src/server.rs` | 0% |
 | `rust/ceres-core/src/store.rs` | 0% |
+| `rust/ceres-core/src/writer.rs` | 45% |
 | `rust/ceres-database/src/assign.rs` | 76% |
 | `rust/ceres-database/src/backend.rs` | 42% |
 | `rust/ceres-database/src/credentials.rs` | 91% |
