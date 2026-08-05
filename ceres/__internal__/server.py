@@ -107,9 +107,9 @@ class Server(Tasklet):
         host = Host(self._engine)
 
         # Record requests inside the native filter subset serve straight from the store,
-        # never crossing into Python, so the server takes the database's fetcher when
+        # never crossing into Python, so the server takes the database's reader when
         # the backend supports one.
-        records = self._engine.database._record_fetcher()
+        records = self._engine.database._reader()
 
         # The CLI server is loopback-only. Its token grants full privileges, and everything
         # that talks to it (the CLI, the server info file scheme) is local by design.

@@ -8,29 +8,116 @@
 
 use std::sync::Arc;
 
-use ceres_database::{Cell, RecordStore, Table};
+use ceres_database::{Cell, Parameter, RecordStore, Table};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict};
+use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyString};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::fetcher::extract_parameter;
+use crate::entities::{RecordBatch, RecordTable};
 use crate::interop::to_value_error;
+
+/// Extract a compiled statement parameter, one of the primitives bind processors produce.
+pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
+    if value.is_none() {
+        return Ok(Parameter::Null);
+    }
+
+    if value.is_instance_of::<PyBool>() {
+        return Ok(Parameter::Bool(value.extract()?));
+    }
+
+    if value.is_instance_of::<PyInt>() {
+        return Ok(Parameter::Integer(value.extract()?));
+    }
+
+    if value.is_instance_of::<PyFloat>() {
+        return Ok(Parameter::Float(value.extract()?));
+    }
+
+    if value.is_instance_of::<PyString>() {
+        return Ok(Parameter::Text(value.extract()?));
+    }
+
+    if value.is_instance_of::<PyBytes>() {
+        return Ok(Parameter::Bytes(value.extract()?));
+    }
+
+    // The PostgreSQL driver takes timestamps and UUIDs natively, so its bind processors
+    // pass the objects through rather than rendering text.
+    if let Ok(aware) = value.extract::<chrono::DateTime<chrono::Utc>>() {
+        return Ok(Parameter::Timestamp(aware.naive_utc()));
+    }
+
+    if let Ok(naive) = value.extract::<chrono::NaiveDateTime>() {
+        return Ok(Parameter::Timestamp(naive));
+    }
+
+    if let Ok(id) = value.extract::<uuid::Uuid>() {
+        return Ok(Parameter::Uuid(id));
+    }
+
+    Err(PyTypeError::new_err(format!(
+        "{} is not a statement parameter the native engine understands",
+        value.get_type().name()?
+    )))
+}
 
 /// A natively-connected database the query layer reads and writes through.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct Store {
-    store: Arc<RecordStore>,
+    pub(crate) store: Arc<RecordStore>,
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
 impl Store {
-    /// Open the writable store a connection describes, its `init` statements included.
+    /// Open the store a connection describes.
+    ///
+    /// A writable store runs the connection's `init` statements, that being the engine a
+    /// database opens for itself. A read-only one serves queries on a pool of its own
+    /// and never runs them, those being the store's to run.
     #[new]
-    fn new(connection: &crate::connection::Connection) -> PyResult<Self> {
+    #[pyo3(signature = (connection, writable=true))]
+    fn new(connection: &crate::connection::Connection, writable: bool) -> PyResult<Self> {
+        let store = if writable {
+            connection.store()?
+        } else {
+            connection.reader()?
+        };
+
         Ok(Self {
-            store: Arc::new(connection.store()?),
+            store: Arc::new(store),
+        })
+    }
+
+    /// Execute a compiled record query, as an awaitable `RecordBatch`.
+    ///
+    /// The statement text and parameters come from the query layer's own compiler, so any
+    /// filter it can express runs natively with identical semantics. Rows go from the
+    /// driver to JSON without any Python entity objects in between.
+    fn fetch_sql<'py>(
+        &self,
+        py: Python<'py>,
+        table: RecordTable,
+        sql: String,
+        #[gen_stub(override_type(type_repr = "list[typing.Any]"))] parameters: Vec<
+            Bound<'_, PyAny>,
+        >,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let table = table.into();
+        let parameters = parameters
+            .iter()
+            .map(extract_parameter)
+            .collect::<PyResult<Vec<_>>>()?;
+        let store = self.store.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let records = store
+                .fetch_sql(table, &sql, parameters)
+                .await
+                .map_err(to_value_error)?;
+            Ok(RecordBatch { records })
         })
     }
 

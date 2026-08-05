@@ -2,7 +2,7 @@
 //!
 //! The Python layer resolves its configuration once, temporary paths and secrets
 //! included, into a [`Connection`], and every native consumer opens from it, so the
-//! store, the record fetcher, and the record writer cannot connect differently.
+//! stores and the record writer cannot connect differently.
 
 use ceres_database::{RecordStore, RecordWriter};
 use pyo3::prelude::*;
@@ -157,7 +157,7 @@ impl Connection {
         }
     }
 
-    /// Open a read pool with no `init` statements, for the record fetcher.
+    /// Open a read pool with no `init` statements, for a read-only store.
     pub(crate) fn reader(&self) -> PyResult<RecordStore> {
         let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
         match &self.kind {

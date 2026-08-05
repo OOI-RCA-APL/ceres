@@ -29,7 +29,7 @@ NOW = datetime.now(UTC).replace(microsecond=250000)
 
 async def _build_engine(tmp_path: Path) -> Engine:
     engine = Engine()
-    if engine.database._record_fetcher() is None:
+    if engine.database._reader() is None:
         engine = Engine()
         await engine.load(
             validate(

@@ -136,7 +136,7 @@ async def _serve(
         engine.attach(_Media(__with_name__="media"))
 
     host = Host(engine)
-    records = engine.database._record_fetcher()
+    records = engine.database._reader()
     console = Path(__file__).parent.parent.parent.parent.parent / "ceres" / "static" / "console"
     if cli_token is None:
         native = NativeServer.web(

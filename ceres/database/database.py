@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import gettempdir
 from typing import TYPE_CHECKING, Any, Protocol, Self, final, override
 
-from ceres.__internal__.core import Connection, RecordFetcher, RecordWriter, Store
+from ceres.__internal__.core import Connection, RecordWriter, Store
 from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
@@ -174,22 +174,24 @@ class Database:
     def _native_connection(self) -> Connection:
         """Resolve this backend's native connection parameters.
 
-        Everything native, the store, the record fetcher, and the record writer, opens
+        Everything native, the store, the reader, and the record writer, opens
         from this one description, so the three cannot connect differently.
         """
         ...
 
-    def _record_fetcher(self) -> RecordFetcher | None:
-        """Return the natively-connected record fetcher, built once and reused.
+    def _reader(self) -> Store | None:
+        """Return the natively-connected read-only store, built once and reused.
 
-        The fetcher serves record listings without materializing Python entities.
+        The reader serves record listings through `fetch_sql` without materializing
+        Python entities, on a pool of its own so a long listing never starves the
+        writable store.
         """
-        fetcher = getattr(self, "_native_record_fetcher", None)
-        if fetcher is None:
-            fetcher = RecordFetcher(self._native_connection())
-            self._native_record_fetcher = fetcher
+        reader = getattr(self, "_native_reader", None)
+        if reader is None:
+            reader = Store(self._native_connection(), writable=False)
+            self._native_reader = reader
 
-        return fetcher
+        return reader
 
     def _record_writer(self) -> RecordWriter | None:
         """Return the natively-connected record writer, built once and reused.
@@ -226,7 +228,7 @@ class Database:
         commands on the connections it opens, so passing those again would run them twice.
 
         The `init` statements go to the store alone, that being the engine a database opens
-        for itself, while a fetcher's and a writer's pools take the per-connection pair
+        for itself, while a reader's and a writer's pools take the per-connection pair
         through `_native_connection_hooks`.
         """
         return {
@@ -391,7 +393,7 @@ class Database:
         """
         async with self._migrate_lock:
             self._native_store = None
-            self._native_record_fetcher = None
+            self._native_reader = None
             self._native_record_writer = None
             self._bootstrapped = False
 

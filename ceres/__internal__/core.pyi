@@ -22,7 +22,6 @@ __all__ = [
     "PackingProgram",
     "PostgresDatabaseConfig",
     "RecordBatch",
-    "RecordFetcher",
     "RecordTable",
     "RecordWriter",
     "RowChunks",
@@ -431,14 +430,14 @@ class NativeServer:
         favicon_ico: str | PathLike[str] | Path,
         favicon_png: str | PathLike[str] | Path,
         favicon_svg: str | PathLike[str] | Path,
-        records: RecordFetcher | None = None,
+        records: Store | None = None,
     ) -> NativeServer:
         r"""
         Bind the web application, serving the console and API on the configured address.
         """
     @staticmethod
     def cli(
-        host: Any, config: ServerConfig, token: str, records: RecordFetcher | None = None
+        host: Any, config: ServerConfig, token: str, records: Store | None = None
     ) -> NativeServer:
         r"""
         Bind the CLI control application on an ephemeral loopback port.
@@ -588,28 +587,6 @@ class RecordBatch:
     def to_json(self) -> bytes:
         r"""
         Serialize the batch as a JSON array in the API's wire format.
-        """
-
-@final
-class RecordFetcher:
-    r"""
-    A natively-connected view of a Ceres database, serving record reads.
-
-    Built from resolved connection parameters rather than a configuration, because the
-    Python layer resolves per-instance details like temporary SQLite paths. Connections
-    open lazily on first use.
-    """
-    def __new__(cls, connection: Connection) -> Self:
-        r"""
-        Open a read pool on a connection, which never runs the `init` statements, those
-        being the store's to run.
-        """
-    def fetch_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> Any:
-        r"""
-        Execute a compiled record query, as an awaitable `RecordBatch`.
-
-        The statement text and parameters come from the query layer's own compiler, so any
-        filter it can express runs natively with identical semantics.
         """
 
 @final
@@ -1059,9 +1036,21 @@ class Store:
     r"""
     A natively-connected database the query layer reads and writes through.
     """
-    def __new__(cls, connection: Connection) -> Self:
+    def __new__(cls, connection: Connection, writable: bool = True) -> Self:
         r"""
-        Open the writable store a connection describes, its `init` statements included.
+        Open the store a connection describes.
+
+        A writable store runs the connection's `init` statements, that being the engine a
+        database opens for itself. A read-only one serves queries on a pool of its own
+        and never runs them, those being the store's to run.
+        """
+    def fetch_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> Any:
+        r"""
+        Execute a compiled record query, as an awaitable `RecordBatch`.
+
+        The statement text and parameters come from the query layer's own compiler, so any
+        filter it can express runs natively with identical semantics. Rows go from the
+        driver to JSON without any Python entity objects in between.
         """
     def fetch(self, sql: str, parameters: list[Any], table: str | None = None) -> Any:
         r"""

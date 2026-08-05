@@ -12,12 +12,12 @@ pub mod binary;
 pub mod connection;
 pub mod database;
 pub mod entities;
-pub mod fetcher;
 pub mod filters;
 pub mod interop;
 pub mod logging;
 pub mod server;
 pub mod store;
+pub mod writer;
 
 use std::path::PathBuf;
 
@@ -172,27 +172,23 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<entities::RecordBatch>()?;
     module.add_class::<entities::RecordTable>()?;
     module.add_class::<entities::EntityTable>()?;
-    module.add_class::<fetcher::RecordFetcher>()?;
     module.add_class::<filters::NativeFilter>()?;
-    module.add_class::<fetcher::RecordWriter>()?;
+    module.add_class::<writer::RecordWriter>()?;
     module.add_class::<store::Store>()?;
     module.add_class::<store::RowChunks>()?;
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(filters::insert_compiled, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::stored_columns, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::record_filter_keys, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::entity_filter_keys, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::normalize_email, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::hash_argon2, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::verify_argon2, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::verify_password, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::hash_bcrypt, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(fetcher::verify_bcrypt, module)?)?;
-    module.add_function(pyo3::wrap_pyfunction!(
-        fetcher::special_use_domains,
-        module
-    )?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::stored_columns, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::record_filter_keys, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::entity_filter_keys, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::normalize_email, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::hash_argon2, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::verify_argon2, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::verify_password, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::hash_bcrypt, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::verify_bcrypt, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(writer::special_use_domains, module)?)?;
     Ok(())
 }
 

@@ -199,13 +199,13 @@ async def records_list(host: Host, arguments: dict[str, Any]) -> Any:
         return _entities(await query)
 
     batch = None
-    fetcher = query._get_database()._record_fetcher()
-    if fetcher is not None:
+    reader = query._get_database()._reader()
+    if reader is not None:
         # The query compiles here and executes natively, rows never enter Python at all,
         # and any filter the query layer can express is covered.
         sql, parameters = await query.compiled()
         try:
-            batch = await fetcher.fetch_sql(table, sql, parameters)
+            batch = await reader.fetch_sql(table, sql, parameters)
         except (TypeError, ValueError) as error:
             # The native engine can lag the Python one in corner cases. The listing stays
             # correct through the fallback, just slower.

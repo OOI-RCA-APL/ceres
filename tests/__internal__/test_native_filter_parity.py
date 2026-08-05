@@ -75,7 +75,7 @@ sit hours from every age boundary and a few seconds of skew cannot recross one.
 async def _build_engine(tmp_path: Path) -> Engine:
     """Build an engine on the run's backend, on disk when the default cannot fetch natively."""
     engine = Engine()
-    if engine.database._record_fetcher() is None:
+    if engine.database._reader() is None:
         engine = Engine()
         await engine.load(
             validate(
@@ -320,8 +320,8 @@ async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None
     """Every supported vector produces byte-identical records through both compilers."""
     engine = await _build_engine(tmp_path)
     await _seed(engine)
-    fetcher = engine.database._record_fetcher()
-    assert fetcher is not None
+    reader = engine.database._reader()
+    assert reader is not None
 
     try:
         for Record, vectors in VECTORS.items():
@@ -337,7 +337,7 @@ async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None
                 handle = NativeFilter.from_pairs(Record.__entity_naming__.table, pairs)
                 dialect = engine.database.type.value
                 sql, parameters = handle.compiled(dialect)
-                batch = await fetcher.fetch_sql(table, sql, parameters)
+                batch = await reader.fetch_sql(table, sql, parameters)
                 native = json.loads(batch.to_json())
                 assert native == expected, f"{Record.__name__} diverged on {pairs}"
 
@@ -362,8 +362,8 @@ async def test_exact_timestamps_match_in_both_stored_precisions(tmp_path: Path) 
     """Whole-second and microsecond timestamps both round-trip the stored text form."""
     engine = await _build_engine(tmp_path)
     await _seed(engine)
-    fetcher = engine.database._record_fetcher()
-    assert fetcher is not None
+    reader = engine.database._reader()
+    assert reader is not None
 
     try:
         for index in (1, 2):
@@ -377,7 +377,7 @@ async def test_exact_timestamps_match_in_both_stored_precisions(tmp_path: Path) 
 
             handle = NativeFilter.from_pairs(Message.__entity_naming__.table, pairs)
             sql, parameters = handle.compiled(engine.database.type.value)
-            batch = await fetcher.fetch_sql(RecordTable.MESSAGES, sql, parameters)
+            batch = await reader.fetch_sql(RecordTable.MESSAGES, sql, parameters)
             assert json.loads(batch.to_json()) == expected
     finally:
         await engine.database.dispose()

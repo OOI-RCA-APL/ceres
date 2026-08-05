@@ -1,118 +1,18 @@
-//! The native record fetcher.
+//! The native record writer, with the column contract and credential functions.
 //!
-//! Bridges `ceres-database` into asyncio. A fetcher holds a lazily-connecting pool over the
-//! same database the Python layer resolved, and `fetch_sql` returns an awaitable producing
-//! a [`RecordBatch`](crate::entities::RecordBatch), so a record listing goes from the
-//! driver to JSON without any Python entity objects in between.
+//! Bridges `ceres-database` into asyncio. The writer holds a lazily-connecting pool over
+//! the same database the Python layer resolved, and flushes whole batches of records in
+//! one transaction without serializing entities through Pydantic. The free functions
+//! carry the rest of the bridge's stateless surface, the stored-column contract, the
+//! filter key classification, and password hashing.
 
 use std::sync::Arc;
 
-use ceres_database::{Parameter, RecordStore};
-use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes as PyBytesType, PyFloat, PyInt, PyString};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::entities::{EntityTable, RecordBatch, RecordTable};
+use crate::entities::{EntityTable, RecordTable};
 use crate::interop::to_value_error;
-
-/// Extract a compiled statement parameter, one of the primitives bind processors produce.
-pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
-    if value.is_none() {
-        return Ok(Parameter::Null);
-    }
-
-    if value.is_instance_of::<PyBool>() {
-        return Ok(Parameter::Bool(value.extract()?));
-    }
-
-    if value.is_instance_of::<PyInt>() {
-        return Ok(Parameter::Integer(value.extract()?));
-    }
-
-    if value.is_instance_of::<PyFloat>() {
-        return Ok(Parameter::Float(value.extract()?));
-    }
-
-    if value.is_instance_of::<PyString>() {
-        return Ok(Parameter::Text(value.extract()?));
-    }
-
-    if value.is_instance_of::<PyBytesType>() {
-        return Ok(Parameter::Bytes(value.extract()?));
-    }
-
-    // The PostgreSQL driver takes timestamps and UUIDs natively, so its bind processors
-    // pass the objects through rather than rendering text.
-    if let Ok(aware) = value.extract::<chrono::DateTime<chrono::Utc>>() {
-        return Ok(Parameter::Timestamp(aware.naive_utc()));
-    }
-
-    if let Ok(naive) = value.extract::<chrono::NaiveDateTime>() {
-        return Ok(Parameter::Timestamp(naive));
-    }
-
-    if let Ok(id) = value.extract::<uuid::Uuid>() {
-        return Ok(Parameter::Uuid(id));
-    }
-
-    Err(PyTypeError::new_err(format!(
-        "{} is not a statement parameter the native engine understands",
-        value.get_type().name()?
-    )))
-}
-
-/// A natively-connected view of a Ceres database, serving record reads.
-///
-/// Built from resolved connection parameters rather than a configuration, because the
-/// Python layer resolves per-instance details like temporary SQLite paths. Connections
-/// open lazily on first use.
-#[gen_stub_pyclass]
-#[pyclass(module = "ceres.__internal__.core", frozen)]
-pub struct RecordFetcher {
-    pub(crate) store: Arc<RecordStore>,
-}
-
-#[gen_stub_pymethods]
-#[pymethods]
-impl RecordFetcher {
-    /// Open a read pool on a connection, which never runs the `init` statements, those
-    /// being the store's to run.
-    #[new]
-    fn new(connection: &crate::connection::Connection) -> PyResult<Self> {
-        Ok(Self {
-            store: Arc::new(connection.reader()?),
-        })
-    }
-
-    /// Execute a compiled record query, as an awaitable `RecordBatch`.
-    ///
-    /// The statement text and parameters come from the query layer's own compiler, so any
-    /// filter it can express runs natively with identical semantics.
-    fn fetch_sql<'py>(
-        &self,
-        py: Python<'py>,
-        table: RecordTable,
-        sql: String,
-        #[gen_stub(override_type(type_repr = "list[typing.Any]"))] parameters: Vec<
-            Bound<'_, PyAny>,
-        >,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let table = table.into();
-        let parameters = parameters
-            .iter()
-            .map(extract_parameter)
-            .collect::<PyResult<Vec<_>>>()?;
-        let store = self.store.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let records = store
-                .fetch_sql(table, &sql, parameters)
-                .await
-                .map_err(to_value_error)?;
-            Ok(RecordBatch { records })
-        })
-    }
-}
 
 /// Every column the native layer reads and writes, by table.
 ///

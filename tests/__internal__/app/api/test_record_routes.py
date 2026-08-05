@@ -139,8 +139,8 @@ async def test_native_fetches_serialize_identically_to_the_python_path(
     engine = await _build_engine_on_disk(tmp_path)
     await _write_records(engine)
 
-    fetcher = engine.database._record_fetcher()
-    assert fetcher is not None
+    reader = engine.database._reader()
+    assert reader is not None
 
     dialect = engine.database.type.value
     for Record in (Message, Particle, Alert, LogEntry):
@@ -151,13 +151,13 @@ async def test_native_fetches_serialize_identically_to_the_python_path(
         sql, parameters = NativeFilter.from_pairs(Record.__entity_naming__.table, []).compiled(
             dialect
         )
-        batch = await fetcher.fetch_sql(RECORD_TABLES[Record], sql, parameters)
+        batch = await reader.fetch_sql(RECORD_TABLES[Record], sql, parameters)
         assert json.loads(batch.to_json()) == expected
 
     sql, parameters = NativeFilter.from_pairs(
         Particle.__entity_naming__.table, [("limit", "1")]
     ).compiled(dialect)
-    limited = await fetcher.fetch_sql(RecordTable.PARTICLES, sql, parameters)
+    limited = await reader.fetch_sql(RecordTable.PARTICLES, sql, parameters)
     assert len(json.loads(limited.to_json())) == 1
 
 
@@ -173,14 +173,14 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
         Particle.Create(address=Address("@other.unit"), type="status", data={"ok": True})
     )
 
-    fetcher = engine.database._record_fetcher()
-    assert fetcher is not None
+    reader = engine.database._reader()
+    assert reader is not None
 
     async def check(query: Any) -> None:
         entities = await query
         expected = [json.loads(to_json(entity)) for entity in entities]
         sql, parameters = await query.compiled()
-        batch = await fetcher.fetch_sql(RecordTable.PARTICLES, sql, parameters)
+        batch = await reader.fetch_sql(RecordTable.PARTICLES, sql, parameters)
         assert json.loads(batch.to_json()) == expected
 
     particles = engine.database.particles
@@ -208,15 +208,15 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
     alerts = engine.database.alerts
     entities = await alerts.where(level=Level.WARNING)
     sql, parameters = await alerts.where(level=Level.WARNING).compiled()
-    batch = await fetcher.fetch_sql(RecordTable.ALERTS, sql, parameters)
+    batch = await reader.fetch_sql(RecordTable.ALERTS, sql, parameters)
     assert json.loads(batch.to_json()) == [json.loads(to_json(entity)) for entity in entities]
 
 
-async def test_a_temporary_database_still_reports_a_native_fetcher() -> None:
-    """A path nobody configured is still a path, so the native fetcher can join it."""
+async def test_a_temporary_database_still_reports_a_native_reader() -> None:
+    """A path nobody configured is still a path, so the native reader can join it."""
     database = Database(SQLiteDatabaseConfig())
     try:
-        assert database._record_fetcher() is not None
+        assert database._reader() is not None
     finally:
         await database.dispose()
 
@@ -293,8 +293,8 @@ async def test_native_fetches_match_on_postgres(database: str) -> None:
     )
     await db.particles.create(Particle.Create(address=address, type="sample", data={"a": 1}))
 
-    fetcher = db._record_fetcher()
-    assert fetcher is not None
+    reader = db._reader()
+    assert reader is not None
 
     for manager, table in (
         (db.messages, RecordTable.MESSAGES),
@@ -305,14 +305,14 @@ async def test_native_fetches_match_on_postgres(database: str) -> None:
         assert expected
 
         sql, parameters = await query.compiled()
-        batch = await fetcher.fetch_sql(table, sql, parameters)
+        batch = await reader.fetch_sql(table, sql, parameters)
         assert json.loads(batch.to_json()) == expected
 
     # A filtered query binds parameters the Postgres driver takes natively.
     query = db.particles.where(type="sample", max_age=timedelta(days=1))
     expected = [json.loads(to_json(entity)) for entity in await query]
     sql, parameters = await query.compiled()
-    batch = await fetcher.fetch_sql(RecordTable.PARTICLES, sql, parameters)
+    batch = await reader.fetch_sql(RecordTable.PARTICLES, sql, parameters)
     assert json.loads(batch.to_json()) == expected
 
     # Native writes land through the same pool rules, JSON payload column included.
@@ -335,7 +335,7 @@ async def test_turso_databases_serve_the_native_paths(database: str) -> None:
     """
     db = Database()
     try:
-        assert db._record_fetcher() is not None
+        assert db._reader() is not None
         assert db._record_writer() is not None
         assert db._store() is not None
     finally:

@@ -383,7 +383,7 @@ impl NativeServer {
     #[allow(clippy::too_many_arguments)]
     fn build(
         host: Py<PyAny>,
-        records: Option<&crate::fetcher::RecordFetcher>,
+        records: Option<&crate::store::Store>,
         config: &ceres_config::ServerConfig,
         bind: &str,
         port: u16,
@@ -414,7 +414,7 @@ impl NativeServer {
             host: Arc::new(PyHost {
                 host,
                 locals: locals.clone(),
-                store: records.map(|fetcher| fetcher.store.clone()),
+                store: records.map(|reader| reader.store.clone()),
             }),
         });
 
@@ -452,7 +452,7 @@ impl NativeServer {
         favicon_ico: std::path::PathBuf,
         favicon_png: std::path::PathBuf,
         favicon_svg: std::path::PathBuf,
-        records: Option<&crate::fetcher::RecordFetcher>,
+        records: Option<&crate::store::Store>,
     ) -> PyResult<Self> {
         let config = &config.inner;
         let port = config
@@ -482,7 +482,7 @@ impl NativeServer {
         #[gen_stub(override_type(type_repr = "typing.Any"))] host: Py<PyAny>,
         config: &crate::ServerConfig,
         token: String,
-        records: Option<&crate::fetcher::RecordFetcher>,
+        records: Option<&crate::store::Store>,
     ) -> PyResult<Self> {
         Self::build(
             host,
