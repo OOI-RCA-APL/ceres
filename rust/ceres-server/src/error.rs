@@ -4,7 +4,8 @@
 //! serialize as `{"__error__": true, "type": "<slug>", ...fields}` with their own status
 //! codes. Handlers that fail without a typed error produce the bare HTTP envelope,
 //! `{"__error__": true, "type": "http-error", "status": <code>}`, which is also what any
-//! plain error response from a mounted service converts into.
+//! plain error response from a mounted service converts into. An envelope the host
+//! already serialized crosses the boundary as text and serves verbatim.
 
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -16,6 +17,9 @@ pub struct ApiError {
     pub status: StatusCode,
     pub kind: &'static str,
     pub fields: Map<String, Value>,
+    /// A pre-serialized envelope served verbatim in place of the rendered one, set when
+    /// the host produced the error.
+    envelope: Option<String>,
 }
 
 /// Generate a constructor per typed error, named after its slug.
@@ -72,6 +76,7 @@ impl ApiError {
             status,
             kind,
             fields: Map::new(),
+            envelope: None,
         }
     }
 
@@ -84,7 +89,33 @@ impl ApiError {
         error
     }
 
+    /// A typed envelope the host already serialized, served verbatim with its status.
+    ///
+    /// The envelope carries its own type, so the kind here never renders.
+    pub fn verbatim(status: u16, envelope: String) -> Self {
+        let mut error = Self::new(
+            StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            "error",
+        );
+        error.envelope = Some(envelope);
+        error
+    }
+
+    /// A 422 refusal carrying validation problems, the shape request validation emits.
+    pub fn validation(problems: Vec<Problem>) -> Self {
+        let mut error = Self::new(StatusCode::UNPROCESSABLE_ENTITY, "validation-failed-error");
+        error.fields.insert(
+            "problems".to_string(),
+            Value::Array(problems.into_iter().map(Problem::into_json).collect()),
+        );
+        error
+    }
+
     fn body(&self) -> Vec<u8> {
+        if let Some(envelope) = &self.envelope {
+            return envelope.as_bytes().to_vec();
+        }
+
         let mut envelope = Map::new();
         envelope.insert("__error__".to_string(), Value::Bool(true));
         envelope.insert("type".to_string(), Value::String(self.kind.to_string()));

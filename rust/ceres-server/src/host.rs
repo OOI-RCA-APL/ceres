@@ -37,23 +37,19 @@ pub enum HostError {
     Internal(String),
 }
 
+impl From<HostError> for ApiError {
+    /// The error's envelope form, a typed failure served verbatim as the host wrote it.
+    fn from(error: HostError) -> Self {
+        match error {
+            HostError::Typed { status, envelope } => ApiError::verbatim(status, envelope),
+            HostError::Internal(_) => ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "error"),
+        }
+    }
+}
+
 impl IntoResponse for HostError {
     fn into_response(self) -> Response {
-        match self {
-            Self::Typed { status, envelope } => {
-                let status =
-                    StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-                (
-                    status,
-                    [(axum::http::header::CONTENT_TYPE, "application/json")],
-                    envelope,
-                )
-                    .into_response()
-            }
-            Self::Internal(_) => {
-                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "error").into_response()
-            }
-        }
+        ApiError::from(self).into_response()
     }
 }
 

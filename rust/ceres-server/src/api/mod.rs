@@ -12,18 +12,6 @@ pub(crate) mod schema;
 pub(crate) mod served;
 pub(crate) mod streams;
 
-/// Unwrap a fallible expression or answer with its response.
-macro_rules! attempt {
-    ($result:expr) => {
-        match $result {
-            Ok(value) => value,
-            Err(refusal) => return axum::response::IntoResponse::into_response(refusal),
-        }
-    };
-}
-
-pub(crate) use attempt;
-
 /// Collect a raw query string into ordered pairs, percent-decoded.
 pub(crate) fn query_pairs(query: Option<String>) -> Vec<(String, String)> {
     let Some(query) = query else {
@@ -76,7 +64,7 @@ pub(crate) fn documented_routes() -> Vec<schema::Documented> {
     };
 
     macro_rules! record_tables {
-        ($($name:literal),*) => {
+        ($($module:ident => $name:literal;)*) => {
             $(routes.extend(described! {
                 Get concat!("/api/", $name) => concat!("List ", $name, ", or stream them."), $name;
                 Get concat!("/api/", $name, "/count") => concat!("Count ", $name, "."), $name;
@@ -86,7 +74,7 @@ pub(crate) fn documented_routes() -> Vec<schema::Documented> {
         };
     }
 
-    record_tables!("messages", "particles", "alerts", "logs");
+    records::for_each_record_table!(record_tables);
     routes.extend(dispatch::documented());
     routes.extend(streams::documented());
     routes

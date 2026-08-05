@@ -9,40 +9,57 @@ use std::sync::Arc;
 
 use axum::extract::{Path, RawQuery, Request, State};
 use axum::http::HeaderMap;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use serde_json::json;
 
-use crate::api::{attempt, query_pairs};
-use crate::app::{AppState, json_response};
+use crate::api::query_pairs;
+use crate::app::{AppState, Resolution, json_response};
+use crate::auth::Gate;
 use crate::error::ApiError;
+
+/// Invoke a macro once with every record table, as `module => "name"` rows.
+///
+/// The one list feeds the handler modules here, the route registrations in the
+/// application router, and the documented routes, so the tables cannot drift apart.
+macro_rules! for_each_record_table {
+    ($callback:ident) => {
+        $callback! {
+            messages => "messages";
+            particles => "particles";
+            alerts => "alerts";
+            logs => "logs";
+        }
+    };
+}
+
+pub(crate) use for_each_record_table;
 
 /// Serve a record listing, or stream live records when the caller upgrades.
 ///
 /// The listing and the stream share this path, a socket being a GET that asks to
 /// upgrade, exactly as they shared it in the Python application.
-async fn list(state: &Arc<AppState>, table: &str, request: Request) -> Response {
+async fn list(state: &Arc<AppState>, table: &str, request: Request) -> Result<Response, ApiError> {
     let (mut parts, _) = request.into_parts();
-    let actor = attempt!(state.gate_actor(&parts.headers).await);
-    attempt!(actor.require_authenticated());
+    state
+        .admit(&parts.headers, Gate::Authenticated, Resolution::Standing)
+        .await?;
 
     let query = parts.uri.query().map(str::to_string);
     let pairs = query_pairs(query);
     if let Some(upgrade) = crate::api::streams::requested_upgrade(&mut parts, state).await {
         let arguments = json!({"table": table, "query": pairs});
-        return state.stream(upgrade, "records.stream", arguments);
+        return Ok(state.stream(upgrade, "records.stream", arguments));
     }
 
     // The native path serves the filters it proves it can, everything else crosses to
     // the host operation, which answers or produces the canonical error.
     if let Some(payload) = state.host.native_records(table, &pairs).await {
-        return json_response(payload);
+        return Ok(json_response(payload));
     }
 
     let arguments = json!({"table": table, "query": pairs});
-    match state.host.payload("records.list", arguments).await {
-        Ok(payload) => json_response(payload),
-        Err(error) => error.into_response(),
-    }
+    let payload = state.host.payload("records.list", arguments).await?;
+    Ok(json_response(payload))
 }
 
 /// Serve a record count.
@@ -51,51 +68,56 @@ async fn count(
     headers: &HeaderMap,
     table: &str,
     query: Option<String>,
-) -> Response {
-    let actor = attempt!(state.gate_actor(headers).await);
-    attempt!(actor.require_authenticated());
+) -> Result<Response, ApiError> {
+    state
+        .admit(headers, Gate::Authenticated, Resolution::Standing)
+        .await?;
 
     let pairs = query_pairs(query);
     if let Some(payload) = state.host.native_record_count(table, &pairs).await {
-        return json_response(payload);
+        return Ok(json_response(payload));
     }
 
     let arguments = json!({"table": table, "query": pairs});
-    match state.host.payload("records.count", arguments).await {
-        Ok(payload) => json_response(payload),
-        Err(error) => error.into_response(),
-    }
+    let payload = state.host.payload("records.count", arguments).await?;
+    Ok(json_response(payload))
 }
 
 /// Serve one record by ID.
 ///
 /// A path segment that does not parse as a UUID never matched the route in the Python
 /// application, falling through to its catch-all, so it answers the same not-found.
-async fn get(state: &AppState, headers: &HeaderMap, table: &str, id: &str) -> Response {
+async fn get(
+    state: &AppState,
+    headers: &HeaderMap,
+    table: &str,
+    id: &str,
+) -> Result<Response, ApiError> {
     let Ok(record) = id.parse::<uuid::Uuid>() else {
-        return ApiError::not_found().into_response();
+        return Err(ApiError::not_found());
     };
 
-    let actor = attempt!(state.gate_actor(headers).await);
-    attempt!(actor.require_authenticated());
+    state
+        .admit(headers, Gate::Authenticated, Resolution::Standing)
+        .await?;
 
     if let Some(payload) = state.host.native_record(table, record).await {
         if payload == "null" {
-            return ApiError::not_found().into_response();
+            return Err(ApiError::not_found());
         }
 
-        return json_response(payload);
+        return Ok(json_response(payload));
     }
 
-    match state
+    let payload = state
         .host
         .payload("records.get", json!({"table": table, "id": id}))
-        .await
-    {
-        Ok(payload) if payload == "null" => ApiError::not_found().into_response(),
-        Ok(payload) => json_response(payload),
-        Err(error) => error.into_response(),
+        .await?;
+    if payload == "null" {
+        return Err(ApiError::not_found());
     }
+
+    Ok(json_response(payload))
 }
 
 /// Generate the three handlers for one record table.
@@ -107,7 +129,7 @@ macro_rules! record_routes {
             pub(crate) async fn list(
                 State(state): State<Arc<AppState>>,
                 request: Request,
-            ) -> Response {
+            ) -> Result<Response, ApiError> {
                 super::list(&state, $table, request).await
             }
 
@@ -115,7 +137,7 @@ macro_rules! record_routes {
                 State(state): State<Arc<AppState>>,
                 headers: HeaderMap,
                 RawQuery(query): RawQuery,
-            ) -> Response {
+            ) -> Result<Response, ApiError> {
                 super::count(&state, &headers, $table, query).await
             }
 
@@ -123,16 +145,11 @@ macro_rules! record_routes {
                 State(state): State<Arc<AppState>>,
                 headers: HeaderMap,
                 Path(id): Path<String>,
-            ) -> Response {
+            ) -> Result<Response, ApiError> {
                 super::get(&state, &headers, $table, &id).await
             }
         })*
     };
 }
 
-record_routes! {
-    messages => "messages";
-    particles => "particles";
-    alerts => "alerts";
-    logs => "logs";
-}
+for_each_record_table!(record_routes);

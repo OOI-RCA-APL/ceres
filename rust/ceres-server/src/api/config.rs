@@ -9,19 +9,18 @@ use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use serde_json::json;
 
-use crate::api::attempt;
-use crate::app::{AppState, json_response};
+use crate::app::{AppState, Resolution, json_response};
+use crate::auth::Gate;
+use crate::error::ApiError;
 use crate::scrub::scrub_json;
 
 /// Serve one configuration section through the host, scrubbed.
-async fn serve_section(state: &AppState, operation: &str) -> Response {
-    match state.host.payload(operation, json!({})).await {
-        Ok(payload) => json_response(scrub_json(&payload)),
-        Err(error) => error.into_response(),
-    }
+async fn serve_section(state: &AppState, operation: &str) -> Result<Response, ApiError> {
+    let payload = state.host.payload(operation, json!({})).await?;
+    Ok(json_response(scrub_json(&payload)))
 }
 
 /// Generate the admin-gated section handlers.
@@ -30,9 +29,8 @@ macro_rules! sections {
         $(pub(crate) async fn $name(
             State(state): State<Arc<AppState>>,
             headers: HeaderMap,
-        ) -> Response {
-            let actor = attempt!(state.actor(&headers).await);
-            attempt!(actor.require_admin());
+        ) -> Result<Response, ApiError> {
+            state.admit(&headers, Gate::Admin, Resolution::Full).await?;
             serve_section(&state, $operation).await
         })*
     };
@@ -46,6 +44,6 @@ sections! {
 }
 
 /// Serve the console section, which needs no credentials and no authentication.
-pub(crate) async fn console(State(state): State<Arc<AppState>>) -> Response {
+pub(crate) async fn console(State(state): State<Arc<AppState>>) -> Result<Response, ApiError> {
     serve_section(&state, "config.console").await
 }

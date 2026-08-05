@@ -185,6 +185,41 @@ impl Actor {
     }
 }
 
+/// Who a route admits.
+#[derive(Clone, Copy)]
+pub enum Gate {
+    /// Anyone, the operation applies its own rules to the actor.
+    Open,
+    Authenticated,
+    Admin,
+    /// The user the named path parameter identifies, or an administrator.
+    SelfOrAdmin(&'static str),
+}
+
+impl Gate {
+    /// Admit or refuse an actor, the self-or-admin target read from named path values.
+    ///
+    /// Only the dispatch table's routes gate on a path parameter, so every other caller
+    /// passes no values and admits on the actor alone.
+    pub fn admit<'a>(
+        self,
+        actor: &Actor,
+        mut path_values: impl Iterator<Item = (&'static str, &'a str)>,
+    ) -> Result<(), ApiError> {
+        match self {
+            Self::Open => Ok(()),
+            Self::Authenticated => actor.require_authenticated(),
+            Self::Admin => actor.require_admin(),
+            Self::SelfOrAdmin(parameter) => {
+                let target = path_values
+                    .find(|(name, _)| *name == parameter)
+                    .and_then(|(_, value)| value.parse().ok());
+                actor.require_self_or_admin(target)
+            }
+        }
+    }
+}
+
 /// Extract the bearer token from the `Authorization` header or cookie, header first.
 pub fn bearer_token(headers: &HeaderMap) -> Option<String> {
     let header = headers

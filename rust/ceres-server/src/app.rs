@@ -24,9 +24,9 @@ use subtle::ConstantTimeEq;
 use tower::ServiceExt;
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::auth::{Actor, AuthSettings, Identity};
+use crate::auth::{Actor, AuthSettings, Gate, Identity};
 use crate::error::ApiError;
-use crate::host::{Host, HostError};
+use crate::host::{Host, HostError, UserRecord};
 
 /// What an application instance serves.
 pub struct AppConfig {
@@ -114,51 +114,75 @@ impl AppState {
     /// Resolve the actor a request comes from.
     ///
     /// The CLI control app and deployments with authentication unconfigured are
-    /// unrestricted, every permission gate short-circuits for them.
-    pub(crate) async fn actor(&self, headers: &HeaderMap) -> Result<Actor, HostError> {
+    /// unrestricted, every permission gate short-circuits for them. A standing
+    /// resolution needs only the user's standing, so a host with a native store answers
+    /// without crossing into Python, the user's wire payload left null, and a host
+    /// without one falls back to the full resolution.
+    pub(crate) async fn actor(
+        &self,
+        headers: &HeaderMap,
+        resolution: Resolution,
+    ) -> Result<Actor, HostError> {
+        let unrestricted = self.cli || self.auth.is_none();
+
+        if resolution == Resolution::Standing {
+            let parsed = self.auth.as_ref().and_then(|settings| {
+                crate::auth::bearer_token(headers).and_then(|token| settings.parse(&token))
+            });
+            let Some(parsed) = parsed else {
+                return Ok(Actor {
+                    user: None,
+                    unrestricted,
+                });
+            };
+
+            if let Some(found) = self.host.native_gate_user(parsed.user_id).await {
+                return Ok(Actor {
+                    user: found.map(|gate| UserRecord {
+                        id: gate.id,
+                        admin: gate.admin,
+                        disabled: gate.disabled,
+                        payload: Value::Null,
+                    }),
+                    unrestricted,
+                });
+            }
+            // No native store, so the full resolution answers.
+        }
+
         let identity = self.identity(headers).await?;
         Ok(Actor {
             user: identity.map(|identity| identity.user),
-            unrestricted: self.cli || self.auth.is_none(),
-        })
-    }
-
-    /// Resolve the actor for a gate, natively when the host can.
-    ///
-    /// A gate needs only the user's standing, so a host with a native store answers
-    /// without crossing into Python, the user's wire payload left null. Routes that
-    /// serve the user's record keep the full [`Self::actor`] resolution.
-    pub(crate) async fn gate_actor(&self, headers: &HeaderMap) -> Result<Actor, HostError> {
-        let unrestricted = self.cli || self.auth.is_none();
-        let Some(settings) = self.auth.as_ref() else {
-            return Ok(Actor {
-                user: None,
-                unrestricted,
-            });
-        };
-        let Some(parsed) =
-            crate::auth::bearer_token(headers).and_then(|token| settings.parse(&token))
-        else {
-            return Ok(Actor {
-                user: None,
-                unrestricted,
-            });
-        };
-
-        let Some(found) = self.host.native_gate_user(parsed.user_id).await else {
-            return self.actor(headers).await;
-        };
-
-        Ok(Actor {
-            user: found.map(|gate| crate::host::UserRecord {
-                id: gate.id,
-                admin: gate.admin,
-                disabled: gate.disabled,
-                payload: Value::Null,
-            }),
             unrestricted,
         })
     }
+
+    /// Resolve the actor a request comes from and admit it through a gate.
+    ///
+    /// The self-or-admin gate reads its target from path parameters, which only the
+    /// dispatch table's routes carry, so dispatch admits through [`Gate::admit`] itself
+    /// and every gate here sees no path values.
+    pub(crate) async fn admit(
+        &self,
+        headers: &HeaderMap,
+        gate: Gate,
+        resolution: Resolution,
+    ) -> Result<Actor, ApiError> {
+        let actor = self.actor(headers, resolution).await?;
+        gate.admit(&actor, std::iter::empty())?;
+        Ok(actor)
+    }
+}
+
+/// How much of the actor's user a resolution fetches.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Resolution {
+    /// The full user record, its wire payload included, for routes that serve or
+    /// forward it.
+    Full,
+    /// The user's standing alone, natively when the host can, for routes that only
+    /// gate on it.
+    Standing,
 }
 
 /// Respond with a body of already-serialized JSON.
@@ -169,11 +193,6 @@ pub(crate) fn json_response(body: String) -> Response {
         body,
     )
         .into_response()
-}
-
-/// Respond with a JSON value.
-pub(crate) fn json_value_response(value: Value) -> Response {
-    json_response(value.to_string())
 }
 
 /// Generate a favicon handler per suffix, serving the cached bytes with its media type.
@@ -267,29 +286,25 @@ async fn alive() -> StatusCode {
 
 /// Register the three routes of every record table.
 fn record_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
-    macro_rules! tables {
-        ($router:ident, $($module:ident => $name:literal;)*) => {
-            $(let $router = $router
-                .route(concat!("/api/", $name), get(crate::api::records::$module::list))
-                .route(
-                    concat!("/api/", $name, "/count"),
-                    get(crate::api::records::$module::count),
-                )
-                .route(
-                    concat!("/api/", $name, "/{id}"),
-                    get(crate::api::records::$module::get),
-                );)*
-            $router
+    /// Chain every table's routes onto the router in scope.
+    macro_rules! register {
+        ($($module:ident => $name:literal;)*) => {
+            router
+                $(
+                    .route(concat!("/api/", $name), get(crate::api::records::$module::list))
+                    .route(
+                        concat!("/api/", $name, "/count"),
+                        get(crate::api::records::$module::count),
+                    )
+                    .route(
+                        concat!("/api/", $name, "/{id}"),
+                        get(crate::api::records::$module::get),
+                    )
+                )*
         };
     }
 
-    tables! {
-        router,
-        messages => "messages";
-        particles => "particles";
-        alerts => "alerts";
-        logs => "logs";
-    }
+    crate::api::records::for_each_record_table!(register)
 }
 
 /// Serve the OpenAPI document rendered at build.

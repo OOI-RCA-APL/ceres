@@ -13,13 +13,15 @@ use std::sync::Arc;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{FromRequestParts, RawQuery, Request, State};
 use axum::http::request::Parts;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum_extra::routing::{RouterExt, TypedPath};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::api::{attempt, query_pairs};
-use crate::app::AppState;
+use crate::api::query_pairs;
+use crate::app::{AppState, Resolution};
+use crate::auth::Gate;
+use crate::error::ApiError;
 use crate::host::StreamClose;
 
 /// Take the upgrade a request asks for, or `None` when it is a plain request.
@@ -159,18 +161,22 @@ socket_routes! {
 }
 
 /// Serve component statuses, as a listing or as a stream of snapshots.
-pub(crate) async fn statuses(State(state): State<Arc<AppState>>, request: Request) -> Response {
+pub(crate) async fn statuses(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Result<Response, ApiError> {
     let (mut parts, _) = request.into_parts();
-    let actor = attempt!(state.actor(&parts.headers).await);
-    attempt!(actor.require_authenticated());
+    state
+        .admit(&parts.headers, Gate::Authenticated, Resolution::Full)
+        .await?;
 
     let query = parts.uri.query().map(str::to_string);
     let arguments = json!({"query": query_pairs(query)});
     match requested_upgrade(&mut parts, &state).await {
-        Some(upgrade) => state.stream(upgrade, "statuses.stream", arguments),
-        None => match state.host.payload("statuses.list", arguments).await {
-            Ok(payload) => crate::app::json_response(payload),
-            Err(error) => error.into_response(),
-        },
+        Some(upgrade) => Ok(state.stream(upgrade, "statuses.stream", arguments)),
+        None => {
+            let payload = state.host.payload("statuses.list", arguments).await?;
+            Ok(crate::app::json_response(payload))
+        }
     }
 }

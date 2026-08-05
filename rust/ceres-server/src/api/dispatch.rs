@@ -19,21 +19,10 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
-use crate::app::AppState;
-use crate::auth::Actor;
+use crate::app::{AppState, Resolution};
+use crate::auth::{Actor, Gate};
 use crate::error::{ApiError, Problem};
 use crate::host::Answer;
-
-/// Who a route admits.
-#[derive(Clone, Copy)]
-enum Gate {
-    /// Anyone, the operation applies its own rules to the actor.
-    Open,
-    Authenticated,
-    Admin,
-    /// The user the named path parameter identifies, or an administrator.
-    SelfOrAdmin(&'static str),
-}
 
 /// How a path parameter forwards to the host.
 #[derive(Clone, Copy, PartialEq)]
@@ -314,13 +303,15 @@ host_routes! {
         params(id => "address": Raw, second => "connection": Raw), body: true;
 }
 
-/// The actor's form in operation arguments.
-fn actor_arguments(actor: &Actor) -> Value {
-    json!({
-        "user": actor.user.as_ref().map(|user| user.id.to_string()),
-        "admin": actor.admin(),
-        "unrestricted": actor.unrestricted,
-    })
+impl Actor {
+    /// The actor's form in operation arguments.
+    fn to_arguments(&self) -> Value {
+        json!({
+            "user": self.user.as_ref().map(|user| user.id.to_string()),
+            "admin": self.admin(),
+            "unrestricted": self.unrestricted,
+        })
+    }
 }
 
 /// One request bound for a host operation, as the route table declared it.
@@ -343,49 +334,45 @@ impl Dispatch {
         state: &AppState,
         headers: &HeaderMap,
         query: Option<String>,
-    ) -> Response {
+    ) -> Result<Response, ApiError> {
         // Path parameters first, a UUID that fails to parse means no route matched.
         let mut path = Map::new();
         for (host_name, value, kind) in &self.parameters {
             if *kind == Kind::Uuid && value.parse::<Uuid>().is_err() {
-                return ApiError::not_found().into_response();
+                return Err(ApiError::not_found());
             }
 
             path.insert((*host_name).to_string(), Value::String(value.clone()));
         }
 
-        let actor = match state.actor(headers).await {
-            Ok(actor) => actor,
-            Err(error) => return error.into_response(),
-        };
-        if let Err(refusal) = self.gate.admit(&actor, &self.parameters) {
-            return refusal.into_response();
-        }
+        let actor = state.actor(headers, Resolution::Full).await?;
+        self.gate.admit(
+            &actor,
+            self.parameters
+                .iter()
+                .map(|(host_name, value, _)| (*host_name, value.as_str())),
+        )?;
 
         let body = match self.body.as_deref() {
             None | Some([]) => Value::Null,
-            Some(bytes) => match serde_json::from_slice(bytes) {
-                Ok(value) => value,
-                Err(error) => {
-                    return ApiError::validation(vec![Problem::new(
-                        "json_invalid",
-                        &["body"],
-                        format!("Invalid JSON: {error}"),
-                    )])
-                    .into_response();
-                }
-            },
+            Some(bytes) => serde_json::from_slice(bytes).map_err(|error| {
+                ApiError::validation(vec![Problem::new(
+                    "json_invalid",
+                    &["body"],
+                    format!("Invalid JSON: {error}"),
+                )])
+            })?,
         };
 
         let arguments = json!({
-            "actor": actor_arguments(&actor),
+            "actor": actor.to_arguments(),
             "path": Value::Object(path),
             "query": crate::api::query_pairs(query),
             "body": body,
         });
 
-        match state.host.operate(self.operation, arguments).await {
-            Ok(Answer::Payload(payload)) => {
+        match state.host.operate(self.operation, arguments).await? {
+            Answer::Payload(payload) => {
                 // An operation answering with configuration drops its credentials,
                 // because reading the configuration is not permission to take the
                 // signing secret.
@@ -394,35 +381,16 @@ impl Dispatch {
                 } else {
                     payload
                 };
-                (
+                Ok((
                     StatusCode::from_u16(self.status).unwrap_or(StatusCode::OK),
                     [(header::CONTENT_TYPE, "application/json")],
                     payload,
                 )
-                    .into_response()
+                    .into_response())
             }
             // A described response carries the status the output declared, so a route's
             // own created-status override does not apply to it.
-            Ok(Answer::Served(served)) => served.serve(&state.host).await,
-            Err(error) => error.into_response(),
-        }
-    }
-}
-
-impl Gate {
-    /// Admit or refuse an actor, the self-or-admin target read from the path.
-    fn admit(self, actor: &Actor, parameters: &[PathValue]) -> Result<(), ApiError> {
-        match self {
-            Self::Open => Ok(()),
-            Self::Authenticated => actor.require_authenticated(),
-            Self::Admin => actor.require_admin(),
-            Self::SelfOrAdmin(parameter) => {
-                let target = parameters
-                    .iter()
-                    .find(|(host_name, _, _)| *host_name == parameter)
-                    .and_then(|(_, value, _)| value.parse().ok());
-                actor.require_self_or_admin(target)
-            }
+            Answer::Served(served) => Ok(served.serve(&state.host).await),
         }
     }
 }
