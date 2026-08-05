@@ -273,6 +273,23 @@ pub(crate) enum DumpFormat {
     Table,
 }
 
+impl DumpFormat {
+    /// Color one rendered chunk, for the shapes that carry color as they are written.
+    ///
+    /// This runs per chunk rather than once at the end, so a dump too large to hold
+    /// arrives colored the whole way down rather than only as far as its first chunk. A
+    /// table takes its color when it is drawn instead, because it cannot be drawn until
+    /// the last row is in, and CSV takes none, being a shape written to be read by
+    /// something else.
+    pub(crate) fn paint(self, bytes: Vec<u8>, colored: bool) -> Vec<u8> {
+        if colored && self == Self::Json {
+            crate::highlight::painted(bytes)
+        } else {
+            bytes
+        }
+    }
+}
+
 /// What a native pass produced, ahead of writing it.
 pub(crate) enum Rendered {
     Bytes(Vec<u8>),
@@ -314,16 +331,35 @@ impl Rendered {
             Self::Written | Self::Failed(_) | Self::Declined => Vec::new(),
         }
     }
+
+    /// Draw a rendered result as a table, when a table is the shape asked for.
+    ///
+    /// Every shape but a table is already the bytes it will be written as, so this is
+    /// where the one that is not becomes them. Color reaches the other shapes as each
+    /// chunk is rendered, because a table is the one that cannot be drawn until the
+    /// last row is in.
+    pub(crate) fn drawn(self, format: DumpFormat, colored: bool) -> Self {
+        if format != DumpFormat::Table {
+            return self;
+        }
+
+        match self {
+            Self::Bytes(bytes) => Self::Bytes(tabulate(&bytes, colored).into_bytes()),
+            // A result that reached the output already, or never produced one, has
+            // nothing left to draw.
+            other => other,
+        }
+    }
 }
 
 /// A streaming output target that holds its first chunk back.
 ///
 /// Chunks render and write as the driver yields them, so a dump of any size holds one
 /// chunk rather than the whole table. The first one is kept rather than written, which
-/// is what keeps the delegation rule intact. Everything that makes a native pass refuse
-/// is known before any row arrives, and a result small enough to fit one chunk, which is
-/// nearly every interactive dump, still reaches the end having written nothing, so it
-/// delegates exactly as it did before anything streamed.
+/// is what keeps failures clean. Everything that makes a native pass refuse is known
+/// before any row arrives, and a result small enough to fit one chunk, which is nearly
+/// every interactive dump, still reaches the end having written nothing, so a refusal
+/// there reports whole with no partial output ahead of it.
 ///
 /// Past the first chunk there is no taking it back, and a failure there is a genuine
 /// decode or write error rather than a refusal, which the caller reports as its own.
@@ -388,7 +424,8 @@ impl<'a> Sink<'a> {
         std::mem::take(&mut self.heading)
     }
 
-    /// Whether anything has reached the output, past which a failure cannot delegate.
+    /// Whether anything has reached the output, past which a failure reports rather
+    /// than refusing cleanly.
     pub(crate) fn wrote(&self) -> bool {
         self.destination.is_some()
     }
@@ -421,11 +458,38 @@ impl<'a> Sink<'a> {
         self.write(&previous)
     }
 
+    /// Resolve a finished stream into what the caller should deliver.
+    ///
+    /// A stream that failed having written nothing is a refusal like any other and
+    /// reports whole, with no partial output ahead of it. One that failed after writing
+    /// cannot, so it reports what failed, unless what failed was the reader closing the
+    /// pipe, which is where the dump was asked to end.
+    pub(crate) fn resolve(
+        self,
+        outcome: std::result::Result<(), ceres_database::Error>,
+    ) -> std::result::Result<Rendered, ceres_database::Error> {
+        match outcome {
+            Ok(()) => match self.finish() {
+                // The whole result fit one chunk and is still unwritten, so it goes out
+                // the way an unstreamed dump does.
+                Ok(Some(held)) => Ok(Rendered::Bytes(held)),
+                Ok(None) => Ok(Rendered::Written),
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {
+                    Ok(Rendered::Written)
+                }
+                Err(error) => Err(written(error)),
+            },
+            Err(_) if self.broke() => Ok(Rendered::Written),
+            Err(error) if self.wrote() => Ok(Rendered::Failed(error.to_string())),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Write the held chunk, if it was never forced out, and answer whether anything
     /// was written at all.
     ///
-    /// A pass that only ever held one chunk has written nothing yet, so its caller is
-    /// still free to delegate instead of finishing.
+    /// A pass that only ever held one chunk has written nothing yet, so its result can
+    /// go out whole the way an unstreamed dump's does.
     pub(crate) fn finish(mut self) -> std::io::Result<Option<Vec<u8>>> {
         match self.destination {
             // Nothing went out, so the whole result is still the caller's to place.
@@ -470,30 +534,6 @@ impl<'a> Sink<'a> {
 /// Wrap a write failure so it travels with the decode failures a stream can also hit.
 pub(crate) fn written(error: std::io::Error) -> ceres_database::Error {
     ceres_database::Error::Decode(error.to_string())
-}
-
-/// Resolve a finished stream into what the caller should deliver.
-///
-/// A stream that failed having written nothing is a refusal like any other and hands the
-/// whole command to Python. One that failed after writing cannot, so it reports, unless
-/// what failed was the reader closing the pipe, which is where the dump was asked to end.
-pub(crate) fn finish(
-    sink: Sink<'_>,
-    outcome: std::result::Result<(), ceres_database::Error>,
-) -> std::result::Result<Rendered, ceres_database::Error> {
-    match outcome {
-        Ok(()) => match sink.finish() {
-            // The whole result fit one chunk and is still unwritten, so it goes out the
-            // way an unstreamed dump does, delegation included.
-            Ok(Some(held)) => Ok(Rendered::Bytes(held)),
-            Ok(None) => Ok(Rendered::Written),
-            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(Rendered::Written),
-            Err(error) => Err(written(error)),
-        },
-        Err(_) if sink.broke() => Ok(Rendered::Written),
-        Err(error) if sink.wrote() => Ok(Rendered::Failed(error.to_string())),
-        Err(error) => Err(error),
-    }
 }
 
 /// Draw rendered JSON lines as a table.
@@ -588,38 +628,6 @@ fn printable(text: &str) -> String {
     }
 
     escaped
-}
-
-/// Color one rendered chunk, for the shapes that carry color as they are written.
-///
-/// This runs per chunk rather than once at the end, so a dump too large to hold arrives
-/// colored the whole way down rather than only as far as its first chunk. A table takes
-/// its color when it is drawn instead, because it cannot be drawn until the last row is
-/// in, and CSV takes none, being a shape written to be read by something else.
-pub(crate) fn painted(bytes: Vec<u8>, format: DumpFormat, colored: bool) -> Vec<u8> {
-    if colored && format == DumpFormat::Json {
-        crate::highlight::painted(bytes)
-    } else {
-        bytes
-    }
-}
-
-/// Draw a rendered result as a table, when a table is the shape asked for.
-///
-/// Every shape but a table is already the bytes it will be written as, so this is where
-/// the one that is not becomes them. Color reaches the other shapes as each chunk is
-/// rendered, because a table is the one that cannot be drawn until the last row is in.
-pub(crate) fn drawn(rendered: Rendered, format: DumpFormat, colored: bool) -> Rendered {
-    if format != DumpFormat::Table {
-        return rendered;
-    }
-
-    match rendered {
-        Rendered::Bytes(bytes) => Rendered::Bytes(tabulate(&bytes, colored).into_bytes()),
-        // A result that reached the output already, or never produced one, has nothing
-        // left to draw.
-        other => other,
-    }
 }
 
 /// Ask before a filtered write goes through, `false` meaning the reader declined.
@@ -854,10 +862,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_sink_holds_one_chunk_so_a_small_dump_can_still_delegate() {
+    fn a_sink_holds_one_chunk_so_a_small_dump_can_still_refuse_cleanly() {
         // A result that fits one chunk never opens its destination, so the whole dump
-        // comes back to the caller and a late refusal delegates exactly as it did
-        // before anything streamed.
+        // comes back to the caller and a late refusal reports whole with no partial
+        // output ahead of it.
         let mut sink = Sink::new(None, true);
         sink.push(b"one\n".to_vec()).unwrap();
         assert!(!sink.wrote());
@@ -914,22 +922,22 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_delegates_before_its_first_write_and_reports_after() {
+    fn a_stream_refuses_before_its_first_write_and_reports_after() {
         let failure = || ceres_database::Error::Decode("unreadable row".to_string());
 
-        // Nothing has been written, so the whole command is still Python's to serve.
+        // Nothing has been written, so the failure is a clean refusal.
         let sink = Sink::new(None, true);
-        assert!(finish(sink, Err(failure())).is_err());
+        assert!(sink.resolve(Err(failure())).is_err());
 
-        // Past the first write there is no handing off, so the pass reports for itself
-        // rather than letting Python print a second copy of a partial dump.
+        // Past the first write there is no taking it back, so the pass reports what
+        // failed rather than pretending nothing was printed.
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("rows.jsonl");
         let mut sink = Sink::new(Some(&path), true);
         sink.push(b"one\n".to_vec()).unwrap();
         sink.push(b"two\n".to_vec()).unwrap();
         assert!(matches!(
-            finish(sink, Err(failure())),
+            sink.resolve(Err(failure())),
             Ok(Rendered::Failed(_))
         ));
     }

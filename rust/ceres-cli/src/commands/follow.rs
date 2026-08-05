@@ -127,6 +127,6 @@ fn render(
             .map(String::into_bytes),
     };
     rendered
-        .map(|bytes| crate::commands::dump::painted(bytes, format, colored))
+        .map(|bytes| format.paint(bytes, colored))
         .map_err(|error| error.to_string())
 }

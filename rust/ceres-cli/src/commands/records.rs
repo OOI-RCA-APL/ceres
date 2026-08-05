@@ -12,7 +12,7 @@ use ceres_entities::Records;
 use clap::ArgMatches;
 
 use crate::commands::dump::{
-    DumpFormat, Invocation, Rendered, Sink, Verb, deliver, drawn, finish, open_store, written,
+    DumpFormat, Invocation, Rendered, Sink, Verb, deliver, open_store, written,
 };
 use crate::commands::surface::Table;
 use crate::error::Result;
@@ -124,7 +124,7 @@ pub fn run(
             Verb::Delete if invocation.collect => {
                 let touched = store.delete_filter_returning(filter()).await?;
                 render(&touched, format, &projection, header, colored)
-                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
+                    .map(|bytes| Rendered::Bytes(bytes).drawn(format, colored))
             }
             Verb::Delete => store
                 .delete_filter(filter())
@@ -138,7 +138,7 @@ pub fn run(
                 if invocation.collect {
                     let touched = store.update_filter_returning(filter(), assign).await?;
                     render(&touched, format, &projection, header, colored)
-                        .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
+                        .map(|bytes| Rendered::Bytes(bytes).drawn(format, colored))
                 } else {
                     store
                         .update_filter(filter(), assign)
@@ -168,7 +168,7 @@ pub fn run(
                     )
                     .await?;
                 render(&incoming[0], format, &projection, header, colored)
-                    .map(|bytes| drawn(Rendered::Bytes(bytes), format, colored))
+                    .map(|bytes| Rendered::Bytes(bytes).drawn(format, colored))
             }
             // A select streams, rendering and writing each chunk as the driver yields
             // it, so the dump never holds more than one chunk however large the table.
@@ -189,7 +189,8 @@ pub fn run(
                     })
                     .await;
 
-                finish(sink, outcome).map(|rendered| drawn(rendered, format, colored))
+                sink.resolve(outcome)
+                    .map(|rendered| rendered.drawn(format, colored))
             }
         }
     });
@@ -227,7 +228,7 @@ fn render(
             .map(String::into_bytes),
     };
     rendered
-        .map(|bytes| crate::commands::dump::painted(bytes, format, colored))
+        .map(|bytes| format.paint(bytes, colored))
         .map_err(|error| ceres_database::Error::Decode(error.to_string()))
 }
 
