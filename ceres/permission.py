@@ -95,22 +95,6 @@ class UserPermissionFilter(
     level: MaybeSequence[ComponentAccessLevel] | None = None
     """Filter by `level` being equal to one or more given access levels."""
 
-    @override
-    def _matches(self, obj: UserPermission) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.user_id, self.user_id):
-            return False
-        if not self._match_value(obj.target_type, self.target_type):
-            return False
-        if not self._match_value(obj.target, self.target):
-            return False
-        if not self._match_value(obj.level, self.level):
-            return False
-
-        return True
-
 
 class UserPermissionCreate(BaseEntityCreate, slots=True):
     """Payload for creating a new `UserPermission` record."""
@@ -281,22 +265,6 @@ class GroupPermissionFilter(
     """Filter by `target` being equal to one or more given target strings."""
     level: MaybeSequence[ComponentAccessLevel] | None = None
     """Filter by `level` being equal to one or more given access levels."""
-
-    @override
-    def _matches(self, obj: GroupPermission) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.group_id, self.group_id):
-            return False
-        if not self._match_value(obj.target_type, self.target_type):
-            return False
-        if not self._match_value(obj.target, self.target):
-            return False
-        if not self._match_value(obj.level, self.level):
-            return False
-
-        return True
 
 
 class GroupPermissionCreate(BaseEntityCreate, slots=True):

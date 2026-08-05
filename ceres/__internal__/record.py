@@ -1,4 +1,4 @@
-from typing import Self, override
+from typing import Self
 
 from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
 
@@ -134,12 +134,6 @@ class BaseRecordFilter[
             raise ValueError(f"{subject} {message}")
 
         return self
-
-    @override
-    def matches(self, obj: RecordT) -> bool:  # type: ignore[override]
-        from ceres.data import to_json
-
-        return self._native_filter().matches(to_json(obj), utc())
 
 
 class BaseRecordCreate(

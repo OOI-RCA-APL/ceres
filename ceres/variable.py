@@ -18,7 +18,7 @@ from ceres.__internal__.entity import (
     EntityQuery,
 )
 from ceres.__internal__.manager import BaseNodeManager
-from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, to_json, validate
+from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, validate
 
 if TYPE_CHECKING:
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
@@ -91,31 +91,6 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
     command line comparing against a number or a boolean compares against that rather
     than against its text.
     """
-
-    @override
-    def _matches(self, obj: Variable) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.name, self.name):
-            return False
-        if not self._match_string_contains(obj.name, self.name_contains):
-            return False
-        if not self._match_string_prefix(obj.name, self.name_prefix):
-            return False
-        if not self._match_string_suffix(obj.name, self.name_suffix):
-            return False
-
-        if self.internal is not None:
-            internal = obj.name.startswith("__") and obj.name.endswith("__")
-            if internal != self.internal:
-                return False
-
-        if "value" in self.model_fields_set:
-            if to_json(obj.value) != to_json(self.value):
-                return False
-
-        return True
 
 
 class VariableCreate(BaseAddressEntityCreate, slots=True):

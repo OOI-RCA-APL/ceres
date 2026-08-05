@@ -6,7 +6,6 @@ from collections.abc import (
     Callable,
     Generator,
     Mapping,
-    Sequence,
 )
 from datetime import datetime
 from functools import cache, lru_cache
@@ -71,9 +70,6 @@ class BaseEntityFilterArgs[
 
     or__: FromYAML[MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]]] | None]
     and__: FromYAML[MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]]] | None]
-
-
-seen: set[int] = set()
 
 
 class BaseEntityFilter[
@@ -243,24 +239,16 @@ class BaseEntityFilter[
     def matches(self, obj: EntityT) -> bool:
         """Test whether `obj` satisfies this filter, including all ``and__`` and ``or__`` subfilters.
 
+        The native compiler is the single authority on filter semantics, so matching
+        reads the entity through the same parsed filter the queries compile from.
+
         Args:
             obj: The entity to test against this filter.
 
         Returns:
             ``True`` if the entity matches.
         """
-        ands: Sequence[Self] = seq(self.and__ or ())
-        ors: Sequence[Self] = seq(self.or__ or ())
-
-        return (
-            self._matches(obj)
-            and all(subcondition.matches(obj) for subcondition in ands)
-            or any(subcondition.matches(obj) for subcondition in ors)
-        )
-
-    @abstractmethod
-    def _matches(self, obj: EntityT) -> bool:
-        return True
+        return self._native_filter().matches(to_json(obj), utc())
 
 
 class BaseEntityCreate(DataObject, abstract=True, slots=True):
@@ -1249,16 +1237,6 @@ class BaseUUIDEntityFilter[
     id: MaybeSequence[UUID] | None = None
     """Filter by `id` being equal to one or more given UUIDs."""
 
-    @override
-    def _matches(self, obj: EntityT) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.id, self.id):
-            return False
-
-        return True
-
 
 class BaseUUIDEntityCreate(BaseEntityCreate, abstract=True, slots=True):
     """Creation data for UUID-keyed entities, auto-generating the ``id`` field."""
@@ -1308,17 +1286,6 @@ class BaseAddressEntityFilter[
     root: Address | None = None
     """The address which relative address selectors in `address` are relative to, `None` means
     all components."""
-
-    @override
-    def _matches(self, obj: ItemT) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if self.address is not None:
-            if not self.address.matches(obj.address, self.root):
-                return False
-
-        return True
 
 
 class BaseAddressEntityCreate(BaseEntityCreate, abstract=True, slots=True):
@@ -1404,71 +1371,6 @@ class BaseTimestampEntityFilter[
     """Filter by the minute value of `timestamp` being greater than or equal to a given value."""
     before_minute: NonNegativeInt | None = Field(default=None, le=60)
     """Filter by the minute of `timestamp` being less than a given value."""
-
-    @override
-    def _matches(self, obj: EntityT, *, now: datetime | None = None) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if self.timestamp is not None:
-            if obj.timestamp not in seq(self.timestamp):
-                return False
-        if self.after is not None:
-            if obj.timestamp < self.after:
-                return False
-        if self.before is not None:
-            if obj.timestamp >= self.before:
-                return False
-
-        now = utc(now)
-        if self.timespan is not None:
-            if self.after is not None:
-                if obj.timestamp >= (self.after + self.timespan):
-                    return False
-            elif self.before is not None:
-                if obj.timestamp < ((self.before or now) - self.timespan):
-                    return False
-            else:
-                if obj.timestamp < now - self.timespan:
-                    return False
-                if obj.timestamp >= now:
-                    return False
-
-        if self.max_age is not None:
-            if obj.timestamp <= now - self.max_age:
-                return False
-        if self.min_age is not None:
-            if obj.timestamp > now - self.min_age:
-                return False
-
-        if self.after_hour is not None or self.before_hour is not None:
-            min_hour = self.after_hour if self.after_hour is not None else 0
-            max_hour = self.before_hour if self.before_hour is not None else 24
-            within_min = obj.timestamp.hour >= min_hour
-            within_max = obj.timestamp.hour < max_hour
-            if min_hour <= max_hour:
-                if not within_min or not within_max:
-                    return False
-            else:
-                if not within_min and not within_max:
-                    return False
-
-        if self.after_minute is not None or self.before_minute is not None:
-            if obj.timestamp is None:
-                return False
-
-            min_minute = self.after_minute if self.after_minute is not None else 0
-            max_minute = self.before_minute if self.before_minute is not None else 60
-            within_min = obj.timestamp.minute >= min_minute
-            within_max = obj.timestamp.minute < max_minute
-            if min_minute <= max_minute:
-                if not within_min or not within_max:
-                    return False
-            else:
-                if not within_min and not within_max:
-                    return False
-
-        return True
 
     def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:
         """Compute the effective start and end times from the combined time-range filter fields.

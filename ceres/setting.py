@@ -79,25 +79,6 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
     name_suffix: MaybeSequence[str] | None = None
     """Filter by `name` ending with one or more given suffixes."""
 
-    @override
-    def _matches(self, obj: Setting) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.user_id, self.user_id):
-            return False
-
-        if not self._match_value(obj.name, self.name):
-            return False
-        if not self._match_string_contains(obj.name, self.name_contains):
-            return False
-        if not self._match_string_prefix(obj.name, self.name_prefix):
-            return False
-        if not self._match_string_suffix(obj.name, self.name_suffix):
-            return False
-
-        return True
-
 
 class SettingCreate(BaseEntityCreate, slots=True):
     """Payload for creating a new `Setting` record."""

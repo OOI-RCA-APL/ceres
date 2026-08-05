@@ -74,22 +74,6 @@ class GroupFilter(BaseUUIDEntityFilter["Group", GroupField, GroupOrder]):
     name_suffix: MaybeSequence[str] | None = None
     """Filter by `name` ending with one or more given suffixes."""
 
-    @override
-    def _matches(self, obj: Group) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.name, self.name):
-            return False
-        if not self._match_string_contains(obj.name, self.name_contains):
-            return False
-        if not self._match_string_prefix(obj.name, self.name_prefix):
-            return False
-        if not self._match_string_suffix(obj.name, self.name_suffix):
-            return False
-
-        return True
-
 
 class GroupCreate(BaseUUIDEntityCreate, slots=True):
     """Payload for creating a new `Group` record."""
@@ -241,18 +225,6 @@ class GroupMembershipFilter(
     """Filter by `user_id` being equal to one or more given user IDs."""
     group_id: MaybeSequence[UUID] | None = None
     """Filter by `group_id` being equal to one or more given group IDs."""
-
-    @override
-    def _matches(self, obj: GroupMembership) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.user_id, self.user_id):
-            return False
-        if not self._match_value(obj.group_id, self.group_id):
-            return False
-
-        return True
 
 
 class GroupMembershipCreate(BaseEntityCreate, slots=True):

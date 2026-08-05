@@ -79,18 +79,6 @@ class WorkspaceEditFilter(
     workspace_id: MaybeSequence[UUID] | None = None
     """Filter by `workspace_id` being equal to one or more given workspace IDs."""
 
-    @override
-    def _matches(self, obj: WorkspaceEdit) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.user_id, self.user_id):
-            return False
-        if not self._match_value(obj.workspace_id, self.workspace_id):
-            return False
-
-        return True
-
 
 class WorkspaceEditCreate(BaseEntityCreate, slots=True):
     """Payload for creating a new `WorkspaceEdit` record."""
@@ -265,37 +253,6 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
     """Filter by whether the workspace is private to an owner at all."""
     show_when_logged_out: bool | None = None
     """Filter by whether the workspace is shown to unauthenticated visitors."""
-
-    @override
-    def _matches(self, obj: Workspace) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.name, self.name):
-            return False
-        if not self._match_string_contains(obj.name, self.name_contains):
-            return False
-        if not self._match_string_prefix(obj.name, self.name_prefix):
-            return False
-        if not self._match_string_suffix(obj.name, self.name_suffix):
-            return False
-
-        if not self._match_value(obj.scope, self.scope):
-            return False
-        if self.placed_on_engine is not None and obj.scope.is_engine != self.placed_on_engine:
-            return False
-
-        if not self._match_value(obj.owner_id, self.owner_id):
-            return False
-        if self.owned is not None and (obj.owner_id is not None) != self.owned:
-            return False
-        if (
-            self.show_when_logged_out is not None
-            and obj.show_when_logged_out != self.show_when_logged_out
-        ):
-            return False
-
-        return True
 
 
 class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):

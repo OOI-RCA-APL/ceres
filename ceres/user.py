@@ -104,36 +104,6 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     disabled: bool | None = None
     """Filter by `disabled` being either `True` or `False`."""
 
-    @override
-    def _matches(self, obj: User) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.username, self.username):
-            return False
-        if not self._match_string_contains(obj.username, self.username_contains):
-            return False
-        if not self._match_string_prefix(obj.username, self.username_prefix):
-            return False
-        if not self._match_string_suffix(obj.username, self.username_suffix):
-            return False
-
-        if not self._match_string_equals(obj.email, self.email, insensitive=True):
-            return False
-        if not self._match_string_contains(obj.email, self.email_contains, insensitive=True):
-            return False
-        if not self._match_string_prefix(obj.email, self.email_prefix, insensitive=True):
-            return False
-        if not self._match_string_suffix(obj.email, self.email_suffix, insensitive=True):
-            return False
-
-        if not self._match_value(obj.admin, self.admin):
-            return False
-        if not self._match_value(obj.disabled, self.disabled):
-            return False
-
-        return True
-
 
 class UserCreate(BaseUUIDEntityCreate, slots=True):
     """Payload for creating a new `User` record."""
