@@ -40,8 +40,6 @@ if TYPE_CHECKING:
 
 with __lazy_imports__(__name__):
     from ceres.__internal__.app.handlers.engine import DisableResult, EnableResult
-    from ceres.__internal__.cli.client import Client
-    from ceres.component import ComponentFilter
     from ceres.engine import Engine
 
 _watching = False
@@ -91,18 +89,6 @@ class CheckCommand(CLICommand):
         write("All checks passed.")
 
 
-class ReloadCommand(CLICommand):
-    """
-    Apply configuration changes.
-    """
-
-    @override
-    async def __run__(self) -> None:
-        """Send a reload request to the running engine via the CLI client."""
-        client = await self.use_client()
-        await client.post("/reload")
-
-
 class StatusCommand(CLICommand):
     """
     Show engine and component statuses.
@@ -115,40 +101,29 @@ class StatusCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
-        """Query and display engine and component statuses in a table."""
-        if self.addresses:
-            addresses = self.addresses
-        else:
-            addresses = [AddressSelector("all")]
+        """Display engine and component statuses for a stopped engine in a table.
 
+        The native binary answers this command itself while an engine is running, and
+        hands it here only when nothing is listening, so this path reads enablement
+        straight from the database.
+        """
         project = await self.use_loaded_project()
-        client = Client(project)
-        address = AddressSelector(addresses if addresses else "all")
 
         from ceres.status import Status
 
-        if await client.alive():
-            statuses = await client.get(
-                "/statuses",
-                params=ComponentFilter(address=address),
-                result=list[Status],
-            )
-            running = True
-        else:
-            running = False
-            config = await self.use_config()  # TODO: Don't require a validated config.
-            async with self.use_database(
-                require_initialized=False,
-                require_connect=False,
-            ) as database:
-                if await database.ping():
-                    enabled = await _get_enabled(database)
-                    statuses = [
-                        Status(address=address, running=False, enabled=address in enabled)
-                        for address in config.get_components()
-                    ]
-                else:
-                    statuses = []
+        config = await self.use_config()  # TODO: Don't require a validated config.
+        async with self.use_database(
+            require_initialized=False,
+            require_connect=False,
+        ) as database:
+            if await database.ping():
+                enabled = await _get_enabled(database)
+                statuses = [
+                    Status(address=address, running=False, enabled=address in enabled)
+                    for address in config.get_components()
+                ]
+            else:
+                statuses = []
 
         with write_table("Engine") as table:
             cli_server_info = project.get_cli_server_info()
@@ -159,7 +134,7 @@ class StatusCommand(CLICommand):
             table.add_column("CLI Server Port")
             table.add_row(
                 str(project.config_path),
-                strbool(running),
+                strbool(False),
                 str(project.port or "(Disabled)"),
                 str(cli_server_info.port if cli_server_info else "(Stopped)"),
             )
@@ -177,64 +152,6 @@ class StatusCommand(CLICommand):
                     )
 
 
-async def _assert_matches(client: Client, address: AddressSelector) -> None:
-    """Fail with a quoting hint when a selector matches no components.
-
-    Shell glob expansion can silently rewrite selectors (for example `sensor.*` matching a
-    file named `sensor.yaml`), surfacing as a selector that matches nothing.
-    """
-    from ceres.status import Status
-
-    statuses = await client.get(
-        "/statuses",
-        params=ComponentFilter(address=address),
-        result=list[Status],
-    )
-    if not statuses:
-        raise CLICommandFailed(
-            f"No components match '{address}'. If your shell expanded a wildcard, quote "
-            "the selector."
-        )
-
-
-class StartCommand(CLICommand):
-    """
-    Start components at the provided addresses.
-    """
-
-    addresses: CliPositionalArg[list[AddressSelector]]
-    """
-    Addresses of components to start.
-    """
-
-    @override
-    async def __run__(self) -> None:
-        """Send a start request to the running engine for the specified addresses."""
-        client = await self.use_client()
-        address = AddressSelector(self.addresses)
-        await _assert_matches(client, address)
-        query = ComponentFilter(address=address)
-        await self.put(await client.post("/start", query))
-
-
-class StopCommand(CLICommand):
-    """
-    Stop components at the provided addresses.
-    """
-
-    addresses: CliPositionalArg[list[AddressSelector]]
-    """Addresses of components to stop."""
-
-    @override
-    async def __run__(self) -> None:
-        """Send a stop request to the running engine for the specified addresses."""
-        client = await self.use_client()
-        address = AddressSelector(self.addresses)
-        await _assert_matches(client, address)
-        query = ComponentFilter(address=address)
-        await self.put(await client.post("/stop", query))
-
-
 class EnableCommand(CLICommand):
     """
     Enable components at the provided addresses.
@@ -245,17 +162,14 @@ class EnableCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
-        """Enable components via the running engine, or directly in the database if stopped."""
-        client = await self.use_client()
-        address = AddressSelector(self.addresses)
+        """Enable components directly in the database.
 
-        if await client.alive():
-            await _assert_matches(client, address)
-            query = ComponentFilter(address=address)
-            result = await client.post("/enable", query)
-        else:
-            async with self.use_database() as database:
-                result = await _set_enabled(database, address, True)
+        The native binary serves this command itself while an engine is running, and
+        hands it here only when nothing is listening.
+        """
+        address = AddressSelector(self.addresses)
+        async with self.use_database() as database:
+            result = await _set_enabled(database, address, True)
 
         await self.put(result)
 
@@ -270,55 +184,16 @@ class DisableCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
-        """Disable components via the running engine, or directly in the database if stopped."""
-        client = await self.use_client()
-        address = AddressSelector(self.addresses)
+        """Disable components directly in the database.
 
-        if await client.alive():
-            await _assert_matches(client, address)
-            query = ComponentFilter(address=address)
-            result = await client.post("/disable", query)
-        else:
-            async with self.use_database() as database:
-                result = await _set_enabled(database, address, False)
+        The native binary serves this command itself while an engine is running, and
+        hands it here only when nothing is listening.
+        """
+        address = AddressSelector(self.addresses)
+        async with self.use_database() as database:
+            result = await _set_enabled(database, address, False)
 
         await self.put(result)
-
-
-class UpCommand(CLICommand):
-    """
-    Start and enable components at the provided addresses.
-    """
-
-    addresses: CliPositionalArg[list[AddressSelector]]
-    """Addresses of components to start and enable."""
-
-    @override
-    async def __run__(self) -> None:
-        """Send a combined start-and-enable request to the engine for the specified addresses."""
-        client = await self.use_client()
-        address = AddressSelector(self.addresses)
-        await _assert_matches(client, address)
-        query = ComponentFilter(address=address)
-        await self.put(await client.post("/up", query))
-
-
-class DownCommand(CLICommand):
-    """
-    Stop and disable components at the provided addresses.
-    """
-
-    addresses: CliPositionalArg[list[AddressSelector]]
-    """Addresses of components to stop and disable."""
-
-    @override
-    async def __run__(self) -> None:
-        """Send a combined stop-and-disable request to the engine for the specified addresses."""
-        client = await self.use_client()
-        address = AddressSelector(self.addresses)
-        await _assert_matches(client, address)
-        query = ComponentFilter(address=address)
-        await self.put(await client.post("/down", query))
 
 
 def _show_validation_error(exception: ValidationError, color: bool | None = None) -> None:
@@ -370,14 +245,9 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
 
     run: CliSubCommand[RunCommand]
     check: CliSubCommand[CheckCommand]
-    reload: CliSubCommand[ReloadCommand]
     status: CliSubCommand[StatusCommand]
-    start: CliSubCommand[StartCommand]
-    stop: CliSubCommand[StopCommand]
     enable: CliSubCommand[EnableCommand]
     disable: CliSubCommand[DisableCommand]
-    up: CliSubCommand[UpCommand]
-    down: CliSubCommand[DownCommand]
 
     def __init__(self, args: Sequence[str]) -> None:
         """Initialize the command by parsing the provided CLI arguments.
@@ -457,10 +327,8 @@ class MainCliSettingsSource(CliSettingsSource):
 
 
 with __lazy_imports__(__name__):
-    from ceres.__internal__.cli.subcommands.console import ConsoleCommand
     from ceres.__internal__.cli.subcommands.database import DatabaseCommand
     from ceres.__internal__.cli.subcommands.generate import GenerateCommand
-    from ceres.__internal__.cli.subcommands.service import ServiceCommand
 
 
 def main(args: Sequence[str] | None = None) -> int:
@@ -496,10 +364,8 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
     arguments = [token for token in args if not token.startswith("-")]
     subcommand = arguments[0] if arguments else None
     subcommands = {
-        "console": ConsoleCommand,
         "database": DatabaseCommand,
         "generate": GenerateCommand,
-        "service": ServiceCommand,
     }
 
     if subcommand in subcommands:

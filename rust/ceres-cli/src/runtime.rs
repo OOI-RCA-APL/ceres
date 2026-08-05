@@ -2,8 +2,9 @@
 //!
 //! Components are authored in Python, so every command that loads the engine or operates on
 //! the database runs inside the Python runtime. The CLI hands those commands off by executing
-//! `python -m ceres` with the original arguments, replacing the current process so signals
-//! and exit codes flow through untouched.
+//! `python -m ceres.__internal__.cli` with the original arguments, replacing the current
+//! process so signals and exit codes flow through untouched. That module path goes straight
+//! to the Python CLI, while `python -m ceres` execs this binary, so the handoff cannot loop.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -22,7 +23,10 @@ pub fn delegate(arguments: Vec<OsString>) -> Result<std::convert::Infallible> {
     let python = find_python()?;
 
     let mut command = Command::new(&python);
-    command.arg("-m").arg("ceres").args(&arguments);
+    command
+        .arg("-m")
+        .arg("ceres.__internal__.cli")
+        .args(&arguments);
 
     #[cfg(unix)]
     {

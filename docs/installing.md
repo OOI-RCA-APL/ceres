@@ -33,7 +33,7 @@ Intel), and Windows (x64), for both the standard and free-threaded CPython build
 installing never compiles anything. On a platform without a pre-built wheel, the install
 falls back to building from source, which requires [rustup](https://rustup.rs) and takes
 a while, but produces the same result, the build pins its own toolchain and the `ceres`
-command is included. `python -m ceres` remains available as an alternative invocation.
+command is included. `python -m ceres` runs the same command.
 
 ## Installing a Specific Version
 
