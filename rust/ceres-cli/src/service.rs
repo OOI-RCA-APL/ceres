@@ -40,12 +40,6 @@ pub trait Service {
     /// Generate the service definition file contents.
     fn generate(&self) -> Result<Vec<u8>>;
 
-    /// Create or update the service definition file and register the service.
-    fn create(&self) -> Result<()>;
-
-    /// Remove the service definition file.
-    fn delete(&self) -> Result<()>;
-
     /// Start the service, creating the definition file as needed.
     fn start(&self) -> Result<()>;
 
@@ -129,13 +123,10 @@ impl ServiceContext {
     }
 }
 
-/// Return the platform service manager for the given project.
-pub fn service_for(
-    project: Project,
-    config: ServiceConfig,
-    output: Output,
-) -> Result<Box<dyn Service>> {
-    let context = ServiceContext::new(project, config, output);
+/// Build the platform service manager from the project configuration.
+pub fn service_for(project: &Project, output: &Output) -> Result<Box<dyn Service>> {
+    let meta = project.load_meta()?;
+    let context = ServiceContext::new(project.clone(), meta.service, *output);
 
     if cfg!(target_os = "linux") {
         return Ok(Box::new(SystemDService { context }));
@@ -230,6 +221,21 @@ impl SystemDService {
             ));
         }
     }
+
+    /// Create or update the unit file and register the service.
+    fn create(&self) -> Result<()> {
+        if write_if_changed(&self.path(), &self.generate()?)? {
+            self.systemctl(&["daemon-reload", "--user"])?;
+        }
+
+        self.systemctl(&["enable", "--user", &self.label()])?;
+        Ok(())
+    }
+
+    /// Remove the unit file.
+    fn delete(&self) -> Result<()> {
+        remove_if_exists(&self.path())
+    }
 }
 
 impl Service for SystemDService {
@@ -264,19 +270,6 @@ impl Service for SystemDService {
 
         unit.push_str("\n[Install]\nWantedBy=default.target\n");
         Ok(unit.into_bytes())
-    }
-
-    fn create(&self) -> Result<()> {
-        if write_if_changed(&self.path(), &self.generate()?)? {
-            self.systemctl(&["daemon-reload", "--user"])?;
-        }
-
-        self.systemctl(&["enable", "--user", &self.label()])?;
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<()> {
-        remove_if_exists(&self.path())
     }
 
     fn start(&self) -> Result<()> {
@@ -376,6 +369,18 @@ impl LaunchDService {
 
         Ok(data)
     }
+
+    /// Create or update the plist file and register the service.
+    fn create(&self) -> Result<()> {
+        write_if_changed(&self.path(), &self.generate()?)?;
+        self.launchctl(&["enable", &self.target()])?;
+        Ok(())
+    }
+
+    /// Remove the plist file.
+    fn delete(&self) -> Result<()> {
+        remove_if_exists(&self.path())
+    }
 }
 
 impl Service for LaunchDService {
@@ -401,16 +406,6 @@ impl Service for LaunchDService {
             .map_err(|error| failure!("Failed to serialize the plist. {error}"))?;
 
         Ok(buffer)
-    }
-
-    fn create(&self) -> Result<()> {
-        write_if_changed(&self.path(), &self.generate()?)?;
-        self.launchctl(&["enable", &self.target()])?;
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<()> {
-        remove_if_exists(&self.path())
     }
 
     fn start(&self) -> Result<()> {

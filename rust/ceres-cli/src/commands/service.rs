@@ -10,7 +10,7 @@ use crate::service::service_for;
 
 /// Generate the service definition and write it to a file or stdout.
 pub fn generate(project: &Project, output: &Output, path: Option<&Path>) -> Result<()> {
-    let service = resolve(project, output)?;
+    let service = service_for(project, output)?;
     let definition = service.generate()?;
 
     match path {
@@ -28,7 +28,7 @@ pub fn generate(project: &Project, output: &Output, path: Option<&Path>) -> Resu
 
 /// Create or update the service definition, then start the service.
 pub fn start(project: &Project, output: &Output) -> Result<()> {
-    let service = resolve(project, output)?;
+    let service = service_for(project, output)?;
     output.write(format!(
         "Starting service '{}' at '{}'...",
         service.name(),
@@ -41,7 +41,7 @@ pub fn start(project: &Project, output: &Output) -> Result<()> {
 
 /// Stop the running service and delete its definition file.
 pub fn stop(project: &Project, output: &Output) -> Result<()> {
-    let service = resolve(project, output)?;
+    let service = service_for(project, output)?;
     output.write(format!(
         "Stopping service '{}' at '{}'...",
         service.name(),
@@ -54,7 +54,7 @@ pub fn stop(project: &Project, output: &Output) -> Result<()> {
 
 /// Display the service name, user, state, and location in a table.
 pub fn status(project: &Project, output: &Output) -> Result<()> {
-    let service = resolve(project, output)?;
+    let service = service_for(project, output)?;
 
     let mut table = Table::new(None);
     table
@@ -70,10 +70,4 @@ pub fn status(project: &Project, output: &Output) -> Result<()> {
     ]);
     output.write_table(&table);
     Ok(())
-}
-
-/// Build the platform service manager from the project configuration.
-fn resolve(project: &Project, output: &Output) -> Result<Box<dyn crate::service::Service>> {
-    let meta = project.load_meta()?;
-    service_for(project.clone(), meta.service, *output)
 }

@@ -39,19 +39,6 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
-impl Cli {
-    /// The resolved color override, `None` meaning auto-detect.
-    pub fn color_override(&self) -> Option<bool> {
-        if self.color {
-            Some(true)
-        } else if self.no_color {
-            Some(false)
-        } else {
-            None
-        }
-    }
-}
-
 /// Arguments captured for a command that runs in the Python runtime.
 ///
 /// The capture only exists so the command parses and appears in help. Delegation replays the

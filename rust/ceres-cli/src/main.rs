@@ -44,7 +44,7 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => error.exit(),
     };
-    let output = Output::new(cli.color_override());
+    let output = Output::new(color_override(&matches));
     report(run(cli, arguments, &output), &output)
 }
 
