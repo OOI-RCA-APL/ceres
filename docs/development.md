@@ -172,12 +172,11 @@ The "Unreleased" section of `CHANGELOG.md` is the release notes, shipped verbati
     ```
 
 The script retitles the changelog section to the version and date, commits and pushes
-that, and creates the GitHub release, which triggers the wheel builds. The built wheels
-and sdist attach to the GitHub release, and when the release workflow finishes, the
-Pages site redeploys so its package index picks them up, which is how releases are
-distributed. The workflow's PyPI publish job exists but stays disabled until the
-PEP 541 request for the `ceres` name resolves. Nothing rewrites the notes along the
-way, what the file says is what the release says.
+that, and creates the GitHub release, which triggers the wheel builds. The wheels and
+sdist publish to PyPI as `ceres-engine` and attach to the GitHub release alongside a
+generated `ceres` alias wheel that pins the release, and when the workflow finishes,
+the Pages site redeploys so its package index serves both names. Nothing rewrites the
+notes along the way, what the file says is what the release says.
 
 Publishing a GitHub release is the only trigger. Pushing to `main` runs ordinary CI and
 never builds wheels or publishes, and neither does pushing a tag by hand. The release

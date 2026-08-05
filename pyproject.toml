@@ -3,10 +3,11 @@ requires = ["maturin>=1.8,<2"]
 build-backend = "maturin"
 
 [project]
-# The distribution installs from the GitHub Pages package index. The name on PyPI is
-# held by a never-released project, a PEP 541 transfer request is pending, and the
-# release workflow's PyPI publish job stays disabled until it resolves.
-name = "ceres"
+# The distribution is `ceres-engine` because the bare name belongs to another PyPI
+# project, while the import package stays `ceres`. The release workflow also builds a
+# `ceres` alias wheel, one pure-Python shim pinning this distribution, so the bare name
+# resolves from the project's own package index.
+name = "ceres-engine"
 version = "0.41.0"
 description = "APL - Ceres"
 authors = [{ name = "Jake Ploskey", email = "jploskey@uw.edu" }]

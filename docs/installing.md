@@ -29,6 +29,10 @@ You can also install with `pip` if you prefer.
 pip install ceres --extra-index-url https://ooi-rca-apl.github.io/ceres/simple/
 ```
 
+On PyPI the distribution is named `ceres-engine`, the bare name belonging to another
+project there, so `uv add ceres-engine` works with no extra index. Both names install
+the same package, imported as `ceres`.
+
 Ceres ships pre-built wheels for Linux (x86_64 and aarch64), macOS (Apple Silicon and
 Intel), and Windows (x64), for both the standard and free-threaded CPython builds, so
 installing never compiles anything. On a platform without a pre-built wheel, the install

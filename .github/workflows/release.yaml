@@ -91,7 +91,7 @@ jobs:
         # The local wheel satisfies `ceres` because the released version is not on PyPI
         # until the publish job after this one, while the dependencies resolve normally.
         run: |
-          pip install --find-links dist ceres
+          pip install --find-links dist ceres-engine
           ceres --version
           python -c "import ceres; print(ceres.__name__, 'imports')"
       - name: Upload Wheels
@@ -127,18 +127,25 @@ jobs:
 
   # The wheels and sdist also attach to the GitHub release itself, which is what the
   # Pages package index links against, so installs resolve from GitHub with no PyPI
-  # involved. Separate from the publish job so neither destination blocks the other.
+  # involved. The `ceres` alias wheel is built here too, a pure-Python shim pinning
+  # `ceres-engine`, so the bare name resolves on that index from the one build matrix.
+  # Separate from the publish job so neither destination blocks the other, and the
+  # alias stays off PyPI, where only `ceres-engine` publishes.
   attach:
     needs: [build, sdist]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Build the Alias Wheel
+        run: python3 scripts/build-alias-wheel.py '${{ github.event.release.tag_name }}' dist
       - name: Attach to the Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -147,10 +154,6 @@ jobs:
           --clobber --repo '${{ github.repository }}'
 
   publish:
-    # PyPI publishing is disabled until the PEP 541 request for the `ceres` name
-    # resolves, releases distribute through the GitHub release assets and the Pages
-    # package index meanwhile. Delete the `if` to re-enable, nothing else changes.
-    if: false
     needs: [build, sdist]
     runs-on: ubuntu-latest
     environment: pypi
