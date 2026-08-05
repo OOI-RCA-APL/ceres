@@ -24,6 +24,13 @@ use ceres_config::{ByteSize, TimeDelta};
 use ceres_macros::python_config;
 use pyo3::prelude::*;
 
+/// Rust allocations go through mimalloc. The engine process runs for months and the
+/// native half's server, store, and row decoding churn allocations constantly, so the
+/// allocator's fragmentation resistance over long uptimes is what this buys. Python's
+/// own allocations are untouched, CPython manages those itself.
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 python_config! {
     /// Process-level options applied when running the engine as a system service.
     ServiceConfig(ceres_config::ServiceConfig, ceres_config::RawServiceConfig) {
