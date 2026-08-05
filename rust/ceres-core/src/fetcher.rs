@@ -200,7 +200,9 @@ impl RecordFetcher {
 ///
 /// The order is load bearing. A table appears before anything holding a foreign key to
 /// it, which is what lets a caller empty the schema by deleting in reverse.
-/// `tables_precede_the_tables_that_reference_them` pins it.
+// The `tables_precede_the_tables_that_reference_them` test pins the ordering. Named
+// here rather than in the doc, because the doc becomes a Python docstring where a Rust
+// test name means nothing.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
 pub fn stored_columns() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {

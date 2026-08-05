@@ -1336,7 +1336,6 @@ def stored_columns() -> list[tuple[str, list[tuple[str, str]]]]:
 
     The order is load bearing. A table appears before anything holding a foreign key to
     it, which is what lets a caller empty the schema by deleting in reverse.
-    `tables_precede_the_tables_that_reference_them` pins it.
     """
 
 def verify_argon2(password: str, hash: str) -> bool | None:
