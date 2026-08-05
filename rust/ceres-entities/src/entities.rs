@@ -11,12 +11,13 @@
 //! and `plain` takes a workspace's scope out of the selector grammar.
 
 use ceres_macros::{FilterValues, Filterable};
+use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use crate::address::Address;
-use crate::records::CsvRecord;
+use crate::records::RenderRows;
 
 /// What kind of thing a permission grant applies to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, FilterValues)]
@@ -199,219 +200,69 @@ impl GrantLevel {
     }
 }
 
-impl CsvRecord for User {
-    const CSV_HEADER: &'static str = "id,username,email,password,admin,disabled";
+/// The entities of one query result, all of a single type.
+#[enum_dispatch(RenderRows)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum Entities {
+    Users(Vec<User>),
+    Variables(Vec<Variable>),
+    Settings(Vec<Setting>),
+    Workspaces(Vec<Workspace>),
+    WorkspaceEdits(Vec<WorkspaceEdit>),
+    Groups(Vec<Group>),
+    GroupMemberships(Vec<GroupMembership>),
+    UserPermissions(Vec<UserPermission>),
+    GroupPermissions(Vec<GroupPermission>),
+}
 
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.id.to_string()),
-            Some(self.username.clone()),
-            Some(self.email.clone()),
-            Some(self.password.clone()),
-            Some(boolean_cell(self.admin)),
-            Some(boolean_cell(self.disabled)),
-        ]
+impl Entities {
+    /// The number of entities held.
+    pub fn len(&self) -> usize {
+        RenderRows::len(self)
     }
-}
 
-impl CsvRecord for Variable {
-    const CSV_HEADER: &'static str = "address,name,value";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.address.as_str().to_string()),
-            Some(self.name.clone()),
-            value_cell(&self.value),
-        ]
+    /// Whether no entities are held.
+    pub fn is_empty(&self) -> bool {
+        RenderRows::is_empty(self)
     }
-}
 
-impl CsvRecord for Setting {
-    const CSV_HEADER: &'static str = "user_id,name,value";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.user_id.to_string()),
-            Some(self.name.clone()),
-            value_cell(&self.value),
-        ]
+    /// Serialize the first entity in the wire format, `null` when none matched.
+    pub fn to_json_first(&self) -> serde_json::Result<Vec<u8>> {
+        RenderRows::to_json_first(self)
     }
-}
 
-impl CsvRecord for Workspace {
-    const CSV_HEADER: &'static str = "id,name,scope,owner_id,show_when_logged_out,data";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.id.to_string()),
-            Some(self.name.clone()),
-            Some(self.scope.as_str().to_string()),
-            self.owner_id.map(|id| id.to_string()),
-            Some(boolean_cell(self.show_when_logged_out)),
-            Some(Value::Object(self.data.clone()).to_string()),
-        ]
+    /// Serialize the entities as one JSON array in the API's wire format.
+    pub fn to_json_array(&self) -> serde_json::Result<Vec<u8>> {
+        RenderRows::to_json_array(self)
     }
-}
 
-impl CsvRecord for WorkspaceEdit {
-    const CSV_HEADER: &'static str = "user_id,workspace_id,data";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.user_id.to_string()),
-            Some(self.workspace_id.to_string()),
-            Some(Value::Object(self.data.clone()).to_string()),
-        ]
+    /// Serialize the entities as JSON lines in the wire format, one per line.
+    pub fn to_json_lines(&self) -> serde_json::Result<Vec<u8>> {
+        RenderRows::to_json_lines(self)
     }
-}
 
-impl CsvRecord for Group {
-    const CSV_HEADER: &'static str = "id,name,description";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.id.to_string()),
-            Some(self.name.clone()),
-            Some(self.description.clone()),
-        ]
+    /// Render the entities as CSV lines, under a header row unless suppressed.
+    pub fn to_csv_lines(&self, header: bool) -> serde_json::Result<String> {
+        RenderRows::to_csv_lines(self, header)
     }
-}
 
-impl CsvRecord for GroupMembership {
-    const CSV_HEADER: &'static str = "user_id,group_id";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.user_id.to_string()),
-            Some(self.group_id.to_string()),
-        ]
+    /// Serialize a field projection of the entities as JSON lines, aliased objects.
+    pub fn to_json_lines_projected(
+        &self,
+        fields: &[(String, String)],
+    ) -> serde_json::Result<Vec<u8>> {
+        RenderRows::to_json_lines_projected(self, fields)
     }
-}
 
-impl CsvRecord for UserPermission {
-    const CSV_HEADER: &'static str = "user_id,target_type,target,level";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.user_id.to_string()),
-            Some(self.target_type.as_str().to_string()),
-            Some(self.target.clone()),
-            Some(self.level.as_str().to_string()),
-        ]
+    /// Render a field projection of the entities as CSV lines, an alias header row
+    /// unless suppressed.
+    pub fn to_csv_lines_projected(
+        &self,
+        fields: &[(String, String)],
+        header: bool,
+    ) -> serde_json::Result<String> {
+        RenderRows::to_csv_lines_projected(self, fields, header)
     }
-}
-
-impl CsvRecord for GroupPermission {
-    const CSV_HEADER: &'static str = "group_id,target_type,target,level";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.group_id.to_string()),
-            Some(self.target_type.as_str().to_string()),
-            Some(self.target.clone()),
-            Some(self.level.as_str().to_string()),
-        ]
-    }
-}
-
-/// A boolean cell, rendered as its JSON text the way the row extraction does.
-fn boolean_cell(value: bool) -> String {
-    if value { "true" } else { "false" }.to_string()
-}
-
-/// A JSON value's cell, its own text when it is a string and its JSON text otherwise.
-///
-/// The row extraction writes a string as itself rather than carrying JSON quotes into
-/// the cell, and a null as no cell at all.
-fn value_cell(value: &Value) -> Option<String> {
-    match value {
-        Value::Null => None,
-        Value::String(text) => Some(text.clone()),
-        other => Some(other.to_string()),
-    }
-}
-
-/// Declare the batch enum over the entity types, and the rendering that dispatches on it.
-///
-/// Every arm of every method is the same call against a different element type, so the
-/// variants are named once here rather than nine times per method. A new entity type is
-/// one line, and it cannot be added to the enum while being forgotten by the renderers.
-macro_rules! entity_batches {
-    ($($variant:ident($entity:ty)),+ $(,)?) => {
-        /// The entities of one query result, all of a single type.
-        #[derive(Clone, Debug, PartialEq)]
-        pub enum Entities {
-            $($variant(Vec<$entity>),)+
-        }
-
-        impl Entities {
-            /// The number of entities held.
-            pub fn len(&self) -> usize {
-                match self {
-                    $(Self::$variant(entities) => entities.len(),)+
-                }
-            }
-
-            /// Whether no entities are held.
-            pub fn is_empty(&self) -> bool {
-                self.len() == 0
-            }
-
-            /// Serialize the entities as JSON lines in the wire format, one per line.
-            pub fn to_json_lines(&self) -> serde_json::Result<Vec<u8>> {
-                match self {
-                    $(Self::$variant(entities) => crate::records::to_json_lines(entities),)+
-                }
-            }
-
-            /// Render the entities as CSV lines, under a header row unless suppressed.
-            pub fn to_csv_lines(&self, header: bool) -> String {
-                match self {
-                    $(Self::$variant(entities) => {
-                        crate::records::to_csv_lines(entities, header)
-                    })+
-                }
-            }
-
-            /// Serialize a field projection of the entities as JSON lines, aliased objects.
-            pub fn to_json_lines_projected(
-                &self,
-                fields: &[(String, String)],
-            ) -> serde_json::Result<Vec<u8>> {
-                match self {
-                    $(Self::$variant(entities) => {
-                        crate::records::to_json_lines_projected(entities, fields)
-                    })+
-                }
-            }
-
-            /// Render a field projection of the entities as CSV lines, an alias header row
-            /// unless suppressed.
-            pub fn to_csv_lines_projected(
-                &self,
-                fields: &[(String, String)],
-                header: bool,
-            ) -> serde_json::Result<String> {
-                match self {
-                    $(Self::$variant(rows) => {
-                        crate::records::to_csv_lines_projected(rows, fields, header)
-                    })+
-                }
-            }
-        }
-    };
-}
-
-entity_batches! {
-    Users(User),
-    Variables(Variable),
-    Settings(Setting),
-    Workspaces(Workspace),
-    WorkspaceEdits(WorkspaceEdit),
-    Groups(Group),
-    GroupMemberships(GroupMembership),
-    UserPermissions(UserPermission),
-    GroupPermissions(GroupPermission),
 }
 
 #[cfg(test)]
@@ -498,16 +349,12 @@ mod tests {
             "{\"id\":\"0198c0de-0000-7000-8000-000000000001\",\"name\":\"console\",\
              \"scope\":\"~\",\"owner_id\":null,\"show_when_logged_out\":false,\"data\":{}}"
         );
+        // A null owner renders as an empty cell, a boolean as its JSON text, and the
+        // payload as its own JSON.
         assert_eq!(
-            workspace.csv_cells(),
-            vec![
-                Some("0198c0de-0000-7000-8000-000000000001".to_string()),
-                Some("console".to_string()),
-                Some("~".to_string()),
-                None,
-                Some("false".to_string()),
-                Some("{}".to_string()),
-            ]
+            crate::records::to_csv_lines(&[workspace], true).unwrap(),
+            "id,name,scope,owner_id,show_when_logged_out,data\n\
+             0198c0de-0000-7000-8000-000000000001,console,~,,false,{}\n"
         );
     }
 
@@ -519,17 +366,15 @@ mod tests {
             value,
         };
 
-        // An atom crosses a cell as itself, a structure as its JSON text.
-        let cell = |value: Value| variable(value).csv_cells()[2].clone();
+        // An atom crosses a cell as itself, a structure as its JSON text, quoted for
+        // the punctuation it carries.
+        let row = |value: Value| crate::records::to_csv_lines(&[variable(value)], false).unwrap();
 
-        assert_eq!(cell(Value::Bool(true)).as_deref(), Some("true"));
-        assert_eq!(cell(5.into()).as_deref(), Some("5"));
-        assert_eq!(cell("text".into()).as_deref(), Some("text"));
-        assert_eq!(
-            cell(serde_json::json!({"k": 1})).as_deref(),
-            Some("{\"k\":1}")
-        );
+        assert_eq!(row(Value::Bool(true)), "@a,x,true\n");
+        assert_eq!(row(5.into()), "@a,x,5\n");
+        assert_eq!(row("text".into()), "@a,x,text\n");
+        assert_eq!(row(serde_json::json!({"k": 1})), "@a,x,\"{\"\"k\"\":1}\"\n");
         // A null value has no cell, which renders as an empty one.
-        assert_eq!(cell(Value::Null), None);
+        assert_eq!(row(Value::Null), "@a,x,\n");
     }
 }

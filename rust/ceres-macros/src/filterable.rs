@@ -12,7 +12,9 @@ use crate::last_segment;
 /// the entity's `FIELDS` table, keyed by its wire name, the `#[serde(rename)]` value
 /// when one is present. The field's operation filters, the `contains`, `prefix`, and
 /// `suffix` variants where its family carries them, are generated here too, each with
-/// the kind it matches by. Fields of unfilterable types simply do not appear.
+/// the kind it matches by. Fields of unfilterable types simply do not appear in
+/// `FIELDS` or `COLUMNS`, though `WIRE_KEYS` still names them, because the wire format
+/// carries every field regardless of what the filter can reach.
 pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
     let name = &input.ident;
     let Data::Struct(data) = &input.data else {
@@ -30,9 +32,11 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
 
     let mut entries = Vec::new();
     let mut columns = Vec::new();
+    let mut wire_keys = Vec::new();
     for field in &fields.named {
         let identifier = field.ident.as_ref().expect("named fields carry names");
         let key = wire_name(field)?.unwrap_or_else(|| identifier.to_string());
+        wire_keys.push(key.clone());
         let family = match family_of(&field.ty) {
             Family::Address if marked(field, "plain") => Family::PlainAddress,
             Family::Text if marked(field, "email") => Family::Email,
@@ -82,6 +86,7 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
         impl ceres_entities::Filterable for #name {
             const FIELDS: &'static [ceres_entities::FilterField] = &[#(#entries),*];
             const COLUMNS: &'static [ceres_entities::FilterField] = &[#(#columns),*];
+            const WIRE_KEYS: &'static [&'static str] = &[#(#wire_keys),*];
         }
     })
 }

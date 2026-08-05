@@ -275,7 +275,7 @@ fn render(
         (DumpFormat::Table, false) => entities.to_json_lines_projected(projection),
         (DumpFormat::Json, true) => entities.to_json_lines(),
         (DumpFormat::Json, false) => entities.to_json_lines_projected(projection),
-        (DumpFormat::Csv, true) => Ok(entities.to_csv_lines(header).into_bytes()),
+        (DumpFormat::Csv, true) => entities.to_csv_lines(header).map(String::into_bytes),
         (DumpFormat::Csv, false) => entities
             .to_csv_lines_projected(projection, header)
             .map(String::into_bytes),

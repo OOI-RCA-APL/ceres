@@ -119,6 +119,13 @@ pub trait Filterable {
     /// carry, a setting's value among them, so the write path reads this rather than the
     /// filter surface.
     const COLUMNS: &'static [FilterField];
+    /// Every field's wire key, in declaration order, the unfilterable ones included.
+    ///
+    /// This is the schema of the entity's serialized form, so a full-width render takes
+    /// its header and column order from here rather than from `COLUMNS`, which drops
+    /// what the filter families cannot type. A particle's `span` is the one field the
+    /// entities carry that way.
+    const WIRE_KEYS: &'static [&'static str];
 }
 
 /// A type with a closed set of admissible wire values.

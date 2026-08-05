@@ -9,8 +9,13 @@
 extern crate self as ceres_entities;
 
 mod address;
-mod entities;
 mod filterable;
+// `records` declares the `RenderRows` trait, and `enum_dispatch` writes each batch
+// enum's implementation of it wherever the later of the two expands, spelling the
+// payload types the way the enum did. Declaring `records` first expands the trait
+// first, so the `Entities` implementation lands in `entities`, where those names
+// resolve.
+mod entities;
 mod records;
 mod timestamp;
 

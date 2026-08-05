@@ -221,7 +221,7 @@ fn render(
         (DumpFormat::Table, false) => records.to_json_lines_projected(projection),
         (DumpFormat::Json, true) => records.to_json_lines(),
         (DumpFormat::Json, false) => records.to_json_lines_projected(projection),
-        (DumpFormat::Csv, true) => Ok(records.to_csv_lines(header).into_bytes()),
+        (DumpFormat::Csv, true) => records.to_csv_lines(header).map(String::into_bytes),
         (DumpFormat::Csv, false) => records
             .to_csv_lines_projected(projection, header)
             .map(String::into_bytes),

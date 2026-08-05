@@ -6,11 +6,20 @@
 
 use ceres_config::Level;
 use ceres_macros::{FilterValues, Filterable};
+use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use crate::address::Address;
+// The entity types are named here because `enum_dispatch` expands the trait's impls for
+// both batch enums at the trait's own module, pasting each variant's payload type name
+// into this scope.
+use crate::entities::{
+    Entities, Group, GroupMembership, GroupPermission, Setting, User, UserPermission, Variable,
+    Workspace, WorkspaceEdit,
+};
+use crate::filterable::Filterable;
 use crate::timestamp::Timestamp;
 
 /// The direction a message traveled through a connection.
@@ -136,96 +145,21 @@ fn csv_row(cells: &[Option<String>], lines: &mut String) {
     lines.push('\n');
 }
 
-/// A record's fields as the CSV cells the Python row extraction produces.
-pub(crate) trait CsvRecord {
-    /// The header cells, the entity's field names in declaration order.
-    const CSV_HEADER: &'static str;
-
-    /// The record's cells, in header order, `None` rendering empty.
-    fn csv_cells(&self) -> Vec<Option<String>>;
-}
-
-impl CsvRecord for Message {
-    const CSV_HEADER: &'static str = "id,address,timestamp,connection,direction,data";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.id.to_string()),
-            Some(self.address.as_str().to_string()),
-            Some(self.timestamp.to_wire()),
-            self.connection.clone(),
-            Some(
-                match self.direction {
-                    MessageDirection::Send => "send",
-                    MessageDirection::Receive => "receive",
-                }
-                .to_string(),
-            ),
-            Some(latin1::decode(&self.data)),
-        ]
-    }
-}
-
-impl CsvRecord for Particle {
-    const CSV_HEADER: &'static str = "id,address,timestamp,type,data,span";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.id.to_string()),
-            Some(self.address.as_str().to_string()),
-            Some(self.timestamp.to_wire()),
-            Some(self.kind.clone()),
-            Some(Value::Object(self.data.clone()).to_string()),
-            self.span.map(|(start, end)| format!("[{start},{end}]")),
-        ]
-    }
-}
-
-impl CsvRecord for Alert {
-    const CSV_HEADER: &'static str = "id,address,timestamp,level,type,data";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.id.to_string()),
-            Some(self.address.as_str().to_string()),
-            Some(self.timestamp.to_wire()),
-            Some(self.level.as_str().to_string()),
-            Some(self.kind.clone()),
-            Some(Value::Object(self.data.clone()).to_string()),
-        ]
-    }
-}
-
-impl CsvRecord for LogEntry {
-    const CSV_HEADER: &'static str = "id,address,timestamp,level,content";
-
-    fn csv_cells(&self) -> Vec<Option<String>> {
-        vec![
-            Some(self.id.to_string()),
-            Some(self.address.as_str().to_string()),
-            Some(self.timestamp.to_wire()),
-            Some(self.level.as_str().to_string()),
-            Some(self.content.clone()),
-        ]
-    }
-}
-
 /// Render a sequence of records as CSV lines, under a header row unless suppressed.
 ///
-/// An empty sequence still renders the header, so the output always carries its
-/// schema.
-pub(crate) fn to_csv_lines<T: CsvRecord>(records: &[T], header: bool) -> String {
-    let mut lines = String::new();
-    if header {
-        lines.push_str(T::CSV_HEADER);
-        lines.push('\n');
-    }
-
-    for record in records {
-        csv_row(&record.csv_cells(), &mut lines);
-    }
-
-    lines
+/// The full wire schema is the implicit projection, every field under its own wire key
+/// in declaration order, so the cells here are the projected cells and cannot drift
+/// from them. An empty sequence still renders the header, so the output always carries
+/// its schema.
+pub(crate) fn to_csv_lines<T: Serialize + Filterable>(
+    records: &[T],
+    header: bool,
+) -> serde_json::Result<String> {
+    let fields: Vec<(String, String)> = T::WIRE_KEYS
+        .iter()
+        .map(|key| (key.to_string(), key.to_string()))
+        .collect();
+    to_csv_lines_projected(records, &fields, header)
 }
 
 /// Serialize a sequence of records as one JSON array.
@@ -339,7 +273,86 @@ pub(crate) fn to_csv_lines_projected<T: Serialize>(
     Ok(lines)
 }
 
+/// Render a batch of one entity type in every shape the CLI and API emit.
+///
+/// The batch enums implement this through `enum_dispatch`, each method reaching the
+/// variant's payload vector, and the one generic impl below serves every payload. A new
+/// entity type is one enum line, and it cannot be added while being forgotten by the
+/// renderers. The enums keep inherent methods over this trait, so callers in other
+/// crates never need it in scope.
+#[enum_dispatch]
+pub(crate) trait RenderRows {
+    /// The number of rows held.
+    fn len(&self) -> usize;
+
+    /// Whether no rows are held.
+    fn is_empty(&self) -> bool;
+
+    /// Serialize the first row in the wire format, `null` when none matched.
+    fn to_json_first(&self) -> serde_json::Result<Vec<u8>>;
+
+    /// Serialize the rows as one JSON array in the API's wire format.
+    fn to_json_array(&self) -> serde_json::Result<Vec<u8>>;
+
+    /// Serialize the rows as JSON lines in the wire format, one per line.
+    fn to_json_lines(&self) -> serde_json::Result<Vec<u8>>;
+
+    /// Render the rows as CSV lines in the wire cell forms, under a header row unless
+    /// suppressed.
+    fn to_csv_lines(&self, header: bool) -> serde_json::Result<String>;
+
+    /// Serialize a field projection of the rows as JSON lines, aliased objects.
+    fn to_json_lines_projected(&self, fields: &[(String, String)]) -> serde_json::Result<Vec<u8>>;
+
+    /// Render a field projection of the rows as CSV lines, an alias header row unless
+    /// suppressed.
+    fn to_csv_lines_projected(
+        &self,
+        fields: &[(String, String)],
+        header: bool,
+    ) -> serde_json::Result<String>;
+}
+
+impl<T: Serialize + Filterable> RenderRows for Vec<T> {
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+
+    fn is_empty(&self) -> bool {
+        Vec::is_empty(self)
+    }
+
+    fn to_json_first(&self) -> serde_json::Result<Vec<u8>> {
+        to_json_first(self)
+    }
+
+    fn to_json_array(&self) -> serde_json::Result<Vec<u8>> {
+        to_json_array(self)
+    }
+
+    fn to_json_lines(&self) -> serde_json::Result<Vec<u8>> {
+        to_json_lines(self)
+    }
+
+    fn to_csv_lines(&self, header: bool) -> serde_json::Result<String> {
+        to_csv_lines(self, header)
+    }
+
+    fn to_json_lines_projected(&self, fields: &[(String, String)]) -> serde_json::Result<Vec<u8>> {
+        to_json_lines_projected(self, fields)
+    }
+
+    fn to_csv_lines_projected(
+        &self,
+        fields: &[(String, String)],
+        header: bool,
+    ) -> serde_json::Result<String> {
+        to_csv_lines_projected(self, fields, header)
+    }
+}
+
 /// The records of one query result, all of a single entity type.
+#[enum_dispatch(RenderRows)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Records {
     Messages(Vec<Message>),
@@ -351,58 +364,33 @@ pub enum Records {
 impl Records {
     /// The number of records held.
     pub fn len(&self) -> usize {
-        match self {
-            Self::Messages(records) => records.len(),
-            Self::Particles(records) => records.len(),
-            Self::Alerts(records) => records.len(),
-            Self::LogEntries(records) => records.len(),
-        }
+        RenderRows::len(self)
     }
 
     /// Whether no records are held.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        RenderRows::is_empty(self)
     }
 
     /// Serialize the first record in the wire format, `null` when none matched.
     pub fn to_json_first(&self) -> serde_json::Result<Vec<u8>> {
-        match self {
-            Self::Messages(records) => to_json_first(records),
-            Self::Particles(records) => to_json_first(records),
-            Self::Alerts(records) => to_json_first(records),
-            Self::LogEntries(records) => to_json_first(records),
-        }
-    }
-
-    /// Serialize the records as JSON lines in the wire format, one record per line.
-    pub fn to_json_lines(&self) -> serde_json::Result<Vec<u8>> {
-        match self {
-            Self::Messages(records) => to_json_lines(records),
-            Self::Particles(records) => to_json_lines(records),
-            Self::Alerts(records) => to_json_lines(records),
-            Self::LogEntries(records) => to_json_lines(records),
-        }
+        RenderRows::to_json_first(self)
     }
 
     /// Serialize the records as one JSON array in the API's wire format.
     pub fn to_json_array(&self) -> serde_json::Result<Vec<u8>> {
-        match self {
-            Self::Messages(records) => to_json_array(records),
-            Self::Particles(records) => to_json_array(records),
-            Self::Alerts(records) => to_json_array(records),
-            Self::LogEntries(records) => to_json_array(records),
-        }
+        RenderRows::to_json_array(self)
+    }
+
+    /// Serialize the records as JSON lines in the wire format, one record per line.
+    pub fn to_json_lines(&self) -> serde_json::Result<Vec<u8>> {
+        RenderRows::to_json_lines(self)
     }
 
     /// Render the records as CSV lines in the wire cell forms, under a header row
     /// unless suppressed.
-    pub fn to_csv_lines(&self, header: bool) -> String {
-        match self {
-            Self::Messages(records) => to_csv_lines(records, header),
-            Self::Particles(records) => to_csv_lines(records, header),
-            Self::Alerts(records) => to_csv_lines(records, header),
-            Self::LogEntries(records) => to_csv_lines(records, header),
-        }
+    pub fn to_csv_lines(&self, header: bool) -> serde_json::Result<String> {
+        RenderRows::to_csv_lines(self, header)
     }
 
     /// Serialize a field projection of the records as JSON lines, aliased objects.
@@ -410,12 +398,7 @@ impl Records {
         &self,
         fields: &[(String, String)],
     ) -> serde_json::Result<Vec<u8>> {
-        match self {
-            Self::Messages(records) => to_json_lines_projected(records, fields),
-            Self::Particles(records) => to_json_lines_projected(records, fields),
-            Self::Alerts(records) => to_json_lines_projected(records, fields),
-            Self::LogEntries(records) => to_json_lines_projected(records, fields),
-        }
+        RenderRows::to_json_lines_projected(self, fields)
     }
 
     /// Render a field projection of the records as CSV lines, an alias header row
@@ -425,12 +408,7 @@ impl Records {
         fields: &[(String, String)],
         header: bool,
     ) -> serde_json::Result<String> {
-        match self {
-            Self::Messages(records) => to_csv_lines_projected(records, fields, header),
-            Self::Particles(records) => to_csv_lines_projected(records, fields, header),
-            Self::Alerts(records) => to_csv_lines_projected(records, fields, header),
-            Self::LogEntries(records) => to_csv_lines_projected(records, fields, header),
-        }
+        RenderRows::to_csv_lines_projected(self, fields, header)
     }
 }
 
@@ -542,7 +520,7 @@ mod tests {
                 data: b"a,b \"c\"\nd".to_vec(),
             },
         ];
-        let rendered = to_csv_lines(&messages, true);
+        let rendered = to_csv_lines(&messages, true).unwrap();
         let mut lines = rendered.split_inclusive('\n');
         assert_eq!(
             lines.next().unwrap(),
@@ -580,7 +558,7 @@ mod tests {
             data,
             span: None,
         }];
-        let rendered = to_csv_lines(&particles, true);
+        let rendered = to_csv_lines(&particles, true).unwrap();
         assert!(rendered.starts_with("id,address,timestamp,type,data,span\n"));
         // JSON cells quote for their commas, keys staying in insertion order, and an
         // absent span renders as an empty cell.
@@ -675,7 +653,7 @@ mod tests {
     fn empty_sequences_still_render_the_csv_header() {
         let none: Vec<Message> = Vec::new();
         assert_eq!(
-            to_csv_lines(&none, true),
+            to_csv_lines(&none, true).unwrap(),
             "id,address,timestamp,connection,direction,data\n"
         );
         assert_eq!(
@@ -694,7 +672,7 @@ mod tests {
             content: "hello".to_string(),
         }];
         assert_eq!(
-            to_csv_lines(&entries, false),
+            to_csv_lines(&entries, false).unwrap(),
             "0198c0de-0000-7000-8000-000000000001,@sensor.temp,\
              2026-07-29T12:30:45.123456Z,info,hello\n"
         );
@@ -704,7 +682,7 @@ mod tests {
         );
 
         let none: Vec<LogEntry> = Vec::new();
-        assert_eq!(to_csv_lines(&none, false), "");
+        assert_eq!(to_csv_lines(&none, false).unwrap(), "");
         assert_eq!(
             to_csv_lines_projected(&none, &pairs(&[("id", "id")]), false).unwrap(),
             ""
