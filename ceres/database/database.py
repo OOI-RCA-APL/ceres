@@ -179,7 +179,7 @@ class Database:
         """
         ...
 
-    def _reader(self) -> Store | None:
+    def _reader(self) -> Store:
         """Return the natively-connected read-only store, built once and reused.
 
         The reader serves record listings through `fetch_sql` without materializing
@@ -193,7 +193,7 @@ class Database:
 
         return reader
 
-    def _record_writer(self) -> RecordWriter | None:
+    def _record_writer(self) -> RecordWriter:
         """Return the natively-connected record writer, built once and reused.
 
         The writer upserts flushed record batches without serializing Python entities

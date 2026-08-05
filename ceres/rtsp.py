@@ -346,6 +346,9 @@ async def rtsp(
             *("-rtsp_transport", transport),
             # Give up on a silent source, so a dead camera holding its connection open
             # becomes an exit the respawn loop recovers from rather than a stalled read.
+            # `-timeout` is the RTSP demuxer's socket I/O timeout in microseconds on
+            # ffmpeg 5 and newer. Older ffmpeg spelled that `-stimeout` and read
+            # `-timeout` as a listen-mode option, so pass `stall_timeout=None` there.
             *(("-timeout", str(int(stall_timeout * 1e6))) if stall_timeout else ()),
             # Read data from the input RTSP URL.
             *("-i", url),

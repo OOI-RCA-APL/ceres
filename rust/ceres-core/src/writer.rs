@@ -215,8 +215,8 @@ pub fn verify_password(py: Python<'_>, password: &str, hash: &str) -> bool {
 /// A natively-connected writer for record entities.
 ///
 /// Entities extract into native records synchronously, then a whole flush upserts in one
-/// transaction on the writer's own pool. Built from resolved connection parameters like
-/// the fetcher, and matching the query layer's connection semantics.
+/// transaction on the writer's own pool. Built from the same resolved connection the
+/// stores open from, so it cannot connect differently than the query layer.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RecordWriter {
@@ -237,7 +237,7 @@ impl RecordWriter {
 
     /// Upsert groups of record entities atomically, as an awaitable.
     ///
-    /// Each group pairs a record table name with the entities to write there. Raises
+    /// Each group pairs a record table with the entities to write there. Raises
     /// `ValueError` when an entity cannot extract natively, before anything writes.
     fn write<'py>(
         &self,

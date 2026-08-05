@@ -11,7 +11,7 @@ filters declare.
 
 import json
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
@@ -25,7 +25,6 @@ from ceres.__internal__.core import (
 )
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.config import Config
 from ceres.data import to_json, validate
 from ceres.group import Group, GroupMembership
 from ceres.level import Level
@@ -37,9 +36,6 @@ from ceres.setting import Setting
 from ceres.user import User
 from ceres.variable import Variable
 from ceres.workspace import Workspace, WorkspaceEdit
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 pytestmark = pytest.mark.databases()
 """Every backend, since a dialect is where the two paths could render differently."""
@@ -72,22 +68,9 @@ sit hours from every age boundary and a few seconds of skew cannot recross one.
 """
 
 
-async def _build_engine(tmp_path: Path) -> Engine:
-    """Build an engine on the run's backend, on disk when the default cannot fetch natively."""
+async def _build_engine() -> Engine:
+    """Build an engine on the run's backend."""
     engine = Engine()
-    if engine.database._reader() is None:
-        engine = Engine()
-        await engine.load(
-            validate(
-                Config,
-                {
-                    "components": [],
-                    "database": {"type": "sqlite", "path": str(tmp_path / "parity.sqlite")},
-                },
-            ),
-            checks=(),
-        )
-
     await engine.database.migrate()
     return engine
 
@@ -316,12 +299,11 @@ def _resolve(engine: Engine, pairs: list[tuple[str, str]]) -> list[tuple[str, st
     return resolved
 
 
-async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None:
+async def test_the_native_subset_matches_the_query_layer() -> None:
     """Every supported vector produces byte-identical records through both compilers."""
-    engine = await _build_engine(tmp_path)
+    engine = await _build_engine()
     await _seed(engine)
     reader = engine.database._reader()
-    assert reader is not None
 
     try:
         for Record, vectors in VECTORS.items():
@@ -358,12 +340,11 @@ async def test_the_native_subset_matches_the_query_layer(tmp_path: Path) -> None
         await engine.database.dispose()
 
 
-async def test_exact_timestamps_match_in_both_stored_precisions(tmp_path: Path) -> None:
+async def test_exact_timestamps_match_in_both_stored_precisions() -> None:
     """Whole-second and microsecond timestamps both round-trip the stored text form."""
-    engine = await _build_engine(tmp_path)
+    engine = await _build_engine()
     await _seed(engine)
     reader = engine.database._reader()
-    assert reader is not None
 
     try:
         for index in (1, 2):

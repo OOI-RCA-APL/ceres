@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:2b0942b290fcf554 -->
+<!-- coverage:fingerprint:6ba7fbe58770c6f4 -->
 
 ## Python
 
@@ -12,7 +12,7 @@
 | `ceres/__internal__/auth.py` | 94% |
 | `ceres/__internal__/database/__init__.py` | 100% |
 | `ceres/__internal__/database/errors.py` | 100% |
-| `ceres/__internal__/database/writer.py` | 82% |
+| `ceres/__internal__/database/writer.py` | 83% |
 | `ceres/__internal__/entity.py` | 94% |
 | `ceres/__internal__/filter.py` | 100% |
 | `ceres/__internal__/interop.py` | 86% |

@@ -21,13 +21,13 @@ use crate::cli::{Cli, Command, ConsoleCommand, ServiceCommand};
 use crate::client::Client;
 use crate::commands::engine::Operation;
 use crate::error::Result;
+use crate::output::Output;
+use crate::project::Project;
 
 /// Rust allocations go through mimalloc, matching the extension module, so both
 /// artifacts behave the same under allocation-heavy dumps and loads.
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
-use crate::output::Output;
-use crate::project::Project;
 
 fn main() -> ExitCode {
     // Delegation replays the original arguments untouched, so capture them before parsing.

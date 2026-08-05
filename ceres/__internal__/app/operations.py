@@ -198,17 +198,13 @@ async def records_list(host: Host, arguments: dict[str, Any]) -> Any:
     if query._get_transform() is not None:
         return _entities(await query)
 
+    # The query compiles here and executes natively, rows never enter Python at all,
+    # and any filter the query layer can express is covered. A native failure raises,
+    # because the parity suites hold the two engines to identical semantics and a
+    # silent fallback would hide exactly the drift they exist to catch.
     reader = query._get_database()._reader()
-    if reader is not None:
-        # The query compiles here and executes natively, rows never enter Python at all,
-        # and any filter the query layer can express is covered. A native failure raises,
-        # because the parity suites hold the two engines to identical semantics and a
-        # silent fallback would hide exactly the drift they exist to catch.
-        sql, parameters = await query.compiled()
-        batch = await reader.fetch_sql(table, sql, parameters)
-    else:
-        batch = RecordBatch.parse(table, await query.mappings())
-
+    sql, parameters = await query.compiled()
+    batch = await reader.fetch_sql(table, sql, parameters)
     return Raw(batch.to_json().decode())
 
 

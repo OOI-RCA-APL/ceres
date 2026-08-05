@@ -192,10 +192,6 @@ class Writer:
         parity suites hold the two engines to identical semantics and a silent fallback
         would hide exactly the drift they exist to catch.
         """
-        writer = database._record_writer()
-        if writer is None:
-            return False
-
         from ceres.__internal__.core import RecordTable
         from ceres.alert import Alert
         from ceres.logs import LogEntry
@@ -216,12 +212,12 @@ class Writer:
                 return False
 
             # A typed payload serializes through Pydantic, which only the query layer runs.
-            if table is RecordTable.PARTICLES and isinstance(entity.data, ParticleData):
+            if isinstance(entity, Particle) and isinstance(entity.data, ParticleData):
                 return False
 
             groups[table].append(entity)
 
-        await writer.write(list(groups.items()))
+        await database._record_writer().write(list(groups.items()))
         return True
 
     async def _write_entities(self, database: Database, entities: Iterable[Entity]) -> None:
