@@ -27,11 +27,11 @@ pub struct ConfigMeta {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct RawConfigMeta {
-    service: Option<serde_yaml_ng::Value>,
-    console: Option<serde_yaml_ng::Value>,
-    server: Option<serde_yaml_ng::Value>,
-    logging: Option<serde_yaml_ng::Value>,
-    database: Option<serde_yaml_ng::Value>,
+    service: Option<yaml_serde::Value>,
+    console: Option<yaml_serde::Value>,
+    server: Option<yaml_serde::Value>,
+    logging: Option<yaml_serde::Value>,
+    database: Option<yaml_serde::Value>,
 }
 
 impl ConfigMeta {
@@ -56,7 +56,7 @@ impl ConfigMeta {
             return Ok(Self::default());
         }
 
-        let raw: RawConfigMeta = serde_yaml_ng::from_str(content)
+        let raw: RawConfigMeta = yaml_serde::from_str(content)
             .map_err(|error| Problems(vec![Problem::new("", error.to_string())]))?;
 
         let mut problems = Problems::default();
@@ -98,7 +98,7 @@ impl ConfigMeta {
 /// Returns the section's default when the section is absent or invalid, with any problems
 /// recorded under the section's name.
 fn validate_section<Raw, Validated>(
-    value: Option<serde_yaml_ng::Value>,
+    value: Option<yaml_serde::Value>,
     section: &str,
     problems: &mut Problems,
 ) -> Validated
@@ -110,7 +110,7 @@ where
         return Validated::default();
     };
 
-    let raw: Raw = match serde_yaml_ng::from_value(value) {
+    let raw: Raw = match yaml_serde::from_value(value) {
         Ok(raw) => raw,
         Err(error) => {
             problems.push(Problem::new(section, error.to_string()));

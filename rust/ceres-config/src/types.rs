@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn unknown_service_fields_are_rejected() {
-        let error = serde_yaml_ng::from_str::<RawServiceConfig>("names: typo\n").unwrap_err();
+        let error = yaml_serde::from_str::<RawServiceConfig>("names: typo\n").unwrap_err();
         assert!(error.to_string().contains("names"));
     }
 }

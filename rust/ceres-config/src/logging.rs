@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn logging_sections_parse_levels_and_toggles() {
         let raw: RawLoggingConfig =
-            serde_yaml_ng::from_str("output: debug\nevents: true\nmessages: warning\n").unwrap();
+            yaml_serde::from_str("output: debug\nevents: true\nmessages: warning\n").unwrap();
         let config = LoggingConfig::try_from(raw).unwrap();
 
         assert_eq!(config.output(), Level::Debug);

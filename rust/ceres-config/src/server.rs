@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn full_server_sections_validate() {
-        let raw: RawServerConfig = serde_yaml_ng::from_str(
+        let raw: RawServerConfig = yaml_serde::from_str(
             "host: 127.0.0.1\nport: 8080\nauthentication:\n  secret: hunter2\n  duration: PT1H\n\
              cors:\n  allow_origins: '*'\ncompression:\n  min_size: 1KiB\n",
         )
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn problems_nest_under_their_sections() {
-        let raw: RawServerConfig = serde_yaml_ng::from_str(
+        let raw: RawServerConfig = yaml_serde::from_str(
             "host: not-an-ip\nauthentication:\n  secret: ''\ncompression:\n  zstd_level: 99\n",
         )
         .unwrap();
@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn bad_origin_patterns_are_rejected() {
         let raw: RawServerCorsConfig =
-            serde_yaml_ng::from_str("allow_origin_regex: '('\n").unwrap();
+            yaml_serde::from_str("allow_origin_regex: '('\n").unwrap();
         let problems = ServerCorsConfig::try_from(raw).unwrap_err();
         assert_eq!(problems.0[0].location, "allow_origin_regex");
     }

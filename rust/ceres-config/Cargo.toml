@@ -12,7 +12,7 @@ regex-lite = "0.1"
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml_ng = "0.10"
+yaml_serde = "0.10"
 
 [lints]
 workspace = true

@@ -534,7 +534,7 @@ mod tests {
     #[test]
     fn database_configurations_dispatch_by_type() {
         let raw: RawDatabaseConfig =
-            serde_yaml_ng::from_str("type: sqlite\npath: ./local/database.sqlite\n").unwrap();
+            yaml_serde::from_str("type: sqlite\npath: ./local/database.sqlite\n").unwrap();
         let config = DatabaseConfig::try_from(raw).unwrap();
 
         let DatabaseConfig::Sqlite(sqlite) = config else {
@@ -554,7 +554,7 @@ mod tests {
             "type: sqlite\npath: ':memory:'\n",
             "type: turso\npath: ':memory:'\n",
         ] {
-            let raw: RawDatabaseConfig = serde_yaml_ng::from_str(text).unwrap();
+            let raw: RawDatabaseConfig = yaml_serde::from_str(text).unwrap();
             let problems = DatabaseConfig::try_from(raw).expect_err("the path is refused");
             assert!(
                 format!("{problems}").contains("must name a file"),
@@ -563,13 +563,13 @@ mod tests {
         }
 
         // A temporary on-disk database is what an omitted path already gives.
-        let raw: RawDatabaseConfig = serde_yaml_ng::from_str("type: sqlite\n").unwrap();
+        let raw: RawDatabaseConfig = yaml_serde::from_str("type: sqlite\n").unwrap();
         DatabaseConfig::try_from(raw).expect("an omitted path is fine");
     }
 
     #[test]
     fn postgres_requires_its_connection_fields() {
-        let raw: RawPostgresDatabaseConfig = serde_yaml_ng::from_str("host: localhost\n").unwrap();
+        let raw: RawPostgresDatabaseConfig = yaml_serde::from_str("host: localhost\n").unwrap();
         let problems = PostgresDatabaseConfig::try_from(raw).unwrap_err();
         let locations: Vec<&str> = problems
             .0
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn passwords_serialize_masked() {
-        let raw: RawPostgresDatabaseConfig = serde_yaml_ng::from_str(
+        let raw: RawPostgresDatabaseConfig = yaml_serde::from_str(
             "host: localhost\ndatabase: ceres\nuser: ceres\npassword: hunter2\n",
         )
         .unwrap();
@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn hashing_configurations_validate_their_parameters() {
-        let raw: RawSqliteDatabaseConfig = serde_yaml_ng::from_str(
+        let raw: RawSqliteDatabaseConfig = yaml_serde::from_str(
             "hashing:\n  type: argon2\n  memory_cost: 16\n  parallelism: 4\n",
         )
         .unwrap();
@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn hashing_configurations_fill_their_defaults() {
-        let raw: RawHashingConfig = serde_yaml_ng::from_str("type: bcrypt\n").unwrap();
+        let raw: RawHashingConfig = yaml_serde::from_str("type: bcrypt\n").unwrap();
         let config = HashingConfig::try_from(raw).unwrap();
         assert_eq!(
             config,
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn turso_defaults_to_a_plain_sqlite_file() {
-        let raw: RawTursoDatabaseConfig = serde_yaml_ng::from_str("path: ./db\n").unwrap();
+        let raw: RawTursoDatabaseConfig = yaml_serde::from_str("path: ./db\n").unwrap();
         let config = TursoDatabaseConfig::try_from(raw).unwrap();
         assert!(!config.mvcc);
     }

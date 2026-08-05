@@ -440,11 +440,11 @@ mod tests {
 
     #[test]
     fn maybe_sequences_keep_their_written_shape() {
-        let one: MaybeSequence<String> = serde_yaml_ng::from_str("'*'").unwrap();
+        let one: MaybeSequence<String> = yaml_serde::from_str("'*'").unwrap();
         assert_eq!(one, MaybeSequence::One("*".to_string()));
         assert_eq!(serde_json::to_string(&one).unwrap(), "\"*\"");
 
-        let many: MaybeSequence<String> = serde_yaml_ng::from_str("[a, b]").unwrap();
+        let many: MaybeSequence<String> = yaml_serde::from_str("[a, b]").unwrap();
         assert_eq!(many.as_slice().len(), 2);
     }
 }
