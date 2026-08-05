@@ -187,9 +187,10 @@ class Writer:
         """Write a whole flush through the native engine, or report that it cannot.
 
         A flush is atomic, so it only goes native when every entity in it is an exact
-        record type the native engine holds. Anything else, including a native execution
-        failure, sends the entire flush down the query layer path instead, which keeps the
-        write correct and the failure handling in one place.
+        record type the native engine holds. Anything else sends the entire flush down
+        the query layer path instead. A native execution failure raises, because the
+        parity suites hold the two engines to identical semantics and a silent fallback
+        would hide exactly the drift they exist to catch.
         """
         writer = database._record_writer()
         if writer is None:
@@ -199,7 +200,7 @@ class Writer:
         from ceres.alert import Alert
         from ceres.logs import LogEntry
         from ceres.message import Message
-        from ceres.particle import Particle
+        from ceres.particle import Particle, ParticleData
 
         tables: dict[type, RecordTable] = {
             Message: RecordTable.MESSAGES,
@@ -214,18 +215,13 @@ class Writer:
             if table is None:
                 return False
 
+            # A typed payload serializes through Pydantic, which only the query layer runs.
+            if table is RecordTable.PARTICLES and isinstance(entity.data, ParticleData):
+                return False
+
             groups[table].append(entity)
 
-        try:
-            await writer.write(list(groups.items()))
-        except (TypeError, ValueError) as error:
-            from ceres.logs import get_logger
-
-            get_logger("ceres.database").warning(
-                f"Native record write fell back to the query layer. {error}"
-            )
-            return False
-
+        await writer.write(list(groups.items()))
         return True
 
     async def _write_entities(self, database: Database, entities: Iterable[Entity]) -> None:

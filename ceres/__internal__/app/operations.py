@@ -35,7 +35,7 @@ from ceres.error import (
     simplify,
 )
 from ceres.group import Group, GroupFilter, GroupMembership
-from ceres.logs import LogEntry, get_logger
+from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.particle import Particle
 from ceres.setting import Setting
@@ -198,22 +198,15 @@ async def records_list(host: Host, arguments: dict[str, Any]) -> Any:
     if query._get_transform() is not None:
         return _entities(await query)
 
-    batch = None
     reader = query._get_database()._reader()
     if reader is not None:
         # The query compiles here and executes natively, rows never enter Python at all,
-        # and any filter the query layer can express is covered.
+        # and any filter the query layer can express is covered. A native failure raises,
+        # because the parity suites hold the two engines to identical semantics and a
+        # silent fallback would hide exactly the drift they exist to catch.
         sql, parameters = await query.compiled()
-        try:
-            batch = await reader.fetch_sql(table, sql, parameters)
-        except (TypeError, ValueError) as error:
-            # The native engine can lag the Python one in corner cases. The listing stays
-            # correct through the fallback, just slower.
-            get_logger("ceres.database").warning(
-                f"Native record fetch fell back to the query layer. {error}"
-            )
-
-    if batch is None:
+        batch = await reader.fetch_sql(table, sql, parameters)
+    else:
         batch = RecordBatch.parse(table, await query.mappings())
 
     return Raw(batch.to_json().decode())
