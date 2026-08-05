@@ -13,7 +13,6 @@ name = "ceres_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-ceres-binary = { path = "../ceres-binary" }
 ceres-config = { path = "../ceres-config" }
 ceres-database = { path = "../ceres-database" }
 ceres-entities = { path = "../ceres-entities" }

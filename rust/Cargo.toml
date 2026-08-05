@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = [
-    "ceres-binary",
     "ceres-cli",
     "ceres-config",
     "ceres-core",
@@ -16,7 +15,6 @@ members = [
 # it out of the default set keeps those the only builds, because a third one in the same
 # invocation collides with the build-dependency copy on identical output filenames.
 default-members = [
-    "ceres-binary",
     "ceres-cli",
     "ceres-config",
     "ceres-database",

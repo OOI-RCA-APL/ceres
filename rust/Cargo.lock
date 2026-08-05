@@ -668,13 +668,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ceres-binary"
-version = "0.0.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "ceres-cli"
 version = "0.0.0"
 dependencies = [
@@ -716,7 +709,6 @@ name = "ceres-core"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "ceres-binary",
  "ceres-cli",
  "ceres-config",
  "ceres-database",
