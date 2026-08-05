@@ -24,6 +24,7 @@ from ceres.__internal__.core import (
     hash_bcrypt,
     normalize_email,
     special_use_domains,
+    verify_argon2,
     verify_bcrypt,
 )
 from ceres.config import Argon2HashingConfig, HashType
@@ -82,6 +83,24 @@ def test_a_hash_written_by_the_old_library_still_verifies(hashed: str) -> None:
     """
     assert verify_password(STORED_PASSWORD, validate(Argon2Hash, hashed))
     assert not verify_password("wrong password", validate(Argon2Hash, hashed))
+
+
+@pytest.mark.parametrize("hashed", ARGON2_CFFI_HASHES)
+def test_the_direct_argon2_verifier_answers_like_the_dispatcher(hashed: str) -> None:
+    """`verify_argon2` is the dispatcher's Argon2 arm, so it must answer identically.
+
+    The dispatcher tests above prove the arm through `verify_password`, and this holds
+    the direct export to the same answers so it cannot drift unnoticed.
+    """
+    assert verify_argon2(STORED_PASSWORD, hashed)
+    assert not verify_argon2("wrong password", hashed)
+
+
+def test_the_direct_argon2_verifier_accepts_a_native_hash() -> None:
+    """A natively-produced hash verifies through the direct Argon2 verifier too."""
+    hashed = _hash("secret")
+    assert verify_argon2("secret", hashed)
+    assert not verify_argon2("nope", hashed)
 
 
 BCRYPT_HASHES = [
