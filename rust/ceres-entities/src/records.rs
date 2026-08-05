@@ -436,8 +436,7 @@ impl Records {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
-    use chrono::Utc;
+    use chrono::{TimeZone, Utc};
 
     use super::*;
 

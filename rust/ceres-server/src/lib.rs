@@ -18,11 +18,10 @@ mod scrub;
 mod serve;
 mod tls;
 
-pub use axum;
-
 pub use api::schema::document as openapi_document;
 pub use app::{AppConfig, ConsolePaths, build_router};
 pub use auth::AuthSettings;
+pub use axum;
 pub use host::{Answer, GateUser, Host, HostError, Served, StreamClose, UserRecord};
 pub use layers::{apply_compression, apply_cors};
 pub use serve::{BoundServer, Stopper};

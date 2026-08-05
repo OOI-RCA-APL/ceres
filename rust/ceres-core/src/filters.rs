@@ -10,12 +10,11 @@
 //! things from it either way, so the table it names decides which schema parses it and
 //! nothing above here has to know which half it fell in.
 
+use ceres_database::{Refusal, SqlDialect, Table};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
-
-use ceres_database::{Refusal, SqlDialect, Table};
 
 /// A filter parsed against one table's schema.
 enum Parsed {

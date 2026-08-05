@@ -21,10 +21,10 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde_json::Value;
-
-use crate::interop::to_value_error;
 use serde_json::value::RawValue;
 use uuid::Uuid;
+
+use crate::interop::to_value_error;
 
 /// The Python engine as the server's host.
 ///

@@ -10,10 +10,9 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::error::{Result, failure};
-
 #[cfg(not(unix))]
 use crate::error::Exit;
+use crate::error::{Result, failure};
 
 /// Replace the current process with the runtime running the given CLI arguments.
 ///

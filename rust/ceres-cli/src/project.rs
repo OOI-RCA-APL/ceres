@@ -5,10 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
+use ceres_config::ConfigMeta;
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
-
-use ceres_config::ConfigMeta;
 
 use crate::error::{Result, failure};
 

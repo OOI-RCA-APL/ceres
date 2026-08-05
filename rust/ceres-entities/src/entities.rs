@@ -417,7 +417,6 @@ entity_batches! {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::Filterable;
 
     fn keys<T: Filterable>() -> Vec<&'static str> {
