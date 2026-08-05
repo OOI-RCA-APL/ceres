@@ -1,4 +1,5 @@
 site_name: Ceres Docs
+site_url: https://ooi-rca-apl.github.io/ceres/
 repo_url: https://github.com/OOI-RCA-APL/ceres
 theme:
   name: material

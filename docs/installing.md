@@ -44,3 +44,23 @@ Constrain the version as you would any dependency. Released versions are listed 
 ```sh
 uv add ceres==0.41.0
 ```
+
+## Installing from GitHub
+
+Every release's wheels are also attached to the
+[GitHub release](https://github.com/OOI-RCA-APL/ceres/releases) and served through a
+package index on this documentation site, so installs resolve pre-built wheels straight
+from GitHub:
+
+```sh
+uv add ceres --index https://ooi-rca-apl.github.io/ceres/simple/
+```
+
+`pip` takes the same index as `--extra-index-url`. To keep using plain `uv add ceres`
+afterwards, record the index in your project instead:
+
+```toml
+[[tool.uv.index]]
+name = "ceres"
+url = "https://ooi-rca-apl.github.io/ceres/simple/"
+```

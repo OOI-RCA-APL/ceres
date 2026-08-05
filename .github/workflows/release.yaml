@@ -125,6 +125,27 @@ jobs:
           name: sdist
           path: dist
 
+  # The wheels and sdist also attach to the GitHub release itself, which is what the
+  # Pages package index links against, so installs resolve from GitHub with no PyPI
+  # involved. Separate from the publish job so neither destination blocks the other.
+  attach:
+    needs: [build, sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attach to the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release upload '${{ github.event.release.tag_name }}' dist/*
+          --clobber --repo '${{ github.repository }}'
+
   publish:
     needs: [build, sdist]
     runs-on: ubuntu-latest

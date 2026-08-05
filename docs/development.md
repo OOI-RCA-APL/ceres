@@ -173,8 +173,10 @@ The "Unreleased" section of `CHANGELOG.md` is the release notes, shipped verbati
 
 The script retitles the changelog section to the version and date, commits and pushes
 that, and creates the GitHub release with the entry as its notes, which triggers the
-wheel builds and the PyPI publish. Nothing rewrites the notes along the way, what the
-file says is what the release says.
+wheel builds and the PyPI publish. The built wheels and sdist also attach to the GitHub
+release itself, and when the release workflow finishes, the Pages site redeploys so its
+package index picks them up. Nothing rewrites the notes along the way, what the file
+says is what the release says.
 
 Publishing a GitHub release is the only trigger. Pushing to `main` runs ordinary CI and
 never builds wheels or publishes, and neither does pushing a tag by hand. The release
@@ -196,3 +198,8 @@ make build-docs
 ```
 
 The docs use [mkdocs-material](https://squidfunk.github.io/mkdocs-material/) with [mkdocstrings](https://mkdocstrings.github.io/) for auto-generated API reference.
+
+The published site at <https://ooi-rca-apl.github.io/ceres/> deploys through the
+`pages` workflow, which also regenerates the package index under `/simple/` from the
+release assets. It runs whenever the release workflow completes and on manual dispatch,
+so the published docs track releases rather than every push.

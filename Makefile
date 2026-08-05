@@ -46,7 +46,5 @@ fix:
 	cd rust && cargo stubs
 build-docs: install-docs
 	uv run mkdocs build
-deploy-docs: install-docs
-	uv run mkdocs gh-deploy --force
 install-docs:
 	uv sync --only-group docs
