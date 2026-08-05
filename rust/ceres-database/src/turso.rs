@@ -351,14 +351,6 @@ impl TursoBackend {
     }
 
     /// Execute a statement that returns no rows, answering how many it touched.
-    pub(crate) async fn execute_dynamic(
-        &self,
-        sql: &str,
-        parameters: Vec<Value>,
-    ) -> Result<u64, Error> {
-        self.execute_write(sql, parameters).await
-    }
-
     /// Run a script of `;`-separated statements in one transaction.
     ///
     /// Turso's own `execute_batch` opens a transaction of its own, which would commit
@@ -370,23 +362,19 @@ impl TursoBackend {
             // Plainly, never concurrently. A script is how a migration runs, and the
             // engine refuses a schema change inside a concurrent transaction.
             self.begin(connection, Writing::Default).await?;
-            for statement in sql.split(';') {
-                if statement.trim().is_empty() {
-                    continue;
+            let ran: Result<(), Error> = async {
+                for statement in sql.split(';') {
+                    if statement.trim().is_empty() {
+                        continue;
+                    }
+
+                    connection.execute(statement, ()).await?;
                 }
 
-                if let Err(error) = connection.execute(statement, ()).await {
-                    let _ = connection.execute("ROLLBACK", ()).await;
-                    return Err(error.into());
-                }
+                Ok(())
             }
-
-            if let Err(error) = connection.execute("COMMIT", ()).await {
-                let _ = connection.execute("ROLLBACK", ()).await;
-                return Err(error.into());
-            }
-
-            Ok(())
+            .await;
+            self.settle(connection, ran).await
         })
         .await
     }
@@ -399,23 +387,11 @@ impl TursoBackend {
     ) -> Result<u64, Error> {
         self.using(async |connection| {
             self.begin(connection, Writing::Default).await?;
-            let affected = match connection
+            let affected = connection
                 .execute(sql, turso::params_from_iter(parameters))
                 .await
-            {
-                Ok(affected) => affected,
-                Err(error) => {
-                    let _ = connection.execute("ROLLBACK", ()).await;
-                    return Err(error.into());
-                }
-            };
-
-            if let Err(error) = connection.execute("COMMIT", ()).await {
-                let _ = connection.execute("ROLLBACK", ()).await;
-                return Err(error.into());
-            }
-
-            Ok(affected)
+                .map_err(Error::from);
+            self.settle(connection, affected).await
         })
         .await
     }
@@ -499,22 +475,17 @@ impl TursoBackend {
     ) -> Result<(), Error> {
         self.using(async |connection| {
             self.begin(connection, writing).await?;
-            for (sql, parameters) in statements {
-                if let Err(error) = connection
-                    .execute(&sql, turso::params_from_iter(parameters))
-                    .await
-                {
-                    let _ = connection.execute("ROLLBACK", ()).await;
-                    return Err(error.into());
+            let ran: Result<(), Error> = async {
+                for (sql, parameters) in statements {
+                    connection
+                        .execute(&sql, turso::params_from_iter(parameters))
+                        .await?;
                 }
-            }
 
-            if let Err(error) = connection.execute("COMMIT", ()).await {
-                let _ = connection.execute("ROLLBACK", ()).await;
-                return Err(error.into());
+                Ok(())
             }
-
-            Ok(())
+            .await;
+            self.settle(connection, ran).await
         })
         .await
     }

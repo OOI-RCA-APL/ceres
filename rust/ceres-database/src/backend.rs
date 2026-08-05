@@ -744,7 +744,7 @@ impl DatabaseBackend for crate::turso::TursoBackend {
     }
 
     async fn execute(&self, sql: &str, parameters: Vec<Parameter>) -> Result<u64, Error> {
-        self.execute_dynamic(sql, values(parameters)).await
+        self.execute_write(sql, values(parameters)).await
     }
 
     async fn execute_script(&self, sql: &str) -> Result<(), Error> {
