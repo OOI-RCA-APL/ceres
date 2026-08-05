@@ -29,7 +29,7 @@ use sea_query::{
 };
 use uuid::Uuid;
 
-use serde_norway::Value as Yaml;
+use yaml_serde::Value as Yaml;
 
 use ceres_entities::Address;
 
@@ -979,7 +979,7 @@ fn parse_yaml(text: &str) -> Result<Yaml, Refusal> {
         return Ok(Yaml::Null);
     }
 
-    serde_norway::from_str(text).map_err(|_| Refusal::invalid(format!("invalid YAML {text:?}")))
+    yaml_serde::from_str(text).map_err(|_| Refusal::invalid(format!("invalid YAML {text:?}")))
 }
 
 /// A filter node mid-parse, its query controls and subfilter groups still attached.
@@ -1177,7 +1177,7 @@ impl Parsed {
     }
 
     /// Parse one subfilter from its YAML mapping.
-    fn from_yaml(table: Schema, mapping: &serde_norway::Mapping) -> Result<Self, Refusal> {
+    fn from_yaml(table: Schema, mapping: &yaml_serde::Mapping) -> Result<Self, Refusal> {
         let mut parsed = Self::default();
         for (key, value) in mapping {
             let Some(key) = key.as_str() else {
@@ -2321,7 +2321,7 @@ fn speedate_config() -> speedate::TimeConfig {
 /// the comparison is on serialized form and a number, a string, and a structure all
 /// compare by the same rule.
 fn json_text(value: &str) -> Result<String, Refusal> {
-    let parsed: serde_json::Value = serde_norway::from_str(value)
+    let parsed: serde_json::Value = yaml_serde::from_str(value)
         .map_err(|_| Refusal::invalid(format!("invalid value {value:?}")))?;
     Ok(parsed.to_string())
 }

@@ -32,7 +32,7 @@ sea-query-binder = { version = "0.7", features = [
 ] }
 serde = "1"
 serde_json = "1"
-serde_norway = "0.9.42"
+yaml_serde = "0.10"
 speedate = "0.17.0"
 sqlx = { version = "0.8", default-features = false, features = [
     "chrono",

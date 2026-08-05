@@ -287,7 +287,7 @@ fn wire_object(schema: Schema, values: &[(String, String)]) -> Option<Map<String
     for (key, text) in values {
         let field = schema.columns.iter().find(|field| field.key == key)?;
         let value = match field.family {
-            FieldFamily::Json | FieldFamily::JsonValue => serde_norway::from_str(text).ok()?,
+            FieldFamily::Json | FieldFamily::JsonValue => yaml_serde::from_str(text).ok()?,
             _ => text.clone().into(),
         };
         object.insert(key.clone(), value);
@@ -366,7 +366,7 @@ fn entities(table: EntityTable, objects: &[Map<String, Value>]) -> Option<Entiti
                 }
 
                 if let Some(Value::String(text)) = row.get(field.key) {
-                    let parsed = serde_norway::from_str(text).ok()?;
+                    let parsed = yaml_serde::from_str(text).ok()?;
                     row.insert(field.key.to_string(), parsed);
                 }
             }

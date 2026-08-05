@@ -104,16 +104,16 @@ pub fn status(project: &Project, output: &Output, addresses: &[String]) -> Resul
 fn component_addresses(config_path: &Path) -> Result<Vec<String>> {
     let text = std::fs::read_to_string(config_path)
         .map_err(|error| Exit::failed(format!("Cannot read the configuration. {error}")))?;
-    let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(&text)
+    let root: yaml_serde::Value = yaml_serde::from_str(&text)
         .map_err(|error| Exit::failed(format!("Cannot parse the configuration. {error}")))?;
 
-    fn walk(components: Option<&serde_yaml_ng::Value>, parent: &str, addresses: &mut Vec<String>) {
-        let Some(serde_yaml_ng::Value::Sequence(entries)) = components else {
+    fn walk(components: Option<&yaml_serde::Value>, parent: &str, addresses: &mut Vec<String>) {
+        let Some(yaml_serde::Value::Sequence(entries)) = components else {
             return;
         };
 
         for entry in entries {
-            let Some(name) = entry.get("name").and_then(serde_yaml_ng::Value::as_str) else {
+            let Some(name) = entry.get("name").and_then(yaml_serde::Value::as_str) else {
                 continue;
             };
 

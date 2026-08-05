@@ -534,7 +534,7 @@ impl RecordStore {
     ) -> Result<Vec<crate::assign::Assignment>, String> {
         // The assignments are one YAML or JSON object, and anything else is not an
         // assignment at all.
-        let values = match serde_norway::from_str(assign) {
+        let values = match yaml_serde::from_str(assign) {
             Ok(serde_json::Value::Object(values)) => values,
             Ok(_) => {
                 return Err("--assign takes an object of column names and values, like \
@@ -629,7 +629,7 @@ impl RecordStore {
         assign: &str,
         credentials: Option<Credentials>,
     ) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
-        let mut values = match serde_norway::from_str::<serde_json::Value>(assign) {
+        let mut values = match yaml_serde::from_str::<serde_json::Value>(assign) {
             Ok(serde_json::Value::Object(values)) => values,
             Ok(_) => {
                 return Err(Error::Refused(
