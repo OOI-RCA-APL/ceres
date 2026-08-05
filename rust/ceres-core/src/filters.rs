@@ -66,7 +66,7 @@ fn dialect_of(name: &str) -> PyResult<SqlDialect> {
 }
 
 /// The table a filter names, refusing one no table answers to.
-fn table_of(name: &str) -> PyResult<Table> {
+pub(crate) fn table_of(name: &str) -> PyResult<Table> {
     Table::parse(name).ok_or_else(|| PyValueError::new_err(format!("no table is named {name:?}")))
 }
 

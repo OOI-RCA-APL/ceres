@@ -21,6 +21,8 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde_json::Value;
+
+use crate::interop::to_value_error;
 use serde_json::value::RawValue;
 use uuid::Uuid;
 
@@ -360,7 +362,7 @@ impl<'a> Envelope<'a> {
 pub fn openapi_schema(version: &str) -> PyResult<String> {
     ceres_server::openapi_document(version)
         .to_json()
-        .map_err(|error| PyValueError::new_err(error.to_string()))
+        .map_err(to_value_error)
 }
 
 /// A natively-served HTTP application.
@@ -394,7 +396,7 @@ impl NativeServer {
             .as_ref()
             .map(|authentication| -> PyResult<AuthSettings> {
                 let duration = chrono::TimeDelta::from_std(authentication.duration.duration())
-                    .map_err(|error| PyValueError::new_err(error.to_string()))?;
+                    .map_err(to_value_error)?;
                 Ok(AuthSettings::new(
                     &authentication.secret,
                     duration,
@@ -421,12 +423,9 @@ impl NativeServer {
         let router = apply_compression(router, config.compression.as_ref());
         let router = apply_cors(router, config.cors.as_ref());
 
-        let mut server = BoundServer::bind(bind, port)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let mut server = BoundServer::bind(bind, port).map_err(to_value_error)?;
         if with_tls && let Some(ssl) = config.ssl.as_ref() {
-            server = server
-                .with_tls(ssl)
-                .map_err(|error| PyValueError::new_err(error.to_string()))?;
+            server = server.with_tls(ssl).map_err(to_value_error)?;
         }
 
         let stopper = server.stopper();

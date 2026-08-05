@@ -12,7 +12,7 @@ pub mod binary;
 pub mod database;
 pub mod entities;
 pub mod fetcher;
-mod filters;
+pub mod filters;
 pub mod interop;
 pub mod logging;
 pub mod server;

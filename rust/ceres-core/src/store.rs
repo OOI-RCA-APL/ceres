@@ -13,7 +13,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::fetcher::{extract_parameter, to_value_error};
+use crate::fetcher::extract_parameter;
+use crate::interop::to_value_error;
 
 /// A natively-connected database the query layer reads and writes through.
 #[gen_stub_pyclass]
@@ -250,7 +251,7 @@ impl RowChunks {
                     receiver.recv()
                 })
                 .await
-                .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+                .map_err(to_value_error)?;
 
             match received {
                 // A disconnected channel is the query having run to its end.
@@ -272,12 +273,7 @@ impl RowChunks {
 
 /// The table a statement reads, by name, refusing one no table answers to.
 fn named(table: Option<&str>) -> PyResult<Option<Table>> {
-    match table {
-        None => Ok(None),
-        Some(name) => Table::parse(name).map(Some).ok_or_else(|| {
-            pyo3::exceptions::PyValueError::new_err(format!("no table is named {name:?}"))
-        }),
-    }
+    table.map(crate::filters::table_of).transpose()
 }
 
 /// One row as a mapping of column name to the Python value the column holds.

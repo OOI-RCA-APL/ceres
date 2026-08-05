@@ -8,12 +8,13 @@
 use std::sync::Arc;
 
 use ceres_database::{Parameter, RecordStore};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes as PyBytesType, PyFloat, PyInt, PyString};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use crate::entities::{EntityTable, RecordBatch, RecordTable};
+use crate::interop::to_value_error;
 
 /// Extract a compiled statement parameter, one of the primitives bind processors produce.
 pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter> {
@@ -383,10 +384,6 @@ pub fn verify_password(py: Python<'_>, password: &str, hash: &str) -> bool {
             .or_else(|| ceres_database::verify_bcrypt(password, hash))
             .unwrap_or(false)
     })
-}
-
-pub(crate) fn to_value_error(error: ceres_database::Error) -> PyErr {
-    PyValueError::new_err(error.to_string())
 }
 
 /// A natively-connected writer for record entities.

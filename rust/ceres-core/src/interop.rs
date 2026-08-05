@@ -19,6 +19,11 @@ pub fn problems_to_error(problems: ceres_config::Problems) -> PyErr {
     PyValueError::new_err(problems.to_string())
 }
 
+/// Convert any displayable error into a Python `ValueError` carrying its message.
+pub fn to_value_error(error: impl std::fmt::Display) -> PyErr {
+    PyValueError::new_err(error.to_string())
+}
+
 /// Convert a serializable value into a Python object.
 pub fn to_python<T: Serialize>(py: Python<'_>, value: &T) -> PyResult<Py<PyAny>> {
     Ok(pythonize(py, value)?.unbind())
@@ -26,7 +31,7 @@ pub fn to_python<T: Serialize>(py: Python<'_>, value: &T) -> PyResult<Py<PyAny>>
 
 /// Convert a Python object into a deserializable value.
 pub fn from_python<T: DeserializeOwned>(value: &Bound<'_, PyAny>) -> PyResult<T> {
-    depythonize(value).map_err(|error| PyValueError::new_err(error.to_string()))
+    depythonize(value).map_err(to_value_error)
 }
 
 /// Convert a validated value back into the raw form of another type.
@@ -34,9 +39,8 @@ pub fn from_python<T: DeserializeOwned>(value: &Bound<'_, PyAny>) -> PyResult<T>
 /// Nested configuration values arrive at a constructor already validated, while the parent's
 /// raw form holds raw sections. The round trip through serde is lossless.
 pub fn reraw<Value: Serialize, Raw: DeserializeOwned>(value: &Value) -> PyResult<Raw> {
-    let serialized =
-        serde_json::to_value(value).map_err(|error| PyValueError::new_err(error.to_string()))?;
-    serde_json::from_value(serialized).map_err(|error| PyValueError::new_err(error.to_string()))
+    let serialized = serde_json::to_value(value).map_err(to_value_error)?;
+    serde_json::from_value(serialized).map_err(to_value_error)
 }
 
 /// Map a validated field type to the types it crosses the Python boundary with.

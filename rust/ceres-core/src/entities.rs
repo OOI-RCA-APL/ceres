@@ -17,6 +17,8 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_py
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
+use crate::interop::to_value_error;
+
 /// A batch of records held natively, parsed from database rows.
 ///
 /// Built through `parse` from the raw row mappings a query produces, and serialized with
@@ -64,16 +66,13 @@ impl RecordBatch {
             RecordTable::Alerts => serde_json::to_vec(&parse_alert(&source)?),
             RecordTable::Logs => serde_json::to_vec(&parse_log_entry(&source)?),
         };
-        let serialized = serialized.map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let serialized = serialized.map_err(to_value_error)?;
         Ok(PyBytes::new(py, &serialized))
     }
 
     /// Serialize the batch as a JSON array in the API's wire format.
     fn to_json<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        let serialized = self
-            .records
-            .to_json_array()
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let serialized = self.records.to_json_array().map_err(to_value_error)?;
         Ok(PyBytes::new(py, &serialized))
     }
 }
