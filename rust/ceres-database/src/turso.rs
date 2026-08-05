@@ -13,11 +13,7 @@
 //! the two copies overwrite each other's WAL frames. That is why the Python layer keeps
 //! its own driver for Turso databases and never constructs this backend beside it.
 
-use ceres_entities::{
-    Address, Alert, Entities, GrantLevel, Group, GroupMembership, GroupPermission, LogEntry,
-    Message, Particle, PermissionTargetType, Records, Setting, Timestamp, User, UserPermission,
-    Variable, Workspace, WorkspaceEdit,
-};
+use ceres_entities::{Entities, Records, Timestamp};
 use chrono::NaiveDateTime;
 use tokio::sync::OnceCell;
 use turso::Value;
@@ -25,7 +21,7 @@ use uuid::Uuid;
 
 use crate::backend::Writing;
 use crate::entities::EntityTable;
-use crate::records::{RecordTable, direction, json_text, level};
+use crate::records::{FieldRead, FromRow, RecordTable, json_text};
 use crate::store::{Error, Parameter};
 
 /// A lazily-opened Turso engine over one database file.
@@ -604,91 +600,16 @@ async fn decode(
     };
 
     match table {
-        RecordTable::Messages => {
-            let connection = columns.index("connection")?;
-            let direction_column = columns.index("direction")?;
-            let data = columns.index("data")?;
-            let mut records = Vec::new();
-            while records.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                records.push(Message {
-                    id: id(&row, &columns)?,
-                    address: address(&row, &columns)?,
-                    timestamp: timestamp(&row, &columns)?,
-                    connection: optional_text(&row, connection)?,
-                    direction: direction(text(&row, direction_column)?)?,
-                    data: blob(&row, data)?,
-                });
-            }
-
-            Ok(Records::Messages(records))
-        }
-        RecordTable::Particles => {
-            let kind = columns.index("type")?;
-            let data = columns.index("data")?;
-            let mut records = Vec::new();
-            while records.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                records.push(Particle {
-                    id: id(&row, &columns)?,
-                    address: address(&row, &columns)?,
-                    timestamp: timestamp(&row, &columns)?,
-                    kind: text(&row, kind)?,
-                    data: json_text(text(&row, data)?)?,
-                    span: None,
-                });
-            }
-
-            Ok(Records::Particles(records))
-        }
-        RecordTable::Alerts => {
-            let level_column = columns.index("level")?;
-            let kind = columns.index("type")?;
-            let data = columns.index("data")?;
-            let mut records = Vec::new();
-            while records.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                records.push(Alert {
-                    id: id(&row, &columns)?,
-                    address: address(&row, &columns)?,
-                    timestamp: timestamp(&row, &columns)?,
-                    level: level(text(&row, level_column)?)?,
-                    kind: text(&row, kind)?,
-                    data: json_text(text(&row, data)?)?,
-                });
-            }
-
-            Ok(Records::Alerts(records))
-        }
-        RecordTable::Logs => {
-            let level_column = columns.index("level")?;
-            let content = columns.index("content")?;
-            let mut records = Vec::new();
-            while records.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                records.push(LogEntry {
-                    id: id(&row, &columns)?,
-                    address: address(&row, &columns)?,
-                    timestamp: timestamp(&row, &columns)?,
-                    level: level(text(&row, level_column)?)?,
-                    content: text(&row, content)?,
-                });
-            }
-
-            Ok(Records::LogEntries(records))
-        }
+        RecordTable::Messages => collect(rows, &columns, limit).await.map(Records::Messages),
+        RecordTable::Particles => collect(rows, &columns, limit).await.map(Records::Particles),
+        RecordTable::Alerts => collect(rows, &columns, limit).await.map(Records::Alerts),
+        RecordTable::Logs => collect(rows, &columns, limit)
+            .await
+            .map(Records::LogEntries),
     }
 }
 
-/// The column names of a result set, resolving fields to positions.
 /// Decode up to `limit` rows for the given entity table.
-///
-/// The columns are read by name rather than by position, because a `RETURNING *` and a
-/// listing do not have to order them the same way.
 async fn decode_entities(
     table: EntityTable,
     rows: &mut turso::Rows,
@@ -699,185 +620,51 @@ async fn decode_entities(
     };
 
     match table {
-        EntityTable::Users => {
-            let username = columns.index("username")?;
-            let email = columns.index("email")?;
-            let password = columns.index("password")?;
-            let admin = columns.index("admin")?;
-            let disabled = columns.index("disabled")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                entities.push(User {
-                    id: id(&row, &columns)?,
-                    username: text(&row, username)?,
-                    email: text(&row, email)?,
-                    password: text(&row, password)?,
-                    admin: boolean(&row, admin)?,
-                    disabled: boolean(&row, disabled)?,
-                });
-            }
-
-            Ok(Entities::Users(entities))
-        }
-        EntityTable::Variables => {
-            let name = columns.index("name")?;
-            let value = columns.index("value")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                entities.push(Variable {
-                    address: address(&row, &columns)?,
-                    name: text(&row, name)?,
-                    value: json(&row, value)?,
-                });
-            }
-
-            Ok(Entities::Variables(entities))
-        }
-        EntityTable::Settings => {
-            let user = columns.index("user_id")?;
-            let name = columns.index("name")?;
-            let value = columns.index("value")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                entities.push(Setting {
-                    user_id: uuid(&row, user)?,
-                    name: text(&row, name)?,
-                    value: json(&row, value)?,
-                });
-            }
-
-            Ok(Entities::Settings(entities))
-        }
-        EntityTable::Workspaces => {
-            let name = columns.index("name")?;
-            let scope = columns.index("scope")?;
-            let owner = columns.index("owner_id")?;
-            let shown = columns.index("show_when_logged_out")?;
-            let data = columns.index("data")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                let held = json(&row, data)?;
-                let serde_json::Value::Object(held) = held else {
-                    return Err(Error::Decode(
-                        "a workspace's data is not an object".to_string(),
-                    ));
-                };
-                entities.push(Workspace {
-                    id: id(&row, &columns)?,
-                    name: text(&row, name)?,
-                    // Addresses were validated when written, so the value is trusted on
-                    // the way out the way a record's address is.
-                    scope: Address::trusted(text(&row, scope)?),
-                    owner_id: optional_text(&row, owner)?
-                        .map(|held| {
-                            held.parse()
-                                .map_err(|_| Error::Decode(format!("{held:?} is not a UUID")))
-                        })
-                        .transpose()?,
-                    show_when_logged_out: boolean(&row, shown)?,
-                    data: held,
-                });
-            }
-
-            Ok(Entities::Workspaces(entities))
-        }
-        EntityTable::WorkspaceEdits => {
-            let user = columns.index("user_id")?;
-            let workspace = columns.index("workspace_id")?;
-            let data = columns.index("data")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                entities.push(WorkspaceEdit {
-                    user_id: uuid(&row, user)?,
-                    workspace_id: uuid(&row, workspace)?,
-                    data: object(&row, data, "a workspace edit's data")?,
-                });
-            }
-
-            Ok(Entities::WorkspaceEdits(entities))
-        }
-        EntityTable::Groups => {
-            let name = columns.index("name")?;
-            let description = columns.index("description")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                entities.push(Group {
-                    id: id(&row, &columns)?,
-                    name: text(&row, name)?,
-                    description: text(&row, description)?,
-                });
-            }
-
-            Ok(Entities::Groups(entities))
-        }
-        EntityTable::GroupMemberships => {
-            let user = columns.index("user_id")?;
-            let group = columns.index("group_id")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                entities.push(GroupMembership {
-                    user_id: uuid(&row, user)?,
-                    group_id: uuid(&row, group)?,
-                });
-            }
-
-            Ok(Entities::GroupMemberships(entities))
-        }
-        EntityTable::UserPermissions => {
-            let user = columns.index("user_id")?;
-            let kind = columns.index("target_type")?;
-            let target = columns.index("target")?;
-            let level = columns.index("level")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                entities.push(UserPermission {
-                    user_id: uuid(&row, user)?,
-                    target_type: target_type(&row, kind)?,
-                    target: text(&row, target)?,
-                    level: access_level(&row, level)?,
-                });
-            }
-
-            Ok(Entities::UserPermissions(entities))
-        }
-        EntityTable::GroupPermissions => {
-            let group = columns.index("group_id")?;
-            let kind = columns.index("target_type")?;
-            let target = columns.index("target")?;
-            let level = columns.index("level")?;
-            let mut entities = Vec::new();
-            while entities.len() < limit
-                && let Some(row) = rows.next().await?
-            {
-                entities.push(GroupPermission {
-                    group_id: uuid(&row, group)?,
-                    target_type: target_type(&row, kind)?,
-                    target: text(&row, target)?,
-                    level: access_level(&row, level)?,
-                });
-            }
-
-            Ok(Entities::GroupPermissions(entities))
-        }
+        EntityTable::Users => collect(rows, &columns, limit).await.map(Entities::Users),
+        EntityTable::Variables => collect(rows, &columns, limit)
+            .await
+            .map(Entities::Variables),
+        EntityTable::Settings => collect(rows, &columns, limit).await.map(Entities::Settings),
+        EntityTable::Workspaces => collect(rows, &columns, limit)
+            .await
+            .map(Entities::Workspaces),
+        EntityTable::WorkspaceEdits => collect(rows, &columns, limit)
+            .await
+            .map(Entities::WorkspaceEdits),
+        EntityTable::Groups => collect(rows, &columns, limit).await.map(Entities::Groups),
+        EntityTable::GroupMemberships => collect(rows, &columns, limit)
+            .await
+            .map(Entities::GroupMemberships),
+        EntityTable::UserPermissions => collect(rows, &columns, limit)
+            .await
+            .map(Entities::UserPermissions),
+        EntityTable::GroupPermissions => collect(rows, &columns, limit)
+            .await
+            .map(Entities::GroupPermissions),
     }
 }
 
+/// Walk the cursor, decoding one entity per row until `limit` rows or exhaustion.
+async fn collect<T: FromRow>(
+    rows: &mut turso::Rows,
+    columns: &Columns,
+    limit: usize,
+) -> Result<Vec<T>, Error> {
+    let mut held = Vec::new();
+    while held.len() < limit
+        && let Some(row) = rows.next().await?
+    {
+        held.push(T::from_row(&Fields { row: &row, columns })?);
+    }
+
+    Ok(held)
+}
+
+/// The column names of a result set, resolving fields to positions.
+///
+/// The columns are read by name rather than by position, because a `RETURNING *` and a
+/// listing do not have to order them the same way. A lookup scans the handful of names
+/// a table carries, once per field per row.
 struct Columns {
     names: Vec<String>,
 }
@@ -891,106 +678,114 @@ impl Columns {
     }
 }
 
-fn id(row: &turso::Row, columns: &Columns) -> Result<Uuid, Error> {
-    let text = text(row, columns.index("id")?)?;
-    text.parse()
-        .map_err(|_| Error::Decode(format!("{text:?} is not a UUID")))
+/// One row of a result set with its column names, read by the shared field mappings.
+struct Fields<'a> {
+    row: &'a turso::Row,
+    columns: &'a Columns,
 }
 
-fn address(row: &turso::Row, columns: &Columns) -> Result<Address, Error> {
-    // Addresses were validated when written, the value is trusted on the way out.
-    Ok(Address::trusted(text(row, columns.index("address")?)?))
-}
-
-/// Decode a timestamp column, stored as naive UTC text.
-fn timestamp(row: &turso::Row, columns: &Columns) -> Result<Timestamp, Error> {
-    let text = text(row, columns.index("timestamp")?)?;
-    let naive = NaiveDateTime::parse_from_str(&text, "%Y-%m-%d %H:%M:%S%.f")
-        .map_err(|_| Error::Decode(format!("{text:?} is not a timestamp")))?;
-    Ok(Timestamp(naive.and_utc()))
-}
-
-fn text(row: &turso::Row, index: usize) -> Result<String, Error> {
-    match row.get_value(index)? {
-        Value::Text(text) => Ok(text),
-        other => Err(Error::Decode(format!("expected text, found {other:?}"))),
+impl Fields<'_> {
+    fn value(&self, column: &str) -> Result<Value, Error> {
+        Ok(self.row.get_value(self.columns.index(column)?)?)
     }
 }
 
-fn optional_text(row: &turso::Row, index: usize) -> Result<Option<String>, Error> {
-    match row.get_value(index)? {
-        Value::Null => Ok(None),
-        Value::Text(text) => Ok(Some(text)),
-        other => Err(Error::Decode(format!("expected text, found {other:?}"))),
+impl FieldRead for Fields<'_> {
+    fn text(&self, column: &str) -> Result<String, Error> {
+        match self.value(column)? {
+            Value::Text(text) => Ok(text),
+            other => Err(Error::Decode(format!("expected text, found {other:?}"))),
+        }
     }
-}
 
-fn uuid(row: &turso::Row, index: usize) -> Result<Uuid, Error> {
-    let held = text(row, index)?;
-    held.parse()
-        .map_err(|_| Error::Decode(format!("{held:?} is not a UUID")))
-}
-
-/// Decode a boolean column, which SQLite stores as an integer.
-fn boolean(row: &turso::Row, index: usize) -> Result<bool, Error> {
-    match row.get_value(index)? {
-        Value::Integer(held) => Ok(held != 0),
-        other => Err(Error::Decode(format!(
-            "expected a boolean, found {other:?}"
-        ))),
+    fn optional_text(&self, column: &str) -> Result<Option<String>, Error> {
+        match self.value(column)? {
+            Value::Null => Ok(None),
+            Value::Text(text) => Ok(Some(text)),
+            other => Err(Error::Decode(format!("expected text, found {other:?}"))),
+        }
     }
-}
 
-/// Decode a JSON column, stored as its text the way the query layer writes it.
-fn json(row: &turso::Row, index: usize) -> Result<serde_json::Value, Error> {
-    match row.get_value(index)? {
-        Value::Null => Ok(serde_json::Value::Null),
-        Value::Text(held) => serde_json::from_str(&held)
-            .map_err(|error| Error::Decode(format!("{held:?} is not JSON. {error}"))),
-        Value::Integer(held) => Ok(held.into()),
-        Value::Real(held) => Ok(serde_json::Number::from_f64(held)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null)),
-        other => Err(Error::Decode(format!("expected JSON, found {other:?}"))),
+    /// Decode an ID column, stored as hyphenated UUID text.
+    fn uuid(&self, column: &str) -> Result<Uuid, Error> {
+        let held = self.text(column)?;
+        held.parse()
+            .map_err(|_| Error::Decode(format!("{held:?} is not a UUID")))
     }
-}
 
-/// Decode a JSON object column, naming what was expected when the value is not one.
-fn object(
-    row: &turso::Row,
-    index: usize,
-    what: &str,
-) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
-    match json(row, index)? {
-        serde_json::Value::Object(held) => Ok(held),
-        _ => Err(Error::Decode(format!("{what} is not an object"))),
+    fn optional_uuid(&self, column: &str) -> Result<Option<Uuid>, Error> {
+        self.optional_text(column)?
+            .map(|held| {
+                held.parse()
+                    .map_err(|_| Error::Decode(format!("{held:?} is not a UUID")))
+            })
+            .transpose()
     }
-}
 
-/// Decode a permission's target type from the text the column stores.
-fn target_type(row: &turso::Row, index: usize) -> Result<PermissionTargetType, Error> {
-    let held = text(row, index)?;
-    PermissionTargetType::parse(&held)
-        .ok_or_else(|| Error::Decode(format!("{held:?} is not a permission target type")))
-}
+    /// Decode a timestamp column, stored as naive UTC text.
+    fn timestamp(&self, column: &str) -> Result<Timestamp, Error> {
+        let text = self.text(column)?;
+        let naive = NaiveDateTime::parse_from_str(&text, "%Y-%m-%d %H:%M:%S%.f")
+            .map_err(|_| Error::Decode(format!("{text:?} is not a timestamp")))?;
+        Ok(Timestamp(naive.and_utc()))
+    }
 
-/// Decode a permission's access level from the text the column stores.
-fn access_level(row: &turso::Row, index: usize) -> Result<GrantLevel, Error> {
-    let held = text(row, index)?;
-    GrantLevel::parse(&held)
-        .ok_or_else(|| Error::Decode(format!("{held:?} is not an access level")))
-}
+    /// Decode a boolean column, which SQLite stores as an integer.
+    fn boolean(&self, column: &str) -> Result<bool, Error> {
+        match self.value(column)? {
+            Value::Integer(held) => Ok(held != 0),
+            other => Err(Error::Decode(format!(
+                "expected a boolean, found {other:?}"
+            ))),
+        }
+    }
 
-fn blob(row: &turso::Row, index: usize) -> Result<Vec<u8>, Error> {
-    match row.get_value(index)? {
-        Value::Blob(bytes) => Ok(bytes),
-        other => Err(Error::Decode(format!("expected a blob, found {other:?}"))),
+    fn blob(&self, column: &str) -> Result<Vec<u8>, Error> {
+        match self.value(column)? {
+            Value::Blob(bytes) => Ok(bytes),
+            other => Err(Error::Decode(format!("expected a blob, found {other:?}"))),
+        }
+    }
+
+    /// Decode a JSON column in whatever storage class it landed in.
+    fn json(&self, column: &str) -> Result<serde_json::Value, Error> {
+        match self.value(column)? {
+            Value::Null => Ok(serde_json::Value::Null),
+            Value::Text(held) => serde_json::from_str(&held)
+                .map_err(|error| Error::Decode(format!("{held:?} is not JSON. {error}"))),
+            Value::Integer(held) => Ok(held.into()),
+            Value::Real(held) => Ok(serde_json::Number::from_f64(held)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null)),
+            other => Err(Error::Decode(format!("expected JSON, found {other:?}"))),
+        }
+    }
+
+    /// Decode a JSON object column, stored as its text the way the query layer writes
+    /// it.
+    fn json_object(
+        &self,
+        column: &str,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
+        json_text(self.text(column)?)
+    }
+
+    /// Decode a JSON object column, naming what was expected when the value is not one.
+    fn object(
+        &self,
+        column: &str,
+        what: &str,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
+        match self.json(column)? {
+            serde_json::Value::Object(held) => Ok(held),
+            _ => Err(Error::Decode(format!("{what} is not an object"))),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use ceres_entities::{Level, LogEntry, Message, MessageDirection, Particle};
+    use ceres_entities::{Address, Level, LogEntry, Message, MessageDirection, Particle};
     use chrono::{TimeZone, Utc};
     use serde_json::json;
 

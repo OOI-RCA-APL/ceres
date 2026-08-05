@@ -22,7 +22,8 @@
 //! and the matcher to the query layer's results on every backend.
 
 use ceres_entities::{
-    Address, FieldFamily, FilterField, FilterValues, Level, OperationKind, latin1,
+    Address, Entities, FieldFamily, FilterField, FilterValues, Level, OperationKind, Records,
+    latin1,
 };
 use chrono::{Duration, NaiveDateTime, SubsecRound, Utc};
 use sea_query::{
@@ -213,7 +214,7 @@ struct FilterNode {
 /// Every statement builds from the schema alone, so the record and entity filters are
 /// each this core plus the table enum they name, and one compiler serves both.
 #[derive(Clone, Debug, PartialEq)]
-struct Filter {
+struct FilterCore {
     schema: Schema,
     node: FilterNode,
     order: Vec<OrderTerm>,
@@ -221,7 +222,7 @@ struct Filter {
     offset: Option<u64>,
 }
 
-impl Filter {
+impl FilterCore {
     /// Parse query pairs into a filter, refusing what cannot compile natively.
     ///
     /// Repeated keys collect into lists, matching how the Python layer folds ordered
@@ -630,234 +631,248 @@ impl Filter {
     }
 }
 
-/// Give a filter wrapper the statement surface its core already builds.
+/// A table a filter can query, the hooks the shared surface reads through.
 ///
-/// The wrappers differ only in the table enum they carry and what a caller may ask of
-/// them, so the shared surface is generated rather than written twice.
-macro_rules! filter_surface {
-    ($name:ident, $table:ty) => {
-        impl $name {
-            /// The field and query filter keys the native compiler serves for a table.
-            ///
-            /// Generated from the entity's field families, never written out. Equality
-            /// for every native family, each field's operation filters, the operators a
-            /// family brings, the table's computed predicates, and the query keys.
-            pub fn supported_keys(table: $table) -> Vec<&'static str> {
-                table.schema().supported_keys()
-            }
+/// The record and entity tables each implement this, so [`Filter`] is written once and
+/// [`RecordFilter`] and [`EntityFilter`] are one type over different tables.
+pub trait Tabled: Copy {
+    /// The batch a result set over this table decodes into.
+    type Batch;
 
-            /// The filter keys the compiler knowingly delegates for a table.
-            ///
-            /// What remains is Python's structural query filters, shared by every table,
-            /// plus its Python-only constructs, and the classification test holds the
-            /// union of this list and the supported one to exactly what the Pydantic
-            /// models declare so a new filter field cannot ship unclassified.
-            pub fn delegated_keys(table: $table) -> Vec<&'static str> {
-                table.schema().delegated.to_vec()
-            }
+    /// What the compiler needs to know about the table.
+    fn schema(self) -> Schema;
 
-            /// Every filter key this table serves, with the argument form its family
-            /// gives it.
-            ///
-            /// A parser builds from this rather than from a list of names, so it cannot
-            /// disagree with the compiler about whether a key is a bare flag or takes a
-            /// value.
-            pub fn keys(table: $table) -> Vec<FilterKey> {
-                table.schema().filter_keys()
-            }
+    /// An empty batch of this table's kind, what a query that cannot match returns.
+    fn empty(self) -> Self::Batch;
+}
 
-            /// Every column a create may name, with the argument form its family gives
-            /// it.
-            ///
-            /// A write names columns rather than filter keys, which is a different
-            /// surface. A user's password hash is a column no filter exposes, and a
-            /// filter's operations and windows name no column at all.
-            pub fn columns(table: $table) -> Vec<FilterKey> {
-                table.schema().column_keys()
-            }
+impl Tabled for RecordTable {
+    type Batch = Records;
 
-            /// Parse query pairs into a filter, refusing what cannot compile natively.
-            pub fn parse(table: $table, pairs: &[(String, String)]) -> Result<Self, Refusal> {
-                Ok(Self {
-                    table,
-                    filter: Filter::parse(table.schema(), pairs)?,
-                })
-            }
+    fn schema(self) -> Schema {
+        Self::schema(&self)
+    }
 
-            /// Parse a filter from its serialized JSON form, the Python filter model's
-            /// dump.
-            pub fn from_json(table: $table, text: &str) -> Result<Self, Refusal> {
-                Ok(Self {
-                    table,
-                    filter: Filter::from_json(table.schema(), text)?,
-                })
-            }
+    fn empty(self) -> Records {
+        Self::empty(&self)
+    }
+}
 
-            /// The table this filter queries.
-            pub fn table(&self) -> $table {
-                self.table
-            }
+impl Tabled for EntityTable {
+    type Batch = Entities;
 
-            /// The parsed limit, which callers cap before executing on the server.
-            pub fn limit(&self) -> Option<u64> {
-                self.filter.limit
-            }
+    fn schema(self) -> Schema {
+        Self::schema(&self)
+    }
 
-            /// The filter's offset, `None` when unset.
-            pub fn offset(&self) -> Option<u64> {
-                self.filter.offset
-            }
+    fn empty(self) -> Entities {
+        Self::empty(&self)
+    }
+}
 
-            /// Cap the limit, defaulting an absent one, the way the route's `Limit`
-            /// wrapper does. A limit above the cap is a validation error.
-            pub fn with_limit_cap(self, cap: u64) -> Result<Self, Refusal> {
-                Ok(Self {
-                    table: self.table,
-                    filter: self.filter.with_limit_cap(cap)?,
-                })
-            }
-
-            /// Build the listing statement, mirroring the Python layer's `apply`.
-            pub fn statement(
-                &self,
-                dialect: SqlDialect,
-                now: Option<NaiveDateTime>,
-            ) -> SelectStatement {
-                self.filter.statement(dialect, now)
-            }
-
-            /// Build the count statement.
-            pub fn count_statement(
-                &self,
-                dialect: SqlDialect,
-                now: Option<NaiveDateTime>,
-            ) -> SelectStatement {
-                self.filter.count_statement(dialect, now)
-            }
-
-            /// Build the existence statement, `SELECT EXISTS (...)`.
-            pub fn exists_statement(
-                &self,
-                dialect: SqlDialect,
-                now: Option<NaiveDateTime>,
-            ) -> SelectStatement {
-                self.filter.exists_statement(dialect, now)
-            }
-
-            /// Build the delete statement, mirroring the Python layer's `apply`.
-            pub fn delete_statement(
-                &self,
-                dialect: SqlDialect,
-                now: Option<NaiveDateTime>,
-            ) -> DeleteStatement {
-                self.filter.delete_statement(dialect, now)
-            }
-
-            /// Compile to SQL and its bound parameters, in the dialect's placeholder
-            /// style.
-            ///
-            /// The parameters arrive in placeholder order, ready for a driver-level
-            /// execute, `?` for the SQLite family and `$n` for PostgreSQL.
-            pub fn compiled(
-                &self,
-                dialect: SqlDialect,
-                count: bool,
-                now: Option<NaiveDateTime>,
-            ) -> (String, Vec<Value>) {
-                self.filter.compiled(dialect, count, now)
-            }
-
-            /// Compile the existence check to SQL and its bound parameters.
-            pub fn exists_compiled(
-                &self,
-                dialect: SqlDialect,
-                now: Option<NaiveDateTime>,
-            ) -> (String, Vec<Value>) {
-                self.filter.exists_compiled(dialect, now)
-            }
-
-            /// Compile the delete to SQL and its bound parameters.
-            pub fn delete_compiled(
-                &self,
-                dialect: SqlDialect,
-                returning: bool,
-                now: Option<NaiveDateTime>,
-            ) -> (String, Vec<Value>) {
-                self.filter.delete_compiled(dialect, returning, now)
-            }
-
-            /// Compile an update to SQL and its bound parameters, for one assignment
-            /// object.
-            pub fn update_compiled(
-                &self,
-                dialect: SqlDialect,
-                assign: &serde_json::Map<String, serde_json::Value>,
-                returning: bool,
-                now: Option<NaiveDateTime>,
-            ) -> Result<(String, Vec<Value>), Refusal> {
-                self.filter.update_compiled(dialect, assign, returning, now)
-            }
-
-            /// The combined `WHERE` conditions rendered as inline SQL, `None` when the
-            /// filter is unconditional.
-            pub fn where_sql(
-                &self,
-                dialect: SqlDialect,
-                now: Option<NaiveDateTime>,
-            ) -> Option<String> {
-                self.filter.where_sql(dialect, now)
-            }
-
-            /// The `ORDER BY` terms rendered as inline SQL, `None` when the table brings
-            /// no default ordering.
-            pub fn order_sql(&self, dialect: SqlDialect) -> Option<String> {
-                self.filter.order_sql(dialect)
-            }
-
-            /// Whether one serialized row matches this filter, like the Python filter's
-            /// `matches`.
-            pub fn matches(
-                &self,
-                record_json: &str,
-                now: Option<NaiveDateTime>,
-            ) -> Result<bool, String> {
-                self.filter.matches(record_json, now)
-            }
-
-            /// Build the update statement for a set of encoded assignments.
-            pub(crate) fn update_statement(
-                &self,
-                dialect: SqlDialect,
-                assignments: &[crate::assign::Assignment],
-                now: Option<NaiveDateTime>,
-            ) -> UpdateStatement {
-                self.filter.update_statement(dialect, assignments, now)
-            }
-        }
-    };
+/// A parsed filter, the compiled core plus the table it names.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Filter<T: Tabled> {
+    table: T,
+    filter: FilterCore,
 }
 
 /// A parsed record filter, the compiled core plus the record table it names.
-#[derive(Clone, Debug, PartialEq)]
-pub struct RecordFilter {
-    table: RecordTable,
-    filter: Filter,
-}
-
-filter_surface!(RecordFilter, RecordTable);
+pub type RecordFilter = Filter<RecordTable>;
 
 /// A parsed entity filter, the compiled core plus the entity table it names.
 ///
 /// The non-record filter language is a strict subset of the record one, the entity
 /// filters descending from the same Pydantic base, so this is the same core over a
 /// schema that simply carries fewer families.
-#[derive(Clone, Debug, PartialEq)]
-pub struct EntityFilter {
-    table: EntityTable,
-    filter: Filter,
-}
+pub type EntityFilter = Filter<EntityTable>;
 
-filter_surface!(EntityFilter, EntityTable);
+impl<T: Tabled> Filter<T> {
+    /// The field and query filter keys the native compiler serves for a table.
+    ///
+    /// Generated from the entity's field families, never written out. Equality
+    /// for every native family, each field's operation filters, the operators a
+    /// family brings, the table's computed predicates, and the query keys.
+    pub fn supported_keys(table: T) -> Vec<&'static str> {
+        table.schema().supported_keys()
+    }
+
+    /// The filter keys the compiler knowingly delegates for a table.
+    ///
+    /// What remains is Python's structural query filters, shared by every table,
+    /// plus its Python-only constructs, and the classification test holds the
+    /// union of this list and the supported one to exactly what the Pydantic
+    /// models declare so a new filter field cannot ship unclassified.
+    pub fn delegated_keys(table: T) -> Vec<&'static str> {
+        table.schema().delegated.to_vec()
+    }
+
+    /// Every filter key this table serves, with the argument form its family
+    /// gives it.
+    ///
+    /// A parser builds from this rather than from a list of names, so it cannot
+    /// disagree with the compiler about whether a key is a bare flag or takes a
+    /// value.
+    pub fn keys(table: T) -> Vec<FilterKey> {
+        table.schema().filter_keys()
+    }
+
+    /// Every column a create may name, with the argument form its family gives
+    /// it.
+    ///
+    /// A write names columns rather than filter keys, which is a different
+    /// surface. A user's password hash is a column no filter exposes, and a
+    /// filter's operations and windows name no column at all.
+    pub fn columns(table: T) -> Vec<FilterKey> {
+        table.schema().column_keys()
+    }
+
+    /// Parse query pairs into a filter, refusing what cannot compile natively.
+    pub fn parse(table: T, pairs: &[(String, String)]) -> Result<Self, Refusal> {
+        Ok(Self {
+            table,
+            filter: FilterCore::parse(table.schema(), pairs)?,
+        })
+    }
+
+    /// Parse a filter from its serialized JSON form, the Python filter model's
+    /// dump.
+    pub fn from_json(table: T, text: &str) -> Result<Self, Refusal> {
+        Ok(Self {
+            table,
+            filter: FilterCore::from_json(table.schema(), text)?,
+        })
+    }
+
+    /// The table this filter queries.
+    pub fn table(&self) -> T {
+        self.table
+    }
+
+    /// The parsed limit, which callers cap before executing on the server.
+    pub fn limit(&self) -> Option<u64> {
+        self.filter.limit
+    }
+
+    /// The filter's offset, `None` when unset.
+    pub fn offset(&self) -> Option<u64> {
+        self.filter.offset
+    }
+
+    /// Cap the limit, defaulting an absent one, the way the route's `Limit`
+    /// wrapper does. A limit above the cap is a validation error.
+    pub fn with_limit_cap(self, cap: u64) -> Result<Self, Refusal> {
+        Ok(Self {
+            table: self.table,
+            filter: self.filter.with_limit_cap(cap)?,
+        })
+    }
+
+    /// Build the listing statement, mirroring the Python layer's `apply`.
+    pub fn statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> SelectStatement {
+        self.filter.statement(dialect, now)
+    }
+
+    /// Build the count statement.
+    pub fn count_statement(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> SelectStatement {
+        self.filter.count_statement(dialect, now)
+    }
+
+    /// Build the existence statement, `SELECT EXISTS (...)`.
+    pub fn exists_statement(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> SelectStatement {
+        self.filter.exists_statement(dialect, now)
+    }
+
+    /// Build the delete statement, mirroring the Python layer's `apply`.
+    pub fn delete_statement(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> DeleteStatement {
+        self.filter.delete_statement(dialect, now)
+    }
+
+    /// Compile to SQL and its bound parameters, in the dialect's placeholder
+    /// style.
+    ///
+    /// The parameters arrive in placeholder order, ready for a driver-level
+    /// execute, `?` for the SQLite family and `$n` for PostgreSQL.
+    pub fn compiled(
+        &self,
+        dialect: SqlDialect,
+        count: bool,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
+        self.filter.compiled(dialect, count, now)
+    }
+
+    /// Compile the existence check to SQL and its bound parameters.
+    pub fn exists_compiled(
+        &self,
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
+        self.filter.exists_compiled(dialect, now)
+    }
+
+    /// Compile the delete to SQL and its bound parameters.
+    pub fn delete_compiled(
+        &self,
+        dialect: SqlDialect,
+        returning: bool,
+        now: Option<NaiveDateTime>,
+    ) -> (String, Vec<Value>) {
+        self.filter.delete_compiled(dialect, returning, now)
+    }
+
+    /// Compile an update to SQL and its bound parameters, for one assignment
+    /// object.
+    pub fn update_compiled(
+        &self,
+        dialect: SqlDialect,
+        assign: &serde_json::Map<String, serde_json::Value>,
+        returning: bool,
+        now: Option<NaiveDateTime>,
+    ) -> Result<(String, Vec<Value>), Refusal> {
+        self.filter.update_compiled(dialect, assign, returning, now)
+    }
+
+    /// The combined `WHERE` conditions rendered as inline SQL, `None` when the
+    /// filter is unconditional.
+    pub fn where_sql(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> Option<String> {
+        self.filter.where_sql(dialect, now)
+    }
+
+    /// The `ORDER BY` terms rendered as inline SQL, `None` when the table brings
+    /// no default ordering.
+    pub fn order_sql(&self, dialect: SqlDialect) -> Option<String> {
+        self.filter.order_sql(dialect)
+    }
+
+    /// Whether one serialized row matches this filter, like the Python filter's
+    /// `matches`.
+    pub fn matches(&self, record_json: &str, now: Option<NaiveDateTime>) -> Result<bool, String> {
+        self.filter.matches(record_json, now)
+    }
+
+    /// Build the update statement for a set of encoded assignments.
+    pub(crate) fn update_statement(
+        &self,
+        dialect: SqlDialect,
+        assignments: &[crate::assign::Assignment],
+        now: Option<NaiveDateTime>,
+    ) -> UpdateStatement {
+        self.filter.update_statement(dialect, assignments, now)
+    }
+}
 
 /// One wire value mid-parse, plain text from query pairs or YAML from a subfilter.
 enum WireValue<'a> {

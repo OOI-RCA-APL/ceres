@@ -326,15 +326,19 @@ impl RecordTable {
         })
     }
 
-    /// The wire keys a record accepts, its stored columns plus the fields it carries
-    /// without storing.
+    /// The wire keys a record accepts, the entity's full serialized schema.
+    ///
+    /// This is wider than the stored columns where a field travels without one, a
+    /// particle's span among them, which locates it within the message bytes it was
+    /// parsed from. A row may carry such a field and the insert never binds it.
     fn accepted(self) -> &'static [&'static str] {
+        use ceres_entities::Filterable;
+
         match self {
-            // A particle's span locates it within the message bytes it was parsed from.
-            // It travels with the entity but has no column, so a row may carry it and
-            // the insert never binds it.
-            Self::Particles => &["id", "address", "timestamp", "type", "data", "span"],
-            other => other.column_names(),
+            Self::Messages => Message::WIRE_KEYS,
+            Self::Particles => Particle::WIRE_KEYS,
+            Self::Alerts => Alert::WIRE_KEYS,
+            Self::Logs => LogEntry::WIRE_KEYS,
         }
     }
 }

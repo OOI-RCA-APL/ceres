@@ -21,9 +21,9 @@ use sea_query_binder::SqlxBinder;
 use sqlx::Row as _;
 
 use crate::dynamic::{Row, Table};
-use crate::entities::{DecodeEntities, EntityTable};
+use crate::entities::EntityTable;
 use crate::filter::SqlDialect;
-use crate::records::{DecodeRecords, RecordTable};
+use crate::records::RecordTable;
 use crate::store::{Error, GateUser, Parameter};
 use crate::turso::{parameter_value, sea_value};
 
@@ -302,7 +302,7 @@ macro_rules! sqlx_backend {
             ) -> Result<Records, Error> {
                 let (sql, values) = statement.build_sqlx($builder);
                 let rows = sqlx::query_with(&sql, values).fetch_all(&self.0).await?;
-                DecodeRecords::decode(table, rows)
+                crate::records::decode(table, rows)
             }
 
             async fn stream_records(
@@ -313,7 +313,12 @@ macro_rules! sqlx_backend {
             ) -> Result<(), Error> {
                 let (sql, values) = statement.build_sqlx($builder);
                 let mut cursor = sqlx::query_with(&sql, values).fetch(&self.0);
-                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
+                drain(
+                    &mut cursor,
+                    |rows| crate::records::decode(table, rows),
+                    sink,
+                )
+                .await
             }
 
             async fn stream_entities(
@@ -326,7 +331,7 @@ macro_rules! sqlx_backend {
                 let mut cursor = sqlx::query_with(&sql, values).fetch(&self.0);
                 drain(
                     &mut cursor,
-                    |rows| DecodeEntities::decode(table, rows),
+                    |rows| crate::entities::decode(table, rows),
                     sink,
                 )
                 .await
@@ -367,7 +372,7 @@ macro_rules! sqlx_backend {
                     .fetch_all(&mut *transaction)
                     .await?;
                 transaction.commit().await?;
-                DecodeRecords::decode(table, rows)
+                crate::records::decode(table, rows)
             }
 
             async fn write_entities(
@@ -381,7 +386,7 @@ macro_rules! sqlx_backend {
                     .fetch_all(&mut *transaction)
                     .await?;
                 transaction.commit().await?;
-                DecodeEntities::decode(table, rows)
+                crate::entities::decode(table, rows)
             }
 
             async fn insert_all(
@@ -415,7 +420,7 @@ macro_rules! sqlx_backend {
                 let rows = $bind(sqlx::query(sql), parameters)
                     .fetch_all(&self.0)
                     .await?;
-                DecodeRecords::decode(table, rows)
+                crate::records::decode(table, rows)
             }
 
             async fn stream_query_records(
@@ -426,7 +431,12 @@ macro_rules! sqlx_backend {
                 sink: Sink<'_, Records>,
             ) -> Result<(), Error> {
                 let mut cursor = $bind(sqlx::query(sql), parameters).fetch(&self.0);
-                drain(&mut cursor, |rows| DecodeRecords::decode(table, rows), sink).await
+                drain(
+                    &mut cursor,
+                    |rows| crate::records::decode(table, rows),
+                    sink,
+                )
+                .await
             }
 
             async fn query_rows(

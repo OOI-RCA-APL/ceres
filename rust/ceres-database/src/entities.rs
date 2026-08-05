@@ -11,13 +11,8 @@ use ceres_entities::{
     Address, Entities, GrantLevel, Group, GroupMembership, GroupPermission, PermissionTargetType,
     Setting, User, UserPermission, Variable, Workspace, WorkspaceEdit,
 };
-use serde_json::Value;
-use sqlx::Row;
-use sqlx::postgres::PgRow;
-use sqlx::sqlite::SqliteRow;
-use uuid::Uuid;
 
-use crate::records::{Computed, Schema, Shape};
+use crate::records::{Computed, FieldRead, FromRow, Schema, Shape, decoded};
 use crate::store::Error;
 
 /// One of the tables the entity commands manage.
@@ -225,242 +220,117 @@ pub(crate) fn table_of(entities: &Entities) -> EntityTable {
     }
 }
 
-/// Decode rows for an entity table into natively-held entities.
-pub(crate) trait DecodeEntities: Row + Sized {
-    fn decode(table: EntityTable, rows: Vec<Self>) -> Result<Entities, Error>;
-}
-
-impl DecodeEntities for SqliteRow {
-    fn decode(table: EntityTable, rows: Vec<Self>) -> Result<Entities, Error> {
-        match table {
-            EntityTable::Users => rows
-                .iter()
-                .map(|row| {
-                    Ok(User {
-                        id: sqlite_id(row, "id")?,
-                        username: row.try_get("username")?,
-                        email: row.try_get("email")?,
-                        password: row.try_get("password")?,
-                        admin: row.try_get("admin")?,
-                        disabled: row.try_get("disabled")?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Users),
-            EntityTable::Variables => rows
-                .iter()
-                .map(|row| {
-                    Ok(Variable {
-                        address: Address::trusted(row.try_get("address")?),
-                        name: row.try_get("name")?,
-                        value: sqlite_value(row)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Variables),
-            EntityTable::Settings => rows
-                .iter()
-                .map(|row| {
-                    Ok(Setting {
-                        user_id: sqlite_id(row, "user_id")?,
-                        name: row.try_get("name")?,
-                        value: sqlite_value(row)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Settings),
-            EntityTable::Workspaces => rows
-                .iter()
-                .map(|row| {
-                    Ok(Workspace {
-                        id: sqlite_id(row, "id")?,
-                        name: row.try_get("name")?,
-                        scope: Address::trusted(row.try_get("scope")?),
-                        owner_id: sqlite_optional_id(row, "owner_id")?,
-                        show_when_logged_out: row.try_get("show_when_logged_out")?,
-                        data: crate::records::json_text(row.try_get("data")?)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Workspaces),
-            EntityTable::WorkspaceEdits => rows
-                .iter()
-                .map(|row| {
-                    Ok(WorkspaceEdit {
-                        user_id: sqlite_id(row, "user_id")?,
-                        workspace_id: sqlite_id(row, "workspace_id")?,
-                        data: crate::records::json_text(row.try_get("data")?)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::WorkspaceEdits),
-            EntityTable::Groups => rows
-                .iter()
-                .map(|row| {
-                    Ok(Group {
-                        id: sqlite_id(row, "id")?,
-                        name: row.try_get("name")?,
-                        description: row.try_get("description")?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Groups),
-            EntityTable::GroupMemberships => rows
-                .iter()
-                .map(|row| {
-                    Ok(GroupMembership {
-                        user_id: sqlite_id(row, "user_id")?,
-                        group_id: sqlite_id(row, "group_id")?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::GroupMemberships),
-            EntityTable::UserPermissions => rows
-                .iter()
-                .map(|row| {
-                    Ok(UserPermission {
-                        user_id: sqlite_id(row, "user_id")?,
-                        target_type: target_type(row.try_get("target_type")?)?,
-                        target: row.try_get("target")?,
-                        level: access_level(row.try_get("level")?)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::UserPermissions),
-            EntityTable::GroupPermissions => rows
-                .iter()
-                .map(|row| {
-                    Ok(GroupPermission {
-                        group_id: sqlite_id(row, "group_id")?,
-                        target_type: target_type(row.try_get("target_type")?)?,
-                        target: row.try_get("target")?,
-                        level: access_level(row.try_get("level")?)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::GroupPermissions),
-        }
+impl FromRow for User {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(User {
+            id: row.uuid("id")?,
+            username: row.text("username")?,
+            email: row.text("email")?,
+            password: row.text("password")?,
+            admin: row.boolean("admin")?,
+            disabled: row.boolean("disabled")?,
+        })
     }
 }
 
-impl DecodeEntities for PgRow {
-    fn decode(table: EntityTable, rows: Vec<Self>) -> Result<Entities, Error> {
-        match table {
-            EntityTable::Users => rows
-                .iter()
-                .map(|row| {
-                    Ok(User {
-                        id: row.try_get("id")?,
-                        username: row.try_get("username")?,
-                        email: row.try_get("email")?,
-                        password: row.try_get("password")?,
-                        admin: row.try_get("admin")?,
-                        disabled: row.try_get("disabled")?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Users),
-            EntityTable::Variables => rows
-                .iter()
-                .map(|row| {
-                    Ok(Variable {
-                        address: Address::trusted(row.try_get("address")?),
-                        name: row.try_get("name")?,
-                        value: row.try_get("value")?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Variables),
-            EntityTable::Settings => rows
-                .iter()
-                .map(|row| {
-                    Ok(Setting {
-                        user_id: row.try_get("user_id")?,
-                        name: row.try_get("name")?,
-                        value: row.try_get("value")?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Settings),
-            EntityTable::Workspaces => rows
-                .iter()
-                .map(|row| {
-                    Ok(Workspace {
-                        id: row.try_get("id")?,
-                        name: row.try_get("name")?,
-                        scope: Address::trusted(row.try_get("scope")?),
-                        owner_id: row.try_get("owner_id")?,
-                        show_when_logged_out: row.try_get("show_when_logged_out")?,
-                        data: json_object(row.try_get("data")?)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Workspaces),
-            EntityTable::WorkspaceEdits => rows
-                .iter()
-                .map(|row| {
-                    Ok(WorkspaceEdit {
-                        user_id: row.try_get("user_id")?,
-                        workspace_id: row.try_get("workspace_id")?,
-                        data: json_object(row.try_get("data")?)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::WorkspaceEdits),
-            EntityTable::Groups => rows
-                .iter()
-                .map(|row| {
-                    Ok(Group {
-                        id: row.try_get("id")?,
-                        name: row.try_get("name")?,
-                        description: row.try_get("description")?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::Groups),
-            EntityTable::GroupMemberships => rows
-                .iter()
-                .map(|row| {
-                    Ok(GroupMembership {
-                        user_id: row.try_get("user_id")?,
-                        group_id: row.try_get("group_id")?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::GroupMemberships),
-            EntityTable::UserPermissions => rows
-                .iter()
-                .map(|row| {
-                    Ok(UserPermission {
-                        user_id: row.try_get("user_id")?,
-                        target_type: target_type(row.try_get("target_type")?)?,
-                        target: row.try_get("target")?,
-                        level: access_level(row.try_get("level")?)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::UserPermissions),
-            EntityTable::GroupPermissions => rows
-                .iter()
-                .map(|row| {
-                    Ok(GroupPermission {
-                        group_id: row.try_get("group_id")?,
-                        target_type: target_type(row.try_get("target_type")?)?,
-                        target: row.try_get("target")?,
-                        level: access_level(row.try_get("level")?)?,
-                    })
-                })
-                .collect::<Result<_, Error>>()
-                .map(Entities::GroupPermissions),
-        }
+impl FromRow for Variable {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(Variable {
+            address: Address::trusted(row.text("address")?),
+            name: row.text("name")?,
+            value: row.json("value")?,
+        })
     }
 }
 
-/// A JSON object column, which a workspace's layout and an edit's draft both hold.
-fn json_object(value: Value) -> Result<serde_json::Map<String, Value>, Error> {
-    match value {
-        Value::Object(map) => Ok(map),
-        other => Err(Error::Decode(format!("{other} is not a JSON object"))),
+impl FromRow for Setting {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(Setting {
+            user_id: row.uuid("user_id")?,
+            name: row.text("name")?,
+            value: row.json("value")?,
+        })
+    }
+}
+
+impl FromRow for Workspace {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(Workspace {
+            id: row.uuid("id")?,
+            name: row.text("name")?,
+            // Addresses were validated when written, so the value is trusted on the
+            // way out the way a record's address is.
+            scope: Address::trusted(row.text("scope")?),
+            owner_id: row.optional_uuid("owner_id")?,
+            show_when_logged_out: row.boolean("show_when_logged_out")?,
+            data: row.object("data", "a workspace's data")?,
+        })
+    }
+}
+
+impl FromRow for WorkspaceEdit {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(WorkspaceEdit {
+            user_id: row.uuid("user_id")?,
+            workspace_id: row.uuid("workspace_id")?,
+            data: row.object("data", "a workspace edit's data")?,
+        })
+    }
+}
+
+impl FromRow for Group {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(Group {
+            id: row.uuid("id")?,
+            name: row.text("name")?,
+            description: row.text("description")?,
+        })
+    }
+}
+
+impl FromRow for GroupMembership {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(GroupMembership {
+            user_id: row.uuid("user_id")?,
+            group_id: row.uuid("group_id")?,
+        })
+    }
+}
+
+impl FromRow for UserPermission {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(UserPermission {
+            user_id: row.uuid("user_id")?,
+            target_type: target_type(row.text("target_type")?)?,
+            target: row.text("target")?,
+            level: access_level(row.text("level")?)?,
+        })
+    }
+}
+
+impl FromRow for GroupPermission {
+    fn from_row<R: FieldRead>(row: &R) -> Result<Self, Error> {
+        Ok(GroupPermission {
+            group_id: row.uuid("group_id")?,
+            target_type: target_type(row.text("target_type")?)?,
+            target: row.text("target")?,
+            level: access_level(row.text("level")?)?,
+        })
+    }
+}
+
+/// Decode a fetched result set for an entity table into natively-held entities.
+pub(crate) fn decode<R: FieldRead>(table: EntityTable, rows: Vec<R>) -> Result<Entities, Error> {
+    match table {
+        EntityTable::Users => decoded(&rows).map(Entities::Users),
+        EntityTable::Variables => decoded(&rows).map(Entities::Variables),
+        EntityTable::Settings => decoded(&rows).map(Entities::Settings),
+        EntityTable::Workspaces => decoded(&rows).map(Entities::Workspaces),
+        EntityTable::WorkspaceEdits => decoded(&rows).map(Entities::WorkspaceEdits),
+        EntityTable::Groups => decoded(&rows).map(Entities::Groups),
+        EntityTable::GroupMemberships => decoded(&rows).map(Entities::GroupMemberships),
+        EntityTable::UserPermissions => decoded(&rows).map(Entities::UserPermissions),
+        EntityTable::GroupPermissions => decoded(&rows).map(Entities::GroupPermissions),
     }
 }
 
@@ -474,49 +344,6 @@ fn target_type(value: String) -> Result<PermissionTargetType, Error> {
 fn access_level(value: String) -> Result<GrantLevel, Error> {
     GrantLevel::parse(&value)
         .ok_or_else(|| Error::Decode(format!("{value:?} is not an access level")))
-}
-
-/// Decode a SQLite ID column, stored as hyphenated UUID text.
-fn sqlite_id(row: &SqliteRow, column: &str) -> Result<Uuid, Error> {
-    let text: String = row.try_get(column)?;
-    text.parse()
-        .map_err(|_| Error::Decode(format!("{text:?} is not a UUID")))
-}
-
-/// Decode a nullable SQLite ID column.
-fn sqlite_optional_id(row: &SqliteRow, column: &str) -> Result<Option<Uuid>, Error> {
-    let Some(text) = row.try_get::<Option<String>, _>(column)? else {
-        return Ok(None);
-    };
-
-    text.parse()
-        .map(Some)
-        .map_err(|_| Error::Decode(format!("{text:?} is not a UUID")))
-}
-
-/// Decode a SQLite value column, which holds arbitrary JSON.
-///
-/// The column is declared `JSON`, which carries none of SQLite's affinity keywords and
-/// therefore takes NUMERIC affinity. The driver writes the JSON text, and the backend
-/// converts whatever looks like a number back into one, so a variable holding `5` is
-/// stored as an integer while one holding `true` stays text. Both decode here.
-fn sqlite_value(row: &SqliteRow) -> Result<Value, Error> {
-    let text = match row.try_get::<String, _>("value") {
-        Ok(text) => text,
-        Err(_) => match row.try_get::<Option<i64>, _>("value") {
-            Ok(Some(number)) => return Ok(number.into()),
-            // A null column is a null value, which a variable may hold.
-            Ok(None) => return Ok(Value::Null),
-            Err(_) => {
-                let number: f64 = row.try_get("value")?;
-                return serde_json::Number::from_f64(number)
-                    .map(Value::Number)
-                    .ok_or_else(|| Error::Decode(format!("{number} is not a JSON number")));
-            }
-        },
-    };
-
-    serde_json::from_str(&text).map_err(|error| Error::Decode(error.to_string()))
 }
 
 #[cfg(test)]
