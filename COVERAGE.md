@@ -1,6 +1,10 @@
 # Coverage
 
-<!-- coverage:start -->
+<!-- coverage:fingerprint:d76d4a65d7faf349 -->
+
+## Python
+
+<!-- coverage:python:start -->
 | Module | Coverage |
 |---|---|
 | `ceres/__init__.py` | 100% |
@@ -55,7 +59,7 @@
 | `ceres/data/types.py` | 99% |
 | `ceres/data/uuid.py` | 77% |
 | `ceres/database/__init__.py` | 100% |
-| `ceres/database/database.py` | 92% |
+| `ceres/database/database.py` | 93% |
 | `ceres/database/enums.py` | 100% |
 | `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
@@ -79,7 +83,7 @@
 | `ceres/pruner.py` | 45% |
 | `ceres/record.py` | 89% |
 | `ceres/reference.py` | 71% |
-| `ceres/rtsp.py` | 29% |
+| `ceres/rtsp.py` | 93% |
 | `ceres/schedule.py` | 96% |
 | `ceres/server.py` | 66% |
 | `ceres/setting.py` | 96% |
@@ -93,4 +97,88 @@
 | `ceres/version.py` | 89% |
 | `ceres/workspace.py` | 100% |
 | **Total** | **87%** |
-<!-- coverage:end -->
+<!-- coverage:python:end -->
+
+## Rust
+
+<!-- coverage:rust:start -->
+| Module | Coverage |
+|---|---|
+| `rust/ceres-cli/src/client.rs` | 20% |
+| `rust/ceres-cli/src/commands/console.rs` | 57% |
+| `rust/ceres-cli/src/commands/dump.rs` | 85% |
+| `rust/ceres-cli/src/commands/engine.rs` | 47% |
+| `rust/ceres-cli/src/commands/entities.rs` | 96% |
+| `rust/ceres-cli/src/commands/follow.rs` | 0% |
+| `rust/ceres-cli/src/commands/offline.rs` | 88% |
+| `rust/ceres-cli/src/commands/records.rs` | 53% |
+| `rust/ceres-cli/src/commands/service.rs` | 0% |
+| `rust/ceres-cli/src/commands/surface.rs` | 100% |
+| `rust/ceres-cli/src/error.rs` | 80% |
+| `rust/ceres-cli/src/highlight.rs` | 90% |
+| `rust/ceres-cli/src/main.rs` | 65% |
+| `rust/ceres-cli/src/output.rs` | 96% |
+| `rust/ceres-cli/src/project.rs` | 85% |
+| `rust/ceres-cli/src/runtime.rs` | 0% |
+| `rust/ceres-cli/src/selector.rs` | 100% |
+| `rust/ceres-cli/src/service.rs` | 44% |
+| `rust/ceres-config/src/database.rs` | 89% |
+| `rust/ceres-config/src/error.rs` | 95% |
+| `rust/ceres-config/src/logging.rs` | 92% |
+| `rust/ceres-config/src/meta.rs` | 88% |
+| `rust/ceres-config/src/server.rs` | 95% |
+| `rust/ceres-config/src/types.rs` | 100% |
+| `rust/ceres-config/src/values.rs` | 83% |
+| `rust/ceres-core/src/binary.rs` | 15% |
+| `rust/ceres-core/src/connection.rs` | 0% |
+| `rust/ceres-core/src/database.rs` | 14% |
+| `rust/ceres-core/src/entities.rs` | 0% |
+| `rust/ceres-core/src/fetcher.rs` | 33% |
+| `rust/ceres-core/src/filters.rs` | 0% |
+| `rust/ceres-core/src/interop.rs` | 12% |
+| `rust/ceres-core/src/lib.rs` | 10% |
+| `rust/ceres-core/src/logging.rs` | 6% |
+| `rust/ceres-core/src/server.rs` | 0% |
+| `rust/ceres-core/src/store.rs` | 0% |
+| `rust/ceres-database/src/assign.rs` | 76% |
+| `rust/ceres-database/src/backend.rs` | 42% |
+| `rust/ceres-database/src/credentials.rs` | 91% |
+| `rust/ceres-database/src/dynamic.rs` | 31% |
+| `rust/ceres-database/src/entities.rs` | 79% |
+| `rust/ceres-database/src/filter.rs` | 78% |
+| `rust/ceres-database/src/load.rs` | 92% |
+| `rust/ceres-database/src/records.rs` | 58% |
+| `rust/ceres-database/src/selector.rs` | 87% |
+| `rust/ceres-database/src/store.rs` | 71% |
+| `rust/ceres-database/src/turso.rs` | 67% |
+| `rust/ceres-database/src/writer.rs` | 69% |
+| `rust/ceres-entities/src/address.rs` | 89% |
+| `rust/ceres-entities/src/entities.rs` | 75% |
+| `rust/ceres-entities/src/filterable.rs` | 100% |
+| `rust/ceres-entities/src/records.rs` | 87% |
+| `rust/ceres-entities/src/timestamp.rs` | 100% |
+| `rust/ceres-macros/src/filterable.rs` | 90% |
+| `rust/ceres-macros/src/lib.rs` | 88% |
+| `rust/ceres-macros/src/python_config.rs` | 94% |
+| `rust/ceres-server/src/api/auth.rs` | 95% |
+| `rust/ceres-server/src/api/config.rs` | 100% |
+| `rust/ceres-server/src/api/dispatch.rs` | 91% |
+| `rust/ceres-server/src/api/mod.rs` | 100% |
+| `rust/ceres-server/src/api/records.rs` | 78% |
+| `rust/ceres-server/src/api/schema.rs` | 100% |
+| `rust/ceres-server/src/api/served.rs` | 96% |
+| `rust/ceres-server/src/api/streams.rs` | 91% |
+| `rust/ceres-server/src/app.rs` | 93% |
+| `rust/ceres-server/src/auth.rs` | 98% |
+| `rust/ceres-server/src/body.rs` | 86% |
+| `rust/ceres-server/src/cookie.rs` | 100% |
+| `rust/ceres-server/src/error.rs` | 90% |
+| `rust/ceres-server/src/host.rs` | 20% |
+| `rust/ceres-server/src/layers.rs` | 91% |
+| `rust/ceres-server/src/lib.rs` | 100% |
+| `rust/ceres-server/src/scrub.rs` | 97% |
+| `rust/ceres-server/src/serve.rs` | 82% |
+| `rust/ceres-server/src/tls.rs` | 75% |
+| `rust/ceres-stubs/src/polish.rs` | 96% |
+| **Total** | **72%** |
+<!-- coverage:rust:end -->

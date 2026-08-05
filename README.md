@@ -1,7 +1,8 @@
 # Ceres
 
 <!-- coverage:badge -->
-![Coverage: 87%](https://img.shields.io/badge/coverage-87%25-yellowgreen)
+![Python Coverage: 87%](https://img.shields.io/badge/python%20coverage-87%25-yellowgreen)
+![Rust Coverage: 72%](https://img.shields.io/badge/rust%20coverage-72%25-yellow)
 <!-- /coverage:badge -->
 
 A Python framework for building instrument driver systems with real-time data
@@ -43,7 +44,8 @@ make test
 make coverage
 ```
 
-Per-module coverage is tracked in [COVERAGE.md](COVERAGE.md).
+Per-module coverage for both the Python package and the Rust workspace is tracked in
+[COVERAGE.md](COVERAGE.md), and CI fails when the recorded tables fall behind the source.
 
 ### Linting
 
