@@ -839,3 +839,85 @@ async fn a_membership_refuses_an_assignment_to_a_key_column() {
     let complaint = String::from_utf8_lossy(&output.stderr);
     assert!(complaint.contains("group_id"), "{complaint}");
 }
+
+/// A project holding an enablement seed, for the offline engine commands.
+///
+/// The configuration declares a small component tree, and the variables table holds one
+/// component enabled and one explicitly disabled, with the nested one never toggled.
+async fn enablement_project() -> Project {
+    let project = Project::seed().await;
+    std::fs::write(
+        project.config(),
+        format!(
+            "components:\n  - name: motor\n    components:\n      - name: driver\n  \
+             - name: sensor\ndatabase:\n  type: sqlite\n  path: {}\n",
+            project.path().join("records.sqlite").display()
+        ),
+    )
+    .expect("the configuration writes");
+
+    let url = format!(
+        "sqlite://{}",
+        project.path().join("records.sqlite").display()
+    );
+    let pool = sqlx::SqlitePool::connect(&url)
+        .await
+        .expect("the database opens");
+    for (address, value) in [("@motor", "true"), ("@sensor", "false")] {
+        sqlx::query("INSERT INTO variables VALUES (?, '__enabled__', ?)")
+            .bind(address)
+            .bind(value)
+            .execute(&pool)
+            .await
+            .expect("the row inserts");
+    }
+
+    pool.close().await;
+    project
+}
+
+#[tokio::test]
+async fn offline_toggles_flip_only_rows_holding_the_other_state() {
+    let project = enablement_project().await;
+
+    // Only the enabled component reports, because the disabled one already holds the
+    // asked-for state and the never-toggled child has no row to flip.
+    let disabled = succeeded(&project.run(&["disable", "@motor", "@sensor", "@motor.driver"]));
+    assert_eq!(disabled.trim(), "{\"disabled\":[\"@motor\"]}");
+    let held = project.variables().await;
+    assert!(
+        held.contains(&"@motor __enabled__ false".to_string()),
+        "{held:?}"
+    );
+
+    let enabled = succeeded(&project.run(&["enable", "@sensor"]));
+    assert_eq!(enabled.trim(), "{\"enabled\":[\"@sensor\"]}");
+    let held = project.variables().await;
+    assert!(
+        held.contains(&"@sensor __enabled__ true".to_string()),
+        "{held:?}"
+    );
+
+    // A component that was never toggled has no row, so enabling it reports nothing and
+    // writes nothing, the way the runtime's offline path always behaved.
+    let untouched = succeeded(&project.run(&["enable", "@motor.driver"]));
+    assert_eq!(untouched.trim(), "{\"enabled\":[]}");
+}
+
+#[tokio::test]
+async fn offline_status_lists_the_configured_components_with_stored_enablement() {
+    let project = enablement_project().await;
+
+    let output = project.run(&["status"]);
+    assert!(output.status.success());
+    let report = String::from_utf8_lossy(&output.stderr);
+
+    // The engine table reads stopped, and the components come from the configuration's
+    // own tree, parents before children, with enablement from the database.
+    assert!(report.contains("Engine"), "{report}");
+    assert!(report.contains("(Stopped)"), "{report}");
+    let motor = report.find("@motor").expect("the parent is listed");
+    let driver = report.find("@motor.driver").expect("the child is listed");
+    let sensor = report.find("@sensor").expect("the sensor is listed");
+    assert!(motor < driver && driver < sensor, "{report}");
+}

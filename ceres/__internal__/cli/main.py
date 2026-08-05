@@ -6,7 +6,7 @@ from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, override
+from typing import Any, override
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -23,23 +23,17 @@ from ceres.__internal__.cli.shared import (
     CLICommandExit,
     CLICommandFailed,
     CLICommandGroup,
-    strbool,
     temporary_signal_handler,
     write,
-    write_table,
 )
 from ceres.__internal__.lazy import __lazy_imports__, unlazy
 from ceres.__internal__.utilities.exceptions import trace
-from ceres.address import Address, AddressSelector
+from ceres.address import AddressSelector
 from ceres.concurrency import cancel, el, race, spawn
 from ceres.data import to_json
 from ceres.error import ComponentCombinedError, Error
 
-if TYPE_CHECKING:
-    from ceres.database import Database
-
 with __lazy_imports__(__name__):
-    from ceres.__internal__.app.handlers.engine import DisableResult, EnableResult
     from ceres.engine import Engine
 
 _watching = False
@@ -87,113 +81,6 @@ class CheckCommand(CLICommand):
 
         await self.use_config(checks=ConfigCheckType.all())
         write("All checks passed.")
-
-
-class StatusCommand(CLICommand):
-    """
-    Show engine and component statuses.
-    """
-
-    addresses: CliPositionalArg[list[AddressSelector]] = Field(default_factory=list)
-    """
-    Addresses of components to show the status of.
-    """
-
-    @override
-    async def __run__(self) -> None:
-        """Display engine and component statuses for a stopped engine in a table.
-
-        The native binary answers this command itself while an engine is running, and
-        hands it here only when nothing is listening, so this path reads enablement
-        straight from the database.
-        """
-        project = await self.use_loaded_project()
-
-        from ceres.status import Status
-
-        config = await self.use_config()  # TODO: Don't require a validated config.
-        async with self.use_database(
-            require_initialized=False,
-            require_connect=False,
-        ) as database:
-            if await database.ping():
-                enabled = await _get_enabled(database)
-                statuses = [
-                    Status(address=address, running=False, enabled=address in enabled)
-                    for address in config.get_components()
-                ]
-            else:
-                statuses = []
-
-        with write_table("Engine") as table:
-            cli_server_info = project.get_cli_server_info()
-
-            table.add_column("Configuration")
-            table.add_column("Running")
-            table.add_column("Web Server Port")
-            table.add_column("CLI Server Port")
-            table.add_row(
-                str(project.config_path),
-                strbool(False),
-                str(project.port or "(Disabled)"),
-                str(cli_server_info.port if cli_server_info else "(Stopped)"),
-            )
-
-        if statuses:
-            with write_table("Components") as table:
-                table.add_column("Address")
-                table.add_column("Enabled")
-                table.add_column("Running")
-                for status in statuses:
-                    table.add_row(
-                        str(status.address),
-                        strbool(status.enabled if status.enabled is not None else False),
-                        strbool(status.running),
-                    )
-
-
-class EnableCommand(CLICommand):
-    """
-    Enable components at the provided addresses.
-    """
-
-    addresses: CliPositionalArg[list[AddressSelector]]
-    """Addresses of components to enable."""
-
-    @override
-    async def __run__(self) -> None:
-        """Enable components directly in the database.
-
-        The native binary serves this command itself while an engine is running, and
-        hands it here only when nothing is listening.
-        """
-        address = AddressSelector(self.addresses)
-        async with self.use_database() as database:
-            result = await _set_enabled(database, address, True)
-
-        await self.put(result)
-
-
-class DisableCommand(CLICommand):
-    """
-    Disable components at the provided addresses.
-    """
-
-    addresses: CliPositionalArg[list[AddressSelector]]
-    """Addresses of components to disable."""
-
-    @override
-    async def __run__(self) -> None:
-        """Disable components directly in the database.
-
-        The native binary serves this command itself while an engine is running, and
-        hands it here only when nothing is listening.
-        """
-        address = AddressSelector(self.addresses)
-        async with self.use_database() as database:
-            result = await _set_enabled(database, address, False)
-
-        await self.put(result)
 
 
 def _show_validation_error(exception: ValidationError, color: bool | None = None) -> None:
@@ -245,9 +132,6 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
 
     run: CliSubCommand[RunCommand]
     check: CliSubCommand[CheckCommand]
-    status: CliSubCommand[StatusCommand]
-    enable: CliSubCommand[EnableCommand]
-    disable: CliSubCommand[DisableCommand]
 
     def __init__(self, args: Sequence[str]) -> None:
         """Initialize the command by parsing the provided CLI arguments.
@@ -573,55 +457,3 @@ def _set_current_process_name(name: str) -> None:
         setproctitle(name)
     except Exception:
         pass
-
-
-async def _set_enabled(
-    database: Database,
-    address: AddressSelector,
-    enabled: bool,
-) -> EnableResult | DisableResult:
-    """Toggle the enabled state of components matching the given address directly in the database.
-
-    Args:
-        database: The database connection to use.
-        address: Selector matching the components to update.
-        enabled: True to enable, False to disable.
-
-    Returns:
-        An `EnableResult` or `DisableResult` listing the affected component addresses.
-    """
-    from ceres.variable import InternalVariableName, Variable
-
-    manager = Variable.Manager(database)
-    variables = await (
-        manager.where(
-            address=address,
-            name=InternalVariableName.ENABLED,
-            value=not enabled,
-        )
-        .update({"value": enabled})
-        .all()
-    )
-
-    affected = sorted(variable.address for variable in variables)
-    return EnableResult(enabled=affected) if enabled else DisableResult(disabled=affected)
-
-
-async def _get_enabled(database: Database) -> list[Address]:
-    """Return a sorted list of addresses for all currently enabled components.
-
-    Args:
-        database: The database connection to query.
-
-    Returns:
-        A sorted list of component addresses that have the enabled variable set to True.
-    """
-    from ceres.variable import InternalVariableName, Variable
-
-    manager = Variable.Manager(database)
-    variables = await manager.where(
-        name=InternalVariableName.ENABLED,
-        value=True,
-    )
-
-    return sorted(variable.address for variable in variables)

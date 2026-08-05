@@ -123,34 +123,20 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
         Command::Status(args) => {
             let project = Project::discover(config)?;
 
-            // A stopped engine still has statuses, resolved from the database by the runtime.
+            // A stopped engine still has statuses, read from the configuration and the
+            // database.
             match Client::connect_alive(&project) {
                 Some(client) => {
                     commands::engine::status(&project, output, &client, &args.addresses)
                 }
-                None => {
-                    commands::engine::parse_selectors(&args.addresses)?;
-                    match runtime::delegate(arguments)? {}
-                }
+                None => commands::offline::status(&project, output, &args.addresses),
             }
         }
 
         Command::Start(args) => operate(config, output, Operation::Start, &args.addresses),
         Command::Stop(args) => operate(config, output, Operation::Stop, &args.addresses),
-        Command::Enable(args) => hybrid_operate(
-            config,
-            output,
-            arguments,
-            Operation::Enable,
-            &args.addresses,
-        ),
-        Command::Disable(args) => hybrid_operate(
-            config,
-            output,
-            arguments,
-            Operation::Disable,
-            &args.addresses,
-        ),
+        Command::Enable(args) => toggle_enabled(config, output, &args.addresses, true),
+        Command::Disable(args) => toggle_enabled(config, output, &args.addresses, false),
         Command::Up(args) => operate(config, output, Operation::Up, &args.addresses),
         Command::Down(args) => operate(config, output, Operation::Down, &args.addresses),
 
@@ -187,23 +173,24 @@ fn operate(
     commands::engine::operate(&project, output, operation, addresses)
 }
 
-/// Run an engine operation, falling back to the runtime when no engine is running.
-fn hybrid_operate(
+/// Toggle enablement through the engine, or straight in the database when none runs.
+fn toggle_enabled(
     config: Option<&Path>,
     output: &Output,
-    arguments: Vec<OsString>,
-    operation: Operation,
     addresses: &[String],
+    enabled: bool,
 ) -> Result<()> {
-    debug_assert!(operation.has_offline_fallback());
-
     let project = Project::discover(config)?;
 
     match Client::connect_alive(&project) {
-        Some(_) => commands::engine::operate(&project, output, operation, addresses),
-        None => {
-            commands::engine::parse_selectors(addresses)?;
-            match runtime::delegate(arguments)? {}
+        Some(_) => {
+            let operation = if enabled {
+                Operation::Enable
+            } else {
+                Operation::Disable
+            };
+            commands::engine::operate(&project, output, operation, addresses)
         }
+        None => commands::offline::set_enabled(&project, output, addresses, enabled),
     }
 }

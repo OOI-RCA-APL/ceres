@@ -8,13 +8,13 @@ use crate::output::{Output, Table, strbool};
 use crate::project::Project;
 use crate::selector::Selector;
 
-/// A component status reported by the engine.
+/// A component status, reported by the engine or read from the database.
 #[derive(Debug, Deserialize)]
-struct Status {
-    address: String,
-    running: bool,
+pub(crate) struct Status {
+    pub(crate) address: String,
+    pub(crate) running: bool,
     #[serde(default)]
-    enabled: Option<bool>,
+    pub(crate) enabled: Option<bool>,
 }
 
 /// Parse and join raw address arguments into a single selector.
@@ -55,14 +55,6 @@ impl Operation {
             Self::Up => "up",
             Self::Down => "down",
         }
-    }
-
-    /// Whether the operation falls back to the runtime when no engine is running.
-    ///
-    /// Enabling and disabling components works against the database directly, so those
-    /// commands still function while the engine is stopped.
-    pub fn has_offline_fallback(&self) -> bool {
-        matches!(self, Self::Enable | Self::Disable)
     }
 }
 
@@ -116,6 +108,16 @@ pub fn status(
 ) -> Result<()> {
     let selector = parse_selectors(addresses)?;
     let statuses = get_statuses(client, &selector)?;
+    write_status(project, output, true, &statuses)
+}
+
+/// Render the engine and component status tables.
+pub(crate) fn write_status(
+    project: &Project,
+    output: &Output,
+    running: bool,
+    statuses: &[Status],
+) -> Result<()> {
     let meta = project.load_meta()?;
 
     let mut engine = Table::new(Some("Engine"));
@@ -126,7 +128,7 @@ pub fn status(
         .column("CLI Server Port");
     engine.row([
         project.config_path().display().to_string(),
-        strbool(true).to_string(),
+        strbool(running).to_string(),
         meta.server
             .port
             .map_or_else(|| "(Disabled)".to_string(), |port| port.to_string()),
@@ -142,7 +144,7 @@ pub fn status(
             .column("Address")
             .column("Enabled")
             .column("Running");
-        for current in &statuses {
+        for current in statuses {
             components.row([
                 current.address.clone(),
                 strbool(current.enabled.unwrap_or(false)).to_string(),
