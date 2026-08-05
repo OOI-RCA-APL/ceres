@@ -97,17 +97,7 @@ impl TryFrom<RawServerAuthenticationConfig> for ServerAuthenticationConfig {
 
     fn try_from(raw: RawServerAuthenticationConfig) -> Result<Self, Problems> {
         let mut problems = Problems::default();
-        let secret = match raw.secret {
-            Some(secret) if !secret.is_empty() => secret,
-            Some(_) => {
-                problems.push(Problem::new("secret", "must not be empty."));
-                String::new()
-            }
-            None => {
-                problems.push(Problem::new("secret", "field is required."));
-                String::new()
-            }
-        };
+        let secret = problems.require(raw.secret, "secret", str::is_empty, "must not be empty.");
 
         problems.into_result(Self {
             secret,
@@ -270,15 +260,27 @@ impl TryFrom<RawServerCompressionConfig> for ServerCompressionConfig {
         let defaults = Self::default();
         let mut problems = Problems::default();
 
-        let zstd_level = validate_level(raw.zstd_level, 1, "zstd_level", 1..=22, &mut problems);
+        let zstd_level = validate_level(
+            raw.zstd_level,
+            defaults.zstd_level,
+            "zstd_level",
+            1..=22,
+            &mut problems,
+        );
         let brotli_quality = validate_level(
             raw.brotli_quality,
-            4,
+            defaults.brotli_quality,
             "brotli_quality",
             0..=11,
             &mut problems,
         );
-        let gzip_level = validate_level(raw.gzip_level, 1, "gzip_level", 0..=9, &mut problems);
+        let gzip_level = validate_level(
+            raw.gzip_level,
+            defaults.gzip_level,
+            "gzip_level",
+            0..=9,
+            &mut problems,
+        );
 
         problems.into_result(Self {
             enabled: raw.enabled.unwrap_or(defaults.enabled),

@@ -4,7 +4,15 @@ mod filterable;
 mod python_config;
 
 use proc_macro::TokenStream;
-use syn::{DeriveInput, parse_macro_input};
+use syn::{DeriveInput, PathSegment, Type, parse_macro_input};
+
+/// The last segment of a type's path, `None` for any other type shape.
+pub(crate) fn last_segment(ty: &Type) -> Option<&PathSegment> {
+    match ty {
+        Type::Path(path) => path.path.segments.last(),
+        _ => None,
+    }
+}
 
 /// Derive the filterable field surface of a record entity from its struct.
 ///

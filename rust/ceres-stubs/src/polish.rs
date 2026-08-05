@@ -131,10 +131,7 @@ fn strip_typing_prefixes(line: &str, names: &mut std::collections::BTreeSet<Stri
     let mut result = String::new();
     let mut remaining = line;
     while let Some(position) = remaining.find(MARKER) {
-        let boundary = remaining[..position]
-            .chars()
-            .next_back()
-            .is_none_or(|c| !c.is_alphanumeric() && c != '_' && c != '.');
+        let boundary = is_boundary(remaining[..position].chars().next_back());
         let after = &remaining[position + MARKER.len()..];
         let name: String = after
             .chars()
@@ -199,11 +196,7 @@ fn uses_name(body: &str, name: &str) -> bool {
     while let Some(position) = remaining.find(name) {
         let before = remaining[..position].chars().next_back();
         let after = remaining[position + name.len()..].chars().next();
-        let bounded = |character: Option<char>| {
-            character.is_none_or(|c| !c.is_alphanumeric() && c != '_' && c != '.')
-        };
-
-        if bounded(before) && bounded(after) {
+        if is_boundary(before) && is_boundary(after) {
             return true;
         }
 
@@ -211,6 +204,15 @@ fn uses_name(body: &str, name: &str) -> bool {
     }
 
     false
+}
+
+/// Return whether a character sits outside an identifier reference, so a match beside it
+/// starts or ends one. Alphanumerics, underscores, and dots extend an identifier, anything
+/// else, or the edge of the text, bounds it.
+fn is_boundary(character: Option<char>) -> bool {
+    character.is_none_or(|character| {
+        !character.is_alphanumeric() && character != '_' && character != '.'
+    })
 }
 
 #[cfg(test)]

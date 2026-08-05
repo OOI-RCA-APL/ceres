@@ -100,8 +100,9 @@ impl TryFrom<RawBcryptHashingConfig> for BcryptHashingConfig {
     type Error = Problems;
 
     fn try_from(raw: RawBcryptHashingConfig) -> Result<Self, Problems> {
+        let defaults = Self::default();
         let config = Self {
-            rounds: raw.rounds.unwrap_or(12),
+            rounds: raw.rounds.unwrap_or(defaults.rounds),
         };
 
         let mut problems = Problems::default();
@@ -427,23 +428,10 @@ impl TryFrom<RawPostgresDatabaseConfig> for PostgresDatabaseConfig {
 
     fn try_from(raw: RawPostgresDatabaseConfig) -> Result<Self, Problems> {
         let mut problems = Problems::default();
-        let mut require = |value: Option<String>, field: &str| -> String {
-            match value {
-                Some(value) if !value.trim().is_empty() => value,
-                Some(_) => {
-                    problems.push(Problem::new(field, "must not be blank."));
-                    String::new()
-                }
-                None => {
-                    problems.push(Problem::new(field, "field is required."));
-                    String::new()
-                }
-            }
-        };
-
-        let host = require(raw.host, "host");
-        let database = require(raw.database, "database");
-        let user = require(raw.user, "user");
+        let blank = |value: &str| value.trim().is_empty();
+        let host = problems.require(raw.host, "host", blank, "must not be blank.");
+        let database = problems.require(raw.database, "database", blank, "must not be blank.");
+        let user = problems.require(raw.user, "user", blank, "must not be blank.");
         let shared = raw.shared.validate(&mut problems);
 
         problems.into_result(Self {

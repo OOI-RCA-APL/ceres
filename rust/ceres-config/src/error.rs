@@ -59,6 +59,31 @@ impl Problems {
         }
     }
 
+    /// Require a string value, recording a missing or blank one under its field name.
+    ///
+    /// What counts as blank, and how a blank value is worded, differ per field, so both
+    /// come in as parameters. A rejected value yields an empty placeholder so validation
+    /// can keep collecting problems.
+    pub fn require(
+        &mut self,
+        value: Option<String>,
+        field: &str,
+        is_blank: impl FnOnce(&str) -> bool,
+        blank_message: &str,
+    ) -> String {
+        match value {
+            Some(value) if !is_blank(&value) => value,
+            Some(_) => {
+                self.push(Problem::new(field, blank_message));
+                String::new()
+            }
+            None => {
+                self.push(Problem::new(field, "field is required."));
+                String::new()
+            }
+        }
+    }
+
     /// Return `Ok(value)` when no problems were found, and the problems otherwise.
     pub fn into_result<T>(self, value: T) -> Result<T, Problems> {
         if self.is_empty() {

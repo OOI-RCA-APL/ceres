@@ -1,8 +1,10 @@
 //! Derive the filterable field surface from an entity struct.
 
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, LitStr};
+
+use crate::last_segment;
 
 /// Expand `#[derive(Filterable)]`.
 ///
@@ -37,24 +39,19 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             family => family,
         };
 
+        // Every family expands to the like-named `FieldFamily` variant, `Values` alone
+        // carries a payload.
         let entry = match &family {
-            Family::Uuid => quote! { ceres_entities::FieldFamily::Uuid },
-            Family::Address => quote! { ceres_entities::FieldFamily::Address },
-            Family::Timestamp => quote! { ceres_entities::FieldFamily::Timestamp },
-            Family::Text => quote! { ceres_entities::FieldFamily::Text },
-            Family::Email => quote! { ceres_entities::FieldFamily::Email },
             Family::Values(ty) => quote! {
                 ceres_entities::FieldFamily::Values(
                     <#ty as ceres_entities::FilterValues>::VALUES,
                 )
             },
-            Family::Level => quote! { ceres_entities::FieldFamily::Level },
-            Family::Bytes => quote! { ceres_entities::FieldFamily::Bytes },
-            Family::Json => quote! { ceres_entities::FieldFamily::Json },
-            Family::Boolean => quote! { ceres_entities::FieldFamily::Boolean },
-            Family::JsonValue => quote! { ceres_entities::FieldFamily::JsonValue },
-            Family::PlainAddress => quote! { ceres_entities::FieldFamily::PlainAddress },
             Family::Unfilterable => continue,
+            family => {
+                let variant = format_ident!("{}", format!("{family:?}"));
+                quote! { ceres_entities::FieldFamily::#variant }
+            }
         };
 
         let operations = if marked(field, "no_operations") {
@@ -63,7 +60,7 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
             operation_entries(
                 &key,
                 &family,
-                bare_operations(field),
+                marked(field, "bare_operations"),
                 marked(field, "insensitive"),
             )
         };
@@ -116,6 +113,7 @@ pub fn expand_filter_values(input: DeriveInput) -> syn::Result<TokenStream> {
 }
 
 /// The filter family a field's type maps to.
+#[derive(Debug)]
 enum Family {
     Uuid,
     Address,
@@ -175,10 +173,7 @@ fn operation_entries(
 /// `Option<String>` filters like `String`, absence simply never matches equality. An
 /// unrecognized type is not an error, its field is not filterable natively.
 fn family_of(ty: &syn::Type) -> Family {
-    let syn::Type::Path(path) = ty else {
-        return Family::Unfilterable;
-    };
-    let Some(segment) = path.path.segments.last() else {
+    let Some(segment) = last_segment(ty) else {
         return Family::Unfilterable;
     };
 
@@ -221,14 +216,7 @@ fn known_enum(identifier: &syn::Ident) -> bool {
 
 /// Whether a type path's tail is one bare identifier.
 fn type_is(ty: &syn::Type, name: &str) -> bool {
-    let syn::Type::Path(path) = ty else {
-        return false;
-    };
-
-    path.path
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == name && segment.arguments.is_none())
+    last_segment(ty).is_some_and(|segment| segment.ident == name && segment.arguments.is_none())
 }
 
 /// The first generic type argument of a path segment, `Option<T>`'s `T`.
@@ -243,18 +231,15 @@ fn first_type_argument(segment: &syn::PathSegment) -> Option<syn::Type> {
     })
 }
 
-/// Whether the field carries `#[filterable(bare_operations)]`.
-fn bare_operations(field: &syn::Field) -> bool {
-    marked(field, "bare_operations")
-}
-
 /// Whether the field carries the given `#[filterable(...)]` marker.
 ///
 /// `skip` drops a field whose type would otherwise filter, for a column the Python
 /// filter does not expose. `plain` takes an address out of the selector grammar.
 /// `insensitive` folds case in the field's operation filters, which an email address's
-/// do. `no_operations` keeps a text field's own key while dropping the `contains`,
-/// `prefix`, and `suffix` variants, which a permission target filters without.
+/// do. `bare_operations` names those filters by the bare variant, `contains` rather
+/// than `{key}_contains`. `no_operations` keeps a text field's own key while dropping
+/// the `contains`, `prefix`, and `suffix` variants, which a permission target filters
+/// without.
 fn marked(field: &syn::Field, name: &str) -> bool {
     for attribute in &field.attrs {
         if !attribute.path().is_ident("filterable") {
