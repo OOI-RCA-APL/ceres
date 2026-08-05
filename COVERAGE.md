@@ -7,7 +7,6 @@
 | `ceres/__internal__/__init__.py` | 100% |
 | `ceres/__internal__/auth.py` | 94% |
 | `ceres/__internal__/database/__init__.py` | 100% |
-| `ceres/__internal__/database/bytes.py` | 25% |
 | `ceres/__internal__/database/errors.py` | 100% |
 | `ceres/__internal__/database/writer.py` | 83% |
 | `ceres/__internal__/entity.py` | 94% |
@@ -26,7 +25,6 @@
 | `ceres/__internal__/utilities/case.py` | 89% |
 | `ceres/__internal__/utilities/classes.py` | 85% |
 | `ceres/__internal__/utilities/collections.py` | 85% |
-| `ceres/__internal__/utilities/debugging.py` | 100% |
 | `ceres/__internal__/utilities/exceptions.py` | 100% |
 | `ceres/__internal__/utilities/functions.py` | 100% |
 | `ceres/__internal__/utilities/platforms.py` | 100% |
@@ -36,7 +34,7 @@
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
 | `ceres/__internal__/workspace_redaction.py` | 92% |
-| `ceres/__main__.py` | 40% |
+| `ceres/__main__.py` | 13% |
 | `ceres/access.py` | 99% |
 | `ceres/address.py` | 98% |
 | `ceres/alert.py` | 91% |
