@@ -316,16 +316,13 @@ class LoggingConfig:
         particles: bool | str | None = None,
         alerts: bool | str | None = None,
     ) -> Self: ...
-    def merged(self, other: LoggingConfig) -> LoggingConfig:
-        r"""
-        Overlay another configuration's explicitly-set fields onto this one.
-        """
     def provided(self) -> dict[str, Any]:
         r"""
         Return the explicitly-set fields as a plain dictionary.
 
         Supports rebuilding an equivalent configuration without turning resolved defaults
-        into explicit settings.
+        into explicit settings, and overlaying one configuration onto another as a plain
+        dictionary union.
         """
     def __to_dict__(self) -> dict[str, Any]:
         r"""

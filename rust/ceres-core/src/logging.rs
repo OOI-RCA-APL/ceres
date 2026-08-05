@@ -144,17 +144,11 @@ impl LoggingConfig {
         toggle_to_python(py, self.inner.alerts())
     }
 
-    /// Overlay another configuration's explicitly-set fields onto this one.
-    fn merged(&self, other: &Self) -> Self {
-        Self {
-            inner: self.inner.merged(&other.inner),
-        }
-    }
-
     /// Return the explicitly-set fields as a plain dictionary.
     ///
     /// Supports rebuilding an equivalent configuration without turning resolved defaults
-    /// into explicit settings.
+    /// into explicit settings, and overlaying one configuration onto another as a plain
+    /// dictionary union.
     #[gen_stub(override_return_type(type_repr = "dict[str, typing.Any]"))]
     fn provided(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let inner = &self.inner;

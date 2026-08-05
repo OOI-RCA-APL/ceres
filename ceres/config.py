@@ -148,11 +148,9 @@ class LoggingConfig(RustConfigModel, _CoreLoggingConfig):
         "alerts": _level_or_bool,
     }
 
-    @override
     def merged(self, other: _CoreLoggingConfig) -> Self:
         """Overlay another configuration's explicitly-set fields onto this one."""
-        combined = _CoreLoggingConfig.merged(self, other)
-        return type(self)(**combined.provided())
+        return type(self)(**{**self.provided(), **other.provided()})
 
 
 class JobConfig(DataObject):

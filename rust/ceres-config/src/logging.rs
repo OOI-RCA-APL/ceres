@@ -153,18 +153,6 @@ impl LoggingConfig {
     pub fn alerts(&self) -> LogToggle {
         self.alerts.unwrap_or(LogToggle::Enabled(false))
     }
-
-    /// Overlay another configuration's explicitly-set fields onto this one.
-    pub fn merged(&self, local: &Self) -> Self {
-        Self {
-            output: local.output.or(self.output),
-            store: local.store.or(self.store),
-            events: local.events.or(self.events),
-            messages: local.messages.or(self.messages),
-            particles: local.particles.or(self.particles),
-            alerts: local.alerts.or(self.alerts),
-        }
-    }
 }
 
 impl PartialEq for LoggingConfig {
@@ -230,24 +218,6 @@ mod tests {
         assert_eq!(config.events(), LogToggle::Enabled(true));
         assert_eq!(config.messages(), LogToggle::Level(Level::Warning));
         assert_eq!(config.messages().level(Level::Info), Some(Level::Warning));
-    }
-
-    #[test]
-    fn merging_overlays_only_explicitly_set_fields() {
-        let inherited = LoggingConfig {
-            output: Some(Level::Warning),
-            events: Some(LogToggle::Enabled(false)),
-            ..LoggingConfig::default()
-        };
-        let local = LoggingConfig {
-            store: Some(Level::Error),
-            ..LoggingConfig::default()
-        };
-
-        let merged = inherited.merged(&local);
-        assert_eq!(merged.output(), Level::Warning);
-        assert_eq!(merged.store(), Level::Error);
-        assert_eq!(merged.events(), LogToggle::Enabled(false));
     }
 
     #[test]

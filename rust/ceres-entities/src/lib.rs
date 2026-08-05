@@ -28,5 +28,7 @@ pub use entities::{
 pub use filterable::{
     FieldFamily, FieldOperation, FilterField, FilterValues, Filterable, OperationKind,
 };
-pub use records::{Alert, LogEntry, Message, MessageDirection, Particle, Records, RenderRows, latin1};
+pub use records::{
+    Alert, LogEntry, Message, MessageDirection, Particle, Records, RenderRows, latin1,
+};
 pub use timestamp::Timestamp;
