@@ -1,6 +1,6 @@
 //! Router assembly.
 //!
-//! The same application serves two roles, matching the Python layer. The web app carries
+//! The same application serves two roles. The web app carries
 //! the console's static files and favicons. The CLI control app carries neither and
 //! instead requires its per-run token on every request, granting whoever holds it
 //! unrestricted access.
@@ -227,7 +227,7 @@ pub fn build_router(config: AppConfig) -> Router {
         cli: config.cli_token.is_some(),
     });
 
-    // The API catch-all handles GET only, like the Python layer's. A matched path with
+    // The API catch-all handles GET only, part of the wire contract. A matched path with
     // the wrong method answers 405 in the bare envelope, and everything else falls
     // through to the console files or, without them, a bare 404.
     let mut router = Router::new()
@@ -347,8 +347,8 @@ async fn require_cli_token(token: &str, request: Request, next: Next) -> Respons
 /// Serve the console's static files, falling back to the index for unmatched paths.
 ///
 /// The index fallback is what lets the single-page console own its routes. Error
-/// responses from the file service convert to the bare HTTP envelope, matching how the
-/// Python layer translates its static mount's exceptions.
+/// responses from the file service convert to the bare HTTP envelope, the form the wire
+/// contract gives every static-file failure.
 async fn serve_console(State(state): State<Arc<AppState>>, request: Request) -> Response {
     let console = state
         .console

@@ -1,10 +1,10 @@
 //! The authorization cookie.
 //!
 //! Login-family routes can set the token as a cookie named `Authorization`, holding the
-//! same `Bearer` value the header carries. The attribute set and order reproduce the
-//! Python layer's responses byte for byte, quoted value, `expires` in HTTP date form,
-//! `Path=/`, `SameSite=lax`, plus `HttpOnly` and `Secure` when the caller asked for the
-//! secure variant.
+//! same `Bearer` value the header carries. The attribute set and order are part of the
+//! wire contract, byte for byte, quoted value, `expires` in HTTP date form, `Path=/`,
+//! `SameSite=lax`, plus `HttpOnly` and `Secure` when the caller asked for the secure
+//! variant.
 
 use axum::http::HeaderValue;
 use chrono::{DateTime, Utc};
@@ -19,7 +19,7 @@ pub enum CookieType {
 }
 
 impl CookieType {
-    /// Parse the wire form, reporting the same problem the Python layer would.
+    /// Parse the wire form, reporting the problem shape the wire contract fixes.
     pub fn parse(value: &str, location: &[&str]) -> Result<Self, Problem> {
         match value {
             "insecure" => Ok(Self::Insecure),

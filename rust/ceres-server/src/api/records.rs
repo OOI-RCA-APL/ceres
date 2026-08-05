@@ -37,7 +37,7 @@ pub(crate) use for_each_record_table;
 /// Serve a record listing, or stream live records when the caller upgrades.
 ///
 /// The listing and the stream share this path, a socket being a GET that asks to
-/// upgrade, exactly as they shared it in the Python application.
+/// upgrade, which is how the wire contract has always shaped them.
 async fn list(state: &Arc<AppState>, table: &str, request: Request) -> Result<Response, ApiError> {
     let (mut parts, _) = request.into_parts();
     state

@@ -5,7 +5,7 @@
 //! user's ID in `sub`, its expiry in `exp`, and the impersonating administrator in
 //! `imp` when another identity was taken on. Anything wrong with a token, its
 //! signature, its claims, or the user it names, resolves to anonymous rather than an
-//! error, matching the Python layer exactly.
+//! error, which is the contract's deliberate posture.
 
 use axum::http::{HeaderMap, header};
 use ceres_entities::Timestamp;

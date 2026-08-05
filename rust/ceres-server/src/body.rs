@@ -2,8 +2,8 @@
 //!
 //! Bodies parse into JSON and extract field by field, collecting every problem rather
 //! than stopping at the first, in the same `{type, location, message}` shape request
-//! validation has always produced. Message text follows the Python validator's phrasing
-//! for the common cases.
+//! validation has always produced. Message text follows Pydantic's phrasing for the
+//! common cases, because that is what the contract's error bodies have always said.
 
 use serde_json::{Map, Value};
 use uuid::Uuid;

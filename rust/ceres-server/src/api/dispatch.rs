@@ -2,7 +2,7 @@
 //!
 //! Most of the API is one entry in the [`host_routes!`] table, which emits a typed path
 //! per route and registers a handler forwarding to the host. The handler parses path
-//! parameters with the same semantics the Python application had, a UUID that fails to
+//! parameters with the contract's semantics, a UUID that fails to
 //! parse means the route never matched, gates the actor, and forwards one arguments
 //! object to the host, `{"actor", "path", "query", "body"}`. Validation of queries and
 //! bodies stays with the host, so every filter and model keeps its exact behavior.
@@ -58,7 +58,7 @@ macro_rules! path_struct {
 ///
 /// Each row emits a [`TypedPath`] struct named for the route, so the path lives on the
 /// type axum-extra checks against the struct's captures, and registers a handler
-/// forwarding to [`dispatch`]. Rows name their gate, host operation, forwarded
+/// forwarding to [`Dispatch::respond`]. Rows name their gate, host operation, forwarded
 /// parameters, and whether a request body forwards too.
 macro_rules! host_routes {
     ($(

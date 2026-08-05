@@ -2,7 +2,7 @@
 //!
 //! One module per family, mirroring how the routes group on the wire. Handlers parse
 //! and gate natively, reach the engine through the host for anything it owns, and
-//! answer in the exact wire shapes the Python application produced.
+//! answer in the exact wire shapes the API contract fixes.
 
 pub(crate) mod auth;
 pub(crate) mod config;

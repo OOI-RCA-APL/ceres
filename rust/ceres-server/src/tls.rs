@@ -55,7 +55,7 @@ pub fn server_config(ssl: &ServerSslConfig) -> Result<Option<Arc<rustls::ServerC
     let builder = match &ssl.ca_certs {
         Some(ca_path) => {
             // A CA bundle enables client certificate verification, optional rather than
-            // required, matching how the Python server treated the setting.
+            // required, which is what the setting has always meant.
             let mut roots = rustls::RootCertStore::empty();
             for certificate in read_certificates(ca_path)? {
                 roots

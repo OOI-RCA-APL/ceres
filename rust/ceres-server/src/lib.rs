@@ -1,10 +1,11 @@
 //! The native HTTP server.
 //!
-//! Serves the Ceres API and console through axum, reproducing the Python application's
-//! wire behavior exactly. Assembly starts from the edge inward: routing, error
+//! Serves the Ceres API and console through axum. The wire contract, every route,
+//! status code, envelope, and header, was set by the FastAPI application this replaced
+//! and is preserved byte for byte, because external services consume it. Routing, error
 //! envelopes, the console's static files, and the CLI control app's token gate live
-//! here, while route families still served by the Python application reach it through a
-//! fallback bridge until each is ported.
+//! here, while the operations behind the routes reach the engine through the [`Host`]
+//! trait, the permanent seam between the server and whatever hosts it.
 
 mod api;
 mod app;
