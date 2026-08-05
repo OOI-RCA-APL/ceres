@@ -29,7 +29,9 @@ pub use credentials::{
 };
 pub use dynamic::{Cell, Row, Table};
 pub use entities::EntityTable;
-pub use filter::{Arity, EntityFilter, FilterKey, RecordFilter, Refusal, Role, SqlDialect, Window};
+pub use filter::{
+    Arity, EntityFilter, Filter, FilterKey, RecordFilter, Refusal, Role, SqlDialect, Tabled, Window,
+};
 pub use load::{Conflict, LoadFormat, batches, build, build_entity, entity_batches, read};
 pub use records::RecordTable;
 pub use sea_query::Value as BindValue;

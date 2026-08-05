@@ -95,8 +95,8 @@ fn table_command(
     let named = commands::dump::Verb::parse(name).expect("a declared verb");
 
     match table {
-        Table::Record(table) => commands::records::run(table, config, color, named, verb),
-        Table::Entity(table) => commands::entities::run(table, config, color, named, verb),
+        Table::Record(table) => commands::dump::run(table, config, color, named, verb),
+        Table::Entity(table) => commands::dump::run(table, config, color, named, verb),
     }
 }
 

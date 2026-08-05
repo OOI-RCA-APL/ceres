@@ -34,7 +34,7 @@ pub fn run(
 ) -> Result<()> {
     // The filter parses here only to prove the query compiler understands it. The engine
     // compiles the query itself, so what crosses the wire is the pairs as typed.
-    RecordFilter::parse(table, &invocation.pairs).map_err(crate::commands::records::refused)?;
+    RecordFilter::parse(table, &invocation.pairs).map_err(crate::commands::dump::refused)?;
 
     let project = Project::discover(config)?;
     let client = Client::connect(&project).map_err(|_| {
@@ -116,17 +116,6 @@ fn render(
     };
 
     let heading = sink.heading();
-    let rendered = match (format, projection.is_empty()) {
-        (DumpFormat::Json | DumpFormat::Table, true) => records.to_json_lines(),
-        (DumpFormat::Json | DumpFormat::Table, false) => {
-            records.to_json_lines_projected(projection)
-        }
-        (DumpFormat::Csv, true) => records.to_csv_lines(heading).map(String::into_bytes),
-        (DumpFormat::Csv, false) => records
-            .to_csv_lines_projected(projection, heading)
-            .map(String::into_bytes),
-    };
-    rendered
-        .map(|bytes| format.paint(bytes, colored))
+    crate::commands::dump::render(records, format, projection, heading, colored)
         .map_err(|error| error.to_string())
 }

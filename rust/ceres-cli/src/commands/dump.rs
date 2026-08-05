@@ -13,12 +13,16 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use ceres_config::DatabaseConfig;
-use ceres_database::{Conflict, LoadFormat, RecordStore};
+use ceres_config::{DatabaseConfig, HashingConfig};
+use ceres_database::{
+    Argon2Params, Conflict, Credentials, Filter, Hashing, LoadFormat, RecordStore, Refusal, Tabled,
+};
+use ceres_entities::RenderRows;
 use clap::ArgMatches;
 
 use crate::commands::surface::{self, Table};
 use crate::error::Result;
+use crate::project::Project;
 
 /// The output projection a verb asked for, as ordered `(field, alias)` pairs.
 ///
@@ -855,6 +859,355 @@ fn write_output(output: Option<&Path>, rendered: &[u8]) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// A statement outcome in the store's own error type.
+pub(crate) type StoreResult<T> = std::result::Result<T, ceres_database::Error>;
+
+/// A load's batches, read from their file as they are written.
+pub(crate) type Batches<B> = Box<dyn Iterator<Item = std::result::Result<B, String>> + Send>;
+
+/// One half of the table split, as the shared [`run`] pass needs it.
+///
+/// The record and entity tables differ in which store methods serve them and in the
+/// rules a write applies, credentials existing only on the entity side. Everything else
+/// about a run is shared, which is what lets it be written once.
+pub(crate) trait Dumpable: Tabled + Copy + Send + 'static
+where
+    Self::Batch: RenderRows + Clone + Send + Sync,
+{
+    /// The surface group this table belongs to, which reads the invocation.
+    fn surface(self) -> Table;
+
+    /// Whether the native pass serves this invocation.
+    fn serves(self, invocation: &Invocation, credentials: Option<Credentials>) -> bool;
+
+    /// Hand a follow to its streaming path, which only the record tables declare.
+    fn follow(
+        self,
+        invocation: &Invocation,
+        format: DumpFormat,
+        colored: bool,
+        config: Option<&Path>,
+    ) -> Result<()>;
+
+    /// Parse filter pairs against this table's schema.
+    fn parse(self, pairs: &[(String, String)]) -> std::result::Result<Filter<Self>, Refusal> {
+        Filter::parse(self, pairs)
+    }
+
+    /// Build the one row a create names, `None` when a value cannot be stored as given.
+    fn build(
+        self,
+        pairs: &[(String, String)],
+        credentials: Option<Credentials>,
+    ) -> Option<Self::Batch>;
+
+    /// Open a load's batches, `None` when the file's first row names no columns.
+    fn batches(
+        self,
+        file: std::io::BufReader<std::fs::File>,
+        format: LoadFormat,
+        credentials: Option<Credentials>,
+    ) -> Option<Batches<Self::Batch>>;
+
+    /// Count what the filter matches.
+    async fn count(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<u64>;
+
+    /// Whether anything matches the filter.
+    async fn any(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<bool>;
+
+    /// Delete what the filter matches, answering how many rows went.
+    async fn delete(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<u64>;
+
+    /// Delete what the filter matches and hand the rows back.
+    async fn delete_returning(
+        store: &RecordStore,
+        filter: &Filter<Self>,
+    ) -> StoreResult<Self::Batch>;
+
+    /// Assign values to what the filter matches, answering how many rows changed.
+    async fn update(
+        store: &RecordStore,
+        filter: &Filter<Self>,
+        assign: &str,
+        credentials: Option<Credentials>,
+    ) -> StoreResult<u64>;
+
+    /// Assign values to what the filter matches and hand the rows back.
+    async fn update_returning(
+        store: &RecordStore,
+        filter: &Filter<Self>,
+        assign: &str,
+        credentials: Option<Credentials>,
+    ) -> StoreResult<Self::Batch>;
+
+    /// Write a load's batches in one transaction, answering how many rows landed.
+    async fn load(
+        store: &RecordStore,
+        batches: impl Iterator<Item = std::result::Result<Self::Batch, String>> + Send,
+        conflict: Conflict,
+    ) -> StoreResult<usize>;
+
+    /// Stream what the filter matches, a chunk at a time.
+    async fn stream(
+        store: &RecordStore,
+        filter: &Filter<Self>,
+        sink: &mut (dyn FnMut(Self::Batch) -> StoreResult<()> + Send),
+    ) -> StoreResult<()>;
+}
+
+/// The credential rules this database's writes follow, `None` when a configured
+/// parameter is outside what the hashing takes.
+///
+/// Both algorithms a configuration can name are produced here, so the answer is `None`
+/// only for a parameter that would not hash at all, which the configuration layer should
+/// already have refused.
+pub(crate) fn credentials(database: &DatabaseConfig) -> Option<Credentials> {
+    let hashing = match &database.shared().hashing {
+        HashingConfig::Argon2(hashing) => Hashing::Argon2(Argon2Params {
+            time_cost: hashing.time_cost.try_into().ok()?,
+            memory_cost: hashing.memory_cost.try_into().ok()?,
+            parallelism: hashing.parallelism.try_into().ok()?,
+            hash_length: hashing.hash_length.try_into().ok()?,
+            salt_length: hashing.salt_length.try_into().ok()?,
+        }),
+        HashingConfig::Bcrypt(hashing) => Hashing::Bcrypt(hashing.rounds.try_into().ok()?),
+    };
+
+    Some(Credentials::new(hashing))
+}
+
+/// What to say about a filter the compiler will not take.
+///
+/// An invalid value carries its own sentence, and a construct outside the grammar names
+/// itself, because both are things the reader wrote and can change.
+pub(crate) fn refused(refusal: Refusal) -> crate::error::Exit {
+    crate::error::Exit::failed(match refusal {
+        Refusal::Invalid(message) => message,
+        Refusal::Delegated => {
+            "This filter uses a construct the query compiler does not serve.".to_string()
+        }
+    })
+}
+
+/// Render one chunk of rows in the shape the invocation asked for.
+pub(crate) fn render<B: RenderRows>(
+    batch: &B,
+    format: DumpFormat,
+    projection: &[(String, String)],
+    header: bool,
+    colored: bool,
+) -> StoreResult<Vec<u8>> {
+    let rendered = match (format, projection.is_empty()) {
+        // A table is drawn once the whole result is in hand, so each chunk
+        // renders as JSON lines here and the drawing happens at the end.
+        (DumpFormat::Table, true) => batch.to_json_lines(),
+        (DumpFormat::Table, false) => batch.to_json_lines_projected(projection),
+        (DumpFormat::Json, true) => batch.to_json_lines(),
+        (DumpFormat::Json, false) => batch.to_json_lines_projected(projection),
+        (DumpFormat::Csv, true) => batch.to_csv_lines(header).map(String::into_bytes),
+        (DumpFormat::Csv, false) => batch
+            .to_csv_lines_projected(projection, header)
+            .map(String::into_bytes),
+    };
+    rendered
+        .map(|bytes| format.paint(bytes, colored))
+        .map_err(|error| ceres_database::Error::Decode(error.to_string()))
+}
+
+/// Run one table command.
+pub(crate) fn run<T: Dumpable>(
+    table: T,
+    config: Option<&Path>,
+    color: Option<bool>,
+    verb: Verb,
+    matches: &ArgMatches,
+) -> Result<()>
+where
+    T::Batch: RenderRows + Clone + Send + Sync,
+{
+    let invocation = Invocation::read(table.surface(), verb, matches);
+
+    // The shape is what was asked for and the color follows the flags, which are two
+    // questions rather than one. Turning color off changes nothing about the shape.
+    let format = invocation.dump_format();
+    let colored = invocation.colored(color);
+
+    // A follow reads a running engine rather than the database, so it opens no store and
+    // takes its own path from here.
+    if invocation.verb.streams() {
+        return table.follow(&invocation, format, colored, config);
+    }
+
+    // The configuration is read before anything is built, because a user's own columns
+    // are written under rules the database's own hashing configuration decides.
+    let project = Project::discover(config)?;
+    let meta = project.load_meta()?;
+
+    let credentials = credentials(&meta.database);
+    if !table.serves(&invocation, credentials) {
+        return Err(crate::error::Exit::failed(
+            "This database hashes passwords with parameters this command cannot \
+             reproduce, so it will not write a user.",
+        ));
+    }
+
+    // A filtered verb parses its wire pairs, while `create` reads them as the new
+    // row's field values and `load` opens a file it will walk as it writes.
+    let mut filter = None;
+    let mut incoming = Vec::new();
+    let mut source = None;
+    if invocation.verb.filters() {
+        let parsed = table.parse(&invocation.pairs).map_err(refused)?;
+        filter = Some(parsed);
+    } else if invocation.verb == Verb::Create {
+        let Some(built) = table.build(&invocation.pairs, credentials) else {
+            return Err(crate::error::Exit::failed(
+                "This create names a value that cannot be stored as given. Check the \
+                 types each field takes with --help.",
+            ));
+        };
+
+        incoming.push(built);
+    } else {
+        // A file that will not open is this command's failure to report, not a reason
+        // to hand the whole load to another process.
+        let (file, load_format) = invocation
+            .load_source()
+            .map_err(crate::error::Exit::failed)?;
+        let Some(batches) = table.batches(file, load_format, credentials) else {
+            return Err(crate::error::Exit::failed(
+                "The file's first row does not name the columns to load.",
+            ));
+        };
+
+        source = Some(batches);
+    }
+
+    // Pool construction spawns maintenance tasks, so the runtime has to exist first.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("the runtime always builds");
+    let guard = runtime.enter();
+    // A database this cannot open is reported here, naming the configuration that made
+    // it so, rather than being handed to another process to explain.
+    let store = open_store(
+        &meta.database,
+        project.directory(),
+        invocation.verb.writes(),
+    )
+    .map_err(crate::error::Exit::failed)?;
+
+    drop(guard);
+
+    // The whole result renders before anything writes, so a failure here can still
+    // refuse without having produced partial output.
+    let projection = invocation.projection.clone();
+    let header = invocation.header;
+    let rendered = runtime.block_on(async {
+        let filter = || {
+            filter
+                .as_ref()
+                .expect("a filtered verb parsed its filter above")
+        };
+
+        // A filtered write says how much it is about to change and waits for an answer.
+        // The count costs a round trip, which is why it is only taken when someone is
+        // actually going to be asked.
+        if invocation.verb.confirms() && invocation.confirm {
+            let affected = T::count(&store, filter()).await?;
+            match confirmed(invocation.verb, affected, table.schema().name) {
+                Ok(true) => {}
+                Ok(false) => return Ok(Rendered::Declined),
+                Err(message) => return Ok(Rendered::Failed(message)),
+            }
+        }
+
+        match invocation.verb {
+            Verb::Count => T::count(&store, filter())
+                .await
+                .map(|count| Rendered::Text(format!("{count}\n"))),
+            Verb::Any => T::any(&store, filter()).await.map(Rendered::Exists),
+            // A filtered write reports how many rows it touched, or the rows
+            // themselves when `--collect` asked for them.
+            Verb::Delete if invocation.collect => {
+                let touched = T::delete_returning(&store, filter()).await?;
+                render(&touched, format, &projection, header, colored)
+                    .map(|bytes| Rendered::Bytes(bytes).drawn(format, colored))
+            }
+            Verb::Delete => T::delete(&store, filter())
+                .await
+                .map(|affected| Rendered::Text(format!("{affected}\n"))),
+            Verb::Update => {
+                let assign = invocation
+                    .assign
+                    .as_deref()
+                    .expect("an update carries its assignments");
+                if invocation.collect {
+                    let touched =
+                        T::update_returning(&store, filter(), assign, credentials).await?;
+                    render(&touched, format, &projection, header, colored)
+                        .map(|bytes| Rendered::Bytes(bytes).drawn(format, colored))
+                } else {
+                    T::update(&store, filter(), assign, credentials)
+                        .await
+                        .map(|affected| Rendered::Text(format!("{affected}\n")))
+                }
+            }
+            // A load reports how many rows it wrote, which the reader counts as it
+            // walks the file, whatever the conflict mode then did with them.
+            Verb::Load => {
+                let conflict = invocation
+                    .conflict()
+                    .expect("a load resolved its conflict mode above");
+                let batches = source.take().expect("a load opened its file above");
+                T::load(&store, batches, conflict)
+                    .await
+                    .map(|written| Rendered::Text(format!("{written}\n")))
+            }
+            // A follow took its own path before the store opened.
+            Verb::Follow => unreachable!("a follow never reaches the store"),
+            Verb::Create => {
+                T::load(&store, incoming.iter().cloned().map(Ok), Conflict::Error).await?;
+                render(&incoming[0], format, &projection, header, colored)
+                    .map(|bytes| Rendered::Bytes(bytes).drawn(format, colored))
+            }
+            // A select streams, rendering and writing each chunk as the driver yields
+            // it, so the dump never holds more than one chunk however large the table.
+            Verb::Select => {
+                // A table holds every chunk, because a column is only as wide as its
+                // widest cell. Every other shape streams, so a dump of any size holds
+                // one chunk however large the table.
+                let mut sink = if format == DumpFormat::Table {
+                    Sink::collecting()
+                } else {
+                    Sink::new(invocation.output.as_deref(), header)
+                };
+                let outcome = T::stream(&store, filter(), &mut |batch| {
+                    let heading = sink.heading();
+                    let rendered = render(&batch, format, &projection, heading, colored)?;
+                    sink.push(rendered).map_err(written)
+                })
+                .await;
+
+                sink.resolve(outcome)
+                    .map(|rendered| rendered.drawn(format, colored))
+            }
+        }
+    });
+    let rendered = match rendered {
+        Ok(rendered) => rendered,
+        // A refusal names what the command asked for that the writer will not do, and
+        // nothing was written, so this is its own failure to report.
+        Err(ceres_database::Error::Refused(message)) => {
+            return Err(crate::error::Exit::failed(message));
+        }
+        Err(error) => return Err(crate::error::Exit::failed(error.to_string())),
+    };
+
+    deliver(&invocation, rendered, colored)
 }
 
 #[cfg(test)]

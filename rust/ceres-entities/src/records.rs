@@ -278,10 +278,10 @@ pub(crate) fn to_csv_lines_projected<T: Serialize>(
 /// The batch enums implement this through `enum_dispatch`, each method reaching the
 /// variant's payload vector, and the one generic impl below serves every payload. A new
 /// entity type is one enum line, and it cannot be added while being forgotten by the
-/// renderers. The enums keep inherent methods over this trait, so callers in other
-/// crates never need it in scope.
+/// renderers. The enums keep inherent methods over this trait for callers holding a
+/// concrete batch, while code generic over both bounds on the trait itself.
 #[enum_dispatch]
-pub(crate) trait RenderRows {
+pub trait RenderRows {
     /// The number of rows held.
     fn len(&self) -> usize;
 
