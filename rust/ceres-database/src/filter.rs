@@ -1548,18 +1548,13 @@ impl FilterNode {
             return false;
         }
 
-        if let Some(timespan) = self.timespan {
-            if let Some(after) = self.after {
-                if stamp >= after + timespan {
-                    return false;
-                }
-            } else if let Some(before) = self.before {
-                if stamp < before - timespan {
-                    return false;
-                }
-            } else if stamp < now - timespan || stamp >= now {
-                return false;
-            }
+        let (span_start, span_end) = self.timespan_bounds(now);
+        if span_start.is_some_and(|start| stamp < start) {
+            return false;
+        }
+
+        if span_end.is_some_and(|end| stamp >= end) {
+            return false;
         }
 
         if let Some(max_age) = self.max_age
@@ -1581,15 +1576,13 @@ impl FilterNode {
             (self.after_minute, self.before_minute, 60, stamp.minute()),
         ];
         for (after, before, span, value) in windows {
-            if after.is_none() && before.is_none() {
+            let Some((minimum, maximum, contiguous)) = clock_window(after, before, span) else {
                 continue;
-            }
+            };
 
-            let minimum = after.unwrap_or(0);
-            let maximum = before.unwrap_or(span);
             let within_minimum = value >= minimum;
             let within_maximum = value < maximum;
-            let held = if minimum <= maximum {
+            let held = if contiguous {
                 within_minimum && within_maximum
             } else {
                 within_minimum || within_maximum
@@ -1600,6 +1593,28 @@ impl FilterNode {
         }
 
         true
+    }
+
+    /// The bounds a `timespan` adds, anchored after, before, or at the clock, in that
+    /// precedence.
+    ///
+    /// The matcher, the compiler, and the subsampling bounds all read the anchor rule
+    /// from here, so the three cannot disagree about what a timespan means.
+    fn timespan_bounds(
+        &self,
+        now: NaiveDateTime,
+    ) -> (Option<NaiveDateTime>, Option<NaiveDateTime>) {
+        let Some(timespan) = self.timespan else {
+            return (None, None);
+        };
+
+        if let Some(after) = self.after {
+            (None, Some(after + timespan))
+        } else if let Some(before) = self.before {
+            (Some(before - timespan), None)
+        } else {
+            (Some(now - timespan), Some(now))
+        }
     }
 
     /// This node's conditions joined with its subfilter groups', one condition when
@@ -1739,23 +1754,13 @@ impl FilterNode {
             conditions.push(column.clone().lt(timestamp_value(before, dialect)));
         }
 
-        if let Some(timespan) = self.timespan {
-            if let Some(after) = self.after {
-                conditions.push(
-                    column
-                        .clone()
-                        .lt(timestamp_value(after + timespan, dialect)),
-                );
-            } else if let Some(before) = self.before {
-                conditions.push(
-                    column
-                        .clone()
-                        .gte(timestamp_value(before - timespan, dialect)),
-                );
-            } else {
-                conditions.push(column.clone().gte(timestamp_value(now - timespan, dialect)));
-                conditions.push(column.clone().lt(timestamp_value(now, dialect)));
-            }
+        let (span_start, span_end) = self.timespan_bounds(now);
+        if let Some(start) = span_start {
+            conditions.push(column.clone().gte(timestamp_value(start, dialect)));
+        }
+
+        if let Some(end) = span_end {
+            conditions.push(column.clone().lt(timestamp_value(end, dialect)));
         }
 
         if let Some(max_age) = self.max_age {
@@ -1780,16 +1785,9 @@ impl FilterNode {
             ends.push(before);
         }
 
-        if let Some(timespan) = self.timespan {
-            if let Some(after) = self.after {
-                ends.push(after + timespan);
-            } else if let Some(before) = self.before {
-                starts.push(before - timespan);
-            } else {
-                starts.push(now - timespan);
-                ends.push(now);
-            }
-        }
+        let (span_start, span_end) = self.timespan_bounds(now);
+        starts.extend(span_start);
+        ends.extend(span_end);
 
         if let Some(max_age) = self.max_age {
             starts.push(now - max_age);
@@ -1869,16 +1867,14 @@ impl FilterNode {
             (self.after_minute, self.before_minute, 60, "minute", "%M"),
         ];
         for (after, before, span, part, format) in windows {
-            if after.is_none() && before.is_none() {
+            let Some((minimum, maximum, contiguous)) = clock_window(after, before, span) else {
                 continue;
-            }
+            };
 
-            let minimum = after.unwrap_or(0);
-            let maximum = before.unwrap_or(span);
             let value = clock_part(key, part, format, dialect);
             let within_minimum = value.clone().gte(minimum);
             let within_maximum = value.lt(maximum);
-            if minimum <= maximum {
+            if contiguous {
                 conditions.push(within_minimum.and(within_maximum));
             } else {
                 conditions.push(within_minimum.or(within_maximum));
@@ -2516,6 +2512,22 @@ fn divide_rounding_half_even(total: i64, divisor: i64) -> i64 {
 ///
 /// The SQLite family reads it from the stored text, PostgreSQL from the native
 /// timestamp pinned to UTC, the way the Python layer writes both.
+/// One time-of-day window's bounds, and whether the window is contiguous.
+///
+/// `None` when neither side is bounded. A lower bound above the upper wraps around
+/// midnight, so its two comparisons join with `OR` instead of `AND`. The matcher and
+/// the compiler both read the defaulting and the wrap rule from here, so the two
+/// cannot disagree about what a window means.
+fn clock_window(after: Option<u32>, before: Option<u32>, span: u32) -> Option<(u32, u32, bool)> {
+    if after.is_none() && before.is_none() {
+        return None;
+    }
+
+    let minimum = after.unwrap_or(0);
+    let maximum = before.unwrap_or(span);
+    Some((minimum, maximum, minimum <= maximum))
+}
+
 fn clock_part(key: &'static str, part: &str, format: &str, dialect: SqlDialect) -> SimpleExpr {
     match dialect {
         SqlDialect::SqliteText => Func::cust(Alias::new("strftime"))
