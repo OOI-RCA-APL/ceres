@@ -147,6 +147,10 @@ jobs:
           --clobber --repo '${{ github.repository }}'
 
   publish:
+    # PyPI publishing is disabled until the PEP 541 request for the `ceres` name
+    # resolves, releases distribute through the GitHub release assets and the Pages
+    # package index meanwhile. Delete the `if` to re-enable, nothing else changes.
+    if: false
     needs: [build, sdist]
     runs-on: ubuntu-latest
     environment: pypi

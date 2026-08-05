@@ -9,7 +9,7 @@ Create a new directory with a `ceres.yaml` configuration file.
 ```sh
 mkdir my-project && cd my-project
 uv init
-uv add ceres
+uv add ceres --index https://ooi-rca-apl.github.io/ceres/simple/
 source .venv/bin/activate
 ```
 

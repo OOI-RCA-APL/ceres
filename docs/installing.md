@@ -7,12 +7,13 @@
 
 ## Creating a Project
 
-Initialize a new project with `uv` and add Ceres as a dependency.
+Initialize a new project with `uv` and add Ceres as a dependency. Releases are served
+from the project's own package index, so the install names it.
 
 ```sh
 mkdir my-project && cd my-project
 uv init
-uv add ceres
+uv add ceres --index https://ooi-rca-apl.github.io/ceres/simple/
 ```
 
 Activate the virtual environment to make the `ceres` command available.
@@ -25,7 +26,7 @@ ceres --version
 You can also install with `pip` if you prefer.
 
 ```sh
-pip install ceres
+pip install ceres --extra-index-url https://ooi-rca-apl.github.io/ceres/simple/
 ```
 
 Ceres ships pre-built wheels for Linux (x86_64 and aarch64), macOS (Apple Silicon and
@@ -35,32 +36,24 @@ falls back to building from source, which requires [rustup](https://rustup.rs) a
 a while, but produces the same result, the build pins its own toolchain and the `ceres`
 command is included. `python -m ceres` runs the same command.
 
-## Installing a Specific Version
+## Recording the Index
 
-Constrain the version as you would any dependency. Released versions are listed on
-[PyPI](https://pypi.org/project/ceres/) and described in the
-[changelog](https://github.com/OOI-RCA-APL/ceres/blob/main/CHANGELOG.md).
-
-```sh
-uv add ceres==0.41.0
-```
-
-## Installing from GitHub
-
-Every release's wheels are also attached to the
-[GitHub release](https://github.com/OOI-RCA-APL/ceres/releases) and served through a
-package index on this documentation site, so installs resolve pre-built wheels straight
-from GitHub:
-
-```sh
-uv add ceres --index https://ooi-rca-apl.github.io/ceres/simple/
-```
-
-`pip` takes the same index as `--extra-index-url`. To keep using plain `uv add ceres`
-afterwards, record the index in your project instead:
+The index serves the wheels attached to each
+[GitHub release](https://github.com/OOI-RCA-APL/ceres/releases). To keep using plain
+`uv add ceres` and `uv sync` without repeating the flag, record it in your project:
 
 ```toml
 [[tool.uv.index]]
 name = "ceres"
 url = "https://ooi-rca-apl.github.io/ceres/simple/"
+```
+
+## Installing a Specific Version
+
+Constrain the version as you would any dependency. Released versions are listed on the
+[releases page](https://github.com/OOI-RCA-APL/ceres/releases) and described in the
+[changelog](https://github.com/OOI-RCA-APL/ceres/blob/main/CHANGELOG.md).
+
+```sh
+uv add ceres==0.41.0 --index https://ooi-rca-apl.github.io/ceres/simple/
 ```
