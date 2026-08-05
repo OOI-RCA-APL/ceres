@@ -54,7 +54,7 @@ pub struct DelegatedArgs {
     pub arguments: Vec<OsString>,
 }
 
-/// Define `Args` structs holding positional component address selectors.
+/// Define [`Args`](clap::Args) structs holding positional component address selectors.
 macro_rules! address_args {
     ($($name:ident { $doc:literal, required: $required:literal })*) => {
         $(

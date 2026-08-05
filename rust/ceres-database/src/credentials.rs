@@ -115,7 +115,7 @@ impl Credentials {
 /// The only ceiling is bcrypt's 72-byte input limit, measured in bytes because that is
 /// how bcrypt measures it. A passphrase is a good password, so nothing narrower applies.
 ///
-/// This is never reached by a stored hash. `Credentials::password` recognizes one first
+/// This is never reached by a stored hash. [`Credentials::password`] recognizes one first
 /// and passes it through, which it has to, since every hash is longer than this allows.
 pub fn valid_password(value: &str) -> bool {
     !value.is_empty() && value.len() <= 72

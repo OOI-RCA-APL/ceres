@@ -1,7 +1,8 @@
 //! Native dumps for the non-record entities.
 //!
 //! The entity tables take the same seven verbs the record tables do, over the shared
-//! surface in [`dump`], so this module holds only what an entity means. They are small
+//! surface in [`dump`](super::dump), so this module holds only what an entity means.
+//! They are small
 //! tables an operator reads and edits, which makes the win here the interpreter that
 //! never starts rather than the throughput of a large scan.
 //!

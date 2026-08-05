@@ -595,10 +595,9 @@ mod tests {
 
     #[test]
     fn hashing_configurations_validate_their_parameters() {
-        let raw: RawSqliteDatabaseConfig = yaml_serde::from_str(
-            "hashing:\n  type: argon2\n  memory_cost: 16\n  parallelism: 4\n",
-        )
-        .unwrap();
+        let raw: RawSqliteDatabaseConfig =
+            yaml_serde::from_str("hashing:\n  type: argon2\n  memory_cost: 16\n  parallelism: 4\n")
+                .unwrap();
         let problems = SqliteDatabaseConfig::try_from(raw).unwrap_err();
         assert_eq!(problems.0[0].location, "hashing.parallelism");
     }

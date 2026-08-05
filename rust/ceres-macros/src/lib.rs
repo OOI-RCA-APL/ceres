@@ -1,4 +1,8 @@
 //! Procedural macros for the Ceres native crates.
+//!
+//! Doc comments here use plain code spans rather than intra-doc links. The types the
+//! macros generate code against live in crates that depend on this one, so no path
+//! from here can resolve to them.
 
 mod filterable;
 mod python_config;

@@ -436,8 +436,7 @@ mod tests {
 
     #[test]
     fn bad_origin_patterns_are_rejected() {
-        let raw: RawServerCorsConfig =
-            yaml_serde::from_str("allow_origin_regex: '('\n").unwrap();
+        let raw: RawServerCorsConfig = yaml_serde::from_str("allow_origin_regex: '('\n").unwrap();
         let problems = ServerCorsConfig::try_from(raw).unwrap_err();
         assert_eq!(problems.0[0].location, "allow_origin_regex");
     }

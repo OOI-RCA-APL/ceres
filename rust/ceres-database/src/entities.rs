@@ -67,9 +67,9 @@ impl EntityTable {
 
     /// What the compiler needs to know about this table.
     ///
-    /// The default orderings and key columns come from the Python filters' own
-    /// `_get_default_order` and each row's primary key, and the computed predicates
-    /// from the filter fields that have no column behind them.
+    /// The default orderings match what the Python filters applied historically, the
+    /// key columns are each row's primary key, and the computed predicates come from
+    /// the filter fields that have no column behind them.
     pub(crate) fn schema(&self) -> Schema {
         use ceres_entities::Filterable;
 

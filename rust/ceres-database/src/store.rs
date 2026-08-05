@@ -36,7 +36,8 @@ pub enum Parameter {
     Uuid(uuid::Uuid),
     /// A whole JSON document, for the columns that store one.
     ///
-    /// This stays separate from `Text` because PostgreSQL's `jsonb` refuses a text bind,
+    /// This stays separate from [`Text`](Parameter::Text) because PostgreSQL's `jsonb`
+    /// refuses a text bind,
     /// while SQLite stores the same document as its serialized text, so the column's type
     /// decides the binding and the two cannot share an arm.
     Json(serde_json::Value),

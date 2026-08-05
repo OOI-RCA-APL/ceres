@@ -7,8 +7,9 @@
 //!
 //! The surface has already rejected an unknown key, a missing value, and a flag on a
 //! verb that does not take it, so nothing here re-checks any of that. What is left is
-//! the invocation's meaning, and the native filter subset the entities' `Filterable`
-//! derives generate is the single authority on which of those meanings compile.
+//! the invocation's meaning, and the native filter subset the entities'
+//! [`Filterable`](ceres_entities::Filterable) derives generate is the single authority
+//! on which of those meanings compile.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

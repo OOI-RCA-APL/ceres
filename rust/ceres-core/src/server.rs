@@ -1,9 +1,10 @@
 //! The native HTTP server bridge.
 //!
-//! Binds `ceres-server` into Python. A `NativeServer` binds eagerly at construction, so
-//! the control server's ephemeral port is known before anything serves, and serves on
-//! the shared tokio runtime as an awaitable. The engine crosses the boundary the other
-//! way through the host object, whose async methods answer the server's `Host` calls
+//! Binds `ceres-server` into Python. A [`NativeServer`] binds eagerly at construction,
+//! so the control server's ephemeral port is known before anything serves, and serves
+//! on the shared tokio runtime as an awaitable. The engine crosses the boundary the
+//! other way through the host object, whose async methods answer the server's
+//! [`Host`](ceres_server::Host) calls
 //! with one JSON envelope per result, `{"ok": ...}` carrying a user record or null,
 //! `{"error": {"status", "envelope"}}` passing a typed error through verbatim, and
 //! `{"response": ...}` describing a body the server produces itself.

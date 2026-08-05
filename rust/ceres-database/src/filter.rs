@@ -15,7 +15,8 @@
 //! resolves to its type discriminator before parsing, so only the wire paths refuse
 //! it as [`Refusal::Delegated`].
 //!
-//! The admissible keys are not written out anywhere. Each entity's `Filterable` derive
+//! The admissible keys are not written out anywhere. Each entity's
+//! [`Filterable`](ceres_entities::Filterable) derive
 //! reads its struct at compile time, and every field's family brings its operators, a
 //! timestamp brings the window operators, a level brings ordered bounds, text and enum
 //! fields bring equality. The cross-backend parity suite holds the compiled statements
@@ -409,7 +410,7 @@ impl FilterCore {
         Ok(self.node.matches(self.schema, &fields, now))
     }
 
-    /// Build the listing statement, mirroring the Python layer's `apply`.
+    /// Build the listing statement the query layer's semantics prescribe.
     pub fn statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> SelectStatement {
         let now = resolve_now(now);
         let mut statement = Query::select();
@@ -554,7 +555,7 @@ impl FilterCore {
         }
     }
 
-    /// Build the delete statement, mirroring the Python layer's `apply`.
+    /// Build the delete statement the query layer's semantics prescribe.
     ///
     /// Without a page the conditions apply in place. With one the statement deletes the
     /// keys its ordered page names, because a `DELETE` carries neither ordering nor
@@ -768,7 +769,7 @@ impl<T: Tabled> Filter<T> {
         })
     }
 
-    /// Build the listing statement, mirroring the Python layer's `apply`.
+    /// Build the listing statement the query layer's semantics prescribe.
     pub fn statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> SelectStatement {
         self.filter.statement(dialect, now)
     }
@@ -791,7 +792,7 @@ impl<T: Tabled> Filter<T> {
         self.filter.exists_statement(dialect, now)
     }
 
-    /// Build the delete statement, mirroring the Python layer's `apply`.
+    /// Build the delete statement the query layer's semantics prescribe.
     pub fn delete_statement(
         &self,
         dialect: SqlDialect,
@@ -2583,11 +2584,12 @@ fn tokenize_bytes(value: &[u8]) -> String {
 }
 
 /// Match a text subject against patterns, `GLOB` on the SQLite family and an escaped
-/// `LIKE` on PostgreSQL, like the Python `_sql_match_string`.
+/// `LIKE` on PostgreSQL.
 ///
 /// When every pattern is empty the whole match is true, even for a null subject,
-/// which is the one place the Python layer answers with a bare `true` rather than a
-/// comparison.
+/// which is the one place the queries answer with a bare `true` rather than a
+/// comparison. The Python query layer inherited that answer from its SQL builder,
+/// and the compiled statements keep it.
 /// Whether one record's wire value holds a computed predicate's shape.
 fn holds(shape: Shape, raw: &serde_json::value::RawValue) -> bool {
     match shape {
@@ -2791,7 +2793,7 @@ fn all_of(conditions: Vec<SimpleExpr>) -> SimpleExpr {
         .expect("grouping requires at least one condition")
 }
 
-/// An equality for one value, an `IN` for several, like the Python `_sql_match_value`.
+/// An equality for one value, an `IN` for several.
 fn match_values(column: Expr, values: impl Iterator<Item = Value> + Clone) -> SimpleExpr {
     let mut peek = values.clone();
     let first = peek.next();

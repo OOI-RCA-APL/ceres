@@ -1,6 +1,7 @@
 //! Native record dumps.
 //!
-//! A record command runs entirely natively when the shared rules in [`dump`] admit it,
+//! A record command runs entirely natively when the shared rules in
+//! [`dump`](super::dump) admit it,
 //! the filter parses into the native subset, the database opens through the native store,
 //! and the output renders in one pass, projected or not, so the interpreter never starts.
 //! This module holds only what a record means, its filter, its rows, and its renderers.
