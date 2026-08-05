@@ -23,7 +23,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import SecretStr
 
-from ceres.__internal__.core import Store
+from ceres.__internal__.core import Connection, Store
 from ceres.config import PostgresDatabaseConfig
 from ceres.data import uuid4
 
@@ -100,7 +100,7 @@ def _run(coroutine: Coroutine[Any, Any, None]) -> None:
 
 async def _execute(statements: list[str]) -> None:
     """Run administrative statements against the server itself, outside any test schema."""
-    store = Store.postgres(**_parts())
+    store = Store(Connection.postgres(**_parts()))
     await store.execute_script("\n".join(f"{statement};" for statement in statements))
 
 
@@ -143,7 +143,7 @@ def _assert_byte_collation() -> None:
     collations: list[str] = []
 
     async def read() -> None:
-        store = Store.postgres(**_parts())
+        store = Store(Connection.postgres(**_parts()))
         rows = await store.fetch(
             "SELECT datcollate FROM pg_database WHERE datname = current_database()", []
         )

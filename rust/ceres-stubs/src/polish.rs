@@ -76,9 +76,16 @@ pub fn polish(content: &str) -> String {
 
         let mut line = line.to_string();
         if line.trim_start().starts_with("def __new__")
-            && let Some((head, _)) = line.rsplit_once(" -> ")
+            && let Some((head, tail)) = line.rsplit_once(" -> ")
         {
-            line = format!("{head} -> Self: ...");
+            // A documented `__new__` ends with a bare colon and carries its docstring on
+            // the next line, so the ellipsis only belongs when the original line had one.
+            let suffix = if tail.trim_end().ends_with("...") {
+                ": ..."
+            } else {
+                ":"
+            };
+            line = format!("{head} -> Self{suffix}");
         }
 
         line = flatten_optionals(&line);

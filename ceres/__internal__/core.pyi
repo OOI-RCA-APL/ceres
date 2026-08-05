@@ -12,6 +12,7 @@ from pydantic import SecretStr
 __all__ = [
     "Argon2HashingConfig",
     "BCryptHashingConfig",
+    "Connection",
     "ConsoleConfig",
     "DatabaseConfigHooks",
     "EntityTable",
@@ -140,6 +141,58 @@ class BCryptHashingConfig:
         """
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
+
+@final
+class Connection:
+    r"""
+    Where one database lives and how its connections are dressed.
+
+    The `init` statements ride along for the store alone, that being the engine a
+    database opens for itself, while every pool takes the per-connection pair.
+    """
+    @staticmethod
+    def sqlite(
+        path: str,
+        on_init: Sequence[str] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
+    ) -> Connection:
+        r"""
+        Describe a SQLite database file.
+
+        The statement lists are the configuration's own, for the first connection and
+        for the two ends of every connection's life, run after each backend's.
+        """
+    @staticmethod
+    def turso(
+        path: str,
+        mvcc: bool,
+        on_init: Sequence[str] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
+    ) -> Connection:
+        r"""
+        Describe a Turso database file, with its journaling mode.
+        """
+    @staticmethod
+    def postgres(
+        host: str,
+        database: str,
+        user: str,
+        port: int | None = None,
+        password: str | None = None,
+        settings: Sequence[tuple[str, str]] = [],
+        parameters: Sequence[tuple[str, str]] = [],
+        on_init: Sequence[str] = [],
+        on_connect: Sequence[str] = [],
+        on_close: Sequence[str] = [],
+    ) -> Connection:
+        r"""
+        Describe a PostgreSQL database.
+
+        `settings` are per-connection server settings like `search_path`, and
+        `parameters` are the connection string's own, applied by name.
+        """
 
 class ConsoleConfig:
     r"""
@@ -546,44 +599,10 @@ class RecordFetcher:
     Python layer resolves per-instance details like temporary SQLite paths. Connections
     open lazily on first use.
     """
-    @staticmethod
-    def sqlite(
-        path: str, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
-    ) -> RecordFetcher:
+    def __new__(cls, connection: Connection) -> Self:
         r"""
-        Open a fetcher over a SQLite database file.
-
-        `on_connect` and `on_close` are the configuration's own statements for the two ends
-        of a connection's life.
-        """
-    @staticmethod
-    def turso(
-        path: str, mvcc: bool, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
-    ) -> RecordFetcher:
-        r"""
-        Open a fetcher over a Turso database file.
-
-        `on_connect` and `on_close` are the configuration's own statements for the two ends
-        of a connection's life. The `init` statements are the store's to run, that being
-        the engine a database opens for itself.
-        """
-    @staticmethod
-    def postgres(
-        host: str,
-        database: str,
-        user: str,
-        port: int | None = None,
-        password: str | None = None,
-        settings: Sequence[tuple[str, str]] = [],
-        parameters: Sequence[tuple[str, str]] = [],
-        on_connect: Sequence[str] = [],
-        on_close: Sequence[str] = [],
-    ) -> RecordFetcher:
-        r"""
-        Open a fetcher over a PostgreSQL database.
-
-        `settings` are per-connection server settings like `search_path`. `on_connect` and
-        `on_close` are the configuration's own statements for a connection's two ends.
+        Open a read pool on a connection, which never runs the `init` statements, those
+        being the store's to run.
         """
     def fetch_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> Any:
         r"""
@@ -602,43 +621,10 @@ class RecordWriter:
     transaction on the writer's own pool. Built from resolved connection parameters like
     the fetcher, and matching the query layer's connection semantics.
     """
-    @staticmethod
-    def sqlite(
-        path: str, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
-    ) -> RecordWriter:
+    def __new__(cls, connection: Connection) -> Self:
         r"""
-        Open a writer over a SQLite database file.
-
-        `on_connect` and `on_close` are the configuration's own statements for the two ends
-        of a connection's life.
-        """
-    @staticmethod
-    def turso(
-        path: str, mvcc: bool, on_connect: Sequence[str] = [], on_close: Sequence[str] = []
-    ) -> RecordWriter:
-        r"""
-        Open a writer over a Turso database file.
-
-        `on_connect` and `on_close` are the configuration's own statements for the two ends
-        of a connection's life.
-        """
-    @staticmethod
-    def postgres(
-        host: str,
-        database: str,
-        user: str,
-        port: int | None = None,
-        password: str | None = None,
-        settings: Sequence[tuple[str, str]] = [],
-        parameters: Sequence[tuple[str, str]] = [],
-        on_connect: Sequence[str] = [],
-        on_close: Sequence[str] = [],
-    ) -> RecordWriter:
-        r"""
-        Open a writer over a PostgreSQL database, with per-connection server settings.
-
-        `on_connect` and `on_close` are the configuration's own statements for the two ends
-        of a connection's life.
+        Open a writer's pool on a connection, which never runs the `init` statements,
+        those being the store's to run.
         """
     def write(self, groups: list[tuple[RecordTable, list[Any]]]) -> Any:
         r"""
@@ -1073,50 +1059,9 @@ class Store:
     r"""
     A natively-connected database the query layer reads and writes through.
     """
-    @staticmethod
-    def sqlite(
-        path: str,
-        on_init: Sequence[str] = [],
-        on_connect: Sequence[str] = [],
-        on_close: Sequence[str] = [],
-    ) -> Store:
+    def __new__(cls, connection: Connection) -> Self:
         r"""
-        Open a store over a SQLite database file.
-
-        `on_init`, `on_connect`, and `on_close` are the configuration's own statements for
-        the first connection and for the two ends of every connection's life, run after
-        this backend's.
-        """
-    @staticmethod
-    def turso(
-        path: str,
-        mvcc: bool,
-        on_init: Sequence[str] = [],
-        on_connect: Sequence[str] = [],
-        on_close: Sequence[str] = [],
-    ) -> Store:
-        r"""
-        Open a store over a Turso database file.
-
-        `on_init`, `on_connect`, and `on_close` are the configuration's own statements for
-        the first connection and for the two ends of every connection's life, run after
-        this backend's.
-        """
-    @staticmethod
-    def postgres(
-        host: str,
-        database: str,
-        user: str,
-        port: int | None = None,
-        password: str | None = None,
-        settings: Sequence[tuple[str, str]] = [],
-        parameters: Sequence[tuple[str, str]] = [],
-        on_init: Sequence[str] = [],
-        on_connect: Sequence[str] = [],
-        on_close: Sequence[str] = [],
-    ) -> Store:
-        r"""
-        Open a store over a PostgreSQL database.
+        Open the writable store a connection describes, its `init` statements included.
         """
     def fetch(self, sql: str, parameters: list[Any], table: str | None = None) -> Any:
         r"""

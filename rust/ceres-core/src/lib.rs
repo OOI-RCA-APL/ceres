@@ -9,6 +9,7 @@
 //! by the `stub_gen` binary. Regenerate them after changing the module's surface.
 
 pub mod binary;
+pub mod connection;
 pub mod database;
 pub mod entities;
 pub mod fetcher;
@@ -167,6 +168,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<database::TursoDatabaseConfig>()?;
     module.add_class::<database::PostgresDatabaseConfig>()?;
     module.add_class::<binary::PackingProgram>()?;
+    module.add_class::<connection::Connection>()?;
     module.add_class::<entities::RecordBatch>()?;
     module.add_class::<entities::RecordTable>()?;
     module.add_class::<entities::EntityTable>()?;

@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-from ceres.__internal__.core import Store
+from ceres.__internal__.core import Connection, Store
 from ceres.database.migrations import MIGRATIONS
 from tests import postgres
 from tests.postgres import POSTGRES_URL
@@ -35,7 +35,7 @@ def _store(schema: str | None = None) -> Store:
     schema.
     """
     settings = [] if schema is None else [("search_path", f"{schema},public")]
-    return Store.postgres(**postgres._parts(), settings=settings)
+    return Store(Connection.postgres(**postgres._parts(), settings=settings))
 
 
 async def _reachable() -> bool:

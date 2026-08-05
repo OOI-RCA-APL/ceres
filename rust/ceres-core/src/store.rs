@@ -26,85 +26,11 @@ pub struct Store {
 #[gen_stub_pymethods]
 #[pymethods]
 impl Store {
-    /// Open a store over a SQLite database file.
-    ///
-    /// `on_init`, `on_connect`, and `on_close` are the configuration's own statements for
-    /// the first connection and for the two ends of every connection's life, run after
-    /// this backend's.
-    #[staticmethod]
-    #[pyo3(signature = (path, on_init=Vec::new(), on_connect=Vec::new(), on_close=Vec::new()))]
-    fn sqlite(
-        path: &str,
-        on_init: Vec<String>,
-        on_connect: Vec<String>,
-        on_close: Vec<String>,
-    ) -> PyResult<Self> {
-        // Pool construction spawns maintenance tasks, which needs the runtime's context.
-        let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store = RecordStore::sqlite_writable(path, on_init, on_connect, on_close)
-            .map_err(to_value_error)?;
+    /// Open the writable store a connection describes, its `init` statements included.
+    #[new]
+    fn new(connection: &crate::connection::Connection) -> PyResult<Self> {
         Ok(Self {
-            store: Arc::new(store),
-        })
-    }
-
-    /// Open a store over a Turso database file.
-    ///
-    /// `on_init`, `on_connect`, and `on_close` are the configuration's own statements for
-    /// the first connection and for the two ends of every connection's life, run after
-    /// this backend's.
-    #[staticmethod]
-    #[pyo3(signature = (path, mvcc, on_init=Vec::new(), on_connect=Vec::new(), on_close=Vec::new()))]
-    fn turso(
-        path: &str,
-        mvcc: bool,
-        on_init: Vec<String>,
-        on_connect: Vec<String>,
-        on_close: Vec<String>,
-    ) -> Self {
-        let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        Self {
-            store: Arc::new(RecordStore::turso(
-                path, mvcc, on_init, on_connect, on_close,
-            )),
-        }
-    }
-
-    /// Open a store over a PostgreSQL database.
-    #[staticmethod]
-    #[pyo3(signature = (
-        host,
-        database,
-        user,
-        port=None,
-        password=None,
-        settings=Vec::new(),
-        parameters=Vec::new(),
-        on_init=Vec::new(),
-        on_connect=Vec::new(),
-        on_close=Vec::new(),
-    ))]
-    #[allow(clippy::too_many_arguments)]
-    fn postgres(
-        host: &str,
-        database: &str,
-        user: &str,
-        port: Option<u16>,
-        password: Option<&str>,
-        settings: Vec<(String, String)>,
-        parameters: Vec<(String, String)>,
-        on_init: Vec<String>,
-        on_connect: Vec<String>,
-        on_close: Vec<String>,
-    ) -> PyResult<Self> {
-        let _guard = pyo3_async_runtimes::tokio::get_runtime().enter();
-        let store = RecordStore::postgres(
-            host, port, database, user, password, settings, parameters, on_init, on_connect,
-            on_close,
-        )
-        .map_err(to_value_error)?;
-        Ok(Self {
-            store: Arc::new(store),
+            store: Arc::new(connection.store()?),
         })
     }
 

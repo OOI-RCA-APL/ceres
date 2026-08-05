@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import gettempdir
 from typing import TYPE_CHECKING, Any, Protocol, Self, final, override
 
-from ceres.__internal__.core import RecordFetcher, RecordWriter, Store
+from ceres.__internal__.core import Connection, RecordFetcher, RecordWriter, Store
 from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
@@ -170,22 +170,39 @@ class Database:
         `DatabaseType.POSTGRES`."""
         return self._config.type
 
-    def _record_fetcher(self) -> RecordFetcher | None:
-        """Return a natively-connected record fetcher, or `None` when unsupported.
+    @abstractmethod
+    def _native_connection(self) -> Connection:
+        """Resolve this backend's native connection parameters.
 
-        The fetcher serves record listings without materializing Python entities. Backends
-        opt in by overriding, and return `None` whenever a second connection pool cannot
-        safely join this database.
+        Everything native, the store, the record fetcher, and the record writer, opens
+        from this one description, so the three cannot connect differently.
         """
-        return None
+        ...
+
+    def _record_fetcher(self) -> RecordFetcher | None:
+        """Return the natively-connected record fetcher, built once and reused.
+
+        The fetcher serves record listings without materializing Python entities.
+        """
+        fetcher = getattr(self, "_native_record_fetcher", None)
+        if fetcher is None:
+            fetcher = RecordFetcher(self._native_connection())
+            self._native_record_fetcher = fetcher
+
+        return fetcher
 
     def _record_writer(self) -> RecordWriter | None:
-        """Return a natively-connected record writer, or `None` when unsupported.
+        """Return the natively-connected record writer, built once and reused.
 
         The writer upserts flushed record batches without serializing Python entities
-        through Pydantic. The same joinability rules as `_record_fetcher` apply.
+        through Pydantic.
         """
-        return None
+        writer = getattr(self, "_native_record_writer", None)
+        if writer is None:
+            writer = RecordWriter(self._native_connection())
+            self._native_record_writer = writer
+
+        return writer
 
     def _store(self) -> Store:
         """Return the native store this database's queries run through.
@@ -196,15 +213,10 @@ class Database:
         """
         store = getattr(self, "_native_store", None)
         if store is None:
-            store = self._create_store()
+            store = Store(self._native_connection())
             self._native_store = store
 
         return store
-
-    @abstractmethod
-    def _create_store(self) -> Store:
-        """Open a native store on this backend's connection parameters."""
-        ...
 
     @final
     def _native_hooks(self) -> dict[str, Any]:
@@ -655,26 +667,8 @@ class SQLiteDatabase(Database):
         return config
 
     @override
-    def _create_store(self) -> Store:
-        return Store.sqlite(str(self.path), **self._native_hooks())
-
-    @override
-    def _record_fetcher(self) -> RecordFetcher | None:
-        fetcher = getattr(self, "_native_record_fetcher", None)
-        if fetcher is None:
-            fetcher = RecordFetcher.sqlite(str(self.path), **self._native_connection_hooks())
-            self._native_record_fetcher = fetcher
-
-        return fetcher
-
-    @override
-    def _record_writer(self) -> RecordWriter | None:
-        writer = getattr(self, "_native_record_writer", None)
-        if writer is None:
-            writer = RecordWriter.sqlite(str(self.path), **self._native_connection_hooks())
-            self._native_record_writer = writer
-
-        return writer
+    def _native_connection(self) -> Connection:
+        return Connection.sqlite(str(self.path), **self._native_hooks())
 
     @property
     def path(self) -> Path:
@@ -745,30 +739,8 @@ class TursoDatabase(SQLiteDatabase):
         return config
 
     @override
-    def _create_store(self) -> Store:
-        return Store.turso(str(self.path), self.config.mvcc, **self._native_hooks())
-
-    @override
-    def _record_fetcher(self) -> RecordFetcher | None:
-        fetcher = getattr(self, "_native_record_fetcher", None)
-        if fetcher is None:
-            fetcher = RecordFetcher.turso(
-                str(self.path), self.config.mvcc, **self._native_connection_hooks()
-            )
-            self._native_record_fetcher = fetcher
-
-        return fetcher
-
-    @override
-    def _record_writer(self) -> RecordWriter | None:
-        writer = getattr(self, "_native_record_writer", None)
-        if writer is None:
-            writer = RecordWriter.turso(
-                str(self.path), self.config.mvcc, **self._native_connection_hooks()
-            )
-            self._native_record_writer = writer
-
-        return writer
+    def _native_connection(self) -> Connection:
+        return Connection.turso(str(self.path), self.config.mvcc, **self._native_hooks())
 
     @override
     def _get_temporary_path(self) -> Path:
@@ -823,27 +795,5 @@ class PostgresDatabase(Database):
         }
 
     @override
-    def _create_store(self) -> Store:
-        return Store.postgres(**self._native_connection_arguments(), **self._native_hooks())
-
-    @override
-    def _record_fetcher(self) -> RecordFetcher | None:
-        fetcher = getattr(self, "_native_record_fetcher", None)
-        if fetcher is None:
-            fetcher = RecordFetcher.postgres(
-                **self._native_connection_arguments(), **self._native_connection_hooks()
-            )
-            self._native_record_fetcher = fetcher
-
-        return fetcher
-
-    @override
-    def _record_writer(self) -> RecordWriter | None:
-        writer = getattr(self, "_native_record_writer", None)
-        if writer is None:
-            writer = RecordWriter.postgres(
-                **self._native_connection_arguments(), **self._native_connection_hooks()
-            )
-            self._native_record_writer = writer
-
-        return writer
+    def _native_connection(self) -> Connection:
+        return Connection.postgres(**self._native_connection_arguments(), **self._native_hooks())
