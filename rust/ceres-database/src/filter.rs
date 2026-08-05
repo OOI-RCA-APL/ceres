@@ -21,17 +21,16 @@
 //! fields bring equality. The cross-backend parity suite holds the compiled statements
 //! and the matcher to the query layer's results on every backend.
 
-use ceres_entities::{FieldFamily, FilterField, FilterValues, Level, OperationKind};
+use ceres_entities::{
+    Address, FieldFamily, FilterField, FilterValues, Level, OperationKind, latin1,
+};
 use chrono::{Duration, NaiveDateTime, SubsecRound, Utc};
 use sea_query::{
     Alias, Asterisk, BinOper, DeleteStatement, Expr, ExprTrait, Func, LikeExpr, Order, Query,
     SelectStatement, SimpleExpr, UpdateStatement, Value,
 };
 use uuid::Uuid;
-
 use yaml_serde::Value as Yaml;
-
-use ceres_entities::Address;
 
 use crate::credentials::normalize_email;
 use crate::entities::EntityTable;
@@ -42,8 +41,10 @@ use crate::store::Parameter;
 /// How values render into the statement, per backend family.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SqlDialect {
-    /// SQLite and Turso, where timestamps and UUIDs compare as their stored text.
+    /// SQLite and Turso, where timestamps, UUIDs, and JSON payloads bind and compare
+    /// as their stored text.
     SqliteText,
+    /// Native driver types throughout.
     Postgres,
 }
 
@@ -347,12 +348,10 @@ impl Filter {
         returning: bool,
         now: Option<NaiveDateTime>,
     ) -> Result<(String, Vec<Value>), Refusal> {
-        let writer = match dialect {
-            SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
-            SqlDialect::Postgres => crate::writer::Dialect::Postgres,
-        };
-        let assignments =
-            crate::assign::assignments(self.schema, assign, writer).map_err(Refusal::Invalid)?;
+        let assignments = self
+            .schema
+            .assignments(assign, dialect)
+            .map_err(Refusal::Invalid)?;
         let mut statement = self.update_statement(dialect, &assignments, now);
         if returning {
             statement.returning_all();
@@ -415,7 +414,7 @@ impl Filter {
         let mut statement = Query::select();
         statement
             .column(Asterisk)
-            .from(Alias::new(self.schema.name()));
+            .from(Alias::new(self.schema.name));
         for condition in self.node.combined_conditions(self.schema, dialect, now) {
             statement.and_where(condition);
         }
@@ -424,19 +423,24 @@ impl Filter {
             order_by(&mut statement, term, dialect);
         }
 
+        self.page(&mut statement, dialect);
+        statement
+    }
+
+    /// Apply the filter's limit and offset to a statement.
+    ///
+    /// SQLite refuses a bare `OFFSET`, so an unlimited query carrying one names the
+    /// limit SQLAlchemy would, one no result set reaches.
+    fn page(&self, statement: &mut SelectStatement, dialect: SqlDialect) {
         if let Some(limit) = self.limit {
             statement.limit(limit);
         } else if self.offset.is_some() && dialect == SqlDialect::SqliteText {
-            // SQLite refuses a bare `OFFSET`, so an unlimited query names the limit
-            // SQLAlchemy would, one no result set reaches.
             statement.limit(i64::MAX as u64);
         }
 
         if let Some(offset) = self.offset {
             statement.offset(offset);
         }
-
-        statement
     }
 
     /// Build the count statement.
@@ -453,7 +457,7 @@ impl Filter {
             let mut statement = Query::select();
             statement
                 .expr(Expr::cust("COUNT(*)"))
-                .from(Alias::new(self.schema.name()));
+                .from(Alias::new(self.schema.name));
             for condition in self.node.combined_conditions(self.schema, dialect, now) {
                 statement.and_where(condition);
             }
@@ -462,7 +466,7 @@ impl Filter {
         }
 
         let mut inner = Query::select();
-        inner.from(Alias::new(self.schema.name()));
+        inner.from(Alias::new(self.schema.name));
         for column in self.schema.key {
             inner.column(Alias::new(*column));
         }
@@ -475,15 +479,7 @@ impl Filter {
             order_by(&mut inner, term, dialect);
         }
 
-        if let Some(limit) = self.limit {
-            inner.limit(limit);
-        } else if self.offset.is_some() && dialect == SqlDialect::SqliteText {
-            inner.limit(i64::MAX as u64);
-        }
-
-        if let Some(offset) = self.offset {
-            inner.offset(offset);
-        }
+        self.page(&mut inner, dialect);
 
         let mut statement = Query::select();
         statement
@@ -503,20 +499,12 @@ impl Filter {
     ) -> SelectStatement {
         let now = resolve_now(now);
         let mut inner = Query::select();
-        inner.column(Asterisk).from(Alias::new(self.schema.name()));
+        inner.column(Asterisk).from(Alias::new(self.schema.name));
         for condition in self.node.combined_conditions(self.schema, dialect, now) {
             inner.and_where(condition);
         }
 
-        if let Some(limit) = self.limit {
-            inner.limit(limit);
-        } else if self.offset.is_some() && dialect == SqlDialect::SqliteText {
-            inner.limit(i64::MAX as u64);
-        }
-
-        if let Some(offset) = self.offset {
-            inner.offset(offset);
-        }
+        self.page(&mut inner, dialect);
 
         let mut statement = Query::select();
         statement.expr(Expr::exists(inner));
@@ -531,7 +519,7 @@ impl Filter {
         }
 
         let mut keys = Query::select();
-        keys.from(Alias::new(self.schema.name()));
+        keys.from(Alias::new(self.schema.name));
         for column in self.schema.key {
             keys.column(Alias::new(*column));
         }
@@ -544,16 +532,7 @@ impl Filter {
             order_by(&mut keys, term, dialect);
         }
 
-        if let Some(limit) = self.limit {
-            keys.limit(limit);
-        } else if dialect == SqlDialect::SqliteText {
-            keys.limit(i64::MAX as u64);
-        }
-
-        if let Some(offset) = self.offset {
-            keys.offset(offset);
-        }
-
+        self.page(&mut keys, dialect);
         Some(keys)
     }
 
@@ -582,7 +561,7 @@ impl Filter {
     fn delete_statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> DeleteStatement {
         let now = resolve_now(now);
         let mut statement = Query::delete();
-        statement.from_table(Alias::new(self.schema.name()));
+        statement.from_table(Alias::new(self.schema.name));
         match self.paged_keys(dialect, now) {
             Some(keys) => {
                 statement.and_where(self.key_expression().in_subquery(keys));
@@ -606,7 +585,7 @@ impl Filter {
     ) -> UpdateStatement {
         let now = resolve_now(now);
         let mut statement = Query::update();
-        statement.table(Alias::new(self.schema.name()));
+        statement.table(Alias::new(self.schema.name));
         for assignment in assignments {
             statement.value(Alias::new(assignment.column), assignment.value.clone());
         }
@@ -639,7 +618,7 @@ impl Filter {
             .iter()
             .filter_map(|column| {
                 self.schema
-                    .fields()
+                    .fields
                     .iter()
                     .find(|field| field.key == *column)
                     .map(|field| OrderTerm {
@@ -664,7 +643,7 @@ macro_rules! filter_surface {
             /// for every native family, each field's operation filters, the operators a
             /// family brings, the table's computed predicates, and the query keys.
             pub fn supported_keys(table: $table) -> Vec<&'static str> {
-                schema_keys(table.schema())
+                table.schema().supported_keys()
             }
 
             /// The filter keys the compiler knowingly delegates for a table.
@@ -684,7 +663,7 @@ macro_rules! filter_surface {
             /// disagree with the compiler about whether a key is a bare flag or takes a
             /// value.
             pub fn keys(table: $table) -> Vec<FilterKey> {
-                filter_keys(table.schema())
+                table.schema().filter_keys()
             }
 
             /// Every column a create may name, with the argument form its family gives
@@ -694,7 +673,7 @@ macro_rules! filter_surface {
             /// surface. A user's password hash is a column no filter exposes, and a
             /// filter's operations and windows name no column at all.
             pub fn columns(table: $table) -> Vec<FilterKey> {
-                column_keys(table.schema())
+                table.schema().column_keys()
             }
 
             /// Parse query pairs into a filter, refusing what cannot compile natively.
@@ -961,17 +940,6 @@ fn yaml_scalar(value: &Yaml) -> Option<String> {
     }
 }
 
-/// Whether naming `None` for a field filters for null rather than not filtering.
-///
-/// A value column stores its JSON text, `null` included, so the null is one of the
-/// values it compares against. Every other family reads an absent value as no filter.
-fn nullable(schema: Schema, key: &str) -> bool {
-    schema
-        .fields
-        .iter()
-        .any(|field| field.key == key && field.family == FieldFamily::JsonValue)
-}
-
 /// Parse one wire YAML value the way the Python `FromYAML` reads it, empty text
 /// reading as null.
 fn parse_yaml(text: &str) -> Result<Yaml, Refusal> {
@@ -1000,7 +968,7 @@ struct Parsed {
 impl Parsed {
     /// Apply one wire key to this node.
     fn apply(&mut self, table: Schema, key: &str, value: &WireValue) -> Result<(), Refusal> {
-        match resolve(table, key)? {
+        match table.resolve(key)? {
             KeyRole::Equality(field) => {
                 // A value column compares on the whole serialized value, so a structure
                 // is one value rather than a set of them and a list is a list rather
@@ -1056,7 +1024,7 @@ impl Parsed {
                 set_once(&mut self.node.root, key, value)?;
             }
             KeyRole::Group(operator) => {
-                let children = group_children(table, value)?;
+                let children = table.group_children(value)?;
                 match operator {
                     GroupOp::And => self.and_group.extend(children),
                     GroupOp::Or => self.or_group.extend(children),
@@ -1154,7 +1122,7 @@ impl Parsed {
             }
             KeyRole::Order => {
                 for scalar in value.scalars(key)? {
-                    self.order.push(parse_order(table, &scalar)?);
+                    self.order.push(table.parse_order(&scalar)?);
                 }
             }
             KeyRole::Limit => {
@@ -1188,7 +1156,7 @@ impl Parsed {
             // field whose own value can be null. A variable's value compares on the text
             // its column stores, and `null` is one of the texts it stores, so naming it
             // is a filter rather than the absence of one.
-            if matches!(value, Yaml::Null) && !nullable(table, key) {
+            if matches!(value, Yaml::Null) && !table.nullable(key) {
                 continue;
             }
 
@@ -1268,43 +1236,6 @@ impl Parsed {
     }
 }
 
-/// The subfilters one `or` or `and` wire value carries.
-///
-/// A plain text value parses as YAML first. The result is one subfilter mapping, a
-/// sequence of them, or nothing, and a sequence element may itself be YAML text of
-/// one mapping, the way the Python `FromYAML` layers read it.
-fn group_children(table: Schema, value: &WireValue) -> Result<Vec<Parsed>, Refusal> {
-    let parsed;
-    let value = match value {
-        WireValue::Text(text) => {
-            parsed = parse_yaml(text)?;
-            &parsed
-        }
-        WireValue::Yaml(value) => *value,
-    };
-
-    let one = |element: &Yaml| -> Result<Parsed, Refusal> {
-        let parsed;
-        let element = match element {
-            Yaml::String(text) => {
-                parsed = parse_yaml(text)?;
-                &parsed
-            }
-            _ => element,
-        };
-        match element {
-            Yaml::Mapping(mapping) => Parsed::from_yaml(table, mapping),
-            _ => Err(Refusal::invalid("a subfilter must be a mapping")),
-        }
-    };
-
-    match value {
-        Yaml::Null => Ok(Vec::new()),
-        Yaml::Sequence(elements) => elements.iter().map(one).collect(),
-        other => Ok(vec![one(other)?]),
-    }
-}
-
 impl FilterNode {
     /// Add one equality value for a field, parsed by its family.
     fn push_equality(&mut self, field: &'static FilterField, value: &str) -> Result<(), Refusal> {
@@ -1342,7 +1273,7 @@ impl FilterNode {
                     .ok_or_else(|| Refusal::invalid(format!("invalid level {value:?}")))?;
                 Values::Texts(vec![value.to_string()])
             }
-            FieldFamily::Bytes => Values::Bytes(vec![latin1_bytes(value)]),
+            FieldFamily::Bytes => Values::Bytes(vec![latin1::encode(value)]),
             // A JSON field carries no equality key, only its operation filters, so its
             // own key never resolves here.
             FieldFamily::Json => return Err(Refusal::Delegated),
@@ -1393,7 +1324,7 @@ impl FilterNode {
     /// list folding.
     fn push_operation(&mut self, field: &'static FilterField, kind: OperationKind, value: &str) {
         let parsed = match field.family {
-            FieldFamily::Bytes => Values::Bytes(vec![latin1_bytes(value)]),
+            FieldFamily::Bytes => Values::Bytes(vec![latin1::encode(value)]),
             _ => Values::Texts(vec![value.to_string()]),
         };
 
@@ -1455,7 +1386,7 @@ impl FilterNode {
             }
         }
 
-        for field in table.fields() {
+        for field in table.fields {
             let raw = fields.get(field.key).copied();
             let text = raw.and_then(|raw| serde_json::from_str::<String>(raw.get()).ok());
 
@@ -1468,7 +1399,7 @@ impl FilterNode {
                         .is_some_and(|stamp| stamps.contains(&stamp)),
                     (Values::Bytes(patterns), _) => text
                         .as_deref()
-                        .is_some_and(|text| patterns.contains(&latin1_bytes(text))),
+                        .is_some_and(|text| patterns.contains(&latin1::encode(text))),
                     // A value column compares on the serialized text of whatever it
                     // holds, so the raw wire JSON is the thing to compare.
                     (Values::Texts(texts), FieldFamily::JsonValue) => raw
@@ -1529,7 +1460,7 @@ impl FilterNode {
                         })
                     }
                     Values::Bytes(patterns) => text.as_deref().is_some_and(|text| {
-                        let value = latin1_bytes(text);
+                        let value = latin1::encode(text);
                         patterns
                             .iter()
                             .any(|pattern| bytes_match(&value, held_values.kind, pattern))
@@ -1716,7 +1647,7 @@ impl FilterNode {
             conditions.push(if *sense { condition } else { condition.not() });
         }
 
-        for field in table.fields() {
+        for field in table.fields {
             let column = Expr::col(Alias::new(field.key));
             if let Some(values) = self.values_of(field) {
                 conditions.push(match values {
@@ -1885,9 +1816,8 @@ impl FilterNode {
                 .num_microseconds()
                 .expect("durations parse within range")
                 .max(1);
-            conditions.push(bucket_condition(
-                table, key, origin, width, start, end, select, dialect,
-            ));
+            conditions
+                .push(table.bucket_condition(key, origin, width, start, end, select, dialect));
         }
 
         if let Some(count) = self.subsample {
@@ -1897,8 +1827,7 @@ impl FilterNode {
             };
             let total = (end - start).num_microseconds().unwrap_or(0);
             let width = divide_rounding_half_even(total, count.max(1) as i64).max(1);
-            conditions.push(bucket_condition(
-                table,
+            conditions.push(table.bucket_condition(
                 key,
                 start,
                 width,
@@ -1993,16 +1922,6 @@ impl FilterNode {
     }
 }
 
-/// The field and query filter keys the native compiler serves for a table.
-///
-/// Generated from the entity's field families, never written out. Equality for every
-/// native family, each field's operation filters, the window operators a timestamp
-/// brings, the ordered bounds a level brings, the table's computed predicates, and the
-/// query keys every table shares.
-pub(crate) fn schema_keys(table: Schema) -> Vec<&'static str> {
-    filter_keys(table).into_iter().map(|key| key.key).collect()
-}
-
 /// One filter key and the argument form that carries it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FilterKey {
@@ -2069,208 +1988,324 @@ pub enum Window {
     Subsample,
 }
 
-/// Every filter key a table serves, with the argument form its family gives it.
-///
-/// Generated from the entity's fields rather than written out, so a parser built from
-/// this cannot disagree with the compiler about what a key is or how it arrives. A flat
-/// list of names would drop exactly the information a parser needs, which is how a
-/// boolean came to be lexed as though it took a value.
-pub(crate) fn filter_keys(table: Schema) -> Vec<FilterKey> {
-    let keyed = |key, arity, role, field| FilterKey {
-        key,
-        arity,
-        role,
-        field,
-    };
+impl Schema {
+    /// Whether naming `None` for a field filters for null rather than not filtering.
+    ///
+    /// A value column stores its JSON text, `null` included, so the null is one of the
+    /// values it compares against. Every other family reads an absent value as no
+    /// filter.
+    fn nullable(self, key: &str) -> bool {
+        self.fields
+            .iter()
+            .any(|field| field.key == key && field.family == FieldFamily::JsonValue)
+    }
 
-    let mut keys = Vec::new();
-    for field in table.fields() {
-        // A field's own key comes before the operations that search within it, because
-        // the order here is the order they are listed in, and a reader looking for a
-        // field wants the whole-value comparison first.
-        //
-        // A field whose own key is delegated still brings its operations, which is how
-        // an email address filters on its parts without comparing whole.
-        if field.family.native() && !table.delegated.contains(&field.key) {
-            let arity = if field.family.scalar() {
-                Arity::Flag
-            } else {
-                Arity::Value
+    /// The subfilters one `or` or `and` wire value carries.
+    ///
+    /// A plain text value parses as YAML first. The result is one subfilter mapping, a
+    /// sequence of them, or nothing, and a sequence element may itself be YAML text of
+    /// one mapping, the way the Python `FromYAML` layers read it.
+    fn group_children(self, value: &WireValue) -> Result<Vec<Parsed>, Refusal> {
+        let parsed;
+        let value = match value {
+            WireValue::Text(text) => {
+                parsed = parse_yaml(text)?;
+                &parsed
+            }
+            WireValue::Yaml(value) => *value,
+        };
+
+        let one = |element: &Yaml| -> Result<Parsed, Refusal> {
+            let parsed;
+            let element = match element {
+                Yaml::String(text) => {
+                    parsed = parse_yaml(text)?;
+                    &parsed
+                }
+                _ => element,
             };
-            keys.push(keyed(field.key, arity, Role::Equality, Some(field.key)));
+            match element {
+                Yaml::Mapping(mapping) => Parsed::from_yaml(self, mapping),
+                _ => Err(Refusal::invalid("a subfilter must be a mapping")),
+            }
+        };
+
+        match value {
+            Yaml::Null => Ok(Vec::new()),
+            Yaml::Sequence(elements) => elements.iter().map(one).collect(),
+            other => Ok(vec![one(other)?]),
+        }
+    }
+
+    /// The field and query filter keys the native compiler serves for a table.
+    ///
+    /// Generated from the entity's field families, never written out. Equality for
+    /// every native family, each field's operation filters, the window operators a
+    /// timestamp brings, the ordered bounds a level brings, the table's computed
+    /// predicates, and the query keys every table shares.
+    pub(crate) fn supported_keys(self) -> Vec<&'static str> {
+        self.filter_keys().into_iter().map(|key| key.key).collect()
+    }
+
+    /// Every filter key a table serves, with the argument form its family gives it.
+    ///
+    /// Generated from the entity's fields rather than written out, so a parser built
+    /// from this cannot disagree with the compiler about what a key is or how it
+    /// arrives. A flat list of names would drop exactly the information a parser
+    /// needs, which is how a boolean came to be lexed as though it took a value.
+    pub(crate) fn filter_keys(self) -> Vec<FilterKey> {
+        let keyed = |key, arity, role, field| FilterKey {
+            key,
+            arity,
+            role,
+            field,
+        };
+
+        let mut keys = Vec::new();
+        for field in self.fields {
+            // A field's own key comes before the operations that search within it, because
+            // the order here is the order they are listed in, and a reader looking for a
+            // field wants the whole-value comparison first.
+            //
+            // A field whose own key is delegated still brings its operations, which is how
+            // an email address filters on its parts without comparing whole.
+            if field.family.native() && !self.delegated.contains(&field.key) {
+                let arity = if field.family.scalar() {
+                    Arity::Flag
+                } else {
+                    Arity::Value
+                };
+                keys.push(keyed(field.key, arity, Role::Equality, Some(field.key)));
+            }
+
+            // An operation matches within a field's content, so it always takes a value,
+            // whatever form the field's own key takes. It names the field it searches, which
+            // its own key does not always carry.
+            keys.extend(field.operations.iter().map(|operation| {
+                keyed(
+                    operation.key,
+                    Arity::Value,
+                    Role::Operation(operation.kind),
+                    Some(field.key),
+                )
+            }));
+
+            if !field.family.native() || self.delegated.contains(&field.key) {
+                continue;
+            }
+
+            let window = |key, kind| keyed(key, Arity::Value, Role::Window(kind), Some(field.key));
+            match field.family {
+                FieldFamily::Address => {
+                    keys.push(keyed("root", Arity::Value, Role::Root, Some(field.key)));
+                }
+                FieldFamily::Timestamp => {
+                    keys.extend(["after", "before"].map(|key| window(key, Window::Absolute)));
+                    keys.push(window("timespan", Window::Span));
+                    keys.extend(["max_age", "min_age"].map(|key| window(key, Window::Age)));
+                    keys.extend(
+                        ["after_hour", "before_hour", "after_minute", "before_minute"]
+                            .map(|key| window(key, Window::Clock)),
+                    );
+                    keys.extend(
+                        ["subsample_every", "subsample", "subsample_select"]
+                            .map(|key| window(key, Window::Subsample)),
+                    );
+                }
+                FieldFamily::Level => keys.extend(
+                    bound_keys(field)
+                        .map(|key| keyed(key, Arity::Value, Role::Bound, Some(field.key))),
+                ),
+                _ => {}
+            }
         }
 
-        // An operation matches within a field's content, so it always takes a value,
-        // whatever form the field's own key takes. It names the field it searches, which
-        // its own key does not always carry.
-        keys.extend(field.operations.iter().map(|operation| {
+        // A computed predicate has no column and answers a yes or no, so it is a flag like
+        // any other boolean.
+        keys.extend(self.computed.iter().map(|predicate| {
             keyed(
-                operation.key,
-                Arity::Value,
-                Role::Operation(operation.kind),
-                Some(field.key),
+                predicate.key,
+                Arity::Flag,
+                Role::Computed,
+                Some(predicate.column),
             )
         }));
+        keys.extend(
+            ["order", "limit", "offset"].map(|key| keyed(key, Arity::Value, Role::Query, None)),
+        );
+        keys.extend(["or", "and"].map(|key| keyed(key, Arity::Value, Role::Group, None)));
+        keys
+    }
 
-        if !field.family.native() || table.delegated.contains(&field.key) {
-            continue;
-        }
+    /// Every column a create may name, with the argument form its family gives it.
+    ///
+    /// Generated from the entity's columns for the same reason the filter keys are, so
+    /// the parser and the writer cannot disagree about what a create accepts.
+    pub(crate) fn column_keys(self) -> Vec<FilterKey> {
+        self.columns
+            .iter()
+            .map(|field| FilterKey {
+                key: field.key,
+                arity: if field.family.scalar() {
+                    Arity::Flag
+                } else {
+                    Arity::Value
+                },
+                // A column names itself, and a write assigns it whole rather than matching
+                // within it.
+                role: Role::Equality,
+                field: Some(field.key),
+            })
+            .collect()
+    }
 
-        let window = |key, kind| keyed(key, Arity::Value, Role::Window(kind), Some(field.key));
-        match field.family {
-            FieldFamily::Address => {
-                keys.push(keyed("root", Arity::Value, Role::Root, Some(field.key)));
-            }
-            FieldFamily::Timestamp => {
-                keys.extend(["after", "before"].map(|key| window(key, Window::Absolute)));
-                keys.push(window("timespan", Window::Span));
-                keys.extend(["max_age", "min_age"].map(|key| window(key, Window::Age)));
-                keys.extend(
-                    ["after_hour", "before_hour", "after_minute", "before_minute"]
-                        .map(|key| window(key, Window::Clock)),
-                );
-                keys.extend(
-                    ["subsample_every", "subsample", "subsample_select"]
-                        .map(|key| window(key, Window::Subsample)),
-                );
-            }
-            FieldFamily::Level => keys.extend(
-                bound_keys(field).map(|key| keyed(key, Arity::Value, Role::Bound, Some(field.key))),
-            ),
+    /// Resolve what one wire key means for a table, from the entity's field families.
+    fn resolve(self, key: &str) -> Result<KeyRole, Refusal> {
+        match key {
+            "order" => return Ok(KeyRole::Order),
+            "limit" => return Ok(KeyRole::Limit),
+            "offset" => return Ok(KeyRole::Offset),
+            "or" => return Ok(KeyRole::Group(GroupOp::Or)),
+            "and" => return Ok(KeyRole::Group(GroupOp::And)),
             _ => {}
         }
-    }
 
-    // A computed predicate has no column and answers a yes or no, so it is a flag like
-    // any other boolean.
-    keys.extend(table.computed.iter().map(|predicate| {
-        keyed(
-            predicate.key,
-            Arity::Flag,
-            Role::Computed,
-            Some(predicate.column),
-        )
-    }));
-    keys.extend(
-        ["order", "limit", "offset"].map(|key| keyed(key, Arity::Value, Role::Query, None)),
-    );
-    keys.extend(["or", "and"].map(|key| keyed(key, Arity::Value, Role::Group, None)));
-    keys
-}
-
-/// Every column a create may name, with the argument form its family gives it.
-///
-/// Generated from the entity's columns for the same reason the filter keys are, so the
-/// parser and the writer cannot disagree about what a create accepts.
-pub(crate) fn column_keys(table: Schema) -> Vec<FilterKey> {
-    table
-        .columns
-        .iter()
-        .map(|field| FilterKey {
-            key: field.key,
-            arity: if field.family.scalar() {
-                Arity::Flag
-            } else {
-                Arity::Value
-            },
-            // A column names itself, and a write assigns it whole rather than matching
-            // within it.
-            role: Role::Equality,
-            field: Some(field.key),
-        })
-        .collect()
-}
-
-/// Resolve what one wire key means for a table, from the entity's field families.
-fn resolve(table: Schema, key: &str) -> Result<KeyRole, Refusal> {
-    match key {
-        "order" => return Ok(KeyRole::Order),
-        "limit" => return Ok(KeyRole::Limit),
-        "offset" => return Ok(KeyRole::Offset),
-        "or" => return Ok(KeyRole::Group(GroupOp::Or)),
-        "and" => return Ok(KeyRole::Group(GroupOp::And)),
-        _ => {}
-    }
-
-    // The delegated list wins over the field families, because a key can name a field
-    // the compiler would otherwise serve and still belong to Python, an email address's
-    // equality being the one that does.
-    if table.delegated.contains(&key) {
-        return Err(Refusal::Delegated);
-    }
-
-    for predicate in table.computed {
-        if predicate.key == key {
-            return Ok(KeyRole::Computed(*predicate));
-        }
-    }
-
-    for field in table.fields() {
-        if field.key == key && field.family.native() {
-            return Ok(KeyRole::Equality(field));
+        // The delegated list wins over the field families, because a key can name a field
+        // the compiler would otherwise serve and still belong to Python, an email address's
+        // equality being the one that does.
+        if self.delegated.contains(&key) {
+            return Err(Refusal::Delegated);
         }
 
-        for operation in field.operations {
-            if operation.key == key {
-                return Ok(KeyRole::Operation(field, operation.kind));
+        for predicate in self.computed {
+            if predicate.key == key {
+                return Ok(KeyRole::Computed(*predicate));
             }
         }
 
-        match field.family {
-            FieldFamily::Address if key == "root" => {
-                return Ok(KeyRole::Root);
+        for field in self.fields {
+            if field.key == key && field.family.native() {
+                return Ok(KeyRole::Equality(field));
             }
-            FieldFamily::Timestamp => {
-                let operator = match key {
-                    "after" => Some(WindowOp::After),
-                    "before" => Some(WindowOp::Before),
-                    "timespan" => Some(WindowOp::Timespan),
-                    "max_age" => Some(WindowOp::MaxAge),
-                    "min_age" => Some(WindowOp::MinAge),
-                    _ => None,
-                };
-                if let Some(operator) = operator {
-                    return Ok(KeyRole::Window(operator));
-                }
 
-                let operator = match key {
-                    "after_hour" => Some(ClockOp::AfterHour),
-                    "before_hour" => Some(ClockOp::BeforeHour),
-                    "after_minute" => Some(ClockOp::AfterMinute),
-                    "before_minute" => Some(ClockOp::BeforeMinute),
-                    _ => None,
-                };
-                if let Some(operator) = operator {
-                    return Ok(KeyRole::Clock(operator));
-                }
-
-                let operator = match key {
-                    "subsample_every" => Some(SubsampleOp::Every),
-                    "subsample" => Some(SubsampleOp::Count),
-                    "subsample_select" => Some(SubsampleOp::Select),
-                    _ => None,
-                };
-                if let Some(operator) = operator {
-                    return Ok(KeyRole::Subsample(operator));
+            for operation in field.operations {
+                if operation.key == key {
+                    return Ok(KeyRole::Operation(field, operation.kind));
                 }
             }
-            FieldFamily::Level => {
-                let [minimum, maximum] = bound_keys(field);
-                if key == minimum {
-                    return Ok(KeyRole::Bound(BoundOp::Minimum));
-                }
 
-                if key == maximum {
-                    return Ok(KeyRole::Bound(BoundOp::Maximum));
+            match field.family {
+                FieldFamily::Address if key == "root" => {
+                    return Ok(KeyRole::Root);
                 }
+                FieldFamily::Timestamp => {
+                    let operator = match key {
+                        "after" => Some(WindowOp::After),
+                        "before" => Some(WindowOp::Before),
+                        "timespan" => Some(WindowOp::Timespan),
+                        "max_age" => Some(WindowOp::MaxAge),
+                        "min_age" => Some(WindowOp::MinAge),
+                        _ => None,
+                    };
+                    if let Some(operator) = operator {
+                        return Ok(KeyRole::Window(operator));
+                    }
+
+                    let operator = match key {
+                        "after_hour" => Some(ClockOp::AfterHour),
+                        "before_hour" => Some(ClockOp::BeforeHour),
+                        "after_minute" => Some(ClockOp::AfterMinute),
+                        "before_minute" => Some(ClockOp::BeforeMinute),
+                        _ => None,
+                    };
+                    if let Some(operator) = operator {
+                        return Ok(KeyRole::Clock(operator));
+                    }
+
+                    let operator = match key {
+                        "subsample_every" => Some(SubsampleOp::Every),
+                        "subsample" => Some(SubsampleOp::Count),
+                        "subsample_select" => Some(SubsampleOp::Select),
+                        _ => None,
+                    };
+                    if let Some(operator) = operator {
+                        return Ok(KeyRole::Subsample(operator));
+                    }
+                }
+                FieldFamily::Level => {
+                    let [minimum, maximum] = bound_keys(field);
+                    if key == minimum {
+                        return Ok(KeyRole::Bound(BoundOp::Minimum));
+                    }
+
+                    if key == maximum {
+                        return Ok(KeyRole::Bound(BoundOp::Maximum));
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
+
+        // The Python filter models forbid extra fields, so an unrecognized key is a
+        // validation error rather than a construct awaiting its port.
+        Err(Refusal::invalid(format!("unknown filter key {key:?}")))
     }
 
-    // The Python filter models forbid extra fields, so an unrecognized key is a
-    // validation error rather than a construct awaiting its port.
-    Err(Refusal::invalid(format!("unknown filter key {key:?}")))
+    /// Parse an order value, `field`, `field:asc`, or `field:desc` over the entity's
+    /// filterable fields.
+    fn parse_order(self, text: &str) -> Result<OrderTerm, Refusal> {
+        let (base, ascending) = match text.split_once(':') {
+            None => (text, true),
+            Some((base, "asc")) => (base, true),
+            Some((base, "desc")) => (base, false),
+            Some(_) => return Err(Refusal::invalid(format!("invalid order {text:?}"))),
+        };
+
+        let field = self
+            .fields
+            .iter()
+            .find(|field| field.key == base)
+            .ok_or_else(|| Refusal::invalid(format!("invalid order {text:?}")))?;
+        if !field.family.native() {
+            // Ordering by a byte or JSON column is valid on the wire and delegates until
+            // those columns order natively.
+            return Err(Refusal::Delegated);
+        }
+
+        Ok(OrderTerm { field, ascending })
+    }
+
+    /// One bucket membership condition, the timestamp landing among each bucket's kept
+    /// timestamps.
+    #[expect(clippy::too_many_arguments)]
+    fn bucket_condition(
+        self,
+        key: &'static str,
+        origin: NaiveDateTime,
+        width: i64,
+        start: Option<NaiveDateTime>,
+        end: Option<NaiveDateTime>,
+        select: SubsampleSelect,
+        dialect: SqlDialect,
+    ) -> SimpleExpr {
+        let kept = match select {
+            SubsampleSelect::First => Func::cust(Alias::new("MIN")).arg(Expr::col(Alias::new(key))),
+            SubsampleSelect::Last => Func::cust(Alias::new("MAX")).arg(Expr::col(Alias::new(key))),
+        };
+
+        let mut buckets = Query::select();
+        buckets.expr(kept).from(Alias::new(self.name));
+        if let Some(start) = start {
+            buckets.and_where(Expr::col(Alias::new(key)).gte(timestamp_value(start, dialect)));
+        }
+
+        if let Some(end) = end {
+            buckets.and_where(Expr::col(Alias::new(key)).lt(timestamp_value(end, dialect)));
+        }
+
+        buckets.add_group_by([bucket_expression(key, origin, width, dialect)]);
+        Expr::col(Alias::new(key)).in_subquery(buckets)
+    }
 }
 
 /// The bound keys a level field brings, `min_` and `max_` prefixed on its key.
@@ -2312,9 +2347,6 @@ fn speedate_config() -> speedate::TimeConfig {
         .build()
 }
 
-/// Parse a wire timestamp on the grammar the Python `DateTime` accepts, ISO forms,
-/// epoch numbers, and bare dates, aware values normalizing to UTC and naive ones read
-/// as UTC.
 /// The compact JSON text a value column stores, parsed from the wire's YAML form.
 ///
 /// The Python filter compares `to_json(self.value)` against the column cast to text, so
@@ -2326,28 +2358,22 @@ fn json_text(value: &str) -> Result<String, Refusal> {
     Ok(parsed.to_string())
 }
 
+/// Parse a wire timestamp on the grammar the Python `DateTime` accepts, ISO forms,
+/// epoch numbers, and bare dates, aware values normalizing to UTC and naive ones read
+/// as UTC.
 pub(crate) fn parse_timestamp(text: &str) -> Result<NaiveDateTime, Refusal> {
     let config = speedate::DateTimeConfig {
         time_config: speedate_config(),
         ..Default::default()
     };
     if let Ok(datetime) = speedate::DateTime::parse_str_with_config(text, &config) {
-        let date = chrono::NaiveDate::from_ymd_opt(
-            i32::from(datetime.date.year),
-            u32::from(datetime.date.month),
-            u32::from(datetime.date.day),
-        );
-        let naive = date.and_then(|date| {
-            date.and_hms_micro_opt(
-                u32::from(datetime.time.hour),
-                u32::from(datetime.time.minute),
-                u32::from(datetime.time.second),
-                datetime.time.microsecond,
-            )
-        });
-        if let Some(naive) = naive {
-            let offset = Duration::seconds(i64::from(datetime.time.tz_offset.unwrap_or(0)));
-            return Ok(naive - offset);
+        // The offset-adjusted whole seconds and the fraction recombine exactly, both
+        // counted from the same epoch, so a pre-epoch value lands on the instant its
+        // fields name rather than one truncated toward zero.
+        let microseconds =
+            datetime.timestamp_tz() * 1_000_000 + i64::from(datetime.time.microsecond);
+        if let Some(parsed) = chrono::DateTime::from_timestamp_micros(microseconds) {
+            return Ok(parsed.naive_utc());
         }
     }
 
@@ -2415,38 +2441,6 @@ fn parse_duration(text: &str) -> Result<Duration, Refusal> {
     }
 
     Ok(Duration::microseconds((value * scale).round() as i64))
-}
-
-/// One bucket membership condition, the timestamp landing among each bucket's kept
-/// timestamps.
-#[expect(clippy::too_many_arguments)]
-fn bucket_condition(
-    table: Schema,
-    key: &'static str,
-    origin: NaiveDateTime,
-    width: i64,
-    start: Option<NaiveDateTime>,
-    end: Option<NaiveDateTime>,
-    select: SubsampleSelect,
-    dialect: SqlDialect,
-) -> SimpleExpr {
-    let kept = match select {
-        SubsampleSelect::First => Func::cust(Alias::new("MIN")).arg(Expr::col(Alias::new(key))),
-        SubsampleSelect::Last => Func::cust(Alias::new("MAX")).arg(Expr::col(Alias::new(key))),
-    };
-
-    let mut buckets = Query::select();
-    buckets.expr(kept).from(Alias::new(table.name()));
-    if let Some(start) = start {
-        buckets.and_where(Expr::col(Alias::new(key)).gte(timestamp_value(start, dialect)));
-    }
-
-    if let Some(end) = end {
-        buckets.and_where(Expr::col(Alias::new(key)).lt(timestamp_value(end, dialect)));
-    }
-
-    buckets.add_group_by([bucket_expression(key, origin, width, dialect)]);
-    Expr::col(Alias::new(key)).in_subquery(buckets)
 }
 
 /// Which bucket a row's timestamp falls in, an expression constant across a bucket.
@@ -2520,38 +2514,6 @@ fn clock_part(key: &'static str, part: &str, format: &str, dialect: SqlDialect) 
     }
 }
 
-/// Parse an order value, `field`, `field:asc`, or `field:desc` over the entity's
-/// filterable fields.
-fn parse_order(table: Schema, text: &str) -> Result<OrderTerm, Refusal> {
-    let (base, ascending) = match text.split_once(':') {
-        None => (text, true),
-        Some((base, "asc")) => (base, true),
-        Some((base, "desc")) => (base, false),
-        Some(_) => return Err(Refusal::invalid(format!("invalid order {text:?}"))),
-    };
-
-    let field = table
-        .fields()
-        .iter()
-        .find(|field| field.key == base)
-        .ok_or_else(|| Refusal::invalid(format!("invalid order {text:?}")))?;
-    if !field.family.native() {
-        // Ordering by a byte or JSON column is valid on the wire and delegates until
-        // those columns order natively.
-        return Err(Refusal::Delegated);
-    }
-
-    Ok(OrderTerm { field, ascending })
-}
-
-/// Bytes from a wire value the way Python's `latin-1` decode with `ignore` reads it,
-/// each code point one byte, anything above `U+00FF` dropped.
-fn latin1_bytes(text: &str) -> Vec<u8> {
-    text.chars()
-        .filter_map(|character| u8::try_from(u32::from(character)).ok())
-        .collect()
-}
-
 /// Escape the `LIKE` wildcards `%` and `_` with `^`, like the Python layer.
 pub(crate) fn like_escape(text: &str) -> String {
     text.replace('%', "^%").replace('_', "^_")
@@ -2583,13 +2545,11 @@ fn with_wildcards(text: String, kind: OperationKind, wildcard: char) -> String {
 /// `ceres_tokenize_bytes` function and its trigram index share, the trailing space
 /// marking the last byte's token boundary.
 fn tokenize_bytes(value: &[u8]) -> String {
-    if value.is_empty() {
-        return String::new();
-    }
+    use std::fmt::Write;
 
     let mut text = String::with_capacity(value.len() * 3);
     for byte in value {
-        text.push_str(&format!("{byte:02x} "));
+        write!(text, "{byte:02x} ").expect("writing to a string never fails");
     }
 
     text
@@ -2815,7 +2775,7 @@ fn match_values(column: Expr, values: impl Iterator<Item = Value> + Clone) -> Si
 }
 
 /// A UUID in its bound form, stored text on the SQLite family.
-fn id_value(id: Uuid, dialect: SqlDialect) -> Value {
+pub(crate) fn id_value(id: Uuid, dialect: SqlDialect) -> Value {
     match dialect {
         SqlDialect::SqliteText => Value::from(id.to_string()),
         SqlDialect::Postgres => Value::from(id),

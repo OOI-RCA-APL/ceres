@@ -61,31 +61,28 @@ impl AddressSelector {
         root: Option<&str>,
         dialect: SqlDialect,
     ) -> SimpleExpr {
-        let base = match root {
-            None | Some("~") => "@",
-            Some(root) => root,
-        };
-
         self.segments
             .iter()
-            .map(|segment| segment_condition(key, &absolute_segment(segment, base), dialect))
+            .map(|segment| segment_condition(key, &absolute_segment(segment, base(root)), dialect))
             .reduce(|combined, condition| combined.or(condition))
             .expect("a selector always holds at least one segment")
     }
-}
 
-impl AddressSelector {
     /// Whether an address is selected, resolved against a root, like the Python
     /// `AddressSelector.matches`.
     pub(crate) fn matches(&self, address: &str, root: Option<&str>) -> bool {
-        let base = match root {
-            None | Some("~") => "@",
-            Some(root) => root,
-        };
-
         self.segments
             .iter()
-            .any(|segment| segment_matches(&absolute_segment(segment, base), address))
+            .any(|segment| segment_matches(&absolute_segment(segment, base(root)), address))
+    }
+}
+
+/// The base relative segments resolve against, every component when the root is absent
+/// or the engine.
+fn base(root: Option<&str>) -> &str {
+    match root {
+        None | Some("~") => "@",
+        Some(root) => root,
     }
 }
 

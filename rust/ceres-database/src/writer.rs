@@ -15,19 +15,12 @@ use sea_query::{Alias, InsertStatement, OnConflict, Query, SimpleExpr};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
+use crate::assign::json_text;
 use crate::backend::{DatabaseBackend, PostgresBackend, SqliteBackend, Writing};
+use crate::filter::SqlDialect;
 use crate::records::RecordTable;
 use crate::store::{Error, Parameter};
 use crate::turso::TursoBackend;
-
-/// How a backend expects record values bound.
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Dialect {
-    /// Timestamps, UUIDs, and JSON payloads stored as text.
-    Sqlite,
-    /// Native driver types throughout.
-    Postgres,
-}
 
 /// A natively-connected writer for record entities.
 ///
@@ -125,10 +118,7 @@ impl RecordWriter {
     /// backend that cannot overlap runs it serialized instead, which is what
     /// [`RecordStore::overlaps_writers`](crate::RecordStore::overlaps_writers) reports.
     pub async fn upsert(&self, batches: Vec<Records>) -> Result<(), Error> {
-        let dialect = match self.backend.dialect() {
-            crate::filter::SqlDialect::Postgres => Dialect::Postgres,
-            crate::filter::SqlDialect::SqliteText => Dialect::Sqlite,
-        };
+        let dialect = self.backend.dialect();
         let mut statements = batches.iter().filter_map(|batch| {
             upsert_statement(batch, dialect).map(|statement| Ok((statement, batch.len())))
         });
@@ -146,7 +136,7 @@ impl RecordWriter {
 }
 
 /// Build the multi-row upsert for one batch, or `None` when the batch is empty.
-fn upsert_statement(records: &Records, dialect: Dialect) -> Option<InsertStatement> {
+fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStatement> {
     let rows = match records {
         Records::Messages(messages) => dedupe_last(messages, |message| message.id)
             .map(|message| message_values(message, dialect))
@@ -163,13 +153,14 @@ fn upsert_statement(records: &Records, dialect: Dialect) -> Option<InsertStateme
     };
 
     let table = crate::records::table_of(records);
-    let mut statement = insert_into(table, rows)?;
+    let mut statement = table.insert_into(rows)?;
 
     // Every non-key column updates from the excluded row, mirroring the query layer's
     // upsert so a rewritten record replaces its earlier form.
     let mut conflict = OnConflict::column(Alias::new("id"));
     conflict.update_columns(
-        columns(table)
+        table
+            .column_names()
             .iter()
             .filter(|&&column| column != "id")
             .map(|&column| Alias::new(column)),
@@ -184,7 +175,7 @@ fn upsert_statement(records: &Records, dialect: Dialect) -> Option<InsertStateme
 /// Unlike a flush, a load never collapses duplicate keys. The Python command binds each
 /// row it read, so a file naming one key twice reaches the database twice and the
 /// conflict mode decides what happens.
-pub(crate) fn load_statement(records: &Records, dialect: Dialect) -> Option<InsertStatement> {
+pub(crate) fn load_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStatement> {
     let rows = match records {
         Records::Messages(messages) => messages
             .iter()
@@ -204,13 +195,13 @@ pub(crate) fn load_statement(records: &Records, dialect: Dialect) -> Option<Inse
             .collect(),
     };
 
-    insert_into(crate::records::table_of(records), rows)
+    crate::records::table_of(records).insert_into(rows)
 }
 
 /// Bind every entity in a batch, in file order, for a bulk load or a create.
 pub(crate) fn entity_load_statement(
     entities: &Entities,
-    dialect: Dialect,
+    dialect: SqlDialect,
 ) -> Option<InsertStatement> {
     let rows = match entities {
         Entities::Users(users) => users
@@ -280,7 +271,7 @@ pub(crate) fn entity_columns(entities: &Entities) -> &'static [&'static str] {
     }
 }
 
-fn user_values(user: &User, dialect: Dialect) -> Vec<SimpleExpr> {
+fn user_values(user: &User, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(user.id, dialect),
         user.username.clone().into(),
@@ -291,7 +282,7 @@ fn user_values(user: &User, dialect: Dialect) -> Vec<SimpleExpr> {
     ]
 }
 
-fn variable_values(variable: &Variable, dialect: Dialect) -> Vec<SimpleExpr> {
+fn variable_values(variable: &Variable, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         variable.address.as_str().into(),
         variable.name.clone().into(),
@@ -299,7 +290,7 @@ fn variable_values(variable: &Variable, dialect: Dialect) -> Vec<SimpleExpr> {
     ]
 }
 
-fn setting_values(setting: &Setting, dialect: Dialect) -> Vec<SimpleExpr> {
+fn setting_values(setting: &Setting, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(setting.user_id, dialect),
         setting.name.clone().into(),
@@ -307,7 +298,7 @@ fn setting_values(setting: &Setting, dialect: Dialect) -> Vec<SimpleExpr> {
     ]
 }
 
-fn workspace_values(workspace: &Workspace, dialect: Dialect) -> Vec<SimpleExpr> {
+fn workspace_values(workspace: &Workspace, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(workspace.id, dialect),
         workspace.name.clone().into(),
@@ -321,7 +312,7 @@ fn workspace_values(workspace: &Workspace, dialect: Dialect) -> Vec<SimpleExpr> 
     ]
 }
 
-fn workspace_edit_values(edit: &WorkspaceEdit, dialect: Dialect) -> Vec<SimpleExpr> {
+fn workspace_edit_values(edit: &WorkspaceEdit, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(edit.user_id, dialect),
         id_value(edit.workspace_id, dialect),
@@ -329,7 +320,7 @@ fn workspace_edit_values(edit: &WorkspaceEdit, dialect: Dialect) -> Vec<SimpleEx
     ]
 }
 
-fn group_values(group: &Group, dialect: Dialect) -> Vec<SimpleExpr> {
+fn group_values(group: &Group, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(group.id, dialect),
         group.name.clone().into(),
@@ -337,14 +328,14 @@ fn group_values(group: &Group, dialect: Dialect) -> Vec<SimpleExpr> {
     ]
 }
 
-fn group_membership_values(membership: &GroupMembership, dialect: Dialect) -> Vec<SimpleExpr> {
+fn group_membership_values(membership: &GroupMembership, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(membership.user_id, dialect),
         id_value(membership.group_id, dialect),
     ]
 }
 
-fn user_permission_values(permission: &UserPermission, dialect: Dialect) -> Vec<SimpleExpr> {
+fn user_permission_values(permission: &UserPermission, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(permission.user_id, dialect),
         permission.target_type.as_str().into(),
@@ -353,7 +344,7 @@ fn user_permission_values(permission: &UserPermission, dialect: Dialect) -> Vec<
     ]
 }
 
-fn group_permission_values(permission: &GroupPermission, dialect: Dialect) -> Vec<SimpleExpr> {
+fn group_permission_values(permission: &GroupPermission, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(permission.group_id, dialect),
         permission.target_type.as_str().into(),
@@ -363,13 +354,32 @@ fn group_permission_values(permission: &GroupPermission, dialect: Dialect) -> Ve
 }
 
 /// Bind a bare JSON value, stored as its text on the SQLite family.
-fn bare_json_value(value: &serde_json::Value, dialect: Dialect) -> SimpleExpr {
+fn bare_json_value(value: &serde_json::Value, dialect: SqlDialect) -> SimpleExpr {
     json_text(&value.to_string(), dialect)
 }
 
-/// Open an insert over a table's columns, `None` when there is nothing to bind.
-fn insert_into(table: RecordTable, rows: Vec<Vec<SimpleExpr>>) -> Option<InsertStatement> {
-    open_insert(table.name(), columns(table), rows)
+impl RecordTable {
+    /// Open an insert over the table's columns, `None` when there is nothing to bind.
+    fn insert_into(self, rows: Vec<Vec<SimpleExpr>>) -> Option<InsertStatement> {
+        open_insert(self.name(), self.column_names(), rows)
+    }
+
+    /// The table's stored columns, in the order rows bind them.
+    pub(crate) fn column_names(self) -> &'static [&'static str] {
+        match self {
+            Self::Messages => &[
+                "id",
+                "address",
+                "timestamp",
+                "connection",
+                "direction",
+                "data",
+            ],
+            Self::Particles => &["id", "address", "timestamp", "type", "data"],
+            Self::Alerts => &["id", "address", "timestamp", "level", "type", "data"],
+            Self::Logs => &["id", "address", "timestamp", "level", "content"],
+        }
+    }
 }
 
 /// Open an insert over named columns, `None` when there is nothing to bind.
@@ -393,24 +403,7 @@ fn open_insert(
     Some(statement)
 }
 
-/// A table's stored columns, in the order rows bind them.
-pub(crate) fn columns(table: RecordTable) -> &'static [&'static str] {
-    match table {
-        RecordTable::Messages => &[
-            "id",
-            "address",
-            "timestamp",
-            "connection",
-            "direction",
-            "data",
-        ],
-        RecordTable::Particles => &["id", "address", "timestamp", "type", "data"],
-        RecordTable::Alerts => &["id", "address", "timestamp", "level", "type", "data"],
-        RecordTable::Logs => &["id", "address", "timestamp", "level", "content"],
-    }
-}
-
-fn message_values(message: &Message, dialect: Dialect) -> Vec<SimpleExpr> {
+fn message_values(message: &Message, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(message.id, dialect),
         message.address.as_str().into(),
@@ -424,7 +417,7 @@ fn message_values(message: &Message, dialect: Dialect) -> Vec<SimpleExpr> {
     ]
 }
 
-fn particle_values(particle: &Particle, dialect: Dialect) -> Vec<SimpleExpr> {
+fn particle_values(particle: &Particle, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(particle.id, dialect),
         particle.address.as_str().into(),
@@ -434,7 +427,7 @@ fn particle_values(particle: &Particle, dialect: Dialect) -> Vec<SimpleExpr> {
     ]
 }
 
-fn alert_values(alert: &Alert, dialect: Dialect) -> Vec<SimpleExpr> {
+fn alert_values(alert: &Alert, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(alert.id, dialect),
         alert.address.as_str().into(),
@@ -445,7 +438,7 @@ fn alert_values(alert: &Alert, dialect: Dialect) -> Vec<SimpleExpr> {
     ]
 }
 
-fn entry_values(entry: &LogEntry, dialect: Dialect) -> Vec<SimpleExpr> {
+fn entry_values(entry: &LogEntry, dialect: SqlDialect) -> Vec<SimpleExpr> {
     vec![
         id_value(entry.id, dialect),
         entry.address.as_str().into(),
@@ -473,46 +466,35 @@ fn dedupe_last<T, K: std::hash::Hash + Eq>(
     indexes.into_iter().map(|index| &records[index])
 }
 
-fn id_value(id: uuid::Uuid, dialect: Dialect) -> SimpleExpr {
+/// A UUID's bound value wrapped for a statement, stored text on the SQLite family.
+fn id_value(id: uuid::Uuid, dialect: SqlDialect) -> SimpleExpr {
+    crate::filter::id_value(id, dialect).into()
+}
+
+fn timestamp_value(timestamp: &ceres_entities::Timestamp, dialect: SqlDialect) -> SimpleExpr {
     match dialect {
-        Dialect::Sqlite => id.to_string().into(),
-        Dialect::Postgres => id.into(),
+        SqlDialect::SqliteText => Parameter::timestamp_text(&timestamp.0.naive_utc()).into(),
+        SqlDialect::Postgres => timestamp.0.naive_utc().into(),
     }
 }
 
-fn timestamp_value(timestamp: &ceres_entities::Timestamp, dialect: Dialect) -> SimpleExpr {
-    match dialect {
-        Dialect::Sqlite => Parameter::timestamp_text(&timestamp.0.naive_utc()).into(),
-        Dialect::Postgres => timestamp.0.naive_utc().into(),
-    }
-}
-
-fn json_value(data: &serde_json::Map<String, serde_json::Value>, dialect: Dialect) -> SimpleExpr {
+fn json_value(
+    data: &serde_json::Map<String, serde_json::Value>,
+    dialect: SqlDialect,
+) -> SimpleExpr {
     json_text(
         &serde_json::Value::Object(data.clone()).to_string(),
         dialect,
     )
 }
 
-/// A JSON document's text as the value its column stores.
-///
-/// Both backends store the text, matching the query layer's writer. PostgreSQL casts to
-/// `json` rather than binding a document object, which would arrive as `jsonb` and be
-/// normalized, sorting its keys. The stored text is what a `contains` filter searches, so
-/// a document written as `jsonb` would be searched in an order nobody wrote it in.
-fn json_text(text: &str, dialect: Dialect) -> SimpleExpr {
-    match dialect {
-        Dialect::Sqlite => text.into(),
-        Dialect::Postgres => SimpleExpr::from(text).cast_as(sea_query::Alias::new("json")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ceres_entities::{Address, LogEntry, Timestamp};
     use chrono::{TimeZone, Utc};
     use sea_query::SqliteQueryBuilder;
+
+    use super::*;
 
     fn entry(id: u128, content: &str) -> LogEntry {
         LogEntry {
@@ -527,7 +509,7 @@ mod tests {
     #[test]
     fn upserts_update_every_non_key_column() {
         let records = Records::LogEntries(vec![entry(1, "first")]);
-        let statement = upsert_statement(&records, Dialect::Sqlite).unwrap();
+        let statement = upsert_statement(&records, SqlDialect::SqliteText).unwrap();
         let sql = statement.to_string(SqliteQueryBuilder);
         assert!(sql.starts_with("INSERT INTO \"logs\""));
         assert!(sql.contains("ON CONFLICT (\"id\") DO UPDATE SET"));
@@ -538,7 +520,7 @@ mod tests {
     #[test]
     fn duplicate_ids_collapse_to_the_last_occurrence() {
         let records = Records::LogEntries(vec![entry(1, "first"), entry(1, "second")]);
-        let statement = upsert_statement(&records, Dialect::Sqlite).unwrap();
+        let statement = upsert_statement(&records, SqlDialect::SqliteText).unwrap();
         let sql = statement.to_string(SqliteQueryBuilder);
         assert!(sql.contains("second"));
         assert!(!sql.contains("first"));
@@ -546,6 +528,6 @@ mod tests {
 
     #[test]
     fn empty_batches_build_no_statement() {
-        assert!(upsert_statement(&Records::Messages(Vec::new()), Dialect::Sqlite).is_none());
+        assert!(upsert_statement(&Records::Messages(Vec::new()), SqlDialect::SqliteText).is_none());
     }
 }

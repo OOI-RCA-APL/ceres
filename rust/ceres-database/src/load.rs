@@ -9,14 +9,14 @@
 //! before it starts and delegates, so Pydantic renders the validation error the way the
 //! filter port established.
 
+use std::io::BufRead;
+
 use ceres_entities::{
     Alert, Entities, FieldFamily, Group, GroupMembership, GroupPermission, LogEntry, Message,
     Particle, Records, Setting, Timestamp, User, UserPermission, Variable, Workspace,
     WorkspaceEdit,
 };
 use serde_json::{Map, Value};
-
-use std::io::BufRead;
 
 use crate::credentials::Credentials;
 use crate::entities::EntityTable;
@@ -161,7 +161,7 @@ pub fn batches<R: BufRead>(
 ) -> Option<Batches<R, Records>> {
     Some(Batches {
         rows: Rows::open(source, format)?,
-        convert: Box::new(move |objects| records(table, objects)),
+        convert: Box::new(move |objects| table.records(objects)),
         spent: false,
         read: 0,
     })
@@ -181,32 +181,11 @@ pub fn entity_batches<R: BufRead>(
     Some(Batches {
         rows: Rows::open(source, format)?,
         convert: Box::new(move |objects| {
-            entities(table, &credentialed(table, objects, credentials)?)
+            table.entities(&table.credentialed(objects, credentials)?)
         }),
         spent: false,
         read: 0,
     })
-}
-
-/// Apply the credential rules to a batch of wire objects, `None` when one is refused.
-fn credentialed(
-    table: EntityTable,
-    objects: &[Map<String, Value>],
-    credentials: Option<Credentials>,
-) -> Option<Vec<Map<String, Value>>> {
-    let mut applied = objects.to_vec();
-    if table == EntityTable::Users {
-        // A user's columns cannot be written without the rules, so a caller that has
-        // none refuses rather than storing a password as it arrived.
-        let credentials = credentials?;
-        for object in &mut applied {
-            if !credentials.apply(table, object) {
-                return None;
-            }
-        }
-    }
-
-    Some(applied)
 }
 
 /// One input's rows, read lazily in whichever shape the format names.
@@ -264,7 +243,7 @@ pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Re
 /// create model takes it in, and every other field is the text itself. A field named
 /// twice keeps its last value, the way a repeated flag does.
 pub fn build(table: RecordTable, values: &[(String, String)]) -> Option<Records> {
-    records(table, &[wire_object(table.schema(), values)?])
+    table.records(&[table.schema().wire_object(values)?])
 }
 
 /// Build the one entity a create names from its field values, like the record `build`.
@@ -273,27 +252,29 @@ pub fn build_entity(
     values: &[(String, String)],
     credentials: Option<Credentials>,
 ) -> Option<Entities> {
-    let object = wire_object(table.schema(), values)?;
-    entities(table, &credentialed(table, &[object], credentials)?)
+    let object = table.schema().wire_object(values)?;
+    table.entities(&table.credentialed(&[object], credentials)?)
 }
 
-/// Read a create's raw argument text into one wire object.
-///
-/// A payload or value column reads as YAML, the form its create model takes it in, and
-/// every other column is the text itself. A column named twice keeps its last value,
-/// the way a repeated flag does.
-fn wire_object(schema: Schema, values: &[(String, String)]) -> Option<Map<String, Value>> {
-    let mut object = Map::new();
-    for (key, text) in values {
-        let field = schema.columns.iter().find(|field| field.key == key)?;
-        let value = match field.family {
-            FieldFamily::Json | FieldFamily::JsonValue => yaml_serde::from_str(text).ok()?,
-            _ => text.clone().into(),
-        };
-        object.insert(key.clone(), value);
-    }
+impl Schema {
+    /// Read a create's raw argument text into one wire object.
+    ///
+    /// A payload or value column reads as YAML, the form its create model takes it in,
+    /// and every other column is the text itself. A column named twice keeps its last
+    /// value, the way a repeated flag does.
+    fn wire_object(self, values: &[(String, String)]) -> Option<Map<String, Value>> {
+        let mut object = Map::new();
+        for (key, text) in values {
+            let field = self.columns.iter().find(|field| field.key == key)?;
+            let value = match field.family {
+                FieldFamily::Json | FieldFamily::JsonValue => yaml_serde::from_str(text).ok()?,
+                _ => text.clone().into(),
+            };
+            object.insert(key.clone(), value);
+        }
 
-    Some(object)
+        Some(object)
+    }
 }
 
 /// Read one line as a JSON object.
@@ -329,67 +310,123 @@ fn csv_object(row: &csv::StringRecord, headers: &csv::StringRecord) -> Option<Ma
     Some(object)
 }
 
-/// Deserialize one batch of wire objects into records.
-fn records(table: RecordTable, objects: &[Map<String, Value>]) -> Option<Records> {
-    let rows = objects
-        .iter()
-        .map(|object| complete(accepted(table), object, record_default))
-        .collect::<Option<Vec<_>>>()?;
+impl RecordTable {
+    /// Deserialize one batch of wire objects into records.
+    fn records(self, objects: &[Map<String, Value>]) -> Option<Records> {
+        let rows = objects
+            .iter()
+            .map(|object| complete(self.accepted(), object, record_default))
+            .collect::<Option<Vec<_>>>()?;
 
-    Some(match table {
-        RecordTable::Messages => Records::Messages(convert::<Message>(rows)?),
-        RecordTable::Particles => Records::Particles(convert::<Particle>(rows)?),
-        RecordTable::Alerts => Records::Alerts(convert::<Alert>(rows)?),
-        RecordTable::Logs => Records::LogEntries(convert::<LogEntry>(rows)?),
-    })
+        Some(match self {
+            Self::Messages => Records::Messages(convert::<Message>(rows)?),
+            Self::Particles => Records::Particles(convert::<Particle>(rows)?),
+            Self::Alerts => Records::Alerts(convert::<Alert>(rows)?),
+            Self::Logs => Records::LogEntries(convert::<LogEntry>(rows)?),
+        })
+    }
+
+    /// The wire keys a record accepts, its stored columns plus the fields it carries
+    /// without storing.
+    fn accepted(self) -> &'static [&'static str] {
+        match self {
+            // A particle's span locates it within the message bytes it was parsed from.
+            // It travels with the entity but has no column, so a row may carry it and
+            // the insert never binds it.
+            Self::Particles => &["id", "address", "timestamp", "type", "data", "span"],
+            other => other.column_names(),
+        }
+    }
 }
 
-/// Deserialize one batch of wire objects into entities.
-fn entities(table: EntityTable, objects: &[Map<String, Value>]) -> Option<Entities> {
-    let accepted: Vec<&'static str> = table
-        .schema()
-        .columns
-        .iter()
-        .map(|column| column.key)
-        .collect();
-    let rows = objects
-        .iter()
-        .map(|object| {
-            let mut row = complete(&accepted, object, |key| entity_default(table, key))?;
-            // A JSON column on an entity is declared `FromYAML`, so a value arriving as
-            // text parses as YAML rather than staying a string. That is how a CSV cell
-            // holding `1` becomes a number, and it applies to a JSON input naming a
-            // string too, because the model's validator sees no difference.
-            for field in table.schema().columns {
-                if !matches!(field.family, FieldFamily::Json | FieldFamily::JsonValue) {
-                    continue;
-                }
-
-                if let Some(Value::String(text)) = row.get(field.key) {
-                    let parsed = yaml_serde::from_str(text).ok()?;
-                    row.insert(field.key.to_string(), parsed);
+impl EntityTable {
+    /// Apply the credential rules to a batch of wire objects, `None` when one is
+    /// refused.
+    fn credentialed(
+        self,
+        objects: &[Map<String, Value>],
+        credentials: Option<Credentials>,
+    ) -> Option<Vec<Map<String, Value>>> {
+        let mut applied = objects.to_vec();
+        if self == Self::Users {
+            // A user's columns cannot be written without the rules, so a caller that
+            // has none refuses rather than storing a password as it arrived.
+            let credentials = credentials?;
+            for object in &mut applied {
+                if !credentials.apply(self, object) {
+                    return None;
                 }
             }
+        }
 
-            Some(row)
+        Some(applied)
+    }
+
+    /// Deserialize one batch of wire objects into entities.
+    fn entities(self, objects: &[Map<String, Value>]) -> Option<Entities> {
+        let accepted: Vec<&'static str> = self
+            .schema()
+            .columns
+            .iter()
+            .map(|column| column.key)
+            .collect();
+        let rows = objects
+            .iter()
+            .map(|object| {
+                let mut row = complete(&accepted, object, |key| self.default_value(key))?;
+                // A JSON column on an entity is declared `FromYAML`, so a value arriving
+                // as text parses as YAML rather than staying a string. That is how a CSV
+                // cell holding `1` becomes a number, and it applies to a JSON input
+                // naming a string too, because the model's validator sees no difference.
+                for field in self.schema().columns {
+                    if !matches!(field.family, FieldFamily::Json | FieldFamily::JsonValue) {
+                        continue;
+                    }
+
+                    if let Some(Value::String(text)) = row.get(field.key) {
+                        let parsed = yaml_serde::from_str(text).ok()?;
+                        row.insert(field.key.to_string(), parsed);
+                    }
+                }
+
+                Some(row)
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        Some(match self {
+            Self::Users => Entities::Users(convert::<User>(rows)?),
+            Self::Variables => Entities::Variables(convert::<Variable>(rows)?),
+            Self::Settings => Entities::Settings(convert::<Setting>(rows)?),
+            Self::Workspaces => Entities::Workspaces(convert::<Workspace>(rows)?),
+            Self::WorkspaceEdits => Entities::WorkspaceEdits(convert::<WorkspaceEdit>(rows)?),
+            Self::Groups => Entities::Groups(convert::<Group>(rows)?),
+            Self::GroupMemberships => Entities::GroupMemberships(convert::<GroupMembership>(rows)?),
+            Self::UserPermissions => Entities::UserPermissions(convert::<UserPermission>(rows)?),
+            Self::GroupPermissions => Entities::GroupPermissions(convert::<GroupPermission>(rows)?),
         })
-        .collect::<Option<Vec<_>>>()?;
+    }
 
-    Some(match table {
-        EntityTable::Users => Entities::Users(convert::<User>(rows)?),
-        EntityTable::Variables => Entities::Variables(convert::<Variable>(rows)?),
-        EntityTable::Settings => Entities::Settings(convert::<Setting>(rows)?),
-        EntityTable::Workspaces => Entities::Workspaces(convert::<Workspace>(rows)?),
-        EntityTable::WorkspaceEdits => Entities::WorkspaceEdits(convert::<WorkspaceEdit>(rows)?),
-        EntityTable::Groups => Entities::Groups(convert::<Group>(rows)?),
-        EntityTable::GroupMemberships => {
-            Entities::GroupMemberships(convert::<GroupMembership>(rows)?)
+    /// The value an absent entity field takes, `None` for one its create model
+    /// requires.
+    ///
+    /// A variable's value is required and may still be null, so an absent one cannot
+    /// read as a null the way a record's optional column does.
+    fn default_value(self, key: &str) -> Option<Value> {
+        match (self, key) {
+            (Self::Workspaces, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
+            (Self::Workspaces, "scope") => Some("~".into()),
+            (Self::Workspaces, "owner_id") => Some(Value::Null),
+            (Self::Workspaces, "show_when_logged_out") => Some(false.into()),
+            (Self::Workspaces, "data") => Some(Value::Object(Map::new())),
+            (Self::Users, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
+            (Self::Users, "admin" | "disabled") => Some(false.into()),
+            (Self::Groups, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
+            (Self::Groups, "description") => Some("".into()),
+            // A permission and a membership name every one of their columns, and an
+            // edit carries the draft it exists to hold, so none of them default.
+            _ => None,
         }
-        EntityTable::UserPermissions => Entities::UserPermissions(convert::<UserPermission>(rows)?),
-        EntityTable::GroupPermissions => {
-            Entities::GroupPermissions(convert::<GroupPermission>(rows)?)
-        }
-    })
+    }
 }
 
 fn convert<T: serde::de::DeserializeOwned>(rows: Vec<Map<String, Value>>) -> Option<Vec<T>> {
@@ -427,18 +464,6 @@ fn complete(
     (remaining == 0).then_some(completed)
 }
 
-/// The wire keys a record accepts, its stored columns plus the fields it carries without
-/// storing.
-pub(crate) fn accepted(table: RecordTable) -> &'static [&'static str] {
-    match table {
-        // A particle's span locates it within the message bytes it was parsed from. It
-        // travels with the entity but has no column, so a row may carry it and the
-        // insert never binds it.
-        RecordTable::Particles => &["id", "address", "timestamp", "type", "data", "span"],
-        other => crate::writer::columns(other),
-    }
-}
-
 /// The value an absent record field takes, matching the record models' own defaults.
 fn record_default(key: &str) -> Option<Value> {
     Some(match key {
@@ -448,27 +473,6 @@ fn record_default(key: &str) -> Option<Value> {
         // or required, which refuses one.
         _ => Value::Null,
     })
-}
-
-/// The value an absent entity field takes, `None` for one its create model requires.
-///
-/// A variable's value is required and may still be null, so an absent one cannot read
-/// as a null the way a record's optional column does.
-fn entity_default(table: EntityTable, key: &str) -> Option<Value> {
-    match (table, key) {
-        (EntityTable::Workspaces, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-        (EntityTable::Workspaces, "scope") => Some("~".into()),
-        (EntityTable::Workspaces, "owner_id") => Some(Value::Null),
-        (EntityTable::Workspaces, "show_when_logged_out") => Some(false.into()),
-        (EntityTable::Workspaces, "data") => Some(Value::Object(Map::new())),
-        (EntityTable::Users, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-        (EntityTable::Users, "admin" | "disabled") => Some(false.into()),
-        (EntityTable::Groups, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-        (EntityTable::Groups, "description") => Some("".into()),
-        // A permission and a membership name every one of their columns, and an edit
-        // carries the draft it exists to hold, so none of them default.
-        _ => None,
-    }
 }
 
 #[cfg(test)]

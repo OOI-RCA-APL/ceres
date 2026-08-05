@@ -12,14 +12,13 @@
 //! forget a backend because the compiler will not let it.
 
 use async_trait::async_trait;
+use ceres_entities::{Entities, Records};
 use sea_query::{
     DeleteStatement, InsertStatement, PostgresQueryBuilder, SelectStatement, SqliteQueryBuilder,
     UpdateStatement,
 };
 use sea_query_binder::SqlxBinder;
 use sqlx::Row as _;
-
-use ceres_entities::{Entities, Records};
 
 use crate::dynamic::{Row, Table};
 use crate::entities::{DecodeEntities, EntityTable};

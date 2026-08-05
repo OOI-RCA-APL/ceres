@@ -184,18 +184,6 @@ pub enum Shape {
     Present,
 }
 
-impl Schema {
-    /// The table's filterable fields.
-    pub(crate) fn fields(&self) -> &'static [ceres_entities::FilterField] {
-        self.fields
-    }
-
-    /// The table's name in the database.
-    pub(crate) fn name(&self) -> &'static str {
-        self.name
-    }
-}
-
 /// The table a batch of records belongs to.
 pub(crate) fn table_of(records: &Records) -> RecordTable {
     match records {

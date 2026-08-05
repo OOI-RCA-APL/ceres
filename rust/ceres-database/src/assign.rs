@@ -22,7 +22,6 @@ use crate::dynamic::Table;
 use crate::filter::SqlDialect;
 use crate::records::Schema;
 use crate::store::Parameter;
-use crate::writer::Dialect;
 
 /// One `SET` clause, a column and the value to store in it.
 pub(crate) struct Assignment {
@@ -30,74 +29,87 @@ pub(crate) struct Assignment {
     pub(crate) value: SimpleExpr,
 }
 
-/// Encode an assignment object into per-column values.
-///
-/// The columns encode against the table's whole column list rather than its filter
-/// surface, because a column a filter cannot name is still one an update may assign.
-/// The schema's fixed columns are the ones that identify a row rather than describe it.
-///
-/// A refusal carries the sentence to show, naming the key and what it wanted.
-pub(crate) fn assignments(
-    schema: Schema,
-    values: &serde_json::Map<String, Value>,
-    dialect: Dialect,
-) -> Result<Vec<Assignment>, String> {
-    if values.is_empty() {
-        return Err("--assign was given nothing to assign.".to_string());
-    }
-
-    for key in values.keys() {
-        if schema.fixed.contains(&key.as_str()) {
-            return Err(format!(
-                "`{key}` is part of what identifies a row, so it cannot be assigned. \
-                 Create the row you want and delete this one instead."
-            ));
+impl Schema {
+    /// Encode an assignment object into per-column values.
+    ///
+    /// The columns encode against the table's whole column list rather than its filter
+    /// surface, because a column a filter cannot name is still one an update may assign.
+    /// The schema's fixed columns are the ones that identify a row rather than describe
+    /// it.
+    ///
+    /// A refusal carries the sentence to show, naming the key and what it wanted.
+    pub(crate) fn assignments(
+        self,
+        values: &serde_json::Map<String, Value>,
+        dialect: SqlDialect,
+    ) -> Result<Vec<Assignment>, String> {
+        if values.is_empty() {
+            return Err("--assign was given nothing to assign.".to_string());
         }
+
+        for key in values.keys() {
+            if self.fixed.contains(&key.as_str()) {
+                return Err(format!(
+                    "`{key}` is part of what identifies a row, so it cannot be assigned. \
+                     Create the row you want and delete this one instead."
+                ));
+            }
+        }
+
+        self.encoded(values, dialect)
     }
 
-    encoded(schema, values, dialect)
-}
+    /// Encode an insert's column values.
+    ///
+    /// An insert sets the row's identity rather than changing it, so the columns an
+    /// update refuses are the ones this one requires, and the identity guard does not
+    /// apply here.
+    pub(crate) fn insert_values(
+        self,
+        values: &serde_json::Map<String, Value>,
+        dialect: SqlDialect,
+    ) -> Result<Vec<Assignment>, String> {
+        if values.is_empty() {
+            return Err("An insert was given no columns to write.".to_string());
+        }
 
-/// Encode an insert's column values.
-///
-/// An insert sets the row's identity rather than changing it, so the columns an update
-/// refuses are the ones this one requires, and the identity guard does not apply here.
-pub(crate) fn insert_values(
-    schema: Schema,
-    values: &serde_json::Map<String, Value>,
-    dialect: Dialect,
-) -> Result<Vec<Assignment>, String> {
-    if values.is_empty() {
-        return Err("An insert was given no columns to write.".to_string());
+        self.encoded(values, dialect)
     }
 
-    encoded(schema, values, dialect)
-}
+    /// Encode each named column's value into the form that column stores.
+    fn encoded(
+        self,
+        values: &serde_json::Map<String, Value>,
+        dialect: SqlDialect,
+    ) -> Result<Vec<Assignment>, String> {
+        let mut assignments = Vec::with_capacity(values.len());
+        for (key, value) in values {
+            let Some(field) = self.columns.iter().find(|field| field.key == key) else {
+                return Err(format!(
+                    "There is no `{key}` to assign. This table holds {}.",
+                    listed(&self.assignable())
+                ));
+            };
 
-/// Encode each named column's value into the form that column stores.
-fn encoded(
-    schema: Schema,
-    values: &serde_json::Map<String, Value>,
-    dialect: Dialect,
-) -> Result<Vec<Assignment>, String> {
-    let mut assignments = Vec::with_capacity(values.len());
-    for (key, value) in values {
-        let Some(field) = schema.columns.iter().find(|field| field.key == key) else {
-            return Err(format!(
-                "There is no `{key}` to assign. This table holds {}.",
-                listed(&assignable(schema))
-            ));
-        };
+            let value = encode(&field.family, value, dialect)
+                .map_err(|wanted| format!("`{key}` {wanted}, and was given {}.", shown(value)))?;
+            assignments.push(Assignment {
+                column: field.key,
+                value,
+            });
+        }
 
-        let value = encode(&field.family, value, dialect)
-            .map_err(|wanted| format!("`{key}` {wanted}, and was given {}.", shown(value)))?;
-        assignments.push(Assignment {
-            column: field.key,
-            value,
-        });
+        Ok(assignments)
     }
 
-    Ok(assignments)
+    /// The columns an update may assign, which is every column that is not identity.
+    fn assignable(self) -> Vec<&'static str> {
+        self.columns
+            .iter()
+            .map(|field| field.key)
+            .filter(|key| !self.fixed.contains(key))
+            .collect()
+    }
 }
 
 /// Compile one row's insert to SQL and its bound parameters.
@@ -113,11 +125,7 @@ pub fn insert_compiled(
     dialect: SqlDialect,
 ) -> Result<(String, Vec<sea_query::Value>), String> {
     let schema = table.schema();
-    let writer = match dialect {
-        SqlDialect::SqliteText => Dialect::Sqlite,
-        SqlDialect::Postgres => Dialect::Postgres,
-    };
-    let assignments = insert_values(schema, values, writer)?;
+    let assignments = schema.insert_values(values, dialect)?;
 
     let mut statement = sea_query::Query::insert();
     statement.into_table(sea_query::Alias::new(schema.name));
@@ -156,29 +164,18 @@ pub fn insert_compiled(
     Ok((sql, values.0))
 }
 
-/// A JSON document as the value its column stores.
+/// A JSON document's text as the value its column stores.
 ///
-/// Both backends store the document's text, so both bind text. PostgreSQL's `json` keeps
-/// what it was given, key order included, and only casts to it here rather than binding a
+/// Both backends store the text, so both bind text. PostgreSQL's `json` keeps what it
+/// was given, key order included, and only casts to it here rather than binding a
 /// document object, which would arrive as `jsonb` and be normalized on the way in. That
-/// normalization reorders keys, and a filter comparing the stored text would then miss the
-/// row it wrote.
-fn json_text(value: &Value, dialect: Dialect) -> SimpleExpr {
-    let text = value.to_string();
+/// normalization reorders keys, and a filter comparing the stored text would then miss
+/// the row it wrote.
+pub(crate) fn json_text(text: &str, dialect: SqlDialect) -> SimpleExpr {
     match dialect {
-        Dialect::Sqlite => text.into(),
-        Dialect::Postgres => SimpleExpr::from(text).cast_as(sea_query::Alias::new("json")),
+        SqlDialect::SqliteText => text.into(),
+        SqlDialect::Postgres => SimpleExpr::from(text).cast_as(sea_query::Alias::new("json")),
     }
-}
-
-/// The columns an update may assign, which is every column that is not identity.
-fn assignable(schema: Schema) -> Vec<&'static str> {
-    schema
-        .columns
-        .iter()
-        .map(|field| field.key)
-        .filter(|key| !schema.fixed.contains(key))
-        .collect()
 }
 
 /// Join names into a readable list.
@@ -210,7 +207,7 @@ fn shown(value: &Value) -> String {
 ///
 /// A refusal is the phrase describing what the column wanted, which the caller puts in a
 /// sentence alongside the key and the value that was actually given.
-fn encode(family: &FieldFamily, value: &Value, dialect: Dialect) -> Result<SimpleExpr, String> {
+fn encode(family: &FieldFamily, value: &Value, dialect: SqlDialect) -> Result<SimpleExpr, String> {
     // A null clears a nullable column. The database rejects it on a column that is not
     // nullable, which rolls the transaction back and reports.
     //
@@ -235,21 +232,23 @@ fn encode(family: &FieldFamily, value: &Value, dialect: Dialect) -> Result<Simpl
                 .parse()
                 .map_err(|_| "takes a UUID".to_string())?;
             match dialect {
-                Dialect::Sqlite => parsed.hyphenated().to_string().into(),
-                Dialect::Postgres => parsed.into(),
+                SqlDialect::SqliteText => parsed.hyphenated().to_string().into(),
+                SqlDialect::Postgres => parsed.into(),
             }
         }
-        FieldFamily::Address => Address::parse(text(value, "an address")?)
-            .map_err(|_| "takes an address, which starts with `@`".to_string())?
-            .as_str()
-            .to_string()
-            .into(),
+        FieldFamily::Address | FieldFamily::PlainAddress => {
+            Address::parse(text(value, "an address")?)
+                .map_err(|_| "takes an address, which starts with `@`".to_string())?
+                .as_str()
+                .to_string()
+                .into()
+        }
         FieldFamily::Timestamp => {
             let parsed = crate::filter::parse_timestamp(text(value, "a timestamp")?)
                 .map_err(|_| "takes an ISO 8601 timestamp".to_string())?;
             match dialect {
-                Dialect::Sqlite => Parameter::timestamp_text(&parsed).into(),
-                Dialect::Postgres => parsed.into(),
+                SqlDialect::SqliteText => Parameter::timestamp_text(&parsed).into(),
+                SqlDialect::Postgres => parsed.into(),
             }
         }
         FieldFamily::Text => text(value, "text")?.to_string().into(),
@@ -279,7 +278,7 @@ fn encode(family: &FieldFamily, value: &Value, dialect: Dialect) -> Result<Simpl
                 return Err("takes an object".to_string());
             }
 
-            json_text(value, dialect)
+            json_text(&value.to_string(), dialect)
         }
         FieldFamily::Boolean => value
             .as_bool()
@@ -287,12 +286,7 @@ fn encode(family: &FieldFamily, value: &Value, dialect: Dialect) -> Result<Simpl
             .into(),
         // A value column takes whatever JSON it was given, stored as its text the way the
         // query layer writes it.
-        FieldFamily::JsonValue => json_text(value, dialect),
-        FieldFamily::PlainAddress => Address::parse(text(value, "an address")?)
-            .map_err(|_| "takes an address, which starts with `@`".to_string())?
-            .as_str()
-            .to_string()
-            .into(),
+        FieldFamily::JsonValue => json_text(&value.to_string(), dialect),
     })
 }
 
@@ -309,93 +303,89 @@ mod tests {
     #[test]
     fn unknown_and_unassignable_keys_refuse() {
         assert!(
-            assignments(
-                RecordTable::Messages.schema(),
-                &object("{}"),
-                Dialect::Sqlite
-            )
-            .is_err()
+            RecordTable::Messages
+                .schema()
+                .assignments(&object("{}"), SqlDialect::SqliteText)
+                .is_err()
         );
         assert!(
-            assignments(
-                RecordTable::Messages.schema(),
-                &object("{\"nope\": 1}"),
-                Dialect::Sqlite
-            )
-            .is_err()
+            RecordTable::Messages
+                .schema()
+                .assignments(&object("{\"nope\": 1}"), SqlDialect::SqliteText)
+                .is_err()
         );
         // The ID is not assignable, matching the entity update models.
         assert!(
-            assignments(
-                RecordTable::Messages.schema(),
-                &object("{\"id\": \"0198c0de-0000-7000-8000-000000000001\"}"),
-                Dialect::Sqlite
-            )
-            .is_err()
+            RecordTable::Messages
+                .schema()
+                .assignments(
+                    &object("{\"id\": \"0198c0de-0000-7000-8000-000000000001\"}"),
+                    SqlDialect::SqliteText
+                )
+                .is_err()
         );
     }
 
     #[test]
     fn values_outside_a_closed_set_refuse() {
         assert!(
-            assignments(
-                RecordTable::Messages.schema(),
-                &object("{\"direction\": \"sideways\"}"),
-                Dialect::Sqlite
-            )
-            .is_err()
+            RecordTable::Messages
+                .schema()
+                .assignments(
+                    &object("{\"direction\": \"sideways\"}"),
+                    SqlDialect::SqliteText
+                )
+                .is_err()
         );
         assert!(
-            assignments(
-                RecordTable::Messages.schema(),
-                &object("{\"direction\": \"send\"}"),
-                Dialect::Sqlite
-            )
-            .is_ok()
+            RecordTable::Messages
+                .schema()
+                .assignments(&object("{\"direction\": \"send\"}"), SqlDialect::SqliteText)
+                .is_ok()
         );
         assert!(
-            assignments(
-                RecordTable::Alerts.schema(),
-                &object("{\"level\": \"nope\"}"),
-                Dialect::Sqlite
-            )
-            .is_err()
+            RecordTable::Alerts
+                .schema()
+                .assignments(&object("{\"level\": \"nope\"}"), SqlDialect::SqliteText)
+                .is_err()
         );
     }
 
     #[test]
     fn malformed_scalars_refuse() {
         assert!(
-            assignments(
-                RecordTable::Messages.schema(),
-                &object("{\"timestamp\": \"not a time\"}"),
-                Dialect::Sqlite
-            )
-            .is_err()
+            RecordTable::Messages
+                .schema()
+                .assignments(
+                    &object("{\"timestamp\": \"not a time\"}"),
+                    SqlDialect::SqliteText
+                )
+                .is_err()
         );
         assert!(
-            assignments(
-                RecordTable::Messages.schema(),
-                &object("{\"address\": \"not an address\"}"),
-                Dialect::Sqlite
-            )
-            .is_err()
+            RecordTable::Messages
+                .schema()
+                .assignments(
+                    &object("{\"address\": \"not an address\"}"),
+                    SqlDialect::SqliteText
+                )
+                .is_err()
         );
         // A JSON payload column takes an object, never a scalar.
         assert!(
-            assignments(
-                RecordTable::Particles.schema(),
-                &object("{\"data\": 3}"),
-                Dialect::Sqlite
-            )
-            .is_err()
+            RecordTable::Particles
+                .schema()
+                .assignments(&object("{\"data\": 3}"), SqlDialect::SqliteText)
+                .is_err()
         );
     }
 
     #[test]
     fn an_entity_assigns_the_columns_its_update_model_declares() {
         let assign = |table: EntityTable, json: &str| {
-            assignments(table.schema(), &object(json), Dialect::Sqlite)
+            table
+                .schema()
+                .assignments(&object(json), SqlDialect::SqliteText)
         };
 
         // A setting's value is outside the filter surface and still assignable, which
@@ -432,18 +422,19 @@ mod tests {
 
     #[test]
     fn every_assignable_column_encodes() {
-        let assigned = assignments(
-            RecordTable::Messages.schema(),
-            &object(
-                "{\"address\": \"@sensor.temp\", \
+        let assigned = RecordTable::Messages
+            .schema()
+            .assignments(
+                &object(
+                    "{\"address\": \"@sensor.temp\", \
                   \"timestamp\": \"2026-07-29T12:30:45.123456Z\", \
                   \"connection\": null, \
                   \"direction\": \"receive\", \
                   \"data\": \"ab\"}",
-            ),
-            Dialect::Sqlite,
-        )
-        .unwrap();
+                ),
+                SqlDialect::SqliteText,
+            )
+            .unwrap();
         // The `SET` clause order carries no meaning, so compare the columns as a set.
         let mut columns: Vec<&str> = assigned.iter().map(|one| one.column).collect();
         columns.sort_unstable();

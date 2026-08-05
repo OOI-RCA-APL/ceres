@@ -12,7 +12,6 @@ use sea_query::{Alias, OnConflict, SelectStatement};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
-use crate::assign::assignments;
 use crate::backend::{DatabaseBackend, PostgresBackend, SqliteBackend, Write, Writing};
 use crate::credentials::Credentials;
 use crate::entities::EntityTable;
@@ -544,14 +543,7 @@ impl RecordStore {
             Err(error) => return Err(format!("--assign is not readable as JSON or YAML. {error}")),
         };
 
-        crate::assign::assignments(
-            schema,
-            &values,
-            match self.dialect() {
-                SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
-                SqlDialect::Postgres => crate::writer::Dialect::Postgres,
-            },
-        )
+        schema.assignments(&values, self.dialect())
     }
 
     /// Run one write statement in its own transaction, returning how many rows changed.
@@ -674,7 +666,10 @@ impl RecordStore {
         credentials: Option<Credentials>,
     ) -> Result<u64, Error> {
         let values = self.entity_assignments(filter, assign, credentials)?;
-        let assignments = assignments(filter.table().schema(), &values, self.writer_dialect())
+        let assignments = filter
+            .table()
+            .schema()
+            .assignments(&values, self.dialect())
             .map_err(Error::Refused)?;
         if filter.limit() == Some(0) {
             return Ok(0);
@@ -692,7 +687,10 @@ impl RecordStore {
         credentials: Option<Credentials>,
     ) -> Result<Entities, Error> {
         let values = self.entity_assignments(filter, assign, credentials)?;
-        let assignments = assignments(filter.table().schema(), &values, self.writer_dialect())
+        let assignments = filter
+            .table()
+            .schema()
+            .assignments(&values, self.dialect())
             .map_err(Error::Refused)?;
         if filter.limit() == Some(0) {
             return Ok(filter.table().empty());
@@ -737,7 +735,7 @@ impl RecordStore {
         batches: impl Iterator<Item = Result<Records, String>> + Send,
         conflict: Conflict,
     ) -> Result<usize, Error> {
-        let dialect = self.writer_dialect();
+        let dialect = self.dialect();
         self.write_batches(batches.map(|batch| {
             let batch = batch?;
             let rows = batch.len();
@@ -748,7 +746,7 @@ impl RecordStore {
                 &mut statement,
                 conflict,
                 key,
-                crate::writer::columns(crate::records::table_of(&batch)),
+                crate::records::table_of(&batch).column_names(),
             );
             Ok((statement, rows))
         }))
@@ -764,7 +762,7 @@ impl RecordStore {
         batches: impl Iterator<Item = Result<Entities, String>> + Send,
         conflict: Conflict,
     ) -> Result<usize, Error> {
-        let dialect = self.writer_dialect();
+        let dialect = self.dialect();
         self.write_batches(batches.map(|batch| {
             let batch = batch?;
             let rows = batch.len();
@@ -780,14 +778,6 @@ impl RecordStore {
             Ok((statement, rows))
         }))
         .await
-    }
-
-    /// The value forms this store's backend binds on the write path.
-    fn writer_dialect(&self) -> crate::writer::Dialect {
-        match self.dialect() {
-            SqlDialect::SqliteText => crate::writer::Dialect::Sqlite,
-            SqlDialect::Postgres => crate::writer::Dialect::Postgres,
-        }
     }
 
     /// Execute a load's batches in one transaction, committing only when all of them
