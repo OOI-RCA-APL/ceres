@@ -450,14 +450,20 @@ async def test_routines() -> None:
 
 
 async def test_routines_wait_on_cancellation() -> None:
+    from tests.testing import wait_for_condition
+
     class Test(Component):
         @override
         def __setup__(self) -> None:
+            self.started = False
             self.count = 0
             self.cancelled = False
 
         @routine
         async def main(self) -> None:
+            # No await sits between the flag and the try, so a cancellation seen after
+            # the flag always lands inside it.
+            self.started = True
             try:
                 await sleep(100)
             except CancelledError:
@@ -469,7 +475,7 @@ async def test_routines_wait_on_cancellation() -> None:
 
     component = Test()
     component.system.start()
-    await sleep(0.5)
+    await wait_for_condition("the routine enters its sleep", lambda: component.started, 30)
     await component.system.stop()
     assert not component.system.running
     assert component.cancelled

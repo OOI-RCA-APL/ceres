@@ -406,8 +406,8 @@ class TestSieveConnectionBinding:
 
     async def test_sieve_filters_messages_by_connection(self):
         from ceres import Bound, Component, Connection, SplitByLine
-        from ceres.concurrency import sleep
         from ceres.event import MessageReceivedEvent
+        from tests.testing import wait_for_condition
 
         alpha_received: list[Message] = []
         beta_received: list[Message] = []
@@ -428,7 +428,25 @@ class TestSieveConnectionBinding:
 
         driver = Driver()  # type: ignore[reportCallIssue]
         driver.system.start()
-        await sleep(0.1)
+
+        # Each sieve subscribes from its own task sometime after start returns, and an
+        # event emitted before that is dropped. Probing until one lands on each sieve
+        # proves both are live, and the probes are filtered back out below.
+        def probe(connection: str, received: list[Message]) -> bool:
+            driver.system.events.emit(
+                MessageReceivedEvent,
+                message=_make_message(
+                    b"probe", connection=connection, address=driver.system.address
+                ),
+            )
+            return bool(received)
+
+        await wait_for_condition(
+            "the alpha sieve comes live", lambda: probe("alpha", alpha_received), 30
+        )
+        await wait_for_condition(
+            "the beta sieve comes live", lambda: probe("beta", beta_received), 30
+        )
 
         for label in [b"a1", b"a2", b"a3"]:
             driver.system.events.emit(
@@ -441,16 +459,26 @@ class TestSieveConnectionBinding:
                 message=_make_message(label, connection="beta", address=driver.system.address),
             )
 
-        await sleep(0.5)
+        def delivered(received: list[Message], count: int) -> bool:
+            return len([message for message in received if message.data != b"probe"]) >= count
+
+        await wait_for_condition(
+            "every alpha message arrives", lambda: delivered(alpha_received, 3), 30
+        )
+        await wait_for_condition(
+            "every beta message arrives", lambda: delivered(beta_received, 2), 30
+        )
         await driver.system.stop()
 
-        assert [message.data for message in alpha_received] == [b"a1", b"a2", b"a3"]
-        assert [message.data for message in beta_received] == [b"b1", b"b2"]
+        alpha_data = [message.data for message in alpha_received if message.data != b"probe"]
+        beta_data = [message.data for message in beta_received if message.data != b"probe"]
+        assert alpha_data == [b"a1", b"a2", b"a3"]
+        assert beta_data == [b"b1", b"b2"]
 
     async def test_unbound_sieve_receives_all_messages(self):
         from ceres import Bound, Component, Connection, SplitByLine
-        from ceres.concurrency import sleep
         from ceres.event import MessageReceivedEvent
+        from tests.testing import wait_for_condition
 
         all_received: list[Message] = []
 
@@ -465,7 +493,18 @@ class TestSieveConnectionBinding:
 
         driver = Driver()  # type: ignore[reportCallIssue]
         driver.system.start()
-        await sleep(0.1)
+
+        # The sieve subscribes from its own task sometime after start returns, and an
+        # event emitted before that is dropped. Probing until one lands proves it is
+        # live, and the probes are filtered back out below.
+        def probe() -> bool:
+            driver.system.events.emit(
+                MessageReceivedEvent,
+                message=_make_message(b"probe", connection="alpha", address=driver.system.address),
+            )
+            return bool(all_received)
+
+        await wait_for_condition("the sieve comes live", probe, 30)
 
         driver.system.events.emit(
             MessageReceivedEvent,
@@ -476,8 +515,12 @@ class TestSieveConnectionBinding:
             message=_make_message(b"b1", connection="beta", address=driver.system.address),
         )
 
-        await sleep(0.5)
+        await wait_for_condition(
+            "both messages arrive",
+            lambda: len([message for message in all_received if message.data != b"probe"]) >= 2,
+            30,
+        )
         await driver.system.stop()
 
-        received_data = sorted(message.data for message in all_received)
+        received_data = sorted(message.data for message in all_received if message.data != b"probe")
         assert received_data == [b"a1", b"b1"]
