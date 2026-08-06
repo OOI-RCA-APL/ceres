@@ -82,6 +82,11 @@ jobs:
       # fresh tables.
       - name: Check Recorded Coverage
         run: make coverage-check
+      # The reference pages are rendered from the configuration schema, the command tree,
+      # the API document, and the package's exports, so a surface that moved without the
+      # pages moving with it fails here.
+      - name: Check Generated Reference
+        run: make reference-check
       - name: Test
         run: make test
       - name: Build

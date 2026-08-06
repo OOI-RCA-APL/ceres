@@ -16,6 +16,7 @@ use utoipa::openapi::{
 pub(crate) struct Documented {
     pub method: HttpMethod,
     pub path: &'static str,
+    /// The route's own documentation, joined from its doc comment lines.
     pub summary: &'static str,
     /// The path's captures, in the order they appear.
     pub parameters: &'static [&'static str],
@@ -48,7 +49,13 @@ pub fn document(version: &str) -> OpenApi {
         }
 
         let mut operation = Operation::new();
-        operation.summary = Some(route.summary.to_string());
+        operation.summary = Some(
+            route
+                .summary
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
         operation.tags = Some(vec![route.tag.to_string()]);
         operation.responses = ResponsesBuilder::new()
             .response(

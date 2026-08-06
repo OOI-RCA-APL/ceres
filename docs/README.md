@@ -67,13 +67,22 @@ ceres service stop        # Stop the background service.
 
 ## Documentation
 
+Start here:
+
 - [Installing](installing.md): Install Ceres and set up a project.
 - [Getting Started](getting-started.md): Build your first Ceres project from scratch.
-- [Writing a Driver](writing-a-driver.md): Build an instrument driver with connections and data parsing.
-- [Components](components.md): The core abstraction: routines, events, records.
+- [Components](components.md): The core abstraction, routines, events, records.
 - [Connections](connections.md): Connect to remote instruments and parse data.
-- [Configuration](configuration.md): Full `ceres.yaml` reference.
-- [CLI](cli.md): Command-line interface reference.
+- [Writing a Driver](writing-a-driver.md): Build an instrument driver end to end.
 - [Deployment](deployment.md): Run Ceres as a production service.
+
+Reference, generated from the code and checked in CI:
+
+- [Configuration](reference/configuration.md): Every `ceres.yaml` key.
+- [CLI](reference/cli.md): Every command and option.
+- [HTTP API](reference/http-api.md): Every route the engine serves.
+- [Python API](reference/python-api.md): Every name `ceres` exports.
+
+Contributing:
+
 - [Development](development.md): Set up a dev environment and contribute to Ceres.
-- [API Reference](api-reference.md): Auto-generated Python API docs.

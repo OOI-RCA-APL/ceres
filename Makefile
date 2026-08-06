@@ -28,6 +28,12 @@ schema:
 	uv run ./scripts/update-schema.py
 schema-check:
 	uv run ./scripts/update-schema.py --check
+reference:
+	cd rust && cargo test -p ceres-cli reference::
+	uv run ./scripts/update-reference.py
+reference-check:
+	cd rust && cargo test -p ceres-cli reference::
+	uv run ./scripts/update-reference.py --check
 release:
 	uv run ./scripts/release.py
 release-check:

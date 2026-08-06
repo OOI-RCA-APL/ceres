@@ -38,6 +38,39 @@ def _wrapping_property(descriptor: Any, wrap: Callable[[Any], Any]) -> property:
     return property(read)
 
 
+_DEFINITION_PREFIX = "#/$defs/"
+"""Where the native schema generator puts the definitions its references name."""
+
+
+def _self_contained(node: Any, definitions: Mapping[str, Any], expanding: frozenset[str]) -> Any:
+    """Replace a schema's internal references with the definitions they name.
+
+    Pydantic carries a nested schema's references into the document it builds but not the
+    definitions they point at, so a section describing itself in terms of its own `$defs`
+    fails to resolve as soon as it is embedded. Inlining leaves nothing to resolve.
+    """
+    if isinstance(node, list):
+        return [_self_contained(item, definitions, expanding) for item in node]
+
+    if not isinstance(node, dict):
+        return node
+
+    reference = node.get("$ref")
+    if isinstance(reference, str) and reference.startswith(_DEFINITION_PREFIX):
+        name = reference.removeprefix(_DEFINITION_PREFIX)
+        if name in expanding or name not in definitions:
+            return node
+
+        expanded = _self_contained(definitions[name], definitions, expanding | {name})
+        return expanded | {key: value for key, value in node.items() if key != "$ref"}
+
+    return {
+        key: _self_contained(value, definitions, expanding)
+        for key, value in node.items()
+        if key != "$defs"
+    }
+
+
 class RustConfigModel:
     """Wire a Rust-backed configuration class into Pydantic.
 
@@ -107,7 +140,8 @@ class RustConfigModel:
         handler: GetJsonSchemaHandler,
     ) -> dict[str, Any]:
         """Return the JSON Schema the Rust side derives for this section."""
-        return cls.__json_schema__()
+        described = cls.__json_schema__()
+        return _self_contained(described, described.get("$defs", {}), frozenset())
 
     def __copy__(self) -> Self:
         """Return the instance itself, configuration values are immutable."""

@@ -67,11 +67,13 @@ nav:
   - Home: README.md
   - Installing: installing.md
   - Getting Started: getting-started.md
-  - Writing a Driver: writing-a-driver.md
   - Components: components.md
   - Connections: connections.md
-  - Configuration: configuration.md
-  - CLI: cli.md
+  - Writing a Driver: writing-a-driver.md
   - Deployment: deployment.md
+  - Reference:
+      - Configuration: reference/configuration.md
+      - CLI: reference/cli.md
+      - HTTP API: reference/http-api.md
+      - Python API: reference/python-api.md
   - Development: development.md
-  - API Reference: api-reference.md

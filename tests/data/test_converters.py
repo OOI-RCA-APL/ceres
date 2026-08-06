@@ -1,8 +1,11 @@
+import json
+import re
 from datetime import UTC, datetime
 
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from ceres.config import Config, ServerConfig
 from ceres.data.converters import (
     adapt,
     dump,
@@ -10,6 +13,7 @@ from ceres.data.converters import (
     serialized_type,
     simplify,
     to_json,
+    to_json_schema,
     to_yaml,
     validate,
     validate_json,
@@ -319,3 +323,22 @@ class TestSerializedType:
     def test_invalid_mode_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid mode"):
             serialized_type(int, "invalid")(lambda v: v)  # type: ignore[arg-type]
+
+
+class TestToJsonSchema:
+    def test_native_section_describes_its_own_keys(self) -> None:
+        schema = to_json_schema(ServerConfig)
+        assert "port" in schema["properties"]
+
+    def test_multi_word_keys_are_kebab_case(self) -> None:
+        cors = to_json_schema(ServerConfig)["$defs"]["RawServerCorsConfig"]
+        assert "allow-origins" in cors["properties"]
+
+    def test_whole_config_resolves_every_reference(self) -> None:
+        schema = to_json_schema(Config)
+        defined = set(schema.get("$defs", {}))
+        named = {
+            found.removeprefix("#/$defs/")
+            for found in re.findall(r'"\$ref": "([^"]+)"', json.dumps(schema))
+        }
+        assert named <= defined

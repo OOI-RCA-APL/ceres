@@ -319,4 +319,4 @@ alert_count = await self.system.alerts.where(level="error").count()
 recent_logs = await self.system.logs.where(order="timestamp:desc").limit(50)
 ```
 
-Records can also be queried from the CLI. See the [CLI reference](cli.md).
+Records can also be queried from the CLI. See the [CLI reference](reference/cli.md).

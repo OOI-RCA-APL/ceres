@@ -62,7 +62,7 @@ macro_rules! path_struct {
 /// parameters, and whether a request body forwards too.
 macro_rules! host_routes {
     ($(
-        $(#[$doc:meta])*
+        $(#[doc = $doc:literal])*
         $name:ident: $method:ident $path:literal => $gate:expr, $operation:literal
             $(, params($($field:ident => $host:literal: $kind:ident),+))?
             $(, body: $body:literal)?
@@ -70,14 +70,14 @@ macro_rules! host_routes {
             $(, scrub: $scrub:literal)?
         ;
     )*) => {
-        $(path_struct!($(#[$doc])* $name, $path, [$($($field),+)?]);)*
+        $(path_struct!($(#[doc = $doc])* $name, $path, [$($($field),+)?]);)*
 
         /// Describe every declared route for the OpenAPI document.
         pub(crate) fn documented() -> Vec<crate::api::schema::Documented> {
             vec![$(crate::api::schema::Documented {
                 method: crate::api::schema::method_of(stringify!($method)),
                 path: $path,
-                summary: $operation,
+                summary: concat!($($doc),*),
                 parameters: &[$($(stringify!($field)),+)?],
                 secured: !matches!($gate, Gate::Open),
                 tag: $operation.split('.').next().unwrap_or($operation),

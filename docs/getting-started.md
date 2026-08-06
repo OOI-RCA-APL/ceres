@@ -84,7 +84,7 @@ Press `Ctrl+C` to stop.
 
 ## Using the CLI
 
-With the engine running in one terminal, open another terminal in the same directory and activate the virtual environment. The CLI communicates with the running engine over a Unix socket.
+With the engine running in one terminal, open another terminal in the same directory and activate the virtual environment. A running engine writes a small file into the project holding the port it listens on and a token, and the CLI reads that file and speaks HTTP to it on loopback. That is why the CLI has to run in the project directory, and why nothing on the network can reach it.
 
 ### Checking Status
 
@@ -177,5 +177,5 @@ ceres run all --watch
 - [Writing a Driver](writing-a-driver.md): Build an instrument driver with connections and data parsing.
 - [Components](components.md): Learn about routines, events, listeners, and records.
 - [Connections](connections.md): Connection sources, splitters, and buffers.
-- [Configuration](configuration.md): Full `ceres.yaml` reference.
-- [CLI](cli.md): Complete CLI reference.
+- [Configuration](reference/configuration.md): Every `ceres.yaml` key.
+- [CLI](reference/cli.md): Every command and option.

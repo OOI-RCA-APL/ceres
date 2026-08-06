@@ -7,6 +7,8 @@ mod error;
 mod highlight;
 mod output;
 mod project;
+#[cfg(test)]
+mod reference;
 mod runtime;
 mod selector;
 mod service;

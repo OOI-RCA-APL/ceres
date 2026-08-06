@@ -219,7 +219,7 @@ logging:
   events: true       # Log component lifecycle events.
 ```
 
-Per-component overrides are available. See [Configuration: Logging](configuration.md#logging).
+Per-component overrides are available. See [Configuration](reference/configuration.md#logging).
 
 ## Database Maintenance
 
