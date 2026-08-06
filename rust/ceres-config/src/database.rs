@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use ceres_macros::kebab_aliases;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -118,8 +119,9 @@ impl TryFrom<RawBcryptHashingConfig> for BcryptHashingConfig {
 ///
 /// Default parameters mirror `argon2.profiles.RFC_9106_LOW_MEMORY`, callers can tune them to
 /// trade memory and CPU cost against latency.
+#[kebab_aliases]
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 #[schemars(title = "Argon2HashingConfig")]
 pub struct RawArgon2HashingConfig {
     /// Number of iterations Argon2 performs.

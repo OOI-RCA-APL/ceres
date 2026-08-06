@@ -5,6 +5,7 @@
 //! from here can resolve to them.
 
 mod filterable;
+mod kebab;
 mod python_config;
 
 use proc_macro::TokenStream;
@@ -29,6 +30,24 @@ pub(crate) fn last_segment(ty: &Type) -> Option<&PathSegment> {
 pub fn filterable(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     filterable::expand_filterable(input)
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
+
+/// Accept the snake_case spelling of every multi-word field this struct deserializes.
+///
+/// A configuration file is written in kebab-case, which the struct declares with
+/// `rename_all`, and this restores the snake_case spelling alongside it so a file
+/// written either way loads. Applying it to the struct rather than writing an alias per
+/// field is what keeps a field added later from silently accepting only one spelling.
+///
+/// Place it above the `derive`, so the aliases are attached before serde expands. Only
+/// deserialization is affected, which is why it belongs on configuration structs alone
+/// and never on one that serializes, where it would not change the output anyway.
+#[proc_macro_attribute]
+pub fn kebab_aliases(_arguments: TokenStream, input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    kebab::expand_kebab_aliases(input)
         .unwrap_or_else(|error| error.to_compile_error())
         .into()
 }

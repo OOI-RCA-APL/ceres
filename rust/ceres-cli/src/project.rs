@@ -55,7 +55,10 @@ impl Project {
         &self.config_path
     }
 
-    /// Create a project at an exact configuration path, without discovery or resolution.
+    /// Return a handle to the project whose configuration is at this exact path.
+    ///
+    /// The path is taken as given, with none of [`Self::discover`]'s searching or
+    /// canonicalization.
     #[cfg(test)]
     pub fn at(config_path: impl Into<PathBuf>) -> Self {
         Self {

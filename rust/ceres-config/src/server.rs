@@ -3,6 +3,7 @@
 use std::net::IpAddr;
 use std::path::PathBuf;
 
+use ceres_macros::kebab_aliases;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -13,8 +14,9 @@ use crate::values::{ByteSize, MaybeSequence, TimeDelta};
 pub const TLS_SERVER_PROTOCOL: i64 = 17;
 
 /// TLS configuration for the engine's HTTP server.
+#[kebab_aliases]
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 #[schemars(title = "ServerSslConfig")]
 pub struct RawServerSslConfig {
     /// Path to the server private key file.
@@ -70,8 +72,9 @@ impl TryFrom<RawServerSslConfig> for ServerSslConfig {
 }
 
 /// Authentication settings for the engine's HTTP server.
+#[kebab_aliases]
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 #[schemars(title = "ServerAuthenticationConfig")]
 pub struct RawServerAuthenticationConfig {
     /// Secret used to sign and verify authentication tokens.
@@ -108,8 +111,9 @@ impl TryFrom<RawServerAuthenticationConfig> for ServerAuthenticationConfig {
 }
 
 /// Cross-origin resource sharing settings for the engine's HTTP server.
+#[kebab_aliases]
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 #[schemars(title = "ServerCorsConfig")]
 pub struct RawServerCorsConfig {
     pub enabled: Option<bool>,
@@ -189,8 +193,9 @@ impl TryFrom<RawServerCorsConfig> for ServerCorsConfig {
 }
 
 /// Response compression settings for the engine's HTTP server.
+#[kebab_aliases]
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 #[schemars(title = "ServerCompressionConfig")]
 pub struct RawServerCompressionConfig {
     pub enabled: Option<bool>,
@@ -407,6 +412,31 @@ mod tests {
             MaybeSequence::One("*".to_string())
         );
         assert_eq!(config.compression.unwrap().min_size.bytes(), 1024);
+    }
+
+    #[test]
+    fn multi_word_keys_read_in_either_spelling() {
+        // A configuration file is written in kebab-case, and the snake_case spelling
+        // stays readable so a file written either way loads.
+        let document = |separator: char| {
+            let key = |name: &str| name.replace('_', &separator.to_string());
+            format!(
+                "cors:\n  {}: '*'\n  {}: true\ncompression:\n  {}: 1KiB\n",
+                key("allow_origins"),
+                key("allow_credentials"),
+                key("min_size"),
+            )
+        };
+
+        for separator in ['-', '_'] {
+            let raw: RawServerConfig = yaml_serde::from_str(&document(separator))
+                .unwrap_or_else(|error| panic!("the {separator:?} spelling reads: {error}"));
+            let config = ServerConfig::try_from(raw).unwrap();
+            let cors = config.cors.unwrap();
+            assert_eq!(cors.allow_origins, MaybeSequence::One("*".to_string()));
+            assert!(cors.allow_credentials);
+            assert_eq!(config.compression.unwrap().min_size.bytes(), 1024);
+        }
     }
 
     #[test]
