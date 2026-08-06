@@ -210,7 +210,9 @@ def __main__():
             _badge_line("Rust Coverage", rust_percent),
         ]
     )
-    _update_between_markers(Path("README.md"), BADGE_START, BADGE_END, badges)
+    # The README GitHub renders for the repository is the documentation's own home page,
+    # so the badges live there rather than in a second copy at the root.
+    _update_between_markers(Path("docs/README.md"), BADGE_START, BADGE_END, badges)
 
     coverage_md = Path("COVERAGE.md")
     _update_between_markers(

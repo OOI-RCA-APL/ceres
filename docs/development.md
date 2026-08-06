@@ -46,22 +46,25 @@ This guide covers setting up a development environment for working on Ceres itse
 
 ## Make Targets
 
-| Target          | Description                                      |
-| --------------- | ------------------------------------------------ |
-| `make install`  | Install Python and console dependencies.         |
-| `make test`     | Run the test suite with pytest.                  |
-| `make lint`     | Run ruff (check + format) and pyright.           |
-| `make fix`      | Auto-fix lint issues and reformat code.          |
-| `make coverage` | Generate the coverage report.                    |
-| `make build`    | Build the Python package and console.            |
-| `make release`  | Cut a release from the changelog.                |
-| `make build-docs` | Build documentation with mkdocs.               |
+| Target               | Description                                                     |
+| -------------------- | --------------------------------------------------------------- |
+| `make install`       | Install Python and console dependencies.                         |
+| `make test`          | Run the test suite with pytest.                                  |
+| `make test-postgres` | Run the same suite against a real PostgreSQL server.             |
+| `make lint`          | Run ruff and pyright, then rustfmt and clippy over the workspace. |
+| `make fix`           | Auto-fix lint issues and reformat code.                          |
+| `make coverage`      | Regenerate the coverage tables and badges.                       |
+| `make coverage-check` | Verify the recorded coverage still matches the sources.         |
+| `make build`         | Build the Python package and console.                            |
+| `make release`       | Cut a release from the changelog.                                |
+| `make build-docs`    | Build documentation with mkdocs.                                 |
 
 ## Code Style
 
-- **Formatter/linter:** [Ruff](https://docs.astral.sh/ruff/), line width 100.
+- **Formatter/linter:** [Ruff](https://docs.astral.sh/ruff/), line width 100, and
+  `rustfmt` with `clippy` at `-D warnings` for the Rust workspace.
 - **Type checker:** [Pyright](https://github.com/microsoft/pyright).
-- **Test framework:** [pytest](https://docs.pytest.org/) with [pytest-asyncio](https://pytest-asyncio.readthedocs.io/).
+- **Test framework:** [pytest](https://docs.pytest.org/) with [pytest-asyncio](https://pytest-asyncio.readthedocs.io/), and `cargo test` for the Rust crates.
 
 Always run `make lint` before committing. The CI pipeline runs the same checks.
 
@@ -80,15 +83,24 @@ ceres/
     event.py                # Event system.
     particle.py             # Data parsing (particles).
     __internal__/
-      app/                  # FastAPI HTTP server and REST API.
-        api/                # API route modules.
-      cli/                  # CLI entry point and subcommands.
-      database/             # ORM entity definitions.
+      app/                  # Operations the native server dispatches into.
+      cli/                  # The engine-hosting commands the binary delegates back.
+      database/             # Entity definitions and the write path.
+      core.pyi              # Generated stubs for the native extension.
+  rust/                     # The native workspace, built as one extension module.
+    ceres-core/             # The pyo3 bridge, imported as ceres.__internal__.core.
+    ceres-cli/              # The `ceres` command line interface.
+    ceres-server/           # The HTTP server serving the API and console.
+    ceres-database/         # Native database access, the filter compiler included.
+    ceres-entities/         # Entity structs and their derived filter schemas.
+    ceres-config/           # Project configuration parsing.
+    ceres-macros/           # Procedural macros for the native crates.
+    ceres-stubs/            # Stub generator for core.pyi.
   console/                  # Vue 3 + Quasar web console (TypeScript).
   docs/                     # mkdocs documentation (this site).
   examples/                 # Example projects.
   tests/                    # Test suite.
-  scripts/                  # Utility scripts (coverage, multi-version testing).
+  scripts/                  # Utility scripts (coverage, releases, the package index).
 ```
 
 ### Key Modules
@@ -99,8 +111,22 @@ ceres/
 - `connection/`: `Connection`, `Source` (TCP, Unix), `Splitter`, and `Buffer` classes.
 - `event.py`: `Event` base class and all standard event types.
 - `error.py`: `Error` base class (a Pydantic dataclass that inherits from `Exception`) and all error types.
-- `__internal__/app/`: FastAPI application, middleware, and REST API routes.
-- `__internal__/cli/`: CLI commands built on pydantic-settings.
+- `__internal__/app/`: the operations the native server dispatches into for anything it cannot serve from the database itself.
+- `__internal__/cli/`: the engine-hosting commands, which the native binary delegates back to this interpreter.
+
+### The Native Workspace
+
+The engine's HTTP server, command line interface, filter compiler, and database access
+are Rust, built as one extension module imported as `ceres.__internal__.core`. The
+`ceres` command is a native binary, and `python -m ceres` execs it, so both invocations
+serve the same surface. Build it with:
+
+```sh
+cd rust && cargo build --release
+```
+
+The binary lands at `rust/target/release/ceres`, and finds the project's Python
+environment through the interpreter beside it, `VIRTUAL_ENV`, or `CERES_PYTHON`.
 
 ### Console
 
@@ -120,6 +146,10 @@ Run a specific test file or test:
 uv run pytest tests/test_error.py -vv
 uv run pytest tests/test_error.py::TestErrorIsException -vv
 ```
+
+Per-module coverage for both the Python package and the Rust workspace is recorded in
+[COVERAGE.md](https://github.com/OOI-RCA-APL/ceres/blob/main/COVERAGE.md). `make coverage`
+regenerates it, and CI fails when the recorded tables fall behind the sources.
 
 ### Running Against PostgreSQL
 
