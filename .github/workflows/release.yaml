@@ -4,6 +4,17 @@ name: release
 on:
   release:
     types: [published]
+  # Rebuilding a tag that already published, for when a platform's wheel is missing from an
+  # otherwise good release. Both destinations skip what they already hold, so a rebuild adds
+  # the missing files and leaves the rest untouched.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The existing release tag to rebuild.
+        required: true
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
   # The release must agree with the repository about what version it is, and the version
@@ -14,19 +25,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
       - name: Check Tag Matches Project Version
         run: |
-          tag="${{ github.event.release.tag_name }}"
           version="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
-          if [ "$tag" != "$version" ]; then
-            echo "Release tag $tag does not match pyproject.toml version $version"
+          if [ "$TAG" != "$version" ]; then
+            echo "Release tag $TAG does not match pyproject.toml version $version"
             exit 1
           fi
       - name: Check Changelog Has an Entry
         run: |
-          tag="${{ github.event.release.tag_name }}"
-          if ! grep -q "^## \[$tag\]" CHANGELOG.md; then
-            echo "CHANGELOG.md has no entry for $tag"
+          if ! grep -q "^## \[$TAG\]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no entry for $TAG"
             exit 1
           fi
 
@@ -63,12 +74,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Install Pythons
+        with:
+          ref: ${{ env.TAG }}
+      # Installed one at a time so each reports where it landed. Windows has no
+      # `python3.14t` on the path, only `python.exe`, so a version selector there resolves
+      # to whichever install came last and both wheels build against the same interpreter.
+      - name: Install Python
+        id: standard
         uses: actions/setup-python@v6
         with:
-          python-version: |
-            3.14
-            3.14t
+          python-version: "3.14"
+      - name: Install Free-Threaded Python
+        id: freethreaded
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14t"
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
@@ -81,8 +101,22 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --interpreter 3.14 3.14t --out dist
+          # The manylinux container carries its own interpreters, so Linux has to select by
+          # version rather than by a path that exists only on the runner outside it.
+          args: --release --out dist --interpreter ${{ runner.os == 'Windows' && format('{0} {1}', steps.standard.outputs.python-path, steps.freethreaded.outputs.python-path) || '3.14 3.14t' }}
           manylinux: auto
+      - name: Check Every Interpreter Produced a Wheel
+        shell: bash
+        # maturin builds for the interpreters it finds rather than the ones it was asked
+        # for, and reports success either way, so a selector that resolves twice to the
+        # same interpreter ships a release missing a platform.
+        run: |
+          count="$(ls dist/*.whl | wc -l)"
+          if [ "$count" -ne 2 ]; then
+            echo "Expected a wheel per interpreter, found $count:"
+            ls dist
+            exit 1
+          fi
       - name: Smoke Test
         # A cross-compiled wheel cannot import on this runner, so only wheels matching
         # the runner's own architecture install and run here.
@@ -109,6 +143,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
       # The marker rides in the sdist so extracting it creates the wheel data directory,
       # which maturin requires to exist before a build starts. The extension's build
       # script replaces it with the CLI binary.
@@ -138,6 +174,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: astral-sh/setup-uv@v5
       - name: Download Artifacts
         uses: actions/download-artifact@v4
@@ -145,13 +183,11 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Build the Alias Wheel
-        run: python3 scripts/build-alias-wheel.py '${{ github.event.release.tag_name }}' dist
+        run: python3 scripts/build-alias-wheel.py "$TAG" dist
       - name: Attach to the Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release upload '${{ github.event.release.tag_name }}' dist/*
-          --clobber --repo '${{ github.repository }}'
+        run: gh release upload "$TAG" dist/* --clobber --repo '${{ github.repository }}'
 
   publish:
     needs: [build, sdist]
@@ -170,3 +206,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          # A version's files are immutable but its file list is not, so a rebuild adds
+          # what is missing and passes over what is already published.
+          skip-existing: true
