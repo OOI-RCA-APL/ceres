@@ -196,10 +196,10 @@ class CountEvent(Event):
     count: int
 ```
 
-Emit events with `self.emit()`.
+Emit events through the system's event manager, which fills in the emitting component's address.
 
 ```python
-self.emit(CountEvent, count=42)
+self.system.events.emit(CountEvent, count=42)
 ```
 
 ### Event Listeners
@@ -272,11 +272,11 @@ Messages are records of data sent or received by a connection. They are created 
 Alerts are records of notable events, usually errors. Any component can emit alerts.
 
 ```python
-from ceres import Level
-
-self.alert(Level.ERROR, "sensor/timeout", {"message": "No data received in 30 seconds."})
-self.alert(Level.INFO, "sensor/recovered", {"message": "Connection restored."})
+self.system.alert.error("sensor/timeout", {"message": "No data received in 30 seconds."})
+self.system.alert.info("sensor/recovered", {"message": "Connection restored."})
 ```
+
+There is one shortcut per level, and `self.system.alert.emit(...)` takes the level as an argument when it is decided at run time.
 
 | Field       | Type      | Description                                |
 | ----------- | --------- | ------------------------------------------ |
@@ -291,14 +291,14 @@ Emitting an alert stores it in the database but does not send it anywhere. To di
 
 ### Log Entries
 
-Components log messages through `self.system.log` (or the shorthand `self.log`), which mirrors Python's `logging.Logger` interface. Log entries are printed to stdout and persisted in the database.
+Components log through `self.system.log`, which mirrors Python's `logging.Logger`. Entries are printed to stdout and persisted in the database.
 
 ```python
-self.log.debug("Debugging info.")
-self.log.info("Normal operation.")
-self.log.warning("Something might be wrong.")
-self.log.error("Something failed.")
-self.log.critical("System is in a bad state.")
+self.system.log.debug("Debugging info.")
+self.system.log.info("Normal operation.")
+self.system.log.warning("Something might be wrong.")
+self.system.log.error("Something failed.")
+self.system.log.critical("System is in a bad state.")
 ```
 
 | Field       | Type      | Description                            |

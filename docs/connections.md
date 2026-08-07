@@ -1,16 +1,12 @@
 # Connections
 
-Connections provide managed, persistent byte streams between components and remote instruments or services. They handle connecting, disconnecting, reconnecting, buffering, and splitting incoming data into discrete messages.
+A connection is a managed byte stream between a component and a remote instrument or service. It connects, reconnects, buffers, and splits the incoming stream into discrete messages, all as a background task owned by its component.
 
-## Overview
+A connection is a `Source` (the transport) plus a `Splitter` (where to cut the stream). Each cut becomes a `Message` record.
 
-A connection wraps a transport _source_ (TCP socket, Unix socket, etc.) and a _splitter_ strategy that determines how the raw byte stream is divided into messages. Connections run as background tasks within their owning component, automatically reconnecting on failure.
+## Declaring A Connection
 
-Connections can be declared in two ways: in the component's `ceres.yaml` configuration, or statically in the component class itself.
-
-## Configuring Connections in YAML
-
-The most common approach is to declare connections in `ceres.yaml`.
+Connections are declared in `ceres.yaml` under the owning component.
 
 ```yaml
 components:
@@ -18,20 +14,23 @@ components:
     class: my_project.Driver
     connections:
       - name: primary
-        source:
-          class: ceres.connection.TCPSource
-          arguments:
-            host: 10.180.80.170
-            port: 2101
-        splitter:
-          class: ceres.connection.SplitByLine
+        arguments:
+          source:
+            class: ceres.connection.TCPSource
+            arguments:
+              host: 10.180.80.170
+              port: 2101
+          splitter:
+            class: ceres.connection.SplitByLine
 ```
 
-This creates a connection named `primary` on the `@driver` component. The connection connects to the specified host and port, splits incoming bytes on newlines, and stores each chunk as a `Message` in the database.
+Everything except `name` and `class` goes under `arguments`. A connection entry accepts exactly three keys, `name`, `class`, and `arguments`, and anything else fails to load. `class` defaults to `Connection` itself and is only needed for a subclass.
 
-### Connection as a Field Argument
+This gives `@driver` a connection called `primary` that splits on newlines and stores each line as a `Message`.
 
-Connections can also be passed as component arguments. This is useful when the component declares a `Connection` field.
+### As A Component Argument
+
+When a component declares a `Connection` field, the connection can be passed as an argument instead.
 
 ```yaml
 components:
@@ -46,13 +45,23 @@ components:
             port: 4000
 ```
 
+### In The Class
+
+A connection can also be declared statically, which is the right place for anything inherent to the instrument rather than to the deployment.
+
+```python
+from ceres import Bound, Component, Connection, SplitByLine
+
+
+class Driver(Component):
+    connection: Bound[Connection] | None = Connection.Field(
+        splitter=SplitByLine(),
+    )
+```
+
 ## Sources
 
-Sources are transport adapters that establish the underlying byte stream.
-
 ### `TCPSource`
-
-Connect to a remote host over TCP.
 
 ```yaml
 source:
@@ -64,8 +73,6 @@ source:
 
 ### `UNIXSocketSource`
 
-Connect to a Unix domain socket.
-
 ```yaml
 source:
   class: ceres.connection.UNIXSocketSource
@@ -75,20 +82,15 @@ source:
 
 ## Splitters
 
-Splitters determine how the raw byte stream is divided into discrete messages. Each resulting chunk becomes a `Message` record.
+| Splitter | Cuts the stream |
+| --- | --- |
+| `SplitByLine` | On a line delimiter, `\n` unless told otherwise. |
+| `SplitByRegex` | On a regular expression match. |
+| `SplitByDelay` | On a pause, grouping whatever arrived inside the window. |
+| `SplitByChunk` | Not at all, each received chunk is one message. |
+| `Unsplit` | Not at all, the whole buffer drains as one message. |
 
-### `SplitByLine`
-
-Split on a line delimiter (default: `\n`).
-
-```yaml
-splitter:
-  class: ceres.connection.SplitByLine
-```
-
-### `SplitByRegex`
-
-Split on a regular expression match.
+`SplitByDelay` is the one to reach for with an instrument that answers in several packets and marks no boundary.
 
 ```yaml
 splitter:
@@ -97,70 +99,50 @@ splitter:
     pattern: '\r\n'
 ```
 
-### `SplitByDelay`
-
-Group bytes that arrive within a time window into a single message. Useful for instruments that send multi-part responses without a clear delimiter.
-
-```yaml
-splitter:
-  class: ceres.connection.SplitByDelay
-  arguments:
-    delay: 0.1
-```
-
-### `SplitByChunk`
-
-Treat each received chunk as a separate message, with no reassembly.
-
-```yaml
-splitter:
-  class: ceres.connection.SplitByChunk
-```
-
-### `Unsplit`
-
-Do not split at all. Drain the entire buffer as a single message each time.
-
-```yaml
-splitter:
-  class: ceres.connection.Unsplit
-```
-
 ## Connection Options
 
-Full connection configuration options in `ceres.yaml`:
+Every option below is an entry under `arguments`.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `source` | required | The transport. |
+| `splitter` | none | Where to cut the stream. Unsplit when omitted. |
+| `suffix` | none | Appended to outgoing messages. |
+| `buffer-read-size` | `1024` | Bytes read from the transport at a time. |
+| `buffer-size` | `16384` | Buffer ceiling before an overflow is declared. |
+| `buffer-drop` | `1024` | Bytes discarded when the buffer overflows. |
+| `connect-timeout` | none | Gives up on a connection attempt after this long. |
+| `receive-timeout` | none | Declares the link dead after this long without data. |
+| `reconnect-schedule` | | When to retry after a drop. |
+
+A schedule is written as a bare duration, a bare crontab expression, or a mapping naming its type.
 
 ```yaml
-connections:
-  - name: primary
-    source:
-      class: ceres.connection.TCPSource
-      arguments:
-        host: localhost
-        port: 4000
-    splitter:
-      class: ceres.connection.SplitByLine
-    suffix: "\n"                        # Append to outgoing messages.
-    buffer-size: 1MB                    # Max buffer size before overflow.
-    buffer-drop: 100KB                  # Drop threshold on overflow.
-    connect-timeout: 5s                 # Timeout for initial connection.
-    receive-timeout: 10s                # Timeout waiting for data.
-    reconnect-schedule: "interval: 5s"  # Schedule for reconnection attempts.
+reconnect-schedule: 5s
+
+reconnect-schedule: "*/5 * * * *"
+
+reconnect-schedule:
+  type: interval
+  interval: 5s
+  multiplier: 2
+  max: 5m
 ```
 
-## Sending Data
+The mapping form is what buys backoff. [Configuration](reference/configuration.md#intervalschedule) lists every key each schedule type takes.
 
-Components can send data through their connections.
+Durations and sizes are written the way they read, `5s`, `10m`, `1MB`, `100KB`.
+
+## Sending
 
 ```python
-await self.system.connections["primary"].send(b"COMMAND\n")
+connection = self.system.connections.get("primary")
+await connection.send(b"COMMAND\n")
 ```
 
-If a `suffix` is configured on the connection, it is appended automatically unless `suffixed=False` is passed.
+`get` returns `None` when no connection has that name, so there is nothing to catch and nothing to subscript. A configured `suffix` is appended for you unless you pass `suffixed=False`.
 
-## Listening to Messages
-
-Use `@listener` with `reference` to react to messages from a connection. See [Components: Event listeners](components.md#event-listeners).
+## Reacting To Messages
 
 ```python
 from ceres import Component, Connection, Ref, listener
@@ -172,27 +154,24 @@ class Driver(Component):
 
     @listener(reference="connection")
     async def on_message(self, event: MessageReceivedEvent) -> None:
-        raw = event.message.data
-        self.log.info(f"Received {len(raw)} bytes")
+        self.system.log.info(f"Received {len(event.message.data)} bytes")
 ```
 
-## Connectivity State
+See [Components](components.md#event-listeners) for the other ways a listener can be pointed at events.
 
-Connections track their state as a `Connectivity` value: `DISCONNECTED`, `CONNECTING`, or `CONNECTED`. Components can check this at any time.
+## Connectivity
+
+A connection is `DISCONNECTED`, `CONNECTING`, or `CONNECTED`.
 
 ```python
-connectivity = self.system.connections["primary"].connectivity
+connectivity = self.system.connections.get("primary").connectivity
 ```
 
-Connection state changes emit `ConnectedEvent`, `DisconnectedEvent`, and `ConnectionLostEvent`.
+Transitions emit `ConnectedEvent`, `DisconnectedEvent`, and `ConnectionLostEvent`, so a component can react rather than poll.
 
 ## Sieves
 
-Sieves are data parsers that process messages from connections and produce structured _particles_. They can be configured in YAML or declared as methods on a component.
-
-### Method Sieves
-
-The simplest approach is to use the `@sieve` decorator on a component method. The method receives each message from a named connection and returns a parsed particle (or `None` to skip).
+A sieve turns messages into structured _particles_. The method form is the one to reach for first, taking each message from a connection and returning a particle, or `None` to skip it.
 
 ```python
 from ceres import Bound, Component, Connection, Message, SplitByLine, sieve
@@ -208,9 +187,9 @@ class Driver(Component):
         ...
 ```
 
-### YAML Sieves
+`@sieve` also takes `stored`, `retries`, `retry_delay`, and message filters like `prefix`, `suffix`, and `contains`, so a component with several message shapes can route each to its own method.
 
-Sieves can also be configured in `ceres.yaml` using a sieve class.
+A sieve can instead name a class in `ceres.yaml`.
 
 ```yaml
 sieves:
@@ -224,10 +203,11 @@ sieves:
 
 ### Particles
 
-Particles are structured data records extracted from raw messages. Ceres provides several particle base classes for common patterns:
+| Base class | For |
+| --- | --- |
+| `RegexParticle` | Text matched by a pattern. |
+| `GroupedRegexParticle` | Capture groups mapped straight onto fields. |
+| `BinaryParticle` | Fixed-layout binary frames. |
+| `BinaryRegexParticle` | A binary frame located by a pattern. |
 
-- `RegexParticle`: Parse text messages with a regex pattern.
-- `GroupedRegexParticle`: Map regex capture groups directly to data fields.
-- `BinaryParticle`: Unpack fixed-layout binary data.
-
-Parsed particles can be stored in the database (when `stored: true`) and queried later through the CLI or API.
+Stored particles are queryable from the CLI and the API. [Writing a Driver](writing-a-driver.md) puts a connection, a sieve, and a particle together on a real instrument.

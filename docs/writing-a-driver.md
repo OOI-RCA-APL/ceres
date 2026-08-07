@@ -103,7 +103,7 @@ There is a lot happening here, so let's break it down:
 # ceres.yaml
 database:
   type: sqlite
-  path: ./local/database.sqlite
+  path: ./database.sqlite
 
 server:
   port: 8080

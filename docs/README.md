@@ -42,7 +42,7 @@ class Counter(Component):
 # ceres.yaml
 database:
   type: sqlite
-  path: ./local/database.sqlite
+  path: ./database.sqlite
 
 components:
   - name: counter-a

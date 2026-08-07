@@ -50,6 +50,7 @@ logging:
   store: debug
   events: true
 
+
 components:
   - name: sensor-a
     class: my_project.SensorDriver
@@ -65,6 +66,8 @@ components:
       output: ./local/data/sensor-b/
 ```
 
+Paths are relative to the configuration file, and Ceres creates none of the directories along them. Create `local/` before the first run, or the engine stops on a database it cannot open.
+
 ## Validating Configuration
 
 Before starting the service, validate your configuration.
@@ -77,13 +80,13 @@ ceres check
 
 The `ceres/database/migrations/` directory is the source of truth for the database schema. Every schema change ships as a migration file named `<id>-<name>.sql`, or `<id>-<name>.sqlite.sql` / `<id>-<name>.postgres.sql` when the SQL differs by backend, rather than as a standalone schema definition.
 
-If you are using PostgreSQL, apply pending migrations to create or update the schema.
+Whether the engine migrates on its own depends on whether the database is empty, not on which backend it is. An empty database has every migration applied at startup, on SQLite and PostgreSQL alike. A database with data in it is only checked, never migrated, so an upgrade that ships a migration is a deliberate step.
 
 ```sh
 ceres database migrate
 ```
 
-This shows the pending migrations and prompts for confirmation before applying them. SQLite databases are created and migrated automatically.
+This lists the pending migrations and asks before applying them.
 
 Show every known migration alongside its applied or pending status.
 
@@ -91,7 +94,7 @@ Show every known migration alongside its applied or pending status.
 ceres database migrations
 ```
 
-On startup, the engine refuses to run if the schema does not match what the running version of Ceres expects: migrations are pending, or the database has migration IDs the running version does not recognize (for example, after a downgrade). Run `ceres database migrate` to apply pending migrations. An unknown migration ID means the database was already migrated by a newer version of Ceres.
+On startup a non-empty database has to already match what the running version of Ceres expects, and the engine refuses to start otherwise. Pending migrations mean you need `ceres database migrate`. A migration ID the running version does not recognize means the database was migrated by a newer version of Ceres than the one you are starting, which is what a downgrade looks like.
 
 ## Starting the Service
 
@@ -105,11 +108,13 @@ ceres service start
 
 This generates a service definition, installs it, and starts the service.
 
-**Linux:** Creates a SystemD user service at `~/.config/systemd/user/ceres-<name>.service`. Runs `loginctl enable-linger` automatically so the service persists after logout.
+The service is named `ceres-<hash>`, where the hash is derived from the project directory, so several projects on one machine never collide. Set `service.name` in `ceres.yaml` to choose the name yourself.
 
-**macOS:** Creates a LaunchD agent at `~/Library/LaunchAgents/com.ceres.<name>.plist`.
+**Linux:** a SystemD user service at `~/.config/systemd/user/ceres-<hash>.service`. `loginctl enable-linger` runs automatically, so the service survives logout.
 
-Check the service status.
+**macOS:** a LaunchD agent at `~/Library/LaunchAgents/ceres-<hash>.plist`.
+
+`ceres service status` prints the name and the exact path, which is quicker than working out the hash.
 
 ```sh
 ceres service status
@@ -180,7 +185,7 @@ The HTTP API provides programmatic access to the same data. Generate the OpenAPI
 ceres generate openapi --output openapi.yaml
 ```
 
-The interactive API docs are available at `http://<host>:<port>/api/docs` when the server is running.
+A running server serves its own OpenAPI document at `http://<host>:<port>/api/openapi.json`, and `/api` redirects there. Point any OpenAPI client at it, or read [the HTTP API reference](reference/http-api.md).
 
 ## Upgrading Ceres
 

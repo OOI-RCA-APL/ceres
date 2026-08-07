@@ -1,10 +1,8 @@
 # Getting Started
 
-This guide walks through creating a Ceres project from scratch, running it, and managing it with the CLI.
+Build a Ceres project from nothing, run it, and drive it from the CLI. Everything on this page is a real transcript.
 
-## Project Setup
-
-Create a new directory with a `ceres.yaml` configuration file.
+## Create The Project
 
 ```sh
 mkdir my-project && cd my-project
@@ -13,9 +11,9 @@ uv add ceres --index https://ooi-rca-apl.github.io/ceres/simple/
 source .venv/bin/activate
 ```
 
-## Writing a Component
+## Write A Component
 
-Create a Python file with a simple component. Components are async Python classes that inherit from `Component`. Their attributes are typed fields that can be set through configuration.
+A component is an async Python class. Its annotated attributes are configuration fields, and its `@routine` methods are background tasks that start with the component and are cancelled when it stops.
 
 ```python
 # counter.py
@@ -37,17 +35,18 @@ class Counter(Component):
             count += self.delta
 ```
 
-The `@routine` decorator marks an async method as a background task. Routines start when the component starts and are cancelled when it stops.
+## Configure The Project
 
-## Configuring the Project
-
-Create a `ceres.yaml` file that declares a database and your components.
+`ceres.yaml` declares the database and the component tree.
 
 ```yaml
 # ceres.yaml
 database:
   type: sqlite
-  path: ./local/database.sqlite
+  path: ./database.sqlite
+
+logging:
+  events: false
 
 components:
   - name: counter-a
@@ -61,121 +60,123 @@ components:
       delta: -5
 ```
 
-The `class` field is a Python import path. The `arguments` are passed to the component's constructor and validated against its type hints.
+`class` is a Python import path. `arguments` are passed to the component and validated against its annotations, so a typo or a wrong type fails at load rather than at run.
 
-## Running
+The database path is relative to the configuration file, and Ceres will not create directories along the way. Point it at a file in a directory that already exists.
 
-Start the engine in the foreground with all components.
+`logging.events` is off here only to keep the output short. Left on, every lifecycle event is logged as JSON beside your own log lines, which is useful once you are debugging and noisy while you are reading.
+
+Check it before running anything:
+
+```sh
+ceres check
+```
+
+```
+All checks passed.
+```
+
+## Run It
 
 ```sh
 ceres run all
 ```
 
-You should see output like this:
+```
+[2026-08-06 16:53:11.156] [INFO] [~] Loading configuration from '/path/to/ceres.yaml'.
+[2026-08-06 16:53:11.160] [INFO] [~] Database appears empty, running migrations.
+[2026-08-06 16:53:11.178] [INFO] [~] Database migrated successfully.
+[2026-08-06 16:53:11.179] [INFO] [@counter-a] 5
+[2026-08-06 16:53:11.180] [INFO] [@counter-b] 100
+[2026-08-06 16:53:12.181] [INFO] [@counter-a] 6
+[2026-08-06 16:53:12.181] [INFO] [@counter-b] 95
+```
+
+Migrations run on their own the first time, because the database is empty. Press `Ctrl+C` to stop.
+
+## Drive It From Another Terminal
+
+Leave the engine running and open a second terminal in the same directory, with the virtual environment activated. A running engine writes a small file into the project holding a loopback port and a token, and the CLI reads that file and speaks HTTP to it. That is why the CLI has to run inside the project, and why nothing on the network can reach it.
+
+```sh
+ceres status
+```
 
 ```
-[2025-01-15 10:00:01.123] [INFO] [@counter-a] 5
-[2025-01-15 10:00:01.125] [INFO] [@counter-b] 100
-[2025-01-15 10:00:02.124] [INFO] [@counter-a] 6
-[2025-01-15 10:00:02.126] [INFO] [@counter-b] 95
-```
-
-Press `Ctrl+C` to stop.
-
-## Using the CLI
-
-With the engine running in one terminal, open another terminal in the same directory and activate the virtual environment. A running engine writes a small file into the project holding the port it listens on and a token, and the CLI reads that file and speaks HTTP to it on loopback. That is why the CLI has to run in the project directory, and why nothing on the network can reach it.
-
-### Checking Status
-
-```
-$ ceres status
-
- Engine
-╭──────────────────────────────┬─────────┬──────╮
-│ Configuration                │ Running │ Port │
-├──────────────────────────────┼─────────┼──────┤
-│ /path/to/ceres.yaml          │ Yes     │ --   │
-╰──────────────────────────────┴─────────┴──────╯
-
- Components
+Engine
+╭─────────────────────┬─────────┬─────────────────┬─────────────────╮
+│ Configuration       │ Running │ Web Server Port │ CLI Server Port │
+├─────────────────────┼─────────┼─────────────────┼─────────────────┤
+│ /path/to/ceres.yaml │ Yes     │ (Disabled)      │ 50558           │
+╰─────────────────────┴─────────┴─────────────────┴─────────────────╯
+Components
 ╭────────────┬─────────┬─────────╮
-│ Address    │ Running │ Enabled │
+│ Address    │ Enabled │ Running │
 ├────────────┼─────────┼─────────┤
-│ @counter-a │ Yes     │ No      │
-│ @counter-b │ Yes     │ No      │
+│ @counter-a │ No      │ Yes     │
+│ @counter-b │ No      │ Yes     │
 ╰────────────┴─────────┴─────────╯
 ```
 
-### Starting and Stopping Components
+"Web Server Port" is `(Disabled)` until you add a `server` section. "CLI Server Port" is the loopback port that file names.
+
+### Starting And Stopping
 
 ```sh
-ceres stop counter-a        # Stop a specific component.
+ceres stop counter-a        # Stop one component.
 ceres start counter-a       # Start it again.
 ceres stop all              # Stop everything.
 ```
 
-The `@` prefix on addresses is optional in CLI commands.
+The `@` prefix on an address is optional on the command line.
 
-### Enabling and Disabling
+### Enabling And Disabling
 
-Enabling a component makes it start automatically when the engine starts, without needing `ceres run all`.
-
-```sh
-ceres enable all            # Enable all components.
-ceres disable counter-b     # Disable one component.
-```
-
-The `up` and `down` commands combine start/enable and stop/disable.
+Running and enabled are separate. Running is now, enabled is whether the engine starts it next time, which is why both columns exist above.
 
 ```sh
-ceres up all                # Enable and start all components.
-ceres down counter-b        # Disable and stop one component.
+ceres enable all            # Start these automatically from now on.
+ceres disable counter-b
 ```
 
-## Running as a Service
-
-Instead of running in the foreground, you can run Ceres as a background service that persists after logout and survives reboots.
+`up` and `down` do both halves at once.
 
 ```sh
-ceres service start         # Install and start the service.
-ceres status                # Verify it's running.
-ceres service stop          # Stop and remove the service.
+ceres up all                # Enable and start.
+ceres down counter-b        # Disable and stop.
 ```
 
-On Linux, this creates a SystemD user service. On macOS, it creates a LaunchD agent. See [Deployment](deployment.md) for production setup details.
+## Run It As A Service
 
-## Adding a Web Console
+```sh
+ceres service start         # Write the service file and start it.
+ceres status
+ceres service stop          # Stop it and remove the file.
+```
 
-Add a `server` section to `ceres.yaml` to enable the HTTP API and web console.
+On Linux this is a SystemD user service, on macOS a LaunchD agent. [Deployment](deployment.md) covers the production shape.
+
+## Add The Web Console
 
 ```yaml
 server:
   port: 8080
 ```
 
-Restart the engine, then open [http://localhost:8080](http://localhost:8080) in a browser. The console provides a dashboard for monitoring component state, viewing logs, messages, and alerts, and controlling components.
-
-## Validating Configuration
-
-Before running, you can check your `ceres.yaml` for errors.
-
-```sh
-ceres check
-```
+Restart the engine and open [http://localhost:8080](http://localhost:8080). The console shows component state, logs, messages, and alerts, and can start and stop components. The same data is available over [the HTTP API](reference/http-api.md).
 
 ## Watch Mode
-
-During development, use `--watch` to automatically restart the engine when Python files or configuration change.
 
 ```sh
 ceres run all --watch
 ```
 
-## Next Steps
+Restarts the engine when Python files or the configuration change. For development only.
 
-- [Writing a Driver](writing-a-driver.md): Build an instrument driver with connections and data parsing.
-- [Components](components.md): Learn about routines, events, listeners, and records.
-- [Connections](connections.md): Connection sources, splitters, and buffers.
-- [Configuration](reference/configuration.md): Every `ceres.yaml` key.
-- [CLI](reference/cli.md): Every command and option.
+## Next
+
+- [Components](components.md): routines, events, listeners, and records.
+- [Connections](connections.md): reaching instruments and parsing what they send.
+- [Writing a Driver](writing-a-driver.md): the two put together, end to end.
+- [Configuration](reference/configuration.md): every `ceres.yaml` key.
+- [CLI](reference/cli.md): every command and option.
