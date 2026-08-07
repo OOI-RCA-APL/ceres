@@ -68,5 +68,5 @@ Constrain the version as you would any dependency. Released versions are listed 
 [changelog](https://github.com/OOI-RCA-APL/ceres/blob/main/CHANGELOG.md).
 
 ```sh
-uv add ceres-engine==0.41.0
+uv add ceres-engine==<version>
 ```

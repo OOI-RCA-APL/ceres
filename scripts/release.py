@@ -28,6 +28,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 _UNRELEASED_HEADER = "## [Unreleased]"
 
+_VERSION_PIN = re.compile(r"ceres(?:-engine)?==(\d[\w.]*)")
+"""An exact version a document tells a reader to install."""
+
 
 def _run(*arguments: str) -> str:
     """Run a command at the repository root and return its stripped stdout."""
@@ -91,6 +94,14 @@ def main() -> int:
 
     if f"## [{version}]" in changelog:
         problems.append(f"CHANGELOG.md already has an entry for {version}.")
+
+    # A document naming an exact version sends readers to that one release, so a stale pin
+    # installs something other than what is being cut here.
+    for path in sorted((_ROOT / "docs").rglob("*.md")):
+        for pinned in _VERSION_PIN.findall(path.read_text()):
+            if pinned != version:
+                location = path.relative_to(_ROOT)
+                problems.append(f"{location} pins {pinned} rather than {version}.")
 
     header = f"## [{version}] - {date.today().isoformat()}"
     updated = changelog.replace(_UNRELEASED_HEADER, f"{_UNRELEASED_HEADER}\n\n{header}", 1)
