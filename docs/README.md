@@ -9,7 +9,7 @@ Ceres is a Python framework for building data collection, monitoring, and device
 
 Components are async Python classes that run concurrently, communicate through events, and persist their state in a database. They can connect to remote instruments over TCP, parse incoming data into structured records, emit alerts, and be managed through a CLI or web console.
 
-![architecture](./images/architecture.png)
+![architecture](https://ooi-rca-apl.github.io/ceres/images/architecture.png)
 
 ## Where Ceres Is Used
 
@@ -65,22 +65,25 @@ ceres service stop        # Stop the background service.
 
 ## Documentation
 
+The documentation is published at
+[ooi-rca-apl.github.io/ceres](https://ooi-rca-apl.github.io/ceres/).
+
 Start here:
 
-- [Installing](installing.md): Install Ceres and set up a project.
-- [Getting Started](getting-started.md): Build your first Ceres project from scratch.
-- [Components](components.md): The core abstraction, routines, events, records.
-- [Connections](connections.md): Connect to remote instruments and parse data.
-- [Writing a Driver](writing-a-driver.md): Build an instrument driver end to end.
-- [Deployment](deployment.md): Run Ceres as a production service.
+- [Installing](https://ooi-rca-apl.github.io/ceres/installing/): Install Ceres and set up a project.
+- [Getting Started](https://ooi-rca-apl.github.io/ceres/getting-started/): Build your first Ceres project from scratch.
+- [Components](https://ooi-rca-apl.github.io/ceres/components/): The core abstraction, routines, events, records.
+- [Connections](https://ooi-rca-apl.github.io/ceres/connections/): Connect to remote instruments and parse data.
+- [Writing a Driver](https://ooi-rca-apl.github.io/ceres/writing-a-driver/): Build an instrument driver end to end.
+- [Deployment](https://ooi-rca-apl.github.io/ceres/deployment/): Run Ceres as a production service.
 
 Reference, generated from the code and checked in CI:
 
-- [Configuration](reference/configuration.md): Every `ceres.yaml` key.
-- [CLI](reference/cli.md): Every command and option.
-- [HTTP API](reference/http-api.md): Every route the engine serves.
-- [Python API](reference/python-api.md): Every name `ceres` exports.
+- [Configuration](https://ooi-rca-apl.github.io/ceres/reference/configuration/): Every `ceres.yaml` key.
+- [CLI](https://ooi-rca-apl.github.io/ceres/reference/cli/): Every command and option.
+- [HTTP API](https://ooi-rca-apl.github.io/ceres/reference/http-api/): Every route the engine serves.
+- [Python API](https://ooi-rca-apl.github.io/ceres/reference/python-api/): Every name `ceres` exports.
 
 Contributing:
 
-- [Development](development.md): Set up a dev environment and contribute to Ceres.
+- [Development](https://ooi-rca-apl.github.io/ceres/development/): Set up a dev environment and contribute to Ceres.
