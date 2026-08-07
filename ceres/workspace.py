@@ -1,25 +1,14 @@
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
 from pydantic import Field
-from sqlalchemy import (
-    JSON,
-    Boolean,
-    ForeignKeyConstraint,
-    PrimaryKeyConstraint,
-    false,
-)
-from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import AddressColumn, TextMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
     BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
-    BaseEntityRow,
     BaseEntityUpdate,
     BaseUUIDEntity,
     BaseUUIDEntityCreate,
@@ -27,58 +16,20 @@ from ceres.__internal__.entity import (
     BaseUUIDEntityFilter,
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
-    BaseUUIDEntityRow,
     ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
 from ceres.address import Address
 from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, NonEmptyStr
-from ceres.user import UserRow
 
 if TYPE_CHECKING:
-    from sqlalchemy import SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource
-    from ceres.database import DatabaseType
 
 __all__ = [
     "Workspace",
     "WorkspaceEdit",
 ]
-
-
-class WorkspaceEditRow(BaseEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `WorkspaceEdit` entity."""
-
-    __tablename__: ClassVar[str] = "workspace_edits"
-
-    user_id: Mapped[UUID] = mapped_column(UUIDMapper)
-    workspace_id: Mapped[UUID] = mapped_column(UUIDMapper)
-    data: Mapped[JSONSerializableDict] = mapped_column(JSON)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            PrimaryKeyConstraint(cls.workspace_id, cls.user_id, name=f"pk_{cls.__tablename__}"),
-            ForeignKeyConstraint(
-                [cls.workspace_id],
-                ["workspaces.id"],
-                name=f"fk_{cls.__tablename__}__workspace_id__workspaces__id",
-                ondelete="CASCADE",
-                onupdate="CASCADE",
-            ),
-            ForeignKeyConstraint(
-                [cls.user_id],
-                [UserRow.id],
-                name=f"fk_{cls.__tablename__}__user_id__users__id",
-                ondelete="CASCADE",
-                onupdate="CASCADE",
-            ),
-        )
 
 
 type WorkspaceEditField = Literal[
@@ -121,41 +72,12 @@ class WorkspaceEditFilter(
 ):
     """Filter for selecting `WorkspaceEdit` records by user or workspace."""
 
+    __table__: ClassVar[str] = "workspace_edits"
+
     user_id: MaybeSequence[UUID] | None = None
     """Filter by `user_id` being equal to one or more given user IDs."""
     workspace_id: MaybeSequence[UUID] | None = None
     """Filter by `workspace_id` being equal to one or more given workspace IDs."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[WorkspaceEditRow]:
-        return WorkspaceEditRow
-
-    @override
-    def _matches(self, obj: WorkspaceEdit) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.user_id, self.user_id):
-            return False
-        if not self._match_value(obj.workspace_id, self.workspace_id):
-            return False
-
-        return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.user_id is not None:
-            yield self._sql_match_value(columns.user_id, self.user_id)
-        if self.workspace_id is not None:
-            yield self._sql_match_value(columns.workspace_id, self.workspace_id)
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[WorkspaceEditOrder]:
-        return "user_id", "workspace_id"
 
 
 class WorkspaceEditCreate(BaseEntityCreate, slots=True):
@@ -214,7 +136,6 @@ class WorkspaceEditQuery(
 class WorkspaceEditManager(
     BaseEntityManager[
         "WorkspaceEdit",
-        WorkspaceEditRow,
         WorkspaceEditCreate,
         WorkspaceEditUpdate,
         WorkspaceEditFilter,
@@ -244,7 +165,7 @@ class WorkspaceEditManager(
 
 class WorkspaceEdit(
     WorkspaceEditCreate,
-    ConcreteEntity[WorkspaceEditRow],
+    ConcreteEntity,
     slots=True,
 ):
     """In-progress edit of a `Workspace` owned by a single user."""
@@ -258,48 +179,6 @@ class WorkspaceEdit(
     Order = WorkspaceEditOrder
 
     __entity_naming__: ClassVar[EntityNaming] = EntityNaming("workspace edit")
-
-
-class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `Workspace` entity."""
-
-    __tablename__: ClassVar[str] = "workspaces"
-
-    name: Mapped[str] = mapped_column(TextMapper())
-    scope: Mapped[Address] = mapped_column(
-        AddressColumn(),
-        default=Address("~"),
-        server_default="~",
-    )
-    """Address this workspace is placed on. `~` is the engine root, anything else a component."""
-    owner_id: Mapped[UUID | None] = mapped_column(UUIDMapper, nullable=True, default=None)
-    """Owning user when this workspace is private, `None` when it is shared."""
-    show_when_logged_out: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        server_default=false(),
-    )
-    """Whether this workspace is part of the set an unauthenticated visitor sees."""
-    data: Mapped[JSONSerializableDict] = mapped_column(
-        JSON,
-        default_factory=dict,
-        server_default="{}",
-    )
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            PrimaryKeyConstraint(cls.id, name=f"pk_{cls.__tablename__}"),
-            ForeignKeyConstraint(
-                [cls.owner_id],
-                [UserRow.id],
-                name=f"fk_{cls.__tablename__}__owner_id__users__id",
-                ondelete="CASCADE",
-                onupdate="CASCADE",
-            ),
-        )
 
 
 type WorkspaceField = (
@@ -354,6 +233,8 @@ class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrde
 class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, WorkspaceOrder]):
     """Filter for selecting `Workspace` records by name, access settings, or user access."""
 
+    __table__: ClassVar[str] = "workspaces"
+
     name: MaybeSequence[str] | None = None
     """Filter by `name` being equal to one or more given usernames."""
     name_contains: MaybeSequence[str] | None = None
@@ -372,73 +253,6 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
     """Filter by whether the workspace is private to an owner at all."""
     show_when_logged_out: bool | None = None
     """Filter by whether the workspace is shown to unauthenticated visitors."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[WorkspaceRow]:
-        return WorkspaceRow
-
-    @override
-    def _matches(self, obj: Workspace) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.name, self.name):
-            return False
-        if not self._match_string_contains(obj.name, self.name_contains):
-            return False
-        if not self._match_string_prefix(obj.name, self.name_prefix):
-            return False
-        if not self._match_string_suffix(obj.name, self.name_suffix):
-            return False
-
-        if not self._match_value(obj.scope, self.scope):
-            return False
-        if self.placed_on_engine is not None and obj.scope.is_engine != self.placed_on_engine:
-            return False
-
-        if not self._match_value(obj.owner_id, self.owner_id):
-            return False
-        if self.owned is not None and (obj.owner_id is not None) != self.owned:
-            return False
-        if (
-            self.show_when_logged_out is not None
-            and obj.show_when_logged_out != self.show_when_logged_out
-        ):
-            return False
-
-        return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.name is not None:
-            yield self._sql_match_value(columns.name, self.name)
-        if self.name_contains is not None:
-            yield self._sql_match_string_contains(columns.name, self.name_contains)
-        if self.name_prefix is not None:
-            yield self._sql_match_string_prefix(columns.name, self.name_prefix)
-        if self.name_suffix is not None:
-            yield self._sql_match_string_suffix(columns.name, self.name_suffix)
-
-        if self.scope is not None:
-            yield self._sql_match_value(columns.scope, self.scope)
-        if self.placed_on_engine is not None:
-            on_engine = columns.scope == Address("~")
-            yield on_engine if self.placed_on_engine else ~on_engine
-
-        if self.owner_id is not None:
-            yield self._sql_match_value(columns.owner_id, self.owner_id)
-        if self.owned is not None:
-            yield columns.owner_id.is_not(None) if self.owned else columns.owner_id.is_(None)
-        if self.show_when_logged_out is not None:
-            yield columns.show_when_logged_out == self.show_when_logged_out
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[WorkspaceOrder]:
-        return "name"
 
 
 class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
@@ -505,7 +319,6 @@ class WorkspaceQuery(
 class WorkspaceManager(
     BaseEntityManager[
         "Workspace",
-        WorkspaceRow,
         WorkspaceCreate,
         WorkspaceUpdate,
         WorkspaceFilter,
@@ -535,7 +348,7 @@ class WorkspaceManager(
 class Workspace(
     BaseUUIDEntity,
     WorkspaceCreate,
-    ConcreteEntity[WorkspaceRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Named arrangement of widgets, placed on a component or on the engine root.

@@ -7,8 +7,6 @@ from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
-from sqlalchemy import delete, insert
-
 from ceres import (
     Address,
     Alert,
@@ -115,7 +113,9 @@ async def execute_filter_test(
 
     # Grouped once, in the order the fixtures name their types, so a row that references another is
     # inserted after the row it points at and deleted before it.
-    fixtures = [(entity_cls.Row, rows) for entity_cls, rows in group_by(entity_inserts, type)]
+    fixtures = [
+        (entity_cls.Manager(database), rows) for entity_cls, rows in group_by(entity_inserts, type)
+    ]
 
     async def reset() -> None:
         """Put the fixture rows back, replacing whatever the last assertion left behind.
@@ -123,17 +123,15 @@ async def execute_filter_test(
         Every assertion below deletes or updates rows and then calls this, so it runs hundreds of
         times per test and its cost is most of what the filter tests cost. It clears only the
         tables the fixtures populate, because no other table is ever written here and clearing the
-        rest is a round trip that deletes nothing, and it does the whole restore in one transaction
-        so a case pays for one commit rather than one per type.
+        rest is a round trip that deletes nothing.
         """
-        async with database.engine.begin() as connection:
-            for row_cls, _ in reversed(fixtures):
-                await connection.execute(delete(row_cls.__table__))
+        for manager, _ in reversed(fixtures):
+            await manager.where().delete()
 
-            for row_cls, rows in fixtures:
-                shuffle(rows)
-                values = [entity.__entity_to_column_values__() for entity in rows]
-                await connection.execute(insert(row_cls.__table__).values(values))
+        for manager, rows in fixtures:
+            shuffle(rows)
+            for entity in rows:
+                await manager._insert(entity)
 
     await reset()
 

@@ -1,11 +1,19 @@
 # Project
 .venv
 dist/
+# The native CLI binary staged for the wheel's data scripts, populated by `make build`.
+# Maturin picks the directory up by its name, `<module-name>.data` beside pyproject.toml,
+# and skips it silently when absent, which keeps sdist builds working without it.
+ceres.__internal__.core.data/
 site/
 poetry.toml
 *.lock
 
 # Python
+# The native core compiles into the package it ships in, so an editable install leaves the
+# built module beside the sources. The committed artifact is the stub next to it.
+ceres/__internal__/core*.so
+ceres/__internal__/core*.pyd
 __pycache__/
 .mypy_cache/
 .pytest_cache/
@@ -13,6 +21,10 @@ __pycache__/
 .coverage
 coverage.json
 htmlcov/
+
+# Rust
+rust/target/
+!Cargo.lock
 
 # Node
 node_modules

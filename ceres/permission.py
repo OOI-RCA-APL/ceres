@@ -1,33 +1,21 @@
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint
-from sqlalchemy.orm import Mapped, mapped_column
-
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
     BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
-    BaseEntityRow,
     ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
 from ceres.config import ComponentAccessLevel
 from ceres.data import MaybeSequence, StrEnum
-from ceres.group import GroupRow
-from ceres.user import UserRow
 
 if TYPE_CHECKING:
-    from sqlalchemy import SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource
-    from ceres.database import DatabaseType
 
 __all__ = [
     "GroupPermission",
@@ -45,43 +33,6 @@ class PermissionTargetType(StrEnum):
     """Grant applies to all components carrying a given tag."""
     ALL = "all"
     """Grant applies to every component. The target string is empty."""
-
-
-class UserPermissionRow(BaseEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `UserPermission` entity."""
-
-    __tablename__: ClassVar[str] = "user_permissions"
-
-    user_id: Mapped[UUID] = mapped_column(UUIDMapper)
-    target_type: Mapped[PermissionTargetType] = mapped_column(EnumMapper(PermissionTargetType))
-    target: Mapped[str] = mapped_column(TextMapper())
-    level: Mapped[ComponentAccessLevel] = mapped_column(EnumMapper(ComponentAccessLevel))
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            PrimaryKeyConstraint(
-                cls.user_id, cls.target_type, cls.target, name=f"pk_{cls.__tablename__}"
-            ),
-            ForeignKeyConstraint(
-                [cls.user_id],
-                [UserRow.id],
-                name=f"fk_{cls.__tablename__}__user_id__users__id",
-                ondelete="CASCADE",
-                onupdate="CASCADE",
-            ),
-            EnumConstraint(
-                cls.target_type,
-                PermissionTargetType,
-                name=f"ck_{cls.__tablename__}__target_type",
-            ),
-            CheckConstraint(
-                cls.level.in_(["view", "operate", "manage"]),
-                name=f"ck_{cls.__tablename__}__level",
-            ),
-        )
 
 
 type UserPermissionField = Literal[
@@ -133,6 +84,8 @@ class UserPermissionFilter(
 ):
     """Filter for selecting `UserPermission` records."""
 
+    __table__: ClassVar[str] = "user_permissions"
+
     user_id: MaybeSequence[UUID] | None = None
     """Filter by `user_id` being equal to one or more given user IDs."""
     target_type: MaybeSequence[PermissionTargetType] | None = None
@@ -141,45 +94,6 @@ class UserPermissionFilter(
     """Filter by `target` being equal to one or more given target strings."""
     level: MaybeSequence[ComponentAccessLevel] | None = None
     """Filter by `level` being equal to one or more given access levels."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[UserPermissionRow]:
-        return UserPermissionRow
-
-    @override
-    def _matches(self, obj: UserPermission) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.user_id, self.user_id):
-            return False
-        if not self._match_value(obj.target_type, self.target_type):
-            return False
-        if not self._match_value(obj.target, self.target):
-            return False
-        if not self._match_value(obj.level, self.level):
-            return False
-
-        return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.user_id is not None:
-            yield self._sql_match_value(columns.user_id, self.user_id)
-        if self.target_type is not None:
-            yield self._sql_match_value(columns.target_type, self.target_type)
-        if self.target is not None:
-            yield self._sql_match_value(columns.target, self.target)
-        if self.level is not None:
-            yield self._sql_match_value(columns.level, self.level)
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[UserPermissionOrder]:
-        return "user_id", "target_type", "target"
 
 
 class UserPermissionCreate(BaseEntityCreate, slots=True):
@@ -240,7 +154,6 @@ class UserPermissionQuery(
 class UserPermissionManager(
     BaseEntityManager[
         "UserPermission",
-        UserPermissionRow,
         UserPermissionCreate,
         UserPermissionUpdate,
         UserPermissionFilter,
@@ -277,7 +190,7 @@ class UserPermissionManager(
 
 class UserPermission(
     UserPermissionCreate,
-    ConcreteEntity[UserPermissionRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Permission grant linking a `User` to a component access level on a target."""
@@ -291,43 +204,6 @@ class UserPermission(
     Order = UserPermissionOrder
 
     __entity_naming__: ClassVar[EntityNaming] = EntityNaming("user permission")
-
-
-class GroupPermissionRow(BaseEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `GroupPermission` entity."""
-
-    __tablename__: ClassVar[str] = "group_permissions"
-
-    group_id: Mapped[UUID] = mapped_column(UUIDMapper)
-    target_type: Mapped[PermissionTargetType] = mapped_column(EnumMapper(PermissionTargetType))
-    target: Mapped[str] = mapped_column(TextMapper())
-    level: Mapped[ComponentAccessLevel] = mapped_column(EnumMapper(ComponentAccessLevel))
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            PrimaryKeyConstraint(
-                cls.group_id, cls.target_type, cls.target, name=f"pk_{cls.__tablename__}"
-            ),
-            ForeignKeyConstraint(
-                [cls.group_id],
-                [GroupRow.id],
-                name=f"fk_{cls.__tablename__}__group_id__groups__id",
-                ondelete="CASCADE",
-                onupdate="CASCADE",
-            ),
-            EnumConstraint(
-                cls.target_type,
-                PermissionTargetType,
-                name=f"ck_{cls.__tablename__}__target_type",
-            ),
-            CheckConstraint(
-                cls.level.in_(["view", "operate", "manage"]),
-                name=f"ck_{cls.__tablename__}__level",
-            ),
-        )
 
 
 type GroupPermissionField = Literal[
@@ -379,6 +255,8 @@ class GroupPermissionFilter(
 ):
     """Filter for selecting `GroupPermission` records."""
 
+    __table__: ClassVar[str] = "group_permissions"
+
     group_id: MaybeSequence[UUID] | None = None
     """Filter by `group_id` being equal to one or more given group IDs."""
     target_type: MaybeSequence[PermissionTargetType] | None = None
@@ -387,45 +265,6 @@ class GroupPermissionFilter(
     """Filter by `target` being equal to one or more given target strings."""
     level: MaybeSequence[ComponentAccessLevel] | None = None
     """Filter by `level` being equal to one or more given access levels."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[GroupPermissionRow]:
-        return GroupPermissionRow
-
-    @override
-    def _matches(self, obj: GroupPermission) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.group_id, self.group_id):
-            return False
-        if not self._match_value(obj.target_type, self.target_type):
-            return False
-        if not self._match_value(obj.target, self.target):
-            return False
-        if not self._match_value(obj.level, self.level):
-            return False
-
-        return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.group_id is not None:
-            yield self._sql_match_value(columns.group_id, self.group_id)
-        if self.target_type is not None:
-            yield self._sql_match_value(columns.target_type, self.target_type)
-        if self.target is not None:
-            yield self._sql_match_value(columns.target, self.target)
-        if self.level is not None:
-            yield self._sql_match_value(columns.level, self.level)
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[GroupPermissionOrder]:
-        return "group_id", "target_type", "target"
 
 
 class GroupPermissionCreate(BaseEntityCreate, slots=True):
@@ -486,7 +325,6 @@ class GroupPermissionQuery(
 class GroupPermissionManager(
     BaseEntityManager[
         "GroupPermission",
-        GroupPermissionRow,
         GroupPermissionCreate,
         GroupPermissionUpdate,
         GroupPermissionFilter,
@@ -523,7 +361,7 @@ class GroupPermissionManager(
 
 class GroupPermission(
     GroupPermissionCreate,
-    ConcreteEntity[GroupPermissionRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Permission grant linking a `Group` to a component access level on a target."""

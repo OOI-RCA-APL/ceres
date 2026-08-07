@@ -1,60 +1,31 @@
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
 from uuid import UUID
 
-from sqlalchemy import ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
-
-from ceres.__internal__.database.types import TextMapper, UUIDMapper
 from ceres.__internal__.entity import (
     BaseEntityCreate,
     BaseEntityFilter,
     BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
-    BaseEntityRow,
     BaseUUIDEntity,
     BaseUUIDEntityCreate,
     BaseUUIDEntityField,
     BaseUUIDEntityFilter,
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
-    BaseUUIDEntityRow,
     ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
 from ceres.data import MaybeSequence, Name
-from ceres.user import UserRow
 
 if TYPE_CHECKING:
-    from sqlalchemy import SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource
-    from ceres.database import DatabaseType
 
 __all__ = [
     "Group",
     "GroupMembership",
 ]
-
-
-class GroupRow(BaseUUIDEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `Group` entity."""
-
-    __tablename__: ClassVar[str] = "groups"
-
-    name: Mapped[str] = mapped_column(TextMapper())
-    description: Mapped[str] = mapped_column(TextMapper(), default="", server_default="")
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            UniqueConstraint(cls.name, name=f"uq_{cls.__tablename__}__name"),
-        )
 
 
 type GroupField = (
@@ -92,6 +63,8 @@ class GroupFilterArgs(BaseUUIDEntityFilterArgs[GroupField, GroupOrder], total=Fa
 class GroupFilter(BaseUUIDEntityFilter["Group", GroupField, GroupOrder]):
     """Filter for selecting `Group` records by name."""
 
+    __table__: ClassVar[str] = "groups"
+
     name: MaybeSequence[str] | None = None
     """Filter by `name` being equal to one or more given names."""
     name_contains: MaybeSequence[str] | None = None
@@ -100,45 +73,6 @@ class GroupFilter(BaseUUIDEntityFilter["Group", GroupField, GroupOrder]):
     """Filter by `name` starting with one or more given prefixes."""
     name_suffix: MaybeSequence[str] | None = None
     """Filter by `name` ending with one or more given suffixes."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[GroupRow]:
-        return GroupRow
-
-    @override
-    def _matches(self, obj: Group) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.name, self.name):
-            return False
-        if not self._match_string_contains(obj.name, self.name_contains):
-            return False
-        if not self._match_string_prefix(obj.name, self.name_prefix):
-            return False
-        if not self._match_string_suffix(obj.name, self.name_suffix):
-            return False
-
-        return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.name is not None:
-            yield self._sql_match_value(columns.name, self.name)
-        if self.name_contains is not None:
-            yield self._sql_match_string_contains(columns.name, self.name_contains)
-        if self.name_prefix is not None:
-            yield self._sql_match_string_prefix(columns.name, self.name_prefix)
-        if self.name_suffix is not None:
-            yield self._sql_match_string_suffix(columns.name, self.name_suffix)
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[GroupOrder]:
-        return "name"
 
 
 class GroupCreate(BaseUUIDEntityCreate, slots=True):
@@ -196,7 +130,6 @@ class GroupQuery(
 class GroupManager(
     BaseEntityManager[
         "Group",
-        GroupRow,
         GroupCreate,
         GroupUpdate,
         GroupFilter,
@@ -226,7 +159,7 @@ class GroupManager(
 class Group(
     BaseUUIDEntity,
     GroupCreate,
-    ConcreteEntity[GroupRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Named collection of users used to grant shared component permissions.
@@ -245,37 +178,6 @@ class Group(
     Order = GroupOrder
 
     __entity_naming__: ClassVar[EntityNaming] = EntityNaming("group")
-
-
-class GroupMembershipRow(BaseEntityRow, kw_only=True):
-    """SQLAlchemy row type backing the `GroupMembership` entity."""
-
-    __tablename__: ClassVar[str] = "group_memberships"
-
-    user_id: Mapped[UUID] = mapped_column(UUIDMapper)
-    group_id: Mapped[UUID] = mapped_column(UUIDMapper)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            PrimaryKeyConstraint(cls.user_id, cls.group_id, name=f"pk_{cls.__tablename__}"),
-            ForeignKeyConstraint(
-                [cls.user_id],
-                [UserRow.id],
-                name=f"fk_{cls.__tablename__}__user_id__users__id",
-                ondelete="CASCADE",
-                onupdate="CASCADE",
-            ),
-            ForeignKeyConstraint(
-                [cls.group_id],
-                [GroupRow.id],
-                name=f"fk_{cls.__tablename__}__group_id__groups__id",
-                ondelete="CASCADE",
-                onupdate="CASCADE",
-            ),
-        )
 
 
 type GroupMembershipField = Literal[
@@ -317,41 +219,12 @@ class GroupMembershipFilter(
 ):
     """Filter for selecting `GroupMembership` records by user or group."""
 
+    __table__: ClassVar[str] = "group_memberships"
+
     user_id: MaybeSequence[UUID] | None = None
     """Filter by `user_id` being equal to one or more given user IDs."""
     group_id: MaybeSequence[UUID] | None = None
     """Filter by `group_id` being equal to one or more given group IDs."""
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[GroupMembershipRow]:
-        return GroupMembershipRow
-
-    @override
-    def _matches(self, obj: GroupMembership) -> bool:
-        if not super()._matches(obj):
-            return False
-
-        if not self._match_value(obj.user_id, self.user_id):
-            return False
-        if not self._match_value(obj.group_id, self.group_id):
-            return False
-
-        return True
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
-        columns = self._get_row_cls()
-
-        if self.user_id is not None:
-            yield self._sql_match_value(columns.user_id, self.user_id)
-        if self.group_id is not None:
-            yield self._sql_match_value(columns.group_id, self.group_id)
-
-    @override
-    def _get_default_order(self) -> MaybeSequence[GroupMembershipOrder]:
-        return "user_id", "group_id"
 
 
 class GroupMembershipCreate(BaseEntityCreate, slots=True):
@@ -409,7 +282,6 @@ class GroupMembershipQuery(
 class GroupMembershipManager(
     BaseEntityManager[
         "GroupMembership",
-        GroupMembershipRow,
         GroupMembershipCreate,
         GroupMembershipUpdate,
         GroupMembershipFilter,
@@ -439,7 +311,7 @@ class GroupMembershipManager(
 
 class GroupMembership(
     GroupMembershipCreate,
-    ConcreteEntity[GroupMembershipRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Association record linking a `User` to a `Group`."""

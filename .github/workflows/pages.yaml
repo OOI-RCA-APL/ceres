@@ -1,0 +1,49 @@
+name: pages
+# The Pages site carries the documentation at its root and the PEP 503 package index
+# under /simple/, which links the wheels attached to GitHub releases. It rebuilds when
+# the release workflow finishes, so the index always sees the freshly attached assets,
+# on every push to main, so the documentation tracks the code rather than the last
+# release, and on demand. The docs build reads the source statically, so nothing here
+# compiles Rust or installs the package.
+on:
+  push:
+    branches:
+      - main
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # A failed release should not republish the site out from under the last good one.
+    # Only a `workflow_run` carries a conclusion, so the other two triggers always run.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build the Documentation
+        run: |
+          uv sync --only-group docs
+          uv run --no-sync mkdocs build --site-dir site
+      - name: Generate the Package Index
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/generate-package-index.py site/simple
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -325,6 +325,22 @@ def to_items(
     Yields:
         Two-tuples of `(field_name, value)` for each matching field.
     """
+    # Natively-backed objects name their fields through `__to_dict__`, and their values come
+    # from the attributes so enum and path types keep their Python forms.
+    native = getattr(obj, "__to_dict__", None)
+    if native is not None:
+        provided = getattr(obj, "provided", None)
+        names = provided().keys() if exclude_unset and provided is not None else native().keys()
+        for field in names:
+            if include is not None and field not in include:
+                continue
+            if exclude is not None and field in exclude:
+                continue
+
+            yield field, getattr(obj, field)
+
+        return
+
     if not exclude_unset or not _supports_fields_set(obj):
         fields_set = None
     else:

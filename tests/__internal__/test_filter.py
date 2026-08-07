@@ -85,10 +85,9 @@ async def test_filter_defaults():
     child = Component("child", __with_container__=root)
 
     assert database.__get_filter_defaults__() == {}
-    assert engine.__get_filter_defaults__() == {
-        "root": Address.ENGINE,
-        "address": Address.ENGINE.all(),
-    }
+    # The engine's address selects everything, so only the root defaults, which keeps
+    # `or` subfilters from short-circuiting against a match-all condition.
+    assert engine.__get_filter_defaults__() == {"root": Address.ENGINE}
     assert root.__get_filter_defaults__() == {
         "root": Address("@root"),
         "address": Address("@root").all(),

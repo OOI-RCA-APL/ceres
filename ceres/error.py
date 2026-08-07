@@ -1,6 +1,7 @@
 import builtins
 import dataclasses
 from collections.abc import Callable
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias, dataclass_transform
 
 import pydantic
@@ -13,24 +14,11 @@ from pydantic import (
     computed_field,
     model_serializer,
 )
-from starlette.status import (
-    HTTP_400_BAD_REQUEST,
-    HTTP_401_UNAUTHORIZED,
-    HTTP_403_FORBIDDEN,
-    HTTP_404_NOT_FOUND,
-    HTTP_409_CONFLICT,
-    HTTP_422_UNPROCESSABLE_CONTENT,
-    HTTP_500_INTERNAL_SERVER_ERROR,
-    HTTP_503_SERVICE_UNAVAILABLE,
-)
 
 from ceres.__internal__.utilities.undefined import Undefined
 from ceres.address import Address, DynamicAddress
 from ceres.data import DataObject, simplify
 from ceres.data.object import construct
-
-if TYPE_CHECKING:
-    from fastapi.exceptions import RequestValidationError
 
 __all__ = [
     "Error",
@@ -54,7 +42,7 @@ class Error(Exception):
     error is returned from an API endpoint.
     """
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
     """HTTP status code returned when this error is raised from an API endpoint."""
 
     @computed_field
@@ -153,7 +141,7 @@ class ValidationProblem(DataObject, slots=True):
     @classmethod
     def extract(
         cls,
-        error: ValidationError | RequestValidationError,
+        error: ValidationError,
         source: object = Undefined,
     ) -> list[ValidationProblem]:
         """Convert a Pydantic validation error into a list of `ValidationProblem`.
@@ -224,7 +212,7 @@ class ValidationProblem(DataObject, slots=True):
 class _ComponentError(Error, slots=True):
     """Internal base for component-related errors."""
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 class ComponentValidationError(_ComponentError, slots=True):
@@ -309,7 +297,7 @@ ComponentError: TypeAlias = (
 class _ProcedureError(Error, slots=True):
     """Internal base for procedure-related errors."""
 
-    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
+    __error_status_code__: ClassVar[int] = HTTPStatus.BAD_REQUEST
 
 
 class ProcedureComponentNotFoundError(_ProcedureError, slots=True):
@@ -353,7 +341,7 @@ class ProcedureCancelledError(_ProcedureError, slots=True):
 class ProcedureInternalError(_ProcedureError, slots=True):
     """Raised when a procedure fails with an unhandled exception."""
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
 
     type: Literal["procedure-internal-error"] = "procedure-internal-error"
     exception: ExceptionInfo
@@ -379,21 +367,21 @@ class _APIError(Error, slots=True):
 class NotFoundError(_APIError, slots=True):
     """Raised when a requested resource does not exist."""
 
-    __error_status_code__: ClassVar[int] = HTTP_404_NOT_FOUND
+    __error_status_code__: ClassVar[int] = HTTPStatus.NOT_FOUND
     type: Literal["not-found-error"] = "not-found-error"
 
 
 class NotRunningError(_APIError, slots=True):
     """Raised when an operation requires a running component or engine that is not running."""
 
-    __error_status_code__: ClassVar[int] = HTTP_404_NOT_FOUND
+    __error_status_code__: ClassVar[int] = HTTPStatus.NOT_FOUND
     type: Literal["not-running-error"] = "not-running-error"
 
 
 class NotConnectedError(_APIError, slots=True):
     """Raised when an operation requires an established connection that is not present."""
 
-    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
+    __error_status_code__: ClassVar[int] = HTTPStatus.BAD_REQUEST
     type: Literal["not-connected-error"] = "not-connected-error"
     message: str | None = None
     """Optional human-readable detail about the missing connection."""
@@ -402,7 +390,7 @@ class NotConnectedError(_APIError, slots=True):
 class NotReachableError(_APIError, slots=True):
     """Raised when a remote target cannot be reached."""
 
-    __error_status_code__: ClassVar[int] = HTTP_503_SERVICE_UNAVAILABLE
+    __error_status_code__: ClassVar[int] = HTTPStatus.SERVICE_UNAVAILABLE
     type: Literal["not-reachable-error"] = "not-reachable-error"
     message: str | None = None
     """Optional human-readable detail about why the target is unreachable."""
@@ -411,7 +399,7 @@ class NotReachableError(_APIError, slots=True):
 class AlreadyExistsError(_APIError, slots=True):
     """Raised when creation fails because a record with the same key already exists."""
 
-    __error_status_code__: ClassVar[int] = HTTP_409_CONFLICT
+    __error_status_code__: ClassVar[int] = HTTPStatus.CONFLICT
     type: Literal["already-exists-error"] = "already-exists-error"
     field: str
     """Name of the field that conflicted."""
@@ -422,42 +410,42 @@ class AlreadyExistsError(_APIError, slots=True):
 class IntegrityError(_APIError, slots=True):
     """Raised when a database integrity constraint is violated."""
 
-    __error_status_code__: ClassVar[int] = HTTP_409_CONFLICT
+    __error_status_code__: ClassVar[int] = HTTPStatus.CONFLICT
     type: Literal["integrity-error"] = "integrity-error"
 
 
 class NotAuthenticatedError(_APIError, slots=True):
     """Raised when an operation requires authentication and none was provided."""
 
-    __error_status_code__: ClassVar[int] = HTTP_401_UNAUTHORIZED
+    __error_status_code__: ClassVar[int] = HTTPStatus.UNAUTHORIZED
     type: Literal["not-authenticated-error"] = "not-authenticated-error"
 
 
 class NotPermittedError(_APIError, slots=True):
     """Raised when the authenticated user is not allowed to perform the requested action."""
 
-    __error_status_code__: ClassVar[int] = HTTP_403_FORBIDDEN
+    __error_status_code__: ClassVar[int] = HTTPStatus.FORBIDDEN
     type: Literal["not-permitted-error"] = "not-permitted-error"
 
 
 class BadCredentialsError(_APIError, slots=True):
     """Raised when supplied credentials are rejected during authentication."""
 
-    __error_status_code__: ClassVar[int] = HTTP_401_UNAUTHORIZED
+    __error_status_code__: ClassVar[int] = HTTPStatus.UNAUTHORIZED
     type: Literal["bad-credentials-error"] = "bad-credentials-error"
 
 
 class AuthenticationDisabledError(_APIError, slots=True):
     """Raised when an authentication-only feature is invoked while authentication is disabled."""
 
-    __error_status_code__: ClassVar[int] = HTTP_403_FORBIDDEN
+    __error_status_code__: ClassVar[int] = HTTPStatus.FORBIDDEN
     type: Literal["authentication-disabled-error"] = "authentication-disabled-error"
 
 
 class ValidationFailedError(_APIError, slots=True):
     """Raised when a request payload fails validation."""
 
-    __error_status_code__: ClassVar[int] = HTTP_422_UNPROCESSABLE_CONTENT
+    __error_status_code__: ClassVar[int] = HTTPStatus.UNPROCESSABLE_CONTENT
     type: Literal["validation-failed-error"] = "validation-failed-error"
     problems: list[ValidationProblem]
     """The validation problems that were detected."""
@@ -466,7 +454,7 @@ class ValidationFailedError(_APIError, slots=True):
 class HTTPError(_APIError, slots=True):
     """Generic wrapper for an upstream HTTP error response."""
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
     type: Literal["http-error"] = "http-error"
     status: int
     """HTTP status code returned by the upstream service."""
@@ -492,7 +480,7 @@ APIError: TypeAlias = (
 class DatabaseUnreachableError(Error, slots=True):
     """Raised when the database cannot be reached."""
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
     type: Literal["database-unreachable-error"] = "database-unreachable-error"
     reason: str
     """Reason why the database is unreachable."""
@@ -501,7 +489,7 @@ class DatabaseUnreachableError(Error, slots=True):
 class DatabaseProgrammingError(Error, slots=True):
     """Raised when an invalid query is sent to the database, indicates a programming bug."""
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
     type: Literal["database-programming-error"] = "database-programming-error"
     exception: ExceptionInfo
     """Captured exception information from the underlying database driver."""
@@ -510,7 +498,7 @@ class DatabaseProgrammingError(Error, slots=True):
 class DatabaseUnexpectedError(Error, slots=True):
     """Raised when the database fails for an unexpected reason."""
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
     type: Literal["database-unexpected-error"] = "database-unexpected-error"
     reason: str
     """Description of the unexpected failure."""
@@ -519,7 +507,7 @@ class DatabaseUnexpectedError(Error, slots=True):
 class DatabaseLoadError(Error, slots=True):
     """Raised when database configuration cannot be loaded."""
 
-    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
+    __error_status_code__: ClassVar[int] = HTTPStatus.BAD_REQUEST
     type: Literal["database-load-error"] = "database-load-error"
     message: str
     """Description of the load failure."""
@@ -528,7 +516,7 @@ class DatabaseLoadError(Error, slots=True):
 class DatabaseMigrationError(Error, slots=True):
     """Raised when applying a database migration fails."""
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
     type: Literal["database-migration-error"] = "database-migration-error"
     message: str
     """Description of the migration failure."""
@@ -537,7 +525,7 @@ class DatabaseMigrationError(Error, slots=True):
 class DatabaseVersionError(Error, slots=True):
     """Raised when the database schema does not match the running version of ceres."""
 
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTPStatus.INTERNAL_SERVER_ERROR
     type: Literal["database-version-error"] = "database-version-error"
     message: str
     """Description of the version mismatch and how to resolve it."""
@@ -560,7 +548,7 @@ DatabaseError: TypeAlias = (
 class _ConfigError(Error, slots=True):
     """Internal base for configuration loading errors."""
 
-    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
+    __error_status_code__: ClassVar[int] = HTTPStatus.BAD_REQUEST
 
 
 class ConfigInvalidSourceError(_ConfigError, slots=True):
@@ -630,7 +618,7 @@ ConfigError: TypeAlias = (
 class _ReloadError(Error, slots=True):
     """Internal base for configuration reload errors."""
 
-    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
+    __error_status_code__: ClassVar[int] = HTTPStatus.BAD_REQUEST
 
 
 class ReloadConfigPathUnsetError(_ReloadError, slots=True):

@@ -1,26 +1,39 @@
-import ssl
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
-from re import Pattern
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
 from pydantic import (
     ByteSize,
     ConfigDict,
+    Discriminator,
     Field,
     ImportString,
-    IPvAnyAddress,
     NonNegativeInt,
-    PositiveInt,
     SecretStr,
+    Tag,
     ValidationError,
     ValidationInfo,
     field_validator,
     model_validator,
 )
 
+from ceres.__internal__.core import Argon2HashingConfig as _CoreArgon2HashingConfig
+from ceres.__internal__.core import BCryptHashingConfig as _CoreBCryptHashingConfig
+from ceres.__internal__.core import ConsoleConfig as _CoreConsoleConfig
+from ceres.__internal__.core import DatabaseConfigHooks as _CoreDatabaseConfigHooks
+from ceres.__internal__.core import LoggingConfig as _CoreLoggingConfig
+from ceres.__internal__.core import PostgresDatabaseConfig as _CorePostgresDatabaseConfig
+from ceres.__internal__.core import ServerAuthenticationConfig as _CoreServerAuthenticationConfig
+from ceres.__internal__.core import ServerCompressionConfig as _CoreServerCompressionConfig
+from ceres.__internal__.core import ServerConfig as _CoreServerConfig
+from ceres.__internal__.core import ServerCORSConfig as _CoreServerCORSConfig
+from ceres.__internal__.core import ServerSSLConfig as _CoreServerSSLConfig
+from ceres.__internal__.core import ServiceConfig as _CoreServiceConfig
+from ceres.__internal__.core import SQLiteDatabaseConfig as _CoreSQLiteDatabaseConfig
+from ceres.__internal__.core import TursoDatabaseConfig as _CoreTursoDatabaseConfig
+from ceres.__internal__.interop import RustConfigModel
 from ceres.__internal__.utilities.collections import group_by, seq, uniq
 from ceres.__internal__.utilities.typing import as_component_system, as_engine
 from ceres.address import Address, AddressSelector, DynamicAddress
@@ -28,10 +41,7 @@ from ceres.alert import AlertFilter
 from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_SIZE
 from ceres.data import (
     DataObject,
-    MaybeSequence,
     Name,
-    NonBlankStr,
-    NonEmptyStr,
     OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
@@ -72,7 +82,7 @@ if TYPE_CHECKING:
     from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
     from ceres.reference import Reference
-    from ceres.sieve import FunctionSieve, Sieve
+    from ceres.sieves import FunctionSieve, Sieve
 else:
     Sieve = Any
     Component = Any
@@ -84,32 +94,63 @@ __all__ = [
 ]
 
 
-class LoggingConfig(DataObject):
+def _level_or_bool(value: bool | str) -> bool | Level:
+    """Convert a native toggle value into its Python form."""
+    if isinstance(value, bool):
+        return value
+
+    return Level(value)
+
+
+class LoggingConfig(RustConfigModel, _CoreLoggingConfig):
     """Per-component or per-engine logging configuration.
 
-    Each field controls a different sink, `output` and `store` set minimum levels for
-    the streamed and persisted log streams, the boolean-or-level fields enable optional
-    logging of specific record types and accept either a level (enable at that level) or
-    a boolean (enable at the default level when `True`, disable when `False`).
+    The fields and their validation live in the native `ceres.__internal__.core.LoggingConfig`, this
+    subclass wires the class into Pydantic and converts level values into `Level`. Each field
+    controls a different sink, `output` and `store` set minimum levels for the streamed and
+    persisted log streams, the boolean-or-level fields enable optional logging of specific
+    record types and accept either a level (enable at that level) or a boolean (enable at the
+    default level when `True`, disable when `False`).
     """
 
-    output: Level = Level.INFO
-    """Minimum severity that reaches the engine's streamed log output."""
+    if TYPE_CHECKING:
 
-    store: Level = Level.DEBUG
-    """Minimum severity persisted to the engine's log store."""
+        @property
+        @override
+        def output(self) -> Level: ...
 
-    events: bool | Level = True
-    """Whether to log events, or the minimum severity to log them at."""
+        @property
+        @override
+        def store(self) -> Level: ...
 
-    messages: bool | Level = False
-    """Whether to log raw connection messages, or the minimum severity to log them at."""
+        @property
+        @override
+        def events(self) -> bool | Level: ...
 
-    particles: bool | Level = False
-    """Whether to log parsed particles, or the minimum severity to log them at."""
+        @property
+        @override
+        def messages(self) -> bool | Level: ...
 
-    alerts: bool | Level = False
-    """Whether to log alerts, or the minimum severity to log them at."""
+        @property
+        @override
+        def particles(self) -> bool | Level: ...
+
+        @property
+        @override
+        def alerts(self) -> bool | Level: ...
+
+    __field_wrappers__ = {
+        "output": Level,
+        "store": Level,
+        "events": _level_or_bool,
+        "messages": _level_or_bool,
+        "particles": _level_or_bool,
+        "alerts": _level_or_bool,
+    }
+
+    def merged(self, other: _CoreLoggingConfig) -> Self:
+        """Overlay another configuration's explicitly-set fields onto this one."""
+        return type(self)(**{**self.provided(), **other.provided()})
 
 
 class JobConfig(DataObject):
@@ -272,10 +313,10 @@ class ClassSieveConfig(_SieveConfig):
         cls,
         value: ImportString[type[Sieve]],
     ) -> ImportString[type[Sieve]]:
-        from ceres.sieve import Sieve
+        from ceres.sieves import Sieve
 
         if not issubclass(value, Sieve):
-            raise ValueError("class must be a subclass of `ceres.sieve.Sieve`")
+            raise ValueError("class must be a subclass of `ceres.sieves.Sieve`")
 
         return value
 
@@ -322,7 +363,7 @@ class MethodSieveConfig(_SieveConfig):
         Returns:
             A `FunctionSieve` backed by the resolved method and buffer settings.
         """
-        from ceres.sieve import FunctionSieve
+        from ceres.sieves import FunctionSieve
 
         method = getattr(component, self.method)
         applied_buffer_size = self.buffer_size
@@ -701,146 +742,75 @@ class ComponentConfig(DataObject):
         return config.cls
 
 
-class ServiceConfig(DataObject):
-    """Process-level options applied when running the engine as a system service."""
+class ServiceConfig(RustConfigModel, _CoreServiceConfig):
+    """Process-level options applied when running the engine as a system service.
 
-    name: Name | None = None
-    """Service name registered with the operating system."""
-
-    user: Name | None = None
-    """User the service runs as."""
-
-    stdout: Path | None = None
-    """Optional path to redirect standard output to."""
-
-    stderr: Path | None = None
-    """Optional path to redirect standard error to."""
-
-
-class ServerSSLConfig(DataObject):
-    """TLS configuration for the engine's HTTP server."""
-
-    key: Path | None = None
-    """Path to the server private key file."""
-
-    key_password: str | None = None
-    """Password for an encrypted private key.
-
-    Never served over the API, dropped from config responses by `EXCLUDE_CREDENTIALS`.
-    """
-
-    cert: Path | None = None
-    """Path to the server certificate file."""
-
-    version: int | None = ssl.PROTOCOL_TLS_SERVER
-    """`ssl` protocol constant selecting the TLS version."""
-
-    ca_certs: Path | None = None
-    """Path to a CA bundle used when validating client certificates."""
-
-
-class ServerAuthenticationConfig(DataObject):
-    """Authentication settings for the engine's HTTP server."""
-
-    secret: NonEmptyStr
-    """Secret used to sign and verify authentication tokens.
-
-    Never served over the API. The config routes drop it, along with every other credential in the
-    configuration, through `EXCLUDE_CREDENTIALS`.
-    """
-
-    duration: PositiveTimeDelta = timedelta(minutes=30)
-    """Lifetime of an issued authentication token."""
-
-    allow_impersonate: bool = False
-    """Whether an administrator may take on another user's identity without their password.
-
-    Turn this on to check what a given user can see, which is otherwise hard to answer with
-    confidence. It also means anyone who reaches an administrator's session reaches every account
-    without a password, so it belongs in development and should stay off in production. It is off
-    unless asked for, and the engine logs a warning on every load while it is on.
+    The fields and their validation live in the native `ceres.__internal__.core.ServiceConfig`, this
+    subclass only wires the class into Pydantic.
     """
 
 
-class ServerCORSConfig(DataObject):
-    """Cross-origin resource sharing settings for the engine's HTTP server."""
+class ServerSSLConfig(RustConfigModel, _CoreServerSSLConfig):
+    """TLS configuration for the engine's HTTP server.
 
-    enabled: bool = True
-    allow_origins: MaybeSequence[str] = Field(default_factory=list)
-    allow_origin_regex: Pattern[str] | None = None
-    allow_methods: MaybeSequence[str] = "*"
-    allow_headers: MaybeSequence[str] = "*"
-    allow_credentials: bool = True
-    expose_headers: MaybeSequence[str] = Field(default_factory=list)
-    max_age: PositiveInt = 600
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerSSLConfig`, this subclass only wires the class into
+    Pydantic.
+    """
 
 
-class ServerCompressionConfig(DataObject):
-    """Response compression settings for the engine's HTTP server."""
+class ServerAuthenticationConfig(RustConfigModel, _CoreServerAuthenticationConfig):
+    """Authentication settings for the engine's HTTP server.
 
-    enabled: bool = True
-    min_size: ByteSize = ByteSize(500)
-    """Minimum response size in bytes before compression is applied."""
-
-    zstd: bool = True
-    zstd_level: int = Field(default=1, ge=1, le=22)
-    brotli: bool = True
-    brotli_quality: int = Field(default=4, ge=0, le=11)
-    gzip: bool = True
-    gzip_level: int = Field(default=1, ge=0, le=9)
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerAuthenticationConfig`,
+    this subclass only wires the class into Pydantic. The `secret` is never served over the
+    API, the config routes drop it, along with every other credential in the configuration,
+    through `scrub_credentials`.
+    """
 
 
-class ServerConfig(DataObject):
-    """Configuration for the engine's HTTP server."""
+class ServerCORSConfig(RustConfigModel, _CoreServerCORSConfig):
+    """Cross-origin resource sharing settings for the engine's HTTP server.
 
-    host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default.
-    """Address the server binds to."""
-
-    port: int | None = None
-    """Port the server listens on, omit to disable the server."""
-
-    ssl: ServerSSLConfig | None = None
-    authentication: ServerAuthenticationConfig | None = None
-    cors: ServerCORSConfig | None = None
-    compression: ServerCompressionConfig | None = None
-
-    @field_validator("host")
-    def _validate_host(cls, host: str) -> str:
-        validate(IPvAnyAddress, host)
-        return host
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerCORSConfig`, this subclass only wires the class into
+    Pydantic.
+    """
 
 
-class ConsoleConfig(DataObject):
-    """Branding and layout options for the engine's web console."""
+class ServerCompressionConfig(RustConfigModel, _CoreServerCompressionConfig):
+    """Response compression settings for the engine's HTTP server.
 
-    title: str | None = None
-    """Title shown in the console's browser tab and header."""
-
-    favicon: Path | None = None
-    """Path to a favicon image served by the console."""
-
-
-class DatabaseRetryConfig(DataObject):
-    """Retry policy used when connecting to the database."""
-
-    timeout: PositiveTimeDelta = timedelta(seconds=15)
-    """Total time to keep retrying before giving up."""
-
-    interval: PositiveTimeDelta = timedelta(seconds=3)
-    """Delay between retry attempts."""
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerCompressionConfig`, this subclass only wires the class
+    into Pydantic.
+    """
 
 
-class DatabaseConfigHooks(DataObject):
-    """SQL statements executed at well-known points in the database lifecycle."""
+class ServerConfig(RustConfigModel, _CoreServerConfig):
+    """Configuration for the engine's HTTP server.
 
-    init: list[str] | None = None
-    """Statements run once when the database is first created."""
+    The fields and their validation live in the native `ceres.__internal__.core.ServerConfig`, this
+    subclass only wires the class into Pydantic.
+    """
 
-    connect: list[str] | None = None
-    """Statements run on every new connection."""
 
-    close: list[str] | None = None
-    """Statements run before a connection is closed."""
+class ConsoleConfig(RustConfigModel, _CoreConsoleConfig):
+    """Branding and layout options for the engine's web console.
+
+    The fields and their validation live in the native `ceres.__internal__.core.ConsoleConfig`, this
+    subclass only wires the class into Pydantic.
+    """
+
+
+class DatabaseConfigHooks(RustConfigModel, _CoreDatabaseConfigHooks):
+    """SQL statements executed at well-known points in the database lifecycle.
+
+    The fields and their validation live in the native
+    `ceres.__internal__.core.DatabaseConfigHooks`, this subclass only wires the class into
+    Pydantic.
+    """
 
 
 class HashType(StrEnum):
@@ -850,104 +820,70 @@ class HashType(StrEnum):
     ARGON2 = "argon2"
 
 
-class _HashingConfig(DataObject):
-    type: HashType
+class BCryptHashingConfig(RustConfigModel, _CoreBCryptHashingConfig):
+    """Configuration for the bcrypt password hashing algorithm.
+
+    The fields and their validation live in the native
+    `ceres.__internal__.core.BCryptHashingConfig`, this subclass wires the class into
+    Pydantic and converts the selector into `HashType`.
+    """
+
+    if TYPE_CHECKING:
+
+        @property
+        @override
+        def type(self) -> Literal[HashType.BCRYPT]: ...
+
+    __type_tag__ = "bcrypt"
+    __field_wrappers__ = {"type": HashType}
 
 
-class BCryptHashingConfig(_HashingConfig):
-    """Configuration for the bcrypt password hashing algorithm."""
-
-    type: Literal[HashType.BCRYPT] = HashType.BCRYPT
-    rounds: int = Field(default=12, ge=4)
-    """Cost factor controlling how expensive each hash is to compute."""
-
-
-class Argon2HashingConfig(_HashingConfig):
+class Argon2HashingConfig(RustConfigModel, _CoreArgon2HashingConfig):
     """Configuration for the Argon2id password hashing algorithm.
 
     Default parameters mirror `argon2.profiles.RFC_9106_LOW_MEMORY`, callers can tune
-    them to trade memory and CPU cost against latency.
+    them to trade memory and CPU cost against latency. The fields and their validation
+    live in the native `ceres.__internal__.core.Argon2HashingConfig`.
     """
 
-    type: Literal[HashType.ARGON2] = HashType.ARGON2
-    time_cost: PositiveInt = 3
-    """Number of iterations Argon2 performs."""
+    if TYPE_CHECKING:
 
-    memory_cost: int = Field(default=65536, ge=8)  # Default is 64 MiB.
-    """Memory budget in KiB."""
+        @property
+        @override
+        def type(self) -> Literal[HashType.ARGON2]: ...
 
-    parallelism: PositiveInt = 4
-    """Number of parallel lanes used during hashing."""
-
-    hash_length: int = Field(default=32, ge=4, le=256)  # True allowed range is 4-32768.
-    """Length of the produced hash in bytes."""
-
-    salt_length: int = Field(default=16, ge=8, le=64)  # True allowed range is 8-4096.
-    """Length of the random salt in bytes."""
-
-    @field_validator("parallelism")
-    def _validate_memory_cost(cls, value: int, info: ValidationInfo) -> int:
-        # Argon2 requires `memory_cost / parallelism >= 8`, enforce that here so a bad
-        # combination is caught at config load time rather than at hash time.
-        memory_cost = info.data.get("memory_cost", 65536)
-        if (memory_cost / value) < 8:
-            raise ValueError("parallelism must be at least 8 times smaller than memory_cost")
-
-        return value
+    __type_tag__ = "argon2"
+    __field_wrappers__ = {"type": HashType}
 
 
 HashingConfig: TypeAlias = BCryptHashingConfig | Argon2HashingConfig
-"""Discriminated union of hashing configurations, dispatched by the `type` field."""
+"""Union of hashing configurations, dispatched by the `type` field."""
 
 
-class _DatabaseConfig(DataObject):
-    type: DatabaseType
-    hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
-    engine: dict[str, Any] = Field(default_factory=dict)
-    """Extra keyword arguments forwarded to the SQLAlchemy engine factory."""
+class SQLiteDatabaseConfig(RustConfigModel, _CoreSQLiteDatabaseConfig):
+    """Configuration for a SQLite-backed database, the default for local deployments.
 
-    hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
-    """Password hashing configuration used for users stored in this database."""
+    The fields and their validation live in the native
+    `ceres.__internal__.core.SQLiteDatabaseConfig`, this subclass wires the class into
+    Pydantic and converts the selector into `DatabaseType`.
+    """
 
-    query: dict[str, MaybeSequence[str]] | None = None
-    """Optional database-specific connection string query parameters."""
+    if TYPE_CHECKING:
 
+        @property
+        @override
+        def type(self) -> Literal[DatabaseType.SQLITE]: ...
 
-_SQLITE_MEMORY_PATH = Path(":memory:")
-
-
-class SQLiteDatabaseConfig(_DatabaseConfig):
-    """Configuration for a SQLite-backed database, the default for local deployments."""
-
-    type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
-    path: Path | None = None
-    """Path to the SQLite file. Omit to use a temporary on-disk file, or set to `:memory:` (see
-    `SQLiteDatabaseConfig.in_memory`) for a private in-memory database."""
-
-    @classmethod
-    def in_memory(cls) -> Self:
-        """Build a config for a private in-memory database scoped to this process.
-
-        The returned database exists only in memory for the lifetime of its engine, useful for
-        tests and other short-lived, detached databases that should never touch disk.
-
-        Returns:
-            A config whose `path` is the special `:memory:` sentinel.
-        """
-        return cls(path=_SQLITE_MEMORY_PATH)
-
-    @property
-    def is_memory(self) -> bool:
-        """`True` if `path` is the special `:memory:` sentinel used by `in_memory`."""
-        return self.path == _SQLITE_MEMORY_PATH
+    __type_tag__ = "sqlite"
+    __field_wrappers__ = {"type": DatabaseType}
 
 
-class TursoDatabaseConfig(SQLiteDatabaseConfig):
+class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     """Configuration for a Turso-backed database, a SQLite-compatible file that allows
     concurrent writers.
 
     Turso reads and writes the same file format as SQLite and takes the same path settings, so this
-    inherits them. What it adds is `BEGIN CONCURRENT`, which lets several connections write at once
+    inherits them. What it adds is MVCC journaling, which lets several connections write at once
     instead of serializing behind one writer.
 
     Left at its defaults this is a drop-in replacement for `SQLiteDatabaseConfig`. It writes an
@@ -955,45 +891,72 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     against SQLite. `mvcc` is the one setting that changes that, in what it allows and in what it
     irreversibly does to the file.
 
-    `pyturso` is not installed with Ceres. `pip install "ceres[turso]"` adds it.
+    **Turning `mvcc` on converts the database file and the conversion cannot be undone.** MVCC
+    rewrites the file into a format SQLite does not recognize, after which `sqlite3` reports "file
+    is not a database" and every other SQLite tool fails the same way. Back the file up first and
+    treat turning it on as a migration rather than as a setting. It is also off by default because
+    overlapping writers are optimistic rather than blocking. Two transactions touching the same
+    rows both proceed and the second fails when it commits, so a caller has to be prepared to
+    retry.
+
+    What takes the setting up on is the record writer. A flush of buffered records opens a
+    transaction that may overlap other writers, and one that loses a race is put back and written
+    with the next flush. Every other write, and every migration, takes the write lock as it always
+    did, because those are neither frequent nor safe to run twice.
+
+    Turso is compiled into Ceres, so this backend needs nothing installed alongside it.
     """
 
-    type: Literal[DatabaseType.TURSO] = DatabaseType.TURSO  # pyright: ignore[reportIncompatibleVariableOverride]
+    if TYPE_CHECKING:
 
-    mvcc: bool = False
-    """Put the database in Turso's MVCC journal mode, which is what lets writers overlap.
+        @property
+        @override
+        def type(self) -> Literal[DatabaseType.TURSO]: ...  # pyright: ignore[reportIncompatibleMethodOverride]
 
-    **This converts the database file and the conversion cannot be undone.** MVCC rewrites the file
-    into a format SQLite does not recognize, after which `sqlite3` reports "file is not a database"
-    and every other SQLite tool fails the same way. Back the file up first and treat turning this on
-    as a migration rather than as a setting.
+    __type_tag__ = "turso"
 
-    Left off, this backend writes an ordinary SQLite file that either engine can open, so it stays
-    interchangeable with `SQLiteDatabaseConfig`.
 
-    It is also off by default because overlapping writers are optimistic rather than blocking. Two
-    transactions touching the same rows both proceed and the second fails when it commits, so a
-    caller has to be prepared to retry. That suits writes that are frequent and mostly independent,
-    and little else.
+def _secret_or_none(value: str | None) -> SecretStr | None:
+    """Wrap a native secret value into `SecretStr`."""
+    if value is None:
+        return None
 
-    Turning it on is necessary but not sufficient. A transaction also has to be opened inside
-    `Database.concurrent_transactions()`, which is how a caller says its writes are safe to retry.
+    return SecretStr(value)
+
+
+class PostgresDatabaseConfig(RustConfigModel, _CorePostgresDatabaseConfig):
+    """Configuration for a PostgreSQL-backed database.
+
+    The fields and their validation live in the native
+    `ceres.__internal__.core.PostgresDatabaseConfig`, this subclass wires the class into
+    Pydantic, converts the selector into `DatabaseType`, and wraps the password into
+    `SecretStr`.
     """
 
+    if TYPE_CHECKING:
 
-class PostgresDatabaseConfig(_DatabaseConfig):
-    """Configuration for a PostgreSQL-backed database."""
+        @property
+        @override
+        def type(self) -> Literal[DatabaseType.POSTGRES]: ...
 
-    type: Literal[DatabaseType.POSTGRES] = DatabaseType.POSTGRES
-    host: NonBlankStr
-    port: NonNegativeInt | None = None
-    database: NonBlankStr
-    user: NonBlankStr
-    password: SecretStr | None = None
+        @property
+        @override
+        def password(self) -> SecretStr | None: ...  # pyright: ignore[reportIncompatibleMethodOverride]
+
+    __type_tag__ = "postgres"
+    __field_wrappers__ = {"type": DatabaseType, "password": _secret_or_none}
+
+
+def _database_config_type(value: Any) -> Any:
+    """Read the database union selector from a mapping or an instance."""
+    if isinstance(value, Mapping):
+        return value.get("type")
+
+    return getattr(value, "type", None)
 
 
 DatabaseConfig: TypeAlias = SQLiteDatabaseConfig | TursoDatabaseConfig | PostgresDatabaseConfig
-"""Discriminated union of database configurations, dispatched by the `type` field."""
+"""Union of database configurations, dispatched by the `type` field."""
 
 
 class ConfigCheckType(StrEnum):
@@ -1023,7 +986,12 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
-    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
+    database: Annotated[
+        Annotated[SQLiteDatabaseConfig, Tag("sqlite")]
+        | Annotated[TursoDatabaseConfig, Tag("turso")]
+        | Annotated[PostgresDatabaseConfig, Tag("postgres")],
+        Discriminator(_database_config_type),
+    ] = Field(default_factory=SQLiteDatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod
@@ -1125,8 +1093,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
 
         database = Database(self.database)
         try:
-            async with database.connect():
-                pass
+            await database._store().fetch("SELECT 1", [])
         except Error as error:
             if isinstance(error, DatabaseError):
                 return [error]
@@ -1175,6 +1142,14 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         # Create every top-level tree under a shared throwaway engine so absolute
         # cross-tree references resolve during checks exactly as they do at load time.
         engine = Engine()
+        # Building a component registers its connections, sieves, and jobs, and each
+        # registration emits an event. A check is a question, not a run, so those events
+        # describe a tree that is discarded a few lines below and nothing happened worth
+        # telling anyone about. The engine's own logging configuration is what the tree
+        # inherits, so turning the record toggles off there silences the whole check.
+        engine._config = Config(
+            logging=LoggingConfig(events=False, messages=False, particles=False, alerts=False)
+        )
         try:
             for config in self.components:
                 try:

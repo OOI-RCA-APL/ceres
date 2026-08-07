@@ -1,0 +1,41 @@
+# This file sits at the repository root rather than beside the workspace, because cargo looks
+# for it by walking up from the directory it was invoked in. Builds start from both places,
+# the root when maturin builds the extension module and `rust/` for everything else, and only
+# a root copy is found from both.
+
+# Build artifacts stay inside the workspace's target/, the only directory `cargo clean`,
+# .gitignore, and CI's cache all cover. The path resolves against this file's directory, so
+# it names `rust/` rather than landing beside it.
+[build]
+build-dir = "rust/target/build"
+
+# The parallel rustc frontend, which the pinned nightly provides. This sits under a `cfg`
+# rather than under `[build]`, because `build.rustflags` is dropped entirely wherever a
+# `target` block sets its own, while `cfg` and triple blocks combine.
+[target.'cfg(all())']
+rustflags = ["-Zthreads=4"]
+
+# Compile the extension module and regenerate its Python type stubs in one step. `make fix`
+# and `make build` run this too, and CI fails when committed stubs drift.
+[alias]
+stubs = "build -p ceres-stubs"
+
+# Artifact dependencies, which `ceres-core` uses to build the native CLI binary alongside
+# the extension module and stage it into the wheel. Unstable, which the pinned nightly in
+# rust-toolchain.toml accounts for.
+[unstable]
+bindeps = true
+
+# The bundled SQLite compiles with math functions, which the subsampling SQL's `floor`
+# needs. CPython's own SQLite ships them, so the native engine has to match.
+[env]
+LIBSQLITE3_FLAGS = "-DSQLITE_ENABLE_MATH_FUNCTIONS"
+
+# Python extension modules leave interpreter symbols unresolved until import time, so the
+# linker has to be told to allow that. Maturin does not pass these itself, and without them
+# the extension fails to link on macOS with "symbol(s) not found for architecture arm64".
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

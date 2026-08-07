@@ -9,12 +9,10 @@ A component's configuration is defined by the typed attributes in its class. All
 ### Example
 
 ```python
-import asyncio
-from asyncio import sleep
 from datetime import timedelta
 from random import randint
 
-from ceres import Component, routine
+from ceres import Component, routine, sleep
 from ceres.data import TimeDelta
 
 
@@ -24,10 +22,10 @@ class Random(Component):
     interval: TimeDelta = timedelta(seconds=1)
 
     @routine
-    async def routine__print_random(self) -> None:
+    async def print_random(self) -> None:
         while True:
             self.system.log.info(randint(self.low, self.high))
-            await sleep(self.interval.total_seconds())
+            await sleep(self.interval)
 ```
 
 ```yaml
@@ -103,16 +101,20 @@ A component's address describes its position in the tree. `@` is the absolute-ad
 Routines are async methods that execute concurrently when a component starts and are cancelled when it stops. Define them with the `@routine` decorator.
 
 ```python
-from ceres import Component, routine
+from ceres import Component, routine, sleep
 
 
 class Example(Component):
     @routine
-    async def routine__do_work(self) -> None:
+    async def do_work(self) -> None:
         while True:
             self.system.log.info("Working...")
             await sleep(1)
 ```
+
+Use Ceres's `sleep` rather than `asyncio.sleep`. It takes seconds, a `timedelta`, or `...`
+to sleep until the routine is cancelled, which is how a routine waits for events rather
+than polling.
 
 ### Restart Policies
 
@@ -120,7 +122,7 @@ By default, routines run once. If they complete or crash, they are not restarted
 
 ```python
 @routine(restart="always", restart_delay=5)
-async def routine__resilient(self) -> None:
+async def resilient(self) -> None:
     ...
 ```
 
@@ -131,7 +133,8 @@ Restart options:
 - `"on-completed"`: Restart only if the routine returns normally.
 - `"on-exception"`: Restart only if the routine raises an exception.
 
-`restart_delay` specifies seconds to wait before restarting.
+`restart_delay` is how long to wait before restarting, as seconds or a duration, and
+defaults to one second.
 
 ## Queries and Actions
 
@@ -160,6 +163,10 @@ Both decorators accept a `permit` parameter controlling who can call them. It ta
 - `"view"` (default for queries): Requires `VIEW` access or higher.
 - `"operate"` (default for actions): Requires `OPERATE` access or higher.
 - `"manage"`: Requires `MANAGE` access.
+- `"deny"`: Nobody can call it over the API.
+
+`@query` also takes `poll`, how often the console refreshes the value, defaulting to five
+seconds. Both decorators take `media` to declare a response content type.
 
 ## Events
 
@@ -196,10 +203,10 @@ class CountEvent(Event):
     count: int
 ```
 
-Emit events with `self.emit()`.
+Emit events through the system's event manager, which fills in the emitting component's address.
 
 ```python
-self.emit(CountEvent, count=42)
+self.system.events.emit(CountEvent, count=42)
 ```
 
 ### Event Listeners
@@ -272,11 +279,11 @@ Messages are records of data sent or received by a connection. They are created 
 Alerts are records of notable events, usually errors. Any component can emit alerts.
 
 ```python
-from ceres import Level
-
-self.alert(Level.ERROR, "sensor/timeout", {"message": "No data received in 30 seconds."})
-self.alert(Level.INFO, "sensor/recovered", {"message": "Connection restored."})
+self.system.alert.error("sensor/timeout", {"message": "No data received in 30 seconds."})
+self.system.alert.info("sensor/recovered", {"message": "Connection restored."})
 ```
+
+There is one shortcut per level, and `self.system.alert.emit(...)` takes the level as an argument when it is decided at run time.
 
 | Field       | Type      | Description                                |
 | ----------- | --------- | ------------------------------------------ |
@@ -291,14 +298,14 @@ Emitting an alert stores it in the database but does not send it anywhere. To di
 
 ### Log Entries
 
-Components log messages through `self.system.log` (or the shorthand `self.log`), which mirrors Python's `logging.Logger` interface. Log entries are printed to stdout and persisted in the database.
+Components log through `self.system.log`, which mirrors Python's `logging.Logger`. Entries are printed to stdout and persisted in the database.
 
 ```python
-self.log.debug("Debugging info.")
-self.log.info("Normal operation.")
-self.log.warning("Something might be wrong.")
-self.log.error("Something failed.")
-self.log.critical("System is in a bad state.")
+self.system.log.debug("Debugging info.")
+self.system.log.info("Normal operation.")
+self.system.log.warning("Something might be wrong.")
+self.system.log.error("Something failed.")
+self.system.log.critical("System is in a bad state.")
 ```
 
 | Field       | Type      | Description                            |
@@ -319,4 +326,4 @@ alert_count = await self.system.alerts.where(level="error").count()
 recent_logs = await self.system.logs.where(order="timestamp:desc").limit(50)
 ```
 
-Records can also be queried from the CLI. See the [CLI reference](cli.md).
+Records can also be queried from the CLI. See the [CLI reference](reference/cli.md).

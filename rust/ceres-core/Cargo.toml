@@ -1,0 +1,49 @@
+# The crate version is a placeholder. The wheel version lives in pyproject.toml next to this
+# file, matching the Ceres package version.
+[package]
+name = "ceres-core"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native core for Ceres"
+
+[lib]
+name = "ceres_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ceres-config = { path = "../ceres-config" }
+ceres-database = { path = "../ceres-database" }
+ceres-entities = { path = "../ceres-entities" }
+ceres-macros = { version = "0.0.0", path = "../ceres-macros" }
+chrono = "0.4"
+half = "2"
+async-trait = "0.1"
+mimalloc = "0.1"
+ceres-server = { path = "../ceres-server" }
+pyo3-async-runtimes = { version = "0.27", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+uuid = "1"
+pyo3 = { version = "0.27", features = ["chrono", "multiple-pymethods", "uuid"] }
+pyo3-stub-gen = "0.23.0"
+pythonize = "0.27"
+schemars = "1"
+serde = "1"
+serde_json = "1"
+
+# The native CLI builds whenever the extension does, as an artifact dependency compiled for
+# the same target, and build.rs stages the binary for the wheel. Every wheel therefore
+# carries the `ceres` command, whether built by CI, a checkout, or an sdist install, with no
+# staging step outside the build itself. Artifact dependencies are unstable (`bindeps` in
+# .cargo/config.toml), which the pinned nightly accounts for.
+[build-dependencies]
+ceres-cli = { path = "../ceres-cli", artifact = "bin", target = "target" }
+
+# Maturin turns this on when building the wheel. The stub generator binary builds without it,
+# because a plain binary must link the interpreter rather than leave its symbols unresolved.
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[lints]
+workspace = true

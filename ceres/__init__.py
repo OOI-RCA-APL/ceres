@@ -11,7 +11,6 @@ __all__ = [
     "Channel",
     "ChannelReader",
     "OutputChannel",
-    "Output",
     # .concurrency
     "cancel",
     "concurrently",
@@ -42,6 +41,7 @@ __all__ = [
     "ConnectionField",
     "ConnectionInactive",
     "ConnectionLost",
+    "SplitByChunk",
     "SplitByDelay",
     "SplitByLine",
     "SplitByRegex",
@@ -93,6 +93,8 @@ __all__ = [
     "Notifier",
     "SMTPNotifier",
     # .particle
+    "BinaryParticle",
+    "BinaryRegexParticle",
     "DynamicParticleData",
     "ParseableParticle",
     "ParseFailed",
@@ -172,6 +174,7 @@ with __lazy_imports__(__name__, export=True):
         ConnectionField,
         ConnectionInactive,
         ConnectionLost,
+        SplitByChunk,
         SplitByDelay,
         SplitByLine,
         SplitByRegex,
@@ -196,6 +199,8 @@ with __lazy_imports__(__name__, export=True):
     from ceres.message import Message, MessageData, MessageDirection
     from ceres.notifier import Notification, Notifier, SMTPNotifier
     from ceres.particle import (
+        BinaryParticle,
+        BinaryRegexParticle,
         DynamicParticleData,
         GroupedRegexParticle,
         ParseableParticle,
@@ -217,7 +222,7 @@ with __lazy_imports__(__name__, export=True):
         UNIXSocketServer,
     )
     from ceres.setting import Setting
-    from ceres.sieve import Sieve
+    from ceres.sieves import Sieve
     from ceres.statistics import Statistics
     from ceres.status import Status
     from ceres.timing import utc

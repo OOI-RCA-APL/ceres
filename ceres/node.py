@@ -10,7 +10,6 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.__internal__.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import concurrently, sleep
-from ceres.data import replacing
 from ceres.error import trace
 from ceres.event import (
     ConnectedEvent,
@@ -27,8 +26,6 @@ from ceres.timing import utc
 
 if TYPE_CHECKING:
     from datetime import datetime
-
-    from sqlalchemy.ext.asyncio import AsyncConnection
 
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
@@ -81,6 +78,13 @@ class Node(Tasklet, NodeSource):
 
     @override
     def __get_filter_defaults__(self) -> dict[str, Any]:
+        # The engine's own address selects everything, so defaulting it would add
+        # nothing, and because `or` subfilters match independently of their filter's
+        # root conditions, a match-all default would turn any `or` query into one that
+        # matches every record.
+        if self.address.is_engine:
+            return {"root": self.address}
+
         return {
             "root": self.address,
             "address": self.address.all(),
@@ -96,7 +100,7 @@ class Node(Tasklet, NodeSource):
         """Current UTC time, provided as an attribute so tests can override it per node."""
         return utc()
 
-    async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
+    async def __node_sync__(self) -> None:
         """Hook for subclasses to hydrate persisted state, called once during startup."""
 
     @property
@@ -198,7 +202,7 @@ class Node(Tasklet, NodeSource):
         if container is not None:
             inherited = container.get_resolved_logging_config()
             if inherited is not None:
-                return replacing(inherited, local)
+                return inherited.merged(local) if local is not None else inherited
 
         return local
 

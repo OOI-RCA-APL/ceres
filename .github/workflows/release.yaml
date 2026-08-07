@@ -1,0 +1,172 @@
+name: release
+# Wheels build only when a release is published, never on push. A release is rare and
+# deliberate, so the expensive multi-platform matrix spends nothing between releases.
+on:
+  release:
+    types: [published]
+
+jobs:
+  # The release must agree with the repository about what version it is, and the version
+  # must have a changelog entry. Failing here costs seconds, failing in the build matrix
+  # costs the whole matrix.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Check Tag Matches Project Version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
+          if [ "$tag" != "$version" ]; then
+            echo "Release tag $tag does not match pyproject.toml version $version"
+            exit 1
+          fi
+      - name: Check Changelog Has an Entry
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          if ! grep -q "^## \[$tag\]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no entry for $tag"
+            exit 1
+          fi
+
+  # The same lint and test gates as CI, via workflow_call, so a release cannot build from
+  # a commit the ordinary checks would have rejected.
+  check:
+    needs: version
+    uses: ./.github/workflows/ci.yaml
+
+  # One job per platform, each emitting wheels for every interpreter. The native CLI
+  # binary builds as an artifact dependency of the extension, compiled for the same
+  # target inside the same cargo invocation, and `ceres-core`'s build script stages it
+  # into the wheel data directory. The directory is created up front because maturin
+  # only honors it when it exists before the build starts.
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+          # Cross-compiled from the arm runner, so macOS needs one runner, not two.
+          - os: macos-15
+            target: x86_64-apple-darwin
+            cross: true
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install Pythons
+        uses: actions/setup-python@v6
+        with:
+          python-version: |
+            3.14
+            3.14t
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: ${{ matrix.target }}
+      - name: Create Wheel Data Directory
+        shell: bash
+        run: mkdir -p ceres.__internal__.core.data/scripts
+      - name: Build Wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --interpreter 3.14 3.14t --out dist
+          manylinux: auto
+      - name: Smoke Test
+        # A cross-compiled wheel cannot import on this runner, so only wheels matching
+        # the runner's own architecture install and run here.
+        if: matrix.cross != true
+        shell: bash
+        # The local wheel satisfies `ceres` because the released version is not on PyPI
+        # until the publish job after this one, while the dependencies resolve normally.
+        run: |
+          pip install --find-links dist ceres-engine
+          ceres --version
+          python -c "import ceres; print(ceres.__name__, 'imports')"
+      - name: Upload Wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.target }}
+          path: dist
+
+  # The sdist is the source of record and the fallback for platforms outside the matrix.
+  # Building from it compiles the extension but stages no CLI binary, so those installs
+  # use `python -m ceres`.
+  sdist:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      # The marker rides in the sdist so extracting it creates the wheel data directory,
+      # which maturin requires to exist before a build starts. The extension's build
+      # script replaces it with the CLI binary.
+      - name: Create Wheel Data Marker
+        run: mkdir -p ceres.__internal__.core.data/scripts && touch ceres.__internal__.core.data/scripts/.keep
+      - name: Build Sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - name: Upload Sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+  # The wheels and sdist also attach to the GitHub release itself, which is what the
+  # Pages package index links against, so installs resolve from GitHub with no PyPI
+  # involved. The `ceres` alias wheel is built here too, a pure-Python shim pinning
+  # `ceres-engine`, so the bare name resolves on that index from the one build matrix.
+  # Separate from the publish job so neither destination blocks the other, and the
+  # alias stays off PyPI, where only `ceres-engine` publishes.
+  attach:
+    needs: [build, sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Build the Alias Wheel
+        run: python3 scripts/build-alias-wheel.py '${{ github.event.release.tag_name }}' dist
+      - name: Attach to the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release upload '${{ github.event.release.tag_name }}' dist/*
+          --clobber --repo '${{ github.repository }}'
+
+  publish:
+    needs: [build, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted publishing exchanges this token with PyPI, so no long-lived secret exists.
+      id-token: write
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

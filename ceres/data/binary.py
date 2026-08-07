@@ -79,6 +79,7 @@ from annotated_types import Ge, Le
 from pydantic import BeforeValidator, PlainSerializer
 from pydantic_core import MISSING
 
+from ceres.__internal__.core import PackingProgram
 from ceres.__internal__.utilities.typing import (
     AnnotationInfo,
     extract_annotation,
@@ -188,10 +189,11 @@ class PackingSchema:
         Returns:
             The packed binary representation of `instance`.
         """
-        if self.packer is not None:
-            return self.packer(instance)
+        native = self._native()
+        if native is not None:
+            return native.pack(instance, order)
 
-        return self.struct(order).pack(instance)
+        return self._pack(instance, order)
 
     def unpack(
         self,
@@ -216,16 +218,59 @@ class PackingSchema:
         Returns:
             The unpacked Python value.
         """
+        native = self._native()
+        if native is not None:
+            return self._finalize_unpacked(
+                native.unpack(data, offset, order),
+                validate_annotation=validate_annotation,
+            )
+
+        return self._unpack(data, offset, order, validate_annotation=validate_annotation)
+
+    def _pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+        """Pack in Python, the path for schemas the native engine cannot execute."""
+        if self.packer is not None:
+            return self.packer(instance)
+
+        return self.struct(order).pack(instance)
+
+    def _unpack(
+        self,
+        data: bytes,
+        /,
+        offset: int = 0,
+        order: ByteOrder | None = None,
+        *,
+        validate_annotation: bool = True,
+    ) -> Any:
+        """Unpack in Python, the path for schemas the native engine cannot execute."""
+        packed = self.struct(order).unpack_from(data, offset)
+        return self._finalize_unpacked(packed[0], validate_annotation=validate_annotation)
+
+    def _finalize_unpacked(self, instance: Any, *, validate_annotation: bool) -> Any:
+        """Apply the schema's validator and annotation validation to an unpacked value."""
         from ceres.data import validate
 
-        packed = self.struct(order).unpack_from(data, offset)
-        instance = packed[0]
         if self.validator is not None:
             instance = self.validator(instance)
         if validate_annotation and self.annotation is not MISSING:
             instance = validate(self.annotation, instance)
 
         return instance
+
+    def _native(self) -> PackingProgram | None:
+        """Return the compiled native program for this schema tree, `None` when ineligible.
+
+        Computed lazily and cached on the instance. The benign race between threads computing
+        the same program is harmless, both arrive at an equivalent value.
+        """
+        program = getattr(self, "_native_program", MISSING)
+        if program is MISSING:
+            spec = _native_spec(self)
+            program = PackingProgram(spec) if spec is not None else None
+            object.__setattr__(self, "_native_program", program)
+
+        return cast("PackingProgram | None", program)
 
     def struct(self, order: ByteOrder | None = None) -> Struct:
         """Get a `Struct` object for this schema in the given byte order.
@@ -447,7 +492,7 @@ class PackedTuple(PackingSchema):
     """Schema for each element of the tuple, in positional order."""
 
     @override
-    def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+    def _pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
         """Serialize a tuple by packing each element according to its positional schema.
 
         Args:
@@ -467,7 +512,7 @@ class PackedTuple(PackingSchema):
         return bytes(packed)
 
     @override
-    def unpack(
+    def _unpack(
         self,
         data: bytes,
         /,
@@ -491,24 +536,16 @@ class PackedTuple(PackingSchema):
         Returns:
             A tuple of unpacked Python values.
         """
-        from ceres.data import validate
-
         order = self._resolve_order(order)
 
         values: list[Any] = []
         for schema in self.values:
             # Skip per-element annotation validation, the assembled tuple is validated against the
-            # outer annotation below if one is set.
+            # outer annotation once at the end.
             values.append(schema.unpack(data, offset, order, validate_annotation=False))
             offset += schema.size
 
-        instance = tuple(values)
-        if self.validator is not None:
-            instance = self.validator(instance)
-        if validate_annotation and self.annotation is not MISSING:
-            instance = validate(self.annotation, instance)
-
-        return instance
+        return self._finalize_unpacked(tuple(values), validate_annotation=validate_annotation)
 
     @override
     def _compute_inner_format(self) -> str:
@@ -539,7 +576,7 @@ class PackedSequence(PackingSchema):
         super().__post_init__()
 
     @override
-    def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+    def _pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
         if self.element is None:
             raise TypeError("Cannot pack a `PackedSequence` without an `element` schema.")
 
@@ -550,7 +587,7 @@ class PackedSequence(PackingSchema):
         return bytes(packed)
 
     @override
-    def unpack(
+    def _unpack(
         self,
         data: bytes,
         /,
@@ -559,8 +596,6 @@ class PackedSequence(PackingSchema):
         *,
         validate_annotation: bool = True,
     ) -> Any:
-        from ceres.data import validate
-
         if self.element is None or self.length is None:
             raise TypeError("Cannot unpack a `PackedSequence` without `element` and `length`.")
 
@@ -571,13 +606,7 @@ class PackedSequence(PackingSchema):
             values.append(self.element.unpack(data, offset, order, validate_annotation=False))
             offset += self.element.size
 
-        instance = tuple(values)
-        if self.validator is not None:
-            instance = self.validator(instance)
-        if validate_annotation and self.annotation is not MISSING:
-            instance = validate(self.annotation, instance)
-
-        return instance
+        return self._finalize_unpacked(tuple(values), validate_annotation=validate_annotation)
 
     @override
     def _compute_inner_format(self) -> str:
@@ -614,7 +643,7 @@ class PackedModel(PackingSchema):
                 object.__setattr__(self, "order", order)
 
     @override
-    def pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
+    def _pack(self, instance: Any, /, order: ByteOrder | None = None) -> bytes:
         """Serialize a model by packing each field in declared wire order.
 
         Args:
@@ -634,7 +663,7 @@ class PackedModel(PackingSchema):
         return bytes(data)
 
     @override
-    def unpack(
+    def _unpack(
         self,
         data: bytes,
         /,
@@ -658,28 +687,133 @@ class PackedModel(PackingSchema):
         Returns:
             A validated instance of `self.model`.
         """
-        from ceres.data import validate
-
         order = self._resolve_order(order)
 
         arguments = {}
         for field, schema in self.fields.items():
-            # Defer per-field annotation validation, validating the assembled instance once below
-            # is sufficient and avoids duplicate work.
+            # Defer per-field annotation validation, validating the assembled instance once at the
+            # end is sufficient and avoids duplicate work.
             arguments[field] = schema.unpack(data, offset, order, validate_annotation=False)
             offset += schema.size
 
-        instance = validate(self.model, arguments)
-        if self.validator is not None:
-            instance = self.validator(instance)
-        if validate_annotation and self.annotation is not MISSING:
-            instance = validate(self.annotation, instance)
+        return self._finalize_unpacked(arguments, validate_annotation=validate_annotation)
 
-        return instance
+    @override
+    def _finalize_unpacked(self, instance: Any, *, validate_annotation: bool) -> Any:
+        """Construct and validate the model from its unpacked field mapping.
+
+        Both engines deliver a mapping of raw field values, nested models arriving as nested
+        mappings that Pydantic constructs during validation.
+        """
+        from ceres.data import validate
+
+        instance = validate(self.model, instance)
+        return super()._finalize_unpacked(instance, validate_annotation=validate_annotation)
 
     @override
     def _compute_inner_format(self) -> str:
         return "".join(schema.format for schema in self.fields.values())
+
+
+# The built-in leaf schema classes the native engine executes, keyed by exact type so that
+# user subclasses with custom behavior keep running through the Python path.
+_NATIVE_LEAF_KINDS: dict[type[PackingSchema], str] = {
+    PackedBool: "bool",
+    PackedUInt8: "uint8",
+    PackedInt8: "int8",
+    PackedUInt16: "uint16",
+    PackedInt16: "int16",
+    PackedUInt32: "uint32",
+    PackedInt32: "int32",
+    PackedUInt64: "uint64",
+    PackedInt64: "int64",
+    PackedFloat16: "float16",
+    PackedFloat32: "float32",
+    PackedFloat64: "float64",
+    PackedComplex64: "complex64",
+    PackedComplex128: "complex128",
+}
+
+
+def _spec_contains_model(spec: Mapping[str, Any]) -> bool:
+    """Return whether a native spec tree contains a model node anywhere."""
+    match spec["kind"]:
+        case "model":
+            return True
+        case "tuple":
+            return any(_spec_contains_model(value) for value in spec["values"])
+        case "sequence":
+            return _spec_contains_model(spec["element"])
+        case _:
+            return False
+
+
+def _native_spec(schema: PackingSchema, *, top: bool = True) -> dict[str, Any] | None:
+    """Describe a schema tree for the native engine, or `None` where Python must run it.
+
+    A tree compiles when every node is one of the built-in schema classes with no custom
+    packer, and no nested node carries a custom validator. The top-level validator is applied
+    by the caller after the native pass, except over a non-model tree containing models,
+    where the Python path hands the validator constructed model instances while the native
+    engine delivers raw field mappings.
+    """
+    if schema.packer is not None or (not top and schema.validator is not None):
+        return None
+
+    spec: dict[str, Any] = {
+        "order": schema.order,
+        "padding_before": schema.padding_before or 0,
+        "padding_after": schema.padding_after or 0,
+    }
+
+    schema_class = type(schema)
+    leaf = _NATIVE_LEAF_KINDS.get(schema_class)
+    if leaf is not None:
+        spec["kind"] = leaf
+    elif schema_class is PackedBytes:
+        spec["kind"] = "bytes"
+        spec["length"] = cast("PackedBytes", schema).length
+    elif schema_class is PackedTuple:
+        values = [_native_spec(value, top=False) for value in cast("PackedTuple", schema).values]
+        if any(value is None for value in values):
+            return None
+
+        spec["kind"] = "tuple"
+        spec["values"] = values
+    elif schema_class is PackedSequence:
+        sequence = cast("PackedSequence", schema)
+        if sequence.element is None or sequence.length is None:
+            return None
+
+        element = _native_spec(sequence.element, top=False)
+        if element is None:
+            return None
+
+        spec["kind"] = "sequence"
+        spec["element"] = element
+        spec["length"] = sequence.length
+    elif schema_class is PackedModel:
+        fields: list[list[Any]] = []
+        for field_name, field_schema in cast("PackedModel", schema).fields.items():
+            field_spec = _native_spec(field_schema, top=False)
+            if field_spec is None:
+                return None
+
+            fields.append([field_name, field_spec])
+
+        spec["kind"] = "model"
+        spec["fields"] = fields
+    else:
+        return None
+
+    if (
+        schema.validator is not None
+        and schema_class is not PackedModel
+        and _spec_contains_model(spec)
+    ):
+        return None
+
+    return spec
 
 
 # Cache of inferred schemas keyed on type annotation, avoids re-running the inference machinery

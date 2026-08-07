@@ -130,7 +130,6 @@ if TYPE_CHECKING:
 
     from pydantic.config import JsonDict
     from pydantic.types import Discriminator
-    from sqlalchemy.ext.asyncio import AsyncConnection
     from starlette.responses import FileResponse, Response, StreamingResponse
 
     from ceres.connection import Buffer, Connection, ConnectionField
@@ -148,7 +147,7 @@ with __lazy_imports__(__name__):
     from ceres.job import JobManager
     from ceres.pruner import PrunerManager
     from ceres.reference import Reference, unref
-    from ceres.sieve import SieveManager
+    from ceres.sieves import SieveManager
 
 __all__ = [
     "Component",
@@ -1616,15 +1615,15 @@ class ComponentSystem(Node, ComponentSource):
         """The database used by the component.
 
         If the component is part of a tree, this returns the database from the engine at the
-        root. A detached component creates a private in-memory database lazily on first access,
-        useful for unit tests.
+        root. A detached component creates a private temporary database lazily on first access,
+        useful for unit tests. Its files are removed when the database is disposed.
         """
         container = self._container
         if container is not None:
             return container.database
 
         if self._database is None:
-            self._database = Database(SQLiteDatabaseConfig.in_memory())
+            self._database = Database(SQLiteDatabaseConfig())
         return self._database
 
     @property
@@ -1727,8 +1726,8 @@ class ComponentSystem(Node, ComponentSource):
         return PrunerManager(self)
 
     @override
-    async def __node_sync__(self, connection: AsyncConnection | None = None) -> None:
-        await super().__node_sync__(connection)
+    async def __node_sync__(self) -> None:
+        await super().__node_sync__()
         self._enabled = await self.__get_enabled_in_database()
 
     @property

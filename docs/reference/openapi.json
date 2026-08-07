@@ -1,0 +1,2497 @@
+{
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "The Ceres engine's HTTP API.",
+    "title": "Ceres",
+    "version": "0.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Redirect to the OpenAPI document.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/alerts": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List alerts, or stream them.",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/alerts/count": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Count alerts.",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/alerts/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one of the alerts.",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/alive": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Report that the server is alive.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change the caller's password.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/features": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Report optional authentication behavior.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/impersonate": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Take on another user's identity.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Authenticate and receive an identity.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Delete the authorization cookie.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Return the caller's identity.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Reissue the caller's identity.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/components": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Describe every component the caller may view.",
+        "tags": [
+          "components"
+        ]
+      }
+    },
+    "/api/components/{address}/procedures/{name}/subscribe": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "address",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "procedures.subscribe",
+        "tags": [
+          "procedures"
+        ]
+      }
+    },
+    "/api/components/{address}/queries/{name}/subscribe": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "address",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "queries.subscribe",
+        "tags": [
+          "queries"
+        ]
+      }
+    },
+    "/api/components/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Describe one component and its children.",
+        "tags": [
+          "components"
+        ]
+      }
+    },
+    "/api/components/{id}/actions": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one component's actions.",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/components/{id}/actions/{second}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one action binding.",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/components/{id}/actions/{second}/call": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Call an action with body arguments, access checked by the operation.",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/components/{id}/config": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one component's configuration.",
+        "tags": [
+          "components"
+        ]
+      }
+    },
+    "/api/components/{id}/connections": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one component's connections with their connectivity.",
+        "tags": [
+          "components"
+        ]
+      }
+    },
+    "/api/components/{id}/connections/{second}/send": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send data over one component connection.",
+        "tags": [
+          "components"
+        ]
+      }
+    },
+    "/api/components/{id}/jobs": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one component's scheduled jobs.",
+        "tags": [
+          "components"
+        ]
+      }
+    },
+    "/api/components/{id}/procedures": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one component's procedures.",
+        "tags": [
+          "procedures"
+        ]
+      }
+    },
+    "/api/components/{id}/procedures/{second}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one procedure binding.",
+        "tags": [
+          "procedures"
+        ]
+      }
+    },
+    "/api/components/{id}/procedures/{second}/call": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Call a procedure with query arguments, access checked by the operation.",
+        "tags": [
+          "procedures"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Call a procedure with body arguments, access checked by the operation.",
+        "tags": [
+          "procedures"
+        ]
+      }
+    },
+    "/api/components/{id}/queries": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one component's queries.",
+        "tags": [
+          "queries"
+        ]
+      }
+    },
+    "/api/components/{id}/queries/{second}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one query binding.",
+        "tags": [
+          "queries"
+        ]
+      }
+    },
+    "/api/components/{id}/queries/{second}/call": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Call a query with query arguments, access checked by the operation.",
+        "tags": [
+          "queries"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Call a query with body arguments, access checked by the operation.",
+        "tags": [
+          "queries"
+        ]
+      }
+    },
+    "/api/config": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Serve the whole configuration.",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/console": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Serve the console configuration.",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/database": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Serve the database configuration.",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/server": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Serve the server configuration.",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/service": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Serve the service configuration.",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/disable": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Disable matching components.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/down": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Disable and stop matching components.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/enable": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Enable matching components.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/groups": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List groups.",
+        "tags": [
+          "groups"
+        ]
+      },
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a group.",
+        "tags": [
+          "groups"
+        ]
+      }
+    },
+    "/api/groups/count": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Count groups.",
+        "tags": [
+          "groups"
+        ]
+      }
+    },
+    "/api/groups/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a group.",
+        "tags": [
+          "groups"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one group.",
+        "tags": [
+          "groups"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a group.",
+        "tags": [
+          "groups"
+        ]
+      }
+    },
+    "/api/groups/{id}/members": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a group's memberships.",
+        "tags": [
+          "groups"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add a member to a group.",
+        "tags": [
+          "groups"
+        ]
+      }
+    },
+    "/api/groups/{id}/members/{second}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a member from a group.",
+        "tags": [
+          "groups"
+        ]
+      }
+    },
+    "/api/logs": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List logs, or stream them.",
+        "tags": [
+          "logs"
+        ]
+      }
+    },
+    "/api/logs/count": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Count logs.",
+        "tags": [
+          "logs"
+        ]
+      }
+    },
+    "/api/logs/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one of the logs.",
+        "tags": [
+          "logs"
+        ]
+      }
+    },
+    "/api/messages": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List messages, or stream them.",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/api/messages/count": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Count messages.",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/api/messages/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one of the messages.",
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Serve the OpenAPI document.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/particles": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List particles, or stream them.",
+        "tags": [
+          "particles"
+        ]
+      }
+    },
+    "/api/particles/count": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Count particles.",
+        "tags": [
+          "particles"
+        ]
+      }
+    },
+    "/api/particles/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one of the particles.",
+        "tags": [
+          "particles"
+        ]
+      }
+    },
+    "/api/permissions/effective/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a user's effective access across every component.",
+        "tags": [
+          "permissions"
+        ]
+      }
+    },
+    "/api/permissions/effective/{id}/{*address}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "address",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resolve a user's effective access at one address.",
+        "tags": [
+          "permissions"
+        ]
+      }
+    },
+    "/api/permissions/group/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a group permission, the target named in the request body.",
+        "tags": [
+          "permissions"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a group's permissions.",
+        "tags": [
+          "permissions"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Assign a group permission.",
+        "tags": [
+          "permissions"
+        ]
+      }
+    },
+    "/api/permissions/user/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a user permission, the target named in the request body.",
+        "tags": [
+          "permissions"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a user's permissions.",
+        "tags": [
+          "permissions"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Assign a user permission.",
+        "tags": [
+          "permissions"
+        ]
+      }
+    },
+    "/api/reload": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reload the engine's configuration, which answers with it and so scrubs it.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/settings": {
+      "put": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Assign a setting, the operation applying its own actor rules.",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/settings/{id}/{second}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Fetch one setting, the operation applying its own actor rules.",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/start": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start matching components.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/statistics": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List alert statistics.",
+        "tags": [
+          "statistics"
+        ]
+      }
+    },
+    "/api/statuses": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List component statuses, or stream them.",
+        "tags": [
+          "statuses"
+        ]
+      }
+    },
+    "/api/statuses/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one component's status.",
+        "tags": [
+          "statuses"
+        ]
+      }
+    },
+    "/api/stop": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Stop matching components.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/up": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Enable and start matching components.",
+        "tags": [
+          "engine"
+        ]
+      }
+    },
+    "/api/users": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List users.",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a user.",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/count": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Count users.",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a user.",
+        "tags": [
+          "users"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one user.",
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a user.",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/{id}/group-memberships": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a user's group memberships.",
+        "tags": [
+          "memberships"
+        ]
+      }
+    },
+    "/api/users/{id}/group-memberships/{second}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a user from a group.",
+        "tags": [
+          "memberships"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add a user to a group.",
+        "tags": [
+          "memberships"
+        ]
+      }
+    },
+    "/api/users/{id}/workspace-edits": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a user's workspace edits.",
+        "tags": [
+          "edits"
+        ]
+      }
+    },
+    "/api/users/{id}/workspace-edits/{second}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a workspace edit.",
+        "tags": [
+          "edits"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one workspace edit.",
+        "tags": [
+          "edits"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a workspace edit.",
+        "tags": [
+          "edits"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Assign a workspace edit, creating or replacing it.",
+        "tags": [
+          "edits"
+        ]
+      }
+    },
+    "/api/workspaces": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List workspaces.",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a workspace.",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/workspaces/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a workspace.",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Fetch one workspace.",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a workspace.",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "engine"
+    },
+    {
+      "name": "auth"
+    },
+    {
+      "name": "config"
+    },
+    {
+      "name": "statuses"
+    },
+    {
+      "name": "messages"
+    },
+    {
+      "name": "particles"
+    },
+    {
+      "name": "alerts"
+    },
+    {
+      "name": "logs"
+    },
+    {
+      "name": "users"
+    },
+    {
+      "name": "groups"
+    },
+    {
+      "name": "memberships"
+    },
+    {
+      "name": "permissions"
+    },
+    {
+      "name": "workspaces"
+    },
+    {
+      "name": "edits"
+    },
+    {
+      "name": "settings"
+    },
+    {
+      "name": "statistics"
+    },
+    {
+      "name": "components"
+    },
+    {
+      "name": "procedures"
+    },
+    {
+      "name": "queries"
+    },
+    {
+      "name": "actions"
+    }
+  ]
+}

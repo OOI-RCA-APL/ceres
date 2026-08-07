@@ -1,0 +1,6 @@
+# Both options are unstable, which the pinned nightly toolchain makes usable.
+# Group imports as std, then external crates, then this workspace's own, the
+# discipline the codebase already follows by hand, and merge each module's
+# imports into one use statement.
+group_imports = "StdExternalCrate"
+imports_granularity = "Module"

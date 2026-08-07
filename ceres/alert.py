@@ -1,11 +1,8 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Unpack, override
 
 from pydantic import Field
-from sqlalchemy import JSON, Index, SQLColumnExpression, Text, cast
-from sqlalchemy.orm import Mapped, mapped_column
 
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -22,54 +19,19 @@ from ceres.__internal__.record import (
     BaseRecordFilter,
     BaseRecordFilterArgs,
     BaseRecordOrder,
-    BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence, to_json
+from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence
 from ceres.level import Level
-from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from uuid import UUID
 
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
-    from ceres.database import DatabaseType
 
 __all__ = [
     "Alert",
 ]
-
-
-class AlertRow(BaseRecordRow, kw_only=True):
-    """SQLAlchemy row type backing the `Alert` entity."""
-
-    __tablename__: ClassVar[str] = "alerts"
-
-    level: Mapped[Level] = mapped_column(EnumMapper(Level))
-    type: Mapped[str] = mapped_column(TextMapper())
-    data: Mapped[JSONSerializableDict] = mapped_column(
-        JSON,
-        default_factory=dict,
-        server_default="{}",
-    )
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            EnumConstraint(cls.level, Level, f"ck_{cls.__tablename__}__level"),
-            # GIN trigram index supports substring search on the alert type on PostgreSQL.
-            Index(
-                f"ix_{cls.__tablename__}__type",
-                cls.type,
-                postgresql_ops={"type": "gin_trgm_ops"},
-                postgresql_using="gin",
-            ),
-        )
 
 
 type AlertField = (
@@ -114,6 +76,8 @@ class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False)
 class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     """Filter for selecting `Alert` records by level, type, or data contents."""
 
+    __table__: ClassVar[str] = "alerts"
+
     level: MaybeSequence[Level] | None = None
     """Filter by `level` being equal to one or more given levels."""
     min_level: Level | None = None
@@ -134,91 +98,6 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     """Filter by whether or not the JSON text of `data` starts with one or more given prefixes."""
     data_suffix: MaybeSequence[str] | None = None
     """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
-
-    @override
-    def _matches(self, obj: Alert, *, now: datetime | None = None) -> bool:
-        now = utc(now)
-        if not super()._matches(obj, now=now):
-            return False
-
-        if not self._match_value(obj.level, self.level):
-            return False
-
-        if self.min_level is not None:
-            if obj.level < self.min_level:
-                return False
-        if self.max_level is not None:
-            if obj.level > self.max_level:
-                return False
-
-        if not self._match_value(obj.type, self.type):
-            return False
-        if not self._match_string_contains(obj.type, self.type_contains):
-            return False
-        if not self._match_string_prefix(obj.type, self.type_prefix):
-            return False
-        if not self._match_string_suffix(obj.type, self.type_suffix):
-            return False
-
-        # Only serialize the data dict when at least one substring match is requested,
-        # serialization is not free.
-        if (
-            self.data_contains is not None
-            or self.data_prefix is not None
-            or self.data_suffix is not None
-        ):
-            data_json = to_json(obj.data)
-            if not self._match_string_contains(data_json, self.data_contains):
-                return False
-            if not self._match_string_prefix(data_json, self.data_prefix):
-                return False
-            if not self._match_string_suffix(data_json, self.data_suffix):
-                return False
-
-        return True
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[AlertRow]:
-        return AlertRow
-
-    @override
-    def _get_where(
-        self,
-        dialect: DatabaseType,
-        *,
-        now: datetime | None = None,
-    ) -> Iterable[SQLColumnExpression[bool]]:
-        now = utc(now)
-        yield from super()._get_where(dialect, now=now)
-        columns = self._get_row_cls()
-
-        if self.level is not None:
-            yield self._sql_match_value(columns.level, self.level)
-        if self.min_level is not None:
-            # Expand the inequality into an `IN` clause over the enum values, this lets
-            # databases without native enum ordering still benefit from the existing index.
-            yield columns.level.in_(current for current in Level if current >= self.min_level)
-        if self.max_level is not None:
-            yield columns.level.in_(current for current in Level if current <= self.max_level)
-
-        if self.type is not None:
-            yield self._sql_match_string_equals(columns.type, self.type)
-        if self.type_contains is not None:
-            yield self._sql_match_string_contains(columns.type, self.type_contains)
-        if self.type_prefix is not None:
-            yield self._sql_match_string_prefix(columns.type, self.type_prefix)
-        if self.type_suffix is not None:
-            yield self._sql_match_string_suffix(columns.type, self.type_suffix)
-
-        # `data` is JSON, cast it to text so substring matching applies against its
-        # serialized form rather than failing at the SQL layer.
-        if self.data_contains is not None:
-            yield self._sql_match_string_contains(cast(columns.data, Text), self.data_contains)
-        if self.data_prefix is not None:
-            yield self._sql_match_string_prefix(cast(columns.data, Text), self.data_prefix)
-        if self.data_suffix is not None:
-            yield self._sql_match_string_suffix(cast(columns.data, Text), self.data_suffix)
 
 
 class AlertCreate(BaseRecordCreate, slots=True):
@@ -279,7 +158,6 @@ class AlertQuery(
 class AlertManager(
     BaseEntityManager[
         "Alert",
-        AlertRow,
         AlertCreate,
         AlertUpdate,
         AlertFilter,
@@ -420,7 +298,7 @@ class AlertOutputChannel(
 class Alert(
     BaseRecord,
     AlertCreate,
-    ConcreteEntity[AlertRow],
+    ConcreteEntity,
     slots=True,
 ):
     """Severity-tagged event raised by a component or engine and persisted as a record.

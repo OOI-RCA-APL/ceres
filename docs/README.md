@@ -1,5 +1,10 @@
 # Ceres
 
+<!-- coverage:badge -->
+![Python Coverage: 87%](https://img.shields.io/badge/python%20coverage-87%25-yellowgreen)
+![Rust Coverage: 72%](https://img.shields.io/badge/rust%20coverage-72%25-yellow)
+<!-- /coverage:badge -->
+
 Ceres is a Python framework for building data collection, monitoring, and device control systems. It takes ideas from service management tools like Docker and SystemD, scales them down, and applies them to Python objects called _components_.
 
 Components are async Python classes that run concurrently, communicate through events, and persist their state in a database. They can connect to remote instruments over TCP, parse incoming data into structured records, emit alerts, and be managed through a CLI or web console.
@@ -15,9 +20,7 @@ That said, Ceres is a general-purpose framework. It can manage any collection of
 ## Quick Example
 
 ```python
-from asyncio import sleep
-
-from ceres import Component, routine
+from ceres import Component, routine, sleep
 
 
 class Counter(Component):
@@ -37,7 +40,7 @@ class Counter(Component):
 # ceres.yaml
 database:
   type: sqlite
-  path: ./local/database.sqlite
+  path: ./database.sqlite
 
 components:
   - name: counter-a
@@ -62,13 +65,22 @@ ceres service stop        # Stop the background service.
 
 ## Documentation
 
+Start here:
+
 - [Installing](installing.md): Install Ceres and set up a project.
 - [Getting Started](getting-started.md): Build your first Ceres project from scratch.
-- [Writing a Driver](writing-a-driver.md): Build an instrument driver with connections and data parsing.
-- [Components](components.md): The core abstraction: routines, events, records.
+- [Components](components.md): The core abstraction, routines, events, records.
 - [Connections](connections.md): Connect to remote instruments and parse data.
-- [Configuration](configuration.md): Full `ceres.yaml` reference.
-- [CLI](cli.md): Command-line interface reference.
+- [Writing a Driver](writing-a-driver.md): Build an instrument driver end to end.
 - [Deployment](deployment.md): Run Ceres as a production service.
+
+Reference, generated from the code and checked in CI:
+
+- [Configuration](reference/configuration.md): Every `ceres.yaml` key.
+- [CLI](reference/cli.md): Every command and option.
+- [HTTP API](reference/http-api.md): Every route the engine serves.
+- [Python API](reference/python-api.md): Every name `ceres` exports.
+
+Contributing:
+
 - [Development](development.md): Set up a dev environment and contribute to Ceres.
-- [API Reference](api-reference.md): Auto-generated Python API docs.

@@ -1,0 +1,523 @@
+{
+  "alerts": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": "now()",
+        "name": "timestamp",
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      {
+        "default": null,
+        "name": "level",
+        "nullable": false,
+        "type": "character varying"
+      },
+      {
+        "default": null,
+        "name": "type",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": "'{}'::json",
+        "name": "data",
+        "nullable": false,
+        "type": "json"
+      }
+    ],
+    "constraints": [
+      "CHECK (((level)::text = ANY (ARRAY[('debug'::character varying)::text, ('info'::character varying)::text, ('warning'::character varying)::text, ('error'::character varying)::text, ('critical'::character varying)::text])))",
+      "PRIMARY KEY (id)"
+    ],
+    "indexes": [
+      "CREATE INDEX ix_alerts__address ON alerts USING btree (address)",
+      "CREATE INDEX ix_alerts__timestamp ON alerts USING btree (\"timestamp\")",
+      "CREATE INDEX ix_alerts__type ON alerts USING gin (type gin_trgm_ops)",
+      "CREATE UNIQUE INDEX pk_alerts ON alerts USING btree (id)"
+    ]
+  },
+  "group_memberships": {
+    "columns": [
+      {
+        "default": null,
+        "name": "user_id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "group_id",
+        "nullable": false,
+        "type": "uuid"
+      }
+    ],
+    "constraints": [
+      "FOREIGN KEY (group_id) REFERENCES groups(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "PRIMARY KEY (user_id, group_id)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX pk_group_memberships ON group_memberships USING btree (user_id, group_id)"
+    ]
+  },
+  "group_permissions": {
+    "columns": [
+      {
+        "default": null,
+        "name": "group_id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "target_type",
+        "nullable": false,
+        "type": "character varying"
+      },
+      {
+        "default": null,
+        "name": "target",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "level",
+        "nullable": false,
+        "type": "character varying"
+      }
+    ],
+    "constraints": [
+      "CHECK (((level)::text = ANY (ARRAY[('view'::character varying)::text, ('operate'::character varying)::text, ('manage'::character varying)::text])))",
+      "CHECK (((target_type)::text = ANY (ARRAY[('component'::character varying)::text, ('tag'::character varying)::text, ('all'::character varying)::text])))",
+      "FOREIGN KEY (group_id) REFERENCES groups(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "PRIMARY KEY (group_id, target_type, target)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX pk_group_permissions ON group_permissions USING btree (group_id, target_type, target)"
+    ]
+  },
+  "groups": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "name",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": "''::text",
+        "name": "description",
+        "nullable": false,
+        "type": "text"
+      }
+    ],
+    "constraints": [
+      "PRIMARY KEY (id)",
+      "UNIQUE (name)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX pk_groups ON groups USING btree (id)",
+      "CREATE UNIQUE INDEX uq_groups__name ON groups USING btree (name)"
+    ]
+  },
+  "logs": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": "now()",
+        "name": "timestamp",
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      {
+        "default": null,
+        "name": "level",
+        "nullable": false,
+        "type": "character varying"
+      },
+      {
+        "default": null,
+        "name": "content",
+        "nullable": false,
+        "type": "text"
+      }
+    ],
+    "constraints": [
+      "CHECK (((level)::text = ANY (ARRAY[('debug'::character varying)::text, ('info'::character varying)::text, ('warning'::character varying)::text, ('error'::character varying)::text, ('critical'::character varying)::text])))",
+      "PRIMARY KEY (id)"
+    ],
+    "indexes": [
+      "CREATE INDEX ix_logs__address ON logs USING btree (address)",
+      "CREATE INDEX ix_logs__content ON logs USING gin (content gin_trgm_ops)",
+      "CREATE INDEX ix_logs__timestamp ON logs USING btree (\"timestamp\")",
+      "CREATE UNIQUE INDEX pk_logs ON logs USING btree (id)"
+    ]
+  },
+  "messages": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": "now()",
+        "name": "timestamp",
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      {
+        "default": null,
+        "name": "connection",
+        "nullable": true,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "direction",
+        "nullable": false,
+        "type": "character varying"
+      },
+      {
+        "default": null,
+        "name": "data",
+        "nullable": false,
+        "type": "bytea"
+      }
+    ],
+    "constraints": [
+      "CHECK (((direction)::text = ANY (ARRAY[('send'::character varying)::text, ('receive'::character varying)::text])))",
+      "PRIMARY KEY (id)"
+    ],
+    "indexes": [
+      "CREATE INDEX ix_messages__address ON messages USING btree (address)",
+      "CREATE INDEX ix_messages__connection ON messages USING btree (connection)",
+      "CREATE INDEX ix_messages__data ON messages USING gin (ceres_tokenize_bytes(data) gin_trgm_ops)",
+      "CREATE INDEX ix_messages__timestamp ON messages USING btree (\"timestamp\")",
+      "CREATE UNIQUE INDEX pk_messages ON messages USING btree (id)"
+    ]
+  },
+  "migrations": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "integer"
+      },
+      {
+        "default": "now()",
+        "name": "applied_at",
+        "nullable": false,
+        "type": "timestamp with time zone"
+      }
+    ],
+    "constraints": [
+      "PRIMARY KEY (id)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX migrations_pkey ON migrations USING btree (id)"
+    ]
+  },
+  "particles": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": "now()",
+        "name": "timestamp",
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      {
+        "default": null,
+        "name": "type",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "data",
+        "nullable": false,
+        "type": "json"
+      }
+    ],
+    "constraints": [
+      "PRIMARY KEY (id)"
+    ],
+    "indexes": [
+      "CREATE INDEX ix_particles__address ON particles USING btree (address)",
+      "CREATE INDEX ix_particles__timestamp ON particles USING btree (\"timestamp\")",
+      "CREATE INDEX ix_particles__type ON particles USING gin (type gin_trgm_ops)",
+      "CREATE UNIQUE INDEX pk_particles ON particles USING btree (id)"
+    ]
+  },
+  "settings": {
+    "columns": [
+      {
+        "default": null,
+        "name": "user_id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "name",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "value",
+        "nullable": false,
+        "type": "json"
+      }
+    ],
+    "constraints": [
+      "FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "PRIMARY KEY (user_id, name)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX pk_settings ON settings USING btree (user_id, name)"
+    ]
+  },
+  "user_permissions": {
+    "columns": [
+      {
+        "default": null,
+        "name": "user_id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "target_type",
+        "nullable": false,
+        "type": "character varying"
+      },
+      {
+        "default": null,
+        "name": "target",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "level",
+        "nullable": false,
+        "type": "character varying"
+      }
+    ],
+    "constraints": [
+      "CHECK (((level)::text = ANY (ARRAY[('view'::character varying)::text, ('operate'::character varying)::text, ('manage'::character varying)::text])))",
+      "CHECK (((target_type)::text = ANY (ARRAY[('component'::character varying)::text, ('tag'::character varying)::text, ('all'::character varying)::text])))",
+      "FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "PRIMARY KEY (user_id, target_type, target)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX pk_user_permissions ON user_permissions USING btree (user_id, target_type, target)"
+    ]
+  },
+  "users": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "username",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "email",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "password",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": "false",
+        "name": "disabled",
+        "nullable": false,
+        "type": "boolean"
+      },
+      {
+        "default": "false",
+        "name": "admin",
+        "nullable": false,
+        "type": "boolean"
+      }
+    ],
+    "constraints": [
+      "PRIMARY KEY (id)",
+      "UNIQUE (username)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX pk_users ON users USING btree (id)",
+      "CREATE UNIQUE INDEX uq_users__username ON users USING btree (username)"
+    ]
+  },
+  "variables": {
+    "columns": [
+      {
+        "default": null,
+        "name": "address",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "name",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "value",
+        "nullable": false,
+        "type": "json"
+      }
+    ],
+    "constraints": [
+      "PRIMARY KEY (address, name)"
+    ],
+    "indexes": [
+      "CREATE INDEX ix_variables__address ON variables USING btree (address)",
+      "CREATE UNIQUE INDEX pk_variables ON variables USING btree (address, name)"
+    ]
+  },
+  "workspace_edits": {
+    "columns": [
+      {
+        "default": null,
+        "name": "user_id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "workspace_id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "data",
+        "nullable": false,
+        "type": "json"
+      }
+    ],
+    "constraints": [
+      "FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "PRIMARY KEY (workspace_id, user_id)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX pk_workspace_edits ON workspace_edits USING btree (workspace_id, user_id)"
+    ]
+  },
+  "workspaces": {
+    "columns": [
+      {
+        "default": null,
+        "name": "id",
+        "nullable": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "name",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": "'{}'::json",
+        "name": "data",
+        "nullable": false,
+        "type": "json"
+      },
+      {
+        "default": "'~'::text",
+        "name": "scope",
+        "nullable": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "owner_id",
+        "nullable": true,
+        "type": "uuid"
+      },
+      {
+        "default": "false",
+        "name": "show_when_logged_out",
+        "nullable": false,
+        "type": "boolean"
+      }
+    ],
+    "constraints": [
+      "FOREIGN KEY (owner_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE",
+      "PRIMARY KEY (id)"
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX pk_workspaces ON workspaces USING btree (id)"
+    ]
+  }
+}

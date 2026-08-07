@@ -1,0 +1,52 @@
+[workspace]
+resolver = "3"
+members = [
+    "ceres-cli",
+    "ceres-config",
+    "ceres-core",
+    "ceres-database",
+    "ceres-entities",
+    "ceres-macros",
+    "ceres-server",
+    "ceres-stubs",
+]
+
+# The extension module builds through maturin and as `ceres-stubs`'s build dependency. Leaving
+# it out of the default set keeps those the only builds, because a third one in the same
+# invocation collides with the build-dependency copy on identical output filenames.
+default-members = [
+    "ceres-cli",
+    "ceres-config",
+    "ceres-database",
+    "ceres-entities",
+    "ceres-macros",
+    "ceres-server",
+    "ceres-stubs",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/jploskey/ceres"
+
+[workspace.lints.clippy]
+uninlined_format_args = "warn"
+semicolon_if_nothing_returned = "warn"
+
+# The CLI binary ships in the wheel as an artifact dependency of the extension's build
+# script, and build dependencies compile under this override profile, which defaults to
+# opt-level 0. Without the override a release wheel would carry an unoptimized binary
+# nearly three times the size of a real release build.
+[profile.release.build-override]
+opt-level = 3
+
+# Panics still name their line, but the full DWARF that dominates unoptimized build and
+# link time is not generated. Nothing that compiles this profile runs under a debugger.
+[profile.dev]
+debug = "line-tables-only"
+
+# Dependencies are optimized and the workspace is not, so tests run against fast database
+# and crypto code while the crates under edit stay quick to rebuild. Their cost is paid
+# once, because dependencies are what the build cache keeps.
+[profile.dev.package."*"]
+opt-level = 2

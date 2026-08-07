@@ -450,14 +450,20 @@ async def test_routines() -> None:
 
 
 async def test_routines_wait_on_cancellation() -> None:
+    from tests.testing import wait_for_condition
+
     class Test(Component):
         @override
         def __setup__(self) -> None:
+            self.started = False
             self.count = 0
             self.cancelled = False
 
         @routine
         async def main(self) -> None:
+            # No await sits between the flag and the try, so a cancellation seen after
+            # the flag always lands inside it.
+            self.started = True
             try:
                 await sleep(100)
             except CancelledError:
@@ -469,7 +475,7 @@ async def test_routines_wait_on_cancellation() -> None:
 
     component = Test()
     component.system.start()
-    await sleep(0.5)
+    await wait_for_condition("the routine enters its sleep", lambda: component.started, 30)
     await component.system.stop()
     assert not component.system.running
     assert component.cancelled
@@ -574,7 +580,7 @@ async def test_component_system_get_resolved_access_falls_back_to_config_default
     config = validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "access": "operate",
             "components": [{"name": "leaf", "class": "ceres.component:Component"}],
         },
@@ -593,7 +599,7 @@ async def test_component_system_get_resolved_access_ancestor_wins_over_config_de
     config = validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "access": "operate",
             "components": [
                 {
@@ -625,7 +631,7 @@ async def test_component_system_get_inherited_tags_falls_back_to_config_default(
     config = validate(
         Config,
         {
-            "database": {"type": "sqlite", "path": ":memory:"},
+            "database": {"type": "sqlite"},
             "tags": ["site"],
             "components": [{"name": "leaf", "class": "ceres.component:Component"}],
         },

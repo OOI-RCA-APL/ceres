@@ -1,11 +1,18 @@
-from typing import TYPE_CHECKING, TypeGuard
+"""Password hashing and verification.
 
-from ceres.config import Argon2HashingConfig, BCryptHashingConfig, HashingConfig
+Argon2 is the native implementation's, called through `ceres.__internal__.core` rather than
+reimplemented here, so a password hashed by a native command and one hashed through the
+entity manager cannot drift apart. bcrypt stays on its Python library, being the
+configurable alternative rather than the default.
+"""
+
+from typing import TypeGuard
+
+# The configuration getters return the native base classes, and the Python subclasses in
+# `ceres.config` extend them, so matching against the bases covers both.
+from ceres.__internal__.core import Argon2HashingConfig, BCryptHashingConfig
 from ceres.config import HashType as HashType
 from ceres.data import Argon2Hash, BCryptHash, Password, PasswordHash, validate
-
-if TYPE_CHECKING:
-    from argon2 import PasswordHasher
 
 
 def get_password_hash_type(hash: str) -> HashType | None:
@@ -46,7 +53,10 @@ def verify_password_hash(hash: str) -> TypeGuard[PasswordHash]:
     return get_password_hash_type(hash) is not None
 
 
-def get_password_hash(password: Password, config: HashingConfig) -> PasswordHash:
+def get_password_hash(
+    password: Password,
+    config: BCryptHashingConfig | Argon2HashingConfig,
+) -> PasswordHash:
     """Hash a plaintext password using the algorithm specified by `config`.
 
     Args:
@@ -62,18 +72,29 @@ def get_password_hash(password: Password, config: HashingConfig) -> PasswordHash
     """
     match config:
         case BCryptHashingConfig():
-            from bcrypt import gensalt, hashpw
+            from ceres.__internal__.core import hash_bcrypt
 
-            return BCryptHash(
-                hashpw(
-                    password.encode(),
-                    gensalt(config.rounds),
-                ).decode()
-            )
+            hashed = hash_bcrypt(password, config.rounds)
+            if hashed is None:
+                raise ValueError("bcrypt cost out of range.")
+
+            return BCryptHash(hashed)
 
         case Argon2HashingConfig():
-            hasher = _create_argon2_hasher(config)
-            return Argon2Hash(hasher.hash(password))
+            from ceres.__internal__.core import hash_argon2
+
+            hashed = hash_argon2(
+                password,
+                config.time_cost,
+                config.memory_cost,
+                config.parallelism,
+                config.hash_length,
+                config.salt_length,
+            )
+            if hashed is None:
+                raise ValueError("Argon2 parameters out of range.")
+
+            return Argon2Hash(hashed)
 
     raise ValueError("Unsupported hashing configuration.")
 
@@ -81,57 +102,17 @@ def get_password_hash(password: Password, config: HashingConfig) -> PasswordHash
 def verify_password(password: str, hash: PasswordHash) -> bool:
     """Verify that `password` matches the given `hash`.
 
-    Detect the hash algorithm automatically and delegate to the appropriate verification
-    function.
+    The algorithm is read off the stored hash rather than taken from the configuration, so
+    a row written before a database's hashing was changed still verifies.
 
     Args:
         password: The plaintext password to check.
         hash: A previously generated password hash.
 
     Returns:
-        ``True`` if the password matches the hash, ``False`` otherwise (including for
-        unrecognized hash formats or verification errors).
+        `True` if the password matches the hash, `False` otherwise, an unrecognized hash
+        format included.
     """
-    match get_password_hash_type(hash):
-        case HashType.BCRYPT:
-            from bcrypt import checkpw
+    from ceres.__internal__.core import verify_password as verify
 
-            try:
-                return checkpw(password.encode(), hash.encode())
-            except ValueError:
-                return False
-        case HashType.ARGON2:
-            from argon2.exceptions import Argon2Error
-
-            hasher = _create_argon2_hasher()
-            try:
-                return hasher.verify(hash, password)
-            except Argon2Error:
-                return False
-        case None:
-            return False
-
-    return False
-
-
-def _create_argon2_hasher(config: Argon2HashingConfig | None = None) -> PasswordHasher:
-    """Create an argon2 ``PasswordHasher`` with the given configuration.
-
-    Args:
-        config: Argon2 parameters. If ``None``, use default ``Argon2HashingConfig`` values.
-
-    Returns:
-        A configured ``PasswordHasher`` instance.
-    """
-    if config is None:
-        config = Argon2HashingConfig()
-
-    from argon2 import PasswordHasher
-
-    return PasswordHasher(
-        time_cost=config.time_cost,
-        memory_cost=config.memory_cost,
-        parallelism=config.parallelism,
-        hash_len=config.hash_length,
-        salt_len=config.salt_length,
-    )
+    return verify(password, hash)

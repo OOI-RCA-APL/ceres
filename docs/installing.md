@@ -5,14 +5,12 @@
 - [Python 3.14+](https://www.python.org/downloads/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
-## Creating a Project
-
-Initialize a new project with `uv` and add Ceres as a dependency from GitHub.
+## Creating A Project
 
 ```sh
 mkdir my-project && cd my-project
 uv init
-uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git
+uv add ceres-engine
 ```
 
 Activate the virtual environment to make the `ceres` command available.
@@ -22,45 +20,53 @@ source .venv/bin/activate
 ceres --version
 ```
 
-You can also install with `pip` if you prefer.
+`pip install ceres-engine` works the same way.
+
+The distribution is called `ceres-engine` because the bare name on PyPI belongs to an
+unrelated project. It imports as `ceres` regardless, and nothing in your code or
+configuration refers to the distribution name.
+
+## Installing From The Project's Own Index
+
+Every release is also published to a package index alongside this documentation, serving
+the wheels attached to each
+[GitHub release](https://github.com/OOI-RCA-APL/ceres/releases). The bare name is
+available there.
 
 ```sh
-pip install git+ssh://git@github.com/OOI-RCA-APL/ceres.git
+uv add ceres --index https://ooi-rca-apl.github.io/ceres/simple/
 ```
 
-## Installing a Specific Version
+Record the index in your project to keep using plain `uv add ceres` and `uv sync` without
+repeating the flag.
 
-Append `@<version>` to the URL, where `<version>` is a tag from [releases](https://github.com/OOI-RCA-APL/ceres/releases).
+```toml
+[[tool.uv.index]]
+name = "ceres"
+url = "https://ooi-rca-apl.github.io/ceres/simple/"
+```
+
+Both names install the same wheels from the same build. Use PyPI unless you have a reason
+not to, and this index when you want the bare `ceres` name or are pinned to a deployment
+that already resolves against it.
+
+## Wheels And Building From Source
+
+Ceres ships pre-built wheels for Linux (x86_64 and aarch64), macOS (Apple Silicon and
+Intel), and Windows (x64), for both the standard and free-threaded CPython builds, so
+installing never compiles anything.
+
+On a platform without a pre-built wheel, the install falls back to building from source.
+That needs [rustup](https://rustup.rs) and takes a while, but produces the same result,
+because the build pins its own toolchain and includes the `ceres` command. `python -m
+ceres` runs that command too.
+
+## Installing A Specific Version
+
+Constrain the version as you would any dependency. Released versions are listed on the
+[releases page](https://github.com/OOI-RCA-APL/ceres/releases) and described in the
+[changelog](https://github.com/OOI-RCA-APL/ceres/blob/main/CHANGELOG.md).
 
 ```sh
-uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git@0.39.0
+uv add ceres-engine==0.41.0
 ```
-
-## GitHub Deploy Keys
-
-When deploying to a server that does not have your personal SSH credentials, you need a [GitHub deploy key](https://docs.github.com/en/rest/deploy-keys/deploy-keys?apiVersion=2022-11-28) for the repository.
-
-1. Generate a key pair on the server.
-
-    ```sh
-    ssh-keygen -t ed25519 -f ~/.ssh/ceres-deploy-key -N ""
-    ```
-
-2. Add the public key (`~/.ssh/ceres-deploy-key.pub`) to the [OOI-RCA-APL/ceres](https://github.com/OOI-RCA-APL/ceres) repository as a deploy key. If you don't have permissions, send the public key to a repository admin.
-
-3. Configure SSH to use the deploy key for this repository. Add the following to `~/.ssh/config`:
-
-    ```
-    Host ceres.github.com
-        Hostname github.com
-        IdentityFile=~/.ssh/ceres-deploy-key
-    ```
-
-4. Tell Git to route requests for this repository through the alias.
-
-    ```sh
-    git config --global url.'ssh://git@ceres.github.com/OOI-RCA-APL/ceres.git'.insteadOf \
-        'ssh://git@github.com/OOI-RCA-APL/ceres.git'
-    ```
-
-After this, `uv add` and `pip install` commands will use the deploy key automatically.

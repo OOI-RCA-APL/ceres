@@ -1,7 +1,7 @@
 import pytest
 
 from ceres import Address, Component, Engine, action
-from ceres.__internal__.app.api.routes.components import (
+from ceres.__internal__.app.handlers.components import (
     get_component_config,
     get_component_connections,
     get_component_jobs,

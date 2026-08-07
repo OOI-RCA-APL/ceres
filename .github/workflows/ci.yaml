@@ -6,6 +6,9 @@ on:
   pull_request:
     branches:
       - main
+  # The release workflow runs these same checks as its gate before building wheels, so the
+  # two cannot drift apart.
+  workflow_call:
 jobs:
   main:
     strategy:
@@ -40,9 +43,18 @@ jobs:
           --health-retries 5
     env:
       CERES_TEST_POSTGRES_URL: postgresql+asyncpg://ceres:ceres@localhost:5432/ceres
+      # Nothing here needs an optimized build, and the release profile is most of the run.
+      PROFILE: dev
+      # A cold one-shot build pays incremental's overhead and caches its output for nobody.
+      CARGO_INCREMENTAL: 0
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Free Disk Space
+        # The workspace compiles in both debug and release, and the artifacts are large
+        # enough to overflow the runner's disk unless the preinstalled toolchains nothing
+        # here uses are removed first.
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/hostedtoolcache/CodeQL
       - name: Install Node
         uses: actions/setup-node@v6
         with:
@@ -52,10 +64,36 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: false
+      # No explicit Rust install. The preinstalled rustup resolves rust-toolchain.toml on
+      # the first cargo command, fetching the pinned nightly and its components, so the
+      # pin lives in exactly one place.
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          # The action keys on the lockfile and the toolchain, so a profile or flag change
+          # reuses a key that already exists, and a cache entry cannot be overwritten.
+          key: ${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
       - name: Install
         run: make install
       - name: Lint
         run: make lint
+      # Ahead of the tests, because a migration that changed the schema without recording
+      # it fails here in seconds and there in minutes, saying the same thing either way.
+      # This refuses a backend it cannot reach as well as one that has drifted, so the
+      # three files are checked or the step fails rather than quietly covering two.
+      - name: Check Recorded Schema
+        run: make schema-check
+      # The check hashes the source and test files rather than rerunning the suites, so a
+      # change that could move the numbers fails in seconds until `make coverage` records
+      # fresh tables.
+      - name: Check Recorded Coverage
+        run: make coverage-check
+      # The reference pages are rendered from the configuration schema, the command tree,
+      # the API document, and the package's exports, so a surface that moved without the
+      # pages moving with it fails here.
+      - name: Check Generated Reference
+        run: make reference-check
       - name: Test
         run: make test
       - name: Build

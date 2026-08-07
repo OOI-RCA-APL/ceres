@@ -1,14 +1,12 @@
-from typing import Unpack
+from typing import Any, Unpack
 
 from pydantic import Field
-from sqlalchemy import func, select
 
 from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
 from ceres.__internal__.manager import BaseDatabaseManager
 from ceres.__internal__.utilities.functions import call_partial
 from ceres.address import Address, AddressSelector
-from ceres.alert import Alert
 from ceres.data import DataObject, DateTime
 from ceres.level import Level
 
@@ -121,42 +119,61 @@ class StatisticsManager(BaseDatabaseManager):
             .with_defaults(self._construct_filter_defaults())
         )
 
-        statement = select(Alert.Row.address, Alert.Row.level, func.count()).group_by(
-            Alert.Row.address,
-            Alert.Row.level,
-        )
-
-        if filter.after is not None:
-            statement = statement.where(Alert.Row.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(Alert.Row.timestamp < filter.before)
-
         results: dict[Address, Statistics] = {}
 
         with wrap_database_errors():
-            async with await self.__database__.use() as connection:
-                for address, level, count in await connection.execute(statement):
-                    address: Address
-                    for ancestor in address.path:
-                        if filter.root is not None:
-                            if not filter.root.contains(ancestor):
-                                continue
+            for address, level, count in await self._counts(filter):
+                for ancestor in address.path:
+                    if filter.root is not None:
+                        if not filter.root.contains(ancestor):
+                            continue
 
-                        current = results.setdefault(ancestor, Statistics(address=ancestor))
-                        current.alerts.count += count
-                        for entry in current.alerts.levels:
-                            if entry.level == level:
-                                entry.count += count
-                                break
-                        else:
-                            current.alerts.levels.append(LevelStatistics(level=level, count=count))
-                            current.alerts.levels.sort(key=lambda entry: entry.level)
+                    current = results.setdefault(ancestor, Statistics(address=ancestor))
+                    current.alerts.count += count
+                    for entry in current.alerts.levels:
+                        if entry.level == level:
+                            entry.count += count
+                            break
+                    else:
+                        current.alerts.levels.append(LevelStatistics(level=level, count=count))
+                        current.alerts.levels.sort(key=lambda entry: entry.level)
 
         return list(
             result
             for result in results.values()
             if filter.address is None or filter.address.matches(result.address, relative_to)
         )
+
+    async def _counts(self, filter: StatisticsFilter) -> list[tuple[Address, Level, int]]:
+        """How many alerts each address holds at each level, within the filter's window.
+
+        The grouping is the whole query, so this is one aggregate rather than a listing the
+        caller counts, and the window is the only thing narrowing it. Ancestor propagation
+        happens above, on far fewer rows than the alerts themselves.
+        """
+        database = self.__database__
+        await database.ready()
+
+        postgres = database.type.value == "postgres"
+        conditions: list[str] = []
+        parameters: list[Any] = []
+        for operator, bound in ((">=", filter.after), ("<", filter.before)):
+            if bound is None:
+                continue
+
+            parameters.append(bound)
+            # PostgreSQL numbers its placeholders, the SQLite family takes them in order.
+            marker = f"${len(parameters)}" if postgres else "?"
+            conditions.append(f'"timestamp" {operator} {marker}')
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = await database._store().fetch(
+            f'SELECT "address", "level", COUNT(*) AS "count" FROM "alerts"{where} '
+            'GROUP BY "address", "level"',
+            parameters,
+            "alerts",
+        )
+        return [(Address(row["address"]), Level(row["level"]), row["count"]) for row in rows]
 
     def _construct_filter_defaults(self) -> StatisticsFilter | None:
         return call_partial(StatisticsFilter, **self.__get_filter_defaults__())

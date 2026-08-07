@@ -1,11 +1,6 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Unpack, override
 
-from sqlalchemy import Index, LargeBinary, func
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import expression
-
-from ceres.__internal__.database.types import EnumConstraint, EnumMapper, TextMapper
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
@@ -23,21 +18,14 @@ from ceres.__internal__.record import (
     BaseRecordFilter,
     BaseRecordFilterArgs,
     BaseRecordOrder,
-    BaseRecordRow,
     BaseRecordUpdate,
 )
 from ceres.data import BytesFromString, BytesToString, MaybeSequence, StrEnum
-from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from uuid import UUID
 
-    from sqlalchemy import SQLColumnExpression
-    from sqlalchemy.schema import SchemaItem
-
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
-    from ceres.database import DatabaseType
 
 __all__ = [
     "Message",
@@ -63,40 +51,6 @@ type MessageData = Annotated[
     BytesToString("latin-1", "ignore"),
 ]
 """Raw message payload bytes, serialized to and from `latin-1` strings for transport."""
-
-
-class MessageRow(BaseRecordRow, kw_only=True):
-    """SQLAlchemy row type backing the `Message` entity."""
-
-    __tablename__: ClassVar[str] = "messages"
-
-    connection: Mapped[str | None] = mapped_column(
-        TextMapper(),
-        nullable=True,
-        default=None,
-        server_default=expression.null(),
-    )
-    direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
-    data: Mapped[bytes] = mapped_column(LargeBinary)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__connection", cls.connection),
-            EnumConstraint(cls.direction, MessageDirection, f"ck_{cls.__tablename__}__direction"),
-            # On SQLite a plain B-tree index on the raw bytes is used.
-            Index(f"ix_{cls.__tablename__}__data", cls.data).ddl_if("sqlite"),
-            # On PostgreSQL the bytes are tokenized into a hex representation that supports
-            # trigram-based substring search via a GIN index.
-            Index(
-                f"ix_{cls.__tablename__}__data",
-                func.ceres_tokenize_bytes(cls.data).label("tokens"),
-                postgresql_ops={"tokens": "gin_trgm_ops"},
-                postgresql_using="gin",
-            ).ddl_if("postgresql"),
-        )
 
 
 type MessageField = (
@@ -140,6 +94,8 @@ class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     """Filter for selecting `Message` records by connection, direction, or payload contents."""
 
+    __table__: ClassVar[str] = "messages"
+
     connection: MaybeSequence[str] | None = None
     """Filter by `connection` being equal to one or more given strings."""
     connection_contains: MaybeSequence[str] | None = None
@@ -158,77 +114,6 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     """Filter by `data` starting with one or more given byte prefixes."""
     suffix: MaybeSequence[MessageData] | None = None
     """Filter by `data` ending with one or more given byte suffixes."""
-
-    @override
-    def _matches(self, obj: Message, *, now: datetime | None = None) -> bool:
-        now = utc(now)
-        if not super()._matches(obj, now=now):
-            return False
-
-        if self.connection is not None:
-            if obj.connection is None or not self._match_value(obj.connection, self.connection):
-                return False
-        if not self._match_string_contains(obj.connection, self.connection_contains):
-            return False
-        if not self._match_string_prefix(obj.connection, self.connection_prefix):
-            return False
-        if not self._match_string_suffix(obj.connection, self.connection_suffix):
-            return False
-
-        if not self._match_value(obj.direction, self.direction):
-            return False
-
-        if not self._match_value(obj.data, self.data):
-            return False
-        if not self._match_string_contains(obj.data, self.contains):
-            return False
-        if not self._match_string_prefix(obj.data, self.prefix):
-            return False
-        if not self._match_string_suffix(obj.data, self.suffix):
-            return False
-
-        return True
-
-    @classmethod
-    @override
-    def _get_row_cls(cls) -> type[MessageRow]:
-        return MessageRow
-
-    @override
-    def _get_where(
-        self,
-        dialect: DatabaseType,
-        *,
-        now: datetime | None = None,
-    ) -> Iterable[SQLColumnExpression[bool]]:
-        now = utc(now)
-        yield from super()._get_where(dialect, now=now)
-        columns = self._get_row_cls()
-
-        if self.connection is not None:
-            yield self._sql_match_value(columns.connection, self.connection)
-        if self.connection_contains is not None:
-            yield self._sql_match_string_contains(columns.connection, self.connection_contains)
-        if self.connection_prefix is not None:
-            yield self._sql_match_string_prefix(columns.connection, self.connection_prefix)
-        if self.connection_suffix is not None:
-            yield self._sql_match_string_suffix(columns.connection, self.connection_suffix)
-
-        if self.direction is not None:
-            yield self._sql_match_value(columns.direction, self.direction)
-
-        if self.data is not None:
-            yield self._sql_match_value(columns.data, self.data)
-
-        # How these are written depends on the backend, so they are left to compile time. Postgres
-        # searches the tokenized hex its trigram index is built over, while the SQLite family
-        # compares the bytes directly.
-        if self.contains is not None:
-            yield self._sql_match_bytes_contains(columns.data, self.contains)
-        if self.prefix is not None:
-            yield self._sql_match_bytes_prefix(columns.data, self.prefix)
-        if self.suffix is not None:
-            yield self._sql_match_bytes_suffix(columns.data, self.suffix)
 
 
 class MessageCreate(BaseRecordCreate, slots=True):
@@ -289,7 +174,6 @@ class MessageQuery(
 class MessageManager(
     BaseEntityManager[
         "Message",
-        MessageRow,
         MessageCreate,
         MessageUpdate,
         MessageFilter,
@@ -394,7 +278,7 @@ class MessageOutputChannel(
 class Message(
     BaseRecord,
     MessageCreate,
-    ConcreteEntity[MessageRow],
+    ConcreteEntity,
     slots=True,
 ):
     """A chunk of data sent or received on a connection.

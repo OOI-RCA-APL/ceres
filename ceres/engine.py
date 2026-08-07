@@ -259,16 +259,15 @@ class Engine(Node):
 
         await self.__node_sync__()
 
-        # Hydrate every component's persisted state in a single connection, then start each
-        # top-level component that is enabled.
-        async with await self.database.use() as connection:
-            components = self.get_components()
-            for component in components:
-                await component.system.__node_sync__(connection)
+        # Hydrate every component's persisted state, then start each top-level component
+        # that is enabled.
+        await self.database.ready()
+        for component in self.get_components():
+            await component.system.__node_sync__()
 
-            for system in list(self._components.values()):
-                if system.enabled:
-                    system.start(all_enabled=True)
+        for system in list(self._components.values()):
+            if system.enabled:
+                system.start(all_enabled=True)
 
         try:
             await super().__run__()
@@ -629,6 +628,13 @@ class Engine(Node):
                         "Impersonation is enabled. Any administrator can take on any other "
                         "user's identity without their password. This belongs in development, "
                         "turn off server.authentication.allow_impersonate in production."
+                    )
+
+                if authentication is not None and len(authentication.secret) < 32:
+                    self.log.warning(
+                        "The authentication secret is shorter than 32 characters. It signs "
+                        "every session token, and a short secret can be brute-forced offline "
+                        "from any captured token. Use a long random value in production."
                     )
 
                 try:

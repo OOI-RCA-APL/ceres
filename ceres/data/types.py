@@ -83,8 +83,9 @@ type Username = Annotated[
 
 
 def _validate_password(value: str) -> str:
-    # bcrypt has a hard 72-byte input limit, validate against the encoded byte length rather than
-    # character count to handle multi-byte characters correctly.
+    # bcrypt has a hard 72-byte input limit, which is the only real ceiling here. Validate
+    # the encoded byte length rather than the character count, so multi-byte characters are
+    # measured the way bcrypt measures them.
     byte_count = len(value.encode())
     if byte_count > 72:
         raise ValueError("password cannot exceed 72 bytes")
@@ -94,26 +95,38 @@ def _validate_password(value: str) -> str:
 
 type Password = Annotated[
     str,
-    StringConstraints(min_length=1, max_length=32),
+    StringConstraints(min_length=1),
     AfterValidator(_validate_password),
 ]
-"""User-supplied password, constrained to bcrypt's effective input limits."""
+"""User-supplied password, held to bcrypt's input limit and nothing narrower.
+
+A passphrase is a good password, so the only cap is the one the hashing actually imposes.
+A stored hash is longer than this allows and is not a `Password`, it is a `PasswordHash`,
+which the create and update models accept alongside this type.
+"""
 
 
 def _validate_email_address(value: str) -> str:
-    from email_validator import validate_email
+    from ceres.__internal__.core import normalize_email
 
-    # Skip deliverability checks because they require DNS lookups which are slow and would make
-    # validation depend on network availability.
-    validated = validate_email(value, check_deliverability=False)
-    return validated.normalized.lower()
+    normalized = normalize_email(value)
+    if normalized is None:
+        raise ValueError("value is not a deliverable email address")
+
+    return normalized
 
 
 type EmailAddress = Annotated[
     str,
     AfterValidator(_validate_email_address),
 ]
-"""RFC-compliant email address, normalized and lowercased on validation."""
+"""Email address, normalized to the single form Ceres stores.
+
+Normalizing composes the local part, applies UTS-46 to the domain, and lowercases the
+result, so a mailbox written in different cases, in punycode, or with decomposed accents
+stores and compares as one address. Deliverability is never checked, which would need a
+DNS lookup.
+"""
 
 BCryptHash: Final = NewType("BCryptHash", str)
 """A bcrypt password hash string, distinct from a plain `str` for type safety."""
@@ -352,6 +365,12 @@ def _pre_validate_timedelta(value: object) -> timedelta | None:
         try:
             # Try the standard ISO-8601 interval format first.
             return _TIMEDELTA_TYPE_ADAPTER.validate_python(value)
+        except Exception:
+            pass
+
+        # A bare number reads as seconds, like a numeric value would.
+        try:
+            return timedelta(seconds=float(value))
         except Exception:
             pass
 

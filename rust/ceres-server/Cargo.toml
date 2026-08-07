@@ -1,0 +1,66 @@
+[package]
+name = "ceres-server"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait = "0.1"
+# Pinned together, and below the latest, because axum 0.8.9's websocket support
+# requires a `tokio-tungstenite` release that is no longer published, and axum-extra
+# 0.12.6 requires exactly that axum. Bump both once axum's requirement resolves again.
+axum = { version = "=0.8.8", features = ["ws"] }
+axum-extra = { version = "=0.12.5", features = ["typed-routing"] }
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
+ceres-config = { path = "../ceres-config" }
+ceres-entities = { path = "../ceres-entities" }
+chrono = "0.4"
+fancy-regex = "0.16"
+form_urlencoded = "1"
+futures-util = { version = "0.3.33", default-features = false }
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+pkcs8 = { version = "0.10", features = ["encryption", "pem", "std"] }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+] }
+rustls-pemfile = "2"
+serde = { version = "1.0.229", features = ["derive"] }
+# `preserve_order` keeps envelope and payload keys in insertion order, matching the
+# Python layer's serialization byte for byte.
+serde_json = { version = "1", features = ["preserve_order"] }
+subtle = "2"
+thiserror = "2"
+tokio = { version = "1", default-features = false, features = [
+    "fs",
+    "io-util",
+    "macros",
+    "net",
+    "rt",
+] }
+tower = "0.5"
+tower-http = { version = "0.7", features = [
+    "compression-br",
+    "compression-gzip",
+    "compression-zstd",
+    "cors",
+    "fs",
+] }
+utoipa = "5.5.0"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+futures-util = "0.3.33"
+http-body-util = "0.1"
+rand_chacha = "0.3"
+rand_core = "0.6"
+rcgen = "0.14"
+tempfile = "3"
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "rt", "rt-multi-thread", "time"] }
+tokio-tungstenite = "0.28"
+
+[lints]
+workspace = true
