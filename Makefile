@@ -3,7 +3,10 @@ build: install
 	cd console && make build
 	mkdir -p ceres.__internal__.core.data/scripts
 	touch ceres.__internal__.core.data/scripts/.keep
-	uv build
+# Built one at a time, because a plain `uv build` builds the wheel from the unpacked sdist
+# in a temporary directory, sharing no compiled artifacts with the install above.
+	uv build --sdist
+	uv build --wheel
 install:
 	uv sync
 	cd console && make install
