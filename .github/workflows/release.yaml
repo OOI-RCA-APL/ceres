@@ -122,12 +122,19 @@ jobs:
         # the runner's own architecture install and run here.
         if: matrix.cross != true
         shell: bash
-        # The local wheel satisfies `ceres` because the released version is not on PyPI
-        # until the publish job after this one, while the dependencies resolve normally.
+        env:
+          STANDARD: ${{ steps.standard.outputs.python-path }}
+          FREETHREADED: ${{ steps.freethreaded.outputs.python-path }}
+        # Every interpreter installs and runs its own wheel, so one that builds but cannot
+        # import fails here. The first install refuses the index, because a version being
+        # rebuilt is already published and would otherwise satisfy this from PyPI.
         run: |
-          pip install --find-links dist ceres-engine
-          ceres --version
-          python -c "import ceres; print(ceres.__name__, 'imports')"
+          for python in "$STANDARD" "$FREETHREADED"; do
+            "$python" -m pip install --no-index --no-deps --find-links dist ceres-engine
+            "$python" -m pip install --find-links dist ceres-engine
+            "$python" -c "import ceres; print(ceres.__name__, 'imports')"
+            "$python" -m ceres --version
+          done
       - name: Upload Wheels
         uses: actions/upload-artifact@v4
         with:
