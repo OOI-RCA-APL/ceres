@@ -8,6 +8,10 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Fixes**
+
+- Fix engine commands failing to start when installed as `ceres-engine` from PyPI.
+
 ## [0.41.0] - 2026-08-07
 
 **Engine**
