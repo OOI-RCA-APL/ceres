@@ -71,6 +71,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          # The action keys on the lockfile and the toolchain, so a profile or flag change
+          # reuses a key that already exists, and a cache entry cannot be overwritten.
+          key: ${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
       - name: Install
         run: make install
       - name: Lint
