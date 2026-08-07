@@ -133,6 +133,9 @@ jobs:
             "$python" -m pip install --no-index --no-deps --find-links dist ceres-engine
             "$python" -m pip install --find-links dist ceres-engine
             "$python" -c "import ceres; print(ceres.__name__, 'imports')"
+            # Reads the distribution metadata, which names the wheel rather than the import
+            # package and has no checkout to fall back on once installed.
+            "$python" -c "from ceres.version import __version__; print(__version__)"
             "$python" -m ceres --version
           done
       - name: Upload Wheels
