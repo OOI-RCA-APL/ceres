@@ -134,8 +134,7 @@ For testing, you can write a simulator that mimics the sensor. Ceres provides `T
 from datetime import timedelta
 from typing import override
 
-from ceres import TCPClient, TCPServer
-from ceres.concurrency import sleep
+from ceres import TCPClient, TCPServer, sleep
 from ceres.data import TimeDelta
 
 

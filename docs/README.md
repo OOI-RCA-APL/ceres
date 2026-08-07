@@ -20,9 +20,7 @@ That said, Ceres is a general-purpose framework. It can manage any collection of
 ## Quick Example
 
 ```python
-from asyncio import sleep
-
-from ceres import Component, routine
+from ceres import Component, routine, sleep
 
 
 class Counter(Component):

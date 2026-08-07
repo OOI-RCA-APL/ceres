@@ -9,12 +9,10 @@ A component's configuration is defined by the typed attributes in its class. All
 ### Example
 
 ```python
-import asyncio
-from asyncio import sleep
 from datetime import timedelta
 from random import randint
 
-from ceres import Component, routine
+from ceres import Component, routine, sleep
 from ceres.data import TimeDelta
 
 
@@ -24,10 +22,10 @@ class Random(Component):
     interval: TimeDelta = timedelta(seconds=1)
 
     @routine
-    async def routine__print_random(self) -> None:
+    async def print_random(self) -> None:
         while True:
             self.system.log.info(randint(self.low, self.high))
-            await sleep(self.interval.total_seconds())
+            await sleep(self.interval)
 ```
 
 ```yaml
@@ -103,16 +101,20 @@ A component's address describes its position in the tree. `@` is the absolute-ad
 Routines are async methods that execute concurrently when a component starts and are cancelled when it stops. Define them with the `@routine` decorator.
 
 ```python
-from ceres import Component, routine
+from ceres import Component, routine, sleep
 
 
 class Example(Component):
     @routine
-    async def routine__do_work(self) -> None:
+    async def do_work(self) -> None:
         while True:
             self.system.log.info("Working...")
             await sleep(1)
 ```
+
+Use Ceres's `sleep` rather than `asyncio.sleep`. It takes seconds, a `timedelta`, or `...`
+to sleep until the routine is cancelled, which is how a routine waits for events rather
+than polling.
 
 ### Restart Policies
 
@@ -120,7 +122,7 @@ By default, routines run once. If they complete or crash, they are not restarted
 
 ```python
 @routine(restart="always", restart_delay=5)
-async def routine__resilient(self) -> None:
+async def resilient(self) -> None:
     ...
 ```
 
@@ -131,7 +133,8 @@ Restart options:
 - `"on-completed"`: Restart only if the routine returns normally.
 - `"on-exception"`: Restart only if the routine raises an exception.
 
-`restart_delay` specifies seconds to wait before restarting.
+`restart_delay` is how long to wait before restarting, as seconds or a duration, and
+defaults to one second.
 
 ## Queries and Actions
 
@@ -160,6 +163,10 @@ Both decorators accept a `permit` parameter controlling who can call them. It ta
 - `"view"` (default for queries): Requires `VIEW` access or higher.
 - `"operate"` (default for actions): Requires `OPERATE` access or higher.
 - `"manage"`: Requires `MANAGE` access.
+- `"deny"`: Nobody can call it over the API.
+
+`@query` also takes `poll`, how often the console refreshes the value, defaulting to five
+seconds. Both decorators take `media` to declare a response content type.
 
 ## Events
 

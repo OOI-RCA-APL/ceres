@@ -17,9 +17,7 @@ A component is an async Python class. Its annotated attributes are configuration
 
 ```python
 # counter.py
-from asyncio import sleep
-
-from ceres import Component, routine
+from ceres import Component, routine, sleep
 
 
 class Counter(Component):
