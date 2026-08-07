@@ -13,6 +13,8 @@ description = "A Python framework for data collection, monitoring and device con
 # The documentation home page doubles as the rendered description on PyPI, which is why its
 # links and images are absolute rather than relative to the repository.
 readme = "docs/README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Jake Ploskey", email = "jploskey@uw.edu" }]
 requires-python = ">=3.14"
 dependencies = [

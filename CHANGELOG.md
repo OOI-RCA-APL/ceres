@@ -46,6 +46,7 @@ written, and the release workflow refuses a version that has no entry here.
   longer requires a Rust toolchain or GitHub access, `uv add ceres-engine` is all it takes. On
   platforms without a pre-built wheel, installing builds from source with a pinned
   toolchain and produces an identical result, native CLI included.
+- Release under the MIT license.
 
 ## [0.40.0] - 2026-05-05
 
