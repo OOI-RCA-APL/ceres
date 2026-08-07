@@ -28,8 +28,10 @@ install:
 update:
 	uv update
 	cd console && make update
+# Distributed across cores, which needs the capture that `-s` in the pytest options turns
+# off. A bare `pytest` still runs serially, where `-s` is what makes a single test readable.
 test:
-	uv run pytest -vv -s
+	uv run pytest -n auto --capture=fd
 	cd rust && cargo test && cargo test -p ceres-core
 	cd console && make test
 test-postgres:

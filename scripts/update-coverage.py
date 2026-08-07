@@ -21,7 +21,8 @@ FINGERPRINT_PATTERN = re.compile(r"<!-- coverage:fingerprint:([0-9a-f]+) -->")
 
 def _run_coverage() -> dict[str, Any]:
     result = run(
-        ["uv", "run", "pytest", "--cov", "--cov-report=json", "-q"],
+        # Each worker measures its own subprocess and coverage combines the results.
+        ["uv", "run", "pytest", "--cov", "--cov-report=json", "-q", "-n", "auto", "--capture=fd"],
         capture_output=True,
         text=True,
     )
