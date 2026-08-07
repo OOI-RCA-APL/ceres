@@ -39,3 +39,8 @@ semicolon_if_nothing_returned = "warn"
 # nearly three times the size of a real release build.
 [profile.release.build-override]
 opt-level = 3
+
+# Panics still name their line, but the full DWARF that dominates unoptimized build and
+# link time is not generated. Nothing that compiles this profile runs under a debugger.
+[profile.dev]
+debug = "line-tables-only"

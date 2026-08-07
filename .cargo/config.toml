@@ -9,6 +9,12 @@
 [build]
 build-dir = "rust/target/build"
 
+# The parallel rustc frontend, which the pinned nightly provides. This sits under a `cfg`
+# rather than under `[build]`, because `build.rustflags` is dropped entirely wherever a
+# `target` block sets its own, while `cfg` and triple blocks combine.
+[target.'cfg(all())']
+rustflags = ["-Zthreads=4"]
+
 # Compile the extension module and regenerate its Python type stubs in one step. `make fix`
 # and `make build` run this too, and CI fails when committed stubs drift.
 [alias]

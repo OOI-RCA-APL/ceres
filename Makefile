@@ -1,4 +1,12 @@
 .PHONY: *
+
+# CI sets `dev`, since nothing it checks needs an optimized build. Distributed wheels build
+# release through maturin in `release.yaml`, never through this file.
+PROFILE ?= release
+CARGO_PROFILE = $(if $(filter dev,$(PROFILE)),,--release)
+CARGO_OUTPUT = $(if $(filter dev,$(PROFILE)),debug,release)
+MATURIN = $(if $(filter dev,$(PROFILE)),MATURIN_PEP517_ARGS="--profile dev",)
+
 build: install
 	cd console && make build
 	mkdir -p ceres.__internal__.core.data/scripts
@@ -6,12 +14,12 @@ build: install
 # Built one at a time, because a plain `uv build` builds the wheel from the unpacked sdist
 # in a temporary directory, sharing no compiled artifacts with the install above.
 	uv build --sdist
-	uv build --wheel
+	$(MATURIN) uv build --wheel
 install:
-	uv sync
+	$(MATURIN) uv sync
 	cd console && make install
-	cd rust && cargo build --release -p ceres-cli
-	ln -sf ../../rust/target/release/ceres .venv/bin/ceres
+	cd rust && cargo build $(CARGO_PROFILE) -p ceres-cli
+	ln -sf ../../rust/target/$(CARGO_OUTPUT)/ceres .venv/bin/ceres
 update:
 	uv update
 	cd console && make update

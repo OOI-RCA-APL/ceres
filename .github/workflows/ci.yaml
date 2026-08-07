@@ -43,6 +43,10 @@ jobs:
           --health-retries 5
     env:
       CERES_TEST_POSTGRES_URL: postgresql+asyncpg://ceres:ceres@localhost:5432/ceres
+      # Nothing here needs an optimized build, and the release profile is most of the run.
+      PROFILE: dev
+      # A cold one-shot build pays incremental's overhead and caches its output for nobody.
+      CARGO_INCREMENTAL: 0
     steps:
       - name: Checkout
         uses: actions/checkout@v6
