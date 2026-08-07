@@ -50,11 +50,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Free Disk Space
-        # The workspace compiles in both debug and release, and the artifacts are large
-        # enough to overflow the runner's disk unless the preinstalled toolchains nothing
-        # here uses are removed first.
-        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/hostedtoolcache/CodeQL
       - name: Install Node
         uses: actions/setup-node@v6
         with:
@@ -98,5 +93,12 @@ jobs:
         run: make test
       - name: Build
         run: make build
+      # A build that exhausts the runner's disk fails in ways that look unrelated, and the
+      # core count is what bounds how far the suites can be parallelized.
+      - name: Report Runner Resources
+        run: |
+          nproc
+          free -h
+          df -h /
       - name: Ensure Generated Files Match
         run: git diff --exit-code -- ':!**/package-lock.json'
