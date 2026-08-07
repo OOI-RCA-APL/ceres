@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:086ad93b218ebd3f -->
+<!-- coverage:fingerprint:508f82b688034ac0 -->
 
 ## Python
 
@@ -94,7 +94,7 @@
 | `ceres/timing.py` | 99% |
 | `ceres/user.py` | 97% |
 | `ceres/variable.py` | 86% |
-| `ceres/version.py` | 89% |
+| `ceres/version.py` | 92% |
 | `ceres/workspace.py` | 100% |
 | **Total** | **87%** |
 <!-- coverage:python:end -->
