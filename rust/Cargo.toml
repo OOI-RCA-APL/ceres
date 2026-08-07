@@ -44,3 +44,9 @@ opt-level = 3
 # link time is not generated. Nothing that compiles this profile runs under a debugger.
 [profile.dev]
 debug = "line-tables-only"
+
+# Dependencies are optimized and the workspace is not, so tests run against fast database
+# and crypto code while the crates under edit stay quick to rebuild. Their cost is paid
+# once, because dependencies are what the build cache keeps.
+[profile.dev.package."*"]
+opt-level = 2
