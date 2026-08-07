@@ -3,13 +3,11 @@
 # the root when maturin builds the extension module and `rust/` for everything else, and only
 # a root copy is found from both.
 
-# Intermediate build artifacts live under cargo's cache home rather than target/, so rebuild
-# state does not accumulate in the repository. Nothing reclaims them there. `cargo clean` only
-# knows about target/, and `cargo clean gc -Z gc` covers the registry and git caches rather
-# than this, so it reports nothing to do while the directory grows without bound. It reached
-# 39 GB before anyone looked. Removing it is safe and costs a rebuild.
+# Build artifacts stay inside the workspace's target/, the only directory `cargo clean`,
+# .gitignore, and CI's cache all cover. The path resolves against this file's directory, so
+# it names `rust/` rather than landing beside it.
 [build]
-build-dir = "{cargo-cache-home}/build/{workspace-path-hash}"
+build-dir = "rust/target/build"
 
 # Compile the extension module and regenerate its Python type stubs in one step. `make fix`
 # and `make build` run this too, and CI fails when committed stubs drift.
