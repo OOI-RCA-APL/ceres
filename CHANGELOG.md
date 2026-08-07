@@ -15,37 +15,22 @@ written, and the release workflow refuses a version that has no entry here.
   `ceres` API) remains Python and is unchanged.
 - Move the Turso database backend to the native core, removing the `pyturso` and
   `sqlalchemy` Python dependencies.
-- Rename the `ceres.sieve` module to `ceres.sieves`, which collided with the `@sieve`
-  decorator. `Sieve` and `@sieve` are unchanged.
-- Export `SplitByChunk`, `BinaryParticle`, and `BinaryRegexParticle` from `ceres`.
-- Fix `ceres.data.to_json_schema` raising `KeyError` on a type composing a Rust-backed
-  configuration section.
-
-**Configuration**
-
-- Accept kebab-case keys again throughout the `server` and `database` sections. Both
-  spellings work, kebab is canonical.
 
 **Documentation**
 
-- Generate the configuration, CLI, HTTP API, and Python API reference from the code, and
-  check it in CI.
-- Describe unsecured routes in the OpenAPI document as accepting a bearer token
-  optionally rather than requiring none.
+- Revise the documentation throughout, with the configuration, CLI, HTTP API, and Python
+  API references generated from the code.
 
 **CLI**
 
-- Replace the Python `ceres` entry point with a native binary, cutting command startup from
-  roughly 700ms to a few milliseconds. Commands not yet implemented natively are delegated
-  to the Python CLI transparently, and `python -m ceres` remains available everywhere.
+- Rewrite the CLI in Rust. Most commands are instant now, where every command used to be
+  noticeably slow to start. `python -m ceres` remains available everywhere.
 
 **Packaging**
 
-- Publish to PyPI with pre-built wheels for Linux (x86_64, aarch64), macOS (arm64, x86_64),
-  and Windows (x64), for both the standard and free-threaded CPython builds. Installing no
-  longer requires a Rust toolchain or GitHub access, `uv add ceres-engine` is all it takes. On
-  platforms without a pre-built wheel, installing builds from source with a pinned
-  toolchain and produces an identical result, native CLI included.
+- Publish to PyPI as `ceres-engine`, with pre-built wheels for Linux (x86_64, aarch64),
+  macOS (arm64, x86_64), and Windows (x64), for both the standard and free-threaded CPython
+  builds.
 - Release under the MIT license.
 
 ## [0.40.0] - 2026-05-05
