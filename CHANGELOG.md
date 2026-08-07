@@ -43,7 +43,7 @@ written, and the release workflow refuses a version that has no entry here.
 
 - Publish to PyPI with pre-built wheels for Linux (x86_64, aarch64), macOS (arm64, x86_64),
   and Windows (x64), for both the standard and free-threaded CPython builds. Installing no
-  longer requires a Rust toolchain or GitHub access, `uv add ceres` is all it takes. On
+  longer requires a Rust toolchain or GitHub access, `uv add ceres-engine` is all it takes. On
   platforms without a pre-built wheel, installing builds from source with a pinned
   toolchain and produces an identical result, native CLI included.
 
