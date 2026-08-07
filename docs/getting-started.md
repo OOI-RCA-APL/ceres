@@ -7,7 +7,7 @@ Build a Ceres project from nothing, run it, and drive it from the CLI. Everythin
 ```sh
 mkdir my-project && cd my-project
 uv init
-uv add ceres --index https://ooi-rca-apl.github.io/ceres/simple/
+uv add ceres-engine
 source .venv/bin/activate
 ```
 

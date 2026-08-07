@@ -26,7 +26,7 @@ Create a project directory, initialize it, and install Ceres.
 ```sh
 mkdir /opt/my-project && cd /opt/my-project
 uv init
-uv add ceres --index https://ooi-rca-apl.github.io/ceres/simple/
+uv add ceres-engine
 ```
 
 Create your `ceres.yaml`. A production configuration typically looks like this:
@@ -193,7 +193,7 @@ To upgrade to a new version:
 
 ```sh
 cd /opt/my-project
-uv add ceres==<new-version> --index https://ooi-rca-apl.github.io/ceres/simple/
+uv add ceres-engine==<new-version>
 ceres service stop
 ceres service start
 ```
