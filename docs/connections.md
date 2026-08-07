@@ -18,7 +18,7 @@ components:
           source:
             class: ceres.connection.TCPSource
             arguments:
-              host: 10.180.80.170
+              host: 192.0.2.10
               port: 2101
           splitter:
             class: ceres.connection.SplitByLine
@@ -67,7 +67,7 @@ class Driver(Component):
 source:
   class: ceres.connection.TCPSource
   arguments:
-    host: 10.180.80.170
+    host: 192.0.2.10
     port: 2101
 ```
 

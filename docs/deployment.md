@@ -55,13 +55,13 @@ components:
   - name: sensor-a
     class: my_project.SensorDriver
     arguments:
-      host: 10.180.80.170
+      host: 192.0.2.10
       port: 2101
       output: ./local/data/sensor-a/
   - name: sensor-b
     class: my_project.SensorDriver
     arguments:
-      host: 10.180.80.171
+      host: 192.0.2.11
       port: 2101
       output: ./local/data/sensor-b/
 ```
