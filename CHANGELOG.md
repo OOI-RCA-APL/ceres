@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-08-07
+
 **Engine**
 
 - Rewrite the core in Rust. The engine, server, record path, and filter compiler are now
