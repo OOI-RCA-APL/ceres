@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:2368c6d46d33bfc9 -->
+<!-- coverage:fingerprint:086ad93b218ebd3f -->
 
 ## Python
 
@@ -87,7 +87,7 @@
 | `ceres/schedule.py` | 96% |
 | `ceres/server.py` | 66% |
 | `ceres/setting.py` | 96% |
-| `ceres/sieve.py` | 99% |
+| `ceres/sieves.py` | 99% |
 | `ceres/statistics.py` | 95% |
 | `ceres/status.py` | 100% |
 | `ceres/tasklet.py` | 98% |

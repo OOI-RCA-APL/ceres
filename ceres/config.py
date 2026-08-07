@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
     from ceres.reference import Reference
-    from ceres.sieve import FunctionSieve, Sieve
+    from ceres.sieves import FunctionSieve, Sieve
 else:
     Sieve = Any
     Component = Any
@@ -313,10 +313,10 @@ class ClassSieveConfig(_SieveConfig):
         cls,
         value: ImportString[type[Sieve]],
     ) -> ImportString[type[Sieve]]:
-        from ceres.sieve import Sieve
+        from ceres.sieves import Sieve
 
         if not issubclass(value, Sieve):
-            raise ValueError("class must be a subclass of `ceres.sieve.Sieve`")
+            raise ValueError("class must be a subclass of `ceres.sieves.Sieve`")
 
         return value
 
@@ -363,7 +363,7 @@ class MethodSieveConfig(_SieveConfig):
         Returns:
             A `FunctionSieve` backed by the resolved method and buffer settings.
         """
-        from ceres.sieve import FunctionSieve
+        from ceres.sieves import FunctionSieve
 
         method = getattr(component, self.method)
         applied_buffer_size = self.buffer_size

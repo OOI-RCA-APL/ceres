@@ -7,8 +7,9 @@ OpenAPI at `/api/openapi.json`, and `/api` redirects there. The recorded copy is
 [`openapi.json`](openapi.json), stamped with a placeholder version.
 
 A route marked `required` refuses any request without a bearer token, which
-`POST /api/auth/login` issues. The rest either are open to anyone or check access
-themselves against the resource, so a blank is not the absence of access control.
+`POST /api/auth/login` issues. A route marked `optional` accepts one and does not
+insist, which covers both the routes open to anyone and the routes that check the
+caller themselves against the resource they name.
 
 ## Actions
 
@@ -16,7 +17,7 @@ themselves against the resource, so a blank is not the absence of access control
 | --- | --- | --- | --- |
 | `GET` | `/api/components/{id}/actions` | required | List one component's actions. |
 | `GET` | `/api/components/{id}/actions/{second}` | required | Fetch one action binding. |
-| `POST` | `/api/components/{id}/actions/{second}/call` |  | Call an action with body arguments, access checked by the operation. |
+| `POST` | `/api/components/{id}/actions/{second}/call` | optional | Call an action with body arguments, access checked by the operation. |
 
 ## Alerts
 
@@ -31,12 +32,12 @@ themselves against the resource, so a blank is not the absence of access control
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
 | `POST` | `/api/auth/change-password` | required | Change the caller's password. |
-| `GET` | `/api/auth/features` |  | Report optional authentication behavior. |
-| `POST` | `/api/auth/impersonate` |  | Take on another user's identity. |
-| `POST` | `/api/auth/login` |  | Authenticate and receive an identity. |
-| `POST` | `/api/auth/logout` |  | Delete the authorization cookie. |
-| `GET` | `/api/auth/me` |  | Return the caller's identity. |
-| `POST` | `/api/auth/refresh` |  | Reissue the caller's identity. |
+| `GET` | `/api/auth/features` | optional | Report optional authentication behavior. |
+| `POST` | `/api/auth/impersonate` | optional | Take on another user's identity. |
+| `POST` | `/api/auth/login` | optional | Authenticate and receive an identity. |
+| `POST` | `/api/auth/logout` | optional | Delete the authorization cookie. |
+| `GET` | `/api/auth/me` | optional | Return the caller's identity. |
+| `POST` | `/api/auth/refresh` | optional | Reissue the caller's identity. |
 
 ## Components
 
@@ -54,7 +55,7 @@ themselves against the resource, so a blank is not the absence of access control
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
 | `GET` | `/api/config` | required | Serve the whole configuration. |
-| `GET` | `/api/config/console` |  | Serve the console configuration. |
+| `GET` | `/api/config/console` | optional | Serve the console configuration. |
 | `GET` | `/api/config/database` | required | Serve the database configuration. |
 | `GET` | `/api/config/server` | required | Serve the server configuration. |
 | `GET` | `/api/config/service` | required | Serve the service configuration. |
@@ -73,12 +74,12 @@ themselves against the resource, so a blank is not the absence of access control
 
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
-| `GET` | `/api` |  | Redirect to the OpenAPI document. |
-| `GET` | `/api/alive` |  | Report that the server is alive. |
+| `GET` | `/api` | optional | Redirect to the OpenAPI document. |
+| `GET` | `/api/alive` | optional | Report that the server is alive. |
 | `POST` | `/api/disable` | required | Disable matching components. |
 | `POST` | `/api/down` | required | Disable and stop matching components. |
 | `POST` | `/api/enable` | required | Enable matching components. |
-| `GET` | `/api/openapi.json` |  | Serve the OpenAPI document. |
+| `GET` | `/api/openapi.json` | optional | Serve the OpenAPI document. |
 | `POST` | `/api/reload` | required | Reload the engine's configuration, which answers with it and so scrubs it. |
 | `POST` | `/api/start` | required | Start matching components. |
 | `POST` | `/api/stop` | required | Stop matching components. |
@@ -147,28 +148,28 @@ themselves against the resource, so a blank is not the absence of access control
 
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
-| `GET` | `/api/components/{address}/procedures/{name}/subscribe` |  | procedures.subscribe |
+| `GET` | `/api/components/{address}/procedures/{name}/subscribe` | optional | procedures.subscribe |
 | `GET` | `/api/components/{id}/procedures` | required | List one component's procedures. |
 | `GET` | `/api/components/{id}/procedures/{second}` | required | Fetch one procedure binding. |
-| `GET` | `/api/components/{id}/procedures/{second}/call` |  | Call a procedure with query arguments, access checked by the operation. |
-| `POST` | `/api/components/{id}/procedures/{second}/call` |  | Call a procedure with body arguments, access checked by the operation. |
+| `GET` | `/api/components/{id}/procedures/{second}/call` | optional | Call a procedure with query arguments, access checked by the operation. |
+| `POST` | `/api/components/{id}/procedures/{second}/call` | optional | Call a procedure with body arguments, access checked by the operation. |
 
 ## Queries
 
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
-| `GET` | `/api/components/{address}/queries/{name}/subscribe` |  | queries.subscribe |
+| `GET` | `/api/components/{address}/queries/{name}/subscribe` | optional | queries.subscribe |
 | `GET` | `/api/components/{id}/queries` | required | List one component's queries. |
 | `GET` | `/api/components/{id}/queries/{second}` | required | Fetch one query binding. |
-| `GET` | `/api/components/{id}/queries/{second}/call` |  | Call a query with query arguments, access checked by the operation. |
-| `POST` | `/api/components/{id}/queries/{second}/call` |  | Call a query with body arguments, access checked by the operation. |
+| `GET` | `/api/components/{id}/queries/{second}/call` | optional | Call a query with query arguments, access checked by the operation. |
+| `POST` | `/api/components/{id}/queries/{second}/call` | optional | Call a query with body arguments, access checked by the operation. |
 
 ## Settings
 
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
-| `PUT` | `/api/settings` |  | Assign a setting, the operation applying its own actor rules. |
-| `GET` | `/api/settings/{id}/{second}` |  | Fetch one setting, the operation applying its own actor rules. |
+| `PUT` | `/api/settings` | optional | Assign a setting, the operation applying its own actor rules. |
+| `GET` | `/api/settings/{id}/{second}` | optional | Fetch one setting, the operation applying its own actor rules. |
 
 ## Statistics
 

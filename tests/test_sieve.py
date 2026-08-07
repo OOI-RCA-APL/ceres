@@ -10,7 +10,7 @@ from ceres.connection.buffer import (
 )
 from ceres.message import Message
 from ceres.particle import Particle, ParticleData
-from ceres.sieve import FunctionSieve, Sieve
+from ceres.sieves import FunctionSieve, Sieve
 
 
 class SimpleData(ParticleData):

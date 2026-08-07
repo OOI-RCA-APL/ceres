@@ -24,6 +24,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Redirect to the OpenAPI document.",
         "tags": [
           "engine"
@@ -110,6 +116,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Report that the server is alive.",
         "tags": [
           "engine"
@@ -147,6 +159,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Report optional authentication behavior.",
         "tags": [
           "auth"
@@ -163,6 +181,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Take on another user's identity.",
         "tags": [
           "auth"
@@ -179,6 +203,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Authenticate and receive an identity.",
         "tags": [
           "auth"
@@ -195,6 +225,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Delete the authorization cookie.",
         "tags": [
           "auth"
@@ -211,6 +247,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Return the caller's identity.",
         "tags": [
           "auth"
@@ -227,6 +269,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Reissue the caller's identity.",
         "tags": [
           "auth"
@@ -276,6 +324,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "procedures.subscribe",
         "tags": [
           "procedures"
@@ -304,6 +358,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "queries.subscribe",
         "tags": [
           "queries"
@@ -421,6 +481,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Call an action with body arguments, access checked by the operation.",
         "tags": [
           "actions"
@@ -627,6 +693,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Call a procedure with query arguments, access checked by the operation.",
         "tags": [
           "procedures"
@@ -653,6 +725,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Call a procedure with body arguments, access checked by the operation.",
         "tags": [
           "procedures"
@@ -742,6 +820,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Call a query with query arguments, access checked by the operation.",
         "tags": [
           "queries"
@@ -768,6 +852,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Call a query with body arguments, access checked by the operation.",
         "tags": [
           "queries"
@@ -805,6 +895,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Serve the console configuration.",
         "tags": [
           "config"
@@ -1315,6 +1411,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Serve the OpenAPI document.",
         "tags": [
           "engine"
@@ -1643,6 +1745,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Assign a setting, the operation applying its own actor rules.",
         "tags": [
           "settings"
@@ -1671,6 +1779,12 @@
             "description": "The request failed, carrying an error."
           }
         },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
         "summary": "Fetch one setting, the operation applying its own actor rules.",
         "tags": [
           "settings"

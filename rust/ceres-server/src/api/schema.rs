@@ -6,7 +6,7 @@
 //! them through its own models rather than through a schema declared here.
 
 use utoipa::openapi::path::{Operation, ParameterBuilder, ParameterIn, PathItemBuilder};
-use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
+use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityRequirement, SecurityScheme};
 use utoipa::openapi::{
     ComponentsBuilder, HttpMethod, InfoBuilder, OpenApi, OpenApiBuilder, PathsBuilder, Required,
     ResponseBuilder, ResponsesBuilder, Tag,
@@ -83,12 +83,15 @@ pub fn document(version: &str) -> OpenApi {
             );
         }
 
-        if route.secured {
-            operation.security = Some(vec![utoipa::openapi::security::SecurityRequirement::new(
-                "bearer",
-                Vec::<String>::new(),
-            )]);
-        }
+        // An unsecured route is described as accepting a token or nothing, rather than as
+        // accepting nothing, because the gate only declines to decide. Several such routes
+        // check the actor themselves against the resource, and a bare absence of security
+        // would tell a client they are open.
+        let bearer = SecurityRequirement::new("bearer", Vec::<String>::new());
+        operation.security = Some(match route.secured {
+            true => vec![bearer],
+            false => vec![bearer, SecurityRequirement::default()],
+        });
 
         match grouped.iter_mut().find(|(path, _)| *path == route.path) {
             Some((_, operations)) => operations.push((route.method, operation)),

@@ -59,7 +59,7 @@ _SECTIONS: list[tuple[str, tuple[str, ...]]] = [
             "ceres.dispatcher",
             "ceres.level",
             "ceres.status",
-            "ceres.sieve",
+            "ceres.sieves",
         ),
     ),
     ("Access Control", ("ceres.user", "ceres.group", "ceres.permission", "ceres.workspace")),
@@ -386,14 +386,16 @@ def render_http_api() -> str:
         "[`openapi.json`](openapi.json), stamped with a placeholder version.",
         "",
         "A route marked `required` refuses any request without a bearer token, which",
-        "`POST /api/auth/login` issues. The rest either are open to anyone or check access",
-        "themselves against the resource, so a blank is not the absence of access control.",
+        "`POST /api/auth/login` issues. A route marked `optional` accepts one and does not",
+        "insist, which covers both the routes open to anyone and the routes that check the",
+        "caller themselves against the resource they name.",
     ]
     grouped: dict[str, list[str]] = {}
     for path, operations in sorted(document.get("paths", {}).items()):
         for method, operation in operations.items():
             tag = (operation.get("tags") or ["other"])[0]
-            token = "required" if operation.get("security") else ""
+            requirements = operation.get("security") or []
+            token = "optional" if any(not entry for entry in requirements) else "required"
             summary = " ".join(str(operation.get("summary", "")).split())
             grouped.setdefault(tag, []).append(
                 f"| `{method.upper()}` | `{path}` | {token} | {summary} |"

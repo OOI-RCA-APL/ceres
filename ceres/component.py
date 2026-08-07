@@ -147,7 +147,7 @@ with __lazy_imports__(__name__):
     from ceres.job import JobManager
     from ceres.pruner import PrunerManager
     from ceres.reference import Reference, unref
-    from ceres.sieve import SieveManager
+    from ceres.sieves import SieveManager
 
 __all__ = [
     "Component",

@@ -15,6 +15,23 @@ written, and the release workflow refuses a version that has no entry here.
   `ceres` API) remains Python and is unchanged.
 - Move the Turso database backend to the native core, removing the `pyturso` and
   `sqlalchemy` Python dependencies.
+- Rename the `ceres.sieve` module to `ceres.sieves`, which collided with the `@sieve`
+  decorator. `Sieve` and `@sieve` are unchanged.
+- Export `SplitByChunk`, `BinaryParticle`, and `BinaryRegexParticle` from `ceres`.
+- Fix `ceres.data.to_json_schema` raising `KeyError` on a type composing a Rust-backed
+  configuration section.
+
+**Configuration**
+
+- Accept kebab-case keys again throughout the `server` and `database` sections. Both
+  spellings work, kebab is canonical.
+
+**Documentation**
+
+- Generate the configuration, CLI, HTTP API, and Python API reference from the code, and
+  check it in CI.
+- Describe unsecured routes in the OpenAPI document as accepting a bearer token
+  optionally rather than requiring none.
 
 **CLI**
 

@@ -222,7 +222,7 @@ with __lazy_imports__(__name__, export=True):
         UNIXSocketServer,
     )
     from ceres.setting import Setting
-    from ceres.sieve import Sieve
+    from ceres.sieves import Sieve
     from ceres.statistics import Statistics
     from ceres.status import Status
     from ceres.timing import utc
