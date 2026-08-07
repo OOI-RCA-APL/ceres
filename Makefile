@@ -1,8 +1,8 @@
 .PHONY: *
 
-# CI sets `dev`, since nothing it checks needs an optimized build. Distributed wheels build
-# release through maturin in `release.yaml`, never through this file.
-PROFILE ?= release
+# Unoptimized by default, as cargo itself is. Distributed wheels build release through
+# maturin in `release.yaml`, never through this file, so nothing here needs to.
+PROFILE ?= dev
 CARGO_PROFILE = $(if $(filter dev,$(PROFILE)),,--release)
 CARGO_OUTPUT = $(if $(filter dev,$(PROFILE)),debug,release)
 MATURIN = $(if $(filter dev,$(PROFILE)),MATURIN_PEP517_ARGS="--profile dev",)
