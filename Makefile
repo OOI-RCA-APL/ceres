@@ -5,7 +5,12 @@
 PROFILE ?= dev
 CARGO_PROFILE = $(if $(filter dev,$(PROFILE)),,--release)
 CARGO_OUTPUT = $(if $(filter dev,$(PROFILE)),debug,release)
-MATURIN = $(if $(filter dev,$(PROFILE)),MATURIN_PEP517_ARGS="--profile dev",)
+
+# Exported to every recipe, because a bare `uv run` resyncs, and a sync that disagrees
+# with the installed build's configuration rebuilds the extension from scratch.
+ifeq ($(PROFILE),dev)
+export MATURIN_PEP517_ARGS = --profile dev
+endif
 
 build: install
 	cd console && make build
@@ -14,9 +19,9 @@ build: install
 # Built one at a time, because a plain `uv build` builds the wheel from the unpacked sdist
 # in a temporary directory, sharing no compiled artifacts with the install above.
 	uv build --sdist
-	$(MATURIN) uv build --wheel
+	uv build --wheel
 install:
-	$(MATURIN) uv sync
+	uv sync
 	cd console && make install
 	cd rust && cargo build $(CARGO_PROFILE) -p ceres-cli
 	ln -sf ../../rust/target/$(CARGO_OUTPUT)/ceres .venv/bin/ceres
