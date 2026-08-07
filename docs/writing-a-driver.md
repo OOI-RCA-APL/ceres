@@ -79,7 +79,7 @@ class SensorDriver(Component):
     )
 
     @sieve(connection)
-    async def sieve(self, message: Message) -> SensorParticle | None:
+    async def parse(self, message: Message) -> SensorParticle | None:
         try:
             return SensorParticle.from_message(message)
         except ParseFailed as exception:
@@ -93,7 +93,7 @@ There is a lot happening here, so let's break it down:
 - `SplitByLine()` tells the connection to split incoming bytes on newlines.
 - `suffix=b"\n"` appends a newline to outgoing messages.
 - `receive_timeout=30` disconnects if no data is received for 30 seconds.
-- The `@sieve(connection)` decorator registers the method as a data parser for the named connection. Each message received on that connection is passed through this method.
+- The `@sieve(connection)` decorator registers the method as a data parser for the named connection. Each message received on that connection is passed through this method. Do not name the method `sieve`, because a second `@sieve` in the same class would then resolve to the first method rather than the decorator.
 - Returning a particle stores it in the database. Returning `None` skips the message.
 - `ParseFailed` is raised by `from_message()` when the regex does not match.
 
