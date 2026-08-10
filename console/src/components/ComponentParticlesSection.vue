@@ -6,13 +6,16 @@ import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { useParticleTypes } from '@/particle-types'
 import { isType, Schema } from '@/schema-form'
+import { isStructurallyEqual } from '@/utilities'
 import {
   ChartWidget,
   ChartWidgetParticleModel,
   createWidget,
   getWidgetInfo,
   useWorkspaces,
+  WidgetRow,
   WidgetRowModel,
+  withoutMeta,
   Workspace,
 } from '@/workspace'
 
@@ -62,10 +65,8 @@ function plottableFields(type: ParticleTypeInfo): string[] {
     .map((field) => field.name)
 }
 
-// Chartable fields start checked so charting a type right after opening it plots something. A
-// field that cannot plot stays listed, disabled, rather than disappearing, so the shape of the
-// type is still visible. The default is derived rather than seeded once so it needs no watcher
-// over the query result, and only overridden once a user actually toggles something.
+// Chartable fields start checked, others stay listed but disabled. Derived rather than seeded
+// once so no watcher is needed over the query result.
 let selected = $ref<Record<string, string[]>>({})
 
 function selectionFor(type: ParticleTypeInfo): string[] {
@@ -78,18 +79,43 @@ function isSelected(type: ParticleTypeInfo, field: string): boolean {
 
 function toggle(type: ParticleTypeInfo, field: string, value: boolean) {
   const current = selectionFor(type)
+  if (value === current.includes(field)) {
+    return
+  }
+
   selected = {
     ...selected,
     [type.type]: value ? [...current, field] : current.filter((name) => name !== field),
   }
 }
 
+/** Land a chart widget for `type`'s checked fields into a workspace's stored layout.
+
+Reads the workspace fresh rather than trusting the strip's own, only periodically refreshed,
+copy. A pending edit for this user that still matches is discarded, a diverging one is warned about.
+*/
+async function chartIntoExisting(targetId: string, row: WidgetRow): Promise<Workspace> {
+  const current = await workspaces.get(targetId)
+  const landed = await workspaces.update(targetId, {
+    data: { ...current.data, layout: [...current.data.layout, row] },
+  })
+
+  const edit = await workspaces.getEdit(targetId)
+  if (edit != null) {
+    if (isStructurallyEqual(withoutMeta(edit.data), withoutMeta(current.data))) {
+      await workspaces.discardEdit(targetId)
+    } else {
+      notify.warn('This workspace has unsaved edits that do not yet show the new chart.')
+    }
+  }
+
+  return landed
+}
+
 /** Build a chart widget for `type`'s checked fields and land it on the component's strip.
 
-With a workspace already showing there, the chart joins its stored layout, which a workspace being
-edited live does not pick up until it is next opened. With none, a new private workspace placed on
-this component carries it, since a one-click action is not the place to decide to publish
-something to everyone who can see the placement.
+With a workspace already showing there, the chart joins it. With none, a new private workspace
+placed on this component carries it since a one-click action should not decide to publish.
 */
 async function chart(type: ParticleTypeInfo) {
   const fields = selectionFor(type)
@@ -112,12 +138,10 @@ async function chart(type: ParticleTypeInfo) {
   })
 
   try {
-    const target = scopedWorkspaces[0]
+    const targetId = scopedWorkspaces[0]?.id
     const landed =
-      target != null
-        ? await workspaces.update(target.id, {
-            data: { ...target.data, layout: [...target.data.layout, row] },
-          })
+      targetId != null
+        ? await chartIntoExisting(targetId, row)
         : await workspaces.create({
             scope: address.toString(),
             owner_id: auth.user?.id,

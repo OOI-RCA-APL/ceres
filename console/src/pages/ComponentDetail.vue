@@ -183,6 +183,10 @@ function showWorkspace(id: string) {
   lastWorkspace.id = id
 }
 
+// Bumped to remount the open workspace's own editing context, whose working copy is seeded once
+// on load and does not otherwise notice a row landing in the stored data behind it.
+let workspaceRefreshKey = $ref(0)
+
 /** Give the address what it asked for, then take the request back out of it.
 
 Workspaces named there join this component's strip if they were not already on it so a link
@@ -320,10 +324,13 @@ function createScoped() {
   })
 }
 
-// A chart lands on a workspace the particles section already picked, shown the same way a newly
-// created or reopened one is elsewhere on this page.
+// A chart lands on a workspace the particles section already picked. Charting into the one
+// already open leaves `activeWorkspaceId` unchanged, so only the remount bump shows it.
 async function chartedScoped(id: string) {
   await refreshScoped()
+  if (id === activeWorkspaceId) {
+    workspaceRefreshKey++
+  }
   showWorkspace(id)
 }
 
@@ -730,11 +737,12 @@ const configHighlighted = $computed(() =>
           :min="120"
         />
       </div>
-      <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
-      switching tabs updates this page in place and leaves the tab strip in its header mounted. -->
+      <!-- Deliberately not keyed on the workspace ID, so switching tabs updates this page in
+      place. Keyed instead on a counter that only charting into the open workspace bumps. -->
       <workspace-page
         v-if="activeWorkspaceId != null"
         :id="activeWorkspaceId"
+        :key="workspaceRefreshKey"
         :sticky-top="workspaceStickyTop"
         @duplicated="openBesideScoped"
       >
