@@ -132,7 +132,7 @@ Configuration for a Turso-backed database, a SQLite-compatible file that allows 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `path` | string |  | Path to the database file. Omit to use a temporary on-disk file. |
-| `mvcc` | boolean |  | Put the database in Turso's MVCC journal mode, which is what lets writers overlap. This converts the database file and the conversion cannot be undone. |
+| `mvcc` | boolean |  | Put the database in Turso's MVCC journal mode, which lets writers overlap. This converts the database file and the conversion cannot be undone. |
 | `hooks` | [`DatabaseConfigHooks`](#databaseconfighooks) |  |  |
 | `engine` | object |  | Extra keyword arguments forwarded to the SQLAlchemy engine factory. Values must be JSON-compatible. Anything richer than that belongs in code rather than in configuration. |
 | `hashing` | object or object |  | Password hashing configuration used for users stored in this database. |

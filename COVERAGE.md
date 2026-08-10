@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:508f82b688034ac0 -->
+<!-- coverage:fingerprint:b624e6056113bc93 -->
 
 ## Python
 

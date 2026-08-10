@@ -29,11 +29,11 @@ const placementAddress = Address.parse(engineRoot)
 
 const canManage = $computed(() => access.canManage(placement))
 
-// Adding a workspace here needs only view, because a user without manage gets a private one, which
+// Adding a workspace here needs only view because a user without manage gets a private one, which
 // nobody else sees.
 const canCreate = $computed(() => access.canView(placement))
 
-// The tab strip pins under this page's own header, so scrolling the overview away leaves the tabs
+// The tab strip pins under this page's own header so scrolling the overview away leaves the tabs
 // directly beneath it.
 const workspaceStickyTop = appHeaderHeight + pageHeaderHeight
 
@@ -47,12 +47,12 @@ const persisted = usePersisted({
   methods: [{ type: 'local-storage', key: 'home-overview' }],
 })
 
-// Every workspace placed on the engine root that the caller can see, which is what the overview
-// lists. These are the deployment's own workspaces rather than any one component's.
+// Every workspace placed on the engine root that the caller can see, which the overview lists.
+// These are the deployment's own workspaces rather than any one component's.
 let placedWorkspaces = $ref<Workspace[]>([])
 
-// What the deployment lands on. Deliberately narrower than every workspace at the engine root,
-// because this is what a new user inherits rather than everything that happens to live here.
+// What the deployment lands on. Only the workspaces marked for logged-out display since these
+// are what a new user inherits.
 const defaults = $computed(() =>
   placedWorkspaces.filter((workspace) => workspace.show_when_logged_out)
 )
@@ -61,7 +61,7 @@ async function refreshPlaced() {
   placedWorkspaces = inStandardOrder(await workspaces.listScoped(placementAddress))
 }
 
-// Home may hold a workspace placed on any component, so its tabs resolve against everything the
+// Home may hold a workspace placed on any component so its tabs resolve against everything the
 // user can see rather than against the engine root's own list.
 const homeWorkspaces = $computed(() =>
   resolveTabs(
@@ -76,8 +76,8 @@ const homeWorkspaces = $computed(() =>
 // came from. One that does not would only be repeating itself.
 const showPlacement = $computed(() => homeWorkspaces.some((workspace) => !workspace.scope.isEngine))
 
-// Anything the user can see that is not already on the strip, which is what the add button offers.
-// Home is not limited to one placement, so this spans every workspace they have access to.
+// Anything the user can see that is not already on the strip, which the add button offers.
+// Home is not limited to one placement so this spans every workspace they have access to.
 const openableWorkspaces = $computed(() => {
   const shown = new Set(homeWorkspaces.map((workspace) => workspace.id))
   return (workspaces.all as Workspace[]).filter((workspace) => !shown.has(workspace.id))
@@ -88,8 +88,7 @@ async function openHome(id: string) {
   showWorkspace(id)
 }
 
-// A copy belongs next to what it was copied from, so the strip reads as the original followed by
-// its copy rather than as one more thing at the end that happens to share its name.
+// A copy belongs next to its original so the strip reads as the original followed by its copy.
 async function openBesideHome(afterId: string, id: string) {
   await tabs.openBeside(
     placement,
@@ -103,7 +102,7 @@ async function openBesideHome(afterId: string, id: string) {
 const lastWorkspace = useLastWorkspace(placement)
 
 // Held here rather than read from the address. The address asks for a workspace and is cleared
-// once it has been given one, so what is showing is this page's own state from then on.
+// once it has been given one so what is showing is this page's own state from then on.
 let activeWorkspaceId = $ref<string | null>(null)
 
 // What the address is currently asking for, which the fallback below waits for rather than
@@ -114,10 +113,9 @@ let overviewElement = $ref<HTMLElement | null>(null)
 
 /** How far the page must be scrolled for the tab strip to have pinned under the header.
 
-Measured from the overview, which is what sits above the strip and is never itself pinned, so its
-box is the honest one. The strip's own box stops moving once it pins and cannot say where it would
-otherwise have been. With no overview showing the strip is at the top from the start, so there is
-nothing to scroll past.
+Measured from the overview, which sits above the strip and is never itself pinned, so its box is
+reliable. The strip's own box stops moving once it pins. With no overview showing, the strip is at
+the top from the start and there is nothing to scroll past.
 */
 function pinnedAt(): number {
   if (persisted.overviewCollapsed || overviewElement == null) {
@@ -140,7 +138,7 @@ function isScrollSettled(): boolean {
 }
 
 // Switching tabs returns to where each workspace was left, the way switching browser tabs does,
-// and never above the pin, so a strip that was stuck to the header stays exactly where it was
+// and never above the pin so a strip that was stuck to the header stays exactly where it was
 // rather than dropping back down the page.
 useScrollMemory(
   () => (activeWorkspaceId == null ? null : `${placement}/${activeWorkspaceId}`),
@@ -150,13 +148,13 @@ useScrollMemory(
 
 // With tabs to show but no workspace beneath them, the strip sits at the bottom of the screen
 // rather than floating below the overview with empty space under it. An empty strip has nothing to
-// hold down there, and collapsing the overview leaves nothing to push it away from, so in either
+// hold down there, and collapsing the overview leaves nothing to push it away from so in either
 // case it goes back to sitting under the overview.
 const pinTabs = $computed(
   () => activeWorkspaceId == null && !persisted.overviewCollapsed && homeWorkspaces.length > 0
 )
 
-// Whatever is showing is what home reopens on, so it is recorded here rather than at each of the
+// Whatever is showing is what home reopens on so it is recorded here rather than at each of the
 // places that can choose one.
 function showWorkspace(id: string) {
   activeWorkspaceId = id
@@ -165,10 +163,10 @@ function showWorkspace(id: string) {
 
 /** Give the address what it asked for, then take the request back out of it.
 
-Workspaces named there join the strip if they were not already on it, so a link behaves the same as
+Workspaces named there join the strip if they were not already on it so a link behaves the same as
 opening them from the strip itself, and the first of them is what ends up showing.
 
-Nothing is done until the full list has landed, because a link can arrive before it does and an
+Nothing is done until the full list has landed because a link can arrive before it does and an
 identifier that matches nothing must not write a tab that resolves to nothing.
 */
 async function adoptRequested() {
@@ -259,9 +257,9 @@ async function importHome(files: File[]) {
 await tabs.load()
 await refreshPlaced()
 
-// A first login starts from what the deployment shows when logged out, so a new person lands on
+// A first login starts from what the deployment shows when logged out so a new person lands on
 // the same view an anonymous visitor sees and then makes it their own. Seeding is skipped once the
-// user has arranged this strip, so it never overwrites their own choices.
+// user has arranged this strip so it never overwrites their own choices.
 if (!tabs.isTouched(placement)) {
   await tabs.seed(
     placement,
@@ -276,7 +274,7 @@ watch(
   }
 )
 
-// Watched rather than read once, because home stays mounted while an action elsewhere sends a
+// Watched rather than read once because home stays mounted while an action elsewhere sends a
 // workspace here, which arrives as a change of address rather than as a fresh visit.
 watch(
   () => [requestedIds, workspaces.all] as const,
@@ -298,7 +296,7 @@ watch(
 
     // The remembered workspace may be one placed on a component, which appears on the strip only
     // once the full list has landed. Waiting for it costs nothing when there is nothing to wait
-    // for, since a user with no workspaces has an empty strip and is already handled above.
+    // for since a user with no workspaces has an empty strip and is already handled above.
     if (workspaces.all.length === 0) {
       return
     }

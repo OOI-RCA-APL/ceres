@@ -45,29 +45,29 @@ const effectiveAccess = $computed(() => access.levelFor(address.toString()))
 
 const canManage = $computed(() => access.canManage(address.toString()))
 
-// Adding a workspace here needs only view, because a user without manage gets a private one,
+// Adding a workspace here needs only view because a user without manage gets a private one,
 // which nobody else sees.
 const canCreate = $computed(() => access.canView(address.toString()))
 
-// The tab strip pins under this page's own header, so scrolling the overview away leaves the
+// The tab strip pins under this page's own header so scrolling the overview away leaves the
 // component named above and its tabs directly beneath.
 const workspaceStickyTop = appHeaderHeight + pageHeaderHeight
 
 // Below this width the overview's two columns stack into one, which makes it roughly twice as
-// tall. A height dragged on a wide screen then clips it mid-item, so there it sizes to its own
+// tall. A height dragged on a wide screen then clips it mid-item so there it sizes to its own
 // content instead and the drag handle goes away with the drag.
 const overviewColumnsMin = 720
 const overviewStacks = useMediaQuery(`(max-width: ${overviewColumnsMin - 1}px)`)
 
 // A collapsed configuration leaves its column as one closed bar with the rest of the panel empty
-// beside it, so the workspaces move under it and the reference lists get the width to themselves.
+// beside it so the workspaces move under it and the reference lists get the width to themselves.
 // Stacked there is only one column, and expanded the configuration fills its own.
 const workspacesUnderConfig = $computed(
   () => configHighlighted != null && !overviewStacks && !persisted.configuration
 )
 
 // Persist each drawer's open state per component address. The page remounts on navigation between
-// components (the page container is keyed by route path), so this re-reads for the new address.
+// components (the page container is keyed by route path) so this re-reads for the new address.
 // Declared up here because the scroll memory below reads the overview's own state as it starts.
 const persisted = usePersisted({
   schema: ({ object, boolean, number }) =>
@@ -94,7 +94,7 @@ const scopedWorkspaces = $computed(() =>
   resolveTabs(placedWorkspaces, tabs.setFor(address.toString()), (workspace) => workspace.id)
 )
 
-// Placed here but not in the strip, which is what the add button offers before creating one.
+// Placed here but not in the strip, which the add button offers before creating one.
 const openableWorkspaces = $computed(() => {
   const shown = new Set(scopedWorkspaces.map((workspace) => workspace.id))
   return placedWorkspaces.filter((workspace) => !shown.has(workspace.id))
@@ -105,8 +105,7 @@ async function openScoped(id: string) {
   showWorkspace(id)
 }
 
-// A copy belongs next to what it was copied from, so the strip reads as the original followed by
-// its copy rather than as one more thing at the end that happens to share its name.
+// A copy belongs next to its original so the strip reads as the original followed by its copy.
 async function openBesideScoped(afterId: string, id: string) {
   await refreshScoped()
   await tabs.openBeside(
@@ -121,8 +120,8 @@ async function openBesideScoped(afterId: string, id: string) {
 const lastWorkspace = useLastWorkspace(() => address.toString())
 
 // Held here rather than read from the address. The address asks for a workspace and is cleared
-// once it has been given one, so what is showing is this page's own state from then on. Without a
-// request the page falls back to whichever workspace was last shown here, so a component with
+// once it has been given one so what is showing is this page's own state from then on. Without a
+// request the page falls back to whichever workspace was last shown here so a component with
 // workspaces opens on one rather than on a bare overview.
 let activeWorkspaceId = $ref<string | null>(null)
 
@@ -134,10 +133,9 @@ let overviewElement = $ref<HTMLElement | null>(null)
 
 /** How far the page must be scrolled for the tab strip to have pinned under the header.
 
-Measured from the overview, which is what sits above the strip and is never itself pinned, so its
-box is the honest one. The strip's own box stops moving once it pins and cannot say where it
-would otherwise have been. With no overview showing the strip is at the top from the start, so
-there is nothing to scroll past.
+Measured from the overview, which sits above the strip and is never itself pinned, so its box is
+reliable. The strip's own box stops moving once it pins. With no overview showing, the strip is at
+the top from the start and there is nothing to scroll past.
 */
 function pinnedAt(): number {
   if (persisted.overviewCollapsed || overviewElement == null) {
@@ -160,7 +158,7 @@ function isScrollSettled(): boolean {
 }
 
 // Switching tabs returns to where each workspace was left, the way switching browser tabs does,
-// and never above the pin, so a strip that was stuck to the header stays exactly where it was
+// and never above the pin so a strip that was stuck to the header stays exactly where it was
 // rather than dropping back down the page.
 useScrollMemory(
   () => (activeWorkspaceId == null ? null : `${address.toString()}/${activeWorkspaceId}`),
@@ -170,13 +168,13 @@ useScrollMemory(
 
 // With tabs to show but no workspace beneath them, the strip sits at the bottom of the page rather
 // than floating below the overview with empty space under it. An empty strip has nothing to hold
-// down there, and collapsing the overview leaves nothing to push it away from, so in either case
+// down there, and collapsing the overview leaves nothing to push it away from so in either case
 // it goes back to sitting under the overview.
 const pinTabs = $computed(
   () => activeWorkspaceId == null && !persisted.overviewCollapsed && scopedWorkspaces.length > 0
 )
 
-// Whatever is showing is what this component reopens on, so it is recorded here rather than at
+// Whatever is showing is what this component reopens on so it is recorded here rather than at
 // each of the places that can choose one.
 function showWorkspace(id: string) {
   activeWorkspaceId = id
@@ -185,12 +183,12 @@ function showWorkspace(id: string) {
 
 /** Give the address what it asked for, then take the request back out of it.
 
-Workspaces named there join this component's strip if they were not already on it, so a link
+Workspaces named there join this component's strip if they were not already on it so a link
 behaves the same as opening them from the strip itself, and the first of them is what ends up
 showing.
 
-Only a workspace placed here can join, because the strip resolves against this component's own
-list and would drop anything else. Nothing is done until that list has landed, since a link can
+Only a workspace placed here can join because the strip resolves against this component's own
+list and would drop anything else. Nothing is done until that list has landed since a link can
 arrive before it does.
 */
 async function adoptRequested() {
@@ -222,7 +220,7 @@ async function refreshScoped() {
 }
 
 // Dragging positions this user's own tabs. The shared standard order lives in `data.meta.order`
-// and is edited from the overview, so one user arranging their strip does not rearrange everyone
+// and is edited from the overview so one user arranging their strip does not rearrange everyone
 // else's.
 async function reorderScoped(ordered: Workspace[]) {
   await tabs.reorder(
@@ -232,7 +230,7 @@ async function reorderScoped(ordered: Workspace[]) {
 }
 
 // Closing moves to whichever tab takes the closed one's place, or to the bare overview when it was
-// the last one. The workspace itself is untouched, which is what separates closing from deleting.
+// the last one. The workspace itself is untouched, which separates closing from deleting.
 async function closeScoped(id: string) {
   const remaining = scopedWorkspaces.filter((workspace) => workspace.id !== id)
   await tabs.close(address.toString(), id)
@@ -266,7 +264,7 @@ async function closeAllScoped() {
   activeWorkspaceId = null
 }
 
-// Opening the rest keeps whatever was already showing, since opening tabs is not a request to
+// Opening the rest keeps whatever was already showing since opening tabs is not a request to
 // look somewhere else. With nothing showing it lands on the first of them.
 async function openAllScoped() {
   const opening = openableWorkspaces.map((workspace) => workspace.id)
@@ -277,7 +275,7 @@ async function openAllScoped() {
   }
 }
 
-// Scoped workspaces are fetched separately from the store's own list, so the tabs are refetched
+// Scoped workspaces are fetched separately from the store's own list so the tabs are refetched
 // whenever that list changes. The store refreshes it after every create, update, and delete,
 // which covers a workspace being renamed or deleted from the tab shown below.
 watch(
@@ -287,7 +285,7 @@ watch(
   }
 )
 
-// Watched rather than read once, because this page stays mounted while a request arrives as a
+// Watched rather than read once because this page stays mounted while a request arrives as a
 // change of address rather than as a fresh visit.
 watch(
   () => [requestedIds, placedWorkspaces] as const,
@@ -340,7 +338,7 @@ const queries = $computed(() => component?.procedures.filter((p) => p.type === '
 const actions = $computed(() => component?.procedures.filter((p) => p.type === 'action') ?? [])
 
 // Each procedure declares its own minimum level, listed here as reference rather than as a
-// control, since procedures are invoked from workspaces and interfaces instead of this page.
+// control since procedures are invoked from workspaces and interfaces instead of this page.
 function permissionsLabel(procedure: ProcedureInfo): string {
   if (procedure.permissions === 'public') {
     return 'Public, requires no permissions.'
@@ -389,7 +387,7 @@ const connectionsQuery = useQuery({
   retry: false,
 })
 
-// The statuses stream pushes on lifecycle and connectivity events, so a refetch on each push keeps
+// The statuses stream pushes on lifecycle and connectivity events so a refetch on each push keeps
 // connection states and job schedules current without polling. Jobs are included because a
 // component's scheduler stops and starts with it, changing each job's next run time.
 watch(
@@ -808,8 +806,7 @@ $overview-columns-min: 720px;
   max-width: 100%;
 }
 
-// An expanded configuration stretches to the bottom of the panel and scrolls its own contents,
-// rather than ending wherever the file happens to end.
+// An expanded configuration stretches to the bottom of the panel and scrolls its own contents.
 .configFill {
   display: flex;
   flex-direction: column;

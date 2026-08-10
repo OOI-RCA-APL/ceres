@@ -1,9 +1,9 @@
 //! Responses whose body the host described rather than serialized.
 //!
-//! A procedure declaring a media type answers with a file to stream or a chunk stream to
+//! A procedure declaring a media type returns a file to stream or a chunk stream to
 //! pull, plus the headers the host already decided. Either body carries a release guard
-//! holding the handle, so the host hears about the end whether the body finished, failed,
-//! or the client left, which is what runs the output's exit hook.
+//! holding the handle so the host hears about the end whether the body finished, failed,
+//! or the client left, which runs the output's exit hook.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -21,7 +21,7 @@ const CHUNK: usize = 64 * 1024;
 
 /// Holds a host stream open for as long as the body it belongs to lives.
 ///
-/// Releasing has to happen even when the body is dropped rather than drained, so it runs
+/// Releasing has to happen even when the body is dropped rather than drained so it runs
 /// from `Drop` on the runtime captured at construction, which is the runtime serving the
 /// request.
 struct Release {
@@ -56,7 +56,7 @@ impl Served {
         let body = match self.file.as_deref() {
             Some(path) => match file_body(path, release).await {
                 Ok(body) => body,
-                // The host stats the file before describing it, so a failure here is
+                // The host stats the file before describing it so a failure here is
                 // the file going away underneath a response that has not started yet.
                 Err(_) => {
                     return ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "error")

@@ -1729,7 +1729,7 @@
             "bearer": []
           }
         ],
-        "summary": "Reload the engine's configuration, which answers with it and so scrubs it.",
+        "summary": "Reload the engine's configuration, which returns it and so scrubs it.",
         "tags": [
           "engine"
         ]

@@ -1,10 +1,10 @@
 //! What the table commands do to a real database.
 //!
 //! Every test here runs the built binary against a temporary SQLite project and then
-//! reads the rows back, because what a write did is the only thing worth asserting about
+//! reads the rows back because what a write did is the only thing worth asserting about
 //! it. The unit tests cover how an invocation parses, which is a different question.
 //!
-//! `CERES_PYTHON` is pointed at a path that does not exist, so any command that hands off
+//! `CERES_PYTHON` is pointed at a path that does not exist so any command that hands off
 //! to the Python runtime fails loudly instead of quietly passing. That is deliberate.
 //! These commands are meant to be served natively end to end, and a test suite that
 //! cannot tell the difference would not notice them slipping back.
@@ -23,7 +23,7 @@ impl Project {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let database = directory.path().join("records.sqlite");
 
-        // The configuration names the database by absolute path, so the binary finds it
+        // The configuration names the database by absolute path so the binary finds it
         // whatever directory the test process happens to be in.
         std::fs::write(
             directory.path().join("ceres.yaml"),
@@ -88,9 +88,9 @@ impl Project {
             .await
             .expect("the database opens");
 
-        // The column types and the check constraints are the migrations' own, so a value
+        // The column types and the check constraints are the migrations' own so a value
         // the surface admits but the schema refuses fails here the way it would in a real
-        // database. The foreign keys are left off, because nothing here asserts what a
+        // database. The foreign keys are left off because nothing here asserts what a
         // dangling reference does and creating them would mean creating `users` too.
         for statement in [
             "CREATE TABLE groups (id CHAR(32) NOT NULL, name TEXT NOT NULL, \
@@ -144,7 +144,7 @@ impl Project {
 
     /// Run the binary asking for columns, with color turned on.
     ///
-    /// Both have to be said, because neither is inferred. A dump is JSON lines whoever is
+    /// Both have to be said because neither is inferred. A dump is JSON lines whoever is
     /// reading it, and `FORCE_COLOR` decides only color.
     fn watched(&self, arguments: &[&str]) -> Output {
         let mut named: Vec<&str> = arguments.to_vec();
@@ -287,7 +287,7 @@ async fn a_create_writes_one_row_and_reports_it() {
 async fn a_write_goes_through_only_when_it_was_told_not_to_ask() {
     let project = Project::seed().await;
 
-    // Tests do not run at a terminal, so a write that would ask is refused rather than
+    // Tests do not run at a terminal so a write that would ask is refused rather than
     // assumed. The rows stay exactly as they were.
     let asked = project.run(&["variables", "delete", "--address", "@motor"]);
     assert!(!asked.status.success());
@@ -295,7 +295,7 @@ async fn a_write_goes_through_only_when_it_was_told_not_to_ask() {
     assert!(refusal.contains("--no-confirm"), "{refusal}");
     assert_eq!(project.variables().await.len(), 4);
 
-    // Saying so is what lets it through.
+    // Saying so lets it through.
     let deleted =
         succeeded(&project.run(&["variables", "delete", "--address", "@motor", "--no-confirm"]));
     assert_eq!(deleted.trim(), "2");
@@ -376,7 +376,7 @@ async fn help_is_answered_without_starting_an_interpreter() {
     let project = Project::seed().await;
 
     let help = succeeded(&project.run(&["variables", "select", "--help"]));
-    // The filter surface is generated from the entity's own fields, so the table's
+    // The filter surface is generated from the entity's own fields so the table's
     // columns and the operations over them are all listed.
     assert!(help.contains("--address"), "{help}");
     assert!(help.contains("--name-contains"), "{help}");
@@ -401,8 +401,8 @@ async fn a_dump_asked_for_columns_is_drawn_as_a_table() {
     // A table is columns, not one object per line.
     assert!(!table.contains('{'), "{table}");
 
-    // The same command without it is JSON lines, which is what every dump is unless it
-    // was asked to be something else, so a script reads the same bytes either way.
+    // The same command without it is JSON lines, the default for every dump, so a
+    // script reads the same bytes either way.
     let piped = succeeded(&project.run(&["variables", "select", "--address", "@motor"]));
     assert!(piped.starts_with('{'), "{piped}");
 }
@@ -411,7 +411,7 @@ async fn a_dump_asked_for_columns_is_drawn_as_a_table() {
 async fn turning_color_off_leaves_the_columns_that_were_asked_for() {
     let project = Project::seed().await;
 
-    // Color and shape are separate questions, so answering one does not answer the other.
+    // Color and shape are separate questions so answering one does not answer the other.
     // A reader who wants columns without color gets exactly that.
     let bare = succeeded(&project.run_with(
         &[],
@@ -431,8 +431,8 @@ async fn turning_color_off_leaves_the_columns_that_were_asked_for() {
 async fn a_one_value_answer_is_colored_like_the_same_value_in_a_row() {
     let project = Project::seed().await;
 
-    // A count and an existence check never pass through a row renderer, so they used to
-    // come out plain where every value beside them was colored.
+    // A count and an existence check never pass through a row renderer so their color
+    // is applied where they are written and is worth pinning here.
     let counted = succeeded(&project.run_with(
         &["--color"],
         &["variables", "count", "--address", "@motor"],
@@ -451,7 +451,7 @@ async fn a_one_value_answer_is_colored_like_the_same_value_in_a_row() {
 async fn a_dump_written_to_a_file_carries_no_color_into_it() {
     let project = Project::seed().await;
 
-    // An escape sequence written to a file is read back as the characters it is made of,
+    // An escape sequence written to a file is read back as the characters it is made of
     // so a dump that named a destination is uncolored however the terminal is set.
     for format in ["json", "table"] {
         let path = project.path().join(format!("rows-{format}.out"));
@@ -471,7 +471,7 @@ async fn a_dump_written_to_a_file_carries_no_color_into_it() {
 
         let written = std::fs::read_to_string(&path).expect("the dump wrote its file");
         assert!(!written.contains('\u{1b}'), "{format}: {written}");
-        // Naming a shape is what reaches it anywhere but a terminal, so the file holds
+        // Naming a shape is what reaches it anywhere but a terminal so the file holds
         // the shape that was asked for rather than the one a destination would infer.
         match format {
             "table" => assert!(written.contains('\u{256d}'), "{written}"),
@@ -493,7 +493,7 @@ async fn a_collected_write_hands_back_the_rows_it_touched() {
     let project = Project::seed().await;
 
     // `--collect` answers with the rows themselves rather than how many there were,
-    // which is what makes a write scriptable against what it actually changed.
+    // which makes a write scriptable against what it actually changed.
     let touched = succeeded(&project.run(&[
         "variables",
         "update",
@@ -512,7 +512,7 @@ async fn a_collected_write_hands_back_the_rows_it_touched() {
         "{touched}"
     );
 
-    // The rows a delete collected are the ones that went, so they can be kept.
+    // The rows a delete collected are the ones that went so they can be kept.
     let gone = succeeded(&project.run(&[
         "variables",
         "delete",
@@ -558,7 +558,7 @@ async fn an_assignment_the_writer_will_not_take_says_why() {
     let message = String::from_utf8_lossy(&identity.stderr);
     assert!(message.contains("identifies a row"), "{message}");
 
-    // Nothing was written by either, because a refusal happens before the transaction.
+    // Nothing was written by either because a refusal happens before the transaction.
     assert!(
         project
             .variables()
@@ -582,7 +582,7 @@ async fn a_load_names_the_row_it_could_not_read() {
 
     let message = String::from_utf8_lossy(&refused.stderr);
     assert!(message.contains("Row 2"), "{message}");
-    // A load either lands whole or not at all, so the good first row is not there.
+    // A load either lands whole or not at all so the good first row is not there.
     assert_eq!(project.variables().await.len(), 4);
 }
 
@@ -632,8 +632,8 @@ async fn a_conflicting_load_does_what_its_mode_says() {
 async fn a_csv_dump_carries_its_header_even_with_no_rows() {
     let project = Project::seed().await;
 
-    // The header names the columns, which is what makes an empty result readable as an
-    // empty table rather than as nothing at all.
+    // The header names the columns, which makes an empty result readable as an empty
+    // table rather than as nothing at all.
     let empty = succeeded(&project.run(&[
         "variables",
         "select",
@@ -669,7 +669,7 @@ async fn a_dump_to_a_file_carries_every_row() {
         "--output",
         out.to_str().expect("a text path"),
     ]));
-    // The rows went to the file, so nothing was printed.
+    // The rows went to the file so nothing was printed.
     assert!(written.is_empty(), "{written}");
 
     let held = std::fs::read_to_string(&out).expect("the file reads");
@@ -753,7 +753,7 @@ async fn a_grant_refuses_a_level_the_schema_cannot_store() {
     let project = Project::access().await;
 
     // `deny` names the absence of a grant rather than a level a row can hold. It has to
-    // be turned away while the filter or the row is still being read, because a value
+    // be turned away while the filter or the row is still being read because a value
     // that reaches the database comes back as a constraint violation naming the
     // constraint, which tells the reader nothing about what they typed.
     let filtered = project.run(&["group-permissions", "count", "--level", "deny"]);
@@ -880,7 +880,7 @@ async fn enablement_project() -> Project {
 async fn offline_toggles_flip_only_rows_holding_the_other_state() {
     let project = enablement_project().await;
 
-    // Only the enabled component reports, because the disabled one already holds the
+    // Only the enabled component reports because the disabled one already holds the
     // asked-for state and the never-toggled child has no row to flip.
     let disabled = succeeded(&project.run(&["disable", "@motor", "@sensor", "@motor.driver"]));
     assert_eq!(disabled.trim(), "{\"disabled\":[\"@motor\"]}");
@@ -898,8 +898,8 @@ async fn offline_toggles_flip_only_rows_holding_the_other_state() {
         "{held:?}"
     );
 
-    // A component that was never toggled has no row, so enabling it reports nothing and
-    // writes nothing, the way the runtime's offline path always behaved.
+    // A component that was never toggled has no row so enabling it reports nothing and
+    // writes nothing, matching the runtime's offline path.
     let untouched = succeeded(&project.run(&["enable", "@motor.driver"]));
     assert_eq!(untouched.trim(), "{\"enabled\":[]}");
 }

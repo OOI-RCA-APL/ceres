@@ -443,12 +443,9 @@ class TestComputeIterationsAndFireTimeDelay:
         assert result is None
 
     def test_value_error_in_pre_limit_iterations_returns_none(self) -> None:
-        # When limit / interval would produce a negative log argument.
-        # multiplier > 1, max set, but log(max/interval) / log(multiplier) fails.
-        # This is hard to trigger directly, but we can use multiplier < 1 with min
-        # where min > interval would fail validation. Instead, test the function directly.
-        # Using multiplier < 1 with a min value that is actually larger (bypassing Schedule
-        # validation) by calling the internal function directly.
+        # A multiplier below one with a min above the interval makes the log argument
+        # negative, a pair `Schedule` validation forbids, so the internal function is
+        # called directly.
         result = _compute_iterations_and_fire_time_delay(
             runtime=timedelta(seconds=100),
             interval=timedelta(seconds=-1),

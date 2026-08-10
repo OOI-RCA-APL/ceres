@@ -87,13 +87,13 @@ class SensorDriver(Component):
             return None
 ```
 
-There is a lot happening here, so let's break it down:
+There is a lot happening here so let's break it down:
 
 - `Connection.Field(...)` declares a connection with default settings. The connection's transport source (TCP host/port) is configured in `ceres.yaml`, not in code, so the same driver class can be reused for different instruments.
 - `SplitByLine()` tells the connection to split incoming bytes on newlines.
 - `suffix=b"\n"` appends a newline to outgoing messages.
 - `receive_timeout=30` disconnects if no data is received for 30 seconds.
-- The `@sieve(connection)` decorator registers the method as a data parser for the named connection. Each message received on that connection is passed through this method. Do not name the method `sieve`, because a second `@sieve` in the same class would then resolve to the first method rather than the decorator.
+- The `@sieve(connection)` decorator registers the method as a data parser for the named connection. Each message received on that connection is passed through this method. Do not name the method `sieve` because a second `@sieve` in the same class would then resolve to the first method rather than the decorator.
 - Returning a particle stores it in the database. Returning `None` skips the message.
 - `ParseFailed` is raised by `from_message()` when the regex does not match.
 
@@ -215,7 +215,7 @@ latest = await self.system.particles.where(order="timestamp:desc").limit(10)
 
 ## Binary Protocols
 
-For instruments that send binary data instead of text, use `BinaryParticle` or `BinaryRegexParticle` instead of `RegexParticle`. These use `struct.unpack()` to extract fields from fixed-layout binary frames.
+For instruments that send binary data instead of text, use `BinaryParticle` or `BinaryRegexParticle` instead of `RegexParticle`. These describe fixed-layout binary frames with `struct`-style formats and extract each field into the particle's data.
 
 ## Production Patterns
 

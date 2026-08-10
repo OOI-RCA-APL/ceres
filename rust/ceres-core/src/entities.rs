@@ -2,7 +2,7 @@
 //!
 //! Query results for the record entities are parsed straight from database row mappings
 //! into the `ceres-entities` structs and held natively. The API's pass-through paths
-//! serialize a whole batch to JSON in one call, so no Python entity objects exist for rows
+//! serialize a whole batch to JSON in one call so no Python entity objects exist for rows
 //! that only travel from the database to a response body.
 
 use ceres_config::Level;
@@ -34,7 +34,7 @@ pub struct RecordBatch {
 impl RecordBatch {
     /// Parse database row mappings into a native batch.
     ///
-    /// Row values arrive through the database layer's column mappers, so they are trusted
+    /// Row values arrive through the database layer's column mappers so they are trusted
     /// rather than revalidated here.
     #[staticmethod]
     fn parse(table: RecordTable, rows: Vec<Bound<'_, PyAny>>) -> PyResult<Self> {
@@ -50,7 +50,7 @@ impl RecordBatch {
 
     /// Serialize one live record entity as JSON in the API's wire format.
     ///
-    /// Reads the entity object's attributes rather than row values, so streamed records
+    /// Reads the entity object's attributes rather than row values so streamed records
     /// serialize natively too. Raises `ValueError` for payload values richer than JSON,
     /// which the caller serializes through Pydantic instead.
     #[staticmethod]
@@ -255,7 +255,7 @@ fn parse_id(source: &Source<'_, '_>) -> PyResult<Uuid> {
 }
 
 fn parse_address(source: &Source<'_, '_>) -> PyResult<Address> {
-    // Address objects are string-backed rather than string-subclassed, so take their text
+    // Address objects are string-backed rather than string-subclassed so take their text
     // form. Addresses were validated when written, the value is trusted on the way out.
     Ok(Address::trusted(source.get("address")?.str()?.to_string()))
 }
@@ -266,7 +266,7 @@ fn parse_timestamp(source: &Source<'_, '_>) -> PyResult<Timestamp> {
         return Ok(Timestamp(aware));
     }
 
-    // Some drivers hand back naive datetimes, which the database layer defines as UTC.
+    // Some drivers return naive datetimes, which the database layer defines as UTC.
     let naive: NaiveDateTime = value.extract()?;
     Ok(Timestamp(naive.and_utc()))
 }

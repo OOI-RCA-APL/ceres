@@ -144,10 +144,11 @@ class BCryptHashingConfig:
 @final
 class Connection:
     r"""
-    Where one database lives and how its connections are dressed.
+    Where one database lives and the statements its connections run.
 
-    The `init` statements ride along for the store alone, that being the engine a
-    database opens for itself, while every pool takes the per-connection pair.
+    The `init` statements belong to the writable store alone because it is the
+    connection a database opens for itself, while every pool takes the per-connection
+    pair.
     """
     @staticmethod
     def sqlite(
@@ -368,7 +369,7 @@ class NativeFilter:
 
         The parameters arrive in placeholder order for a driver-level execute, `?` style
         for the SQLite family and `$n` for PostgreSQL. The caller's clock decides
-        age-relative conditions, and the whole statement resolves it once, so `min_age`
+        age-relative conditions, and the whole statement resolves it once so `min_age`
         and `max_age` in one filter cannot straddle a tick.
         """
     def exists_compiled(self, dialect: str, now: datetime | None = None) -> tuple[str, list[Any]]:
@@ -383,9 +384,8 @@ class NativeFilter:
         r"""
         Compile the delete to SQL and its parameters for a dialect.
 
-        `returning` hands back the rows the statement removed, which is how a caller that
-        wants the entities it deleted gets them without a second query that would no
-        longer find them.
+        `returning` fetches the deleted rows because a second query could no longer
+        find them.
         """
     def update_compiled(
         self, dialect: str, assign: str, returning: bool = False, now: datetime | None = None
@@ -393,16 +393,16 @@ class NativeFilter:
         r"""
         Compile an update to SQL and its parameters for a dialect.
 
-        `assign` is the serialized JSON object of new values, and each one encodes into the
-        form its column stores, so the caller cannot write a value the column did not ask
-        for. A refusal carries the sentence naming the key and what it wanted.
+        `assign` is the serialized JSON object of new values. Each one encodes into the
+        form its column stores, and a refusal names the offending key and the form it
+        expected.
         """
     def matches(self, record_json: str, now: datetime | None = None) -> bool:
         r"""
         Whether one serialized row matches this filter.
 
-        Query controls and subsampling do not participate, this reads a single row the way
-        live stream filtering does.
+        Query controls and subsampling do not apply because this reads a single row the
+        way live stream filtering does.
         """
 
 @final
@@ -410,7 +410,7 @@ class NativeServer:
     r"""
     A natively-served HTTP application.
 
-    Binds at construction, so the real port is known immediately, and serves as an
+    Binds at construction so the real port is known immediately, and serves as an
     awaitable until stopped. The web form carries the console and terminates TLS, the
     CLI form binds loopback on an ephemeral port and requires its token instead.
     """
@@ -569,7 +569,7 @@ class RecordBatch:
         r"""
         Parse database row mappings into a native batch.
 
-        Row values arrive through the database layer's column mappers, so they are trusted
+        Row values arrive through the database layer's column mappers so they are trusted
         rather than revalidated here.
         """
     @staticmethod
@@ -577,7 +577,7 @@ class RecordBatch:
         r"""
         Serialize one live record entity as JSON in the API's wire format.
 
-        Reads the entity object's attributes rather than row values, so streamed records
+        Reads the entity object's attributes rather than row values so streamed records
         serialize natively too. Raises `ValueError` for payload values richer than JSON,
         which the caller serializes through Pydantic instead.
         """
@@ -593,12 +593,12 @@ class RecordWriter:
 
     Entities extract into native records synchronously, then a whole flush upserts in one
     transaction on the writer's own pool. Built from the same resolved connection the
-    stores open from, so it cannot connect differently than the query layer.
+    stores open from so it cannot connect differently than the query layer.
     """
     def __new__(cls, connection: Connection) -> Self:
         r"""
-        Open a writer's pool on a connection, which never runs the `init` statements,
-        those being the store's to run.
+        Open a writer's pool on a connection. The writer never runs the `init`
+        statements, which belong to the writable store.
         """
     def write(self, groups: list[tuple[RecordTable, list[Any]]]) -> Any:
         r"""
@@ -617,7 +617,7 @@ class RowChunks:
         r"""
         The next chunk of column mappings, `None` once the query is spent.
 
-        Waiting for a chunk blocks a thread of its own rather than the event loop, so a
+        Waiting for a chunk blocks a thread of its own rather than the event loop so a
         slow query leaves the caller's asyncio loop free.
         """
 
@@ -1037,15 +1037,15 @@ class Store:
         r"""
         Open the store a connection describes.
 
-        A writable store runs the connection's `init` statements, that being the engine a
-        database opens for itself. A read-only one serves queries on a pool of its own
-        and never runs them, those being the store's to run.
+        A writable store runs the connection's `init` statements because it is the
+        connection a database opens for itself. A read-only store serves queries on a
+        pool of its own and never runs them.
         """
     def fetch_sql(self, table: RecordTable, sql: str, parameters: list[Any]) -> Any:
         r"""
         Execute a compiled record query, as an awaitable `RecordBatch`.
 
-        The statement text and parameters come from the query layer's own compiler, so any
+        The statement text and parameters come from the query layer's own compiler so any
         filter it can express runs natively with identical semantics. Rows go from the
         driver to JSON without any Python entity objects in between.
         """
@@ -1053,18 +1053,16 @@ class Store:
         r"""
         Execute a statement that returns rows, as an awaitable list of column mappings.
 
-        `table` names the table the rows come from, which is what says whether a column
+        `table` names the table the rows come from, which says whether a column
         of text holds a UUID, a timestamp, or a name. A statement belonging to no table,
-        which is what a migration runs, passes `None` and reads values as stored.
+        as a migration runs, passes `None` and reads values as stored.
         """
     def stream(self, sql: str, parameters: list[Any], table: str | None = None) -> RowChunks:
         r"""
         Execute a statement that returns rows, as chunks read as they arrive.
 
-        The chunked twin of `fetch`. A caller iterating a result rather than collecting it
-        holds one chunk at a time, so a query over a large table costs a chunk of memory
-        rather than the whole result, and the first rows reach the caller before the last
-        ones have been read.
+        The chunked twin of `fetch`. Rows reach the caller as they arrive so a query
+        over a large table costs one chunk of memory rather than the whole result.
         """
     def execute(self, sql: str, parameters: list[Any]) -> Any:
         r"""
@@ -1088,8 +1086,8 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
     @property
     def mvcc(self) -> bool:
         r"""
-        Put the database in Turso's MVCC journal mode, which is what lets writers
-        overlap. This converts the database file and the conversion cannot be undone.
+        Put the database in Turso's MVCC journal mode, which lets writers overlap.
+        This converts the database file and the conversion cannot be undone.
         """
     @property
     def hooks(self) -> DatabaseConfigHooks:
@@ -1192,12 +1190,11 @@ def hash_argon2(
     manager's own rule.
 
     This is the one Argon2 implementation the system has. The Python side calls it rather
-    than carrying a second one, so a hash written by a native command and a hash written
+    than carrying a second one so a hash written by a native command and a hash written
     through the entity manager cannot drift apart.
 
-    The interpreter lock is released for the duration. Argon2 is deliberately expensive,
-    tens of milliseconds against the default memory cost, and holding the lock through it
-    would stall every other Python thread, the event loop included.
+    The interpreter lock is released for the duration since Argon2 takes tens of
+    milliseconds and holding the lock would stall every other Python thread.
     """
 
 def hash_bcrypt(password: str, rounds: int) -> str | None:
@@ -1214,12 +1211,12 @@ def insert_compiled(
     r"""
     Compile one row's insert to SQL and its parameters for a dialect.
 
-    This takes a table rather than a filter, because an insert names the row it writes
+    This takes a table rather than a filter because an insert names the row it writes
     instead of narrowing to rows that already exist. `values` is the serialized JSON object
     of column values, and each one encodes into the form its column stores.
 
     `upsert` decides what a collision on the primary key does. Left off, the collision
-    reaches the caller, which is what turns a duplicate into the error naming the column it
+    reaches the caller, which turns a duplicate into the error naming the column it
     collided on. Turned on, every column outside the key takes the new row's value.
     """
 
@@ -1262,18 +1259,18 @@ def stored_columns() -> list[tuple[str, list[tuple[str, str]]]]:
     Each entry pairs a table name with its columns, and each column its name and the
     family that decides how it decodes. This is the contract between the entity structs
     and the schema the migrations create, and a column named here that the migrations do
-    not create is a decode failure on a live query rather than anything a build catches,
-    which is what the drift test exists to find first.
+    not create is a decode failure on a live query, which the drift test exists to find
+    first.
 
     The order is load bearing. A table appears before anything holding a foreign key to
-    it, which is what lets a caller empty the schema by deleting in reverse.
+    it, which lets a caller empty the schema by deleting in reverse.
     """
 
 def verify_argon2(password: str, hash: str) -> bool | None:
     r"""
     Whether a password matches a stored Argon2 hash, `None` for any other algorithm.
 
-    The parameters come out of the encoded hash, so a stored one still verifies after the
+    The parameters come out of the encoded hash so a stored one still verifies after the
     configuration's parameters change. Releases the interpreter lock like `hash_argon2`,
     and for the same reason, verifying costs what hashing costs.
     """
@@ -1288,6 +1285,6 @@ def verify_password(password: str, hash: str) -> bool:
     Whether a password matches a stored hash of either algorithm.
 
     The algorithm is read off the hash itself rather than taken from a configuration,
-    which is what lets a database keep verifying rows written before its hashing was
+    which lets a database keep verifying rows written before its hashing was
     changed. A value that reads as neither algorithm's hash matches nothing.
     """

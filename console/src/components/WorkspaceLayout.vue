@@ -25,16 +25,16 @@ const {
   shrink = false,
   host,
 } = defineProps<{
-  /** The rows this editor arranges. Written in place, so it is the layout itself. */
+  /** The rows this editor arranges. Written in place so it is the layout itself. */
   layout: WidgetRow[]
 
-  /** What a drag calls this layout, which is what tells it apart from the others on screen. */
+  /** The ID a drag targets this layout by. */
   layoutId: string
 
-  /** What to do with height the layout has been given and its rows have not asked for.
+  /** What to do with height the layout has been given and its rows have not claimed.
 
-  Left alone by default, which is right for the workspace's own layout: that one is as tall as
-  what it holds, so there is never anything left over to give away.
+  The default suits the workspace's own layout, which is as tall as its contents and has none
+  left over.
   */
   expand?: LayoutExpand
 
@@ -44,8 +44,7 @@ const {
 
   /** The row this whole layout is drawn inside, where there is one.
 
-  A row that fills has no height of its own to speak of, so dragging its handle would move a number
-  nothing reads. What the drag is really asking for is a taller box to fill, which is this.
+  A filling row's own height is not what renders so a vertical drag resizes this instead.
   */
   host?: WidgetRow
 }>()
@@ -56,8 +55,7 @@ const drop = useWidgetDrop()
 const element = $ref<HTMLDivElement | null>(null)
 let layoutWidth = $ref<number | null>(null)
 
-// A layout that is mounted is a layout a drag may aim at. One that is not on screen, such as a
-// carousel slide that is not the slide being shown, never registers and so is never a target.
+// A mounted layout is a drag target. A carousel slide not being shown never registers.
 drop.register({
   id: layoutId,
   rows: () => layout,
@@ -66,8 +64,8 @@ drop.register({
 
 useResizeObserver($$(element), (resizes) => {
   for (const resize of resizes) {
-    // A layout laid out with no room yet reports nothing rather than a width of zero, which would
-    // otherwise pin every widget in it to nothing until the next measurement came in.
+    // With no room yet, report nothing rather than zero, which would pin every widget to
+    // nothing until the next measurement.
     const width = resize.contentRect.width
     layoutWidth = width > 0 ? width : null
   }
@@ -76,15 +74,15 @@ useResizeObserver($$(element), (resizes) => {
 /** The rows a drop in progress would leave this layout with, or null when it leaves it alone. */
 const planned = $computed(() => drop.plan?.layouts[layoutId] ?? null)
 
-// While a widget is in hand the layout on screen is the one letting go would produce, which puts
-// the drop target where the widget itself will be rather than beside a mark standing in for it.
+// While a widget is in hand, the layout on screen is the one letting go would produce, putting
+// the drop target where the widget will be.
 const rows = $computed<WidgetRow[]>(() => {
   const plan = planned
   if (plan == null) {
     return layout
   }
 
-  // Read from every layout, since a widget arriving from another one is not in this one yet.
+  // Read from every layout since a widget arriving from another one is not in this one yet.
   const widgets = new Map(
     workspace.layouts
       .flatMap((current) => current.rows)
@@ -96,7 +94,7 @@ const rows = $computed<WidgetRow[]>(() => {
   return plan.map((row) => {
     const contents = row.widgets.map((id) => widgets.get(id)).filter((widget) => widget != null)
 
-    // Rows the move leaves alone keep the identity they already had, so the widgets inside them
+    // Rows the move leaves alone keep the identity they already had so the widgets inside them
     // are not handed a fresh container on every pointer move.
     const unchanged = current.get(row.id) ?? null
     if (
@@ -113,22 +111,21 @@ const rows = $computed<WidgetRow[]>(() => {
   })
 })
 
-// The widget whose edge is being dragged, while it is being dragged. Every widget in that row is
-// resized by it, so the whole row says its share for as long as it lasts.
+// The widget whose edge is being dragged. Every widget in that row shows its share while the
+// drag lasts.
 let resizing = $ref<Widget | null>(null)
 
-/** The row whose bottom edge is being dragged, which says its height for as long as it lasts. */
+/** The row whose bottom edge is being dragged, which shows its height while the drag lasts. */
 let resizingRow = $ref<WidgetRow | null>(null)
 
-// A collapsed row is as tall as it needs to be rather than a number of pixels, and there is no
-// closing a height of auto. Taking the height it has as it leaves gives the collapse somewhere to
-// start from, whichever kind of row it is.
+// A collapsed row's height is auto, which cannot be animated closed. Pinning the height as the
+// row leaves gives the collapse a starting point.
 function pinRowHeight(target: Element) {
   const row = target as HTMLElement
   row.style.height = `${row.offsetHeight}px`
 }
 
-/** A widget's share of the row it is in, which is what a horizontal resize actually sets. */
+/** A widget's share of the row it is in, which a horizontal resize actually sets. */
 function getWidgetShare(widget: Widget) {
   return `${Math.round((widget.width / widgetWidthSubdivisions) * 100)}%`
 }
@@ -137,26 +134,20 @@ function isHeld(widget: Widget) {
   return drop.active && workspace.drag?.widgets.some((held) => held.id === widget.id) === true
 }
 
-// Said as a share of the row rather than as the pixels that share worked out to when the layout was
-// last measured. A width in pixels is only right until the box holding it changes size, and the
-// widths would stand at their old numbers until a measurement caught up, overflowing the row in the
-// meantime. A carousel slide changes size exactly that way, gaining and losing a scrollbar as its
-// contents change.
+// Expressed as a share of the row rather than pixels. Pixel widths overflow the row whenever the
+// box changes size, as a carousel slide does when it gains a scrollbar.
 function getWidgetWidthStyle(widget: Widget, isLast: boolean) {
   const units = drop.plan?.widths[widget.id] ?? widget.width
   const width = `${((units / widgetWidthSubdivisions) * 100).toFixed(4)}%`
 
-  // The last widget in a row is left without a ceiling, so it takes up whatever the rounding leaves
-  // over. A ceiling of none is not a width anything can be animated from, so a widget arriving in
-  // the last place is given a floor to open out to instead of jumping straight to its full size.
+  // The last widget has no ceiling so it absorbs the rounding remainder. It keeps a floor so a
+  // widget arriving in the last place animates open rather than jumping to full size.
   return isLast ? { minWidth: width } : { maxWidth: width, minWidth: width }
 }
 
-/** Take a row to `height`, carrying the box around it along where the row fills that box.
+/** Take a row to `height`, moving the surrounding box by the same amount where the row fills it.
 
-A filling row is as tall as whatever is left over, so changing its own height alone would move a
-number nothing reads. Moving the box by the same amount is what makes the drag do what it looks
-like it is doing, and keeps the row's own height meaningful for whenever it stops filling.
+A filling row's own height is not what renders so moving the box is what makes the drag visible.
 */
 function setRowHeight(row: WidgetRow, index: number, height: number) {
   const change = height - row.height
@@ -196,10 +187,8 @@ defineExpose({ element: $$(element) })
 
 <template>
   <div ref="element" :class="[$style.root, shrink && $style.rootFitting]" data-layout>
-    <!-- A layout with nothing on it offers the one thing there is to do with it, since a widget
-    can otherwise only arrive by being dragged in from somewhere that already has one. The same
-    button the workspace carries under its own layout, so adding the first widget to a carousel
-    slide or a tab is the thing it already is elsewhere rather than something else to learn. -->
+    <!-- An empty layout offers the same add button the workspace carries under its own layout,
+    since a widget can otherwise only arrive by drag. -->
     <div
       v-if="rows.length === 0"
       :class="[$style.empty, 'column', 'flex-center']"
@@ -216,9 +205,8 @@ defineExpose({ element: $$(element) })
         />
       </q-btn>
     </div>
-    <!-- Where the widget lands, said without the layout having to open for it. Drawn until the
-    target has been held long enough to be meant, so a pointer travelling across the workspace
-    does not rearrange everything it passes over on the way. -->
+    <!-- Marks where the widget lands. Drawn only until the target has been held briefly so a
+    pointer crossing the workspace does not rearrange everything it passes. -->
     <div
       v-if="drop.marker != null && drop.marker.layout === layoutId"
       :class="$style.dropMarker"
@@ -229,10 +217,9 @@ defineExpose({ element: $$(element) })
         height: `${drop.marker.height}px`,
       }"
     />
-    <!-- Rows slide to wherever a change puts them instead of arriving there outright, which is
-    what makes a gap opening somewhere legible as these rows moving down rather than as the page
-    having been redrawn. Rendered under a tag of its own, since working out whether a row can be
-    moved at all needs an element to test against and a fragment has none. -->
+    <!-- Rows slide to their new positions, which reads as movement rather than a redraw.
+    Rendered under a tag of its own since move testing needs an element and a fragment has
+    none. -->
     <transition-group
       :class="[
         $style.rows,
@@ -274,18 +261,16 @@ defineExpose({ element: $$(element) })
           @update:dragging="(dragging: boolean) => (resizingRow = dragging ? row : null)"
           @update:model-value="(value: number) => setRowHeight(row, i, value)"
         />
-        <!-- A row is sized in pixels rather than in shares of anything, so its height is what
-        it says, laid over the row the same way each widget says its share of one. -->
+        <!-- A row is sized in pixels so its readout shows pixels where a widget's shows its
+        share. -->
         <div
           v-if="resizingRow === row"
           :class="[$style.share, 'items-center', 'justify-center', 'row']"
         >
           <span :class="$style.shareValue">{{ Math.round(row.height) }}px</span>
         </div>
-        <!-- The box the widgets are laid out across, rather than a boxless wrapper inside it.
-        Working out whether a widget can be moved measures a copy of one laid out in here, and a
-        wrapper that generates no box of its own has that copy landing among the widgets it is
-        measuring, which leaves them holding the offsets it worked out. -->
+        <!-- The box the widgets are laid out across. Move measurement lays out a copy in here,
+        and a boxless wrapper would land that copy among the widgets it is measuring. -->
         <transition-group
           class="full-height full-width no-wrap row"
           :enter-active-class="$style.widgetOpening"
@@ -333,9 +318,8 @@ defineExpose({ element: $$(element) })
                 }
               "
             />
-            <!-- Every widget in the row says its share while one of them is being sized, since
-            giving one width takes it from the others. The one under the hand is the one being
-            answered for, so the rest are said quietly. -->
+            <!-- Every widget in the row shows its share while one is being sized since giving
+            one width takes it from the others. The one under the hand is highlighted. -->
             <div
               v-if="resizing != null && row.widgets.includes(resizing)"
               :class="[
@@ -365,18 +349,15 @@ defineExpose({ element: $$(element) })
 </template>
 
 <style lang="scss" module>
-// Movement starts at once and comes to rest, which reads as the layout settling rather than as
-// something being played back at it.
+// Movement starts at once and comes to rest so the layout reads as settling.
 $easeOut: cubic-bezier(0.2, 0, 0, 1);
 
-// How long the layout takes to settle after a change, and the one knob for all of it. Long enough
-// to be followed rather than only noticed, and short enough to keep up with a pointer still moving.
+// How long the layout takes to settle after a change, the one knob for all of it.
 $settle: 240ms;
 $fade: 210ms;
 
-// The rows and the space between them, said in one place rather than as a margin on each row.
-// Margins between flex items do not collapse the way they do between blocks, so a layout that
-// fills would otherwise stand its rows twice as far apart as one that does not.
+// Row spacing lives here as a gap since margins between flex items do not collapse and would
+// double the spacing in a filling layout.
 .rows {
   display: flex;
   flex-direction: column;
@@ -384,9 +365,8 @@ $fade: 210ms;
   padding: 8px 0;
 }
 
-// Rows laid down the height of the layout rather than only as far as they reach, so that whatever
-// is left at the bottom can be given to one of them. Rows keep the height they were dragged to,
-// since only the ones marked as filling may take more.
+// Rows span the layout's height so leftover height can be given to one of them. Only rows marked
+// as filling may take more.
 .rowsFilling {
   flex: 1 1 auto;
   min-height: 0;
@@ -396,11 +376,8 @@ $fade: 210ms;
   flex: 0 0 auto;
 }
 
-// Only the rows that fill are squeezed, since they are the ones whose height was never really
-// theirs. A row left at the height it was dragged to keeps it, so height taken away from a slide
-// comes out of the row that was taking up the slack rather than out of all of them evenly.
-// A filling row already gives height up when asked, so all this does is stop the others being
-// asked at all.
+// Only the filling rows are squeezed so height taken from a slide comes out of the row taking
+// up the slack rather than out of all of them evenly.
 .rowsShrinking {
   min-height: 0;
 }
@@ -409,32 +386,22 @@ $fade: 210ms;
   flex-shrink: 0;
 }
 
-// Grown from the height it was dragged to rather than in place of it, so a row that fills is still
-// at least as tall as it was asked to be.
+// Grows from the dragged height rather than replacing it so a filling row is never shorter than
+// it was asked to be.
 .rows > .rowFilling {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-// Enough of the layout to be worth pressing, which is what says a paste was meant for this one,
-// and all of it wherever the layout has a size of its own. On a carousel slide or a tab that means
-// the button sits in the middle of the space rather than at the top of it, and in the workspace's
-// own layout, which is only as tall as what it holds, the floor below is the whole of the height.
+// Tall enough to press so a paste clearly targets this layout, and grows to fill wherever the
+// layout has a size of its own.
 .empty {
   flex: 1 1 auto;
   min-height: 120px;
 }
 
-// What the drop marker is placed against.
-//
-// Takes all the room it is given wherever that room is a definite size, which is what leaves an
-// empty carousel slide something to aim at. A layout with no rows in it is no height at all, and
-// nothing can be dropped onto a box that is not there. The workspace's own layout is laid out in a
-// box that grows to fit it, where a share of nothing in particular comes to nothing and this has
-// no effect.
-// Held to exactly the height it has been given, rather than growing past it, which is what makes
-// squeezing the rows possible at all. Left to grow, a layout simply gets taller than its slide and
-// scrolls, and nothing is ever asked to give any height up.
+// Fills and is capped at any definite height it is given. An empty slide then has a box to drop
+// onto, and a layout allowed to grow would scroll instead of squeezing its rows.
 .rootFitting {
   height: 100%;
   min-height: 0;
@@ -444,17 +411,14 @@ $fade: 210ms;
   position: relative;
   min-height: 100%;
 
-  // Laid out as a column so that a layout with nothing on it can take the whole of the height it
-  // has been given. This holds the rows' own margins inside the box as well, which is what the box
-  // is for: left to collapse, the first and last margins fall outside the height, so a layout
-  // asked to fill its container stands exactly that much taller than it and scrolls for no reason.
+  // A column so an empty layout can take its full height. The box also keeps the rows' margins
+  // inside it since escaping margins would make a filling layout taller than its container.
   display: flex;
   flex-direction: column;
 }
 
-// Drawn where the next target is and nowhere in between. Travelling there would have a line lying
-// along a seam turning into one standing between two widgets, which is not a thing happening to
-// the layout. It runs either way, so the box it is given rather than a fixed side decides which.
+// Drawn at the next target without animating between targets since a line sliding between
+// orientations would depict a change the layout is not making.
 .dropMarker {
   position: absolute;
   z-index: 2;
@@ -463,8 +427,7 @@ $fade: 210ms;
   pointer-events: none;
 }
 
-// Laid over the widget rather than beside it, so the number sits on the thing it is the width of
-// and the widget behind is dimmed to leave the row reading as a set of shares.
+// Laid over the widget, dimming it so the row reads as a set of shares.
 .share {
   position: absolute;
   inset: 0;
@@ -472,8 +435,7 @@ $fade: 210ms;
   pointer-events: none;
 }
 
-// Carried on a chip of its own, so the number stays legible over whatever the widget happens to be
-// showing rather than relying on the wash over it to hide it.
+// On a chip of its own so the number stays legible over any widget content.
 .shareValue {
   padding: 2px 8px;
   border-radius: 4px;
@@ -517,16 +479,14 @@ $fade: 210ms;
   z-index: 1;
 }
 
-// Rows travel to wherever a change puts them. Short enough to keep up with a pointer that is still
-// moving, and eased so the movement reads as one thing settling rather than everything restarting.
-// Only the position is animated. A row's height arrives at once, so the gap a drop opens is there
-// to see straight away and only the rows giving way to it are in motion.
+// Only the position is animated. Heights arrive at once so the gap a drop opens is visible
+// immediately.
 .rowMove {
   transition: transform $settle $easeOut;
 }
 
-// A row arriving fades up while the rows around it slide apart, which separates the thing that is
-// new from the things that moved to make room for it.
+// A row arriving fades up while its neighbours slide apart, separating what is new from what
+// moved to make room.
 .rowEnterActive {
   transition: opacity $fade ease-out;
 }
@@ -535,10 +495,8 @@ $fade: 210ms;
   opacity: 0;
 }
 
-// A row that goes closes rather than vanishing, and everything under it rises as the room it took
-// up gives way. Its margins go with its height, or the gap it sat in would be left behind. Held
-// off while a widget is in hand, where a row closing is the preview being rearranged rather than
-// anything actually leaving.
+// A departing row closes, margins included, or the gap it sat in would remain. Disabled while a
+// widget is in hand, where a closing row is only the preview being rearranged.
 .rowClosing {
   overflow: hidden;
   transition: height $settle $easeOut, margin $settle $easeOut, opacity $fade ease-out;
@@ -558,9 +516,8 @@ $fade: 210ms;
   transition: min-width $settle $easeOut, max-width $settle $easeOut, opacity $settle ease-out;
 }
 
-// Beats the widths set inline from the layout, which is where a widget's own width comes from. The
-// basis goes with them, since a widget left free to size itself from its contents opens at whatever
-// it happens to hold rather than from nothing.
+// Overrides the widths set inline from the layout. The basis goes too, or a widget sizing from
+// its contents would open from its content width rather than from nothing.
 .widgetClosed {
   flex-basis: 0 !important;
   min-width: 0 !important;

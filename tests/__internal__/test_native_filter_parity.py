@@ -38,7 +38,7 @@ from ceres.variable import Variable
 from ceres.workspace import Workspace, WorkspaceEdit
 
 pytestmark = pytest.mark.databases()
-"""Every backend, since a dialect is where the two paths could render differently."""
+"""Every backend since a dialect is where the two paths could render differently."""
 
 RECORD_TABLES = {
     Message: RecordTable.MESSAGES,
@@ -63,7 +63,7 @@ ENTITY_TABLES = {
 NOW = datetime.now(UTC).replace(microsecond=83155)
 """The anchor seeded timestamps offset from.
 
-Age-based vectors compare against each side's own execution instant, so seeded offsets
+Age-based vectors compare against each side's own execution instant so seeded offsets
 sit hours from every age boundary and a few seconds of skew cannot recross one.
 """
 
@@ -279,7 +279,7 @@ VECTORS: dict[type[Any], list[list[tuple[str, str]]]] = {
     ],
 }
 """The shared vectors, plus per-table ones. An `after` value of `""` is filled in with a
-seeded timestamp at run time, so the vector table stays static."""
+seeded timestamp at run time so the vector table stays static."""
 
 
 def _resolve(engine: Engine, pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -386,7 +386,7 @@ def _declared_keys(Entity: Any) -> set[str]:
 
 
 def test_every_filter_field_is_classified() -> None:
-    """The native key lists cover the Pydantic filters exactly, so new fields cannot
+    """The native key lists cover the Pydantic filters exactly so new fields cannot
     ship unclassified.
     """
     for Record, table in RECORD_TABLES.items():
@@ -403,8 +403,8 @@ def test_every_filter_field_is_classified() -> None:
 def test_only_a_particle_class_has_no_native_form() -> None:
     """Every filter key on every table compiles natively, but one.
 
-    This is what lets the query layer run on the native store rather than beside it. A
-    key that delegates is one the store cannot answer, so each new one would be a query
+    This lets the query layer run on the native store rather than beside it. A
+    key that delegates is one the store cannot answer so each new one would be a query
     that has to keep a second execution path alive to serve it. A particle's `class`
     names a Python type and so resolves before the filter is parsed at all, which is why
     it is the exception rather than the start of a list.
@@ -426,7 +426,7 @@ def test_only_a_particle_class_has_no_native_form() -> None:
 def test_the_entity_grammar_is_a_subset_of_the_record_one() -> None:
     """No entity filter key exists that the record grammar has no notion of.
 
-    The Python entity filters descend from the same base the record ones extend, so a
+    The Python entity filters descend from the same base the record ones extend so a
     key appearing here that no record table declares would mean a second grammar had
     grown, which is the thing the shared compiler exists to prevent.
     """

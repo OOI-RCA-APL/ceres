@@ -2,12 +2,12 @@
 //!
 //! The typed decoders in `records` and `entities` know what shape a table holds and
 //! build the struct for it. This decodes by column instead, reading whatever a statement
-//! returned, which is what a query layer needs when it compiles its own statement and a
+//! returned, which a query layer needs when it compiles its own statement and a
 //! migration needs when it runs SQL that belongs to no table at all.
 //!
-//! A cell carries the value in the form the column stores it, so a caller sees the same
+//! A cell carries the value in the form the column stores it so a caller sees the same
 //! value on every backend even though SQLite keeps a UUID as text and PostgreSQL keeps it
-//! as a UUID. The column's declared type decides, rather than the value's runtime shape,
+//! as a UUID. The column's declared type decides, rather than the value's runtime shape
 //! because a stored value alone cannot say whether text is a timestamp or a name.
 
 use ceres_entities::{FieldFamily, FilterField};
@@ -22,9 +22,9 @@ use crate::store::Error;
 
 /// One of the tables the managers serve, whichever half of the split it falls in.
 ///
-/// The record tables and the entity tables are separate everywhere they are queried,
+/// The record tables and the entity tables are separate everywhere they are queried
 /// because their filters compile from different schemas. They are the same thing to a
-/// caller that only wants to know what a column holds, which is what this is for.
+/// caller that only wants to know what a column holds, which this is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Table {
     Record(RecordTable),
@@ -34,7 +34,7 @@ pub enum Table {
 impl Table {
     /// Select a table by name, across both halves.
     ///
-    /// The two name sets are disjoint, so a name identifies one table and the caller
+    /// The two name sets are disjoint so a name identifies one table and the caller
     /// does not have to know which half it came from.
     pub fn parse(name: &str) -> Option<Self> {
         if let Ok(table) = RecordTable::parse(name) {
@@ -52,7 +52,7 @@ impl Table {
         }
     }
 
-    /// The table's whole schema, which is what a write encodes and narrows against.
+    /// The table's whole schema, which a write encodes and narrows against.
     pub(crate) fn schema(&self) -> crate::records::Schema {
         match self {
             Self::Record(table) => table.schema(),
@@ -90,8 +90,8 @@ pub type Row = Vec<(String, Cell)>;
 /// Decode a SQLite row, the named table's columns deciding what its values hold.
 ///
 /// SQLite keeps a UUID and a timestamp both as text, and the driver reports the storage
-/// class rather than the declared type, so text alone cannot say which of the three a
-/// column is. The table says instead. A statement that names no table, which is what a
+/// class rather than the declared type so text alone cannot say which of the three a
+/// column is. The table says instead. A statement that names no table, as a
 /// migration runs, reads every value as the class it is stored in.
 pub fn sqlite_row(row: &sqlx::sqlite::SqliteRow, table: Option<Table>) -> Result<Row, Error> {
     let mut cells = Row::with_capacity(row.columns().len());
@@ -140,8 +140,8 @@ pub fn postgres_row(row: &sqlx::postgres::PgRow) -> Result<Row, Error> {
         let cell = match column.type_info().name().to_ascii_uppercase().as_str() {
             "BOOL" => Cell::Bool(row.try_get(index)?),
             // Each width decodes as itself and widens here. Asking for an `i64` from an
-            // `INT4` is a decode error rather than a widening, so a narrower column, which
-            // is what `SELECT 1` and most of the catalog hand back, would otherwise fail.
+            // `INT4` is a decode error rather than a widening so a narrower column, which
+            // is what `SELECT 1` and most of the catalog produce, would otherwise fail.
             "INT2" => Cell::Integer(row.try_get::<i16, _>(index)?.into()),
             "INT4" => Cell::Integer(row.try_get::<i32, _>(index)?.into()),
             "INT8" => Cell::Integer(row.try_get(index)?),
@@ -165,7 +165,7 @@ pub fn postgres_row(row: &sqlx::postgres::PgRow) -> Result<Row, Error> {
 
 /// Decode a Turso row, which holds the SQLite storage classes without declared types.
 ///
-/// The engine reports no schema type for a column, so a value crosses as what it is. The
+/// The engine reports no schema type for a column so a value crosses as what it is. The
 /// caller knows which of its columns hold UUIDs and timestamps, and reads the text form
 /// the SQLite family stores either as.
 pub fn turso_row(row: &turso::Row, names: &[String], table: Option<Table>) -> Result<Row, Error> {
@@ -182,7 +182,7 @@ pub fn turso_row(row: &turso::Row, names: &[String], table: Option<Table>) -> Re
                     .map(Cell::Json)
                     .map_err(|error| Error::Decode(format!("{text:?} is not JSON. {error}")))?
             }
-            // The storage class is NUMERIC on a JSON column, so a stored number comes
+            // The storage class is NUMERIC on a JSON column so a stored number comes
             // back as one rather than as the text it was written as.
             (turso::Value::Integer(held), Some(FieldFamily::Json | FieldFamily::JsonValue)) => {
                 Cell::Json((*held).into())
@@ -239,7 +239,7 @@ fn json_cell(row: &sqlx::sqlite::SqliteRow, index: usize) -> Result<Cell, Error>
 ///
 /// A migration and an ad hoc statement both select expressions rather than columns, so
 /// the value's own storage class decides. The order is the one SQLite orders its classes
-/// in, so an integer never reads as the text of itself.
+/// in so an integer never reads as the text of itself.
 fn untyped(row: &sqlx::sqlite::SqliteRow, index: usize) -> Result<Cell, Error> {
     if let Ok(value) = row.try_get::<i64, _>(index) {
         return Ok(Cell::Integer(value));
@@ -279,14 +279,14 @@ mod tests {
         assert_eq!(table.family("id"), Some(FieldFamily::Uuid));
         assert_eq!(table.family("timestamp"), Some(FieldFamily::Timestamp));
         assert_eq!(table.family("data"), Some(FieldFamily::Bytes));
-        // A column the table does not declare has no family, so its value reads as
+        // A column the table does not declare has no family so its value reads as
         // whatever it is stored as.
         assert_eq!(table.family("total"), None);
     }
 
     #[test]
     fn a_skipped_column_still_decodes() {
-        // A user's password hash is not filterable, but a row still carries it, so the
+        // A user's password hash is not filterable, but a row still carries it so the
         // column list has to hold what the filter surface does not.
         let table = Table::parse("users").expect("the users table");
         assert_eq!(table.family("password"), Some(FieldFamily::Text));

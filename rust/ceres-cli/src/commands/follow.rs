@@ -3,17 +3,14 @@
 //! `follow` is the one verb that reads from a running engine rather than from the
 //! database. It opens a websocket against the engine's CLI server, which streams a
 //! record's wire JSON per frame, and renders each frame the way a `select` renders a
-//! chunk, so a followed record prints exactly as a selected one does.
+//! chunk so a followed record prints exactly as a selected one does.
 //!
 //! Only the record tables declare it. The four non-record entity groups have no `follow`
-//! subcommand at all, so the verb never reaches them.
+//! subcommand at all so the verb never reaches them.
 //!
-//! The delegation rule holds the same way it does for a streamed dump, and lands in the
-//! same place for a different reason. Everything that decides whether a native pass may
-//! serve, the filter, the format, the color, and whether an engine is even running, is
-//! settled before the socket opens. Past that the output goes out as it arrives rather
-//! than being held, because the first record may be the only one for a long while and
-//! seeing it arrive is the point, so a later failure reports rather than delegating.
+//! Everything that decides whether a native pass may serve is settled before the
+//! socket opens. Past that, output goes out as it arrives, and a later failure
+//! reports rather than delegating.
 
 use std::path::Path;
 
@@ -33,7 +30,7 @@ pub fn run(
     config: Option<&Path>,
 ) -> Result<()> {
     // The filter parses here only to prove the query compiler understands it. The engine
-    // compiles the query itself, so what crosses the wire is the pairs as typed.
+    // compiles the query itself so what crosses the wire is the pairs as typed.
     RecordFilter::parse(table, &invocation.pairs).map_err(crate::commands::dump::refused)?;
 
     let project = Project::discover(config)?;
@@ -92,7 +89,7 @@ pub fn run(
 /// Render one frame's record the way a dump renders a chunk of one.
 ///
 /// A frame is a record's wire JSON, which is exactly one line of the JSON input a load
-/// reads, so it decodes through the same reader and renders through the same renderers.
+/// reads so it decodes through the same reader and renders through the same renderers.
 fn render(
     table: RecordTable,
     frame: &str,
@@ -108,7 +105,7 @@ fn render(
         return Ok(Vec::new());
     };
 
-    // A stream has no end to draw a table at, so a follow that would have been drawn as
+    // A stream has no end to draw a table at so a follow that would have been drawn as
     // one is JSON lines instead, and is colored as the JSON lines it actually is.
     let format = match format {
         DumpFormat::Table => DumpFormat::Json,

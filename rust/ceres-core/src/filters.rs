@@ -2,12 +2,12 @@
 //!
 //! The compiler is the single authority on the filter language. The Python query layer
 //! parses its filters here and runs the compiled statement on the native store, and live
-//! record streams test membership through the same parsed filter, so the wire paths, the
+//! record streams test membership through the same parsed filter so the wire paths, the
 //! programmatic API, and stream matching cannot diverge.
 //!
 //! One class serves both halves of the table split. The record tables and the entity
 //! tables compile from different schemas, but a caller holding a filter wants the same
-//! things from it either way, so the table it names decides which schema parses it and
+//! things from it either way so the table it names decides which schema parses it and
 //! nothing above here has to know which half it fell in.
 
 use ceres_database::{Refusal, SqlDialect, Table};
@@ -24,7 +24,7 @@ enum Parsed {
 
 /// Delegate a method to whichever half parsed the filter.
 ///
-/// Both halves carry the same surface, so every one of these is the same call against a
+/// Both halves carry the same surface so every one of these is the same call against a
 /// different schema, and writing them out would say nothing the table name does not.
 macro_rules! delegate {
     ($self:ident, $method:ident($($argument:expr),* $(,)?)) => {
@@ -110,7 +110,7 @@ impl NativeFilter {
     ///
     /// The parameters arrive in placeholder order for a driver-level execute, `?` style
     /// for the SQLite family and `$n` for PostgreSQL. The caller's clock decides
-    /// age-relative conditions, and the whole statement resolves it once, so `min_age`
+    /// age-relative conditions, and the whole statement resolves it once so `min_age`
     /// and `max_age` in one filter cannot straddle a tick.
     #[pyo3(signature = (dialect, *, count = false, now = None))]
     fn compiled<'py>(
@@ -144,9 +144,8 @@ impl NativeFilter {
 
     /// Compile the delete to SQL and its parameters for a dialect.
     ///
-    /// `returning` hands back the rows the statement removed, which is how a caller that
-    /// wants the entities it deleted gets them without a second query that would no
-    /// longer find them.
+    /// `returning` fetches the deleted rows because a second query could no longer
+    /// find them.
     #[pyo3(signature = (dialect, returning = false, now = None))]
     fn delete_compiled<'py>(
         &self,
@@ -163,9 +162,9 @@ impl NativeFilter {
 
     /// Compile an update to SQL and its parameters for a dialect.
     ///
-    /// `assign` is the serialized JSON object of new values, and each one encodes into the
-    /// form its column stores, so the caller cannot write a value the column did not ask
-    /// for. A refusal carries the sentence naming the key and what it wanted.
+    /// `assign` is the serialized JSON object of new values. Each one encodes into the
+    /// form its column stores, and a refusal names the offending key and the form it
+    /// expected.
     #[pyo3(signature = (dialect, assign, returning = false, now = None))]
     fn update_compiled<'py>(
         &self,
@@ -186,8 +185,8 @@ impl NativeFilter {
 
     /// Whether one serialized row matches this filter.
     ///
-    /// Query controls and subsampling do not participate, this reads a single row the way
-    /// live stream filtering does.
+    /// Query controls and subsampling do not apply because this reads a single row the
+    /// way live stream filtering does.
     #[pyo3(signature = (record_json, now = None))]
     fn matches(
         &self,
@@ -201,12 +200,12 @@ impl NativeFilter {
 
 /// Compile one row's insert to SQL and its parameters for a dialect.
 ///
-/// This takes a table rather than a filter, because an insert names the row it writes
+/// This takes a table rather than a filter because an insert names the row it writes
 /// instead of narrowing to rows that already exist. `values` is the serialized JSON object
 /// of column values, and each one encodes into the form its column stores.
 ///
 /// `upsert` decides what a collision on the primary key does. Left off, the collision
-/// reaches the caller, which is what turns a duplicate into the error naming the column it
+/// reaches the caller, which turns a duplicate into the error naming the column it
 /// collided on. Turned on, every column outside the key takes the new row's value.
 #[gen_stub_pyfunction]
 #[pyfunction]
@@ -265,7 +264,7 @@ fn bind_value<'py>(
             None => py.None().into_bound(py),
         },
         // The Python layer binds aware UTC datetimes, and PostgreSQL's timestamps are
-        // timezone-aware columns, so a naive bind would read in the session's zone.
+        // timezone-aware columns so a naive bind would read in the session's zone.
         Value::ChronoDateTime(value) => value.map(|value| value.and_utc()).into_bound_py_any(py)?,
         Value::ChronoDateTimeUtc(value) => value.map(|value| *value).into_bound_py_any(py)?,
         Value::Uuid(value) => value.map(|value| *value).into_bound_py_any(py)?,

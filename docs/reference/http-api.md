@@ -80,7 +80,7 @@ caller themselves against the resource they name.
 | `POST` | `/api/down` | required | Disable and stop matching components. |
 | `POST` | `/api/enable` | required | Enable matching components. |
 | `GET` | `/api/openapi.json` | optional | Serve the OpenAPI document. |
-| `POST` | `/api/reload` | required | Reload the engine's configuration, which answers with it and so scrubs it. |
+| `POST` | `/api/reload` | required | Reload the engine's configuration, which returns it and so scrubs it. |
 | `POST` | `/api/start` | required | Start matching components. |
 | `POST` | `/api/stop` | required | Stop matching components. |
 | `POST` | `/api/up` | required | Enable and start matching components. |

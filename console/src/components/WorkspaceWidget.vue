@@ -27,7 +27,7 @@ const { widget, layoutId } = defineProps<{
   row: number
   column: number
 
-  /** The layout this widget sits in, which is what its row and column are counted against. */
+  /** The layout this widget sits in, which its row and column are counted against. */
   layoutId: string
 }>()
 
@@ -68,9 +68,9 @@ function onSettingsRequested() {
   isShowingSettingsDialog = true
 }
 
-/** The same pages the other way about, for a widget that holds pages, or null for one that does
-not. Offered from the header as well as from the strip itself, since it is a change to the widget
-rather than to what is on any one of its pages. */
+/** The widget's pages under the other pages-widget kind, or null for a widget without pages.
+Offered from the header as well as from the strip itself because it changes the widget rather
+than any one of its pages. */
 const conversion = $computed(() => {
   const converted = convertedPagesWidget(widget)
   if (converted == null) {
@@ -92,8 +92,8 @@ const groupTargets = $computed(() =>
     : [widget.id]
 )
 
-// Hand the widget back as one of its kind with nothing set on it, which is what a stub already is
-// once it stops standing in for what it was hiding.
+// Replace the widget with a fresh one of its kind, which is all a stub is once it no longer
+// hides anything.
 function onResetRequested() {
   workspace.replaceWidget(widget.id, createWidget(widget.type))
 }
@@ -120,7 +120,7 @@ const targetAddress = $computed(() => {
 })
 
 // A press on the header either picks the widget out or takes hold of it. Held with a modifier it
-// only changes what is picked out, since a selection is built up one press at a time. Otherwise it
+// only changes what is picked out since a selection is built up one press at a time. Otherwise it
 // takes hold of everything picked out, which is just this widget unless it was already among them.
 function onPress(event: MouseEvent | TouchEvent) {
   // Only the primary button arranges anything. A right press is asking the widget a question, and
@@ -145,7 +145,7 @@ function onPress(event: MouseEvent | TouchEvent) {
   workspace.drag = { widget, widgets: [...workspace.selectedWidgets], layout: layoutId }
 }
 
-// A restricted stub loads with its address fields redacted, so the user could not have set
+// A restricted stub loads with its address fields redacted so the user could not have set
 // them knowingly. Once the user repoints the widget to a new target, the stub is stale and its
 // lock placeholder should give way to a fresh, editable widget.
 const targetSignature = $computed(() => widgetTargetSignature(widget))
@@ -170,7 +170,7 @@ watch(
     ]"
     flat
   >
-    <!-- A widget wearing no frame is still taken hold of and still answers to a menu, so what the
+    <!-- A widget wearing no frame is still taken hold of and still answers to a menu so what the
     header carried comes up over its own corner while the pointer is on it. -->
     <div
       v-if="widget.frameless"
@@ -287,7 +287,7 @@ watch(
     <template v-if="!container.collapsed">
       <q-separator v-if="!widget.frameless" />
       <!-- Padded only where there is a frame to pad it away from. A widget wearing none stands on
-      the layout itself, so it takes the whole of the space the frame would have taken rather than
+      the layout itself so it takes the whole of the space the frame would have taken rather than
       sitting inset inside a box that is no longer drawn. -->
       <div
         :key="key"
@@ -420,7 +420,7 @@ watch(
           </q-item-section>
         </q-item>
         <q-separator />
-        <!-- Held here as well as on the header, since a widget wearing no frame has no header to
+        <!-- Held here as well as on the header since a widget wearing no frame has no header to
         reach either of them from. -->
         <q-item v-close-popup clickable dense @click="widget.frameless = !widget.frameless">
           <q-item-section avatar>
@@ -449,13 +449,13 @@ watch(
         </q-item>
       </q-list>
     </q-menu>
-    <!-- Mounted only while showing, so its remembered choices are read fresh each time. -->
+    <!-- Mounted only while showing so its remembered choices are read fresh each time. -->
     <workspace-widget-group-dialog
       v-if="isShowingGroupDialog"
       :widget-ids="groupTargets"
       @close="isShowingGroupDialog = false"
     />
-    <!-- Hung off the card rather than off the button that opens it, so the menu can open it too on
+    <!-- Hung off the card rather than off the button that opens it so the menu can open it too on
     a widget that is wearing no header. -->
     <q-dialog v-if="settingsComponent != null" v-model="isShowingSettingsDialog">
       <q-card bordered :class="$style.editDialog" flat outline>
@@ -477,13 +477,13 @@ watch(
 <style lang="scss" module>
 @use 'sass:color';
 
-// The header is what a widget is dragged by, so a touch that starts on it is a drag rather than
+// The header is what a widget is dragged by so a touch that starts on it is a drag rather than
 // the page being scrolled.
 .header {
   touch-action: none;
 }
 
-// Nothing of the card is drawn, so what the widget shows is all there is of it and it sits on the
+// No card is drawn so the widget's content is all that shows and it sits directly on the
 // layout rather than in a box on it.
 .frameless {
   background-color: transparent;
@@ -505,7 +505,7 @@ watch(
   touch-action: none;
   transition: opacity 0.15s;
 
-  // Out of reach while it is out of sight, so a tap on a widget's top-right corner reaches the
+  // Out of reach while it is out of sight so a tap on a widget's top-right corner reaches the
   // widget rather than a handle nothing on a touchscreen ever showed.
   pointer-events: none;
 }
@@ -527,7 +527,7 @@ watch(
   background-color: $dark;
 }
 
-// Drawn outside the card's own border rather than in place of it, so picking a widget out does not
+// Drawn outside the card's own border rather than in place of it so picking a widget out does not
 // nudge everything inside it by a pixel.
 .selected {
   outline: 2px solid $primary;
@@ -545,7 +545,7 @@ watch(
   white-space: nowrap;
 }
 
-// A name being edited is not truncated, since the ellipsis that keeps a header tidy would clip the
+// A name being edited is not truncated since the ellipsis that keeps a header tidy would clip the
 // text being typed and the caret with it. The field grows with what is typed.
 .editingName {
   max-width: none;

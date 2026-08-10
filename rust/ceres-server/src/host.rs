@@ -1,10 +1,9 @@
 //! The host interface.
 //!
-//! The server owns HTTP, but the engine it serves lives on the other side of this
-//! trait: user lookup and credentials now, component operations and entity access as
-//! the port grows. The production host is the Python engine reached through the
-//! extension module's bridge, tests use stubs, and the boundary is exactly the seam a
-//! future non-Python host would implement.
+//! The server owns HTTP, and the engine it serves lives on the other side of this
+//! trait. The production host is the Python engine reached through the extension
+//! module's bridge, tests use stubs, and the boundary is the seam a non-Python host
+//! would implement.
 
 use std::path::PathBuf;
 
@@ -26,9 +25,9 @@ pub struct UserRecord {
 
 /// A failure crossing the host boundary.
 ///
-/// A typed failure carries the status and serialized envelope the host produced, served
-/// verbatim, anything else serves as a bare internal error like an unhandled exception
-/// always has.
+/// A typed failure carries the status and serialized envelope the host produced,
+/// served verbatim. Anything else serves as a bare internal error, the same as an
+/// unhandled exception.
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
     #[error("the host reported a typed error")]
@@ -55,7 +54,7 @@ impl IntoResponse for HostError {
 
 /// A response the host described rather than serialized, whose body the server produces.
 ///
-/// A procedure declaring a media type answers with one of these. The host decided every
+/// A procedure declaring a media type returns one of these. The host decided every
 /// header, including the content type and length, so the server sends them as they
 /// arrive and only has to find the bytes.
 pub struct Served {
@@ -72,10 +71,10 @@ pub struct Served {
 pub enum Answer {
     /// A payload's verbatim JSON, which nearly every operation returns.
     ///
-    /// The host already serialized it, so it flows into the response body untouched,
+    /// The host already serialized it so it flows into the response body untouched,
     /// a record dump never parses into a value tree on this side of the boundary.
     Payload(String),
-    /// A body the server produces itself, which only a media output answers with.
+    /// A body the server produces itself, which only a media output returns.
     Served(Served),
 }
 
@@ -164,7 +163,7 @@ pub trait Host: Send + Sync + 'static {
 
     /// Open a stream, answering with the handle its messages arrive under.
     ///
-    /// A refusal carries the close code the socket reports, so the policy for which
+    /// A refusal carries the close code the socket reports so the policy for which
     /// failure closes with which code stays with the engine.
     async fn stream_open(&self, operation: &str, arguments: Value) -> Result<u64, StreamClose> {
         let _ = arguments;
@@ -175,7 +174,7 @@ pub trait Host: Send + Sync + 'static {
 
     /// Await the next message on a stream, `None` once it ends.
     ///
-    /// Messages arrive pre-serialized, so a record the engine already rendered crosses
+    /// Messages arrive pre-serialized so a record the engine already rendered crosses
     /// the boundary once as text.
     async fn stream_next(&self, handle: u64) -> Result<Option<String>, StreamClose> {
         let _ = handle;
@@ -184,7 +183,7 @@ pub trait Host: Send + Sync + 'static {
 
     /// Await the next chunk of a described response's body, `None` once it ends.
     ///
-    /// Chunks arrive as raw bytes, so a body the host produces crosses without an
+    /// Chunks arrive as raw bytes so a body the host produces crosses without an
     /// encoding step of its own.
     async fn next_chunk(&self, handle: u64) -> Result<Option<Vec<u8>>, HostError> {
         let _ = handle;
@@ -207,9 +206,9 @@ pub trait Host: Send + Sync + 'static {
         )))
     }
 
-    /// Run an operation that answers with a payload.
+    /// Run an operation that returns a payload.
     ///
-    /// Only the procedure call routes reach an operation that can describe a response,
+    /// Only the procedure call routes reach an operation that can describe a response
     /// so every other route asks for the payload and treats a description as a failure
     /// of the host rather than carrying a branch that cannot be taken.
     async fn payload(&self, operation: &str, arguments: Value) -> Result<String, HostError> {

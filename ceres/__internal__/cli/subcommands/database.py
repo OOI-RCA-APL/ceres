@@ -25,12 +25,12 @@ if TYPE_CHECKING:
 class MigrationProgress:
     """Name the migration running now, and say how far through the list it is.
 
-    One line for the whole run rather than one per migration, because a migration runs as
+    One line for the whole run rather than one per migration because a migration runs as
     a single script and nothing can see inside one. All that can honestly be said is which
-    is running and how many have landed, so the spinner carries that work is happening and
+    is running and how many have landed so the spinner carries that work is happening and
     the count carries the position. The spinner becomes a check when the last one lands.
 
-    Satisfies `MigrationReporter` structurally, so the database layer never imports the
+    Satisfies `MigrationReporter` structurally so the database layer never imports the
     CLI to know how to be watched.
     """
 
@@ -87,7 +87,7 @@ class ShellCommand(CLICommand):
 
         from ceres.database import DatabaseType, PostgresDatabase, SQLiteDatabase, TursoDatabase
 
-        # The shell is for inspecting and repairing the database, so it must open regardless of
+        # The shell is for inspecting and repairing the database so it must open regardless of
         # whether the schema is initialized or current.
         async with self.use_database(require_initialized=False) as database:
             command: list[str] = []
@@ -124,7 +124,7 @@ class ShellCommand(CLICommand):
 
                     command = ["sqlite3", str(database.path)]
                     command.extend(["-cmd", f".output {os.devnull}"])
-                    # What the store sets on every connection it opens, so the shell sees the
+                    # What the store sets on every connection it opens so the shell sees the
                     # database the way the running engine does. A shell without foreign keys
                     # on would let a statement through that the engine would refuse.
                     for statement in ("PRAGMA foreign_keys = ON", "PRAGMA busy_timeout = 30000"):
@@ -143,10 +143,10 @@ class ShellCommand(CLICommand):
                     "to use this command."
                 )
 
-            # The shell opens the database itself, so release this process's own hold on
+            # The shell opens the database itself so release this process's own hold on
             # it first. Turso's driver keeps an exclusive lock on the file until its
             # connection objects deallocate, not merely close, and the shell cannot open
-            # the file under it, so the pool is disposed and collection is forced.
+            # the file under it so the pool is disposed and collection is forced.
             await database.dispose()
             gc.collect()
 
@@ -209,13 +209,9 @@ class MigrateCommand(CLICommand):
                 return
 
             # A database nothing has been applied to is being created rather than
-            # migrated, so naming every migration and drawing a bar through them is noise.
-            # All of them are pending, and none is a change to something the reader
-            # already has, which makes the whole run one step rather than a list of them.
-            #
-            # Applied migrations rather than `initialized()`, because reading the applied
-            # set creates the table that records it, so by now the database has a table
-            # whether or not it had one when the command started.
+            # migrated so the run reads as one step rather than a named list. Checked
+            # via the applied set rather than `initialized()` because reading the
+            # applied set creates the table that records it.
             bootstrapping = not await database.get_applied_migrations()
 
             if bootstrapping:

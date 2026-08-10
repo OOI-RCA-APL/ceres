@@ -5,7 +5,7 @@
 //! parameters with the contract's semantics, a UUID that fails to
 //! parse means the route never matched, gates the actor, and forwards one arguments
 //! object to the host, `{"actor", "path", "query", "body"}`. Validation of queries and
-//! bodies stays with the host, so every filter and model keeps its exact behavior.
+//! bodies stays with the host so every filter and model keeps its exact behavior.
 
 use std::sync::Arc;
 
@@ -56,7 +56,7 @@ macro_rules! path_struct {
 
 /// Declare the host-dispatched routes.
 ///
-/// Each row emits a [`TypedPath`] struct named for the route, so the path lives on the
+/// Each row emits a [`TypedPath`] struct named for the route so the path lives on the
 /// type axum-extra checks against the struct's captures, and registers a handler
 /// forwarding to [`Dispatch::respond`]. Rows name their gate, host operation, forwarded
 /// parameters, and whether a request body forwards too.
@@ -112,7 +112,7 @@ macro_rules! host_routes {
 }
 
 host_routes! {
-    /// Reload the engine's configuration, which answers with it and so scrubs it.
+    /// Reload the engine's configuration, which returns it and so scrubs it.
     ReloadEngine: typed_post "/api/reload" => Gate::Admin, "engine.reload", scrub: true;
     /// Start matching components.
     StartComponents: typed_post "/api/start" => Gate::Authenticated, "engine.start", body: true;
@@ -373,7 +373,7 @@ impl Dispatch {
 
         match state.host.operate(self.operation, arguments).await? {
             Answer::Payload(payload) => {
-                // An operation answering with configuration drops its credentials,
+                // An operation answering with configuration drops its credentials
                 // because reading the configuration is not permission to take the
                 // signing secret.
                 let payload = if self.scrub {
@@ -388,7 +388,7 @@ impl Dispatch {
                 )
                     .into_response())
             }
-            // A described response carries the status the output declared, so a route's
+            // A described response carries the status the output declared so a route's
             // own created-status override does not apply to it.
             Answer::Served(served) => Ok(served.serve(&state.host).await),
         }

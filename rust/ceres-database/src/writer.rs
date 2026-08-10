@@ -35,13 +35,13 @@ pub struct RecordWriter {
 impl RecordWriter {
     /// Open a writer over a SQLite database file.
     ///
-    /// The connection matches the query layer's, the same busy timeout and foreign key
-    /// enforcement, and never creates a missing file, the file's lifecycle belongs to the
-    /// Python layer.
+    /// The connection matches the query layer's, with the same busy timeout and foreign
+    /// key enforcement. It never creates a missing file because the file's lifecycle
+    /// belongs to the Python layer.
     ///
     /// `on_connect` and `on_close` are the configuration's own statements for the two ends
-    /// of a connection's life. The `init` statements are the store's to run, it being the
-    /// connection a database opens for itself.
+    /// of a connection's life. The `init` statements are the writable store's to run
+    /// because that is the connection a database opens for itself.
     pub fn sqlite(
         path: &str,
         on_connect: Vec<String>,
@@ -94,8 +94,8 @@ impl RecordWriter {
     /// overlap other writers.
     ///
     /// `on_connect` and `on_close` are the configuration's own statements for the two ends
-    /// of a connection's life. The `init` statements are the store's to run, it being the
-    /// connection a database opens for itself.
+    /// of a connection's life. The `init` statements are the writable store's to run
+    /// because that is the connection a database opens for itself.
     pub fn turso(path: &str, mvcc: bool, on_connect: Vec<String>, on_close: Vec<String>) -> Self {
         Self {
             backend: Arc::new(TursoBackend::new(
@@ -112,11 +112,11 @@ impl RecordWriter {
     ///
     /// A flush is atomic, either every record in every batch lands or none do.
     ///
-    /// The transaction asks to overlap other writers, because this is the one write path
+    /// The transaction asks to overlap other writers because this is the one write path
     /// that is frequent, independent, and safe to run again. Records are keyed by an ID
-    /// their producer minted, so two flushes rarely touch the same row, and a flush that
+    /// their producer minted so two flushes rarely touch the same row, and a flush that
     /// loses a race at commit is requeued by the buffer above and written next time. A
-    /// backend that cannot overlap runs it serialized instead, which is what
+    /// backend that cannot overlap runs it serialized instead, which
     /// [`RecordStore::overlaps_writers`](crate::RecordStore::overlaps_writers) reports.
     pub async fn upsert(&self, batches: Vec<Records>) -> Result<(), Error> {
         let dialect = self.backend.dialect();
@@ -124,11 +124,9 @@ impl RecordWriter {
             upsert_statement(batch, dialect).map(|statement| Ok((statement, batch.len())))
         });
 
-        // The count is what was handed in rather than what landed, `upsert_statement`
-        // dropping all but the last of any repeated ID, and it is dropped here anyway. A
-        // flush is told to write what it holds rather than asked how much of it was new.
-        // The load path is what actually answers with this number, over batches that
-        // carry no duplicates.
+        // The returned count is dropped. It counts what was handed in rather than what
+        // landed because `upsert_statement` keeps only the last of any repeated ID,
+        // and a flush is not asked how much of its input was new.
         self.backend
             .insert_all(Writing::Concurrent, &mut statements)
             .await?;
@@ -166,7 +164,7 @@ fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStat
 /// Bind every record in a batch, in file order, for a bulk load.
 ///
 /// Unlike a flush, a load never collapses duplicate keys. The Python command binds each
-/// row it read, so a file naming one key twice reaches the database twice and the
+/// row it read so a file naming one key twice reaches the database twice and the
 /// conflict mode decides what happens.
 pub(crate) fn load_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStatement> {
     let rows = match records {
@@ -205,7 +203,7 @@ pub(crate) fn entity_load_statement(
 
 /// The columns an entity batch binds, in the order its value builder writes them.
 ///
-/// This is the derive's wire-key order, so the list cannot drift from the serialized
+/// This is the derive's wire-key order so the list cannot drift from the serialized
 /// form the value builders align with.
 pub(crate) fn entity_columns(entities: &Entities) -> &'static [&'static str] {
     match entities {
@@ -223,7 +221,7 @@ pub(crate) fn entity_columns(entities: &Entities) -> &'static [&'static str] {
 
 /// The row one entity or record binds, in its table's column order.
 ///
-/// Implemented here rather than beside the types, because binding is sea-query's
+/// Implemented here rather than beside the types because binding is sea-query's
 /// business and `ceres-entities` knows nothing of it, which is exactly the local trait
 /// the orphan rule asks for. The entity impls align with [`Filterable::WIRE_KEYS`],
 /// which [`entity_columns`] serves, while the record tables bind the stored subset
@@ -455,7 +453,7 @@ impl RowValues for LogEntry {
 /// Iterate a batch keeping only the last record per key.
 ///
 /// A multi-row upsert cannot touch the same row twice, while the sequential writes it
-/// replaces let the last occurrence win, so duplicates collapse to that.
+/// replaces let the last occurrence win so duplicates collapse to that.
 fn dedupe_last<T, K: std::hash::Hash + Eq>(
     records: &[T],
     key: impl Fn(&T) -> K,

@@ -1,11 +1,9 @@
 """Assert that text ordering is a property of Ceres rather than of the database it runs on.
 
-Ordering of text follows the collation a database was created with, so the same query returns a
+Ordering of text follows the collation a database was created with so the same query returns a
 different order on a cluster initialized with a locale than on one initialized with `C`. These
 tests pin the order Ceres promises, which is by code point, matching every general-purpose
 language and matching SQLite. They pass on either backend, which is the point.
-
-See `2026-07-27-string-ordering-design.md`.
 """
 
 import pytest
@@ -14,7 +12,7 @@ from ceres import Address, Variable
 from ceres.database import Database
 
 pytestmark = pytest.mark.databases()
-"""Every backend, since the whole point is that they agree on an order they each decide."""
+"""Every backend since the whole point is that they agree on an order they each decide."""
 
 # Chosen so a locale collation and a code point collation disagree. A locale orders these
 # case-insensitively, giving `abc, ABC, cba, CBA`, and folds punctuation away.
@@ -44,7 +42,7 @@ async def test_names_order_by_code_point() -> None:
 
 
 async def test_addresses_order_by_code_point() -> None:
-    """The engine root sorts after component addresses, because `~` is above `@` in code point."""
+    """The engine root sorts after component addresses because `~` is above `@` in code point."""
     database = await _database()
     addresses = [Address("~"), Address("@abc"), Address("@abc.cde"), Address("@cde")]
     for address in addresses:

@@ -78,7 +78,7 @@ const slots = useSlots()
 
 // The address filter offers each component and its subtree selector, narrowed to the workspace's
 // placement so it matches what the record APIs can actually return once the filter resolves
-// through the workspace. A workspace at the engine root is narrowed to nothing, since the root
+// through the workspace. A workspace at the engine root is narrowed to nothing since the root
 // contains every component.
 const addressFilterOptions = $computed(() =>
   engine.components.all
@@ -139,17 +139,17 @@ const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / re
 const recordHeight = 24
 const recordLoadSizeInitial = $computed(() => Math.min(recordsVisible + 50, 1000))
 const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
-// Screenfuls kept drawn above and below the ones on screen. Nothing here is measured, so a row
+// Screenfuls kept drawn above and below the ones on screen. Nothing here is measured so a row
 // held in reserve costs only the drawing of it.
 const recordOverscan = 2
 const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
 // How far above the top the records above start being fetched. Deep enough that the request has
-// long landed before the top is reached, so arriving there shows records rather than a wait, and
+// long landed before the top is reached so arriving there shows records rather than a wait, and
 // so the fetch happens while there is still plenty of list left to scroll through.
 const recordsUntilNearTop = 400
 
-// How far above the top the records above are actually put in. Short of the top rather than at it,
+// How far above the top the records above are actually put in. Short of the top rather than at it
 // so a scroll that is still travelling runs straight on into them instead of arriving at the end
 // of the list and losing its momentum while they are placed.
 const recordsUntilPlacingPrevious = 60
@@ -176,8 +176,8 @@ const recordsPending = shallowReactive<Record[]>([])
 let lastLoadedCurrent = $shallowRef<Datetime | null>(null)
 let lastLoadedPrevious = $shallowRef<Datetime | null>(null)
 
-/** Older records already fetched and waiting to be put in, which is what stops the top of the
-list being a wait for a request. Nothing here is drawn, so it costs the list no height. */
+/** Older records already fetched and waiting to be inserted so the top of the list is never a
+wait for a request. Nothing here is drawn so it costs the list no height. */
 const previousBuffer = shallowReactive<Record[]>([])
 
 const earliestRecordTimestamp = $computed(() => records[0]?.timestamp ?? null)
@@ -291,7 +291,7 @@ async function scrollToBottom(duration = 1000, interval = 50) {
 
 let isFollowing = $ref(true)
 
-/** When the scroller last moved for any reason, which is what says a scroll is in progress. */
+/** When the scroller last moved for any reason, marking a scroll in progress. */
 let lastScrolledAt = 0
 
 async function onScroll() {
@@ -307,14 +307,14 @@ async function onScroll() {
     return
   }
 
-  // Fetched well before they are wanted, so reaching the top does not mean waiting on a request.
+  // Fetched well before they are wanted so reaching the top does not mean waiting on a request.
   if (isWithinReachOfTop()) {
     void fetchPrevious()
   }
 
   // Held back until the scroll is over, or until they are the only thing left to show. Putting
   // them in grows the scrollable extent, and a scrollbar's thumb is sized and placed by that
-  // extent, so growing it mid-gesture is what the thumb shows as a jump.
+  // extent so growing it mid-gesture is what the thumb shows as a jump.
   if (previousBuffer.length > 0) {
     if (isCloseToTop()) {
       void placePrevious()
@@ -341,7 +341,7 @@ function placePreviousOnceStill() {
       return
     }
 
-    // Still moving, so wait out another stretch of quiet rather than growing the list now.
+    // Still moving so wait out another stretch of quiet rather than growing the list now.
     if (performance.now() - lastScrolledAt < stillnessBeforeLoading) {
       placePreviousOnceStill()
       return
@@ -406,11 +406,11 @@ async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
-// Every record in the list, by ID, so one cannot land twice however it arrives. The initial fetch
+// Every record in the list, by ID so one cannot land twice however it arrives. The initial fetch
 // races the stream, a reconnecting stream replays records it already sent, and a page of older
 // records can share its boundary timestamp with a record already held. A duplicate ID draws the
 // same row twice and trips Vue's key warning. Kept in step by the two functions below, cleared
-// when the list is, and rebuilt after a cull, so membership costs one lookup per record.
+// when the list is, and rebuilt after a cull so membership costs one lookup per record.
 const heldRecordIds = new Set<string>()
 
 function rebuildHeldRecordIds() {
@@ -434,7 +434,7 @@ function onlyNewRecords(incoming: Record[]) {
 }
 
 // Older records arrive above whatever is on screen, which would carry it down the list by exactly
-// their height. Adding that height back leaves the same records under the eye, so a scroll upwards
+// their height. Adding that height back leaves the same records under the eye so a scroll upwards
 // runs on rather than jumping.
 async function prependRecords(prepended: Record[]) {
   // Asked of the element rather than of the last reading taken from it. A reading is only as new
@@ -445,7 +445,7 @@ async function prependRecords(prepended: Record[]) {
   const height = fresh.length * recordHeight
   records.splice(0, 0, ...fresh)
 
-  // Only once the rows are there can the position move past where they end, since a box refuses to
+  // Only once the rows are there can the position move past where they end since a box refuses to
   // scroll further than it reaches.
   await nextTick()
   scroll?.moveTo(scrollTop + height)
@@ -464,7 +464,7 @@ async function appendRecords(appended: Record[]) {
 
   records.push(...fresh)
   if (resort) {
-    // Compared directly rather than with localeCompare. These are ISO timestamps, so the result is
+    // Compared directly rather than with localeCompare. These are ISO timestamps so the result is
     // the same either way, but nothing here depends on a locale and saying otherwise misleads.
     records.sort((left, right) =>
       left.timestamp < right.timestamp ? -1 : left.timestamp > right.timestamp ? 1 : 0
@@ -504,7 +504,7 @@ async function fetchPrevious() {
   try {
     const results: Record[] = await get({
       ...filter,
-      // Counted from the oldest record held anywhere, so what is already waiting in the buffer is
+      // Counted from the oldest record held anywhere so what is already waiting in the buffer is
       // not asked for a second time.
       before: earliestHeldTimestamp == null ? filter.before : earliestHeldTimestamp,
       order: 'timestamp:desc',
@@ -520,7 +520,7 @@ async function fetchPrevious() {
     lastLoadedPrevious = utc()
 
     // The top may have been come up on while these were still on their way, and there is nothing
-    // above to scroll to that would ask for them again, so they go in the moment they land.
+    // above to scroll to that would ask for them again so they go in the moment they land.
     if (isCloseToTop()) {
       await placePrevious()
     }
@@ -561,7 +561,7 @@ async function loadCurrent() {
 
     isExhausted = results.length === 0
 
-    // Taken out of pending rather than copied, so a later flush cannot land them a second time.
+    // Taken out of pending rather than copied so a later flush cannot land them a second time.
     const appended = [...results.reverse(), ...recordsPending.splice(0)]
     await appendRecords(appended)
     lastLoadedCurrent = utc()
@@ -603,7 +603,7 @@ const debouncedFilter = debouncedComputed(() => cloneDeep(filter), 750)
 
 A record appended mid-scroll grows the list under the scrollbar, and the thumb recomputing against
 a new total once or twice a second reads as stutter. The new records belong below the viewport of
-someone reading history, so nothing visible is lost by holding them until the scrolling pauses.
+someone reading history so nothing visible is lost by holding them until the scrolling pauses.
 At the bottom the view is following and the whole point is watching them arrive.
 */
 function shouldHoldAppends() {

@@ -2,12 +2,11 @@
 //!
 //! A load reads a whole file of records, validates every row, and writes them in one
 //! transaction. Both input shapes reduce to the same intermediate, a wire object per
-//! row, which then deserializes into the record struct. That keeps the two readers to
-//! the shape of their format and leaves one place deciding what a row means.
+//! row, which then deserializes into the record struct, so each reader handles only
+//! its format's shape and one place decides what a row means.
 //!
 //! Rows the native types cannot represent return `None`, which rolls the load back
-//! before it starts and delegates, so Pydantic renders the validation error the way the
-//! filter port established.
+//! before it starts and delegates so Pydantic renders the validation error.
 
 use std::io::BufRead;
 
@@ -95,7 +94,7 @@ pub struct Batches<R, T> {
     convert: Convert<T>,
     /// Whether a refusal already ended the walk, past which there is nothing to read.
     spent: bool,
-    /// How many rows have been handed over, which is what names the offending one.
+    /// How many rows have been delivered, which names the offending one.
     read: usize,
 }
 
@@ -129,7 +128,7 @@ impl<R: BufRead, T> Iterator for Batches<R, T> {
             Some(batch) => Some(Ok(batch)),
             None => {
                 self.spent = true;
-                // The batch says only that something in it was refused, so the rows are
+                // The batch says only that something in it was refused so the rows are
                 // walked again one at a time to name which. This runs on the failing
                 // load alone, where the cost buys the reader the row number.
                 let offending = objects
@@ -169,9 +168,9 @@ pub fn batches<R: BufRead>(
 
 /// Walk an entity input's rows in batches, like the record `batches`.
 ///
-/// `credentials` carries the rules a user's own columns follow, so a row naming a
-/// password or an email address is hashed and normalized as it is read. A row either
-/// rule refuses ends the walk, which rolls the load back and delegates.
+/// `credentials` carries the rules a user's own columns follow so a row naming a
+/// password or an email address is hashed and normalized as it is read. A row that
+/// either rule refuses ends the walk, which rolls the load back and delegates.
 pub fn entity_batches<R: BufRead>(
     table: EntityTable,
     source: R,
@@ -227,9 +226,9 @@ impl<R: BufRead> Rows<R> {
 /// Read a whole input into batches of records, `None` when any row falls outside what
 /// the native types represent faithfully.
 ///
-/// The batches are the statements the load will issue, so an empty input reads as no
+/// The batches are the statements the load will issue so an empty input reads as no
 /// batches and writes nothing. Executing a load walks its source rather than collecting
-/// it, so this is for callers that genuinely want the whole file at once.
+/// it so this is for callers that genuinely want the whole file at once.
 pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Records>> {
     batches(table, text.as_bytes(), format)?
         .collect::<Result<_, _>>()
@@ -239,9 +238,7 @@ pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Re
 /// Build the one record a create names from its field values, `None` when a field or a
 /// value falls outside what the native types represent faithfully.
 ///
-/// Values arrive as the raw argument text. A payload field reads as YAML, the form the
-/// create model takes it in, and every other field is the text itself. A field named
-/// twice keeps its last value, the way a repeated flag does.
+/// The values are raw argument text, read by `Schema::wire_object`'s rules.
 pub fn build(table: RecordTable, values: &[(String, String)]) -> Option<Records> {
     table.records(&[table.schema().wire_object(values)?])
 }
@@ -279,7 +276,7 @@ impl Schema {
 
 /// Read one line as a JSON object.
 ///
-/// Every line has to carry an object, a blank one included, which is what the Python
+/// Every line has to carry an object, a blank one included, which the Python
 /// command's line-by-line validation does.
 fn json_object(line: &str) -> Option<Map<String, Value>> {
     match serde_json::from_str(line) {
@@ -303,7 +300,7 @@ fn csv_object(row: &csv::StringRecord, headers: &csv::StringRecord) -> Option<Ma
     for (index, name) in headers.iter().enumerate() {
         let cell = row.get(index).map_or(Value::Null, |cell| cell.into());
         // A header naming one field twice would silently drop a column, which the dict
-        // reader also does, so the last cell wins here as it does there.
+        // reader also does so the last cell wins here as it does there.
         object.insert(name.to_string(), cell);
     }
 
@@ -353,7 +350,7 @@ impl EntityTable {
     ) -> Option<Vec<Map<String, Value>>> {
         let mut applied = objects.to_vec();
         if self == Self::Users {
-            // A user's columns cannot be written without the rules, so a caller that
+            // A user's columns cannot be written without the rules so a caller that
             // has none refuses rather than storing a password as it arrived.
             let credentials = credentials?;
             for object in &mut applied {
@@ -378,10 +375,10 @@ impl EntityTable {
             .iter()
             .map(|object| {
                 let mut row = complete(&accepted, object, |key| self.default_value(key))?;
-                // A JSON column on an entity is declared `FromYAML`, so a value arriving
+                // A JSON column on an entity is declared `FromYAML` so a value arriving
                 // as text parses as YAML rather than staying a string. That is how a CSV
                 // cell holding `1` becomes a number, and it applies to a JSON input
-                // naming a string too, because the model's validator sees no difference.
+                // naming a string too because the model's validator sees no difference.
                 for field in self.schema().columns {
                     if !matches!(field.family, FieldFamily::Json | FieldFamily::JsonValue) {
                         continue;
@@ -413,7 +410,7 @@ impl EntityTable {
     /// The value an absent entity field takes, `None` for one its create model
     /// requires.
     ///
-    /// A variable's value is required and may still be null, so an absent one cannot
+    /// A variable's value is required and may still be null so an absent one cannot
     /// read as a null the way a record's optional column does.
     fn default_value(self, key: &str) -> Option<Value> {
         match (self, key) {
@@ -427,7 +424,7 @@ impl EntityTable {
             (Self::Groups, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
             (Self::Groups, "description") => Some("".into()),
             // A permission and a membership name every one of their columns, and an
-            // edit carries the draft it exists to hold, so none of them default.
+            // edit carries the draft it exists to hold so none of them default.
             _ => None,
         }
     }
@@ -442,7 +439,7 @@ fn convert<T: serde::de::DeserializeOwned>(rows: Vec<Map<String, Value>>) -> Opt
 /// Fill in a row's absent fields and refuse one carrying a field the entity has no place
 /// for, which the Python models reject rather than ignore.
 ///
-/// A key the create model gives no default stays absent, so deserializing reports it
+/// A key the create model gives no default stays absent so deserializing reports it
 /// missing rather than reading a null the model would have refused.
 fn complete(
     accepted: &[&str],
@@ -579,7 +576,7 @@ mod tests {
             panic!("expected messages");
         };
 
-        // An empty cell is the empty string, which is what the dict reader yields and
+        // An empty cell is the empty string, which the dict reader yields and
         // what the Python model then stores.
         assert_eq!(messages[0].connection.as_deref(), Some(""));
         assert_eq!(messages[0].data, b"a,b");
@@ -588,7 +585,7 @@ mod tests {
     #[test]
     fn a_csv_column_holding_anything_but_text_refuses() {
         // A particle's payload crosses a CSV cell as JSON text, which the entity model
-        // will not read back, so the load delegates rather than reading it differently.
+        // will not read back so the load delegates rather than reading it differently.
         assert!(
             read(
                 RecordTable::Particles,

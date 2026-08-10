@@ -15,9 +15,7 @@ const time = useTime()
 
 let isShowingMenu = $ref(false)
 
-// Everything this covers, the component itself plus everything below it. The status badge beside
-// this one already covers its whole subtree, and a collapsed component reporting the status of
-// what it hides while withholding its alerts is the one thing a tree like this must not do.
+// The component itself plus everything below it, matching the subtree the status badge covers.
 const scope = $computed(() => [
   address,
   ...engine.components.getDescendants(address).map((component) => component.address),
@@ -31,9 +29,8 @@ const severity: Record<Level, number> = {
   critical: 4,
 }
 
-// The worst level anything in scope reached, counted across everything that reached it. A quieter
-// level underneath is left out rather than added in, since one number against one name has to mean
-// the same thing here as it does on a component with nothing below it.
+// The worst level anything in scope reached, counted across everything that reached it. Quieter
+// levels are excluded so the number means the same as on a component with nothing below it.
 const info = $computed(() => {
   let worst: Level | null = null
   let count = 0
@@ -62,7 +59,7 @@ const info = $computed(() => {
   return worst == null ? null : { level: worst, count, fromSelf, fromBelow }
 })
 
-// Named for where the count came from, so it is never read as belonging to this component alone.
+// Says where the count came from since it may include components below this one.
 const subjectText = $computed(() => {
   if (info == null || !info.fromBelow) {
     return 'by this component'

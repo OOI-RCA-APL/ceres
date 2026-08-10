@@ -1,10 +1,10 @@
 //! The native HTTP server bridge.
 //!
-//! Binds `ceres-server` into Python. A [`NativeServer`] binds eagerly at construction,
+//! Binds `ceres-server` into Python. A [`NativeServer`] binds eagerly at construction
 //! so the control server's ephemeral port is known before anything serves, and serves
 //! on the shared tokio runtime as an awaitable. The engine crosses the boundary the
 //! other way through the host object, whose async methods answer the server's
-//! [`Host`](ceres_server::Host) calls
+//! [`Host`] calls
 //! with one JSON envelope per result, `{"ok": ...}` carrying a user record or null,
 //! `{"error": {"status", "envelope"}}` passing a typed error through verbatim, and
 //! `{"response": ...}` describing a body the server produces itself.
@@ -45,7 +45,7 @@ struct PyHost {
 impl PyHost {
     /// Await one host method, answering with whatever it returned.
     ///
-    /// Host coroutines run on the event loop captured when serving started, because the
+    /// Host coroutines run on the event loop captured when serving started because the
     /// server's own tasks run on tokio threads with no ambient loop of their own.
     async fn await_call<A>(&self, method: &str, arguments: A) -> Result<Py<PyAny>, String>
     where
@@ -215,7 +215,7 @@ impl Host for PyHost {
 ///
 /// One shape covers every host method. Operations answer with `ok`, `error`, or
 /// `response`, and streams answer with `ok`, `message`, `end`, or `close`. Payload
-/// slices stay raw, so a record dump the engine already serialized crosses into the
+/// slices stay raw so a record dump the engine already serialized crosses into the
 /// response body without ever parsing into a value tree here.
 #[derive(serde::Deserialize)]
 struct Envelope<'a> {
@@ -296,7 +296,7 @@ impl<'a> Envelope<'a> {
         }
 
         // A described response arrives in its own envelope member rather than inside
-        // the payload, so data an operation returns can never be mistaken for one.
+        // the payload so data an operation returns can never be mistaken for one.
         if let Some(described) = self.response {
             return Ok(Answer::Served(Served {
                 status: described.status.unwrap_or(200),
@@ -368,7 +368,7 @@ pub fn openapi_schema(version: &str) -> PyResult<String> {
 
 /// A natively-served HTTP application.
 ///
-/// Binds at construction, so the real port is known immediately, and serves as an
+/// Binds at construction so the real port is known immediately, and serves as an
 /// awaitable until stopped. The web form carries the console and terminates TLS, the
 /// CLI form binds loopback on an ephemeral port and requires its token instead.
 #[gen_stub_pyclass]
@@ -419,8 +419,8 @@ impl NativeServer {
             }),
         });
 
-        // The layer added last sits outermost, so compression applies first to put the
-        // cross-origin headers outside it, the order the Python application used.
+        // The layer added last sits outermost so compression applies first to put
+        // the cross-origin headers outside it, which the wire contract fixes.
         let router = apply_compression(router, config.compression.as_ref());
         let router = apply_cors(router, config.cors.as_ref());
 

@@ -20,7 +20,7 @@ from ceres.user import User
 async def _build_engine() -> tuple[Engine, Component, Component, Component]:
     """Build an engine with a root and two children: `@granted` and `@hidden`.
 
-    `@hidden` denies access by default, so it is only visible to a user with an explicit grant.
+    `@hidden` denies access by default so it is only visible to a user with an explicit grant.
     """
     engine = Engine()
     await engine.database.migrate()
@@ -138,7 +138,7 @@ async def test_single_effective_access_route_still_matches_with_address() -> Non
 
 
 async def test_batch_effective_access_includes_the_engine_root() -> None:
-    """The engine root is a placement of its own, so it is listed alongside the components."""
+    """The engine root is a placement of its own so it is listed alongside the components."""
     engine, *_ = await _build_engine()
     user = await _create_user(engine)
 
@@ -172,7 +172,7 @@ async def test_batch_effective_access_raises_the_engine_root_with_an_all_grant()
 
 
 async def test_single_effective_access_resolves_the_engine_root() -> None:
-    """The single-address route answers for `~` rather than treating it as a missing component."""
+    """The single-address route accepts `~` rather than treating it as a missing component."""
     engine, *_ = await _build_engine()
     user = await _create_user(engine)
 

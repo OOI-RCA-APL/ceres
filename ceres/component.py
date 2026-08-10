@@ -1859,7 +1859,7 @@ class ComponentSystem(Node, ComponentSource):
     def __propagate_tree_change(self) -> None:
         # Notify every component that the structure changed so they can recompute cached child
         # order and re-resolve references that may now point somewhere different. When the system
-        # belongs to an engine the notification spans every top-level tree, since absolute
+        # belongs to an engine the notification spans every top-level tree since absolute
         # references can cross between them, otherwise it stays within the local tree.
         engine = self.engine
         if engine is not None:
@@ -2060,7 +2060,7 @@ class ComponentSystem(Node, ComponentSource):
             self._container = None
             engine.detach(self)
 
-            # The detached subtree is no longer part of the engine, so notify both it and the
+            # The detached subtree is no longer part of the engine so notify both it and the
             # remaining trees. Sibling trees re-resolve to drop stale references into the removed
             # subtree, and the subtree re-resolves so its references into the engine unresolve.
             for component in [*engine.get_components(), *self.get_components(inclusive=True)]:
@@ -2110,7 +2110,7 @@ class ComponentSystem(Node, ComponentSource):
         Args:
             address: Address string or `DynamicAddress`. An empty value returns this component.
                 Absolute addresses route through the engine when this system is attached to
-                one, so they can reach components in any top-level tree. On a detached system,
+                one so they can reach components in any top-level tree. On a detached system,
                 absolute addresses are resolved against the local tree root instead.
 
         Returns:
@@ -2554,7 +2554,7 @@ class ComponentSystem(Node, ComponentSource):
                 self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
                 raise ProcedureInternalError(exception=info)
 
-        # Live procedures hand back an async iterable from the first invocation, just relay it.
+        # Live procedures return an async iterable from the first invocation, just relay it.
         output = await self.__invoke(procedure, arguments)
         try:
             if output is not None:

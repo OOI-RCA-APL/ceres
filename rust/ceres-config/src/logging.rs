@@ -110,7 +110,7 @@ pub struct RawLoggingConfig {
 
 /// Validated logging configuration.
 ///
-/// Fields stay `None` when the configuration did not set them, because per-component logging
+/// Fields stay `None` when the configuration did not set them because per-component logging
 /// resolves by overlaying each node's explicitly-set fields onto its container's. The
 /// accessors resolve defaults, and serialization emits resolved values.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -156,7 +156,7 @@ impl LoggingConfig {
 }
 
 impl PartialEq for LoggingConfig {
-    /// Compare resolved values, so an unset field equals its default set explicitly.
+    /// Compare resolved values so an unset field equals its default set explicitly.
     fn eq(&self, other: &Self) -> bool {
         self.output() == other.output()
             && self.store() == other.store()
@@ -168,7 +168,7 @@ impl PartialEq for LoggingConfig {
 }
 
 impl Serialize for LoggingConfig {
-    /// Serialize resolved values, matching how the configuration has always dumped.
+    /// Serialize resolved values, matching the configuration's dump format.
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("LoggingConfig", 6)?;
         state.serialize_field("output", &self.output())?;

@@ -83,7 +83,7 @@ pub struct LogEntry {
 ///
 /// Decoding bytes to text is total, every byte maps to the code point of its value.
 /// Encoding text back to bytes drops characters above U+00FF, matching the API's
-/// long-standing lossy `errors="ignore"` contract.
+/// lossy `errors="ignore"` contract.
 pub mod latin1 {
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -148,8 +148,8 @@ fn csv_row(cells: &[Option<String>], lines: &mut String) {
 /// Render a sequence of records as CSV lines, under a header row unless suppressed.
 ///
 /// The full wire schema is the implicit projection, every field under its own wire key
-/// in declaration order, so the cells here are the projected cells and cannot drift
-/// from them. An empty sequence still renders the header, so the output always carries
+/// in declaration order so the cells here are the projected cells and cannot drift
+/// from them. An empty sequence still renders the header so the output always carries
 /// its schema.
 pub(crate) fn to_csv_lines<T: Serialize + Filterable>(
     records: &[T],
@@ -246,7 +246,7 @@ pub(crate) fn to_json_lines_projected<T: Serialize>(
 
 /// Render projected records as CSV lines, an alias header row unless suppressed.
 ///
-/// An empty sequence still renders the header, so the output always carries its
+/// An empty sequence still renders the header so the output always carries its
 /// schema.
 pub(crate) fn to_csv_lines_projected<T: Serialize>(
     records: &[T],
@@ -531,7 +531,7 @@ mod tests {
             "0198c0de-0000-7000-8000-000000000001,@sensor.temp,\
              2026-07-29T12:30:45.123456Z,,receive,plain\n"
         );
-        // The quoted cell keeps its inner line break, so the row spans two raw lines.
+        // The quoted cell keeps its inner line break so the row spans two raw lines.
         assert_eq!(
             rendered,
             concat!(

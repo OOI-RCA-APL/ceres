@@ -1,7 +1,7 @@
 """The native filter compiler's Python surface.
 
 The compiler parses a filter once, compiles it per dialect, and the Python session
-executes the statement through its own driver, so these tests prove the compiled SQL
+executes the statement through its own driver so these tests prove the compiled SQL
 and its parameters round-trip through every backend's driver exactly as the query
 layer's own statements do.
 """
@@ -82,7 +82,7 @@ async def _execute(engine: Engine, sql: str, parameters: list[Any]) -> list[str]
 
 
 async def _scalar(engine: Engine, sql: str, parameters: list[Any]) -> Any:
-    """The single value a compiled count or existence check answers with."""
+    """The single value a compiled count or existence check returns."""
     rows = await engine.database._store().fetch(sql, parameters)
     return next(iter(rows[0].values()))
 
@@ -90,9 +90,9 @@ async def _scalar(engine: Engine, sql: str, parameters: list[Any]) -> Any:
 async def test_a_compiled_statement_answers_what_the_manager_does(tmp_path: Path) -> None:
     """Running the compiled SQL directly reaches the same rows the manager API reports.
 
-    The manager compiles through here too, so this is not two implementations agreeing.
+    The manager compiles through here too so this is not two implementations agreeing.
     It is the compiled text being executable and meaning what the surface above it says,
-    which is what a caller handed the SQL by `compiled` is relying on.
+    which a caller handed the SQL by `compiled` relies on.
     """
     engine = await _build_engine(tmp_path)
     await _seed(engine)
@@ -113,7 +113,7 @@ async def test_a_compiled_statement_answers_what_the_manager_does(tmp_path: Path
             assert int(await _scalar(engine, sql, parameters)) == expected_count, f"count {pairs}"
 
             # The existence check answers what the `any` command reports. SQLite hands
-            # back an integer where PostgreSQL hands back a boolean, so compare on
+            # back an integer where PostgreSQL hands back a boolean so compare on
             # truthiness rather than on the driver's type.
             sql, parameters = handle.exists_compiled(dialect)
             expected_any = await manager.where(filter).any()

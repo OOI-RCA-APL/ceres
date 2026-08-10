@@ -2,7 +2,7 @@
 //!
 //! A dump is mostly identifiers, timestamps, and numbers, and telling them apart at a
 //! glance is what color is for here. The type a value has is read from the value rather
-//! than guessed from its text, so a number is colored as a number because it is one, and
+//! than guessed from its text so a number is colored as a number because it is one, and
 //! the two strings worth recognizing, a UUID and an instant, are recognized by handing
 //! them to the parsers that already own those formats.
 //!
@@ -30,7 +30,7 @@ const INSTANT: &str = "\x1b[94m";
 
 /// The color a value takes, `None` for one drawn in the terminal's own foreground.
 ///
-/// A table cell holds a value's text without its quotes, so this is the half of the
+/// A table cell holds a value's text without its quotes so this is the half of the
 /// painting that both shapes share.
 pub fn style(value: &Value) -> Option<&'static str> {
     Some(match value {
@@ -45,9 +45,9 @@ pub fn style(value: &Value) -> Option<&'static str> {
     })
 }
 
-/// The color one string takes, which is what it holds rather than that it is a string.
+/// The color one string takes, decided by what it holds rather than by being a string.
 ///
-/// Both formats are recognized by parsing rather than by matching their shape, because a
+/// Both formats are recognized by parsing rather than by matching their shape because a
 /// UUID has four accepted spellings and an instant has offsets and fractional seconds.
 /// The parsers that own those rules are already here.
 fn text_style(text: &str) -> &'static str {
@@ -62,13 +62,11 @@ fn text_style(text: &str) -> &'static str {
 
 /// Paint a chunk of JSON lines.
 ///
-/// Each line is parsed to be painted, which is a second pass over rows this process just
-/// wrote. It costs one parse per row, and it only ever runs when someone at a terminal
-/// asked for JSON rather than the table they would have been given by default, so the
-/// rows are as many as a person is going to read.
+/// Each line parses so it can be painted, one parse per row. This only runs when
+/// someone at a terminal asked for JSON so the rows are as many as a person will read.
 ///
-/// A line that will not parse is passed through as it is. There should not be one, and a
-/// dump that starts eating its own output would be a worse failure than an uncolored line.
+/// A line that will not parse passes through unchanged because a dump eating its own
+/// output would be a worse failure than an uncolored line.
 pub fn painted(bytes: Vec<u8>) -> Vec<u8> {
     match std::str::from_utf8(&bytes) {
         Ok(input) => text(input).into_bytes(),
@@ -77,7 +75,7 @@ pub fn painted(bytes: Vec<u8>) -> Vec<u8> {
     }
 }
 
-/// Paint JSON lines held as text, which is what everything but a row dump has.
+/// Paint JSON lines held as text, which everything but a row dump has.
 pub fn text(input: &str) -> String {
     let mut out = String::with_capacity(input.len() * 2);
     for line in input.split_inclusive('\n') {
@@ -133,8 +131,8 @@ fn paint(value: &Value, out: &mut String) {
 
 /// Write one string the way JSON would have written it, quotes and escapes included.
 ///
-/// Escaping here is what keeps a value from painting itself. A record's payload is
-/// arbitrary instrument bytes carried as text, so a value can hold an escape byte, and
+/// Escaping here keeps a value from painting itself. A record's payload is
+/// arbitrary instrument bytes carried as text so a value can hold an escape byte, and
 /// leaving one unescaped would let a stored value recolor the screen it is printed on.
 fn quoted(text: &str) -> String {
     serde_json::to_string(text).unwrap_or_else(|_| format!("{text:?}"))
@@ -186,7 +184,7 @@ mod tests {
 
     #[test]
     fn painting_leaves_the_json_it_painted() {
-        // Color is added around the text rather than instead of it, so a painted line
+        // Color is added around the text rather than instead of it so a painted line
         // still parses as the line it was.
         let line = br#"{"name":"speed","value":5,"gone":null}"#.to_vec();
         let painted = painted(line.clone());
@@ -224,13 +222,13 @@ mod tests {
 
     #[test]
     fn a_stored_escape_cannot_paint_the_screen_it_prints_on() {
-        // The escape arrives spelled the way JSON spells one, because a raw control
+        // The escape arrives spelled the way JSON spells one because a raw control
         // character is not something a JSON string may hold in the first place.
         let spelled = serde_json::to_string("\u{1b}[31mred").expect("a string always writes");
         let chunk = painted(format!("{{\"data\":{spelled}}}").into_bytes());
         let chunk = String::from_utf8(chunk).expect("painting writes text");
 
-        // It goes out spelled the same way, so a value read out of a record cannot
+        // It goes out spelled the same way so a value read out of a record cannot
         // recolor the screen it prints on.
         assert!(chunk.contains(&spelled), "{chunk}");
         assert!(!chunk.contains("\u{1b}[31m"), "{chunk}");

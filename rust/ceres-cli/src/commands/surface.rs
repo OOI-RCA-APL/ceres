@@ -1,13 +1,13 @@
 //! The declared argument surface of the table commands.
 //!
 //! The entity and record groups take the same verbs over the same controls,
-//! differing only in the fields their table holds, so the whole tree is generated from
+//! differing only in the fields their table holds so the whole tree is generated from
 //! the entity definitions rather than written out. A filter argument comes from the
 //! table's filter keys and a create's arguments from its columns, each key already
-//! carrying whether it is a bare flag or takes a value, which is what keeps the parser
+//! carrying whether it is a bare flag or takes a value, which keeps the parser
 //! and the compiler from disagreeing about what a key is.
 //!
-//! Declaring the surface here is what lets the binary answer `--help` and report an
+//! Declaring the surface here lets the binary answer `--help` and report an
 //! argument error itself. A key outside the native subset still parses, because
 //! belonging to the surface and being servable in one native pass are different
 //! questions, and the compiler is the one that answers the second.
@@ -20,7 +20,7 @@ use clap::{Arg, ArgAction, Command};
 
 /// The verbs a table command takes.
 ///
-/// `follow` reads a running engine rather than the database, so only the
+/// `follow` reads a running engine rather than the database so only the
 /// component-filled record tables declare it.
 pub(crate) const VERBS: [&str; 8] = [
     "select", "count", "any", "create", "update", "delete", "load", "follow",
@@ -102,7 +102,7 @@ impl Table {
 
     /// A filter worth showing in this table's examples.
     ///
-    /// Each names a field the table actually has, because an example a reader cannot
+    /// Each names a field the table actually has because an example a reader cannot
     /// run against their own data teaches them nothing.
     fn example_filter(self) -> &'static str {
         match self {
@@ -164,7 +164,7 @@ impl Table {
             Self::Entity(EntityTable::Workspaces) => "{\"name\": \"Home\"}",
             Self::Entity(EntityTable::WorkspaceEdits) => "{\"data\": {}}",
             Self::Entity(EntityTable::Groups) => "{\"description\": \"on call\"}",
-            // A membership is created or deleted rather than edited, so the example shows
+            // A membership is created or deleted rather than edited so the example shows
             // the one shape an update can take, which is no assignment at all.
             Self::Entity(EntityTable::GroupMemberships) => "{}",
             Self::Entity(EntityTable::UserPermissions) => "{\"level\": \"manage\"}",
@@ -317,9 +317,9 @@ impl Table {
 
     /// Worked examples for one verb, shown under its help.
     ///
-    /// Each one uses the table's own fields, because an example naming a field the
-    /// reader does not have is worse than none. The generic shape of a verb is already
-    /// in its argument list, so these show the combinations worth knowing about instead.
+    /// Each one uses the table's own fields because an example naming a field the
+    /// reader does not have is worse than none. These show the combinations worth
+    /// knowing rather than the verb's generic shape, which its argument list covers.
     fn examples(self, verb: &str) -> Option<String> {
         let plural = self.plural();
         let filter = self.example_filter();
@@ -382,7 +382,7 @@ pub(crate) fn long(key: &str) -> String {
 
 /// Read the keys a parsed invocation carried, as the wire pairs the compiler takes.
 ///
-/// Argument order is preserved, because a filter reads as a sequence and a reader who
+/// Argument order is preserved because a filter reads as a sequence and a reader who
 /// wrote their flags in an order expects to see it kept. A boolean arrives as the value
 /// its spelling names rather than as a value of its own.
 pub(crate) fn pairs(keys: &[FilterKey], matches: &clap::ArgMatches) -> Vec<(String, String)> {
@@ -425,9 +425,9 @@ pub(crate) fn pairs(keys: &[FilterKey], matches: &clap::ArgMatches) -> Vec<(Stri
 
 /// Declare one key as the arguments that carry it.
 ///
-/// A value key is repeatable, because a field folding several values into a set is how
+/// A value key is repeatable because a field folding several values into a set is how
 /// an `IN` comparison is written. A boolean is a `--key` and `--no-key` pair carrying no
-/// value of its own, each overriding the other so the last one wins.
+/// value of its own, each overriding the other, so the last one wins.
 fn argument(key: FilterKey, help: String, heading: &'static str) -> Vec<Arg> {
     let name = long(key.key);
     match key.arity {
@@ -442,7 +442,7 @@ fn argument(key: FilterKey, help: String, heading: &'static str) -> Vec<Arg> {
         Arity::Flag => {
             let negated = format!("no-{name}");
             // The negated half is real surface but listing it doubles the boolean
-            // entries for nothing, so it hides and the visible half names it. A reader
+            // entries for nothing so it hides and the visible half names it. A reader
             // who cannot see `--no-internal` will not guess it exists.
             let help = format!("{help} Pass `--{negated}` for the opposite.");
             vec![
@@ -462,12 +462,11 @@ fn argument(key: FilterKey, help: String, heading: &'static str) -> Vec<Arg> {
     }
 }
 
-/// What one filter key does, said in a line.
+/// One filter key's help line.
 ///
-/// Written from the key's role rather than its spelling, so a key added to an entity
+/// Written from the key's role rather than its spelling so a key added to an entity
 /// arrives with a description that is right by construction. `plural` names the rows
-/// being narrowed, which is what makes the sentence read as advice rather than as a
-/// restatement of the flag's own name.
+/// being narrowed.
 fn filter_help(key: FilterKey, plural: &str) -> String {
     let field = key.field.map(long).unwrap_or_default();
     match key.role {
@@ -547,8 +546,8 @@ fn filter_help(key: FilterKey, plural: &str) -> String {
 
 /// The heading a filter argument is listed under.
 ///
-/// A table brings twenty or more of these, so listing them beside the handful of output
-/// controls buries both. The headings are what make a long list readable.
+/// A table brings twenty or more of these so listing them beside the handful of output
+/// controls buries both. The headings make a long list readable.
 const FILTERING: &str = "Filtering";
 const OUTPUT: &str = "Output";
 const WRITING: &str = "Writing";
@@ -566,7 +565,7 @@ fn output() -> Arg {
 
 /// The output controls a verb rendering rows takes.
 ///
-/// A verb rendering one value takes only a destination, because a field selection, a
+/// A verb rendering one value takes only a destination because a field selection, a
 /// data format, and a header row mean nothing for a count or an existence check.
 fn row_arguments() -> Vec<Arg> {
     vec![
@@ -669,7 +668,7 @@ mod tests {
     #[test]
     fn a_boolean_key_declares_both_of_its_spellings() {
         // A boolean filter is a `--key` and `--no-key` pair in the surface the Python
-        // models generated, so a script passing either half keeps working. Dropping the
+        // models generated so a script passing either half keeps working. Dropping the
         // negated half is the easy mistake, and it is silent.
         let workspaces = Table::Entity(EntityTable::Workspaces);
         let select = workspaces.command();
@@ -701,7 +700,7 @@ mod tests {
 
     #[test]
     fn a_create_names_columns_rather_than_filter_keys() {
-        // A user's password is a column no filter exposes, so a create surface built
+        // A user's password is a column no filter exposes so a create surface built
         // from the filter keys would leave no way to set one.
         let users = Table::Entity(EntityTable::Users);
         let create = users.command();
@@ -714,7 +713,7 @@ mod tests {
         assert!(longs.contains(&"password"));
         assert!(longs.contains(&"username"));
         assert!(longs.contains(&"email"));
-        // A filter's operations name no column, so a create does not take them.
+        // A filter's operations name no column so a create does not take them.
         assert!(!longs.contains(&"email-contains"));
     }
 

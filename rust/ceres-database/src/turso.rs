@@ -1,14 +1,14 @@
 //! The Turso backend.
 //!
-//! Turso reads and writes the SQLite file format through its own engine, so this backend
+//! Turso reads and writes the SQLite file format through its own engine so this backend
 //! executes the same statements and stored value forms the SQLite dialect does while
 //! connecting through the `turso` crate rather than sqlx. The engine opens lazily on
 //! first use, and every connection runs the same commands the query layer runs on its
-//! own, so both sides of the file see identical semantics.
+//! own so both sides of the file see identical semantics.
 //!
 //! This backend must be the only Turso engine in its process touching the file. The
 //! engine coordinates concurrent handles through in-process state and guards the file
-//! with an fcntl lock, and fcntl locks never conflict within one process, so a second
+//! with an fcntl lock, and fcntl locks never conflict within one process so a second
 //! copy of the engine (a Python driver's, for instance) opens the same file silently and
 //! the two copies overwrite each other's WAL frames. That is why the Python layer keeps
 //! its own driver for Turso databases and never constructs this backend beside it.
@@ -26,7 +26,7 @@ use crate::store::{Error, Parameter};
 
 /// A lazily-opened Turso engine over one database file.
 ///
-/// Reads and writes each connect fresh, because the per-connection commands are cheap on
+/// Reads and writes each connect fresh because the per-connection commands are cheap on
 /// an in-process engine and a shared connection would interleave concurrent statements.
 pub(crate) struct TursoBackend {
     path: String,
@@ -62,11 +62,9 @@ impl TursoBackend {
         let database = self
             .database
             .get_or_try_init(|| async {
-                // A missing file is created, because this is what runs a database's
-                // migrations and a database has no file before its first one. Callers that
-                // mean to read an existing database check for it themselves and say so, an
-                // empty database being a worse answer than a refusal for anyone who pointed
-                // at the wrong path.
+                // A missing file is created because this is what runs a database's
+                // migrations and a database has no file before its first one. Callers
+                // that mean to read an existing database check for it themselves.
                 turso::Builder::new_local(&self.path)
                     .build()
                     .await
@@ -76,12 +74,12 @@ impl TursoBackend {
 
         // The same commands the query layer runs on its own connections, minus
         // `auto_vacuum`, which Turso rejects. A pragma only takes effect once its result
-        // rows are read, so they run through the draining helper.
+        // rows are read so they run through the draining helper.
         let connection = database.connect()?;
 
         // The `init` statements belong to the database rather than to a connection, so
         // they run on whichever one opens first and on no other. A failure leaves them
-        // un-run, so the next connection tries again rather than the database going
+        // un-run so the next connection tries again rather than the database going
         // without them.
         self.started
             .get_or_try_init(|| async {
@@ -113,7 +111,7 @@ impl TursoBackend {
             }
         }
 
-        // The configuration's own statements come last, so one of them can override what
+        // The configuration's own statements come last so one of them can override what
         // this set, which is the point of being able to configure them.
         for statement in &self.on_connect {
             pragma(&connection, statement).await?;
@@ -124,10 +122,10 @@ impl TursoBackend {
 
     /// Run one operation on a connection of its own, from open through close.
     ///
-    /// A connection here lives for exactly one operation, so this is the release point a
+    /// A connection here lives for exactly one operation so this is the release point a
     /// pooling backend gets from handing a connection back, and where the configuration's
     /// `close` statements belong. They run whether the operation succeeded or failed, and
-    /// after any transaction it opened has settled, which is what a statement like
+    /// after any transaction it opened has settled, which a statement like
     /// `PRAGMA incremental_vacuum` needs to do anything at all.
     async fn using<T>(
         &self,
@@ -137,7 +135,7 @@ impl TursoBackend {
         let outcome = work(&connection).await;
 
         // A failing close statement is only worth reporting when the operation itself
-        // succeeded, because the caller is waiting on that error, not this one.
+        // succeeded because the caller is waiting on that error, not this one.
         let closed = self.close(&connection).await;
         match outcome {
             Ok(held) => closed.map(|()| held),
@@ -156,7 +154,7 @@ impl TursoBackend {
     /// Open a transaction on `connection`, in the form `writing` asks for.
     ///
     /// `BEGIN CONCURRENT` is what allows overlapping writers, and the engine accepts it
-    /// only under MVCC journaling, so a concurrent transaction asked of a database
+    /// only under MVCC journaling so a concurrent transaction asked of a database
     /// without it opens plainly rather than failing. It is also refused around schema
     /// changes, which is why a migration never asks for one.
     async fn begin(&self, connection: &turso::Connection, writing: Writing) -> Result<(), Error> {
@@ -350,11 +348,10 @@ impl TursoBackend {
         .await
     }
 
-    /// Execute a statement that returns no rows, answering how many it touched.
     /// Run a script of `;`-separated statements in one transaction.
     ///
     /// Turso's own `execute_batch` opens a transaction of its own, which would commit
-    /// part way through a migration and leave a failure half applied, so the statements
+    /// part way through a migration and leave a failure half applied so the statements
     /// run one at a time inside the transaction opened here. The scripts are the
     /// project's own DDL files, which carry no statement holding a bare semicolon.
     pub(crate) async fn execute_script(&self, sql: &str) -> Result<(), Error> {
@@ -379,7 +376,7 @@ impl TursoBackend {
         .await
     }
 
-    /// Execute one write in its own transaction, answering how many rows changed.
+    /// Execute one write in its own transaction, returning how many rows changed.
     pub(crate) async fn execute_write(
         &self,
         sql: &str,
@@ -396,7 +393,7 @@ impl TursoBackend {
         .await
     }
 
-    /// Execute one write that hands its rows back, in its own transaction.
+    /// Execute one write that returns its rows, in its own transaction.
     ///
     /// `RETURNING` is SQLite's, which this engine implements, so a write says what it
     /// touched without a second query racing it.
@@ -466,7 +463,7 @@ impl TursoBackend {
     /// Execute statements in one transaction, rolling back if any of them fails.
     ///
     /// `writing` decides whether the transaction may overlap other writers. A concurrent
-    /// one that touched the same rows as another fails when it commits, so the caller
+    /// one that touched the same rows as another fails when it commits so the caller
     /// asking for it has to be willing to run these statements again.
     pub(crate) async fn execute_transaction(
         &self,
@@ -521,7 +518,7 @@ pub(crate) fn parameter_value(parameter: Parameter) -> Value {
 
 /// Convert a sea-query bound value into Turso's, for statements built in Rust.
 ///
-/// The SQLite dialect pre-renders timestamps, UUIDs, and JSON payloads to text, so only
+/// The SQLite dialect pre-renders timestamps, UUIDs, and JSON payloads to text so only
 /// primitive values reach this conversion.
 pub(crate) fn sea_value(value: sea_query::Value) -> Result<Value, Error> {
     use sea_query::Value as Sea;
@@ -559,7 +556,7 @@ pub(crate) fn sea_value(value: sea_query::Value) -> Result<Value, Error> {
 
 /// Decode up to `limit` rows of a result set into natively-held records.
 ///
-/// The cursor keeps its place, so calling this again resumes where it stopped, and a
+/// The cursor keeps its place so calling this again resumes where it stopped, and a
 /// batch shorter than the limit means the result set is exhausted.
 async fn decode(
     table: RecordTable,
@@ -633,7 +630,7 @@ async fn collect<T: FromRow>(
 
 /// The column names of a result set, resolving fields to positions.
 ///
-/// The columns are read by name rather than by position, because a `RETURNING *` and a
+/// The columns are read by name rather than by position because a `RETURNING *` and a
 /// listing do not have to order them the same way. A lookup scans the handful of names
 /// a table carries, once per field per row.
 struct Columns {
@@ -887,7 +884,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_file_is_created_but_a_missing_directory_is_not() {
-        // A database has no file before its first migration, so opening one creates it.
+        // A database has no file before its first migration so opening one creates it.
         let directory = tempfile::tempdir().expect("the temporary directory is made");
         let path = directory.path().join("fresh.turso");
         let store = RecordStore::turso(
@@ -897,7 +894,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
         );
-        // Nothing has created the schema, so the table is missing rather than the file.
+        // Nothing has created the schema so the table is missing rather than the file.
         assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
         assert!(path.exists(), "opening the database created its file");
 
@@ -914,7 +911,7 @@ mod tests {
 
     /// A `close` statement runs at the end of every operation, whatever kind it was.
     ///
-    /// The connection here lives for one operation, so its close is the operation's end,
+    /// The connection here lives for one operation so its close is the operation's end,
     /// and a statement that counts its own runs shows how many operations reached it.
     #[tokio::test]
     async fn a_close_statement_runs_at_the_end_of_every_operation() {
@@ -937,7 +934,7 @@ mod tests {
             Vec::new(),
             vec!["INSERT INTO closes DEFAULT VALUES".to_string()],
         );
-        // A read and a write, because a write settles a transaction before its close.
+        // A read and a write because a write settles a transaction before its close.
         counted
             .execute_dynamic("CREATE TABLE probe (id INTEGER PRIMARY KEY)", Vec::new())
             .await
@@ -963,7 +960,7 @@ mod tests {
     /// Only MVCC journaling reports that writers can overlap.
     ///
     /// This is what a caller reads to know whether a concurrent transaction can lose a
-    /// race at commit, so it has to follow the setting rather than the request.
+    /// race at commit so it has to follow the setting rather than the request.
     #[test]
     fn overlapping_writers_are_reported_only_under_mvcc() {
         use crate::backend::DatabaseBackend;
@@ -977,7 +974,7 @@ mod tests {
     ///
     /// This is the reason the backend exists. Each writer holds an open transaction while
     /// the other writes, which under a single-writer engine would block or fail, and both
-    /// rows are there afterwards. `mvcc = false` is not asserted against, because the two
+    /// rows are there afterwards. `mvcc = false` is not asserted against because the two
     /// would simply serialize and still both land, which proves nothing either way.
     #[tokio::test]
     async fn concurrent_transactions_overlap_under_mvcc() {
@@ -996,7 +993,7 @@ mod tests {
         let first = backend.connection().await.expect("the first connects");
         let second = backend.connection().await.expect("the second connects");
 
-        // Both transactions are open at once, which is what a single writer forbids.
+        // Both transactions are open at once, which a single writer forbids.
         backend
             .begin(&first, Writing::Concurrent)
             .await
@@ -1040,7 +1037,7 @@ mod tests {
     /// A plain transaction and a concurrent one still overlap under MVCC.
     ///
     /// This is the pair production actually runs. Only the record flush asks to be
-    /// concurrent, so every store write and every migration it overlaps with is opening
+    /// concurrent so every store write and every migration it overlaps with is opening
     /// plainly, and a plain transaction that blocked a concurrent one would leave the
     /// setting buying nothing where it matters.
     #[tokio::test]
@@ -1094,7 +1091,7 @@ mod tests {
     ///
     /// This is the cost of asking to overlap, and the failure mode the record flush now
     /// has to survive. What matters to the layer above is that the loser fails at all and
-    /// says something recognizable, because a flush that fails is requeued and written
+    /// says something recognizable because a flush that fails is requeued and written
     /// again rather than lost.
     #[tokio::test]
     async fn a_concurrent_transaction_that_loses_a_race_fails() {
@@ -1143,9 +1140,9 @@ mod tests {
             _ => panic!("one of the two colliding writers has to lose"),
         };
 
-        // The wording is what the Python layer's error translation reads, so it is pinned
+        // The wording is what the Python layer's error translation reads so it is pinned
         // here rather than left to whatever the engine calls it next release. This one
-        // matches neither of that layer's constraint patterns, so it crosses as a plain
+        // matches neither of that layer's constraint patterns so it crosses as a plain
         // value error, which is one of the failures a record flush requeues on. A release
         // that reworded this would still requeue, but `test_a_write_conflict_requeues`
         // in `tests/test_turso.py` is what says so from the other side.

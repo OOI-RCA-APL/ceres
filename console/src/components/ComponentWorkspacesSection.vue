@@ -14,10 +14,10 @@ import { inStandardOrder, isWorkspaceWritable, useWorkspaces, Workspace } from '
 const { workspaces, openIds, placement, canManage } = defineProps<{
   /** Every workspace placed here that the caller can view, whether or not it is open. */
   workspaces: Workspace[]
-  /** What the strip below is showing, which is what the tab icon on each row reports. */
+  /** What the strip below is showing, reported by the tab icon on each row. */
   openIds: string[]
   placement: string
-  /** Whether the caller may manage the placement, which is what the shared order follows. */
+  /** Whether the caller may manage the placement, which the shared order follows. */
   canManage: boolean
 }>()
 
@@ -38,9 +38,9 @@ const workspaceStore = useWorkspaces()
 
 const ordered = $computed(() => pending ?? inStandardOrder(workspaces))
 
-// Read from the strip itself rather than worked out from the tab set, since what the set means
+// Read from the strip itself rather than worked out from the tab set since what the set means
 // depends on the strip's defaults, which only the page holds. A home strip draws its defaults far
-// more narrowly than the list here, so the two disagree unless the strip is asked.
+// more narrowly than the list here so the two disagree unless the strip is asked.
 function isOpen(workspace: Workspace): boolean {
   return openIds.includes(workspace.id)
 }
@@ -51,7 +51,7 @@ function isWritable(workspace: Workspace): boolean {
 
 /** Where a workspace turned on from this list belongs in the strip.
 
-Placed against its neighbours here rather than appended, so the strip reads in the same order the
+Placed against its neighbours here rather than appended so the strip reads in the same order the
 list does instead of recording whatever was turned on last. The nearest workspace above it that is
 already showing takes it directly after, failing that the nearest one below takes it directly
 before, and with neither showing it goes on the end.
@@ -79,7 +79,7 @@ function tabIndexFor(id: string): number {
   return openIds.length
 }
 
-// Placing only ever puts a workspace on the strip. One already there keeps the position it has,
+// Placing only ever puts a workspace on the strip. One already there keeps the position it has
 // since clicking a row is a request to look at it rather than to rearrange the tabs around it.
 async function openAsTab(workspace: Workspace) {
   if (isOpen(workspace)) {
@@ -90,7 +90,7 @@ async function openAsTab(workspace: Workspace) {
 }
 
 // Putting a workspace on the strip or taking it off again, which is the same closing and opening
-// the tabs themselves do. The workspace is untouched either way. Closing goes through the page,
+// the tabs themselves do. The workspace is untouched either way. Closing goes through the page
 // because taking away the one being shown has to move off it as well.
 async function toggleTab(workspace: Workspace) {
   if (isOpen(workspace)) {
@@ -111,7 +111,7 @@ async function open(workspace: Workspace, groupReorder: ReturnType<typeof usePoi
   emit('open', workspace.id)
 }
 
-// A workspace opened on home keeps its placement, so its widgets still resolve relative addresses
+// A workspace opened on home keeps its placement so its widgets still resolve relative addresses
 // against this component wherever it is being viewed from. Home lists its own workspaces the same
 // way, where opening one on home is what the row above already does.
 const isHome = $computed(() => placement === engineRoot)
@@ -120,13 +120,13 @@ async function openOnHome(workspace: Workspace) {
   await workspaceStore.open(workspace.id)
 }
 
-// Shared and private are listed apart rather than mixed, because they answer different questions.
+// Shared and private are listed apart rather than mixed because they answer different questions.
 // The shared ones are what this component offers everyone who can see it, and the private ones are
 // the caller's own work on it, which nobody else has.
 const sharedWorkspaces = $computed(() => ordered.filter((workspace) => workspace.owner_id == null))
 const privateWorkspaces = $computed(() => ordered.filter((workspace) => workspace.owner_id != null))
 
-// The standard order is what a user sees before they have arranged this strip themselves, so it is
+// The standard order is what a user sees before they have arranged this strip themselves so it is
 // shared and only a manager may change it. Dragging a tab arranges one person's own strip, which
 // is why the shared order is dragged here instead. A private workspace is nobody else's to see, so
 // its owner arranges it whatever their access to the component.
@@ -159,8 +159,7 @@ const privateReorder = usePointerReorder({
 
 /** Take a row released outside its own group, which is either the other group or the tab strip.
 
-Returns whether the drop was claimed, which is what stops the release from reordering the group it
-came from.
+Returns whether the drop was claimed, which stops the release from reordering the source group.
 */
 function onDrop(workspace: Workspace, from: 'shared' | 'private', event: PointerEvent): boolean {
   const element = document.elementFromPoint(event.clientX, event.clientY)
@@ -179,9 +178,9 @@ function onDrop(workspace: Workspace, from: 'shared' | 'private', event: Pointer
     return false
   }
 
-  // Publishing a workspace shows it to everyone who can see the placement, so that direction is a
+  // Publishing a workspace shows it to everyone who can see the placement so that direction is a
   // manager's to make either way. Taking a copy private only ever creates the caller's own
-  // workspace, so it needs nothing beyond being able to see the original.
+  // workspace so it needs nothing beyond being able to see the original.
   if (to === 'shared' && !canManage) {
     return true
   }
@@ -210,7 +209,7 @@ async function transfer(workspace: Workspace, to: 'shared' | 'private', mode: 'c
 }
 
 // One menu per row, reachable from the dots and from a right-click on the row. Held by workspace
-// rather than by position, since the two groups renumber independently.
+// rather than by position since the two groups renumber independently.
 const menus = new Map<string, QMenu>()
 
 function setMenu(id: string, element: QMenu | null) {
@@ -229,7 +228,7 @@ function showMenu(id: string, event: Event) {
 // name is edited where it is read.
 let editingId = $ref<string | null>(null)
 
-// Renaming a workspace changes it for everybody who can see it, so it takes the same write access
+// Renaming a workspace changes it for everybody who can see it so it takes the same write access
 // deleting does rather than being offered to anyone who can merely look at it.
 function openRename(workspace: Workspace) {
   if (!isWritable(workspace)) {
@@ -243,14 +242,14 @@ const { shift: shiftHeld } = useModifiers()
 
 /** Which row is showing its name as a field, whether offered or being typed into.
 
-Holding shift over a row turns its name into a field there and then, so the rename is offered
-rather than hidden behind a shortcut nobody would guess. Clicking into it makes it a real edit,
-which is what keeps it once shift is let go of.
+Holding shift over a row turns its name into a field there and then so the rename is offered
+rather than hidden behind a shortcut nobody would guess. Clicking into it makes it a real edit
+that survives shift being released.
 */
 let hoveredId = $ref<string | null>(null)
 
-// Reported by the name rather than by the row, so the offer belongs to the text being renamed.
-// Leaving only clears what it was set to, since the pointer can reach the next name before the one
+// Reported by the name rather than by the row so the offer belongs to the text being renamed.
+// Leaving only clears what it was set to since the pointer can reach the next name before the one
 // it left says it has been left.
 function setNameHovered(workspace: Workspace, hovered: boolean) {
   if (hovered) {
@@ -273,7 +272,7 @@ async function rename(workspace: Workspace, value: string) {
 }
 
 // Adding from a group's own heading opens the usual dialog, already set to the kind of workspace
-// that group holds, so the one question the dialog would ask is answered by where it was started
+// that group holds so the one question the dialog would ask is answered by where it was started
 // from. What comes back goes onto the strip and is shown.
 function create(group: 'shared' | 'private') {
   dialogs.createWorkspace(placement, group === 'private').onOk(async (created: Workspace) => {
@@ -289,8 +288,8 @@ const groups = $computed(() => [
     items: sharedWorkspaces,
     reorder: sharedReorder,
     canReorder: canManage,
-    // A shared workspace shows up for everyone who can see the component, so adding one takes
-    // manage. A private one is nobody else's to see, so it only takes being able to look here.
+    // A shared workspace shows up for everyone who can see the component so adding one takes
+    // manage. A private one is nobody else's to see so it only takes being able to look here.
     canAdd: canManage,
   },
   {
@@ -303,12 +302,12 @@ const groups = $computed(() => [
   },
 ])
 
-// Each group is positioned within itself, so a private workspace never has to be ordered against a
+// Each group is positioned within itself so a private workspace never has to be ordered against a
 // shared one it is never listed beside.
 async function persistOrder(shared: Workspace[], owned: Workspace[]) {
   pending = [...shared, ...owned]
 
-  // Every position is rewritten rather than just the pair that moved, because a workspace that has
+  // Every position is rewritten rather than just the pair that moved because a workspace that has
   // never been positioned has no order at all and would otherwise keep sorting last.
   const positions = [...shared.entries(), ...owned.entries()]
 
@@ -360,7 +359,7 @@ function promptDelete(workspace: Workspace) {
   <div ref="root">
     <div class="q-mb-xs text-subtitle2">Workspaces</div>
     <template v-for="group in groups" :key="group.key">
-      <!-- A group the caller may add to keeps its heading even while it is empty, since that
+      <!-- A group the caller may add to keeps its heading even while it is empty since that
       heading is where the first one is made from. -->
       <div v-if="group.items.length > 0 || group.canAdd" :class="$style.group">
         <div :class="[$style.groupHeader, 'items-center', 'row']">
@@ -418,7 +417,7 @@ function promptDelete(workspace: Workspace) {
             v-bind="group.canReorder ? group.reorder.handlers(index) : {}"
             @click="open(workspace, group.reorder)"
           >
-            <!-- A grip appears at the row's leading edge on hover, so a draggable row says so
+            <!-- A grip appears at the row's leading edge on hover so a draggable row says so
             without spending a column on a handle that is idle the rest of the time. The whole row
             is still the drag target, and the grip is the hint. -->
             <span v-if="group.canReorder" :class="$style.grip">
@@ -574,7 +573,7 @@ function promptDelete(workspace: Workspace) {
   margin-top: 10px;
 }
 
-// The heading carries its own add button, so a workspace is made in the group it belongs to and
+// The heading carries its own add button so a workspace is made in the group it belongs to and
 // nothing has to ask afterwards whether it is shared or private.
 .groupHeader {
   margin-bottom: 2px;
@@ -585,7 +584,7 @@ function promptDelete(workspace: Workspace) {
   font-size: 12px;
 }
 
-// Held off the trailing edge by the same padding a row gives its own menu button, so this button
+// Held off the trailing edge by the same padding a row gives its own menu button so this button
 // sits on the same vertical line as the dots in the list beneath it.
 .add {
   margin-right: 16px;
@@ -598,10 +597,10 @@ function promptDelete(workspace: Workspace) {
   opacity: 1;
 }
 
-// The grip sits in the row's leading padding rather than in its content, so it costs the same
+// The grip sits in the row's leading padding rather than in its content so it costs the same
 // width whether it is showing or not and nothing moves under the pointer.
 // Doubled so this wins over Quasar's own item padding, which is set on a single class too. The
-// extra leading space is where the grip sits, so it never lands on the workspace icon.
+// extra leading space is where the grip sits so it never lands on the workspace icon.
 .row.row {
   position: relative;
   padding-left: 22px;
@@ -609,15 +608,14 @@ function promptDelete(workspace: Workspace) {
   touch-action: none;
 }
 
-// Hugs the name, so hovering the stretch of empty row beside it is not hovering the name.
+// Hugs the name so hovering the stretch of empty row beside it is not hovering the name.
 .name {
   align-self: flex-start;
 }
 
-// The grip's box runs from the row's leading edge to the far side of the workspace icon, so the
-// whole of that end reads as the place to take hold of, with the glyph itself sitting at the
-// start of it. Zero opacity still answers the pointer, which is what carries the cursor before
-// the grip has faded in.
+// The grip's box runs from the row's leading edge to the far side of the workspace icon so that
+// whole end reads as the place to take hold of. Zero opacity still receives the pointer,
+// carrying the cursor before the grip fades in.
 .grip {
   position: absolute;
   top: 50%;
@@ -625,9 +623,8 @@ function promptDelete(workspace: Workspace) {
   z-index: 1;
   display: flex;
   align-items: center;
-  // Reaches past the glyph to the far side of the workspace icon, so that whole end of the row
-  // carries the grab cursor. Zero opacity still answers the pointer, which is what carries the
-  // cursor before the grip has faded in.
+  // Reaches past the glyph to the far side of the workspace icon so that whole end of the row
+  // carries the grab cursor.
   width: 38px;
   cursor: grab;
   opacity: 0;
@@ -645,7 +642,7 @@ function promptDelete(workspace: Workspace) {
   background: inherit;
 }
 
-// The lifted row sits above the ones sliding under it, so it takes the surface it was lifted off
+// The lifted row sits above the ones sliding under it so it takes the surface it was lifted off
 // rather than letting them show through, and thins slightly to read as held.
 .held {
   z-index: 2;
@@ -661,8 +658,8 @@ function promptDelete(workspace: Workspace) {
   background: white;
 }
 
-// The held row tracks the pointer directly, so it must not smooth its own movement. It regains the
-// transition once released, which is what animates it into the gap.
+// The held row tracks the pointer directly so it must not smooth its own movement. The
+// transition returns on release and animates it into the gap.
 .grabbed {
   cursor: grabbing;
   transition: background-color 0.2s;

@@ -21,13 +21,13 @@ const {
 defineEmits<{
   'update:editing': [value: boolean]
   rename: [name: string]
-  /** Whether the pointer is over the name itself, which is what offers a rename. */
+  /** Whether the pointer is over the name itself, which offers a rename. */
   hoverName: [value: boolean]
 }>()
 
 const isPrivate = $computed(() => workspace.owner_id != null)
 
-// A component page's tabs all share one placement, so naming it on every tab would be noise. Home
+// A component page's tabs all share one placement so naming it on every tab would be noise. Home
 // can hold workspaces from anywhere, and there the placement is what tells two tabs apart.
 const placement = $computed(() =>
   showPlacement && !workspace.scope.isEngine ? workspace.scope.toString() : null
@@ -35,7 +35,7 @@ const placement = $computed(() =>
 </script>
 
 <template>
-  <!-- One root rather than a row of siblings, so a class or a listener put on this component by
+  <!-- One root rather than a row of siblings so a class or a listener put on this component by
   whoever is using it lands somewhere. Vue has nowhere to put either on a component that renders
   several roots, and drops them without a word. -->
   <span :class="[$style.root, 'items-center', 'no-wrap', 'row']">
@@ -75,7 +75,7 @@ const placement = $computed(() =>
   margin-right: 5px;
 }
 
-// The address is what tells two same-named tabs apart, so it keeps its full width while the name
+// The address is what tells two same-named tabs apart so it keeps its full width while the name
 // truncates. It is dimmed so the eye lands on what the tab is with the context still available.
 .placement {
   flex: none;
@@ -92,7 +92,7 @@ const placement = $computed(() =>
   white-space: nowrap;
 }
 
-// A name being edited is not truncated, since the ellipsis that keeps a tab narrow would clip the
+// A name being edited is not truncated since the ellipsis that keeps a tab narrow would clip the
 // text being typed and the caret with it. The field grows with what is typed and the tab with it.
 .editingName {
   max-width: none;

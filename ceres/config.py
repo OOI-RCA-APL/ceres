@@ -626,7 +626,7 @@ class ComponentConfig(DataObject):
         else:
             address = Address(f"@{self.name}")
 
-        # Top-level trees under an engine are created one at a time, so an absolute
+        # Top-level trees under an engine are created one at a time so an absolute
         # reference into a sibling tree cannot resolve until every tree exists. Defer those
         # out of the per-tree check and let the engine validate them across all trees.
         defer_absolute = as_engine(container) is not None
@@ -882,7 +882,7 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     """Configuration for a Turso-backed database, a SQLite-compatible file that allows
     concurrent writers.
 
-    Turso reads and writes the same file format as SQLite and takes the same path settings, so this
+    Turso reads and writes the same file format as SQLite and takes the same path settings so this
     inherits them. What it adds is MVCC journaling, which lets several connections write at once
     instead of serializing behind one writer.
 
@@ -896,15 +896,15 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig, _CoreTursoDatabaseConfig):
     is not a database" and every other SQLite tool fails the same way. Back the file up first and
     treat turning it on as a migration rather than as a setting. It is also off by default because
     overlapping writers are optimistic rather than blocking. Two transactions touching the same
-    rows both proceed and the second fails when it commits, so a caller has to be prepared to
+    rows both proceed and the second fails when it commits so a caller has to be prepared to
     retry.
 
     What takes the setting up on is the record writer. A flush of buffered records opens a
     transaction that may overlap other writers, and one that loses a race is put back and written
     with the next flush. Every other write, and every migration, takes the write lock as it always
-    did, because those are neither frequent nor safe to run twice.
+    did because those are neither frequent nor safe to run twice.
 
-    Turso is compiled into Ceres, so this backend needs nothing installed alongside it.
+    Turso is compiled into Ceres so this backend needs nothing installed alongside it.
     """
 
     if TYPE_CHECKING:
@@ -1142,11 +1142,10 @@ class Config(ConfigMeta, config={"extra": "forbid"}):
         # Create every top-level tree under a shared throwaway engine so absolute
         # cross-tree references resolve during checks exactly as they do at load time.
         engine = Engine()
-        # Building a component registers its connections, sieves, and jobs, and each
-        # registration emits an event. A check is a question, not a run, so those events
-        # describe a tree that is discarded a few lines below and nothing happened worth
-        # telling anyone about. The engine's own logging configuration is what the tree
-        # inherits, so turning the record toggles off there silences the whole check.
+        # Building a component emits registration events, and a check is a question, not
+        # a run so they would describe a tree discarded a few lines below. The tree
+        # inherits the engine's logging configuration so turning the record toggles off
+        # there silences the whole check.
         engine._config = Config(
             logging=LoggingConfig(events=False, messages=False, particles=False, alerts=False)
         )

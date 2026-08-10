@@ -76,13 +76,13 @@ const query = reactive(
 const workspace = $computed(() => query.data?.workspace ?? null)
 
 // Everything the dialog explains follows from where the workspace sits and whether it is owned.
-// A workspace being created has no row to read those from yet, so they come from the placement
+// A workspace being created has no row to read those from yet so they come from the placement
 // passed in and from the choice the form is currently showing.
 const placement = $computed(() =>
   action === 'create' ? new Address(scope ?? engineRoot) : workspace?.scope ?? null
 )
 
-// A shared workspace appears for everyone who can see its placement, so creating one takes manage
+// A shared workspace appears for everyone who can see its placement so creating one takes manage
 // there. A private one is visible to nobody else and takes only the view access needed to be
 // looking at the placement at all.
 const canShare = $computed(() => placement != null && access.canManage(placement.toString()))
@@ -103,12 +103,12 @@ const form = useForm({
   editing: action !== 'view',
   data: {
     name: 'Workspace',
-    // A duplicate starts private, so an arrangement can be tried out before anyone else sees it,
+    // A duplicate starts private so an arrangement can be tried out before anyone else sees it,
     // and can still be shared from the same form. A new one starts on whichever kind was made
     // last, or on whichever kind the caller asked for.
     isPrivate: true,
     // Whether this is one of the workspaces a new user lands on. Only meaningful for a shared
-    // workspace placed on the engine root, which is what the home page draws its defaults from.
+    // workspace placed on the engine root, which the home page draws its defaults from.
     showWhenLoggedOut: false,
   },
   validators: {
@@ -133,7 +133,7 @@ const form = useForm({
     })
 
     // Only a deliberate choice is remembered. Duplicating is always private, and a user without
-    // manage has no choice to make, so neither says anything about what they prefer.
+    // manage has no choice to make so neither says anything about what they prefer.
     if (action === 'create' && canShare) {
       preferences.wasLastWorkspacePrivate = values.isPrivate
     }
@@ -156,8 +156,7 @@ const isPrivate = $computed(() =>
   action === 'view' ? workspace?.owner_id != null : form.data.isPrivate
 )
 
-// Named rather than switched, so the choice reads as two kinds of workspace instead of a setting
-// that happens to be off.
+// Named rather than switched so the choice reads as two kinds of workspace.
 const visibilityOptions = [
   { label: 'Shared', value: false, icon: icons.workspace },
   { label: 'Private', value: true, icon: icons.privateWorkspace },
@@ -178,8 +177,8 @@ const canManage = $computed(() => {
 })
 
 // The home page's default set. It only applies to a shared workspace on the engine root, and it
-// decides what everyone lands on, so it takes manage there. A private workspace can never carry
-// it, because nobody else can see one.
+// decides what everyone lands on so it takes manage there. A private workspace can never carry
+// it because nobody else can see one.
 const canMarkForHome = $computed(
   () => action === 'view' && !isPrivate && placement?.isEngine === true && canShare
 )
@@ -188,7 +187,7 @@ nextTick(async () => {
   await until(() => query.isFetched).toBe(true)
   if (action === 'create') {
     // A caller that already knows which kind it wants says so. Without manage there is no choice
-    // to make, since sharing is not available.
+    // to make since sharing is not available.
     if (!canShare) {
       form.data.isPrivate = true
     } else {

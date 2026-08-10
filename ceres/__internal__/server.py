@@ -65,7 +65,7 @@ class Server(Tasklet):
     def port(self) -> int | None:
         """The port the web server bound, falling back to the configured one.
 
-        A configured `0` asks the operating system for a free port, so the bound one is
+        A configured `0` asks the operating system for a free port so the bound one is
         the only answer that means anything to a caller.
         """
         if self._web_port is not None:
@@ -99,7 +99,7 @@ class Server(Tasklet):
     async def __run__(self) -> None:
         self._cli_token = str(uuid4())
 
-        # Operations register on import, so the module has to load before anything serves.
+        # Operations register on import so the module has to load before anything serves.
         import ceres.__internal__.app.operations  # noqa: F401
         from ceres.__internal__.app.host import Host
         from ceres.__internal__.core import NativeServer
@@ -107,7 +107,7 @@ class Server(Tasklet):
         host = Host(self._engine)
 
         # Record requests inside the native filter subset serve straight from the store,
-        # never crossing into Python, so the server takes the database's reader.
+        # never crossing into Python so the server takes the database's reader.
         records = self._engine.database._reader()
 
         # The CLI server is loopback-only. Its token grants full privileges, and everything
@@ -154,7 +154,7 @@ async def _serve(server: Native | None) -> None:
     """Run one native server to completion, doing nothing when there is none.
 
     A native server's `serve` answers a future rather than a coroutine, and a task group
-    schedules coroutines, so awaiting it inside one is what makes it schedulable.
+    schedules coroutines so awaiting it inside one makes it schedulable.
     """
     if server is not None:
         await server.serve()

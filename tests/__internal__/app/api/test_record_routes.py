@@ -76,7 +76,7 @@ async def test_native_record_batches_serialize_identically_to_the_python_path() 
     """The native listing path must produce byte-equivalent JSON to Pydantic's.
 
     The record GET routes serialize query rows through `RecordBatch` without building
-    Python entity objects, so the wire format of both paths has to stay interchangeable.
+    Python entity objects so the wire format of both paths has to stay interchangeable.
     """
     engine = await _build_engine()
     await _write_records(engine)
@@ -111,9 +111,9 @@ async def test_live_records_serialize_natively_like_pydantic() -> None:
 
 
 async def test_typed_payloads_refuse_native_serialization() -> None:
-    """A typed payload's Pydantic serialization can differ, so the native path rejects it.
+    """A typed payload's Pydantic serialization can differ so the native path rejects it.
 
-    Validated construction coerces mapping payloads into plain dictionaries, so a typed
+    Validated construction coerces mapping payloads into plain dictionaries so a typed
     payload on a base particle only arises through unvalidated construction, the same way
     the live parsing paths build records.
     """
@@ -162,7 +162,7 @@ async def test_native_fetches_serialize_identically_to_the_python_path(
 
 
 async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) -> None:
-    """The native path executes the query layer's own compiled SQL, so filters need no port.
+    """The native path executes the query layer's own compiled SQL so filters need no port.
 
     The filters here cover the awkward constructs on purpose, address selectors, relative
     time ranges, boolean combinators, level matching, and subsampling with its CTE.
@@ -213,7 +213,7 @@ async def test_compiled_queries_fetch_natively_for_any_filter(tmp_path: Path) ->
 
 
 async def test_a_temporary_database_still_reports_a_native_reader() -> None:
-    """A path nobody configured is still a path, so the native reader can join it."""
+    """A path nobody configured is still a path so the native reader can join it."""
     database = Database(SQLiteDatabaseConfig())
     try:
         assert database._reader() is not None
@@ -281,7 +281,7 @@ async def test_unsupported_flushes_decline_the_native_writer(tmp_path: Path) -> 
 async def test_native_fetches_match_on_postgres(database: str) -> None:
     """The native Postgres pool must see the same rows the query layer does.
 
-    The test harness isolates tests in per-test schemas through `search_path`, so this
+    The test harness isolates tests in per-test schemas through `search_path` so this
     also proves connection server settings reach the native pool.
     """
     db = Database()
@@ -329,9 +329,9 @@ async def test_turso_databases_serve_the_native_paths(database: str) -> None:
     """Turso reads and writes through the same engine everything else does.
 
     Turso coordinates the engines sharing a file through in-process state and an fcntl
-    lock, and fcntl locks never conflict within one process, so two copies of the engine
-    here would overwrite each other's WAL frames. There is one copy now, which is what
-    makes this safe rather than the paths having become safe on their own.
+    lock, and fcntl locks never conflict within one process so two copies of the engine
+    here would overwrite each other's WAL frames. There is one copy now, which
+    makes this safe.
     """
     db = Database()
     try:
@@ -343,7 +343,7 @@ async def test_turso_databases_serve_the_native_paths(database: str) -> None:
 
 
 async def test_typed_particle_queries_keep_the_materializing_path() -> None:
-    """A particle query carrying a class transform reports one, so routes fall back."""
+    """A particle query carrying a class transform reports one so routes fall back."""
     engine = await _build_engine()
     await _write_records(engine)
 

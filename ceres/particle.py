@@ -112,7 +112,7 @@ class ParticleData(DataObject, Mapping[str, Any], config=ConfigDict(extra="ignor
     """Base class for the typed payload of a `Particle`.
 
     Subclasses define the parsed fields extracted from raw bytes. `ParticleData` exposes a
-    `Mapping` interface over its attributes, so payload values can be accessed both as
+    `Mapping` interface over its attributes so payload values can be accessed both as
     attributes and as dictionary entries. Unknown fields are silently dropped during
     validation, allowing payloads to evolve without breaking older readers.
     """
@@ -257,9 +257,9 @@ class ParticleFilter(
     def _native_dump(self) -> str:
         """Serialize for the native compiler, the class filter resolved to its type.
 
-        A particle class is a Python import with no native form, so its discriminator
+        A particle class is a Python import with no native form so its discriminator
         folds into an `and` subfilter, mirroring the extra type condition the class
-        filter has always compiled to.
+        filter compiles to.
         """
         import json
 
@@ -1020,7 +1020,7 @@ class GroupedRegexParticle[T: ParticleData](RegexParticle[T]):
     def __data_object_init_subclass__(cls, **kwargs: Any) -> None:
         super().__data_object_init_subclass__(**kwargs)
 
-        # `GroupedRegexParticle` provides a concrete `from_match`, so subclasses are
+        # `GroupedRegexParticle` provides a concrete `from_match` so subclasses are
         # treated as instantiable by default unless they explicitly opt back into abstract.
         if "__abstract__" not in cls.__dict__:
             cls.__abstract__ = False

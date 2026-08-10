@@ -3,7 +3,7 @@
 //! Listings, counts, and single records serve through the host's record operations,
 //! which validate the filter, execute through the engine's native fetch path, and hand
 //! back the serialized payload. The route names, limits, and filter semantics all live
-//! with the host, so every construct keeps its exact behavior.
+//! with the host so every construct keeps its exact behavior.
 
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ use crate::error::ApiError;
 /// Invoke a macro once with every record table, as `module => "name"` rows.
 ///
 /// The one list feeds the handler modules here, the route registrations in the
-/// application router, and the documented routes, so the tables cannot drift apart.
+/// application router, and the documented routes so the tables cannot drift apart.
 macro_rules! for_each_record_table {
     ($callback:ident) => {
         $callback! {
@@ -37,7 +37,7 @@ pub(crate) use for_each_record_table;
 /// Serve a record listing, or stream live records when the caller upgrades.
 ///
 /// The listing and the stream share this path, a socket being a GET that asks to
-/// upgrade, which is how the wire contract has always shaped them.
+/// upgrade, which is the wire contract's shape for them.
 async fn list(state: &Arc<AppState>, table: &str, request: Request) -> Result<Response, ApiError> {
     let (mut parts, _) = request.into_parts();
     state
@@ -85,8 +85,8 @@ async fn count(
 
 /// Serve one record by ID.
 ///
-/// A path segment that does not parse as a UUID never matched the route in the Python
-/// application, falling through to its catch-all, so it answers the same not-found.
+/// A path segment that does not parse as a UUID means the route never matched so it
+/// answers the contract's plain not-found.
 async fn get(
     state: &AppState,
     headers: &HeaderMap,

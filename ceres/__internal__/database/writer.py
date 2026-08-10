@@ -14,17 +14,16 @@ if TYPE_CHECKING:
 def write_failures() -> tuple[type[BaseException], ...]:
     """What a flush can fail with, and therefore what it puts its entities back for.
 
-    A flush that raises anything here still has entities nobody has written, so they go
+    A flush that raises anything here still has entities nobody has written so they go
     back on the queue and go out with the next one. Anything outside this set is not a
     write that failed, and letting it through unhandled is how it stays visible.
 
-    Every wording the store recognizes translates into one of the first four. A wording it
-    does not recognize stays the plain value error it raised, which is why that is here
-    too. A write conflict under Turso's MVCC journaling is exactly that case, the engine
-    calling it "Write-write conflict", and it is the reason a concurrent transaction is
-    safe to ask for.
+    Every wording the store recognizes translates into one of the first four, and a
+    wording it does not recognize stays a plain `ValueError`, which is why that type is
+    listed too. A write conflict under Turso's MVCC journaling ("Write-write conflict")
+    is that case, and it makes a concurrent transaction safe to ask for.
 
-    Imported lazily and built once, because `ceres.error` is not a cheap import and a
+    Imported lazily and built once because `ceres.error` is not a cheap import and a
     flush is a hot path.
     """
     global _WRITE_FAILURES
@@ -49,7 +48,7 @@ def write_failures() -> tuple[type[BaseException], ...]:
 
 
 _WRITE_FAILURES: tuple[type[BaseException], ...] | None = None
-"""Cached by `write_failures`, which is what fills it."""
+"""Cached by `write_failures`, which fills it."""
 
 
 @dataclass(slots=True)
@@ -79,10 +78,10 @@ class Writer:
     )
 
     def __init__(self, database: Callable[[], Database], /) -> None:
-        """Initialize the writer with a factory that provide a database connection.
+        """Initialize the writer with a factory that provides a database connection.
 
         Args:
-            database: A callable that return the ``Database`` instance to write to.
+            database: A callable that returns the `Database` instance to write to.
         """
         self._database = database
         self._buffer: list[Entity] = []
@@ -186,9 +185,9 @@ class Writer:
     async def _write_natively(self, database: Database, entities: list[Entity]) -> bool:
         """Write a whole flush through the native engine, or report that it cannot.
 
-        A flush is atomic, so it only goes native when every entity in it is an exact
+        A flush is atomic so it only goes native when every entity in it is an exact
         record type the native engine holds. Anything else sends the entire flush down
-        the query layer path instead. A native execution failure raises, because the
+        the query layer path instead. A native execution failure raises because the
         parity suites hold the two engines to identical semantics and a silent fallback
         would hide exactly the drift they exist to catch.
         """
@@ -225,7 +224,7 @@ class Writer:
 
         This serves the entities the record writer does not hold, a typed particle payload
         or a non-record type reaching the buffer. Each write is an upsert on the row's own
-        primary key, so a flush that fails part way and comes back rewrites what it already
+        primary key so a flush that fails part way and comes back rewrites what it already
         wrote rather than colliding with it.
 
         Args:
