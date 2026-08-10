@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.41.2] - 2026-08-10
+
 **Fixes**
 
 - Create the directories leading to a configured database file, so a fresh project's
