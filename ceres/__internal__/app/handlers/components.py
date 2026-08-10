@@ -5,6 +5,7 @@ from ceres.__internal__.app.shared import (
     get_component_access,
     get_components_access,
 )
+from ceres.__internal__.particles import declared_particle_classes
 from ceres.__internal__.utilities.text import strify
 from ceres.address import Address
 from ceres.component import (
@@ -16,7 +17,7 @@ from ceres.component import (
     QueryBinding,
 )
 from ceres.connectivity import Connectivity
-from ceres.data import DataModel, DataObject, DateTime, Name
+from ceres.data import DataModel, DataObject, DateTime, Name, to_json_schema
 from ceres.error import (
     NotConnectedError,
     NotFoundError,
@@ -26,6 +27,7 @@ from ceres.error import (
     ProcedureNotPermittedError,
 )
 from ceres.message import Message, MessageData
+from ceres.particle import Particle, _get_cls_particle_type
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -256,14 +258,8 @@ def _describe_schedule(schedule: object) -> str:
     return strify(schedule)
 
 
-async def get_component_jobs(
-    engine: Engine,
-    actor: Actor,
-    address: Address,
-) -> list[JobInfo]:
-    """Return the scheduled jobs for the component at the given address.
-
-    Available to anyone who can access the component at all.
+async def _resolve_component(engine: Engine, actor: Actor, address: Address) -> Component:
+    """Resolve the component at `address`, checking that `actor` may view it.
 
     Raises:
         NotFoundError: If no component matches the given address.
@@ -277,6 +273,23 @@ async def get_component_jobs(
     if not actor.unrestricted and access is None:
         raise NotPermittedError()
 
+    return component
+
+
+async def get_component_jobs(
+    engine: Engine,
+    actor: Actor,
+    address: Address,
+) -> list[JobInfo]:
+    """Return the scheduled jobs for the component at the given address.
+
+    Available to anyone who can access the component at all.
+
+    Raises:
+        NotFoundError: If no component matches the given address.
+        NotPermittedError: If the caller has no access to the component.
+    """
+    component = await _resolve_component(engine, actor, address)
     jobs = component.system.jobs
     return [
         JobInfo(
@@ -287,6 +300,86 @@ async def get_component_jobs(
         )
         for job in jobs.get_all()
     ]
+
+
+class ParticleFieldInfo(DataObject):
+    """Description of one field on a particle's `data` model."""
+
+    name: str
+    json_type: str
+    description: str | None
+    chartable: bool
+
+
+class ParticleTypeInfo(DataObject):
+    """Description of one particle type a component declares."""
+
+    type: str
+    description: str | None
+    fields: list[ParticleFieldInfo]
+
+
+def _field_json_type(schema: dict[str, Any]) -> str:
+    """Return the JSON Schema type name of `schema`, `"object"` when none is stated.
+
+    An optional or generic field reaches the schema as `anyOf` rather than a bare
+    `type`, so the first non-null member's type stands in for the field's own.
+    """
+    if "type" in schema:
+        return schema["type"]
+
+    for member in schema.get("anyOf", ()):
+        member_type = member.get("type")
+        if member_type is not None and member_type != "null":
+            return member_type
+
+    return "object"
+
+
+def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
+    """Describe one particle class from its `data` model's JSON schema."""
+    data_model = cls.__pydantic_fields__["data"].annotation
+    schema = to_json_schema(data_model)
+    fields = [
+        ParticleFieldInfo(
+            name=name,
+            json_type=_field_json_type(property),
+            description=property.get("description"),
+            chartable=_field_json_type(property) in ("number", "integer"),
+        )
+        for name, property in schema.get("properties", {}).items()
+    ]
+
+    description = cls.__doc__
+    if description == Particle.__doc__:
+        description = None
+
+    discriminator = _get_cls_particle_type(cls)
+    if discriminator is None:
+        raise ValueError(f"`{cls}` has no `type` discriminator.")
+
+    return ParticleTypeInfo(
+        type=discriminator,
+        description=description,
+        fields=fields,
+    )
+
+
+async def get_component_particle_types(
+    engine: Engine,
+    actor: Actor,
+    address: Address,
+) -> list[ParticleTypeInfo]:
+    """Return the particle types the component at `address` declares.
+
+    Available to anyone who can access the component at all.
+
+    Raises:
+        NotFoundError: If no component matches the given address.
+        NotPermittedError: If the caller has no access to the component.
+    """
+    component = await _resolve_component(engine, actor, address)
+    return [_describe_particle_class(cls) for cls in declared_particle_classes(component)]
 
 
 async def get_procedures(engine: Engine, address: Address) -> list[ProcedureBinding]:

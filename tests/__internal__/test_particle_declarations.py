@@ -3,6 +3,10 @@
 from collections.abc import AsyncIterable, AsyncIterator
 
 from ceres import Component, Message, Particle, ParticleData, sieve
+from ceres.__internal__.app.handlers.components import (
+    ParticleTypeInfo,
+    _describe_particle_class,
+)
 from ceres.__internal__.particles import declared_particle_classes
 
 
@@ -73,6 +77,30 @@ def test_undiscriminated_classes_are_skipped():
         __particles__: tuple[type[Particle], ...] = (Undiscriminated, Temperature)
 
     assert declared_particle_classes(_build(Sensor)) == [Temperature]
+
+
+def test_describe_reads_the_data_model():
+    info: ParticleTypeInfo = _describe_particle_class(Temperature)
+    assert info.type == "temperature"
+    assert [field.name for field in info.fields] == ["celsius"]
+    assert info.fields[0].json_type == "number"
+    assert info.fields[0].description == "Degrees Celsius."
+    assert info.fields[0].chartable is True
+
+
+def test_non_numeric_fields_are_listed_but_not_chartable():
+    class MixedData(ParticleData):
+        label: str
+        count: int
+
+    class Mixed(Particle[MixedData]):
+        type = "mixed"
+        data: MixedData
+
+    info = _describe_particle_class(Mixed)
+    by_name = {field.name: field for field in info.fields}
+    assert by_name["label"].chartable is False
+    assert by_name["count"].chartable is True
 
 
 def test_duplicates_collapse():
