@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:12b573dc0f9e2315 -->
+<!-- coverage:fingerprint:be32d48b9d81c347 -->
 
 ## Python
 
@@ -18,6 +18,7 @@
 | `ceres/__internal__/interop.py` | 90% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |
+| `ceres/__internal__/particles.py` | 97% |
 | `ceres/__internal__/project.py` | 79% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 82% |
@@ -150,7 +151,7 @@
 | `rust/ceres-database/src/load.rs` | 92% |
 | `rust/ceres-database/src/records.rs` | 58% |
 | `rust/ceres-database/src/selector.rs` | 87% |
-| `rust/ceres-database/src/store.rs` | 72% |
+| `rust/ceres-database/src/store.rs` | 71% |
 | `rust/ceres-database/src/turso.rs` | 67% |
 | `rust/ceres-database/src/writer.rs` | 69% |
 | `rust/ceres-entities/src/address.rs` | 89% |
