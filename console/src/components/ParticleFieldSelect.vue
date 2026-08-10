@@ -1,10 +1,5 @@
 <script lang="ts" setup>
-import { useQuery } from '@tanstack/vue-query'
-import { computed } from 'vue'
-
-import { Address } from '@/api/address'
-import { ParticleTypeInfo } from '@/api/components'
-import { useEngine } from '@/api/engine'
+import { useParticleTypes } from '@/particle-types'
 import { isType, Schema } from '@/schema-form'
 
 let modelValue = $(defineModel<string | null>({ required: true }))
@@ -14,30 +9,7 @@ const { address, particleType } = defineProps<{
   particleType: string | null
 }>()
 
-const engine = useEngine()
-
-// The types endpoint takes a concrete address, so a wildcard or pipe selector, which fails
-// `Address`'s stricter parse, leaves the field with no declared fields to offer.
-const componentAddress = $computed<Address | null>(() => {
-  if (address == null) {
-    return null
-  }
-
-  try {
-    return Address.parse(address)
-  } catch {
-    return null
-  }
-})
-
-const query = useQuery({
-  queryKey: computed(() => ['particle-types', componentAddress?.toString() ?? null]),
-  queryFn: () => engine.components.getParticleTypes(componentAddress as Address),
-  enabled: computed(() => componentAddress != null),
-  retry: false,
-})
-
-const types = $computed<ParticleTypeInfo[]>(() => query.data.value ?? [])
+const types = $(useParticleTypes(() => address).types)
 
 const selectedType = $computed(() => types.find((type) => type.type === particleType) ?? null)
 
@@ -55,7 +27,7 @@ function describeType(schema: Schema): string {
   return 'value'
 }
 
-// Fields that can plot lead the list, since those are the ones worth reaching for first.
+// Fields that can plot lead the list since those are the ones worth reaching for first.
 const fields = $computed(() => {
   const fields = selectedType?.fields ?? []
   const plottable = fields.filter((field) => isPlottable(field.schema as Schema))
