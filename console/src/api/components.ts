@@ -89,6 +89,19 @@ export const ConnectionInfoModel = Zod.object({
   label: Zod.string(),
 })
 
+export type ParticleFieldInfo = Zod.infer<typeof ParticleFieldInfoModel>
+export const ParticleFieldInfoModel = Zod.object({
+  name: Zod.string(),
+  schema: Zod.record(Zod.string(), Zod.unknown()),
+})
+
+export type ParticleTypeInfo = Zod.infer<typeof ParticleTypeInfoModel>
+export const ParticleTypeInfoModel = Zod.object({
+  type: Zod.string(),
+  description: Zod.string().nullish(),
+  fields: Zod.array(ParticleFieldInfoModel),
+})
+
 export type ComponentInfo = {
   name: string
   address: Address
@@ -133,6 +146,13 @@ export const useComponents = defineStore('components', () => {
   async function getConnections(address: Address): Promise<ConnectionStateInfo[]> {
     return await client.get(`/api/components/${address}/connections`, {
       parse: Zod.array(ConnectionStateInfoModel),
+    })
+  }
+
+  /** Fetch declared particle types for a component. */
+  async function getParticleTypes(address: Address): Promise<ParticleTypeInfo[]> {
+    return await client.get(`/api/components/${address}/particle-types`, {
+      parse: Zod.array(ParticleTypeInfoModel),
     })
   }
 
@@ -271,6 +291,7 @@ export const useComponents = defineStore('components', () => {
     getConfig,
     getJobs,
     getConnections,
+    getParticleTypes,
     call,
     send,
   }
