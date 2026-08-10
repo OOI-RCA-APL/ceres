@@ -302,7 +302,8 @@ impl RawSharedDatabaseConfig {
 #[serde(default, deny_unknown_fields)]
 #[schemars(title = "SQLiteDatabaseConfig")]
 pub struct RawSqliteDatabaseConfig {
-    /// Path to the SQLite file. Omit to use a temporary on-disk file.
+    /// Path to the SQLite file, whose directories are created. Omit to use a temporary
+    /// on-disk file.
     pub path: Option<PathBuf>,
 
     #[serde(flatten)]
@@ -339,7 +340,8 @@ impl TryFrom<RawSqliteDatabaseConfig> for SqliteDatabaseConfig {
 #[serde(default, deny_unknown_fields)]
 #[schemars(title = "TursoDatabaseConfig")]
 pub struct RawTursoDatabaseConfig {
-    /// Path to the database file. Omit to use a temporary on-disk file.
+    /// Path to the database file, whose directories are created. Omit to use a temporary
+    /// on-disk file.
     pub path: Option<PathBuf>,
 
     /// Put the database in Turso's MVCC journal mode, which lets writers overlap.
