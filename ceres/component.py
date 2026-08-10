@@ -15,6 +15,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    ClassVar,
     Final,
     Literal,
     Protocol,
@@ -140,6 +141,7 @@ if TYPE_CHECKING:
 else:
     Connection = Any
     ConnectionField = Any
+    Particle = Any
 
 with __lazy_imports__(__name__):
     from ceres.connection import ComponentConnectionManager
@@ -313,6 +315,9 @@ class Component(DataObject, ComponentSource):
     def __static_sieves__(self) -> Iterable[SieveConfig]:
         """Return sieve configurations declared statically by this component class."""
         return ()
+
+    __particles__: ClassVar[tuple[type[Particle], ...]] = ()
+    """Particle classes this component emits outside a sieve, offered to chart pickers."""
 
     def __static_jobs__(self) -> Iterable[JobConfig]:
         """Return job configurations declared statically by this component class."""
