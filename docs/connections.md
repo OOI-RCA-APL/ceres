@@ -211,3 +211,14 @@ sieves:
 | `BinaryRegexParticle` | A binary frame located by a pattern. |
 
 Stored particles are queryable from the CLI and the API. [Writing a Driver](writing-a-driver.md) puts a connection, a sieve, and a particle together on a real instrument.
+
+### Declaring Particles For Charts
+
+A component's `__particles__` class property lists the particle types it can emit. The console's chart and value pickers read it to offer types and fields without a live sample to inspect.
+
+By default, `__particles__` is derived from `@sieve`-decorated method return annotations, so a driver that already declares its particles through a sieve needs no further action. Assign a literal tuple to declare particle types a sieve does not name, for example when a component emits particles outside a sieve.
+
+```python
+class Driver(Component):
+    __particles__ = (SensorParticle, OtherParticle)
+```
