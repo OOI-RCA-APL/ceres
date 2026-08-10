@@ -1,8 +1,8 @@
 """Duration spellings accepted by the native configuration types.
 
-The engine has always accepted numbers, ISO 8601 intervals, clock text, and its own
-suffix grammar (`30d`) for configured durations, so the native `ServerConfig` must
-parse every spelling a deployed `ceres.yaml` can carry.
+The engine accepts numbers, ISO 8601 intervals, clock text, and its own suffix grammar
+(`30d`) for configured durations so the native `ServerConfig` must parse every
+spelling a deployed `ceres.yaml` can carry.
 """
 
 from datetime import timedelta

@@ -1,9 +1,9 @@
 """The engine as the native server's host.
 
 The native server owns HTTP and answers most requests by calling one named operation
-here. Each operation validates its own arguments through Pydantic and runs the same
-engine and query-layer code the API always has, so filters, permissions, and wire
-shapes keep their exact behavior while the transport moves to Rust.
+here. Each operation validates its own arguments through Pydantic and runs the engine
+and query-layer code itself so filters, permissions, and wire shapes keep their exact
+behavior whatever the transport.
 
 Results cross the boundary as one JSON envelope per call, `{"ok": ...}` for a payload,
 `{"error": {"status", "envelope"}}` for a typed refusal, and `{"response": ...}` for a
@@ -52,8 +52,8 @@ _STREAMS: dict[str, Callable[[Host, dict[str, Any]], AsyncIterator[str]]] = {}
 class Served:
     """A response the server produces itself, described for it to serve.
 
-    An operation answers with one of these instead of a payload, and it travels in its
-    own envelope rather than inside the payload, so a procedure returning data that
+    An operation returns one of these instead of a payload, and it travels in its
+    own envelope rather than inside the payload so a procedure returning data that
     happens to look like a description cannot pass itself off as one.
     """
 
@@ -66,7 +66,7 @@ class Raw:
     """A payload already serialized as JSON, spliced into the envelope verbatim.
 
     Listings serialize once through the engine's own serializer and cross the boundary
-    as text, so a record dump is never parsed back into Python objects just to be
+    as text so a record dump is never parsed back into Python objects just to be
     re-serialized into the envelope.
     """
 
@@ -152,9 +152,9 @@ class Host:
         except Error as error:
             return _failure(error)
         except ValidationError as error:
-            # An operation validates its own arguments, so a validation failure is a bad
-            # request rather than an internal one, reported with its problems like the
-            # framework's own handler always did.
+            # An operation validates its own arguments so a validation failure is a bad
+            # request rather than an internal one, reported with its problems in the
+            # wire contract's shape.
             return _failure(ValidationFailedError(problems=ValidationProblem.extract(error)))
         except Exception as error:  # noqa: BLE001
             del error
@@ -202,10 +202,10 @@ class Host:
     def serve(self, output: BaseOutput) -> Served:
         """Describe a media output for the server, which produces its body itself.
 
-        A file names its path, so its bytes never cross the boundary. A stream registers
+        A file names its path so its bytes never cross the boundary. A stream registers
         its chunks under the description's handle for the server to pull. Either way the
-        server releases the handle once the body ends, which is what runs the output's
-        exit hook, so a client that leaves early still triggers the cleanup.
+        server releases the handle once the body ends, which runs the output's
+        exit hook so a client that leaves early still triggers the cleanup.
 
         Raises:
             ProcedureInternalError: If the output is not a kind the server can serve.
@@ -246,7 +246,7 @@ class Host:
         """Release whatever a handle names, a message stream, a body, or an exit hook.
 
         A handle can name any combination of the three, and each releases even when
-        another fails, because an exit hook has to run whatever ended the body.
+        another fails because an exit hook has to run whatever ended the body.
         """
         iterator: AsyncIterator[Any] | None = self._streams.pop(handle, None)
         if iterator is None:

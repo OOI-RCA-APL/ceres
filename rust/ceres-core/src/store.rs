@@ -1,9 +1,9 @@
 //! The query layer's connection to its database.
 //!
 //! The Python query layer compiles its statements through the native filter compiler and
-//! runs them here, so one pool serves the whole process rather than the native path
+//! runs them here so one pool serves the whole process rather than the native path
 //! sitting beside a second one. Rows come back keyed by column, in the Python types the
-//! entity models hold, which is what lets a manager build its objects without a driver's
+//! entity models hold, which lets a manager build its objects without a driver's
 //! type mappers in between.
 
 use std::sync::Arc;
@@ -43,7 +43,7 @@ pub(crate) fn extract_parameter(value: &Bound<'_, PyAny>) -> PyResult<Parameter>
         return Ok(Parameter::Bytes(value.extract()?));
     }
 
-    // The PostgreSQL driver takes timestamps and UUIDs natively, so its bind processors
+    // The PostgreSQL driver takes timestamps and UUIDs natively so its bind processors
     // pass the objects through rather than rendering text.
     if let Ok(aware) = value.extract::<chrono::DateTime<chrono::Utc>>() {
         return Ok(Parameter::Timestamp(aware.naive_utc()));
@@ -75,9 +75,9 @@ pub struct Store {
 impl Store {
     /// Open the store a connection describes.
     ///
-    /// A writable store runs the connection's `init` statements, that being the engine a
-    /// database opens for itself. A read-only one serves queries on a pool of its own
-    /// and never runs them, those being the store's to run.
+    /// A writable store runs the connection's `init` statements because it is the
+    /// connection a database opens for itself. A read-only store serves queries on a
+    /// pool of its own and never runs them.
     #[new]
     #[pyo3(signature = (connection, writable=true))]
     fn new(connection: &crate::connection::Connection, writable: bool) -> PyResult<Self> {
@@ -94,7 +94,7 @@ impl Store {
 
     /// Execute a compiled record query, as an awaitable `RecordBatch`.
     ///
-    /// The statement text and parameters come from the query layer's own compiler, so any
+    /// The statement text and parameters come from the query layer's own compiler so any
     /// filter it can express runs natively with identical semantics. Rows go from the
     /// driver to JSON without any Python entity objects in between.
     fn fetch_sql<'py>(
@@ -123,9 +123,9 @@ impl Store {
 
     /// Execute a statement that returns rows, as an awaitable list of column mappings.
     ///
-    /// `table` names the table the rows come from, which is what says whether a column
+    /// `table` names the table the rows come from, which says whether a column
     /// of text holds a UUID, a timestamp, or a name. A statement belonging to no table,
-    /// which is what a migration runs, passes `None` and reads values as stored.
+    /// as a migration runs, passes `None` and reads values as stored.
     #[pyo3(signature = (sql, parameters, table=None))]
     fn fetch<'py>(
         &self,
@@ -147,7 +147,7 @@ impl Store {
                 .fetch_dynamic(table, &sql, parameters)
                 .await
                 .map_err(to_value_error)?;
-            // The mappings are unbound before the future resolves, because a bound
+            // The mappings are unbound before the future resolves because a bound
             // object holds the interpreter's lifetime and cannot cross a thread.
             Python::attach(|py| {
                 rows.iter()
@@ -159,10 +159,8 @@ impl Store {
 
     /// Execute a statement that returns rows, as chunks read as they arrive.
     ///
-    /// The chunked twin of `fetch`. A caller iterating a result rather than collecting it
-    /// holds one chunk at a time, so a query over a large table costs a chunk of memory
-    /// rather than the whole result, and the first rows reach the caller before the last
-    /// ones have been read.
+    /// The chunked twin of `fetch`. Rows reach the caller as they arrive so a query
+    /// over a large table costs one chunk of memory rather than the whole result.
     #[pyo3(signature = (sql, parameters, table=None))]
     fn stream(
         &self,
@@ -253,7 +251,7 @@ type StreamedRows = Result<Vec<ceres_database::Row>, ceres_database::Error>;
 impl RowChunks {
     /// The next chunk of column mappings, `None` once the query is spent.
     ///
-    /// Waiting for a chunk blocks a thread of its own rather than the event loop, so a
+    /// Waiting for a chunk blocks a thread of its own rather than the event loop so a
     /// slow query leaves the caller's asyncio loop free.
     fn next<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let chunks = self.chunks.clone();
@@ -270,7 +268,7 @@ impl RowChunks {
                 // A disconnected channel is the query having run to its end.
                 Err(_) => Ok(None),
                 Ok(Ok(rows)) => Python::attach(|py| {
-                    // The mappings are unbound before the future resolves, because a
+                    // The mappings are unbound before the future resolves because a
                     // bound object holds the interpreter's lifetime and cannot cross a
                     // thread.
                     rows.iter()
@@ -310,7 +308,7 @@ fn value<'py>(py: Python<'py>, cell: &Cell) -> PyResult<Bound<'py, PyAny>> {
         Cell::Float(held) => held.into_bound_py_any(py)?,
         Cell::Text(held) => held.into_bound_py_any(py)?,
         Cell::Bytes(held) => PyBytes::new(py, held).into_any(),
-        // The models hold aware UTC instants, so a naive one would read in local time
+        // The models hold aware UTC instants so a naive one would read in local time
         // wherever it was compared or rendered.
         Cell::Timestamp(held) => held.and_utc().into_bound_py_any(py)?,
         Cell::Uuid(held) => held.into_bound_py_any(py)?,

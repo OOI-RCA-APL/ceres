@@ -9,7 +9,7 @@ import { usePersisted } from '@/persistence'
 const positionLimit = 100
 
 // How long to keep trying to restore. A workspace loads its data and lays out its widgets after
-// the switch, and widgets that stream their rows keep growing for a while after that, so the page
+// the switch, and widgets that stream their rows keep growing for a while after that so the page
 // is too short to scroll all the way back for some time. Giving up eventually is what stops the
 // page jumping once the user has started reading somewhere else.
 const restoreTimeout = 3000
@@ -21,14 +21,14 @@ position is recorded as the key leaves and restored once the new content is tall
 it, which is not the same frame the key changes on.
 
 `settled` says whether moving the page right now would be welcome. Switching between keys while
-the page is somewhere the user is still reading moves the ground under them, so a caller that has
+the page is somewhere the user is still reading moves the ground under them so a caller that has
 such a place says so and the position is neither taken nor put back until they are past it.
 
 Positions are only put back on a switch. Arriving is a different act from switching, and a page
 that has just been navigated to starts at the top with whatever it leads with in view rather than
 several hundred pixels below it with no sign that anything was skipped.
 
-Positions are kept per device, since where you were a moment ago belongs to this browser rather
+Positions are kept per device since where you were a moment ago belongs to this browser rather
 than to the account.
 */
 export function useScrollMemory(
@@ -45,8 +45,8 @@ export function useScrollMemory(
   let restoring: string | null = null
 
   function remember(target: string, position: number) {
-    // Rewriting the entry moves it to the end, which is what makes the eviction below drop
-    // whatever has gone longest without being looked at.
+    // Rewriting the entry moves it to the end so the eviction below drops the least recently
+    // used.
     const kept = Object.entries(state.positions).filter(([current]) => current !== target)
     const entries = [...kept, [target, position] as const]
 
@@ -54,7 +54,7 @@ export function useScrollMemory(
   }
 
   function restore(target: string) {
-    // Never above the floor, so whatever the caller has pinned to the top of the window stays
+    // Never above the floor so whatever the caller has pinned to the top of the window stays
     // pinned rather than dropping back down the page as the switch lands.
     const position = Math.max(state.positions[target] ?? 0, toValue(floor) ?? 0)
     const deadline = performance.now() + restoreTimeout
@@ -102,7 +102,7 @@ export function useScrollMemory(
     () => toValue(key),
     (next, previous) => {
       // Arriving is not a switch, whether the key was unset or merely absent. A page decides what
-      // to show after it mounts, so the first real key arrives as a change from nothing, and
+      // to show after it mounts so the first real key arrives as a change from nothing, and
       // treating that as a switch would put back a position the user never left.
       if (previous == null) {
         return
@@ -123,12 +123,12 @@ export function useScrollMemory(
 
       restore(next)
     },
-    // Run for the first key as well, so that arriving is seen and taken as the starting point the
+    // Run for the first key as well so that arriving is seen and taken as the starting point the
     // switches after it are measured against.
     { immediate: true }
   )
 
-  // Recorded as the page is scrolled rather than only when a tab is left, because a reload or a
+  // Recorded as the page is scrolled rather than only when a tab is left because a reload or a
   // closed browser never gets to leave. Writes are debounced, and skipped while a restore is
   // still working, which would otherwise record the top of a page that has not grown yet.
   const record = debounce(() => {

@@ -1,7 +1,7 @@
 //! Resolved database connection parameters.
 //!
 //! The Python layer resolves its configuration once, temporary paths and secrets
-//! included, into a [`Connection`], and every native consumer opens from it, so the
+//! included, into a [`Connection`], and every native consumer opens from it so the
 //! stores and the record writer cannot connect differently.
 
 use ceres_database::{RecordStore, RecordWriter};
@@ -10,10 +10,11 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use crate::interop::to_value_error;
 
-/// Where one database lives and how its connections are dressed.
+/// Where one database lives and the statements its connections run.
 ///
-/// The `init` statements ride along for the store alone, that being the engine a
-/// database opens for itself, while every pool takes the per-connection pair.
+/// The `init` statements belong to the writable store alone because it is the
+/// connection a database opens for itself, while every pool takes the per-connection
+/// pair.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 #[derive(Clone)]

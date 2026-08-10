@@ -7,9 +7,8 @@
 //! every call site.
 //!
 //! Adding a backend means writing one impl. Adding an operation means adding one method
-//! and implementing it three times, which is the trade this shape makes deliberately: a
-//! new operation costs more than it did, a new backend costs far less, and no caller can
-//! forget a backend because the compiler will not let it.
+//! and implementing it three times. That trade is deliberate because a new backend
+//! costs far less and no caller can forget one, the compiler will not let it.
 
 use async_trait::async_trait;
 use ceres_entities::{Entities, Records};
@@ -27,10 +26,10 @@ use crate::records::RecordTable;
 use crate::store::{Error, GateUser, Parameter};
 use crate::turso::{parameter_value, sea_value};
 
-/// How a transaction means to sit beside other writers.
+/// How a transaction coexists with other writers.
 ///
 /// This is the caller's intent rather than a promise about the backend. One that cannot
-/// overlap writers runs a [`Writing::Concurrent`] transaction the only way it can, so ask
+/// overlap writers runs a [`Writing::Concurrent`] transaction the only way it can so ask
 /// [`DatabaseBackend::overlaps_writers`] when the answer changes what a caller does.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Writing {
@@ -43,7 +42,7 @@ pub enum Writing {
 
     /// Overlap other writers wherever the backend can.
     ///
-    /// The transactions are optimistic, so two that touch the same rows both proceed and
+    /// The transactions are optimistic so two that touch the same rows both proceed and
     /// the second fails when it commits. A caller asking for this is saying its writes
     /// are frequent, independent, and safe to retry.
     Concurrent,
@@ -51,7 +50,7 @@ pub enum Writing {
 
 /// A built statement that changes the rows a filter matched.
 ///
-/// The two shapes are kept apart rather than rendered to text early, because each backend
+/// The two shapes are kept apart rather than rendered to text early because each backend
 /// renders with its own query builder and a `RETURNING` clause is added before that
 /// happens. An insert is not here, [`DatabaseBackend::insert_all`] taking its statements
 /// directly because it writes several in one transaction rather than one in its own.
@@ -74,15 +73,15 @@ pub(crate) type Batches<'a> =
 /// One database backend, as the store and the writer need it.
 ///
 /// Every method takes a built statement or compiled SQL and answers in this crate's own
-/// types, so nothing above here handles a driver's rows, arguments, or pool.
+/// types so nothing above here handles a driver's rows, arguments, or pool.
 #[async_trait]
 pub(crate) trait DatabaseBackend: Send + Sync {
-    /// The value forms this backend binds, which is what a filter renders against.
+    /// The value forms this backend binds, which a filter renders against.
     fn dialect(&self) -> SqlDialect;
 
     /// Whether two write transactions on this database can overlap.
     ///
-    /// `false` means a [`Writing::Concurrent`] transaction ran serialized, because the
+    /// `false` means a [`Writing::Concurrent`] transaction ran serialized because the
     /// backend has one writer or was not configured for more. Callers that would retry a
     /// commit conflict use this to say whether one is possible at all.
     fn overlaps_writers(&self) -> bool;
@@ -119,19 +118,19 @@ pub(crate) trait DatabaseBackend: Send + Sync {
     /// column decodes as, and because a caller asking this can stop at the first row.
     async fn exists(&self, statement: SelectStatement) -> Result<bool, Error>;
 
-    /// Run one write in a transaction of its own, answering how many rows changed.
+    /// Run one write in a transaction of its own, returning how many rows changed.
     async fn write(&self, statement: Write) -> Result<u64, Error>;
 
-    /// Run one write that hands its rows back, in a transaction of its own.
+    /// Run one write that returns its rows, in a transaction of its own.
     async fn write_records(&self, table: RecordTable, statement: Write) -> Result<Records, Error>;
 
     /// The entity form of [`Self::write_records`].
     async fn write_entities(&self, table: EntityTable, statement: Write)
     -> Result<Entities, Error>;
 
-    /// Insert every batch in one transaction, answering how many rows landed.
+    /// Insert every batch in one transaction, returning how many rows landed.
     ///
-    /// Nothing lands unless all of them do, so a refused batch or a failing statement
+    /// Nothing lands unless all of them do so a refused batch or a failing statement
     /// leaves the tables exactly as they were.
     async fn insert_all(&self, writing: Writing, batches: Batches<'_>) -> Result<usize, Error>;
 
@@ -156,7 +155,7 @@ pub(crate) trait DatabaseBackend: Send + Sync {
     ///
     /// `table` says which of the columns hold UUIDs and timestamps where the storage
     /// class alone cannot, which is every text-storing backend. `None` reads values as
-    /// stored, which is what a migration or a catalog query wants.
+    /// stored, which a migration or a catalog query wants.
     async fn query_rows(
         &self,
         table: Option<Table>,
@@ -173,13 +172,13 @@ pub(crate) trait DatabaseBackend: Send + Sync {
         sink: Sink<'_, Vec<Row>>,
     ) -> Result<(), Error>;
 
-    /// Run compiled SQL that returns no rows, answering how many it touched.
+    /// Run compiled SQL that returns no rows and report how many it touched.
     async fn execute(&self, sql: &str, parameters: Vec<Parameter>) -> Result<u64, Error>;
 
     /// Run a script of `;`-separated statements.
     ///
     /// The driver separates them rather than this guessing where one ends. A migration
-    /// relies on that, since a `PRAGMA` the SQLite family needs before rebuilding a table
+    /// relies on that since a `PRAGMA` the SQLite family needs before rebuilding a table
     /// does nothing inside a transaction someone else opened.
     async fn execute_script(&self, sql: &str) -> Result<(), Error>;
 
@@ -222,14 +221,14 @@ impl Write {
 
 /// How many rows one streamed chunk carries.
 ///
-/// A dump decodes, renders, and writes per chunk rather than whole, so memory stays flat
+/// A dump decodes, renders, and writes per chunk rather than whole so memory stays flat
 /// over a table of any size. The size also decides how much of a result a caller can
-/// hold back before writing, which is what keeps a late refusal able to delegate.
+/// hold back before writing, which keeps a late refusal able to delegate.
 pub const CHUNK: usize = 1000;
 
 /// Walk a row cursor, decoding and handing over one chunk at a time.
 ///
-/// A chunk decodes only once it is full, so a decode failure surfaces having produced no
+/// A chunk decodes only once it is full so a decode failure surfaces having produced no
 /// partial batch, and the trailing rows go over even when they do not fill one.
 pub(crate) async fn drain<R, Batch, Cursor>(
     cursor: &mut Cursor,
@@ -252,7 +251,7 @@ where
         }
     }
 
-    // An empty result still reaches the sink once, because a CSV dump writes its header
+    // An empty result still reaches the sink once because a CSV dump writes its header
     // row whether or not any record follows it.
     if !buffer.is_empty() || !sent {
         sink(decode(buffer)?)?;
@@ -265,7 +264,7 @@ where
 ///
 /// SQLite and PostgreSQL differ only in which query builder renders a statement, how a
 /// compiled parameter binds, and how a row decodes into this crate's types. Each of those
-/// is a type or a function name, so the bodies are the same text twice and this writes
+/// is a type or a function name so the bodies are the same text twice and this writes
 /// them rather than a reader checking that two hand-written copies still agree.
 ///
 /// Neither honors [`Writing::Concurrent`] specially. PostgreSQL already overlaps writers,
@@ -397,7 +396,7 @@ macro_rules! sqlx_backend {
                 let mut transaction = self.0.begin().await?;
                 let mut written = 0;
                 for batch in batches {
-                    // Dropping the transaction rolls it back, so the tables are exactly
+                    // Dropping the transaction rolls it back so the tables are exactly
                     // as they were and the refusal is the caller's own to report.
                     let (statement, rows) = batch.map_err(Error::Refused)?;
                     let (sql, values) = statement.build_sqlx($builder);
@@ -533,7 +532,7 @@ sqlx_backend!(
     builder = PostgresQueryBuilder,
     dialect = SqlDialect::Postgres,
     bind = bind_postgres,
-    // MVCC is how this backend works, so writers already overlap and a concurrent
+    // MVCC is how this backend works so writers already overlap and a concurrent
     // transaction is what it opens anyway.
     overlaps = true,
     row = |row, table| {
@@ -545,7 +544,7 @@ sqlx_backend!(
 
 /// Bind compiled parameters onto a SQLite statement.
 ///
-/// SQLite stores timestamps and UUIDs as text, so those bind in the stored form rather
+/// SQLite stores timestamps and UUIDs as text so those bind in the stored form rather
 /// than as their own types, or equality against a stored row misses.
 fn bind_sqlite<'q>(
     mut query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
@@ -618,7 +617,7 @@ fn turso_write(statement: Write) -> Result<(String, Vec<turso::Value>), Error> {
 #[async_trait]
 impl DatabaseBackend for crate::turso::TursoBackend {
     fn dialect(&self) -> SqlDialect {
-        // Turso reads and writes SQLite's file format, so values take the same forms and
+        // Turso reads and writes SQLite's file format so values take the same forms and
         // statements render with the same builder.
         SqlDialect::SqliteText
     }
@@ -665,7 +664,7 @@ impl DatabaseBackend for crate::turso::TursoBackend {
 
     async fn exists(&self, statement: SelectStatement) -> Result<bool, Error> {
         // An `EXISTS` column arrives as the integer the SQLite family stores a boolean
-        // as, so the count reader answers it.
+        // as so the count reader answers it.
         let (sql, parameters) = turso_sql(statement)?;
         Ok(self.scalar_count(&sql, parameters).await? > 0)
     }
@@ -690,7 +689,7 @@ impl DatabaseBackend for crate::turso::TursoBackend {
     }
 
     async fn insert_all(&self, writing: Writing, batches: Batches<'_>) -> Result<usize, Error> {
-        // Turso takes its statements together rather than one at a time, so the batches
+        // Turso takes its statements together rather than one at a time so the batches
         // render here and the transaction is opened around all of them.
         let mut statements = Vec::new();
         let mut written = 0;

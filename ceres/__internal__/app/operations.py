@@ -1,7 +1,7 @@
 """The engine operations the native server dispatches to.
 
 Every operation is a thin adapter over the engine and query layer, validating its
-arguments through the same Pydantic models the API always used, so filters, permissions,
+arguments through the same Pydantic models the API always used so filters, permissions,
 redaction, and wire shapes are unchanged by the transport moving to Rust. Arguments
 arrive as `{"actor", "path", "query", "body"}`, and results leave either as
 JSON-compatible values or as `Raw` text the server serves verbatim.
@@ -88,7 +88,7 @@ def _path(arguments: dict[str, Any], name: str) -> str:
 def _uuid(arguments: dict[str, Any], name: str) -> UUID:
     """Read one path parameter as a UUID, reporting a malformed one as a bad request.
 
-    Most routes declare their captures as UUIDs and never match a malformed one, so this
+    Most routes declare their captures as UUIDs and never match a malformed one so this
     matters where a route takes the capture as text, which is where the framework's own
     coercion reported a validation failure rather than a missing route.
     """
@@ -123,7 +123,7 @@ async def _require_user(host: Host, arguments: dict[str, Any]) -> Any:
     """Return the user behind the actor, `None` when the context grants access without one.
 
     An unrestricted context, the CLI or a server with authentication disabled, has no user
-    and passes through, which is what the routes have always been handed.
+    and passes through.
 
     Raises:
         NotAuthenticatedError: If there is no user and nothing granting access without one.
@@ -193,13 +193,13 @@ async def records_list(host: Host, arguments: dict[str, Any]) -> Any:
     query = host.engine.__manager__(Record).where(filter)
     table = RECORD_TABLES[Record.__entity_naming__.table]
 
-    # A transform (a typed particle class, say) needs Python objects, so the query takes
+    # A transform (a typed particle class, say) needs Python objects so the query takes
     # the materializing path.
     if query._get_transform() is not None:
         return _entities(await query)
 
     # The query compiles here and executes natively, rows never enter Python at all,
-    # and any filter the query layer can express is covered. A native failure raises,
+    # and any filter the query layer can express is covered. A native failure raises
     # because the parity suites hold the two engines to identical semantics and a
     # silent fallback would hide exactly the drift they exist to catch.
     reader = query._get_database()._reader()
@@ -495,7 +495,7 @@ def _calls(namespace: str):
             method=method,
         )
 
-        # A procedure declaring media answers with an output the server serves as a body
+        # A procedure declaring media returns an output the server serves as a body
         # of its own, described rather than serialized into the payload.
         if isinstance(result, BaseOutput):
             return host.serve(result)

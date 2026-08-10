@@ -80,9 +80,9 @@ CREATE TABLE IF NOT EXISTS migrations (
 class MigrationReporter(Protocol):
     """Told which migration is running, for a caller showing progress as they apply.
 
-    A migration is one script the driver runs whole, so there is nothing to report from
+    A migration is one script the driver runs whole so there is nothing to report from
     inside one. What a caller can show is which of them is running and how many are left,
-    which is what these two say.
+    which these two say.
     """
 
     def starting(self, migration: Migration, index: int, total: int) -> None:
@@ -98,7 +98,7 @@ def default_database_config() -> DatabaseConfig:
     """Build the configuration a `Database` uses when it is constructed without one.
 
     Every unconfigured `Database`, including the one an unconfigured `Engine` creates for itself,
-    runs through here. Deployments always pass a config, so in practice this serves throwaway
+    runs through here. Deployments always pass a config so in practice this serves throwaway
     databases, and the test suite replaces it to run the same code against another backend.
 
     Returns:
@@ -121,7 +121,7 @@ class Database:
     def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
             match config if config is not None else default_database_config():
-                # Turso is matched first because its config subclasses the SQLite one, so the
+                # Turso is matched first because its config subclasses the SQLite one so the
                 # SQLite pattern below would otherwise capture it.
                 case TursoDatabaseConfig() as resolved:
                     return TursoDatabase(resolved)
@@ -135,7 +135,7 @@ class Database:
     def __init__(self, config: DatabaseConfig | None = None, /) -> None:
         # Every subclass builds itself from `__new__`, and Python then calls `__init__` a second
         # time with the arguments the caller wrote, which are not necessarily the resolved ones.
-        # The first call wins, so that second pass does not overwrite the resolved config with
+        # The first call wins so that second pass does not overwrite the resolved config with
         # the `None` a caller who wanted the default passed.
         if getattr(self, "_config", None) is not None:
             return
@@ -175,7 +175,7 @@ class Database:
         """Resolve this backend's native connection parameters.
 
         Everything native, the store, the reader, and the record writer, opens
-        from this one description, so the three cannot connect differently.
+        from this one description so the three cannot connect differently.
         """
         ...
 
@@ -210,8 +210,8 @@ class Database:
         """Return the native store this database's queries run through.
 
         One store serves the whole database, reads and writes alike, and it is the only
-        engine in the process, which is what Turso needs. Built once and reused, and it
-        connects lazily, so holding one costs nothing until a query runs.
+        engine in the process, which Turso needs. Built once and reused, and it
+        connects lazily so holding one costs nothing until a query runs.
         """
         store = getattr(self, "_native_store", None)
         if store is None:
@@ -225,11 +225,11 @@ class Database:
         """Return the configuration's connection statements, by stage of a connection's life.
 
         Only what the configuration declared goes across. Each backend already sets its own
-        commands on the connections it opens, so passing those again would run them twice.
+        commands on the connections it opens so passing those again would run them twice.
 
-        The `init` statements go to the store alone, that being the engine a database opens
-        for itself, while a reader's and a writer's pools take the per-connection pair
-        through `_native_connection_hooks`.
+        The `init` statements go to the writable store alone because it is the connection
+        a database opens for itself, while a reader's and a writer's pools take the
+        per-connection pair through `_native_connection_hooks`.
         """
         return {
             "on_init": [*(self.config.hooks.init or ())],
@@ -248,9 +248,9 @@ class Database:
     def ddl(self) -> list[str]:
         """Every script that creates this backend's schema, in the order they run.
 
-        The migrations are the schema, so what initializes a database is the chain a fresh
+        The migrations are the schema so what initializes a database is the chain a fresh
         one runs rather than a separate description of the result. The bookkeeping table
-        comes first, since it is what records the rest as they are applied, and a migration
+        comes first since it is what records the rest as they are applied, and a migration
         with no script for this backend is a recorded no-op that contributes nothing.
         """
         from ceres.database.migrations import MIGRATIONS
@@ -340,10 +340,10 @@ class Database:
         is what guards against stale schemas on those. Bootstrapping only happens once per
         instance, a cached flag makes every later call zero-I/O. Concurrent first calls may
         each run `initialized()` and `migrate()`, but `migrate()` serializes on the instance's
-        migration lock, so migrations are still only applied once.
+        migration lock so migrations are still only applied once.
 
         Every path that reaches the data has to come through here first, the native store's
-        as much as the query layer's, because a database nobody has bootstrapped has no
+        as much as the query layer's because a database nobody has bootstrapped has no
         tables and, for a temporary one, no file either.
         """
         if not self._bootstrapped:
@@ -355,7 +355,7 @@ class Database:
     async def ping(self) -> bool:
         """Check whether the database is reachable.
 
-        This asks the database a question it can answer without a schema, so it says
+        This asks the database a question it can answer without a schema so it says
         whether the database can be reached rather than whether it has been set up.
 
         Returns:
@@ -374,20 +374,19 @@ class Database:
         await self.dispose()
 
     async def dispose(self) -> None:
-        """Let go of this database's pools, so the connections they hold can close.
+        """Let go of this database's pools so the connections they hold can close.
 
         A `close` statement runs as each operation returns its connection rather than
-        here, which is what makes it run at all on a backend that opens one connection per
+        here, which makes it run at all on a backend that opens one connection per
         operation. What this releases is the pools themselves.
 
-        A disposed database is reusable, the same as a disposed engine was. Reaching it
-        again opens fresh connections and, because the bootstrap flag goes with the pools,
-        re-migrates. That last part matters for a temporary database, whose file is deleted
+        A disposed database is reusable. Reaching it again opens fresh connections and
+        because the bootstrap flag goes with the pools, re-migrates. That last part matters for a temporary database, whose file is deleted
         on the way out and would otherwise be reopened empty and treated as migrated.
 
-        Waiting on the migration lock is what keeps a database from being disposed out from
+        Waiting on the migration lock keeps a database from being disposed out from
         under its own bootstrap. A component stops as soon as it runs out of work, and the
-        stop disposes its database, so a query started from outside the component can be
+        stop disposes its database so a query started from outside the component can be
         partway through `ready` when that happens. Closing the connections underneath it
         fails the migration, and the failure names neither the disposal nor the caller.
         """
@@ -437,13 +436,13 @@ class Database:
     async def migrate(self, reporter: MigrationReporter | None = None) -> list[int]:
         """Apply every pending migration in order, recording each as it completes.
 
-        Holds an instance-level lock for the duration of the call, so concurrent callers on
+        Holds an instance-level lock for the duration of the call so concurrent callers on
         the same `Database` instance apply migrations one at a time instead of racing to
         insert the same migration ID.
 
         Args:
             reporter: Told which migration is starting and when it finished, for a caller
-                showing progress. A migration runs as one script, so there is nothing to
+                showing progress. A migration runs as one script so there is nothing to
                 report from inside one, only which of them is running now.
 
         Returns:
@@ -488,9 +487,9 @@ class Database:
 
             with wrap_database_errors():
                 try:
-                    # The script and the record that it ran go over as one, so a migration
+                    # The script and the record that it ran go over as one so a migration
                     # cannot land without being recorded and then run twice. The driver
-                    # separates the statements, which is what lets a script turn foreign
+                    # separates the statements, which lets a script turn foreign
                     # keys off before rebuilding a table, a pragma that does nothing inside
                     # a transaction someone else opened.
                     recorded = f"INSERT INTO migrations (id) VALUES ({migration.id});"
@@ -538,7 +537,7 @@ class Database:
         """Delete every row from every known entity table, preserving the schema itself.
 
         The tables come from the native layer, which lists a table before anything that
-        references it, so deleting in reverse empties a table only once nothing points at
+        references it so deleting in reverse empties a table only once nothing points at
         it. Adding a table there puts it in the right place by the same rule.
         """
         from ceres.__internal__.core import stored_columns
@@ -583,7 +582,7 @@ class Database:
         The wording follows what each backend counts as a table of the caller's. Neither
         backend's internal tables are the caller's, and on PostgreSQL neither is a table in
         a schema this connection does not resolve names against. Scoping to the search path
-        rather than to every schema on the server is what makes the answer this database's
+        rather than to every schema on the server makes the answer this database's
         rather than the server's, which matters wherever one server holds more than one.
         """
         if self.type.value == "postgres":
@@ -619,7 +618,7 @@ class Database:
         """Check whether a plaintext password matches a stored hash.
 
         If `hash` is not already a valid password hash it is first hashed with the configured
-        parameters, so passing a plaintext value in both arguments verifies the value against
+        parameters so passing a plaintext value in both arguments verifies the value against
         itself. The comparison runs on a worker thread.
 
         Args:
@@ -716,9 +715,9 @@ class TursoDatabase(SQLiteDatabase):
     Turso reads and writes the same file a `SQLiteDatabase` does and accepts the same schema, so
     almost everything is inherited. What differs is `journal_mode = 'mvcc'`, which is the point of
     the backend, and which reports a conflict when a transaction commits rather than when it
-    writes, so a caller that loses a race sees an error at commit and has to retry.
+    writes so a caller that loses a race sees an error at commit and has to retry.
 
-    See `TursoDatabaseConfig` for what enabling `mvcc` costs. The engine is compiled into Ceres,
+    See `TursoDatabaseConfig` for what enabling `mvcc` costs. The engine is compiled into Ceres
     so nothing has to be installed alongside it.
     """
 
@@ -773,9 +772,9 @@ class PostgresDatabase(Database):
         """Resolve the arguments a native pool connects with.
 
         Per-connection server settings like `search_path` shape what queries see, and
-        connection string parameters are applied by name, so a configuration naming
+        connection string parameters are applied by name so a configuration naming
         `sslmode` connects the way it says it does. A parameter the native pool does not
-        recognize is refused there rather than dropped here, because a connection that
+        recognize is refused there rather than dropped here because a connection that
         quietly ignored one would not be the connection that was configured.
         """
         config = self.config

@@ -8,10 +8,9 @@ const { widget } = defineProps<{
   widget: ControlsWidget
 }>()
 
-// Buttons drag along the bar the way tabs and carousel dots do, since it is the same gesture on
-// the same kind of row. The elements handed over are the buttons themselves rather than the
-// wrappers, so a press on the button drags it while a press on its own dots does not. Collected
-// under their own indices, because an array ref makes no promise about matching the source order.
+// The draggable elements are the buttons themselves rather than the wrappers so a press on a
+// button's own dots does not drag it. Keyed by index because an array ref does not guarantee
+// source order.
 const items = new Map<number, HTMLElement>()
 
 function setItem(at: number, item: Element | null) {
@@ -33,7 +32,7 @@ const reorder = usePointerReorder({
   },
 })
 
-// A press that turned into a drag has already done what it was for, so the click it releases
+// A press that turned into a drag has already done what it was for so the click it releases
 // into must not also press the button.
 function onItemClick(event: MouseEvent) {
   if (reorder.consumeClick()) {
@@ -42,8 +41,6 @@ function onItemClick(event: MouseEvent) {
   }
 }
 
-// Buttons are added, arranged and taken away on the bar itself, in the place they will be pressed,
-// rather than described in a dialog somewhere away from it.
 function addButton() {
   widget.buttons = [...widget.buttons, ButtonActionModel.parse({})]
 }
@@ -97,8 +94,8 @@ function duplicateButton(at: number) {
         <q-tooltip class="bg-primary text-white">Add Button</q-tooltip>
       </q-btn>
     </template>
-    <!-- An empty bar offers the one thing there is to do with it, wearing the same centered
-    round button an empty layout does, so the first button arrives the way a widget does. -->
+    <!-- An empty bar offers only an add button, styled like an empty layout's centered round
+    button so adding the first button works the same as adding a widget. -->
     <q-btn
       v-else
       aria-label="Add Button"
@@ -115,8 +112,7 @@ function duplicateButton(at: number) {
 </template>
 
 <style module>
-/* Buttons run along the bar and wrap onto another line once they outgrow it, so a widget holds as
-many as are put on it whatever width it happens to have. */
+/* Wraps so the widget holds any number of buttons at any width. */
 .bar {
   display: flex;
   flex-wrap: wrap;
@@ -138,8 +134,8 @@ many as are put on it whatever width it happens to have. */
   z-index: 2;
 }
 
-/* The held button tracks the pointer directly, so it must not smooth its own movement. It regains
-the transition once released, which is what animates it into the gap. */
+/* The held button tracks the pointer directly so it must not smooth its own movement. The
+transition returns on release and animates it into the gap. */
 .grabbed {
   cursor: grabbing;
   transition: none;
@@ -150,7 +146,7 @@ the transition once released, which is what animates it into the gap. */
   transition: none;
 }
 
-/* Offered only while the bar is being pointed at, so a finished bar reads as its buttons alone. */
+/* Offered only while the bar is being pointed at so a finished bar reads as its buttons alone. */
 .add {
   opacity: 0;
   transition: opacity 0.15s;

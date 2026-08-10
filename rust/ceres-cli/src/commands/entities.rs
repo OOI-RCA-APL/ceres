@@ -1,17 +1,15 @@
 //! Native dumps for the non-record entities.
 //!
 //! The entity tables take the same seven verbs the record tables do, over the shared
-//! surface in [`dump`](super::dump), so this module holds only what an entity means.
-//! They are small
-//! tables an operator reads and edits, which makes the win here the interpreter that
-//! never starts rather than the throughput of a large scan.
+//! surface in [`dump`](super::dump) so this module holds only what an entity means.
+//! They are small tables an operator reads and edits so the win is the interpreter
+//! that never starts rather than the throughput of a large scan.
 //!
-//! Users are the one table whose writes carry rules of their own. A password hashes with
-//! the database's configured parameters and an email address normalizes, both before the
-//! transaction opens, so a row written here is one the engine would have written
-//! identically. A configuration whose parameters these rules cannot reproduce, or an
-//! address outside the subset the normalizer understands, refuses rather than storing
-//! something else.
+//! Users are the one table whose writes carry rules of their own. A password hashes
+//! with the database's configured parameters and an email address normalizes, both
+//! before the transaction opens so a row written here matches what the engine would
+//! have written. A configuration these rules cannot reproduce, or an address the
+//! normalizer cannot handle, refuses rather than storing something else.
 
 use std::fs::File;
 use std::path::Path;
@@ -46,7 +44,7 @@ impl Dumpable for EntityTable {
         _colored: bool,
         _config: Option<&Path>,
     ) -> Result<()> {
-        // An entity group declares no `follow`, so the surface refuses the verb before
+        // An entity group declares no `follow` so the surface refuses the verb before
         // anything reaches here.
         unreachable!("an entity group declares no follow")
     }
@@ -152,7 +150,7 @@ mod tests {
 
     #[test]
     fn a_user_write_needs_rules_for_the_columns_it_cannot_store_as_given() {
-        // Argon2id is what a database configures unless it says otherwise, so the
+        // Argon2id is what a database configures unless it says otherwise so the
         // ordinary case carries rules and every verb serves.
         assert!(rules().is_some());
         for arguments in [
@@ -169,7 +167,7 @@ mod tests {
             );
         }
 
-        // Without them a user's writes cannot go through here, because storing a
+        // Without them a user's writes cannot go through here because storing a
         // password hashed some other way than the database asked for is worse than not
         // storing it. Reads carry on natively.
         for arguments in [
@@ -185,7 +183,7 @@ mod tests {
         }
         assert!(EntityTable::Users.serves(&read(EntityTable::Users, &["select"]), None));
 
-        // No other table has a column these rules touch, so none of them ever needs one.
+        // No other table has a column these rules touch so none of them ever needs one.
         for table in [
             EntityTable::Variables,
             EntityTable::Settings,
@@ -199,7 +197,7 @@ mod tests {
     #[test]
     fn a_bcrypt_database_serves_its_user_writes_too() {
         // bcrypt is the other algorithm a configuration can name, and it is produced
-        // here as well, so a database on it writes its users natively like any other.
+        // here as well so a database on it writes its users natively like any other.
         let config = DatabaseConfig::Sqlite(ceres_config::SqliteDatabaseConfig {
             path: Some("records.sqlite".into()),
             shared: ceres_config::SharedDatabaseConfig {
@@ -215,9 +213,9 @@ mod tests {
 
     #[test]
     fn a_boolean_key_is_its_own_value_and_never_takes_the_next_argument() {
-        // A boolean is a `--key` and `--no-key` pair, so a token following one is a
+        // A boolean is a `--key` and `--no-key` pair so a token following one is a
         // positional field rather than the boolean's value. The form comes from the
-        // field's family, so the surface and the compiler cannot disagree about what
+        // field's family so the surface and the compiler cannot disagree about what
         // `--owned` is.
         assert_eq!(
             EntityFilter::keys(EntityTable::Workspaces)
@@ -281,7 +279,7 @@ mod tests {
     #[test]
     fn a_create_takes_the_password_column_the_filter_does_not_expose() {
         // A user's password is stored hashed and is not filterable, but a create has to
-        // be able to set one, so the two surfaces are built from different lists.
+        // be able to set one so the two surfaces are built from different lists.
         let invocation = read(
             EntityTable::Users,
             &["create", "--username", "ada", "--password", "secret"],

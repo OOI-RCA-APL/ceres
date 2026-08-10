@@ -663,7 +663,7 @@ class TestAddressAllSelector:
 
 
 class TestAddressGrammarTightening:
-    """Bare `@` is no longer a constructible address, only a base that requires a modifier."""
+    """Bare `@` is not a constructible address, only a base that requires a modifier."""
 
     def test_bare_root_address_is_invalid(self) -> None:
         with pytest.raises(ValueError):
@@ -733,7 +733,7 @@ async def _assert_selects_what_it_matches(
     A selector reaches the database as compiled SQL and reaches an in-memory record as
     `matches()`, and the two have to agree or the same filter answers differently depending
     on where the records happen to be. The query runs through a real database rather than
-    against rendered SQL, so what is checked is the rows a caller gets back.
+    against rendered SQL so what is checked is the rows a caller gets back.
     """
     database = Database()
     try:

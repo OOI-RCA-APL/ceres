@@ -26,7 +26,7 @@ use ceres_macros::python_config;
 use pyo3::prelude::*;
 
 /// Rust allocations go through mimalloc. The engine process runs for months and the
-/// native half's server, store, and row decoding churn allocations constantly, so the
+/// native half's server, store, and row decoding churn allocations constantly so the
 /// allocator's fragmentation resistance over long uptimes is what this buys. Python's
 /// own allocations are untouched, CPython manages those itself.
 #[global_allocator]
@@ -148,9 +148,9 @@ python_config! {
     }
 }
 
-// The module lands inside the `ceres` package as `ceres.__internal__.core`, so its
+// The module lands inside the `ceres` package as `ceres.__internal__.core` so its
 // initializer has to be named for the last component. The crate keeps the name
-// `ceres_core`, which is what `ceres-stubs` links against.
+// `ceres_core`, which `ceres-stubs` links against.
 #[pymodule(name = "core", gil_used = false)]
 fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ServiceConfig>()?;
@@ -196,7 +196,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
 ///
 /// `define_stub_info_gatherer!` looks for a `pyproject.toml` beside `Cargo.toml`, which is
 /// where a standalone extension package keeps its own. This module ships inside the `ceres`
-/// distribution instead, so the packaging that names it lives at the repository root and
+/// distribution instead so the packaging that names it lives at the repository root and
 /// there is no manifest beside the crate to find.
 pub fn stub_info() -> pyo3_stub_gen::Result<pyo3_stub_gen::StubInfo> {
     let manifest: &std::path::Path = env!("CARGO_MANIFEST_DIR").as_ref();

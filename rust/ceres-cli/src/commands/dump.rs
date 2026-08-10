@@ -6,7 +6,7 @@
 //! adds only what its own rows mean.
 //!
 //! The surface has already rejected an unknown key, a missing value, and a flag on a
-//! verb that does not take it, so nothing here re-checks any of that. What is left is
+//! verb that does not take it so nothing here re-checks any of that. What is left is
 //! the invocation's meaning, and the native filter subset the entities'
 //! [`Filterable`](ceres_entities::Filterable) derives generate is the single authority
 //! on which of those meanings compile.
@@ -123,10 +123,6 @@ impl Verb {
 }
 
 /// What an invocation asked for, read off the parsed arguments.
-///
-/// The surface the arguments were parsed against already rejected an unknown key, a
-/// missing value, and a flag on a verb that does not take it, so nothing here has to
-/// re-check any of that. What is left is the invocation's meaning.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Invocation {
     pub(crate) verb: Verb,
@@ -170,11 +166,11 @@ impl Invocation {
             pairs: surface::pairs(&keys, matches),
             output: text("output").map(PathBuf::from),
             format: text("format"),
-            // A header is written unless it was turned off, which is what makes a CSV
+            // A header is written unless it was turned off, which makes a CSV
             // dump readable by default and pipeable on request.
             header: !flag("no-header").unwrap_or(false),
             // A filtered write asks first unless it was told not to. Nothing about the
-            // environment turns the question off, because a script that would have been
+            // environment turns the question off because a script that would have been
             // stopped by the prompt has to keep being stopped by it.
             confirm: !flag("no-confirm").unwrap_or(false),
             collect: flag("collect").unwrap_or(false),
@@ -196,7 +192,7 @@ impl Invocation {
 
     /// A load's input file, opened for reading, and the shape to read it in.
     ///
-    /// The file is handed over open rather than read, because a load walks its source as
+    /// The file is handed over open rather than read because a load walks its source as
     /// it writes rather than holding the whole thing.
     pub(crate) fn load_source(
         &self,
@@ -224,12 +220,10 @@ impl Invocation {
 
     /// The shape a dump renders in.
     ///
-    /// A named format is taken as given, and a destination's suffix decides when none was
-    /// named. Everything else is JSON lines, whoever is reading and whatever they are
-    /// reading it in. A dump is a thing to pipe into something else, and one that changed
-    /// shape depending on where it was pointed would be a dump nobody could write a script
-    /// against without first knowing how it was being run. Columns are a way of reading a
-    /// result rather than the result itself, so they are asked for.
+    /// A named format is taken as given, and a destination's `.csv` suffix decides
+    /// when none was named. Everything else is JSON lines regardless of the reader, so
+    /// a script sees the same shape however the dump is run. Columns are only ever
+    /// asked for, never inferred.
     pub(crate) fn dump_format(&self) -> DumpFormat {
         match self.format.as_deref() {
             Some("csv") => return DumpFormat::Csv,
@@ -255,7 +249,7 @@ impl Invocation {
 
 /// Whether color goes to standard output, the explicit flag winning over the environment.
 ///
-/// Only color asks whether anyone is there to see it. The shape a dump takes does not,
+/// Only color asks whether anyone is there to see it. The shape a dump takes does not
 /// because a script reads the same JSON whether or not it happens to have a terminal.
 pub(crate) fn colored(color: Option<bool>) -> bool {
     match color {
@@ -273,19 +267,18 @@ pub(crate) enum DumpFormat {
     Csv,
     /// Columns drawn in a box, for a dump someone is reading rather than piping.
     ///
-    /// Every row has to be in hand before the first line can be drawn, because a column
-    /// is only as wide as its widest cell, so this is the one shape that does not stream.
+    /// Every row has to be in hand before the first line can be drawn because a column
+    /// is only as wide as its widest cell so this is the one shape that does not stream.
     Table,
 }
 
 impl DumpFormat {
     /// Color one rendered chunk, for the shapes that carry color as they are written.
     ///
-    /// This runs per chunk rather than once at the end, so a dump too large to hold
-    /// arrives colored the whole way down rather than only as far as its first chunk. A
-    /// table takes its color when it is drawn instead, because it cannot be drawn until
-    /// the last row is in, and CSV takes none, being a shape written to be read by
-    /// something else.
+    /// This runs per chunk rather than once at the end so a dump too large to hold
+    /// arrives colored the whole way down. A table takes its color when drawn, because
+    /// it cannot be drawn until the last row is in, and CSV takes none, being a shape
+    /// meant for machines.
     pub(crate) fn paint(self, bytes: Vec<u8>, colored: bool) -> Vec<u8> {
         if colored && self == Self::Json {
             crate::highlight::painted(bytes)
@@ -298,12 +291,11 @@ impl DumpFormat {
 /// What a native pass produced, ahead of writing it.
 pub(crate) enum Rendered {
     Bytes(Vec<u8>),
-    /// A one-value answer, which a count and a write's tally of what it touched are.
+    /// A one-value answer, a count or a write's affected-row tally.
     ///
-    /// These never pass through a chunk renderer, having no rows to render, so this is
-    /// the one shape that takes its color where it is written rather than where it is
-    /// made. A drawn table is [`Self::Bytes`] for that reason, being neither one value
-    /// nor something to color a second time.
+    /// It has no rows to pass through a chunk renderer so it is the one shape colored
+    /// where it is written. A drawn table is already [`Self::Bytes`], colored when it
+    /// was drawn.
     Text(String),
     /// An existence answer, which prints like Python's `bool` and sets the exit status.
     Exists(bool),
@@ -313,7 +305,7 @@ pub(crate) enum Rendered {
     Declined,
     /// A stream that failed after it had already written.
     ///
-    /// This is the one place a native pass reports for itself, because delegating would
+    /// This is the one place a native pass reports for itself because delegating would
     /// mean Python writing a second copy of a dump the caller has already seen part of.
     Failed(String),
 }
@@ -339,10 +331,8 @@ impl Rendered {
 
     /// Draw a rendered result as a table, when a table is the shape asked for.
     ///
-    /// Every shape but a table is already the bytes it will be written as, so this is
-    /// where the one that is not becomes them. Color reaches the other shapes as each
-    /// chunk is rendered, because a table is the one that cannot be drawn until the
-    /// last row is in.
+    /// Every other shape is already its output bytes and was colored per chunk, so
+    /// only a table renders here, being the one shape that needs the last row first.
     pub(crate) fn drawn(self, format: DumpFormat, colored: bool) -> Self {
         if format != DumpFormat::Table {
             return self;
@@ -359,21 +349,19 @@ impl Rendered {
 
 /// A streaming output target that holds its first chunk back.
 ///
-/// Chunks render and write as the driver yields them, so a dump of any size holds one
-/// chunk rather than the whole table. The first one is kept rather than written, which
-/// is what keeps failures clean. Everything that makes a native pass refuse is known
-/// before any row arrives, and a result small enough to fit one chunk, which is nearly
-/// every interactive dump, still reaches the end having written nothing, so a refusal
-/// there reports whole with no partial output ahead of it.
+/// Chunks render and write as the driver yields them so a dump of any size holds one
+/// chunk rather than the whole table. Holding the first chunk keeps failures clean. A
+/// result that fits one chunk, which is nearly every interactive dump, reaches the end
+/// having written nothing so a refusal reports whole with no partial output.
 ///
-/// Past the first chunk there is no taking it back, and a failure there is a genuine
+/// Past the first chunk there is no taking it back. A failure there is a genuine
 /// decode or write error rather than a refusal, which the caller reports as its own.
 pub(crate) struct Sink<'a> {
     output: Option<&'a Path>,
     /// Whether the first chunk waits for a second before going out.
     ///
-    /// A dump of a finished result holds it, so a refusal partway through still writes
-    /// nothing. A live stream cannot, because the first row may be the only one for a
+    /// A dump of a finished result holds it so a refusal partway through still writes
+    /// nothing. A live stream cannot because the first row may be the only one for a
     /// long while and the point of following is seeing it arrive.
     hold: bool,
     /// The first chunk's bytes, until a second chunk forces them out.
@@ -381,7 +369,7 @@ pub(crate) struct Sink<'a> {
     /// The destination, opened when the first write actually happens.
     ///
     /// `Send` because the store hands its chunks over from the executor's threads rather
-    /// than the caller's, so a sink has to be able to travel there.
+    /// than the caller's so a sink has to be able to travel there.
     destination: Option<Box<dyn Write + Send>>,
     /// Whether a header row still has to be written, which only the first chunk does.
     heading: bool,
@@ -414,7 +402,7 @@ impl<'a> Sink<'a> {
 
     /// A sink that holds every chunk and writes none of them.
     ///
-    /// A table cannot be drawn until its widest cell is known, so the shape that draws
+    /// A table cannot be drawn until its widest cell is known so the shape that draws
     /// one has to have the whole result before it writes a byte. Holding it here keeps
     /// the driver and the renderers the same as for the shapes that do stream.
     pub(crate) fn collecting() -> Self {
@@ -467,7 +455,7 @@ impl<'a> Sink<'a> {
     ///
     /// A stream that failed having written nothing is a refusal like any other and
     /// reports whole, with no partial output ahead of it. One that failed after writing
-    /// cannot, so it reports what failed, unless what failed was the reader closing the
+    /// cannot so it reports what failed, unless what failed was the reader closing the
     /// pipe, which is where the dump was asked to end.
     pub(crate) fn resolve(
         self,
@@ -475,7 +463,7 @@ impl<'a> Sink<'a> {
     ) -> std::result::Result<Rendered, ceres_database::Error> {
         match outcome {
             Ok(()) => match self.finish() {
-                // The whole result fit one chunk and is still unwritten, so it goes out
+                // The whole result fit one chunk and is still unwritten so it goes out
                 // the way an unstreamed dump does.
                 Ok(Some(held)) => Ok(Rendered::Bytes(held)),
                 Ok(None) => Ok(Rendered::Written),
@@ -493,11 +481,11 @@ impl<'a> Sink<'a> {
     /// Write the held chunk, if it was never forced out, and answer whether anything
     /// was written at all.
     ///
-    /// A pass that only ever held one chunk has written nothing yet, so its result can
+    /// A pass that only ever held one chunk has written nothing yet so its result can
     /// go out whole the way an unstreamed dump's does.
     pub(crate) fn finish(mut self) -> std::io::Result<Option<Vec<u8>>> {
         match self.destination {
-            // Nothing went out, so the whole result is still the caller's to place.
+            // Nothing went out so the whole result is still the caller's to place.
             None => Ok(self.held),
             Some(_) => {
                 if let Some(held) = self.held.take() {
@@ -521,7 +509,7 @@ impl<'a> Sink<'a> {
             .destination
             .as_mut()
             .expect("the destination opened above");
-        // A stream is read as it arrives, so each chunk leaves rather than waiting for
+        // A stream is read as it arrives so each chunk leaves rather than waiting for
         // whatever the buffer would have collected behind it.
         let written = destination
             .write_all(bytes)
@@ -543,7 +531,7 @@ pub(crate) fn written(error: std::io::Error) -> ceres_database::Error {
 
 /// Draw rendered JSON lines as a table.
 ///
-/// The rows arrive already rendered and already projected, so the columns are whatever
+/// The rows arrive already rendered and already projected so the columns are whatever
 /// the rows carry, in the order the first one lists them. A row missing a column leaves
 /// its cell empty rather than shifting the rest along.
 pub(crate) fn tabulate(rendered: &[u8], color: bool) -> String {
@@ -584,7 +572,7 @@ pub(crate) fn tabulate(rendered: &[u8], color: bool) -> String {
             };
 
             let text = match value {
-                // A string prints as its text rather than as quoted JSON, which is what
+                // A string prints as its text rather than as quoted JSON, which
                 // makes a table readable where JSON lines are exact.
                 Value::String(text) => printable(text),
                 value => printable(&value.to_string()),
@@ -602,18 +590,14 @@ pub(crate) fn tabulate(rendered: &[u8], color: bool) -> String {
     format!("{}\n", table.render(color))
 }
 
-/// Escape whatever a terminal would act on rather than show, for one table cell.
+/// Escape control characters a terminal would act on rather than show, for one cell.
 ///
-/// A message's payload is arbitrary instrument bytes carried as text, so a cell can hold
-/// anything. Two things go wrong if it reaches the terminal as it is. A carriage return
-/// or newline breaks the row across lines and takes the table's borders with it, which is
-/// the visible half. The other half is that an escape byte starts an ANSI sequence, so a
-/// device on the other end of a serial line could move the cursor, recolor the screen, or
-/// clear it, in an operator's terminal, just by being read.
+/// A message's payload is arbitrary instrument bytes carried as text. Unescaped, a
+/// newline breaks the row and the table's borders, and an escape byte starts an ANSI
+/// sequence that could move the cursor or clear an operator's terminal.
 ///
-/// Escaping is `\n`, `\r`, and `\t` for the three worth recognizing and `\u{..}` for
-/// everything else the Unicode standard calls a control, which is the same shape JSON
-/// would have shown, so a value looks the same whichever way it was asked for.
+/// `\n`, `\r`, and `\t` render by name and every other control as `\u{..}`, the same
+/// shape JSON shows so a value looks the same whichever way it was asked for.
 fn printable(text: &str) -> String {
     if !text.chars().any(char::is_control) {
         return text.to_string();
@@ -637,14 +621,12 @@ fn printable(text: &str) -> String {
 
 /// Ask before a filtered write goes through, `false` meaning the reader declined.
 ///
-/// The count is taken first, because "Delete 400 variables?" is a question that can be
+/// The count is taken first because "Delete 400 variables?" is a question that can be
 /// answered and "Delete the matching variables?" is not. Anything but a yes is a no, so
 /// a stray keypress cancels rather than proceeds.
 ///
-/// With no terminal to ask at, the write is refused rather than assumed. A prompt is the
-/// thing standing between a filter that matched more than its author expected and the
-/// rows going away, and inferring consent from the absence of anyone to ask removes it
-/// exactly where nobody is watching.
+/// With no terminal to ask at, the write is refused rather than assumed because the
+/// prompt is what stands between an over-broad filter and the rows going away.
 pub(crate) fn confirmed(
     verb: Verb,
     affected: u64,
@@ -683,11 +665,11 @@ pub(crate) fn confirmed(
 
 /// Write what a pass produced, and answer whether the command was served.
 ///
-/// An existence check reports through its exit status as well as its output, so it
+/// An existence check reports through its exit status as well as its output so it
 /// writes first and then carries the status out.
 pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered, colored: bool) -> Result<()> {
     match rendered {
-        // A stream placed its own output, so there is nothing left to write.
+        // A stream placed its own output so there is nothing left to write.
         Rendered::Written => return Ok(()),
         // Declining changed nothing, and a command chained behind this one with `&&`
         // must not run as though the write had gone through.
@@ -698,7 +680,7 @@ pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered, colored: bool
 
     let exists = rendered.exists();
     // A one-value answer is colored here, having had no chunk renderer to be colored in.
-    // Rows and a drawn table arrive already colored, so neither is touched again.
+    // Rows and a drawn table arrive already colored so neither is touched again.
     let answer = matches!(rendered, Rendered::Text(_) | Rendered::Exists(_));
     let mut bytes = rendered.into_bytes();
     if colored && answer {
@@ -714,8 +696,8 @@ pub(crate) fn deliver(invocation: &Invocation, rendered: Rendered, colored: bool
 
 /// Open the native store for a configured database.
 ///
-/// A configuration this cannot connect through is refused with a sentence naming what
-/// about it made that so, because a database nobody can reach is the reader's to fix.
+/// A configuration this cannot connect through is refused with a message naming the
+/// problem because the reader is the one who can fix it.
 pub(crate) fn open_store(
     config: &DatabaseConfig,
     directory: &Path,
@@ -779,7 +761,7 @@ pub(crate) fn open_store(
                 }
             }
 
-            // Connection string parameters carry through by name, so a configuration
+            // Connection string parameters carry through by name so a configuration
             // naming `sslmode` connects the way it says it does.
             let mut parameters = Vec::new();
             for (key, value) in postgres.shared.query.iter().flatten() {
@@ -872,7 +854,7 @@ pub(crate) type Batches<B> = Box<dyn Iterator<Item = std::result::Result<B, Stri
 ///
 /// The record and entity tables differ in which store methods serve them and in the
 /// rules a write applies, credentials existing only on the entity side. Everything else
-/// about a run is shared, which is what lets it be written once.
+/// about a run is shared, which lets it be written once.
 pub(crate) trait Dumpable: Tabled + Copy + Send + 'static
 where
     Self::Batch: RenderRows + Clone + Send + Sync,
@@ -918,16 +900,16 @@ where
     /// Whether anything matches the filter.
     async fn any(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<bool>;
 
-    /// Delete what the filter matches, answering how many rows went.
+    /// Delete what the filter matches, returning the deleted count.
     async fn delete(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<u64>;
 
-    /// Delete what the filter matches and hand the rows back.
+    /// Delete what the filter matches and return the deleted rows.
     async fn delete_returning(
         store: &RecordStore,
         filter: &Filter<Self>,
     ) -> StoreResult<Self::Batch>;
 
-    /// Assign values to what the filter matches, answering how many rows changed.
+    /// Assign values to what the filter matches, returning how many rows changed.
     async fn update(
         store: &RecordStore,
         filter: &Filter<Self>,
@@ -935,7 +917,7 @@ where
         credentials: Option<Credentials>,
     ) -> StoreResult<u64>;
 
-    /// Assign values to what the filter matches and hand the rows back.
+    /// Assign values to what the filter matches and return the changed rows.
     async fn update_returning(
         store: &RecordStore,
         filter: &Filter<Self>,
@@ -943,7 +925,7 @@ where
         credentials: Option<Credentials>,
     ) -> StoreResult<Self::Batch>;
 
-    /// Write a load's batches in one transaction, answering how many rows landed.
+    /// Write a load's batches in one transaction, returning how many rows landed.
     async fn load(
         store: &RecordStore,
         batches: impl Iterator<Item = std::result::Result<Self::Batch, String>> + Send,
@@ -961,7 +943,7 @@ where
 /// The credential rules this database's writes follow, `None` when a configured
 /// parameter is outside what the hashing takes.
 ///
-/// Both algorithms a configuration can name are produced here, so the answer is `None`
+/// Both algorithms a configuration can name are produced here so the answer is `None`
 /// only for a parameter that would not hash at all, which the configuration layer should
 /// already have refused.
 pub(crate) fn credentials(database: &DatabaseConfig) -> Option<Credentials> {
@@ -982,7 +964,7 @@ pub(crate) fn credentials(database: &DatabaseConfig) -> Option<Credentials> {
 /// What to say about a filter the compiler will not take.
 ///
 /// An invalid value carries its own sentence, and a construct outside the grammar names
-/// itself, because both are things the reader wrote and can change.
+/// itself because both are things the reader wrote and can change.
 pub(crate) fn refused(refusal: Refusal) -> crate::error::Exit {
     crate::error::Exit::failed(match refusal {
         Refusal::Invalid(message) => message,
@@ -1001,7 +983,7 @@ pub(crate) fn render<B: RenderRows>(
     colored: bool,
 ) -> StoreResult<Vec<u8>> {
     let rendered = match (format, projection.is_empty()) {
-        // A table is drawn once the whole result is in hand, so each chunk
+        // A table is drawn once the whole result is in hand so each chunk
         // renders as JSON lines here and the drawing happens at the end.
         (DumpFormat::Table, true) => batch.to_json_lines(),
         (DumpFormat::Table, false) => batch.to_json_lines_projected(projection),
@@ -1035,13 +1017,13 @@ where
     let format = invocation.dump_format();
     let colored = invocation.colored(color);
 
-    // A follow reads a running engine rather than the database, so it opens no store and
+    // A follow reads a running engine rather than the database so it opens no store and
     // takes its own path from here.
     if invocation.verb.streams() {
         return table.follow(&invocation, format, colored, config);
     }
 
-    // The configuration is read before anything is built, because a user's own columns
+    // The configuration is read before anything is built because a user's own columns
     // are written under rules the database's own hashing configuration decides.
     let project = Project::discover(config)?;
     let meta = project.load_meta()?;
@@ -1086,7 +1068,7 @@ where
         source = Some(batches);
     }
 
-    // Pool construction spawns maintenance tasks, so the runtime has to exist first.
+    // Pool construction spawns maintenance tasks so the runtime has to exist first.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1103,7 +1085,7 @@ where
 
     drop(guard);
 
-    // The whole result renders before anything writes, so a failure here can still
+    // The whole result renders before anything writes so a failure here can still
     // refuse without having produced partial output.
     let projection = invocation.projection.clone();
     let header = invocation.header;
@@ -1176,10 +1158,10 @@ where
                     .map(|bytes| Rendered::Bytes(bytes).drawn(format, colored))
             }
             // A select streams, rendering and writing each chunk as the driver yields
-            // it, so the dump never holds more than one chunk however large the table.
+            // it so the dump never holds more than one chunk however large the table.
             Verb::Select => {
-                // A table holds every chunk, because a column is only as wide as its
-                // widest cell. Every other shape streams, so a dump of any size holds
+                // A table holds every chunk because a column is only as wide as its
+                // widest cell. Every other shape streams so a dump of any size holds
                 // one chunk however large the table.
                 let mut sink = if format == DumpFormat::Table {
                     Sink::collecting()
@@ -1201,7 +1183,7 @@ where
     let rendered = match rendered {
         Ok(rendered) => rendered,
         // A refusal names what the command asked for that the writer will not do, and
-        // nothing was written, so this is its own failure to report.
+        // nothing was written so this is its own failure to report.
         Err(ceres_database::Error::Refused(message)) => {
             return Err(crate::error::Exit::failed(message));
         }
@@ -1217,7 +1199,7 @@ mod tests {
 
     #[test]
     fn a_sink_holds_one_chunk_so_a_small_dump_can_still_refuse_cleanly() {
-        // A result that fits one chunk never opens its destination, so the whole dump
+        // A result that fits one chunk never opens its destination so the whole dump
         // comes back to the caller and a late refusal reports whole with no partial
         // output ahead of it.
         let mut sink = Sink::new(None, true);
@@ -1238,7 +1220,7 @@ mod tests {
         let mut sink = Sink::new(Some(&path), true);
         sink.push(b"one\n".to_vec()).unwrap();
         sink.push(b"two\n".to_vec()).unwrap();
-        // The first chunk went out to make room, so the pass is committed from here.
+        // The first chunk went out to make room so the pass is committed from here.
         assert!(sink.wrote());
         assert_eq!(std::fs::read(&path).unwrap(), b"one\n");
 
@@ -1252,7 +1234,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("rows.jsonl");
 
-        // A stream cannot hold its first row back, because it may be the only one for a
+        // A stream cannot hold its first row back because it may be the only one for a
         // long while and seeing it arrive is the point of following.
         let mut sink = Sink::live(Some(&path), true);
         sink.push(b"one\n".to_vec()).unwrap();
@@ -1279,11 +1261,11 @@ mod tests {
     fn a_stream_refuses_before_its_first_write_and_reports_after() {
         let failure = || ceres_database::Error::Decode("unreadable row".to_string());
 
-        // Nothing has been written, so the failure is a clean refusal.
+        // Nothing has been written so the failure is a clean refusal.
         let sink = Sink::new(None, true);
         assert!(sink.resolve(Err(failure())).is_err());
 
-        // Past the first write there is no taking it back, so the pass reports what
+        // Past the first write there is no taking it back so the pass reports what
         // failed rather than pretending nothing was printed.
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("rows.jsonl");
@@ -1298,7 +1280,7 @@ mod tests {
 
     #[test]
     fn an_existence_answer_carries_its_status_as_well_as_its_output() {
-        // An existence check is written to be used in a shell condition, so the exit
+        // An existence check is written to be used in a shell condition so the exit
         // status is the answer and the printed word is a convenience.
         assert_eq!(Rendered::Exists(true).exists(), Some(true));
         assert_eq!(Rendered::Exists(false).exists(), Some(false));
@@ -1378,11 +1360,11 @@ mod tests {
     fn a_dump_nobody_named_a_shape_for_is_json_lines() {
         // A dump is a thing to pipe into something else. One that changed shape depending
         // on where it was pointed could not be scripted against without first knowing how
-        // it was going to be run, so the shape does not depend on who is reading.
+        // it was going to be run so the shape does not depend on who is reading.
         let dump = Invocation::default();
         assert_eq!(dump.dump_format(), DumpFormat::Json);
 
-        // Color is the one thing that does ask, because nobody watching means nobody to
+        // Color is the one thing that does ask because nobody watching means nobody to
         // see it, and it changes no byte a script would have read.
         assert!(dump.colored(Some(true)));
         assert!(!dump.colored(Some(false)));
@@ -1396,7 +1378,7 @@ mod tests {
             ..Invocation::default()
         };
 
-        // Escape sequences written to a file are read back as the characters they are,
+        // Escape sequences written to a file are read back as the characters they are
         // so a redirected dump is uncolored even where a reader asked for color.
         assert!(dump(None).colored(Some(true)));
         assert!(!dump(Some("rows.json")).colored(Some(true)));
@@ -1422,7 +1404,7 @@ mod tests {
         );
         assert_eq!(drawn, expected);
 
-        // A string cell prints as its text rather than as quoted JSON, which is what
+        // A string cell prints as its text rather than as quoted JSON, which
         // makes a table readable where JSON lines are exact.
         assert!(!drawn.contains('"'), "{drawn}");
     }
@@ -1436,13 +1418,13 @@ mod tests {
 
     #[test]
     fn a_cell_holding_binary_stays_inside_its_row() {
-        // A message's payload is arbitrary instrument bytes. A newline in one used to
-        // break the row across lines and take the borders with it, and an escape byte
-        // reached the terminal as an ANSI sequence.
+        // A message's payload is arbitrary instrument bytes. Unescaped, a newline
+        // would break the row across lines and an escape byte would reach the
+        // terminal as an ANSI sequence.
         let rendered = "{\"data\":\"a\\r\\nb\\u0000c\\u001bd\"}\n".as_bytes();
         let drawn = tabulate(rendered, false);
 
-        // Four lines of box and one of content, which is what one row looks like.
+        // Four lines of box and one of content, the shape of a one-row table.
         assert_eq!(drawn.lines().count(), 5, "{drawn}");
         assert!(drawn.contains("a\\r\\nb\\u{0000}c\\u{001b}d"), "{drawn}");
 
@@ -1454,7 +1436,7 @@ mod tests {
 
     #[test]
     fn ordinary_text_passes_through_a_cell_untouched() {
-        // Escaping only applies where something needs it, so a readable value stays
+        // Escaping only applies where something needs it so a readable value stays
         // readable rather than arriving full of backslashes.
         assert_eq!(printable("@sensor.temp"), "@sensor.temp");
         assert_eq!(printable("a value with spaces"), "a value with spaces");

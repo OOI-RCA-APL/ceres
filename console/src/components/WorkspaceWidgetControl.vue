@@ -51,15 +51,14 @@ const action = $computed(() => {
 })
 
 // The full path of what pressing runs, written the way an address is. The popup only opens once
-// there is an action to run, so the parts are there to name.
+// there is an action to run so the parts are there to name.
 const actionPath = $computed(() => `${resolvedAddress}::actions::${button.action}`)
 
 const canOperate = $computed(
   () => resolvedAddress != null && access.canOperate(resolvedAddress.toString())
 )
 
-// A fresh button holds no action yet, and the one thing pressing it can usefully do is open the
-// settings that give it one.
+// A fresh button holds no action yet so pressing it opens the settings that give it one.
 const isConfigured = $computed(() => button.address != null && button.action != null)
 
 const color = $computed(() => {
@@ -85,16 +84,16 @@ let isShowingSettings = $ref(false)
 // The dots and a right-click open the same menu, held so the dots can open it wherever they are.
 const menu = $ref<QMenu | null>(null)
 
-// While the menu is open the pointer is on the menu rather than the button, so without this the
+// While the menu is open the pointer is on the menu rather than the button so without this the
 // dots that opened it would fade away under it.
 let isShowingMenu = $ref(false)
 
-// The arguments are edited on a copy of what the button holds, so a popup opened and dismissed
+// The arguments are edited on a copy of what the button holds so a popup opened and dismissed
 // leaves the button exactly as it was found. They are kept on submitting or on locking, which are
 // the two ways a user says the arguments are the ones they meant.
 let draft = $ref<unknown>({})
 
-// Cast for the same reason `Procedure.vue` casts, since the form's value type describes any plain
+// Cast for the same reason `Procedure.vue` casts since the form's value type describes any plain
 // value at all and the compiler gives up walking into it.
 const held = {
   value: () => draft as Plain,
@@ -108,17 +107,17 @@ const form = useSchemaForm({
   schema: () => action?.arguments.json_schema ?? { type: 'object', properties: {} },
   title: 'Arguments',
   // The popup stays put while the action runs, with the button and the "Execute" control both
-  // showing the wait, so what was pressed and what it is doing stay in view together.
+  // showing the wait so what was pressed and what it is doing stay in view together.
   async onSubmit(values: unknown) {
     button.arguments = deepClone(values) as Record<string, unknown>
     await run(values)
   },
 })
 
-/** Whether the action asks for anything, which is what decides if pressing opens a popup.
+/** Whether the action takes arguments, which decides whether pressing opens a popup.
 
-Read off the schema rather than off the form, since what the form is holding is a copy left over
-from the last time the popup was open and says nothing about what the action wants.
+Read off the schema rather than the form since the form holds a stale copy from the last time
+the popup was open.
 */
 const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
 
@@ -133,7 +132,7 @@ const named = $computed(
 )
 
 // A button is renamed on the bar the way a tab is, the field offered under shift and made real by
-// clicking into it. Renaming touches only the label, so the action underneath keeps its own name.
+// clicking into it. Renaming touches only the label so the action underneath keeps its own name.
 const { shift: shiftHeld } = useModifiers()
 let isLabelHovered = $ref(false)
 let isEditingLabel = $ref(false)
@@ -143,7 +142,7 @@ function renameButton(name: string) {
   button.label = name
 }
 
-// A confirmation is a question with an answer, so the dialog hands its answer back to whatever
+// A confirmation is a question with an answer so the dialog hands its answer back to whatever
 // asked and the run either carries on or stops there.
 let answerConfirm = $ref<((confirmed: boolean) => void) | null>(null)
 
@@ -159,7 +158,7 @@ function confirmWith(confirmed: boolean) {
 }
 
 // The controller of the call in flight, held so a cancel can reach it. Aborting the request is
-// aborting the action, since the engine cancels a procedure whose caller has gone away.
+// aborting the action since the engine cancels a procedure whose caller has gone away.
 let running = $ref<AbortController | null>(null)
 
 /** One toast that follows the whole run.
@@ -202,8 +201,8 @@ function createRunToast(controller: AbortController) {
 
   const ticker = setInterval(() => update({ caption: elapsed() }), 1000)
 
-  // The notification is portaled and rendered a beat later, so the hover listeners are attached
-  // once it exists. Updates reuse the same element, so they hold for the toast's whole life.
+  // The notification is portaled and rendered a beat later so the hover listeners are attached
+  // once it exists. Updates reuse the same element so they hold for the toast's whole life.
   setTimeout(() => {
     const element = document.querySelector(`.${marker}`)
     element?.addEventListener('pointerenter', () => (isHovered = true))
@@ -217,7 +216,7 @@ function createRunToast(controller: AbortController) {
       color,
       textColor: 'white',
       // The toast was opened as markup and stays markup through updates, and a failure's detail
-      // quotes whatever the server said, so the text is escaped rather than trusted.
+      // quotes whatever the server said so the text is escaped rather than trusted.
       message: escape(message),
       caption: elapsed(),
       actions: [
@@ -233,7 +232,7 @@ function createRunToast(controller: AbortController) {
       ],
     })
 
-    // The toast leaves on its own only once it has been left alone, so a pointer resting on it
+    // The toast leaves on its own only once it has been left alone so a pointer resting on it
     // holds it, and leaving gives it a moment before the clock resumes.
     let remaining = holdFor
     const tick = 250
@@ -284,7 +283,7 @@ async function run(values: unknown) {
       toast.succeeded()
     }
   } catch (error) {
-    // Asked for, so not a failure. Anything else is one and stays thrown.
+    // Asked for so not a failure. Anything else is one and stays thrown.
     if (!controller.signal.aborted) {
       toast.failed(String(error))
       throw error
@@ -321,7 +320,7 @@ function onCancel() {
 }
 
 function onPress(event: MouseEvent) {
-  // A locked button runs without ever opening the popup, so the button itself is the one cancel
+  // A locked button runs without ever opening the popup so the button itself is the one cancel
   // surface every flow has. Pressing it while the action runs aborts the action.
   if (running != null) {
     running.abort()
@@ -353,9 +352,9 @@ function onPress(event: MouseEvent) {
 
 /** Keep the arguments as they stand and stop asking for them, or start asking again.
 
-Locking keeps what the popup is holding, since those are the arguments the button will go on
+Locking keeps what the popup is holding since those are the arguments the button will go on
 running with and there is nowhere left to say so once it stops asking. Unlocking keeps them too,
-as the ones it will offer next time. The popup stays open either way, so the choice can be
+as the ones it will offer next time. The popup stays open either way so the choice can be
 reconsidered where it was made.
 */
 function toggleLock() {
@@ -365,7 +364,7 @@ function toggleLock() {
 </script>
 
 <template>
-  <!-- A button carries its own menu, so the press that opens it must not reach the widget's, which
+  <!-- A button carries its own menu so the press that opens it must not reach the widget's, which
   is hung off the card around everything here. -->
   <div :class="$style.root" @contextmenu.stop>
     <q-btn
@@ -379,7 +378,7 @@ function toggleLock() {
       unelevated
       @click="onPress"
     >
-      <!-- Drawn beside the label rather than through the loading state, since a loading button
+      <!-- Drawn beside the label rather than through the loading state since a loading button
       swallows its clicks and the press while running is the abort. -->
       <q-spinner v-if="isRunning" class="q-mr-xs" />
       <span @pointerenter="isLabelHovered = true" @pointerleave="isLabelHovered = false">
@@ -563,7 +562,7 @@ function toggleLock() {
   display: inline-flex;
 }
 
-// The dots wait just under the button rather than beside or over it, so a bar of buttons is a bar
+// The dots wait just under the button rather than beside or over it so a bar of buttons is a bar
 // of buttons and arranging one costs no room until it is reached for. Kept quiet even then,
 // hinted while the button is hovered and only fully there when reached for themselves.
 .more {
@@ -600,7 +599,7 @@ padding would take. */
   opacity: 0.8;
 }
 
-/* Bordered the way the menus are, since on a dark surface a shadow alone does not say where the
+/* Bordered the way the menus are since on a dark surface a shadow alone does not say where the
 popup ends. */
 .arguments {
   max-width: 420px;

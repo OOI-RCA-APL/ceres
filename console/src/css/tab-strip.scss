@@ -2,15 +2,15 @@
 //
 // What is shared is the mechanics: undoing the parts of Quasar's tabs that a strip like this
 // cannot use, the shape a tab takes and the states it passes through while one is being dragged,
-// and the button that adds another. What is not shared is measurement, since a strip in a header
+// and the button that adds another. What is not shared is measurement since a strip in a header
 // rail and a strip inside a widget are not the same size and never will be. Those stay with the
 // strip that chooses them, and reach this file as arguments where they have to.
 //
 // Each mixin is applied to a class the component declares itself, rather than emitting classes of
-// its own, so a name used in a template can always be found in the file that uses it.
+// its own so a name used in a template can always be found in the file that uses it.
 
 // Quasar puts its variables in front of a component's own style block, and a file reached through
-// `@use` is a module of its own that the prelude never reaches, so this file asks for them itself.
+// `@use` is a module of its own that the prelude never reaches so this file asks for them itself.
 @use '@/css/quasar.variables' as *;
 
 /// The box the tabs sit in, which scrolls once they outgrow it.
@@ -58,7 +58,7 @@
 /// Clear the room Quasar's dense tabs take for themselves, applied to `.tabs .tab`.
 ///
 /// A dense tab imposes a minimum height and pads its content box, which together push the tab
-/// taller than the strip it sits in. Both need matching specificity to override, so the minimum
+/// taller than the strip it sits in. Both need matching specificity to override so the minimum
 /// is cleared through the strip and the padding through the inner box.
 @mixin tabUnpadded {
   min-height: 0;
@@ -72,8 +72,8 @@
 
 /// An invisible strip along the tab's leading edge carrying the grab cursor.
 ///
-/// Nothing is drawn in it, so it costs no width and the label never moves. The whole tab is the
-/// drag target, so this is a hint rather than a handle, and it reaches as far as `$width` because
+/// Nothing is drawn in it so it costs no width and the label never moves. The whole tab is the
+/// drag target so this is a hint rather than a handle, and it reaches as far as `$width` because
 /// that is how much of the leading edge is not something else already.
 @mixin grip($width) {
   position: absolute;
@@ -96,7 +96,7 @@
 /// The close button, which holds its place whether or not it is showing.
 ///
 /// A tab is then exactly as wide hovered as it is at rest and the strip does not shuffle under
-/// the pointer. `$nudge` is for a strip whose other buttons sit off centre, so the two land on
+/// the pointer. `$nudge` is for a strip whose other buttons sit off centre so the two land on
 /// one line.
 @mixin close($nudge: 0px) {
   position: absolute;
@@ -121,8 +121,8 @@
   opacity: 1;
 }
 
-/// The held tab tracks the pointer directly, so it must not smooth its own movement. It regains
-/// the transition once released, which is what animates it into the gap.
+/// The held tab tracks the pointer directly so it must not smooth its own movement. It regains
+/// the transition once released, which animates it into the gap.
 @mixin grabbed {
   cursor: grabbing;
   transition: background-color 0.2s, opacity 0.2s;
@@ -140,15 +140,15 @@
   border-radius: 50%;
 }
 
-/// An empty strip has nothing for the button to sit against, so it takes the middle instead.
+/// An empty strip has nothing for the button to sit against so it takes the middle instead.
 ///
-/// Left in the row rather than positioned over it, because it is then the only thing giving an
+/// Left in the row rather than positioned over it because it is then the only thing giving an
 /// empty strip its height and taking it out of flow collapses the strip onto itself.
 @mixin addCentered {
   margin: 0 auto;
 }
 
-/// Once the tabs scroll there is no end of the row to sit beside, so the button pins to the
+/// Once the tabs scroll there is no end of the row to sit beside so the button pins to the
 /// trailing edge with that side squared off against it, over the strip's own surface so the tabs
 /// read as passing underneath. The surface itself belongs to the strip, which knows what it sits
 /// on.

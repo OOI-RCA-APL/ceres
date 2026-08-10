@@ -13,11 +13,11 @@ const emit = defineEmits<{ close: [] }>()
 
 const workspace = useWorkspace()
 
-// Opens open, since the dialog is only mounted to be shown, and unmounts once hidden.
+// Opens open since the dialog is only mounted to be shown, and unmounts once hidden.
 let open = $ref(true)
 
-// The last confirmed choices are the likeliest next ones, so they are where the dialog starts.
-// They are written back only on "Group", so browsing the selects and cancelling remembers
+// The last confirmed choices are the likeliest next ones so they are where the dialog starts.
+// They are written back only on "Group" so browsing the selects and cancelling remembers
 // nothing.
 const persisted = usePersisted({
   schema: (zod) =>
@@ -29,8 +29,8 @@ const persisted = usePersisted({
   methods: [{ type: 'local-storage', key: 'group-widgets' }],
 })
 
-// How many rows the taken widgets stand in, which is what makes a per-row split mean anything.
-// With a single row, per-row and all-on-one are the same page, so only the latter is offered.
+// How many rows the taken widgets stand in, which gives a per-row split meaning.
+// With a single row, per-row and all-on-one are the same page so only the latter is offered.
 const rowCount = $computed(() => {
   const taking = new Set(widgetIds)
   for (const layout of workspace.layouts) {
@@ -49,7 +49,7 @@ let kind = $ref(persisted.kind)
 let split = $ref(persisted.split === 'row' && rowCount < 2 ? 'widget' : persisted.split)
 let frameless = $ref(persisted.frameless)
 
-// A page holding one widget already names it on the tab or the dot, so its frame is pure
+// A page holding one widget already names it on the tab or the dot so its frame is pure
 // repetition and hiding frames is offered. A page holding several needs them to stay told apart.
 const offersFrameless = $computed(() => split === 'widget' || widgetIds.length === 1)
 
@@ -102,7 +102,7 @@ function group() {
           outlined
         />
         <div class="items-center no-wrap row">
-          <!-- With one widget every split lands the same single page, so there is no choice to
+          <!-- With one widget every split lands the same single page so there is no choice to
           offer. -->
           <div v-if="widgetIds.length > 1" class="col-grow">
             <q-select
@@ -137,7 +137,7 @@ function group() {
 </template>
 
 <style lang="scss" module>
-// A fixed width rather than a percentage, since Quasar's own dialog sizing rule outranks this
+// A fixed width rather than a percentage since Quasar's own dialog sizing rule outranks this
 // class and would stretch a percentage to its 560px cap. Wide enough for the split select and
 // the frames toggle to share their row without wrapping.
 .dialog {

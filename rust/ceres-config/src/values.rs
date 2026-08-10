@@ -1,7 +1,7 @@
 //! Scalar value types used across configuration sections.
 //!
-//! These parse the same spellings the engine has always accepted, numbers or ISO 8601 text
-//! for durations, plain byte counts or unit-suffixed text for sizes, and scalar-or-list
+//! These parse the spellings the engine accepts, numbers or ISO 8601 text for
+//! durations, plain byte counts or unit-suffixed text for sizes, and scalar-or-list
 //! fields that keep whichever shape they were written in.
 
 use std::fmt;
@@ -299,7 +299,7 @@ impl JsonSchema for ByteSize {
 
 /// A secret string that never leaves through serialization or debug output.
 ///
-/// Serializes as a fixed mask, so a secret can only be read through `expose`.
+/// Serializes as a fixed mask so a secret can only be read through `expose`.
 #[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 pub struct Secret(String);

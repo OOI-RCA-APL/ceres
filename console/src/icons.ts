@@ -24,7 +24,7 @@ const icons = {
   closeOthers: 'mdi-close-box-outline',
   configuration: 'mdi-cogs',
   confirm: 'mdi-check',
-  // A question in a speech bubble, which is what a confirm dialog is.
+  // A question in a speech bubble, matching what a confirm dialog shows.
   confirmDialog: 'mdi-comment-question-outline',
   connection: 'route', // Material Icons
   copy: 'mdi-content-copy',
@@ -68,7 +68,7 @@ const icons = {
   open: 'mdi-open-in-new',
   operate: 'mdi-wrench',
   operations: 'mdi-cog-transfer',
-  // A page with its top band highlighted, which is what the overview toggle collapses.
+  // A page with its top band highlighted, matching the overview the toggle collapses.
   overview: 'mdi-page-layout-header',
   password: 'password', // Material Icons
   preferences: 'mdi-theme-light-dark',

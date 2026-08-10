@@ -4,13 +4,13 @@
 //! accepts. Each key names a column, and its value encodes into the form that column
 //! stores, which differs per backend exactly as the writer's does.
 //!
-//! The two writes differ in one place. An update refuses the columns that identify a row,
+//! The two writes differ in one place. An update refuses the columns that identify a row
 //! because changing an identity is a different row rather than the same one moved. An
-//! insert requires them, because that is where the identity comes from. Everything past
+//! insert requires them because that is where the identity comes from. Everything past
 //! that guard is the same encoding.
 //!
-//! Anything this module cannot represent is refused with a sentence naming the key and
-//! what it wanted, because the reader is holding a command line they can fix. Nothing is
+//! Anything this module cannot represent is refused with a message naming the key and
+//! the form it expected because the reader is fixing a command line. Nothing is
 //! coerced into a shape the column did not ask for.
 
 use ceres_entities::{Address, FieldFamily, latin1};
@@ -33,11 +33,11 @@ impl Schema {
     /// Encode an assignment object into per-column values.
     ///
     /// The columns encode against the table's whole column list rather than its filter
-    /// surface, because a column a filter cannot name is still one an update may assign.
+    /// surface because a column a filter cannot name is still one an update may assign.
     /// The schema's fixed columns are the ones that identify a row rather than describe
     /// it.
     ///
-    /// A refusal carries the sentence to show, naming the key and what it wanted.
+    /// A refusal carries a user-facing message naming the key and the form it expected.
     pub(crate) fn assignments(
         self,
         values: &serde_json::Map<String, Value>,
@@ -61,7 +61,7 @@ impl Schema {
 
     /// Encode an insert's column values.
     ///
-    /// An insert sets the row's identity rather than changing it, so the columns an
+    /// An insert sets the row's identity rather than changing it so the columns an
     /// update refuses are the ones this one requires, and the identity guard does not
     /// apply here.
     pub(crate) fn insert_values(
@@ -115,9 +115,9 @@ impl Schema {
 /// Compile one row's insert to SQL and its bound parameters.
 ///
 /// `upsert` decides what a collision on the table's primary key does. Without it the
-/// collision is the caller's to see, which is what turns a duplicate into the error that
+/// collision is the caller's to see, which turns a duplicate into the error that
 /// names the column it collided on. With it every column outside the key takes the new
-/// row's value, which is what makes a repeated write idempotent rather than a failure.
+/// row's value, which makes a repeated write idempotent rather than a failure.
 pub fn insert_compiled(
     table: Table,
     values: &serde_json::Map<String, serde_json::Value>,
@@ -166,7 +166,7 @@ pub fn insert_compiled(
 
 /// A JSON document's text as the value its column stores.
 ///
-/// Both backends store the text, so both bind text. PostgreSQL's `json` keeps what it
+/// Both backends store the text so both bind text. PostgreSQL's `json` keeps what it
 /// was given, key order included, and only casts to it here rather than binding a
 /// document object, which would arrive as `jsonb` and be normalized on the way in. That
 /// normalization reorders keys, and a filter comparing the stored text would then miss
@@ -212,7 +212,7 @@ fn encode(family: &FieldFamily, value: &Value, dialect: SqlDialect) -> Result<Si
     // nullable, which rolls the transaction back and reports.
     //
     // A column holding a whole JSON document is the exception. There a null is a value the
-    // document can take rather than the absence of one, so it stores as the JSON `null` and
+    // document can take rather than the absence of one so it stores as the JSON `null` and
     // reads back as one. Clearing such a column would be a different thing, and no column
     // that stores a document is nullable anyway.
     if value.is_null() && !matches!(family, FieldFamily::JsonValue) {
@@ -253,7 +253,7 @@ fn encode(family: &FieldFamily, value: &Value, dialect: SqlDialect) -> Result<Si
         }
         FieldFamily::Text => text(value, "text")?.to_string().into(),
         // An address stores normalized, and normalizing one that already is changes
-        // nothing, so this holds whether or not the credential rules ran first.
+        // nothing so this holds whether or not the credential rules ran first.
         FieldFamily::Email => normalize_email(text(value, "an email address")?)
             .ok_or_else(|| "takes an email address".to_string())?
             .into(),
@@ -435,7 +435,7 @@ mod tests {
                 SqlDialect::SqliteText,
             )
             .unwrap();
-        // The `SET` clause order carries no meaning, so compare the columns as a set.
+        // The `SET` clause order carries no meaning so compare the columns as a set.
         let mut columns: Vec<&str> = assigned.iter().map(|one| one.column).collect();
         columns.sort_unstable();
         assert_eq!(

@@ -1,8 +1,8 @@
 //! The authentication routes.
 //!
-//! Request bodies validate before configuration and identity checks, matching the
-//! framework order they replace, except for the password change, whose authenticated
-//! gate ran first as a route dependency there too.
+//! Request bodies validate before configuration and identity checks, except for the
+//! password change, where the authenticated gate runs first. The order is part of the
+//! wire contract.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -141,9 +141,9 @@ pub(crate) async fn logout(
 
 /// Take on another user's identity.
 ///
-/// The route reports itself missing rather than forbidden when the feature is off, so a
+/// The route reports itself missing rather than forbidden when the feature is off so a
 /// default deployment has no trace of it to find. Chaining is prevented structurally,
-/// the issued identity is the target's own, so a second hop fails its admin gate.
+/// the issued identity is the target's own so a second hop fails its admin gate.
 pub(crate) async fn impersonate(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -183,8 +183,8 @@ pub(crate) async fn change_password(
     headers: HeaderMap,
     bytes: Bytes,
 ) -> Result<Response, ApiError> {
-    // The authenticated gate runs before body validation, matching the route dependency
-    // it replaces, and a caller without a concrete user gets the bare envelope.
+    // The authenticated gate runs before body validation, which the wire contract
+    // fixes, and a caller without a concrete user gets the bare envelope.
     let actor = state
         .admit(&headers, Gate::Authenticated, Resolution::Full)
         .await?;

@@ -2,7 +2,7 @@
 //!
 //! Users, variables, settings, and workspaces are small tables an operator reads and
 //! edits directly, unlike the record tables components fill. Each struct's serialized
-//! form is the wire format for it, field order included, so a native dump and a
+//! form is the wire format for it, field order included so a native dump and a
 //! materialized one render the same bytes.
 //!
 //! The filterable surface derives from these structs the way the records' does. Two
@@ -34,14 +34,14 @@ pub enum PermissionTargetType {
 /// What a grant lets its holder do with the target.
 ///
 /// The levels are a strict hierarchy, each implying the ones below it, but a permission
-/// filters on the level by equality rather than by rank, so the family here is a closed
+/// filters on the level by equality rather than by rank so the family here is a closed
 /// set of values rather than an ordered one.
 ///
 /// Python's `ComponentAccessLevel` carries a fourth level, `deny`, which a component
 /// declares as its own default and which means the absence of a grant. A row cannot hold
 /// it, the permission tables check for these three, so it is not a level here either.
-/// Leaving it out is what makes a create naming it fail while the row is still being
-/// read, rather than reaching the database and coming back as a constraint violation.
+/// Leaving it out makes a create naming it fail at read time rather than as a database
+/// constraint violation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, FilterValues)]
 #[serde(rename_all = "lowercase")]
 pub enum GrantLevel {
@@ -58,7 +58,7 @@ pub struct User {
     /// The account's email address, whose operations fold case the way the Python
     /// filter's do.
     ///
-    /// Equality normalizes first, because the Python model types the field as a
+    /// Equality normalizes first because the Python model types the field as a
     /// validated address and so compares a normalized value against a normalized column.
     /// An address outside the subset the normalizer understands delegates rather than
     /// comparing unnormalized.
@@ -66,7 +66,7 @@ pub struct User {
     pub email: String,
     /// The Argon2 hash of the account's password.
     ///
-    /// The CLI prints it, since an operator running these commands already holds the
+    /// The CLI prints it since an operator running these commands already holds the
     /// database credentials and the value is a hash rather than a recoverable secret.
     /// It is not filterable, and the Python filter does not expose it either.
     #[filterable(skip)]
@@ -143,7 +143,7 @@ pub struct UserPermission {
     pub target_type: PermissionTargetType,
     /// What the grant covers, an address or a tag, and empty when it covers everything.
     ///
-    /// It filters by equality alone. A substring of an address or a tag names nothing,
+    /// It filters by equality alone. A substring of an address or a tag names nothing
     /// so the Python filter gives the field no operation keys and neither does this.
     #[filterable(no_operations)]
     pub target: String,

@@ -61,7 +61,7 @@ function tabs(id: string, pages: { id: string; layout: WidgetRow[] }[]): TabsWid
   }
 }
 
-/** The layouts a plan settles on, as rows of widget IDs, which is what a plan actually decides. */
+/** The layouts a plan settles on, as rows of widget IDs. */
 function shapeOf(plan: { layouts: Record<string, { widgets: string[] }[]> } | null) {
   if (plan == null) {
     return null
@@ -643,7 +643,7 @@ describe('a stored button widget', () => {
       action: 'restart',
       arguments: { force: true },
     })
-    // Both safeguards are on by default, so turning them off is what has to survive the trip.
+    // Both safeguards are on by default so turning them off is what has to survive the trip.
     buttonsOf(first)[0].confirm = false
     buttonsOf(first)[0].locked = false
 

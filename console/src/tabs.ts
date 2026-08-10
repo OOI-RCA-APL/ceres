@@ -16,7 +16,7 @@ export const TabSetsModel = Zod.record(Zod.string(), TabSetModel).catch(() => ({
 
 /** Name of the setting holding every strip's tab set, keyed by placement.
 
-One setting rather than one per strip, because setting names are validated as `Name`, which admits
+One setting rather than one per strip because setting names are validated as `Name`, which admits
 neither the `:` a per-strip name would need nor the `.` a component address uses. A per-strip name
 would be writable and not readable. Keying by placement inside a single value keeps every
 semantic and reads every strip in one request.
@@ -30,9 +30,9 @@ export const workspaceQueryKey = 'workspace'
 
 /** Workspaces the address is asking a page to show, which may name more than one.
 
-The address asks rather than records. A page reads this on arrival, opens what it names, and takes
-it back out of the bar, so nothing that happens to the strip afterwards is argued with by an
-address still naming what used to be there. Links are made deliberately, by the share actions.
+The address asks rather than records. A page reads this on arrival, opens what it names, and
+removes it from the bar so a stale address never contradicts later changes to the strip. Links
+are made deliberately, by the share actions.
 */
 export function requestedWorkspaces(query: LocationQuery): string[] {
   const value = query[workspaceQueryKey]
@@ -54,10 +54,10 @@ remain, in the order they were given. Identifiers resolve against `pool` and are
 a workspace the user has lost access to drops off the strip and returns if access is restored, and
 a deleted one is ignored.
 
-`identify` reads an item's identifier, so this stays independent of what a tab happens to be.
+`identify` reads an item's identifier, keeping this independent of the tab type.
 
 `pool` is what identifiers resolve against, defaulting to the defaults themselves. The home strip
-passes every workspace the user can see, because a workspace placed on a component may be opened
+passes every workspace the user can see because a workspace placed on a component may be opened
 there while never belonging to the engine root's defaults.
 */
 export function resolveTabs<T>(
@@ -79,13 +79,13 @@ export function resolveTabs<T>(
   return [...opened, ...remaining]
 }
 
-/** Remember which workspace a strip last showed, so returning to it lands where it was left.
+/** Remember which workspace a strip last showed so returning to it lands where it was left.
 
-Held per device rather than in the tab set, because that set is a single record covering every
+Held per device rather than in the tab set because that set is a single record covering every
 placement and would be rewritten in full on each tab click. Which tab you were last on is a
-browsing position rather than a preference, so it belongs with the rest of the local view state.
+browsing position rather than a preference so it belongs with the rest of the local view state.
 
-An identifier is remembered rather than a position, so a workspace that moves in the strip is
+An identifier is remembered rather than a position so a workspace that moves in the strip is
 still the one that reopens, and one that is closed or lost falls back to the first tab.
 */
 export function useLastWorkspace(placement: MaybeRefOrGetter<string>) {
@@ -103,7 +103,7 @@ export const useTabs = defineStore('tabs', () => {
   let loaded = $ref(false)
 
   /** Read every strip's set once. A user who has never arranged a strip has no setting at all,
-  which the API reports as missing rather than as empty, so that case is the starting state and
+  which the API reports as missing rather than as empty so that case is the starting state and
   not a failure.
   */
   async function load() {
@@ -133,7 +133,7 @@ export const useTabs = defineStore('tabs', () => {
     await settings.set(tabsSettingName, sets)
   }
 
-  // Opening clears any record of the workspace having been closed, so the two lists never
+  // Opening clears any record of the workspace having been closed so the two lists never
   // disagree about one workspace.
   async function open(placement: string, id: string) {
     const set = setFor(placement)
@@ -147,7 +147,7 @@ export const useTabs = defineStore('tabs', () => {
     })
   }
 
-  // Closing records the identifier rather than only dropping it from `open`, because a workspace
+  // Closing records the identifier rather than only dropping it from `open` because a workspace
   // that is one of the defaults would otherwise reappear the moment anything else changed.
   async function close(placement: string, id: string) {
     await closeMany(placement, [id])
@@ -182,7 +182,7 @@ export const useTabs = defineStore('tabs', () => {
 
   The resolved order is passed in because it depends on the strip's defaults, which the set itself
   does not hold. Positioning between two tabs means naming every position, exactly as dragging one
-  does, so this writes the whole order rather than appending.
+  does so this writes the whole order rather than appending.
   */
   async function openAt(placement: string, id: string, resolved: string[], index: number) {
     const ids = resolved.filter((current) => current !== id)
@@ -206,7 +206,7 @@ export const useTabs = defineStore('tabs', () => {
     await openAt(placement, id, others, index + 1)
   }
 
-  // Dragging a tab positions every tab in the strip, so the whole resolved order becomes explicit.
+  // Dragging a tab positions every tab in the strip so the whole resolved order becomes explicit.
   async function reorder(placement: string, ids: string[]) {
     const set = setFor(placement)
     await write(placement, {

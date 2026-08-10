@@ -118,7 +118,7 @@ ceres/
 
 The engine's HTTP server, command line interface, filter compiler, and database access
 are Rust, built as one extension module imported as `ceres.__internal__.core`. The
-`ceres` command is a native binary, and `python -m ceres` execs it, so both invocations
+`ceres` command is a native binary, and `python -m ceres` execs it so both invocations
 serve the same surface. Build it with:
 
 ```sh
@@ -153,7 +153,7 @@ regenerates it, and CI fails when the recorded tables fall behind the sources.
 
 ### Running Against PostgreSQL
 
-The suite runs on SQLite by default, while deployments run on PostgreSQL, so SQL that only one
+The suite runs on SQLite by default, while deployments run on PostgreSQL so SQL that only one
 backend accepts can pass every test. `make test-postgres` runs the same tests against a real
 PostgreSQL server instead.
 
@@ -165,14 +165,14 @@ psql postgres -c "CREATE DATABASE ceres_test OWNER ceres TEMPLATE template0 LC_C
 ```
 
 The `C` collation is recommended rather than required. Ceres names its own collation when it orders
-text, so ordering does not depend on how the database was created, and the harness checks the
+text so ordering does not depend on how the database was created, and the harness checks the
 collation on startup only to keep the test database representative of the recommended deployment.
-See `2026-07-27-string-ordering-design.md`.
+`tests/test_ordering.py` pins the promised order.
 
-The database is deliberately separate from the one a local deployment uses, because the suite
+The database is deliberately separate from the one a local deployment uses because the suite
 deletes rows and drops schemas wholesale. Set `CERES_TEST_POSTGRES_URL` to point somewhere else.
 
-Every test gets a private schema, so the two runs assert exactly the same things. Two modules are
+Every test gets a private schema so the two runs assert exactly the same things. Two modules are
 backend-specific by nature and stay that way: `tests/test_migrations.py` reads `sqlite_master`, and
 `tests/test_migrations_postgres.py` replays the migrations against PostgreSQL on either run.
 
@@ -193,7 +193,7 @@ The "Unreleased" section of `CHANGELOG.md` is the release notes, shipped verbati
     the first, and shows exactly what a release would do, the `CHANGELOG.md` diff, the
     commit, and the GitHub release title and body.
 
-3. Commit and push. A release refuses a dirty tree or an unsynced `main`, so the state
+3. Commit and push. A release refuses a dirty tree or an unsynced `main` so the state
    being released is always the state on GitHub.
 4. Cut the release:
 
@@ -210,7 +210,7 @@ notes along the way, what the file says is what the release says.
 
 Publishing a GitHub release is the only trigger. Pushing to `main` runs ordinary CI and
 never builds wheels or publishes, and neither does pushing a tag by hand. The release
-pipeline also reruns the full CI checks itself before building, so the released commit is
+pipeline also reruns the full CI checks itself before building so the released commit is
 verified by the pipeline that releases it rather than trusting an earlier run, which
 means the checks run twice on release day, once for the push and once as the release
 gate. That redundancy is deliberate.
@@ -231,5 +231,5 @@ The docs use [mkdocs-material](https://squidfunk.github.io/mkdocs-material/) wit
 
 The published site at <https://ooi-rca-apl.github.io/ceres/> deploys through the
 `pages` workflow, which also regenerates the package index under `/simple/` from the
-release assets. It runs whenever the release workflow completes and on manual dispatch,
-so the published docs track releases rather than every push.
+release assets. It runs on every push to `main`, after a successful release, and on
+manual dispatch so the published docs track the code and the index tracks releases.

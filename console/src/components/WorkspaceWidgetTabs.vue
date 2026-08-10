@@ -35,7 +35,7 @@ let index = $ref(0)
 
 const shown = $computed(() => widget.tabs[index] ?? null)
 
-// Which tab is open is this browser's own place in the workspace rather than part of it, so it
+// Which tab is open is this browser's own place in the workspace rather than part of it so it
 // survives a reload here and goes nowhere else. Held as the tab's ID rather than its position, so
 // tabs reordered or deleted from another seat cannot restore somebody else's tab.
 const persisted = usePersisted({
@@ -57,7 +57,7 @@ watch(
   }
 )
 
-// A tab is as tall as the strip's widget however little is on it, so the height left at the bottom
+// A tab is as tall as the strip's widget however little is on it so the height left at the bottom
 // goes somewhere. The last row is the default, being where a table or a chart wants the room.
 const expandOptions = [
   { label: 'Last Widget Row', value: 'last' },
@@ -66,7 +66,7 @@ const expandOptions = [
   { label: "Don't Fill", value: 'none' },
 ]
 
-// Tabs can be taken away from under it, so the position is kept inside what is actually there.
+// Tabs can be taken away from under it so the position is kept inside what is actually there.
 watch(
   () => widget.tabs.length,
   (length) => {
@@ -76,7 +76,7 @@ watch(
   }
 )
 
-// Turning to a tab is asking to work on it, so it becomes the layout a paste lands in and the one
+// Turning to a tab is asking to work on it so it becomes the layout a paste lands in and the one
 // the keyboard acts on.
 function show(at: number) {
   index = Math.min(Math.max(at, 0), Math.max(0, widget.tabs.length - 1))
@@ -87,7 +87,7 @@ function show(at: number) {
   }
 }
 
-// The strip reorders by pointer rather than by the HTML5 drag API, so it behaves the way browser
+// The strip reorders by pointer rather than by the HTML5 drag API so it behaves the way browser
 // tabs do, which is the same composable the workspace's own strip is driven by.
 let root = $ref<HTMLElement | null>(null)
 
@@ -106,13 +106,13 @@ const reorder = usePointerReorder({
       index++
     }
   },
-  // The strip scrolls once it outgrows its room, so a tab held near either end carries the strip
+  // The strip scrolls once it outgrows its room so a tab held near either end carries the strip
   // along and can be taken past what is showing.
   scroller: () => root?.querySelector<HTMLElement>('.q-tabs__content') ?? null,
 })
 
 // Whether the tabs have outgrown the strip and started scrolling. It decides where the add button
-// sits, since a strip with room can keep it beside the last tab while a scrolling one cannot.
+// sits since a strip with room can keep it beside the last tab while a scrolling one cannot.
 let overflowing = $ref(false)
 
 function measureOverflow() {
@@ -133,12 +133,12 @@ watch(
 
 // A widget carried over the strip is being brought to a tab rather than to the one on show, so
 // the strip turns to whatever it is held over and the drop lands there. Held over for a moment
-// first, since crossing the strip on the way somewhere else is not a change of mind.
+// first since crossing the strip on the way somewhere else is not a change of mind.
 const dwellBeforeTurning = 280
 
 let turning: ReturnType<typeof setTimeout> | null = null
 
-// What the wait is for, so travelling across a tab does not start it over on every step of the
+// What the wait is for so travelling across a tab does not start it over on every step of the
 // pointer. `undefined` is nothing waited for, and null is the room past the last tab.
 let awaited: number | null | undefined = undefined
 
@@ -169,7 +169,7 @@ function onStripPointerOver(event: PointerEvent) {
   turnWhileDragging(at != null && at >= 0 ? at : null)
 }
 
-// A tab offered rather than made. Nothing but a drawing, so a workspace saved mid-drag holds no
+// A tab offered rather than made. Nothing but a drawing so a workspace saved mid-drag holds no
 // trace of it. It becomes a tab the moment a widget is let go of on it, and not before.
 let ghost = $ref(false)
 
@@ -221,7 +221,7 @@ function turnWhileDragging(at: number | null) {
     turning = null
     awaited = undefined
 
-    // A tab of its own for a widget dropped past the end of the strip or into a seam, since the
+    // A tab of its own for a widget dropped past the end of the strip or into a seam since the
     // room between tabs is the one place a strip can be added to by carrying something to it.
     if (at == null) {
       ghost = true
@@ -230,7 +230,7 @@ function turnWhileDragging(at: number | null) {
 
     show(at)
 
-    // The layout it turned to was never on screen when the drag was measured, so it has to be
+    // The layout it turned to was never on screen when the drag was measured so it has to be
     // measured before anything can be aimed at it.
     await nextTick()
     drop.remeasure()
@@ -243,8 +243,8 @@ function onTabClick(at: number, event: MouseEvent) {
     return
   }
 
-  // Shift names the tab rather than turning to it, which is what holding shift over one already
-  // offers. The press is what makes the offer a real edit, so it outlasts shift being let go of.
+  // Shift renames the tab rather than turning to it. The press makes the rename a real edit, so
+  // it outlasts shift being released.
   if (event.shiftKey) {
     startNaming(at)
     return
@@ -275,15 +275,14 @@ async function onTabKeydown(event: KeyboardEvent, at: number) {
   event.stopPropagation()
   moveTab(at, step)
 
-  // The tab travels with the key, so focus goes with it rather than staying on whatever has taken
+  // The tab travels with the key so focus goes with it rather than staying on whatever has taken
   // its place.
   await nextTick()
   root?.querySelectorAll<HTMLElement>('.q-tab')[to]?.focus()
 }
 
-// Holding shift over a tab turns its name into a field there and then, so renaming is offered
-// rather than hidden behind a shortcut nobody would guess. Clicking into it makes it a real edit,
-// which is what keeps it once shift is let go of.
+// Holding shift over a tab turns its name into a field in place so renaming is discoverable.
+// Clicking into it makes it a real edit that survives shift being released.
 const { shift: shiftHeld } = useModifiers()
 
 let hoveredId = $ref<string | null>(null)
@@ -302,7 +301,7 @@ function isNaming(current: WidgetPage): boolean {
 }
 
 // One menu per tab, reachable from the dots and from a right-click on the tab. Held by tab rather
-// than by position, since dragging renumbers the strip.
+// than by position since dragging renumbers the strip.
 const menus = new Map<string, QMenu>()
 
 function setMenu(id: string, element: QMenu | null) {
@@ -317,7 +316,7 @@ function showMenu(id: string, event: Event) {
   menus.get(id)?.show(event)
 }
 
-// Tabs are added, named, arranged and taken away on the strip itself, since a tab is a layout and
+// Tabs are added, named, arranged and taken away on the strip itself since a tab is a layout and
 // a layout is arranged by working on it rather than by describing it somewhere else.
 function addTab() {
   widget.tabs = [...widget.tabs, { id: v7(), name: '', layout: [] }]
@@ -326,7 +325,7 @@ function addTab() {
 
 function deleteTab(at: number) {
   // Never down to none, for the same reason a carousel keeps a slide: a strip holding no tabs has
-  // no layout, so nothing could be dragged onto it or pasted into it.
+  // no layout so nothing could be dragged onto it or pasted into it.
   if (widget.tabs.length <= 1) {
     return
   }
@@ -335,7 +334,7 @@ function deleteTab(at: number) {
   show(Math.min(index, widget.tabs.length - 1))
 }
 
-// A tab copied carries copies of everything on it, since two things answering to one name would
+// A tab copied carries copies of everything on it since two things answering to one name would
 // have whatever went looking take whichever it found first.
 function duplicateTab(at: number) {
   const source = widget.tabs[at]
@@ -373,7 +372,7 @@ function convertToCarousel() {
 <template>
   <div :class="[$style.root, 'column', 'full-height', 'no-wrap']">
     <!-- The strip answers a drag itself, by turning to whichever tab is held over or making a new
-    one past the end, so it is no place to drop a widget beside the strip's own widget. -->
+    one past the end so it is no place to drop a widget beside the strip's own widget. -->
     <div
       ref="root"
       :class="[$style.strip, 'items-stretch', 'no-wrap', 'row']"
@@ -421,8 +420,8 @@ function convertToCarousel() {
             @pointerleave="setNameHovered(current, false)"
           >
             <!-- The tab's leading edge carries the grab cursor, which is all a tab needs to say it
-            can be dragged, since a strip of tabs already reads as one. The whole tab is the drag
-            target, so this is a hint rather than a handle. -->
+            can be dragged since a strip of tabs already reads as one. The whole tab is the drag
+            target so this is a hint rather than a handle. -->
             <span :class="$style.grip" />
             <common-text :class="$style.label" variant="th">
               <inline-name-edit
@@ -500,7 +499,7 @@ function convertToCarousel() {
         </q-tab>
       </q-tabs>
       <!-- The tab a drop past the end of the strip would make, drawn rather than made. Its own
-      pointerup is what makes it real, so letting go anywhere else leaves no trace of it. -->
+      pointerup is what makes it real so letting go anywhere else leaves no trace of it. -->
       <div
         v-if="ghost"
         :class="[$style.ghost, 'items-center', 'justify-center', 'row']"
@@ -510,7 +509,7 @@ function convertToCarousel() {
       </div>
       <!-- Sits beside the last tab while there is room for it there, and pins to the trailing edge
       once the tabs have outgrown the strip and begun to scroll under it. Held back entirely while
-      there are no tabs, since the empty strip asks for the first one itself and two of the same
+      there are no tabs since the empty strip asks for the first one itself and two of the same
       button on screen at once is one too many. -->
       <q-btn
         v-if="widget.tabs.length > 0"
@@ -537,7 +536,7 @@ function convertToCarousel() {
             </q-item>
             <q-separator />
             <!-- How the strip is drawn, rather than what is on any one tab, which is why these sit
-            under a rule at the end. The menu stays open, since seeing the strip take the setting is
+            under a rule at the end. The menu stays open since seeing the strip take the setting is
             the point of choosing it. -->
             <q-item dense>
               <q-item-section>
@@ -568,7 +567,7 @@ function convertToCarousel() {
       </q-btn>
     </div>
     <q-separator />
-    <!-- The same button a layout with nothing on it offers, so adding the first tab is the thing
+    <!-- The same button a layout with nothing on it offers so adding the first tab is the thing
     it already is everywhere else rather than something else to read. -->
     <div v-if="shown == null" :class="[$style.empty, 'col', 'column', 'flex-center']">
       <q-btn
@@ -584,7 +583,7 @@ function convertToCarousel() {
       </q-btn>
     </div>
     <!-- A tab is a workspace in miniature, arranged through the same editor the workspace itself
-    is drawn by, so everything that can be done to a layout can be done to one. -->
+    is drawn by so everything that can be done to a layout can be done to one. -->
     <div v-else :class="[$style.body, 'overflow-auto', 'q-px-sm']">
       <workspace-layout
         :key="shown.id"
@@ -606,13 +605,12 @@ function convertToCarousel() {
   min-height: 60px;
 }
 
-// Takes the room left over rather than asking for the room its contents want, so the strip above it
-// keeps its place however much a tab happens to hold.
+// Takes the room left over so the strip above it keeps its place whatever a tab holds.
 .body {
   flex: 1 1 0;
   min-height: 0;
 
-  // Room for the scrollbar whether or not one is showing, so a tab reflowing as rows are added
+  // Room for the scrollbar whether or not one is showing so a tab reflowing as rows are added
   // does not leave the widgets at its right edge jumping under the hand arranging them.
   scrollbar-gutter: stable;
 }
@@ -651,7 +649,7 @@ function convertToCarousel() {
     min-width: max-content;
   }
 
-  // A name centred in the room it has been given, since a tab wider than its name is no longer a
+  // A name centred in the room it has been given since a tab wider than its name is no longer a
   // label with space after it. On a full strip there is no spare room and this does nothing.
   .tabInner {
     justify-content: center;
@@ -671,7 +669,7 @@ function convertToCarousel() {
 }
 
 // Drawn as an offer rather than as a tab, wearing the same dashed border and tint every drop
-// target wears, so it reads as a place to let go rather than as a tab that already exists.
+// target wears so it reads as a place to let go rather than as a tab that already exists.
 .ghost {
   flex: 0 0 auto;
   min-width: 60px;
@@ -681,14 +679,14 @@ function convertToCarousel() {
   color: $primary;
 }
 
-// The grip and the close button sit against the tab's own edges rather than inside the row, so they
+// The grip and the close button sit against the tab's own edges rather than inside the row so they
 // cost the same width whether they are showing or not and the label never moves.
 .tabInner {
   height: 100%;
   padding: 2px 20px 2px 14px;
 }
 
-// Reaching only as far as the padding does, since a widget's tab carries no icon for the grip to
+// Reaching only as far as the padding does since a widget's tab carries no icon for the grip to
 // have to clear.
 .grip {
   @include strip.grip(14px);
@@ -702,7 +700,7 @@ function convertToCarousel() {
   @include strip.close;
 }
 
-// The tab being shown keeps its close button visible, since that is the one most likely to go
+// The tab being shown keeps its close button visible since that is the one most likely to go
 // next.
 .tab:hover .close,
 .closeShown {
@@ -731,7 +729,7 @@ function convertToCarousel() {
   @include strip.fadedIcon;
 }
 
-// Clear of the strip's own menu, which is the one thing pinned further out than it.
+// Clear of the strip's own menu, the only element pinned further out than this button.
 .addAnchored {
   @include strip.addAnchored(30px);
 }

@@ -6,7 +6,7 @@
 //! unrestricted access.
 //!
 //! Everything a request needs repeatedly is prepared once at build time and held on the
-//! state, the OpenAPI document's JSON, the favicon bytes, and the console file service,
+//! state, the OpenAPI document's JSON, the favicon bytes, and the console file service
 //! so serving them is a lookup rather than work.
 
 use std::path::PathBuf;
@@ -115,7 +115,7 @@ impl AppState {
     ///
     /// The CLI control app and deployments with authentication unconfigured are
     /// unrestricted, every permission gate short-circuits for them. A standing
-    /// resolution needs only the user's standing, so a host with a native store answers
+    /// resolution needs only the user's standing so a host with a native store answers
     /// without crossing into Python, the user's wire payload left null, and a host
     /// without one falls back to the full resolution.
     pub(crate) async fn actor(
@@ -147,7 +147,7 @@ impl AppState {
                     unrestricted,
                 });
             }
-            // No native store, so the full resolution answers.
+            // No native store so the full resolution answers.
         }
 
         let identity = self.identity(headers).await?;
@@ -160,7 +160,7 @@ impl AppState {
     /// Resolve the actor a request comes from and admit it through a gate.
     ///
     /// The self-or-admin gate reads its target from path parameters, which only the
-    /// dispatch table's routes carry, so dispatch admits through [`Gate::admit`] itself
+    /// dispatch table's routes carry so dispatch admits through [`Gate::admit`] itself
     /// and every gate here sees no path values.
     pub(crate) async fn admit(
         &self,
@@ -324,8 +324,8 @@ async fn method_not_allowed() -> ApiError {
     ApiError::http(StatusCode::METHOD_NOT_ALLOWED)
 }
 
-/// The fallback for paths outside the API on an app with no console, answering with the
-/// bare HTTP envelope like an unrouted path always has.
+/// The fallback for paths outside the API on an app with no console, answering with
+/// the bare HTTP envelope an unrouted path gets.
 async fn plain_not_found() -> ApiError {
     ApiError::http(StatusCode::NOT_FOUND)
 }
@@ -346,7 +346,7 @@ async fn require_cli_token(token: &str, request: Request, next: Next) -> Respons
 
 /// Serve the console's static files, falling back to the index for unmatched paths.
 ///
-/// The index fallback is what lets the single-page console own its routes. Error
+/// The index fallback lets the single-page console own its routes. Error
 /// responses from the file service convert to the bare HTTP envelope, the form the wire
 /// contract gives every static-file failure.
 async fn serve_console(State(state): State<Arc<AppState>>, request: Request) -> Response {

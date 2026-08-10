@@ -80,7 +80,7 @@ class BaseEntityFilter[
     """Base filter for entity queries, supporting ordering, pagination, and boolean composition.
 
     Subfilters can be combined with ``|`` (OR) and ``&`` (AND) operators. The ``and__`` group
-    is evaluated first, then ``or__``, so ``A & B | C`` matches when (A and B) or C.
+    is evaluated first, then ``or__`` so ``A & B | C`` matches when (A and B) or C.
     """
 
     order: MaybeSequence[OrderT] | None = None
@@ -153,7 +153,7 @@ class BaseEntityFilter[
         and__ = cls.__pydantic_fields__["and__"]
         and__.annotation = cast("type[Any]", FromYAML[MaybeSequence[FromYAML[cls]]] | None)
 
-        # The core schema is already built by this point, so it still validates subfilters against
+        # The core schema is already built by this point so it still validates subfilters against
         # the inherited annotation. Rebuild so subfilters accept the fields this subclass declares.
         cls.model_rebuild(force=True)
 
@@ -207,14 +207,14 @@ class BaseEntityFilter[
         return self.model_copy(update={"and__": and__})
 
     __table__: ClassVar[str]
-    """Table this filter selects from, which is what the compiler types its columns by."""
+    """Table this filter selects from, which the compiler types its columns by."""
 
     __nullable_filters__: ClassVar[frozenset[str]] = frozenset()
     """Fields where naming `None` filters for null rather than not filtering at all.
 
-    Almost every field reads an absent value as "not filtered", so a `None` is dropped
+    Almost every field reads an absent value as "not filtered" so a `None` is dropped
     before the compiler sees it. A field listed here is one the compiler reads as asking
-    whether the field was set rather than whether it is `None`, so a caller that named
+    whether the field was set rather than whether it is `None` so a caller that named
     `None` meant the null and the dump has to carry it.
     """
 
@@ -229,9 +229,9 @@ class BaseEntityFilter[
     def _native_filter(self) -> Any:
         """The native compiler's parsed form of this filter.
 
-        The compiler is the single authority on filter semantics, so the statement a
+        The compiler is the single authority on filter semantics so the statement a
         query runs is compiled here and in-memory matching reads rows through the same
-        parsed filter. Every table the managers serve compiles, so nothing above this
+        parsed filter. Every table the managers serve compiles so nothing above this
         needs a second path for the ones that do not.
         """
         return _parsed_filter(self.__table__, self._native_dump())
@@ -239,7 +239,7 @@ class BaseEntityFilter[
     def matches(self, obj: EntityT) -> bool:
         """Test whether `obj` satisfies this filter, including all ``and__`` and ``or__`` subfilters.
 
-        The native compiler is the single authority on filter semantics, so matching
+        The native compiler is the single authority on filter semantics so matching
         reads the entity through the same parsed filter the queries compile from.
 
         Args:
@@ -337,9 +337,9 @@ _EXECUTOR_PARSE_YIELD_CONTROL_EVERY = 50
 def _parsed_filter(table: str, dump: str) -> Any:
     """Parse one filter's wire form against its table, reusing an identical parse.
 
-    The cache is keyed on what the filter says rather than held on the filter object,
+    The cache is keyed on what the filter says rather than held on the filter object
     because filters are copied constantly. `with_defaults` returns a copy carrying the
-    original's private attributes, so a cache kept on the instance would follow a filter
+    original's private attributes so a cache kept on the instance would follow a filter
     into a copy that no longer says the same thing, and the copy would run the original's
     statement.
     """
@@ -353,7 +353,7 @@ def _native_assign(assign: Mapping[str, Any]) -> str:
 
     A bytes column crosses as latin-1 text, which is the convention the encoder reads back.
     JSON carries no byte string of its own, and latin-1 is the one text encoding that maps
-    every byte to exactly one character, so the round trip is byte for byte.
+    every byte to exactly one character so the round trip is byte for byte.
     """
     from ceres.data import to_json
 
@@ -369,10 +369,10 @@ def _native_assign(assign: Mapping[str, Any]) -> str:
 def _column_wrappers(Entity: type[BaseEntity]) -> dict[str, type[Any]]:
     """The columns whose stored value has to become a Python object, and what makes one.
 
-    The store hands back the primitives a column holds, so a UUID arrives as a `UUID` and
+    The store returns the primitives a column holds so a UUID arrives as a `UUID` and
     a timestamp as an aware `datetime`, but an address arrives as its text and an enum
     member as its value. Those are Python classes rather than primitives, and the entity's
-    own annotation names which class each column wants, so the conversion follows the
+    own annotation names which class each column wants so the conversion follows the
     model rather than a list of column names kept beside it.
     """
     wrappers: dict[str, type[Any]] = {}
@@ -393,7 +393,7 @@ def _column_wrappers(Entity: type[BaseEntity]) -> dict[str, type[Any]]:
             continue
 
         # The primitives cross as themselves, and a subclass of one is still the model's
-        # own type, so only the classes a stored value is not already an instance of need
+        # own type so only the classes a stored value is not already an instance of need
         # building.
         if issubclass(target, str | int | float | bool | bytes | datetime | UUID | dict | list):
             if issubclass(target, StrEnum) or target is not str:
@@ -450,7 +450,7 @@ class _BaseStatementExecutor[
         return ResultsIterator(self._parse_chunks(self._chunks))
 
     async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-        # Dropping the chunks closes the channel the query writes into, which is what ends
+        # Dropping the chunks closes the channel the query writes into, which ends
         # a query the caller stopped reading part way through.
         self._chunks = None
 
@@ -490,7 +490,7 @@ class _BaseStatementExecutor[
     async def mappings(self) -> list[Mapping[str, Any]]:
         """Execute the query and return raw row mappings without materializing entities.
 
-        The wire paths serialize straight from these values, so no Python entity objects
+        The wire paths serialize straight from these values so no Python entity objects
         are built for rows that only pass through to a response body.
         """
         store, sql, parameters = await self._native_statement(returning=True)
@@ -521,11 +521,11 @@ class _BaseStatementExecutor[
     async def _native_statement(self, *, returning: bool) -> tuple[Any, str, list[Any]]:
         """The store and the compiled statement this executor runs.
 
-        The clock the compiler resolves age-relative conditions against is this session's,
+        The clock the compiler resolves age-relative conditions against is this session's
         so a frozen or faked time stays authoritative all the way down.
 
-        `returning` asks a write for the rows it touched, which is what a caller consuming
-        one as entities rather than as a count is after. A read ignores it, already
+        `returning` asks a write for the rows it touched, for a caller consuming
+        one as entities rather than as a count. A read ignores it, already
         selecting the rows it matched.
         """
         store = await self._query._native_store()
@@ -538,7 +538,7 @@ class _BaseStatementExecutor[
         ...
 
     def _native_table(self) -> str:
-        """The table the rows come from, which is what types their columns."""
+        """The table the rows come from, which types their columns."""
         return self._query._get_entity_class().__entity_naming__.table
 
     async def _parse_chunks(self, chunks: Any) -> AsyncIterator[EntityT]:
@@ -568,7 +568,7 @@ class _BaseStatementExecutor[
         def parse(values: dict[str, Any]) -> EntityT | None:
             for name, into in wrap.items():
                 held = values.get(name)
-                # A column the store already hands over as its own type is left alone,
+                # A column the store already hands over as its own type is left alone
                 # since building a `UUID` from a `UUID` is an error rather than a copy.
                 if held is not None and not isinstance(held, into):
                     values[name] = into(held)
@@ -596,7 +596,7 @@ class SelectExecutor[
 
     @override
     async def _compile_native(self, *, returning: bool) -> tuple[str, list[Any]]:
-        # A select already names the rows it matched, so it has nothing to return on top.
+        # A select already names the rows it matched so it has nothing to return on top.
         native = self._query._get_resolved_filter()._native_filter()
         return native.compiled(self._query._get_database().type.value, now=utc())
 
@@ -656,7 +656,7 @@ class UpdateExecutor[
         native = self._query._get_resolved_filter()._native_filter()
         # The compile refuses an assignment the column cannot hold, and that refusal is the
         # caller's own to read rather than something to run past the constraint wordings a
-        # driver failure is matched on, so it stays outside the error wrapper.
+        # driver failure is matched on so it stays outside the error wrapper.
         return native.update_compiled(
             self._query._get_database().type.value,
             _native_assign(assign),
@@ -769,7 +769,7 @@ class BaseEntityQuery[
     async def _native_store(self) -> Any:
         """The store this query's statements run on.
 
-        Bootstrapping happens here, because the store reads the database directly rather
+        Bootstrapping happens here because the store reads the database directly rather
         than through a connection something else opened, and a database nobody has
         bootstrapped has no tables and, for a temporary one, no file either.
         """
@@ -792,7 +792,7 @@ class BaseEntityQuery[
             rows = await store.fetch(sql, parameters)
 
         # The count is the statement's only column, and its name is whatever the backend
-        # calls a `COUNT(*)` expression, so the row is read by position.
+        # calls a `COUNT(*)` expression so the row is read by position.
         return next(iter(rows[0].values())) if rows else 0
 
     async def any(self) -> bool:
@@ -1136,7 +1136,7 @@ class BaseEntity(BaseEntityCreate, abstract=True, slots=True):
     @classmethod
     @override
     def __entity_columns__(cls) -> tuple[str, ...]:
-        # Taken from the native layer, so an entity field and the column it persists to are
+        # Taken from the native layer so an entity field and the column it persists to are
         # the same name in one place rather than two that can drift apart.
         columns = _stored_columns(cls.__entity_naming__.table)
         return tuple(field for field in cls.__data_object_fields__ if field in columns)

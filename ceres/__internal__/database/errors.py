@@ -4,7 +4,7 @@ from contextlib import contextmanager
 
 # SQLite and Turso both name the constraint's columns as "table.column", listing them comma
 # separated when more than one column makes up the constraint, and Turso appends its result code
-# in parentheses. The first column is the one reported, so the capture stops at the first comma or
+# in parentheses. The first column is the one reported so the capture stops at the first comma or
 # space rather than running to the end of the message.
 _SQLITE_UNIQUE_ERROR_REGEX = re.compile(
     r"UNIQUE constraint failed: [^.]+\.(?P<column>[^,\s]+)",
@@ -16,7 +16,7 @@ _POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 # Every backend's wording for a row pointing at something that is not there. This is an
-# integrity failure rather than a duplicate, so it is matched separately and never carries
+# integrity failure rather than a duplicate so it is matched separately and never carries
 # a column, the offending value being the reference rather than the row.
 _FOREIGN_KEY_ERROR_REGEX = re.compile(
     r"FOREIGN KEY constraint failed|violates foreign key constraint",
@@ -28,7 +28,7 @@ def wrap_database_errors() -> Iterator[None]:
     """Translate a driver failure into the Ceres error that describes it.
 
     The native store reports a driver failure as a plain value error carrying the driver's
-    own words, so the wording is what decides here rather than the exception's class. That
+    own words so the wording decides here rather than the exception's class. That
     makes one constraint violation translate the same whichever backend surfaced it. A
     message no backend's wording recognizes belongs to whoever raised it and travels on
     unchanged.
@@ -56,7 +56,7 @@ def wrap_database_errors() -> Iterator[None]:
 def _raise_if_already_exists(message: str) -> None:
     """Raise `AlreadyExistsError` when `message` reports a unique constraint violation.
 
-    Each backend words the violation its own way, so the wording is what decides rather than
+    Each backend words the violation its own way so the wording decides rather than
     which driver raised it. Turso and the SQLite driver report the same text through different
     exception classes, and a driver that reports neither wording falls through to the caller's
     plain integrity error.

@@ -1,13 +1,13 @@
 //! What a user's password and email address become on their way into the database.
 //!
 //! These are the two columns a user write cannot store as it received them. A password
-//! hashes with the database's configured parameters, and an email address normalizes,
-//! so a row written here has to come out of the Python model's own writes byte for byte
-//! or the two disagree about what is stored.
+//! hashes with the database's configured parameters, and an email address normalizes.
+//! A row written here must match the Python model's own writes byte for byte, or the
+//! two sides disagree about what is stored.
 //!
 //! Both follow the write discipline the rest of the native path uses. Everything either
 //! one refuses is refused before the transaction opens, and the refusal delegates rather
-//! than reporting, so Python produces the message and writes the row itself.
+//! than reporting so Python produces the message and writes the row itself.
 
 use argon2::password_hash::rand_core::{OsRng, RngCore};
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
@@ -53,9 +53,9 @@ impl Credentials {
 
     /// Apply the rules to one wire object bound for a table, `false` to refuse it.
     ///
-    /// Only a user carries either column, so every other table passes through untouched.
+    /// Only a user carries either column so every other table passes through untouched.
     /// A refusal here happens while the object is still being read, before anything has
-    /// been written, which is what lets the whole command delegate.
+    /// been written, which lets the whole command delegate.
     pub fn apply(&self, table: EntityTable, object: &mut Map<String, Value>) -> bool {
         if table != EntityTable::Users {
             return true;
@@ -113,10 +113,10 @@ impl Credentials {
 /// Whether a plaintext password is one the create model would take.
 ///
 /// The only ceiling is bcrypt's 72-byte input limit, measured in bytes because that is
-/// how bcrypt measures it. A passphrase is a good password, so nothing narrower applies.
+/// how bcrypt measures it. A passphrase is a good password so nothing narrower applies.
 ///
 /// This is never reached by a stored hash. [`Credentials::password`] recognizes one first
-/// and passes it through, which it has to, since every hash is longer than this allows.
+/// and passes it through, which it has to since every hash is longer than this allows.
 pub fn valid_password(value: &str) -> bool {
     !value.is_empty() && value.len() <= 72
 }
@@ -143,7 +143,7 @@ fn hash_argon2(value: &str, parameters: Argon2Params) -> Option<String> {
 /// Hash with bcrypt at the given cost.
 ///
 /// The crate writes the `$2b$` prefix the Python library writes, and both salt from the
-/// system generator, so the two produce the same shape and verify each other's output.
+/// system generator so the two produce the same shape and verify each other's output.
 fn hash_bcrypt(value: &str, cost: u32) -> Option<String> {
     bcrypt::hash(value, cost).ok()
 }
@@ -160,7 +160,7 @@ pub fn verify_bcrypt(password: &str, hash: &str) -> Option<bool> {
 /// Whether a password matches a stored Argon2 hash.
 ///
 /// The parameters come out of the encoded string rather than from a configuration, which
-/// is what lets a hash written under one configuration still verify after the parameters
+/// lets a hash written under one configuration still verify after the parameters
 /// are changed. A hash of any other algorithm answers `None`, leaving it to the caller.
 pub fn verify_argon2(password: &str, hash: &str) -> Option<bool> {
     if !argon2_hash(hash) {
@@ -177,7 +177,7 @@ pub fn verify_argon2(password: &str, hash: &str) -> Option<bool> {
 
 /// Whether a value already reads as a stored password hash.
 ///
-/// The two patterns are the ones the Python data types validate against, so a value this
+/// The two patterns are the ones the Python data types validate against so a value this
 /// accepts is one the model would have passed through rather than hashed again.
 pub fn is_password_hash(value: &str) -> bool {
     bcrypt_hash(value) || argon2_hash(value)
@@ -238,7 +238,7 @@ fn argon2_hash(value: &str) -> bool {
 /// The reserved names no address can be delivered to.
 ///
 /// Every one of these is set aside by RFC 2606 or RFC 7686 for documentation, testing, or
-/// onion routing, so no address under them can receive mail.
+/// onion routing so no address under them can receive mail.
 pub const SPECIAL_USE_DOMAINS: &[&str] =
     &["arpa", "invalid", "local", "localhost", "onion", "test"];
 
@@ -249,9 +249,9 @@ pub const SPECIAL_USE_DOMAINS: &[&str] =
 /// domain processing, and `unicode-normalization` for the local part, with only the
 /// narrowing between them written here.
 ///
-/// The stored form is what a lookup compares against, so normalizing has to be
-/// idempotent. Normalizing an address that is already stored answers the same text, which
-/// is what lets a filter find the row a create wrote.
+/// The stored form is what a lookup compares against so normalizing has to be
+/// idempotent. Normalizing an already-stored address returns the same text so a filter
+/// finds the row a create wrote.
 ///
 /// Refused are display forms, quoted local parts, domain literals, single-label domains,
 /// and the reserved names above, none of which name a mailbox Ceres can hold.
@@ -261,8 +261,8 @@ pub fn normalize_email(value: &str) -> Option<String> {
         return None;
     }
 
-    // Composing comes first, so a decomposed `u` plus a combining diaeresis is the same
-    // input as a composed `ü` from here on. It also has to precede parsing, because the
+    // Composing comes first so a decomposed `u` plus a combining diaeresis is the same
+    // input as a composed `ü` from here on. It also has to precede parsing because the
     // grammar crate reads a combining mark as an invalid character.
     let composed: String = value.nfc().collect();
     let parsed: EmailAddress = composed.parse().ok()?;
@@ -278,7 +278,7 @@ pub fn normalize_email(value: &str) -> Option<String> {
         return None;
     }
 
-    // UTS-46 case-folds, composes, maps the label separators, and decodes punycode, so a
+    // UTS-46 case-folds, composes, maps the label separators, and decodes punycode so a
     // domain written in ASCII and the same one written in its own script land together.
     let (domain, processed) = idna::domain_to_unicode(parsed.domain());
     processed.ok()?;
@@ -310,7 +310,7 @@ pub fn normalize_email(value: &str) -> Option<String> {
         return None;
     }
 
-    // UTS-46 already lowered the domain, so this is the local part's fold.
+    // UTS-46 already lowered the domain so this is the local part's fold.
     Some(format!("{local}@{domain}").to_lowercase())
 }
 
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn a_hash_carries_the_parameters_its_configuration_named() {
-        // Argon2 reads its parameters back out of the encoded string, so verifying a hash
+        // Argon2 reads its parameters back out of the encoded string so verifying a hash
         // proves nothing about which parameters produced it. Reading them off the string
         // is what catches a hash length written where a salt length belongs.
         let credentials = Credentials::new(Hashing::Argon2(Argon2Params {
@@ -359,7 +359,7 @@ mod tests {
         );
         assert_eq!(decode(parts[5]), Ok(24), "{hashed}");
 
-        // The same password hashes differently every time, because the salt is fresh.
+        // The same password hashes differently every time because the salt is fresh.
         let again = credentials.password("secret").expect("a password hashes");
         assert_ne!(hashed, again);
     }
@@ -390,7 +390,7 @@ mod tests {
     fn an_email_normalizes_to_one_stored_form() {
         let stored = |value: &str| normalize_email(value).expect(value);
 
-        // Case folds and the local part composes, so the same mailbox written different
+        // Case folds and the local part composes so the same mailbox written different
         // ways lands on one text.
         assert_eq!(stored("Ada@Example.COM"), "ada@example.com");
         assert_eq!(stored("a.b+tag@Gmail.com"), "a.b+tag@gmail.com");
@@ -400,14 +400,14 @@ mod tests {
         );
 
         // An internationalized domain stores in its own script whether it arrives that
-        // way or as punycode, which is what makes the two forms the same address.
+        // way or as punycode, which makes the two forms the same address.
         assert_eq!(stored("a@münchen.de"), "a@münchen.de");
         assert_eq!(stored("a@xn--mnchen-3ya.de"), "a@münchen.de");
         assert_eq!(stored("A@MÜNCHEN.DE"), "a@münchen.de");
         assert_eq!(stored("a@例え.jp"), "a@例え.jp");
         assert_eq!(stored("üser@example.com"), "üser@example.com");
 
-        // Normalizing is idempotent, so a stored address compares equal to itself and a
+        // Normalizing is idempotent so a stored address compares equal to itself and a
         // filter finds the row a create wrote.
         for value in [
             "Ada@Example.COM",

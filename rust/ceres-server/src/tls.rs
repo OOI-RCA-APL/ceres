@@ -2,7 +2,7 @@
 //!
 //! Builds a rustls server configuration from the `ssl` config section. Every protocol
 //! constant the section's `version` accepts floors the negotiation at TLS 1.2, matching
-//! Python's own default minimum, so the offered versions are always 1.2 and 1.3.
+//! Python's own default minimum so the offered versions are always 1.2 and 1.3.
 //! Encrypted private keys decrypt with `key_password`, and a `ca_certs` bundle enables
 //! optional client certificate verification.
 
@@ -54,8 +54,8 @@ pub fn server_config(ssl: &ServerSslConfig) -> Result<Option<Arc<rustls::ServerC
 
     let builder = match &ssl.ca_certs {
         Some(ca_path) => {
-            // A CA bundle enables client certificate verification, optional rather than
-            // required, which is what the setting has always meant.
+            // A CA bundle enables client certificate verification, optional rather
+            // than required.
             let mut roots = rustls::RootCertStore::empty();
             for certificate in read_certificates(ca_path)? {
                 roots

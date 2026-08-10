@@ -37,17 +37,17 @@ const {
   active: string | null
   /** Workspaces placed here that the strip is not currently showing, offered by the add button. */
   openable?: Workspace[]
-  /** Whether this strip mixes placements, which is what makes naming them on each tab useful. */
+  /** Whether this strip mixes placements, which makes naming them on each tab useful. */
   showPlacement?: boolean
-  /** Whether the caller may manage the component, which is what a shared workspace here follows. */
+  /** Whether the caller may manage the component, which a shared workspace here follows. */
   canManage: boolean
   /** Whether the caller may add a workspace here, which needs only view since it lands private. */
   canCreate: boolean
 
-  /** Whether this strip belongs to one component, which is what bounds how much opening all is.
+  /** Whether this strip belongs to one component.
 
-  Home draws from every workspace the caller can see, where opening all of them is never what
-  anybody meant, so it is only offered on a strip with a placement behind it.
+  "Open all" is only offered on a bound strip since home draws from every workspace the caller
+  can see and opening all of those is never intended.
   */
   bound?: boolean
   activeActions?: WorkspaceHeaderActions
@@ -82,7 +82,7 @@ function isWritable(workspace: Workspace): boolean {
   return isWorkspaceWritable(workspace, auth.user?.id, canManage)
 }
 
-// Tabs reorder by pointer rather than by the HTML5 drag API, so they behave the way browser tabs
+// Tabs reorder by pointer rather than by the HTML5 drag API so they behave the way browser tabs
 // do. The same behavior drives the overview's workspace list, which is why it lives in a shared
 // composable rather than here.
 let rootElement = $ref<HTMLElement | null>(null)
@@ -91,13 +91,13 @@ const reorder = usePointerReorder({
   axis: 'horizontal',
   elements: () => [...(rootElement?.querySelectorAll<HTMLElement>('.q-tab') ?? [])],
   onReorder: (from, to) => emit('reorder', moved([...workspaces], from, to)),
-  // The strip scrolls once it outgrows its room, so a tab held near either end carries the strip
+  // The strip scrolls once it outgrows its room so a tab held near either end carries the strip
   // along and can be taken past what is showing.
   scroller: () => rootElement?.querySelector<HTMLElement>('.q-tabs__content') ?? null,
 })
 
 // Whether the tabs have outgrown the strip and started scrolling. It decides where the picker
-// sits, since a strip with room can keep the button beside its last tab while a scrolling one has
+// sits since a strip with room can keep the button beside its last tab while a scrolling one has
 // no such place to put it.
 let overflowing = $ref(false)
 
@@ -124,10 +124,9 @@ let picking = $ref(false)
 
 const { shift: shiftHeld } = useModifiers()
 
-// The button says which of the two it is about to do. A chevron for the picker, which is what a
-// browser puts at the end of a tab strip to list the rest, and a plus once shift turns it into
-// making a new one. The picker opens either way, so that creating is always reached the same way
-// rather than the button quietly changing meaning once a strip happens to hold everything.
+// The button's icon says which of the two it is about to do, a chevron for the picker and a plus
+// once shift turns it into creating. The picker opens either way so creating is always reached
+// the same way.
 const opensPicker = $computed(() => !shiftHeld.value)
 
 function onAddClick(event: MouseEvent) {
@@ -141,7 +140,7 @@ function onAddClick(event: MouseEvent) {
 }
 
 // One menu per tab, reachable from the dots and from a right-click on the tab. Held by workspace
-// rather than by position, since dragging renumbers the strip.
+// rather than by position since dragging renumbers the strip.
 const menus = new Map<string, QMenu>()
 
 function setMenu(id: string, element: QMenu | null) {
@@ -161,8 +160,8 @@ function onTabClick(workspace: Workspace, event: MouseEvent) {
     return
   }
 
-  // Shift names the tab rather than turning to it, which is what holding shift over one already
-  // offers. The press is what makes the offer a real edit, so it outlasts shift being let go of.
+  // Shift renames the tab rather than turning to it. The press makes the rename a real edit, so
+  // it outlasts shift being released.
   if (event.shiftKey) {
     openRename(workspace)
     return
@@ -173,14 +172,13 @@ function onTabClick(workspace: Workspace, event: MouseEvent) {
 
 /** Which tab is showing its name as a field, whether offered or being typed into.
 
-Holding shift over a tab turns its name into a field there and then, so the rename is offered
-rather than hidden behind a shortcut nobody would guess. Clicking into it makes it a real edit,
-which is what keeps it once shift is let go of.
+Holding shift over a tab turns its name into a field in place so renaming is discoverable.
+Clicking into it makes it a real edit that survives shift being released.
 */
 let hoveredId = $ref<string | null>(null)
 
-// Reported by the label rather than by the tab, so the offer belongs to the text being renamed.
-// Leaving only clears what it was set to, since the pointer can reach the next name before the one
+// Reported by the label rather than by the tab so the offer belongs to the text being renamed.
+// Leaving only clears what it was set to since the pointer can reach the next name before the one
 // it left says it has been left.
 function setNameHovered(workspace: Workspace, hovered: boolean) {
   if (hovered) {
@@ -200,7 +198,7 @@ function isNaming(workspace: Workspace): boolean {
 
 // Shift with an arrow key arranges the strip from the keyboard, the same as dragging a tab does
 // with the pointer. Without shift the arrows belong to the strip itself, which steers between
-// tabs, so only the shifted pair is taken.
+// tabs so only the shifted pair is taken.
 async function onTabKeydown(event: KeyboardEvent, index: number) {
   if (!event.shiftKey) {
     return
@@ -216,7 +214,7 @@ async function onTabKeydown(event: KeyboardEvent, index: number) {
   event.stopPropagation()
   emit('reorder', moved([...workspaces], index, to))
 
-  // The tab travels with the key, so focus goes with it rather than staying on whatever has
+  // The tab travels with the key so focus goes with it rather than staying on whatever has
   // taken its place.
   await nextTick()
   rootElement?.querySelectorAll<HTMLElement>('.q-tab')[to]?.focus()
@@ -255,7 +253,7 @@ function hasWorkingCopy(workspace: Workspace): boolean {
 // Which tab is having its name edited in place, if any.
 let editingId = $ref<string | null>(null)
 
-// Renaming a workspace changes it for everybody who can see it, so it takes the same write access
+// Renaming a workspace changes it for everybody who can see it so it takes the same write access
 // deleting does rather than being offered to anyone who can merely look at it.
 function openRename(workspace: Workspace) {
   if (!isWritable(workspace)) {
@@ -265,8 +263,8 @@ function openRename(workspace: Workspace) {
   editingId = workspace.id
 }
 
-// The active tab renames through the live workspace context, so the same handler that persists the
-// standalone header's rename keeps doing so here. Any other tab has no context loaded, so it goes
+// The active tab renames through the live workspace context so the same handler that persists the
+// standalone header's rename keeps doing so here. Any other tab has no context loaded so it goes
 // to the store directly.
 async function rename(workspace: Workspace, value: string) {
   if (workspace.id === active && activeActions != null) {
@@ -344,8 +342,8 @@ function promptDeleteById(workspace: Workspace) {
           @dblclick.stop="openRename(workspace)"
         >
           <!-- The tab's leading edge carries the grab cursor, which is all a tab needs to say it
-          can be dragged, since a strip of tabs already reads as one. The whole tab is the drag
-          target, so this is a hint rather than a handle. -->
+          can be dragged since a strip of tabs already reads as one. The whole tab is the drag
+          target so this is a hint rather than a handle. -->
           <span :class="$style.grip" />
           <workspace-tab-label
             :claim="editingId === workspace.id"
@@ -617,9 +615,9 @@ function promptDeleteById(workspace: Workspace) {
       size="sm"
       @click="onAddClick"
     >
-      <!-- The chevron speaks for itself, so only the plus that shift turns it into is named. -->
+      <!-- The chevron speaks for itself so only the plus that shift turns it into is named. -->
       <q-tooltip v-if="!opensPicker" class="bg-primary text-white">Create Workspace</q-tooltip>
-      <!-- Opened from the click handler alone, so holding shift can bypass it. Left to its own
+      <!-- Opened from the click handler alone so holding shift can bypass it. Left to its own
       devices a menu inside a button opens on every click, shift or not. -->
       <q-menu
         v-model="picking"
@@ -646,7 +644,7 @@ function promptDeleteById(workspace: Workspace) {
               }
             "
           />
-          <!-- Both stay on the menu whatever the strip holds, so each is where it was last time
+          <!-- Both stay on the menu whatever the strip holds so each is where it was last time
           rather than appearing and vanishing as the strip fills and empties, and each is simply
           spent once there is nothing left for it to do. Opening all is offered only on a strip
           with a placement behind it, where what it opens is bounded by what is on this component.
@@ -688,7 +686,7 @@ function promptDeleteById(workspace: Workspace) {
                 </q-item-label>
               </q-item-section>
             </q-item>
-            <!-- The whole strip rather than one tab, so a link hands over the set of workspaces
+            <!-- The whole strip rather than one tab so a link hands over the set of workspaces
             being looked at together and opens all of them where it lands. -->
             <q-item
               v-close-popup
@@ -725,7 +723,7 @@ function promptDeleteById(workspace: Workspace) {
 // The strip takes the full height of the header row it sits in and its tabs stretch to fill it, so
 // the selected tab's fill runs from the top of the header into the separator beneath it, the way a
 // tab is expected to meet the surface it belongs to. The picker floats over the trailing edge
-// rather than reserving space beside the tabs, so it stays in the same place however long the strip
+// rather than reserving space beside the tabs so it stays in the same place however long the strip
 // grows and the tabs pass beneath it.
 .root {
   position: relative;
@@ -737,7 +735,7 @@ function promptDeleteById(workspace: Workspace) {
   overflow: hidden;
 }
 
-// An inset outline rather than a border, so the strip does not shift by a pixel when a file is
+// An inset outline rather than a border so the strip does not shift by a pixel when a file is
 // dragged over it.
 .dropTarget {
   box-shadow: inset 0 0 0 2px $primary;
@@ -748,7 +746,7 @@ function promptDeleteById(workspace: Workspace) {
   @include strip.scroller;
 }
 
-// Stretched to the header's full height on top of what the strip clears, so the selected tab's
+// Stretched to the header's full height on top of what the strip clears so the selected tab's
 // fill reaches the separator under the header.
 .tabs .tab {
   @include strip.tabUnpadded;
@@ -767,14 +765,14 @@ function promptDeleteById(workspace: Workspace) {
   @include strip.tab;
 }
 
-// The grip and the close button sit against the tab's own edges rather than inside the row, so they
+// The grip and the close button sit against the tab's own edges rather than inside the row so they
 // cost the same width whether they are showing or not and the label never moves.
 .tabInner {
   height: 100%;
   padding: 0 20px 0 19px;
 }
 
-// Reaching past the workspace icon, so the whole leading edge of the tab says it can be dragged.
+// Reaching past the workspace icon so the whole leading edge of the tab says it can be dragged.
 .grip {
   @include strip.grip(32px);
 }
@@ -790,12 +788,12 @@ function promptDeleteById(workspace: Workspace) {
   font-size: 13px;
 }
 
-// The extra pixel matches the nudge on the menu button beside it, so the two sit on one line.
+// The extra pixel matches the nudge on the menu button beside it so the two sit on one line.
 .close {
   @include strip.close(1px);
 }
 
-// The selected tab keeps its close button visible, since that is the one most likely to be closed
+// The selected tab keeps its close button visible since that is the one most likely to be closed
 // next.
 .tab:hover .close,
 .closeShown {
@@ -805,7 +803,7 @@ function promptDeleteById(workspace: Workspace) {
 // A workspace with local changes rings its menu dots rather than carrying an icon of its own. The
 // ring is drawn on the dots themselves so it sits tight against them and leaves the button's hit
 // area alone, and being an outline it takes no space, keeping a tab exactly as wide edited as it is
-// clean. Quasar buttons carry `no-outline`, which clears outlines with `!important`, so this has to
+// clean. Quasar buttons carry `no-outline`, which clears outlines with `!important` so this has to
 // be forced back on.
 .editedRing :global(.q-icon) {
   border-radius: 50%;
@@ -829,8 +827,8 @@ function promptDeleteById(workspace: Workspace) {
   @include strip.swapping;
 }
 
-// Wide enough for a workspace name and its placement without the menu sizing itself to whatever
-// happens to be listed.
+// Wide enough for a workspace name and its placement without the menu sizing itself to its
+// contents.
 .picker {
   min-width: 280px;
 }
@@ -844,7 +842,7 @@ function promptDeleteById(workspace: Workspace) {
   @include strip.addCentered;
 }
 
-// Flush against the trailing edge with that side squared off, so no sliver of a tab shows past it
+// Flush against the trailing edge with that side squared off so no sliver of a tab shows past it
 // and the strip ends on the button rather than beside it.
 .addAnchored {
   @include strip.addAnchored(0);

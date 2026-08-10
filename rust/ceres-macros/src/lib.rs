@@ -1,7 +1,7 @@
 //! Procedural macros for the Ceres native crates.
 //!
 //! Doc comments here use plain code spans rather than intra-doc links. The types the
-//! macros generate code against live in crates that depend on this one, so no path
+//! macros generate code against live in crates that depend on this one so no path
 //! from here can resolve to them.
 
 mod filterable;
@@ -24,7 +24,7 @@ pub(crate) fn last_segment(ty: &Type) -> Option<&PathSegment> {
 /// Each named field whose type belongs to a filter family, UUIDs, addresses,
 /// timestamps, text, levels, and `FilterValues` enums, contributes its wire key and
 /// family to the entity's `FIELDS` table, honoring `#[serde(rename)]`. The native
-/// filter subset reads that table, so the filterable surface follows the entity
+/// filter subset reads that table so the filterable surface follows the entity
 /// definition at compile time rather than being written out anywhere else.
 #[proc_macro_derive(Filterable, attributes(filterable))]
 pub fn filterable(input: TokenStream) -> TokenStream {
@@ -36,14 +36,12 @@ pub fn filterable(input: TokenStream) -> TokenStream {
 
 /// Accept the snake_case spelling of every multi-word field this struct deserializes.
 ///
-/// A configuration file is written in kebab-case, which the struct declares with
-/// `rename_all`, and this restores the snake_case spelling alongside it so a file
-/// written either way loads. Applying it to the struct rather than writing an alias per
-/// field is what keeps a field added later from silently accepting only one spelling.
+/// A configuration file is written in kebab-case, declared with `rename_all`, and this
+/// restores the snake_case spelling alongside it. Applying it to the struct rather than
+/// per field keeps a later field from silently accepting only one spelling.
 ///
-/// Place it above the `derive`, so the aliases are attached before serde expands. Only
-/// deserialization is affected, which is why it belongs on configuration structs alone
-/// and never on one that serializes, where it would not change the output anyway.
+/// Place it above the `derive` so the aliases attach before serde expands. Only
+/// deserialization is affected.
 #[proc_macro_attribute]
 pub fn kebab_aliases(_arguments: TokenStream, input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

@@ -22,7 +22,7 @@ _selected: tuple[str, ...] = DATABASES
 """Backends this run is allowed to touch, narrowed by `--database`."""
 
 _postgres_used = False
-"""Whether any test claimed a PostgreSQL schema, so the run knows what to clean up."""
+"""Whether any test claimed a PostgreSQL schema so the run knows what to clean up."""
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -76,8 +76,8 @@ def pytest_configure(config: pytest.Config) -> None:
     chosen: list[str] = config.getoption("--database")
     if chosen:
         _selected = tuple(chosen)
-        # Confining the run also moves the unmarked tests, since leaving them on a backend the run
-        # excluded would be the one thing `--database` was asked not to do.
+        # Confining the run also moves the unmarked tests since leaving them on an excluded
+        # backend would defeat `--database`.
         if _active not in _selected:
             _active = chosen[0]
 
@@ -86,7 +86,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Turn a `databases` marker into one run of the test per backend.
 
     Most tests do not care which backend they are on and run once against the default, which keeps
-    a full run to a single pass. The ones that do care, because they touch SQL a backend writes its
+    a full run to a single pass. The ones that do care because they touch SQL a backend writes its
     own way, ask for the rest by name.
     """
     marker = metafunc.definition.get_closest_marker("databases")
@@ -100,7 +100,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
     names = tuple(name for name in names if name in _selected)
     if not names:
-        # Every backend this test asked for was excluded from the run, so there is nothing to do.
+        # Every backend this test asked for was excluded from the run so there is nothing to do.
         metafunc.parametrize("database", [], indirect=True)
         return
 
@@ -149,11 +149,11 @@ def _pointed_at(name: str, patch: pytest.MonkeyPatch) -> Iterator[None]:
 def _unavailable(name: str) -> str | None:
     """Explain why `name` cannot be run here, or return `None` when it can.
 
-    A server nobody has started skips its tests rather than failing them, so the suite stays
+    A server nobody has started skips its tests rather than failing them so the suite stays
     usable without a PostgreSQL server. Cached because the answer cannot change during a run
     and reaching a server to find out is not free.
 
-    Turso is compiled into Ceres, so it is always available and never skips.
+    Turso is compiled into Ceres so it is always available and never skips.
     """
     if name == POSTGRES:
         from tests import postgres
@@ -171,7 +171,7 @@ def working_directory() -> Iterator[None]:
     """Put back what a command that resolves its config path moves.
 
     Resolving one changes the working directory to the project's and then replaces
-    `os.chdir` with a no-op, which is what a CLI process wants and what a session running
+    `os.chdir` with a no-op, which a CLI process wants and a session running
     on afterwards does not. Left alone, every later test and pytest's own reports land
     wherever the last CLI test happened to be.
     """
@@ -211,7 +211,7 @@ def database_backend() -> Iterator[None]:
 def database(request: pytest.FixtureRequest) -> Iterator[str]:
     """Run the requesting test against one named backend.
 
-    Autouse so that it sits in every test's fixture closure, which is what lets
+    Autouse so that it sits in every test's fixture closure, which lets
     `pytest_generate_tests` parametrize it by name. A test without the `databases` marker arrives
     here with no parameter and is left on whatever the run already chose.
     """

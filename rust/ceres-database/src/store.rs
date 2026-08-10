@@ -2,7 +2,7 @@
 //!
 //! Everything here is written once against [`DatabaseBackend`], the trait in
 //! [`crate::backend`] that every backend implements. Building a statement and choosing a
-//! backend are separate concerns, so this file holds the first and knows nothing of the
+//! backend are separate concerns so this file holds the first and knows nothing of the
 //! second beyond which dialect it renders for.
 
 use std::sync::Arc;
@@ -23,7 +23,7 @@ use crate::turso::TursoBackend;
 /// A statement parameter, as the Python layer's bind processors produce them.
 ///
 /// Most values arrive as primitives, but the PostgreSQL driver takes timestamps and UUIDs
-/// natively, so its processors pass those through as objects.
+/// natively so its processors pass those through as objects.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Parameter {
     Null,
@@ -36,10 +36,9 @@ pub enum Parameter {
     Uuid(uuid::Uuid),
     /// A whole JSON document, for the columns that store one.
     ///
-    /// This stays separate from [`Text`](Parameter::Text) because PostgreSQL's `jsonb`
-    /// refuses a text bind,
-    /// while SQLite stores the same document as its serialized text, so the column's type
-    /// decides the binding and the two cannot share an arm.
+    /// Separate from [`Text`](Parameter::Text) because PostgreSQL's `jsonb` refuses a
+    /// text bind while SQLite stores the same document as its serialized text so the
+    /// column's type decides the binding.
     Json(serde_json::Value),
 }
 
@@ -70,10 +69,10 @@ pub enum Error {
     Decode(String),
     #[error("the native path does not serve this operation on this backend")]
     Unsupported,
-    /// The command asked for something the writer will not do, said in a sentence.
+    /// The writer refused the command, with a user-facing message to report.
     ///
-    /// Nothing was written, because a refusal happens before the transaction opens or
-    /// rolls it back, so this is the command's own message to report.
+    /// Nothing was written because a refusal happens before the transaction opens or
+    /// rolls it back.
     #[error("{0}")]
     Refused(String),
 }
@@ -82,11 +81,11 @@ pub enum Error {
 ///
 /// These are the `init`, `connect`, and `close` hooks a database configuration declares,
 /// and they run after whatever this backend sets for itself. A statement that fails on
-/// connect fails the checkout, because a connection that skipped its setup is not the
+/// connect fails the checkout because a connection that skipped its setup is not the
 /// connection that was configured. One that fails on release retires the connection
 /// instead of reporting, the caller having already finished with it by then.
 ///
-/// The `init` statements belong to the database rather than to a connection, so they run
+/// The `init` statements belong to the database rather than to a connection so they run
 /// on whichever connection opens first and on no other. A failure leaves them un-run, so
 /// the next connection to open tries again rather than the database going without them.
 pub(crate) fn lifecycle<DB>(
@@ -121,7 +120,7 @@ where
                     })
                     .await?;
 
-                // One at a time, because these are separate configured statements rather
+                // One at a time because these are separate configured statements rather
                 // than a script, and the one that failed is the one worth naming.
                 for statement in statements.iter() {
                     connection.execute(statement.as_str()).await?;
@@ -151,10 +150,9 @@ where
 
 /// A driver failure in the driver's own words, with the detail it offered.
 ///
-/// PostgreSQL says which constraint broke on the first line and which key broke it on a
-/// `DETAIL` line, and the second line is the one naming the column and the value. Callers
-/// read the taxonomy off this wording, so dropping the detail would lose the difference
-/// between "something was already taken" and knowing what.
+/// PostgreSQL names the broken constraint on the first line and the offending column
+/// and value on a `DETAIL` line. Callers classify failures from this wording, so
+/// dropping the detail would lose which column and value collided.
 fn database_message(error: &sqlx::Error) -> String {
     let sqlx::Error::Database(database) = error else {
         return error.to_string();
@@ -172,9 +170,9 @@ fn database_message(error: &sqlx::Error) -> String {
 /// Build the connection options for a PostgreSQL database.
 ///
 /// `settings` are per-connection server settings like `search_path`, which shape what a
-/// query sees. `parameters` are the connection string's own, applied by name rather than
-/// guessed at, because a connection that quietly ignored `sslmode` would not be the
-/// connection that was configured.
+/// query sees. `parameters` are the connection string's own, applied by name and
+/// refused when unrecognized because silently ignoring `sslmode` would connect
+/// differently than configured.
 pub(crate) fn postgres_options(
     host: &str,
     port: Option<u16>,
@@ -235,12 +233,12 @@ pub struct GateUser {
 
 /// A natively-connected view of a Ceres database, serving entity reads.
 ///
-/// Connections open lazily on first use, so building a store is cheap and never touches
+/// Connections open lazily on first use so building a store is cheap and never touches
 /// the database. The store connects to the same database the Python layer resolved,
 /// including per-instance temporary SQLite paths, which is why it takes resolved
 /// connection parameters rather than a configuration.
 ///
-/// Which backend is behind it is known only through [`DatabaseBackend`], so every
+/// Which backend is behind it is known only through [`DatabaseBackend`] so every
 /// operation below is written once.
 pub struct RecordStore {
     backend: Arc<dyn DatabaseBackend>,
@@ -249,9 +247,9 @@ pub struct RecordStore {
 impl RecordStore {
     /// Open a read-only store over a SQLite database file.
     ///
-    /// `on_connect` and `on_close` are the configuration's own statements for the two ends
-    /// of a connection's life. The `init` statements belong to whichever store opens the
-    /// database for writing, a read-only connection being in no position to set them.
+    /// `on_connect` and `on_close` are the configuration's own statements for the two
+    /// ends of a connection's life. The `init` statements belong to whichever store
+    /// opens the database for writing because a read-only connection cannot set them.
     pub fn sqlite(
         path: &str,
         on_connect: Vec<String>,
@@ -267,22 +265,20 @@ impl RecordStore {
 
     /// Open a writable store over a SQLite database file.
     ///
-    /// The connection carries the same busy timeout and foreign key enforcement the query
-    /// layer's does, and holds one connection, since the backend serializes writers anyway.
+    /// The connection carries the query layer's busy timeout and foreign key enforcement,
+    /// and holds one connection since the backend serializes writers anyway.
     ///
-    /// A missing file is created, because the store is what runs a database's migrations
-    /// and a database has no file before its first one. Callers that mean to read an
-    /// existing database check for it themselves and say so, an empty file being a worse
-    /// answer than a refusal for anyone pointing at the wrong path.
+    /// A missing file is created since the store runs migrations and a database has no
+    /// file before its first one. Callers that mean to read an existing database check for
+    /// it themselves.
     ///
-    /// Incremental `auto_vacuum` is set here rather than left to a hook, because the
-    /// setting only takes on a database with no tables in it and this is what creates the
-    /// file. A database that missed it can never reclaim freed pages without a full
-    /// `VACUUM` rewriting the whole file.
+    /// Incremental `auto_vacuum` is set here because the setting only takes on an empty
+    /// database, and one that missed it can only reclaim freed pages through a full
+    /// `VACUUM`.
     ///
-    /// `on_init`, `on_connect`, and `on_close` are the statements a configuration asked to
-    /// run on the first connection and at the two ends of every connection's life, in
-    /// order, after this backend's own.
+    /// `on_init`, `on_connect`, and `on_close` are the configuration's statements for the
+    /// first connection and the two ends of every connection's life, run after this
+    /// backend's own.
     pub fn sqlite_writable(
         path: &str,
         on_init: Vec<String>,
@@ -340,9 +336,9 @@ impl RecordStore {
     /// first connection and at the two ends of every connection's life, in order, after
     /// this backend's own.
     ///
-    /// This backend opens a connection per operation rather than pooling them, so a
+    /// This backend opens a connection per operation rather than pooling them so a
     /// connection reaches its close at the end of the operation that opened it, and the
-    /// `close` statements run there rather than on a handback to a pool.
+    /// `close` statements run there rather than on return to a pool.
     pub fn turso(
         path: &str,
         mvcc: bool,
@@ -357,7 +353,7 @@ impl RecordStore {
 
     /// Whether two write transactions on this database can overlap.
     ///
-    /// `false` says a [`Writing::Concurrent`] transaction ran serialized anyway, so no
+    /// `false` says a [`Writing::Concurrent`] transaction ran serialized anyway so no
     /// commit conflict is possible and a caller that would retry one never has to.
     pub fn overlaps_writers(&self) -> bool {
         self.backend.overlaps_writers()
@@ -403,7 +399,7 @@ impl RecordStore {
 
     /// Fetch the records a parsed native filter matches, a chunk at a time.
     ///
-    /// Rows decode and reach `sink` as the driver yields them, so a dump of any size
+    /// Rows decode and reach `sink` as the driver yields them so a dump of any size
     /// holds one chunk rather than the whole table. The sink decides what a chunk means,
     /// which for the CLI is rendering it and writing it out.
     pub async fn stream_filter(
@@ -433,15 +429,15 @@ impl RecordStore {
 
     /// Whether any record matches a parsed native filter.
     ///
-    /// Existence stops at the first matching row, so this stays cheap on a large table
+    /// Existence stops at the first matching row so this stays cheap on a large table
     /// where counting would not.
     pub async fn any_filter(&self, filter: &RecordFilter) -> Result<bool, Error> {
         self.any_matches(filter).await
     }
 
-    /// Delete the records a parsed native filter matches, returning how many went.
+    /// Delete the records a parsed native filter matches, returning the deleted count.
     ///
-    /// The delete runs in its own transaction and commits only on success, so a failure
+    /// The delete runs in its own transaction and commits only on success so a failure
     /// leaves the table untouched and the command is free to delegate.
     pub async fn delete_filter(&self, filter: &RecordFilter) -> Result<u64, Error> {
         self.delete_matches(filter).await
@@ -455,7 +451,7 @@ impl RecordStore {
         self.update_matches(filter, assign, None).await
     }
 
-    /// Assign values and hand back the records that changed, for `--collect`.
+    /// Assign values and return the records that changed, for `--collect`.
     pub async fn update_filter_returning(
         &self,
         filter: &RecordFilter,
@@ -464,8 +460,8 @@ impl RecordStore {
         self.update_matches_returning(filter, assign, None).await
     }
 
-    /// Delete the records a parsed native filter matches and hand back the ones that
-    /// went, for `--collect`.
+    /// Delete the records a parsed native filter matches and return the deleted rows,
+    /// for `--collect`.
     pub async fn delete_filter_returning(&self, filter: &RecordFilter) -> Result<Records, Error> {
         self.delete_matches_returning(filter).await
     }
@@ -505,7 +501,7 @@ impl RecordStore {
             .await
     }
 
-    /// Delete what a parsed native filter matches, returning how many rows went.
+    /// Delete what a parsed native filter matches, returning the deleted count.
     async fn delete_matches<T: Tabled>(&self, filter: &Filter<T>) -> Result<u64, Error> {
         if filter.limit() == Some(0) {
             return Ok(0);
@@ -515,7 +511,7 @@ impl RecordStore {
             .await
     }
 
-    /// Delete what a parsed native filter matches and hand the rows back.
+    /// Delete what a parsed native filter matches and return the deleted rows.
     async fn delete_matches_returning<T: Stored>(
         &self,
         filter: &Filter<T>,
@@ -546,7 +542,8 @@ impl RecordStore {
             .await
     }
 
-    /// Assign values to what a parsed native filter matches and hand the rows back.
+    /// Assign values to what a parsed native filter matches and return the changed
+    /// rows.
     async fn update_matches_returning<T: Stored>(
         &self,
         filter: &Filter<T>,
@@ -566,8 +563,8 @@ impl RecordStore {
     /// Encode an update's assignments for this backend, with the rules the table
     /// imposes on a write applied first.
     ///
-    /// A refusal carries the sentence to show, because the reader is holding a command
-    /// line they can fix and the alternative is a validation dump.
+    /// A refusal carries a user-facing message because the reader is fixing a
+    /// command line.
     fn assignments<T: Stored>(
         &self,
         filter: &Filter<T>,
@@ -602,7 +599,7 @@ impl RecordStore {
 
     /// Run one write statement in its own transaction, returning how many rows changed.
     ///
-    /// Nothing lands unless the statement succeeds, so a failure leaves the table
+    /// Nothing lands unless the statement succeeds so a failure leaves the table
     /// exactly as it was and the command is free to delegate.
     async fn write(&self, statement: impl Into<Write>) -> Result<u64, Error> {
         self.backend.write(statement.into()).await
@@ -618,10 +615,11 @@ impl RecordStore {
         self.any_matches(filter).await
     }
 
-    /// Delete the entities a parsed native filter matches, returning how many went.
+    /// Delete the entities a parsed native filter matches, returning the deleted
+    /// count.
     ///
     /// Like every native write this runs in its own transaction and commits only on
-    /// success, so a failure leaves the table untouched and the command may delegate.
+    /// success so a failure leaves the table untouched and the command may delegate.
     pub async fn delete_entity_filter(&self, filter: &EntityFilter) -> Result<u64, Error> {
         self.delete_matches(filter).await
     }
@@ -630,7 +628,7 @@ impl RecordStore {
     /// changed.
     ///
     /// A user's password hashes and their email address normalizes on the way in, the
-    /// same rules a create follows, so a row written here is one the model would have
+    /// same rules a create follows so a row written here is one the model would have
     /// written.
     pub async fn update_entity_filter(
         &self,
@@ -641,7 +639,7 @@ impl RecordStore {
         self.update_matches(filter, assign, credentials).await
     }
 
-    /// Assign values and hand back the entities that changed, for `--collect`.
+    /// Assign values and return the entities that changed, for `--collect`.
     pub async fn update_entity_filter_returning(
         &self,
         filter: &EntityFilter,
@@ -652,8 +650,8 @@ impl RecordStore {
             .await
     }
 
-    /// Delete the entities a parsed native filter matches and hand back the ones that
-    /// went, for `--collect`.
+    /// Delete the entities a parsed native filter matches and return the deleted
+    /// rows, for `--collect`.
     pub async fn delete_entity_filter_returning(
         &self,
         filter: &EntityFilter,
@@ -668,9 +666,9 @@ impl RecordStore {
 
     /// Write a bulk load's batches in one transaction, reading as it writes.
     ///
-    /// Batches arrive from a reader that walks its source, so a load of any size holds
+    /// Batches arrive from a reader that walks its source so a load of any size holds
     /// one batch rather than the whole file, matching the Python command. Nothing lands
-    /// unless the whole load succeeds, so a collision under `Conflict::Error`, or a row
+    /// unless the whole load succeeds so a collision under `Conflict::Error`, or a row
     /// the reader refuses, leaves the table exactly as it was. Answers how many rows were
     /// written.
     pub async fn load_records(
@@ -726,7 +724,7 @@ impl RecordStore {
     /// Execute a load's batches in one transaction, committing only when all of them
     /// land.
     ///
-    /// The batches are pulled one at a time, so the reader behind them walks its source
+    /// The batches are pulled one at a time so the reader behind them walks its source
     /// as the writes go out rather than collecting it first. A batch of `None` is a row
     /// the reader refused, which rolls everything back by returning before the commit and
     /// reports which row it was.
@@ -735,7 +733,7 @@ impl RecordStore {
         mut batches: impl Iterator<Item = Result<(sea_query::InsertStatement, usize), String>> + Send,
     ) -> Result<usize, Error> {
         // A load takes the whole write lock. Its batches are one caller's own rows going
-        // into tables nobody else is touching, so overlapping buys nothing and a conflict
+        // into tables nobody else is touching so overlapping buys nothing and a conflict
         // at commit would mean re-reading the source.
         self.backend
             .insert_all(Writing::Default, &mut batches)
@@ -746,7 +744,7 @@ impl RecordStore {
     /// carries the ID.
     ///
     /// The gate needs only standing, whether the account is an administrator and
-    /// whether it is disabled, so a record request never crosses into Python just to
+    /// whether it is disabled so a record request never crosses into Python just to
     /// admit its caller.
     pub async fn gate_user(&self, id: uuid::Uuid) -> Result<Option<GateUser>, Error> {
         self.backend.gate_user(id).await
@@ -754,7 +752,7 @@ impl RecordStore {
 
     /// Execute a compiled record query, decoding its rows for the given table.
     ///
-    /// The statement text and parameters come from the Python query layer's own compiler,
+    /// The statement text and parameters come from the Python query layer's own compiler
     /// so any filter it can express runs natively with identical semantics. Only `SELECT`
     /// statements are accepted.
     pub async fn fetch_sql(
@@ -769,7 +767,7 @@ impl RecordStore {
 
     /// Execute a compiled record query, decoding its rows a chunk at a time.
     ///
-    /// The chunked twin of [`fetch_sql`](Self::fetch_sql), so a dump of a table of any
+    /// The chunked twin of [`fetch_sql`](Self::fetch_sql) so a dump of a table of any
     /// size renders and writes as it reads rather than holding the whole result.
     pub async fn stream_sql(
         &self,
@@ -786,9 +784,9 @@ impl RecordStore {
 
     /// Execute a statement that returns rows, decoding them by column.
     ///
-    /// The query layer compiles its own statement and then reads whatever it selected,
+    /// The query layer compiles its own statement and then reads whatever it selected
     /// so this decodes by column rather than into a table's struct. Values arrive in the
-    /// form their column declares, which is what lets one caller read the same row the
+    /// form their column declares, which lets one caller read the same row the
     /// same way on every backend.
     pub async fn fetch_dynamic(
         &self,
@@ -801,9 +799,8 @@ impl RecordStore {
 
     /// The chunked twin of [`fetch_dynamic`](Self::fetch_dynamic).
     ///
-    /// A caller iterating a result rather than collecting it gets rows as they arrive, so
-    /// a query over a large table costs a chunk of memory rather than the whole result,
-    /// and the first rows reach the caller before the last ones have been read.
+    /// Rows reach the caller as they arrive so a query over a large table costs one
+    /// chunk of memory rather than the whole result.
     pub async fn stream_dynamic(
         &self,
         table: Option<crate::dynamic::Table>,
@@ -814,7 +811,7 @@ impl RecordStore {
         self.backend.stream_rows(table, sql, parameters, sink).await
     }
 
-    /// Execute a statement that returns no rows, answering how many it touched.
+    /// Execute a statement that returns no rows and report how many it touched.
     pub async fn execute_dynamic(
         &self,
         sql: &str,
@@ -825,10 +822,10 @@ impl RecordStore {
 
     /// Run a script of `;`-separated statements.
     ///
-    /// `raw_sql` sends the whole script, so the driver separates the statements rather
-    /// than this guessing where one ends. A migration relies on that, since a `PRAGMA`
+    /// `raw_sql` sends the whole script so the driver separates the statements rather
+    /// than this guessing where one ends. Migrations rely on that because a `PRAGMA`
     /// the SQLite family needs before rebuilding a table does nothing inside a
-    /// transaction, and a script sent whole is the driver's business to sequence.
+    /// transaction.
     pub async fn execute_script(&self, sql: &str) -> Result<(), Error> {
         self.backend.execute_script(sql).await
     }
@@ -912,7 +909,7 @@ impl Stored for EntityTable {
     }
 
     /// A user's password hashes and their email address normalizes on the way in, the
-    /// same rules a create follows, so a row written here is one the model would have
+    /// same rules a create follows so a row written here is one the model would have
     /// written.
     fn prepare(
         table: Self,
@@ -1094,7 +1091,7 @@ mod tests {
             .unwrap();
 
         // The column types are the migration's own. A `JSON` column carries none of
-        // SQLite's affinity keywords, so it takes NUMERIC affinity and converts a
+        // SQLite's affinity keywords so it takes NUMERIC affinity and converts a
         // numeric-looking value out of the text the driver bound.
         sqlx::query(
             "CREATE TABLE variables (address TEXT, name TEXT, value JSON, \
@@ -1118,8 +1115,8 @@ mod tests {
                 .unwrap();
         }
 
-        // The affinity really does split the rows across storage classes, which is what
-        // makes reading them all as text wrong.
+        // The affinity really does split the rows across storage classes, which makes
+        // reading them all as text wrong.
         let classes: Vec<String> =
             sqlx::query_scalar("SELECT typeof(value) FROM variables ORDER BY name")
                 .fetch_all(&pool)

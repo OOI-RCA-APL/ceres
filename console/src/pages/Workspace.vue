@@ -44,7 +44,7 @@ const workspace = provideWorkspace(computed(() => id))
 await workspace.load()
 
 // One viewport below where the tab strip pins. That is the least this page can be and still let
-// the strip reach its pinned position, and it does not depend on how tall any one workspace is,
+// the strip reach its pinned position, and it does not depend on how tall any one workspace is
 // so every workspace on a strip can be scrolled the same distance.
 const bottomRoom = $computed(
   () => `calc(100vh - ${(stickyTop ?? appHeaderHeight) + densePageHeaderHeight + 1}px)`
@@ -104,7 +104,7 @@ watch(
     }
   }
 )
-// Started here and reached by every layout drawn under this page, since a carousel slide is
+// Started here and reached by every layout drawn under this page since a carousel slide is
 // arranged the same way the workspace is and a drag crosses freely between them.
 const drop = provideWidgetDrop(workspace)
 
@@ -116,9 +116,9 @@ function isTyping(target: EventTarget | null) {
   )
 }
 
-// Copy, cut and paste carry widgets through the system clipboard, so a block of a workspace can be
+// Copy, cut and paste carry widgets through the system clipboard so a block of a workspace can be
 // taken to another workspace or another window. Text the user has actually highlighted is left to
-// the browser, since copying a value out of a widget is the more likely thing to want.
+// the browser since copying a value out of a widget is the more likely thing to want.
 useEventListener(window, 'copy', (event: ClipboardEvent) => {
   const text = onCopy(event)
   if (text != null) {
@@ -163,7 +163,7 @@ function onCopy(event: ClipboardEvent): string | null {
 }
 
 // The widgets the group dialog was opened for, or null while it is closed. Named here as well as
-// in each widget's menu, so the keyboard can reach grouping without a widget menu open.
+// in each widget's menu so the keyboard can reach grouping without a widget menu open.
 let groupDialogIds = $ref<string[] | null>(null)
 
 // Shortcuts that act on the workspace, skipped while the user is typing so a text field keeps its
@@ -173,7 +173,7 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
     return
   }
 
-  // Undo and redo on the usual shortcuts. Redo accepts both spellings, since editors are split
+  // Undo and redo on the usual shortcuts. Redo accepts both spellings since editors are split
   // between them.
   if ((event.metaKey || event.ctrlKey) && !event.altKey) {
     const key = event.key.toLowerCase()
@@ -200,7 +200,7 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
   }
 
   // Delete takes out whatever is picked out, in one step that a single undo puts back. Both
-  // spellings, since the key a Mac keyboard labels delete reports itself as backspace.
+  // spellings since the key a Mac keyboard labels delete reports itself as backspace.
   if (
     (event.key === 'Delete' || event.key === 'Backspace') &&
     workspace.drag == null &&
@@ -211,7 +211,7 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
   }
 })
 
-// The action bar floats over the window rather than sitting in the page, so its center is taken
+// The action bar floats over the window rather than sitting in the page so its center is taken
 // from the widgets it acts on. Half the window is somewhere left of them whenever the drawer is
 // open, which reads as misaligned against everything else on the page.
 const layoutBounds = useElementBounding($$(layoutElement))
@@ -264,7 +264,7 @@ function promptDelete() {
       const scope = workspace.scope
       await workspace.delete()
 
-      // A component-placed workspace is hosted by that component's page, so deleting it
+      // A component-placed workspace is hosted by that component's page so deleting it
       // returns there with no workspace selected rather than leaving the component entirely.
       if (scope != null && !scope.isEngine) {
         await navigation.replace(`/components/${scope}`)
@@ -382,13 +382,13 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
       </div>
       <workspace-layout v-else ref="layoutView" :layout="data.layout" :layout-id="rootLayoutId" />
     </div>
-    <!-- Mounted only while showing, so its remembered choices are read fresh each time. -->
+    <!-- Mounted only while showing so its remembered choices are read fresh each time. -->
     <workspace-widget-group-dialog
       v-if="groupDialogIds != null"
       :widget-ids="groupDialogIds"
       @close="groupDialogIds = null"
     />
-    <!-- Held back while the layout is empty, since a layout with nothing on it offers this same
+    <!-- Held back while the layout is empty since a layout with nothing on it offers this same
     button in the middle of itself and two of it on screen at once is one too many. -->
     <div
       v-if="!isViewingOriginal && data != null && data.layout.length > 0"
@@ -405,14 +405,13 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         />
       </q-btn>
     </div>
-    <!-- Room below the widgets for the tab strip to be scrolled up to where it pins, whatever this
-    workspace happens to hold. A workspace shorter than this cannot be scrolled far enough to stick
-    the strip at all, and switching to one from a taller workspace would drop the strip back down
-    the page as the document shrank under it. -->
+    <!-- Room below the widgets so the tab strip can always be scrolled to where it pins. A
+    shorter workspace could not pin the strip, and switching to it from a taller one would drop
+    the strip back down the page as the document shrank. -->
     <div :class="$style.bottomPadding" :style="{ minHeight: bottomRoom }" />
-    <!-- A working copy is normally an ongoing personal state rather than a staging area, so the
+    <!-- A working copy is normally an ongoing personal state rather than a staging area so the
     bar reads as neutral status. It appears only while one exists, and the same actions stay in the
-    tab's menu, since this is a shortcut rather than the only route to them. -->
+    tab's menu since this is a shortcut rather than the only route to them. -->
     <div
       v-if="workspace.edited"
       :class="[$style.actionBar, 'items-center', 'row']"
@@ -463,7 +462,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 </template>
 
 <style lang="scss" module>
-// Clipped here rather than on the page, because hiding an axis makes an element its own scrolling
+// Clipped here rather than on the page because hiding an axis makes an element its own scrolling
 // box, and a header inside one pins to that box instead of to the window.
 .layout {
   overflow-x: hidden;
@@ -473,7 +472,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   padding: 4px 0;
 }
 
-// A floor rather than a fixed height, since the minimum is set inline from where this page's
+// A floor rather than a fixed height since the minimum is set inline from where this page's
 // header pins.
 .bottomPadding {
   height: 250px;

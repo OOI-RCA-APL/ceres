@@ -13,9 +13,9 @@ use crate::values::{MaybeSequence, Secret};
 /// The path SQLite reads as a request for a private in-memory database.
 ///
 /// Nothing here opens one. A private in-memory database lives inside the single connection
-/// that opened it, so nothing else in the process can join it, and the native store owns
-/// its own connections. Rejecting the path is what keeps that from reading as a database
-/// file literally named `:memory:`, which is what a bare path would otherwise create.
+/// that opened it so nothing else in the process can join it, and the native store owns
+/// its own connections. Rejecting the path keeps that from reading as a database
+/// file literally named `:memory:`, which a bare path would otherwise create.
 const MEMORY_PATH: &str = ":memory:";
 
 /// Resolve a configured database path against the directory holding the configuration.
@@ -26,7 +26,7 @@ const MEMORY_PATH: &str = ":memory:";
 /// and that is exactly when getting it wrong creates an empty database in the wrong
 /// directory instead of reporting that it could not find the real one.
 ///
-/// An absolute path is returned unchanged, because joining onto one discards the prefix.
+/// An absolute path is returned unchanged because joining onto one discards the prefix.
 pub fn resolve_path(path: &Path, directory: &Path) -> PathBuf {
     directory.join(path)
 }
@@ -342,7 +342,7 @@ pub struct RawTursoDatabaseConfig {
     /// Path to the database file. Omit to use a temporary on-disk file.
     pub path: Option<PathBuf>,
 
-    /// Put the database in Turso's MVCC journal mode, which is what lets writers overlap.
+    /// Put the database in Turso's MVCC journal mode, which lets writers overlap.
     ///
     /// This converts the database file and the conversion cannot be undone.
     pub mvcc: Option<bool>,
@@ -518,7 +518,7 @@ mod tests {
             PathBuf::from("/projects/reef/./local/database.sqlite")
         );
         // What matters is the directory it lands in, whatever the join leaves in the
-        // middle, because that is what decides which file gets opened.
+        // middle because that is what decides which file gets opened.
         assert!(resolved.starts_with("/projects/reef"));
     }
 

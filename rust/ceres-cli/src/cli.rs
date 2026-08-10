@@ -54,7 +54,7 @@ pub struct DelegatedArgs {
     pub arguments: Vec<OsString>,
 }
 
-/// Define [`Args`](clap::Args) structs holding positional component address selectors.
+/// Define [`Args`] structs holding positional component address selectors.
 macro_rules! address_args {
     ($($name:ident { $doc:literal, required: $required:literal })*) => {
         $(
@@ -145,7 +145,7 @@ pub enum Command {
     #[command(disable_help_flag = true)]
     Generate(DelegatedArgs),
     // The table command groups are not declared here. Their whole surface is
-    // generated from the entity definitions at startup, which is what keeps the flags a
+    // generated from the entity definitions at startup, which keeps the flags a
     // table accepts and the filter keys its compiler serves from ever disagreeing.
 }
 

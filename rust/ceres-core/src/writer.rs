@@ -19,13 +19,13 @@ use crate::interop::to_value_error;
 /// Each entry pairs a table name with its columns, and each column its name and the
 /// family that decides how it decodes. This is the contract between the entity structs
 /// and the schema the migrations create, and a column named here that the migrations do
-/// not create is a decode failure on a live query rather than anything a build catches,
-/// which is what the drift test exists to find first.
+/// not create is a decode failure on a live query, which the drift test exists to find
+/// first.
 ///
 /// The order is load bearing. A table appears before anything holding a foreign key to
-/// it, which is what lets a caller empty the schema by deleting in reverse.
+/// it, which lets a caller empty the schema by deleting in reverse.
 // The `tables_precede_the_tables_that_reference_them` test pins the ordering. Named
-// here rather than in the doc, because the doc becomes a Python docstring where a Rust
+// here rather than in the doc because the doc becomes a Python docstring where a Rust
 // test name means nothing.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
@@ -138,12 +138,11 @@ pub fn special_use_domains() -> Vec<&'static str> {
 /// manager's own rule.
 ///
 /// This is the one Argon2 implementation the system has. The Python side calls it rather
-/// than carrying a second one, so a hash written by a native command and a hash written
+/// than carrying a second one so a hash written by a native command and a hash written
 /// through the entity manager cannot drift apart.
 ///
-/// The interpreter lock is released for the duration. Argon2 is deliberately expensive,
-/// tens of milliseconds against the default memory cost, and holding the lock through it
-/// would stall every other Python thread, the event loop included.
+/// The interpreter lock is released for the duration since Argon2 takes tens of
+/// milliseconds and holding the lock would stall every other Python thread.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (password, time_cost, memory_cost, parallelism, hash_length, salt_length))]
@@ -188,7 +187,7 @@ pub fn verify_bcrypt(py: Python<'_>, password: &str, hash: &str) -> Option<bool>
 
 /// Whether a password matches a stored Argon2 hash, `None` for any other algorithm.
 ///
-/// The parameters come out of the encoded hash, so a stored one still verifies after the
+/// The parameters come out of the encoded hash so a stored one still verifies after the
 /// configuration's parameters change. Releases the interpreter lock like `hash_argon2`,
 /// and for the same reason, verifying costs what hashing costs.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
@@ -200,7 +199,7 @@ pub fn verify_argon2(py: Python<'_>, password: &str, hash: &str) -> Option<bool>
 /// Whether a password matches a stored hash of either algorithm.
 ///
 /// The algorithm is read off the hash itself rather than taken from a configuration,
-/// which is what lets a database keep verifying rows written before its hashing was
+/// which lets a database keep verifying rows written before its hashing was
 /// changed. A value that reads as neither algorithm's hash matches nothing.
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
@@ -216,7 +215,7 @@ pub fn verify_password(py: Python<'_>, password: &str, hash: &str) -> bool {
 ///
 /// Entities extract into native records synchronously, then a whole flush upserts in one
 /// transaction on the writer's own pool. Built from the same resolved connection the
-/// stores open from, so it cannot connect differently than the query layer.
+/// stores open from so it cannot connect differently than the query layer.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RecordWriter {
@@ -226,8 +225,8 @@ pub struct RecordWriter {
 #[gen_stub_pymethods]
 #[pymethods]
 impl RecordWriter {
-    /// Open a writer's pool on a connection, which never runs the `init` statements,
-    /// those being the store's to run.
+    /// Open a writer's pool on a connection. The writer never runs the `init`
+    /// statements, which belong to the writable store.
     #[new]
     fn new(connection: &crate::connection::Connection) -> PyResult<Self> {
         Ok(Self {
@@ -262,7 +261,7 @@ mod tests {
 
     #[test]
     fn tables_precede_the_tables_that_reference_them() {
-        // `Database.clear()` empties the schema by deleting in reverse of this order, so a
+        // `Database.clear()` empties the schema by deleting in reverse of this order so a
         // referenced table has to come first or the delete fails on its foreign keys.
         // Reordering the lists in `stored_columns` breaks that silently, hence this.
         let order: Vec<&str> = stored_columns().into_iter().map(|(name, _)| name).collect();

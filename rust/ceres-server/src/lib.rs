@@ -1,11 +1,11 @@
 //! The native HTTP server.
 //!
 //! Serves the Ceres API and console through axum. The wire contract, every route,
-//! status code, envelope, and header, was set by the FastAPI application this replaced
-//! and is preserved byte for byte, because external services consume it. Routing, error
-//! envelopes, the console's static files, and the CLI control app's token gate live
-//! here, while the operations behind the routes reach the engine through the [`Host`]
-//! trait, the permanent seam between the server and whatever hosts it.
+//! status code, envelope, and header, is fixed byte for byte because external
+//! services consume it. Routing, error envelopes, the console's static files, and the
+//! CLI control app's token gate live here, while the operations behind the routes
+//! reach the engine through the [`Host`] trait, the permanent seam between the server
+//! and whatever hosts it.
 
 mod api;
 mod app;
@@ -605,7 +605,7 @@ mod tests {
 
     #[tokio::test]
     async fn reloading_scrubs_the_configuration_it_answers_with() {
-        // Reloading answers with the whole configuration, so it drops credentials the way
+        // Reloading returns the whole configuration so it drops credentials the way
         // the configuration routes do.
         let admin = uuid::Uuid::new_v4();
         let viewer = uuid::Uuid::new_v4();
@@ -647,7 +647,7 @@ mod tests {
         let body = json_of(assert_response!(response, OK)).await;
         assert_eq!(body["section"], "records.count");
 
-        // A non-UUID path segment never matched the route, so it stays a plain 404.
+        // A non-UUID path segment never matched the route so it stays a plain 404.
         assert_response!(
             request!(
                 app, get "/api/particles/not-a-uuid",
@@ -797,7 +797,7 @@ mod tests {
         let user = uuid::Uuid::new_v4();
         let (port, stopper, serving) = served(authenticated_app(user, false)).await;
 
-        // The gate runs before the upgrade, so the handshake itself fails and the
+        // The gate runs before the upgrade so the handshake itself fails and the
         // caller never holds an accepted socket.
         let attempt =
             tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/api/particles")).await;
@@ -894,7 +894,7 @@ mod tests {
             b""
         );
 
-        // No console mount, so unrouted paths answer with the bare envelope.
+        // No console mount so unrouted paths answer with the bare envelope.
         assert_response!(
             request!(app, get "/favicon.ico", header::AUTHORIZATION => "cli-test-token"),
             NOT_FOUND,

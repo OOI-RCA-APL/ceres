@@ -31,7 +31,7 @@ _BACKOFF_INITIAL: Final = 0.5
 _BACKOFF_CAP: Final = 10.0
 _HEALTHY_SESSION_DURATION: Final = 5.0
 
-# Sanity cap on the splicer's box buffer. Live fragmented output emits small boxes, so a single
+# Sanity cap on the splicer's box buffer. Live fragmented output emits small boxes so a single
 # box larger than this means the stream is not something the splicer understands, and it falls
 # back to raw passthrough rather than ballooning memory.
 _BUFFER_CAP: Final = 32 * 1024 * 1024
@@ -109,11 +109,9 @@ class _FragmentSplicer:
 
             size, box_type, header_size = header
             if size == 0 or size < header_size or size > _BUFFER_CAP:
-                # A zero size means the box extends to the end of the stream, which live
-                # fragmented output never produces. A size smaller than its own header is
-                # malformed, and one beyond the sanity cap would balloon memory. In every case
-                # the stream is not something the splicer understands, so flush the buffer and
-                # degrade to raw passthrough for the rest of the session.
+                # A zero size runs to end of stream, which live fragmented output never
+                # produces, a size under its own header is malformed, and one beyond the
+                # cap would balloon memory. Flush and degrade to raw passthrough.
                 self._passthrough = True
                 output += self._buffer
                 self._buffer.clear()
@@ -126,7 +124,7 @@ class _FragmentSplicer:
             del self._buffer[:size]
             if self._splicing and box_type in (b"ftyp", b"moov"):
                 # A respawned session re-emits its init segment, but clients already hold the
-                # original, so drop it.
+                # original so drop it.
                 continue
 
             if box_type == b"moof":
@@ -275,7 +273,7 @@ async def rtsp(
     output can be handed back from component queries or actions to stream the video to clients.
 
     When the RTSP source drops, the subprocess is respawned and its output is spliced onto the
-    original timeline, so clients holding open video connections keep decoding one continuous
+    original timeline so clients holding open video connections keep decoding one continuous
     stream across the gap.
 
     `ffmpeg` must be installed. If the binary is not on the system `PATH`, pass an explicit path
@@ -306,7 +304,7 @@ async def rtsp(
         stall_timeout: Seconds of socket silence after which `ffmpeg` gives up on the source,
             passed as the RTSP demuxer's `-timeout`. Without it a source that dies while
             holding its TCP connection open stalls the stream forever instead of triggering a
-            reconnect, since RTSP has no `-reconnect` family of its own. Pass `None` to omit
+            reconnect since RTSP has no `-reconnect` family of its own. Pass `None` to omit
             the flag.
 
     Returns:
@@ -344,11 +342,10 @@ async def rtsp(
             *(("-loglevel", loglevel) if loglevel else ()),
             # Use TCP as the RTSP transport protocol.
             *("-rtsp_transport", transport),
-            # Give up on a silent source, so a dead camera holding its connection open
-            # becomes an exit the respawn loop recovers from rather than a stalled read.
-            # `-timeout` is the RTSP demuxer's socket I/O timeout in microseconds on
-            # ffmpeg 5 and newer. Older ffmpeg spelled that `-stimeout` and read
-            # `-timeout` as a listen-mode option, so pass `stall_timeout=None` there.
+            # Give up on a silent source so a dead camera becomes an exit the respawn
+            # loop recovers from. `-timeout` is the RTSP demuxer's socket I/O timeout in
+            # microseconds on ffmpeg 5 and newer. Older ffmpeg spelled it `-stimeout` and
+            # read `-timeout` as a listen-mode option so pass `stall_timeout=None` there.
             *(("-timeout", str(int(stall_timeout * 1e6))) if stall_timeout else ()),
             # Read data from the input RTSP URL.
             *("-i", url),

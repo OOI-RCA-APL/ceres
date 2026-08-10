@@ -18,15 +18,15 @@ The gap between two rows opens a row of its own there. Inside a row, the outer t
 width drops in beside that widget, and the middle third is the one place with no target, which is
 where a widget is let go of to leave the layout as it was.
 
-A target is drawn as a line first and only opens the layout once it has been held, so a pointer
+A target is drawn as a line first and only opens the layout once it has been held so a pointer
 travelling across the workspace says where it is without rearranging everything it passes.
 
-A workspace has more than one layout to aim at, since every carousel slide on screen is arranged
+A workspace has more than one layout to aim at since every carousel slide on screen is arranged
 the same way the workspace is. Each one on screen registers itself, and the pointer is answered for
-by the innermost it is over, so a widget is dragged into a slide and back out again in one motion.
+by the innermost it is over so a widget is dragged into a slide and back out again in one motion.
 
 The layouts a drop is measured against are the ones with the held widget already taken out, worked
-out once when the drag begins. Nothing is measured again after that, so the preview opening under
+out once when the drag begins. Nothing is measured again after that so the preview opening under
 the pointer cannot shift the target the pointer is aiming at.
 */
 
@@ -39,7 +39,7 @@ const edgeMargin = 40
 /** How far past the first and last rows a drop still lands at the seam over or under them.
 
 Every other seam is a gap with a row on each side to reach it from, and overshooting one lands in
-the row beyond it. These two have nothing beyond them to overshoot into, so all the empty page over
+the row beyond it. These two have nothing beyond them to overshoot into so all the empty page over
 the first row and under the last belongs to them, and a row can be opened at either end without
 having to find a gap at all.
 */
@@ -47,7 +47,7 @@ const outerReach = 240
 
 /** How long a target is held before the layout opens for it.
 
-Opening moves whatever the widget is arriving among, so a pointer travelling across several targets
+Opening moves whatever the widget is arriving among so a pointer travelling across several targets
 would have the page rearranging under it the entire way. Until this elapses the target is drawn as
 a line, which says where the widget lands without anything having to move for it, and the layout
 only opens once the hand has settled on somewhere.
@@ -61,7 +61,7 @@ const markerThickness = 3
 
 The gap between two rows is a few pixels of nothing, which is a hard thing to land a pointer on, so
 each row lends the seams beside it some of its own edge. Waiting a target out before the layout
-opens for it is what makes this affordable, since reaching over a seam on the way somewhere else
+opens for it is what makes this affordable since reaching over a seam on the way somewhere else
 costs a line being drawn and nothing more.
 */
 const largestBand = 48
@@ -188,7 +188,7 @@ function resolveColumn(row: RowBounds, index: number, x: number): Target | null 
 
 /** How much of a row's height belongs to the seams above and below it.
 
-Never more than a third, so however short a row is there is always a middle left over to drop
+Never more than a third so however short a row is there is always a middle left over to drop
 beside the widgets in it.
 */
 function bandOf(row: RowBounds): number {
@@ -217,7 +217,7 @@ function seamOf(bounds: RowBounds[], row: number): number | null {
 
 /** The line drawn where a widget lands, before the layout opens to take it.
 
-Placed against the layout it names, since the layouts on screen are nested and a line drawn in one
+Placed against the layout it names since the layouts on screen are nested and a line drawn in one
 means nothing measured against another.
 */
 export type DropMarker = {
@@ -281,7 +281,7 @@ function resolveTarget(bounds: RowBounds[], width: number, x: number, y: number)
   const first = bounds[0] ?? null
   const last = bounds[bounds.length - 1] ?? null
 
-  // A layout with nothing left in it is all one target, since there are no rows to aim between and
+  // A layout with nothing left in it is all one target since there are no rows to aim between and
   // an empty carousel slide has to be reachable before anything can be put on it.
   if (first == null || last == null) {
     return { row: 0, column: null }
@@ -293,7 +293,7 @@ function resolveTarget(bounds: RowBounds[], width: number, x: number, y: number)
     return null
   }
 
-  // A seam reaches into the rows either side of it as well as across the gap between them, so it
+  // A seam reaches into the rows either side of it as well as across the gap between them so it
   // is a band to aim at rather than a line. What is left in the middle of a row is for dropping
   // beside the widgets in it.
   for (const [index, row] of bounds.entries()) {
@@ -302,8 +302,7 @@ function resolveTarget(bounds: RowBounds[], width: number, x: number, y: number)
       return { row: index, column: null }
     }
 
-    // Already past this row and into the next one's own middle, so the seam between them is behind
-    // the pointer and the next row answers for where it is.
+    // Past this row and into the next one's middle so the next row claims the pointer.
     const below = bounds[index + 1] ?? null
     if (below != null && y >= below.top + bandOf(below)) {
       continue
@@ -333,7 +332,7 @@ type MeasuredLayout = {
   bounds: RowBounds[]
   width: number
 
-  /** How deep in the page it sits, so the innermost layout under the pointer answers for it. */
+  /** How deep in the page it sits so the innermost layout under the pointer wins. */
   depth: number
 }
 
@@ -409,9 +408,9 @@ function createWidgetDrop(workspace: WorkspaceContext) {
 
   /** The layout drawn under a point, or the outermost one when the point is off all of them.
 
-  Read from the page rather than from the measured boxes, so a layout that its surroundings clip
+  Read from the page rather than from the measured boxes so a layout that its surroundings clip
   claims only the part of itself that is actually on screen. Everywhere else belongs to the
-  outermost layout, which is what carries the margins letting a drop land just off the edge of a
+  outermost layout, which carries the margins letting a drop land just off the edge of a
   workspace.
   */
   function claimant(x: number, y: number): Claim | null {
@@ -430,9 +429,8 @@ function createWidgetDrop(workspace: WorkspaceContext) {
         return layout == null ? null : { layout, entire: true }
       }
 
-      // Somewhere that takes a drag on its own terms, such as the empty room past the last tab of
-      // a strip. Offering to put the widget beside the thing it is being carried into would be
-      // answering a question nobody asked.
+      // Somewhere that handles a drag on its own terms, such as the empty room past the last
+      // tab of a strip so no placement is offered there.
       if (element.hasAttribute('data-no-drop')) {
         return null
       }
@@ -477,7 +475,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
   /** Measure again, for a layout that has come on screen since the drag began.
 
   Turning to another tab mid-drag mounts a layout that was never measured, and a drag aims only at
-  what it measured. Everything else is standing exactly where it was, so measuring the lot again is
+  what it measured. Everything else is standing exactly where it was so measuring the lot again is
   no less true than what was taken the first time.
   */
   function remeasure() {
@@ -495,7 +493,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
     const held = new Set(drag.widgets.map((widget) => widget.id))
 
     // A carousel in hand carries its own slides with it, and those are no place to put it down.
-    // Left out here rather than refused on release, so nothing ever offers to take it.
+    // Left out here rather than refused on release so nothing ever offers to take it.
     const carried = layoutsWithin(drag.widgets)
 
     // Only the layout the widgets are leaving closes up behind them. Every other one on screen
@@ -511,7 +509,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       const drawn = measure(element)
 
       // What each row actually stands at, taken while it is still on screen. A row on a carousel
-      // slide grows into whatever is left over or is squeezed to fit, so the height it was given
+      // slide grows into whatever is left over or is squeezed to fit so the height it was given
       // and the height it has are two different numbers, and only one of them is visible.
       for (const [index, row] of rows.entries()) {
         const bounds = drawn[index]
@@ -535,7 +533,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       return false
     }
 
-    // Innermost first, since a carousel slide sits inside the layout holding the carousel and is
+    // Innermost first since a carousel slide sits inside the layout holding the carousel and is
     // the one being aimed at whenever the pointer is over it.
     measured.sort((one, other) => other.depth - one.depth)
 
@@ -570,15 +568,15 @@ function createWidgetDrop(workspace: WorkspaceContext) {
   }
 
   // Where the press landed, taken before the widget's own handler decides whether it starts a
-  // drag, so the distance travelled is measured from the press rather than from the first move.
+  // drag so the distance travelled is measured from the press rather than from the first move.
   useEventListener(window, 'pointerdown', (event: PointerEvent) => {
     origin = { x: event.clientX, y: event.clientY }
 
     // Pressing anywhere but a widget's header lets go of what is picked out, the way clicking off
     // a selection does elsewhere. A press inside a widget is reaching for what the widget shows
-    // rather than for the widget itself, so it counts as pressing away from the selection.
+    // rather than for the widget itself so it counts as pressing away from the selection.
     //
-    // A held modifier is exempt, since that press is being aimed at the selection rather than away
+    // A held modifier is exempt since that press is being aimed at the selection rather than away
     // from it, as are overlays, where a menu or dialog is usually acting on what is picked out.
     const target = event.target as HTMLElement | null
     if (
@@ -612,13 +610,12 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       }
     }
 
-    // Whichever layout is actually drawn under the pointer answers for it, asked of the page
-    // rather than worked out from boxes. A carousel scrolls its slide, so a slide taller than the
-    // carousel showing it has a box reaching down over rows of the workspace that are nothing to
-    // do with it, and only the page knows where it was really clipped.
+    // The layout actually drawn under the pointer claims it, asked of the page rather than
+    // computed from boxes. A slide taller than its carousel has a box reaching over unrelated
+    // workspace rows, and only the page knows where it was really clipped.
     const claim = claimant(event.clientX, event.clientY)
     if (claim == null) {
-      // Nothing under the pointer takes a drop, so nothing is offered and whatever was drawn for
+      // Nothing under the pointer takes a drop so nothing is offered and whatever was drawn for
       // the last place goes away rather than standing there being wrong.
       if (dwell != null) {
         clearTimeout(dwell)
@@ -644,7 +641,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       return
     }
 
-    // The box is read again each time, so a page that scrolls under the pointer still places it
+    // The box is read again each time so a page that scrolls under the pointer still places it
     // against the same measurements.
     const box = inside.element.getBoundingClientRect()
     const target = resolveTarget(
@@ -655,7 +652,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
     )
     const resolved = target == null ? null : { layout: inside.id, ...target }
 
-    // Held only when it names somewhere else. Every move resolves a target of its own, so handing
+    // Held only when it names somewhere else. Every move resolves a target of its own so handing
     // one over that says what the last one said would rebuild the preview and set the rows moving
     // again on every frame the pointer travels, rather than once as it crosses into somewhere new.
     if (!samePlacement(resolved, placement)) {

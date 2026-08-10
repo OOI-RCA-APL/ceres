@@ -6,12 +6,12 @@ agree with what the Python model would have produced, and the checks that prove 
 in opposite directions.
 
 A hash is checked by handing a natively-produced one to Python's own verifier. Reading
-it back is not enough on its own, because Argon2 carries its parameters inside the
+it back is not enough on its own because Argon2 carries its parameters inside the
 encoded string and so verifies against whatever produced it, which is why the parameters
 are read out and compared as well.
 
 An address is checked one way only. The native subset is deliberately narrower than
-`email_validator`, so an address it refuses costs nothing but a delegation. What must
+`email_validator` so an address it refuses costs nothing but a delegation. What must
 never happen is the other direction: accepting one the library rejects, or normalizing
 one differently, would write a row Python would not have written.
 """
@@ -63,22 +63,23 @@ ARGON2_CFFI_HASHES = [
     "$argon2id$v=19$m=8192,t=2,p=1$nA4m0B7oRXRMYDstCnsEngX2tUs$CM/xugrNXgu1xIiaOFTMCwoihF99Nylp",
     "$argon2id$v=19$m=1024,t=1,p=1$l4CiMWHb5Rw$7NHtsbhY+bBtJ1NmacpGKg",
 ]
-"""Hashes of `STORED_PASSWORD` produced by `argon2-cffi`, which used to do the hashing.
+"""Hashes of `STORED_PASSWORD` produced by `argon2-cffi`.
 
-Written out rather than generated, because the library is no longer a dependency. They
-cover the configured defaults and two other parameter sets, including salt and hash
-lengths that differ from them.
+Written out rather than generated because that library is not a dependency. Stored
+rows can still hold its output so verification must keep accepting it. They cover the
+configured defaults and two other parameter sets, including salt and hash lengths that
+differ from them.
 """
 
 STORED_PASSWORD = "correct horse battery staple"
 
 
 @pytest.mark.parametrize("hashed", ARGON2_CFFI_HASHES)
-def test_a_hash_written_by_the_old_library_still_verifies(hashed: str) -> None:
-    """A password stored before the switch verifies against the implementation after it.
+def test_a_stored_argon2_cffi_hash_verifies(hashed: str) -> None:
+    """A password hash written by `argon2-cffi` verifies against this implementation.
 
     These are real rows in real databases. A verifier that rejected them would lock every
-    existing account out, and no other test would notice, because everything else here
+    existing account out, and no other test would notice because everything else here
     hashes and verifies with the same implementation.
     """
     assert verify_password(STORED_PASSWORD, validate(Argon2Hash, hashed))
@@ -87,7 +88,7 @@ def test_a_hash_written_by_the_old_library_still_verifies(hashed: str) -> None:
 
 @pytest.mark.parametrize("hashed", ARGON2_CFFI_HASHES)
 def test_the_direct_argon2_verifier_answers_like_the_dispatcher(hashed: str) -> None:
-    """`verify_argon2` is the dispatcher's Argon2 arm, so it must answer identically.
+    """`verify_argon2` is the dispatcher's Argon2 arm so it must answer identically.
 
     The dispatcher tests above prove the arm through `verify_password`, and this holds
     the direct export to the same answers so it cannot drift unnoticed.
@@ -110,16 +111,16 @@ BCRYPT_HASHES = [
     # The older `$2a$` prefix, which stored rows can still carry.
     "$2a$04$FlBqeqnwBFuu4OG7VFyKfunWElXOM2JS/yzPCRQ36oxq81oyoSO6W",
 ]
-"""Hashes of `STORED_PASSWORD` produced by the `bcrypt` package, which used to hash them.
+"""Hashes of `STORED_PASSWORD` produced by the `bcrypt` package.
 
-Written out for the same reason as the Argon2 ones, the package no longer being a
-dependency. They cover three cost factors and both prefixes a stored hash can carry.
+Written out for the same reason as the Argon2 ones, that package is not a dependency.
+They cover three cost factors and both prefixes a stored hash can carry.
 """
 
 
 @pytest.mark.parametrize("hashed", BCRYPT_HASHES)
-def test_a_bcrypt_hash_from_the_old_library_still_verifies(hashed: str) -> None:
-    """A bcrypt password stored before the switch verifies against the crate."""
+def test_a_stored_bcrypt_package_hash_verifies(hashed: str) -> None:
+    """A hash written by the `bcrypt` package verifies against the crate."""
     assert verify_bcrypt(STORED_PASSWORD, hashed)
     assert not verify_bcrypt("wrong password", hashed)
 
@@ -138,7 +139,7 @@ def test_bcrypt_hashes_the_way_the_model_stores_them() -> None:
 
 
 def test_a_password_is_held_only_to_the_limit_hashing_imposes() -> None:
-    """The cap is bcrypt's 72-byte input limit, so a passphrase is a password.
+    """The cap is bcrypt's 72-byte input limit so a passphrase is a password.
 
     Measured in bytes because that is how bcrypt measures it, and multi-byte characters
     reach the limit sooner than their character count suggests.
@@ -165,7 +166,7 @@ def test_a_password_is_held_only_to_the_limit_hashing_imposes() -> None:
 def test_the_length_limit_never_rejects_a_stored_hash() -> None:
     """A hash is recognized before the limit applies, which it has to be.
 
-    An Argon2 hash at the configured defaults is longer than a password may be, so a
+    An Argon2 hash at the configured defaults is longer than a password may be so a
     limit applied first would make storing one impossible and would fail every row of a
     dump of hashed users. bcrypt's are shorter and would survive by luck, which is not a
     reason to rely on the order any less.
@@ -182,7 +183,7 @@ def test_the_length_limit_never_rejects_a_stored_hash() -> None:
 def test_a_hash_carries_the_parameters_it_was_configured_with() -> None:
     """The encoded string names the configuration's own costs and lengths.
 
-    Argon2 reads its parameters back out of the string, so verification succeeds whatever
+    Argon2 reads its parameters back out of the string so verification succeeds whatever
     produced the hash. Comparing them is what catches a length or cost that never made it
     across.
     """
@@ -196,7 +197,7 @@ def test_a_hash_carries_the_parameters_it_was_configured_with() -> None:
     assert version == "v=19"
     assert costs == "m=8192,t=2,p=1"
 
-    # The two encoded tails are base64 without padding, so their byte lengths are what
+    # The two encoded tails are base64 without padding so their byte lengths are what
     # the configured salt and hash lengths asked for.
     from base64 import b64decode
 
@@ -210,7 +211,7 @@ def test_a_hash_carries_the_parameters_it_was_configured_with() -> None:
 def test_an_already_hashed_password_passes_through() -> None:
     """A stored hash is written as it arrived rather than hashed a second time.
 
-    The user manager passes one through, which is what lets a dump of one database load
+    The user manager passes one through, which lets a dump of one database load
     into another without turning every hash into a hash of a hash.
     """
     stored = _hash("secret")
@@ -271,7 +272,7 @@ def test_an_address_stores_as_one_normalized_form(address: str, expected: str) -
 def test_normalizing_is_idempotent(address: str, expected: str) -> None:
     """Normalizing a stored address answers itself.
 
-    A filter normalizes the value it is given before comparing, so a form that changed on
+    A filter normalizes the value it is given before comparing so a form that changed on
     a second pass would never match the row a create wrote.
     """
     assert normalize_email(expected) == expected
@@ -286,7 +287,7 @@ def test_a_refused_address_raises(address: str) -> None:
 
 
 def test_reserved_domains_are_refused() -> None:
-    """No address under a reserved name can receive mail, so none is stored."""
+    """No address under a reserved name can receive mail so none is stored."""
     for name in special_use_domains():
         assert normalize_email(f"a@example.{name}") is None, name
 

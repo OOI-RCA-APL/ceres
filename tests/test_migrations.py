@@ -1,6 +1,6 @@
 """Cover the migration runner itself, against SQLite specifically.
 
-These tests read `sqlite_master` and write legacy schemas in SQLite's own types, so they name
+These tests read `sqlite_master` and write legacy schemas in SQLite's own types so they name
 SQLite rather than taking whatever backend the run defaults to. `test_migrations_postgres.py`
 replays the same migrations against PostgreSQL.
 """
@@ -185,7 +185,7 @@ async def test_migration_2_transforms_old_schema(database):
     baseline = next(migration for migration in MIGRATIONS if migration.id == 1)
     store = database._store()
 
-    # Create workspaces with the pre-collapse check constraint first, so the baseline
+    # Create workspaces with the pre-collapse check constraint first so the baseline
     # script's `CREATE TABLE IF NOT EXISTS` leaves it alone. This reproduces a database
     # that predates the baseline snapshot, where `general_*` still allowed the wider
     # 'operators' and 'admins' values migration 2 is responsible for narrowing.
@@ -242,7 +242,7 @@ async def test_migration_2_transforms_old_schema(database):
     assert [(row["id"], row["name"], row["scope"]) for row in workspaces] == [("w1", "open", "~")]
 
     # The general access columns and the memberships table are gone by the end of the
-    # sequence, so a database that predates the baseline still lands on the current schema.
+    # sequence so a database that predates the baseline still lands on the current schema.
     columns = await _columns(database, "workspaces")
     assert "general_viewership" not in columns
     assert "owner_id" in columns
@@ -253,10 +253,10 @@ async def test_migration_2_transforms_old_schema(database):
 async def test_a_table_rebuild_puts_back_the_foreign_keys_it_turned_off(database):
     """SQLite rebuilds a table by copying it, with foreign keys off across the swap.
 
-    That pragma does nothing inside a transaction someone else opened, so a runner that
+    That pragma does nothing inside a transaction someone else opened so a runner that
     wrapped the whole script in one would leave the rebuilt tables without the constraints
     the migration meant to carry over. It would do it without failing, and the rows would
-    still be there, so the constraints themselves are what has to be checked.
+    still be there so the constraints themselves have to be checked.
     """
     await database.migrate()
 
@@ -309,9 +309,9 @@ async def test_migration_3_converts_root_grants_and_deletes_root_state(database)
 
 
 async def test_a_reporter_is_told_which_migration_is_running(database, monkeypatch, tmp_path):
-    """Progress is drawn from these calls, so they have to name each migration in order.
+    """Progress is drawn from these calls so they have to name each migration in order.
 
-    A migration runs as one script, so there is no progress to report from inside one.
+    A migration runs as one script so there is no progress to report from inside one.
     What a caller can draw is which is running and how far through the list it is, and
     that is exactly what `starting` carries.
     """

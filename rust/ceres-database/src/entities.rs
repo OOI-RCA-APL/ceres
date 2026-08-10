@@ -1,7 +1,7 @@
 //! Entity queries and row decoding for the non-record tables.
 //!
 //! Users, variables, settings, and workspaces are small tables an operator reads and
-//! edits, so the win here is startup rather than throughput. They share the record
+//! edits so the win here is startup rather than throughput. They share the record
 //! path's compiler through their schemas, and differ from it in three ways the record
 //! tables never exercise. Two of them carry composite primary keys, their orderings
 //! are their own rather than a timestamp's, and three of their filter keys match a
@@ -67,9 +67,9 @@ impl EntityTable {
 
     /// What the compiler needs to know about this table.
     ///
-    /// The default orderings match what the Python filters applied historically, the
-    /// key columns are each row's primary key, and the computed predicates come from
-    /// the filter fields that have no column behind them.
+    /// The default orderings match the Python filters', the key columns are each row's
+    /// primary key, and the computed predicates come from the filter fields that have
+    /// no column behind them.
     pub(crate) fn schema(&self) -> Schema {
         use ceres_entities::Filterable;
 
@@ -91,7 +91,7 @@ impl EntityTable {
                 delegated: &[],
                 key: &["address", "name"],
                 // A variable's name is assignable though it is half the key, its
-                // address is not, which is what `VariableUpdate` declares.
+                // address is not, which `VariableUpdate` declares.
                 fixed: &["address"],
                 order: &["address", "name"],
                 computed: &[Computed {
@@ -137,7 +137,7 @@ impl EntityTable {
                 columns: WorkspaceEdit::COLUMNS,
                 delegated: &[],
                 key: &["workspace_id", "user_id"],
-                // The draft data is the only thing an edit can change, which is what
+                // The draft data is the only thing an edit can change, which
                 // `WorkspaceEditUpdate` declares.
                 fixed: &["workspace_id", "user_id"],
                 order: &["user_id", "workspace_id"],
@@ -159,7 +159,7 @@ impl EntityTable {
                 columns: GroupMembership::COLUMNS,
                 delegated: &[],
                 key: &["user_id", "group_id"],
-                // A membership is created or deleted and never edited, so both of its
+                // A membership is created or deleted and never edited so both of its
                 // columns are fixed and `GroupMembershipUpdate` carries no fields.
                 fixed: &["user_id", "group_id"],
                 order: &["user_id", "group_id"],
@@ -258,7 +258,7 @@ impl FromRow for Workspace {
         Ok(Workspace {
             id: row.uuid("id")?,
             name: row.text("name")?,
-            // Addresses were validated when written, so the value is trusted on the
+            // Addresses were validated when written so the value is trusted on the
             // way out the way a record's address is.
             scope: Address::trusted(row.text("scope")?),
             owner_id: row.optional_uuid("owner_id")?,

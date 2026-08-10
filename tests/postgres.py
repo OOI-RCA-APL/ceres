@@ -1,12 +1,12 @@
 """Run the suite against a real PostgreSQL server instead of the default SQLite database.
 
-Production runs on PostgreSQL while the suite defaults to SQLite, so a query that only one backend
+Production runs on PostgreSQL while the suite defaults to SQLite so a query that only one backend
 accepts can pass every test. A test carrying the `databases` marker runs against this backend
 alongside the others, and `pytest --database postgres` confines a whole run to it.
 
 Isolation matches what SQLite gives for free. Each `Database` gets a private schema, and its
-connections put that schema first on the search path, so the tables one test creates are invisible
-to the next. `public` stays on the path behind it, because extensions and their operator classes,
+connections put that schema first on the search path so the tables one test creates are invisible
+to the next. `public` stays on the path behind it because extensions and their operator classes,
 such as `pg_trgm` and `gin_trgm_ops`, are installed once per database rather than per schema.
 
 Schemas are recycled instead of accumulating. Handing one out is a list pop, and only a run that
@@ -30,7 +30,7 @@ from ceres.data import uuid4
 DEFAULT_URL = "postgresql://ceres:ceres@localhost:5432/ceres_test"
 """Server the PostgreSQL tests connect to unless told otherwise.
 
-This names a database of its own rather than the one a local deployment uses, because the suite
+This names a database of its own rather than the one a local deployment uses because the suite
 drops schemas and deletes rows wholesale and must never be pointed at real data by accident.
 """
 
@@ -49,7 +49,7 @@ def use_url(url: str) -> None:
 def _parts() -> dict[str, Any]:
     """Split `POSTGRES_URL` into the arguments a native store connects with.
 
-    The scheme is ignored beyond being stripped, so a URL naming a driver Ceres no longer
+    The scheme is ignored beyond being stripped so a URL naming a driver Ceres no longer
     uses still points at the same server.
     """
     split = urlsplit(POSTGRES_URL)
@@ -79,7 +79,7 @@ def _run(coroutine: Coroutine[Any, Any, None]) -> None:
     """Run a coroutine to completion on a loop of its own.
 
     Schemas are claimed from `Database.__new__`, which is synchronous and is usually reached from
-    inside a test's own event loop, so the work goes to a separate thread rather than trying to
+    inside a test's own event loop so the work goes to a separate thread rather than trying to
     nest one loop inside another.
     """
     failures: list[BaseException] = []
@@ -107,7 +107,7 @@ async def _execute(statements: list[str]) -> None:
 def prepare() -> None:
     """Install the shared extensions once, before any schema is handed out.
 
-    The baseline migration asks for `pg_trgm` without naming a schema, so a migration run inside a
+    The baseline migration asks for `pg_trgm` without naming a schema so a migration run inside a
     throwaway schema would install it there and take `gin_trgm_ops` down with that schema when it
     is recycled. Putting the extension in `public` first makes every later `IF NOT EXISTS` a no-op
     and keeps the operator classes resolvable for the whole run.
@@ -215,7 +215,7 @@ def drop_schemas() -> None:
 def database_config() -> PostgresDatabaseConfig:
     """Build a config for a private schema on the test server.
 
-    The schema goes on the search path ahead of `public`, which is what makes one test's
+    The schema goes on the search path ahead of `public`, which makes one test's
     tables invisible to the next. Everything else is the server this run was pointed at.
     """
     parts = _parts()

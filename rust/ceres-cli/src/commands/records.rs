@@ -1,10 +1,10 @@
 //! Native record dumps.
 //!
 //! A record command runs entirely natively when the shared rules in
-//! [`dump`](super::dump) admit it,
-//! the filter parses into the native subset, the database opens through the native store,
-//! and the output renders in one pass, projected or not, so the interpreter never starts.
-//! This module holds only what a record means, its filter, its rows, and its renderers.
+//! [`dump`](super::dump) admit it. The filter parses into the native subset, the
+//! database opens through the native store, and the output renders in one pass so the
+//! interpreter never starts. This module holds only what a record means, its filter,
+//! its rows, and its renderers.
 
 use std::fs::File;
 use std::path::Path;
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn an_unknown_key_is_an_argument_error_rather_than_a_filter_one() {
-        // The surface is what refuses a key nobody declared, so it never reaches the
+        // The surface is what refuses a key nobody declared so it never reaches the
         // compiler and the reader is told which flag was wrong rather than being handed
         // a validation dump.
         let table = Table::Record(RecordTable::Messages);
@@ -199,7 +199,7 @@ mod tests {
     fn a_csv_dump_carries_its_header_unless_it_is_turned_off() {
         assert!(read(RecordTable::Messages, &["select"]).header);
         assert!(!read(RecordTable::Messages, &["select", "--no-header"]).header);
-        // The two spellings override each other, so the last one written wins.
+        // The two spellings override each other so the last one written wins.
         assert!(
             read(
                 RecordTable::Messages,
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn a_filtered_write_asks_unless_it_was_told_not_to() {
         // Nothing about the environment turns the question off. A script that would have
-        // been stopped by the prompt has to keep being stopped by it, because the
+        // been stopped by the prompt has to keep being stopped by it because the
         // alternative is a filter matching more than its author meant and the rows going
         // away with nobody watching.
         assert!(read(RecordTable::Messages, &["delete"]).confirm);
@@ -220,7 +220,7 @@ mod tests {
         assert!(!read(RecordTable::Messages, &["delete", "--no-confirm"]).confirm);
         // The short spelling is the one that gets typed at a terminal.
         assert!(!read(RecordTable::Messages, &["delete", "-y"]).confirm);
-        // The two spellings override each other, so the last one written wins.
+        // The two spellings override each other so the last one written wins.
         assert!(
             read(
                 RecordTable::Messages,
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn the_destination_decides_the_shape_when_no_format_is_named() {
-        // Nobody is reading, which is what a pipe or a redirect looks like.
+        // Nobody is reading, which a pipe or a redirect looks like.
         let shape = |arguments: &[&str]| read(RecordTable::Messages, arguments).dump_format();
 
         assert_eq!(shape(&["select", "--output", "rows.csv"]), DumpFormat::Csv);

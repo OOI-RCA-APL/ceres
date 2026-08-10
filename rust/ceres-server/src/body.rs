@@ -1,9 +1,9 @@
 //! Request body parsing with validation problems.
 //!
 //! Bodies parse into JSON and extract field by field, collecting every problem rather
-//! than stopping at the first, in the same `{type, location, message}` shape request
-//! validation has always produced. Message text follows Pydantic's phrasing for the
-//! common cases, because that is what the contract's error bodies have always said.
+//! than stopping at the first, in the `{type, location, message}` shape the wire
+//! contract fixes. Message text follows Pydantic's phrasing for the common cases
+//! because the contract's error bodies are pinned to it.
 
 use serde_json::{Map, Value};
 use uuid::Uuid;

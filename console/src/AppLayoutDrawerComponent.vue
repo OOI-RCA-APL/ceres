@@ -32,15 +32,14 @@ const {
   */
   trail?: boolean[]
 
-  /** Whether this row has a sibling after it, which is what decides whether the elbow reaching it
-  is a corner or a junction the line carries on past. */
+  /** Whether this row has a sibling after it, which decides whether the elbow reaching it is a
+  corner or a junction the line continues past. */
   hasFollowingSibling?: boolean
 
   /** Whether each column's line, as it passes this row, is on the way to the open component.
 
-  One entry per column in `trail`. A line only carries the path where the open component is further
-  down it, which is what keeps the highlight a single unbroken run from the top rather than a lit
-  fragment beside every dim one.
+  One entry per column in `trail`. A line only carries the path where the open component is
+  further down it, keeping the highlight a single unbroken run from the top.
   */
   pathTrail?: boolean[]
 
@@ -71,7 +70,7 @@ const isOnPath = $computed(() => {
 
 const badge = $ref<InstanceType<typeof StatusBadge> | null>(null)
 
-// Components the user can only look at read quieter than the ones they can control, so a glance
+// Components the user can only look at read quieter than the ones they can control so a glance
 // down the tree separates what can be acted on from what can only be read.
 const canControl = $computed(() => access.canOperate(address.toString()))
 
@@ -92,8 +91,8 @@ function subtreeMatches(current: ComponentInfo, at: Address): boolean {
 
 const isShown = $computed(() => filterText === '' || subtreeMatches(component, address))
 
-// Filtering opens whatever it had to look through, since a match hidden inside something collapsed
-// is no answer at all. Collapsing is remembered rather than overwritten, so the tree returns to how
+// Filtering opens whatever it had to look through since a match hidden inside something collapsed
+// is no answer at all. Collapsing is remembered rather than overwritten so the tree returns to how
 // it was left once the filter is cleared.
 const isExpanded = $computed(
   () => filterText !== '' || !drawer.collapsed.some((current) => current.equals(address))
@@ -119,7 +118,7 @@ const passingGuides = $computed(() =>
 
 /** Which of this component's children the open one is in, or below.
 
-Only a parent knows what order its children are in, so this is where each of them is told whether
+Only a parent knows what order its children are in so this is where each of them is told whether
 the path carries on past it to a later one.
 */
 const activeChildIndex = $computed(() => {
@@ -136,12 +135,12 @@ const activeChildIndex = $computed(() => {
 
 /** The corner joining this row to whatever it hangs from, drawn in that column.
 
-Three pieces rather than one, because each is on the way somewhere different. The stem above comes
+Three pieces rather than one because each is on the way somewhere different. The stem above comes
 down from the row before, the reach turns out of the column towards this row, and the stem below
-carries on to whatever comes next. Only some of those lead to the open component, so each is lit on
+carries on to whatever comes next. Only some of those lead to the open component so each is lit on
 its own.
 
-They are cut so that none overlaps another, since two faded lines crossing leave a brighter mark
+They are cut so that none overlaps another since two faded lines crossing leave a brighter mark
 exactly where they meet.
 */
 const elbow = $computed(() => {
@@ -155,9 +154,9 @@ const elbow = $computed(() => {
   }
 })
 
-// Where this row sits on its own column, which is the dot ending a branch or the ring around the
-// toggle that opens one. Drawn with the lines rather than in the row, so each reads as the branch
-// arriving rather than as an icon the row happens to carry.
+// Where this row sits on its own column, the dot ending a branch or the ring around the toggle
+// that opens one. Drawn with the lines rather than in the row so each reads as the branch
+// arriving.
 const nodeLeft = $computed(() => `${treeColumnCenter(column)}px`)
 
 // What this row's children inherit, which is every column this row's own corner passes through.
@@ -185,10 +184,9 @@ function toggleExpanded() {
       depth is read off the tree instead of measured, and a component with nothing under it needs
       no mark of its own to say it is there.
 
-      Each segment carries its own strength, so the run leading to the open component is lit the
-      whole way down rather than only where it happens to turn. The corner is the exception and is
-      faded as one piece, because two faded lines crossing would leave a brighter dot where they
-      join. -->
+      Each segment carries its own strength so the run leading to the open component is lit the
+      whole way down. The corner fades as one piece because two faded lines crossing would leave
+      a brighter dot where they join. -->
       <span :class="$style.guides">
         <span
           v-for="(guide, index) in passingGuides"
@@ -267,14 +265,14 @@ function toggleExpanded() {
 </template>
 
 <style lang="scss" module>
-/* The row's own left padding is carried by the rail instead, so the indent is one number and the
+/* The row's own left padding is carried by the rail instead so the indent is one number and the
 guides can be placed against it. */
 .root {
   position: relative;
   padding-left: 0 !important;
 }
 
-/* Reaching for a component and arriving at it are the same gesture at two strengths, so both tint
+/* Reaching for a component and arriving at it are the same gesture at two strengths so both tint
 towards primary and only the amount differs. */
 .root:hover {
   background-color: rgba($primary, 0.14);
@@ -291,7 +289,7 @@ muddy it. The tint is the hover here. Left alone for focus, which still needs it
   align-self: stretch;
 }
 
-/* The toggle carries the branch's own ring as its border, so the outline and the button are one
+/* The toggle carries the branch's own ring as its border so the outline and the button are one
 thing rather than a circle drawn behind a square. Sized to `treeNodeSize`, which is where the lines
 reaching it stop.
 
@@ -329,9 +327,9 @@ column starts in the same place. */
 must not draw its own branch in the selection color.
 
 The ring is a line and takes the lines' value. The chevron inside it is an arrow and takes the one
-every other arrow in the drawer has, so the two read as a mark drawn on the branch with a control
+every other arrow in the drawer has so the two read as a mark drawn on the branch with a control
 sitting in it. The ring brightens only under the pointer that is on it rather than with the row
-around it, since hovering a name is reading and not reaching for the toggle. */
+around it since hovering a name is reading and not reaching for the toggle. */
 :global(.dark) .toggle {
   border-color: #ffffff29;
   color: #ffffffb3;
@@ -350,7 +348,7 @@ around it, since hovering a name is reading and not reaching for the toggle. */
   border-color: #00000073;
 }
 
-/* A ring on the way to the open component is part of the run reaching it, so it takes what those
+/* A ring on the way to the open component is part of the run reaching it so it takes what those
 lines take. Written against the toggle itself so it outweighs the theme's own color for it, which
 is set through a theme class and would otherwise win. */
 :global(.dark) .toggle.toggleLit {
@@ -375,9 +373,8 @@ which said nothing and so said it about every row equally. */
 /* Faint enough to be structure rather than content, and each segment carrying its own strength so
 the run reaching the open component is lit without lighting the rows it merely passes.
 
-The color is taken from the theme rather than inherited from the row. The lines belong to the tree,
-not to whichever component happens to be open, so a selected row must not paint the structure
-running through it in the selection color. */
+The color comes from the theme rather than the row so a selected row does not paint the tree's
+structure in the selection color. */
 .guides {
   position: absolute;
   inset: 0;
@@ -404,7 +401,7 @@ running through it in the selection color. */
 }
 
 /* The run leading to the open component. The theme's own color drawn stronger rather than a color
-of its own, since a coloured line down the sidebar pulls harder than whatever it points at. */
+of its own since a coloured line down the sidebar pulls harder than whatever it points at. */
 .lit {
   opacity: 0.44;
 }
@@ -440,7 +437,7 @@ the stem reaches past the middle. */
 
 /* The end of a branch, sitting where the toggle of a component with children would be.
 
-Pulled back by half its width less half a pixel, because a line one pixel wide starting at a
+Pulled back by half its width less half a pixel because a line one pixel wide starting at a
 position covers the pixel after it rather than straddling it. Centering the dot on the position
 itself would leave it half a pixel above the line it terminates. */
 .node {

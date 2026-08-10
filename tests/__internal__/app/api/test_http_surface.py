@@ -1,7 +1,7 @@
 """HTTP-level pins of the API's wire behavior.
 
 Every test here goes through the full ASGI stack, middleware, routing, and dependency
-resolution included, because the rest of the app suite calls handler functions directly
+resolution included because the rest of the app suite calls handler functions directly
 and leaves the wire behavior unpinned. A server port must pass this file unchanged.
 """
 
@@ -100,7 +100,7 @@ async def _serve(
 ) -> AsyncIterator[tuple[Engine, httpx.AsyncClient]]:
     """Serve an engine natively on a loopback port and yield a client against it.
 
-    Requests travel over real TCP through the native server, so routing, middleware,
+    Requests travel over real TCP through the native server so routing, middleware,
     authentication, and serialization are all exercised as deployed.
     """
     import asyncio
@@ -122,7 +122,7 @@ async def _serve(
     server["port"] = 0
     configuration: dict[str, Any] = {"components": [], "server": server}
     if database_path is not None:
-        # A file-backed database carries a native record store, so its record routes and
+        # A file-backed database carries a native record store so its record routes and
         # authentication gate serve without Python.
         configuration["database"] = {"type": "sqlite", "path": str(database_path)}
 
@@ -276,7 +276,7 @@ async def test_the_header_outranks_the_cookie() -> None:
 
 async def test_impersonation_survives_token_reparsing() -> None:
     """The impersonation marker must come back from the token itself, not only from the
-    impersonate response, so the console still knows after a reload.
+    impersonate response so the console still knows after a reload.
     """
     async with _serve(allow_impersonate=True) as (engine, client):
         admin = await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
@@ -515,7 +515,7 @@ async def test_a_file_output_serves_the_file_with_its_headers(tmp_path: Path) ->
 
 
 async def test_a_missing_file_refuses_rather_than_truncating() -> None:
-    """The file is stat'd before the response starts, so its absence is a plain failure."""
+    """The file is stat'd before the response starts so its absence is a plain failure."""
     _media["path"] = Path("/nonexistent/report.csv")
 
     async with _serve(media=True) as (_, client):
@@ -538,7 +538,7 @@ async def test_a_streaming_output_serves_its_chunks() -> None:
 
 
 async def test_a_client_leaving_mid_stream_still_runs_the_exit_hook() -> None:
-    """Releasing the body is what runs the hook, so a download abandoned partway runs it too."""
+    """Releasing the body runs the hook so a download abandoned partway runs it too."""
     async with _serve(media=True) as (_, client):
         async with client.stream("GET", "/api/components/@media/queries/endless/call") as response:
             assert response.status_code == 200
@@ -662,7 +662,7 @@ async def test_favicons_serve_on_the_web_app() -> None:
 
 
 async def test_unknown_console_paths_fall_back_to_the_index() -> None:
-    """The console mount serves `index.html` for any unmatched path, which is what lets
+    """The console mount serves `index.html` for any unmatched path, which lets
     the single-page app own its routes.
     """
     async with _serve() as (_, client):

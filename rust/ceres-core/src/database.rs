@@ -92,8 +92,8 @@ python_config! {
     ): SQLiteDatabaseConfig {
         /// Path to the database file. Omit to use a temporary on-disk file.
         path: Option<PathBuf>,
-        /// Put the database in Turso's MVCC journal mode, which is what lets writers
-        /// overlap. This converts the database file and the conversion cannot be undone.
+        /// Put the database in Turso's MVCC journal mode, which lets writers overlap.
+        /// This converts the database file and the conversion cannot be undone.
         mvcc: bool,
         /// SQL statements executed at well-known points in the database lifecycle.
         #[python(shared, nested = DatabaseConfigHooks)]
