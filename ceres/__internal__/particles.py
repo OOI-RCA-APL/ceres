@@ -34,7 +34,7 @@ def declared_particle_classes(component: Component) -> list[type[Particle]]:
 def default_particle_classes(cls: type[Component]) -> tuple[type[Particle], ...]:
     """Return the particle classes named by `cls`'s `@sieve`-decorated method annotations.
 
-    Backs `Component.__particles__`'s cached default, since a class's sieve bindings are
+    Backs `Component.__particles__`'s cached default since a class's sieve bindings are
     fixed once the class body finishes executing.
     """
     from ceres.component import get_sieve_bindings
@@ -54,11 +54,7 @@ def default_particle_classes(cls: type[Component]) -> tuple[type[Particle], ...]
 
 
 def _sieve_classes(component: Component) -> list[type[Particle]]:
-    """The particle classes named by the component's sieve return annotations.
-
-    An annotation that fails to resolve is skipped so one bad import cannot hide
-    the component's other declarations.
-    """
+    """The particle classes named by the component's sieve return annotations."""
     classes: list[type[Particle]] = []
     for config in component.system.sieves.all():
         function = _sieve_config_function(component, config)
