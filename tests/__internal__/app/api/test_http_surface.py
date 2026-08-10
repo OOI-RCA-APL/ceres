@@ -338,6 +338,18 @@ async def test_procedure_listings_require_authentication() -> None:
         assert "ping" in {binding["name"] for binding in response.json()}
 
 
+async def test_component_particle_types_route_answers_a_list() -> None:
+    async with _serve(probe=True) as (engine, client):
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        response = await client.get(
+            "/api/components/@probe/particle-types", headers=_bearer(identity)
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+
 async def test_public_procedures_call_anonymously() -> None:
     """A public procedure is callable without credentials, by POST body and by GET query
     parameters alike.
