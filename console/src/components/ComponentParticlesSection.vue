@@ -166,7 +166,7 @@ async function chart(type: ParticleTypeInfo) {
     return
   }
 
-  // Bookkeeping runs before the caller is told, since it decides whether a remount of an already
+  // Bookkeeping runs before the caller is told since it decides whether a remount of an already
   // open workspace would actually reveal the chart or just reseed from a still-shadowing edit.
   let revealed = true
   if (before != null) {

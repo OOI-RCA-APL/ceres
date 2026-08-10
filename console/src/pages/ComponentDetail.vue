@@ -189,7 +189,7 @@ function showWorkspace(id: string) {
 // on load and does not otherwise notice a row landing in the stored data behind it.
 let workspaceRefreshKey = $ref(0)
 
-// Read before bumping the key above, since remounting while it is viewing an original snapshot
+// Read before bumping the key above since remounting while it is viewing an original snapshot
 // would silently drop that view back to live editing.
 let workspacePageRef = $ref<InstanceType<typeof WorkspacePage> | null>(null)
 
