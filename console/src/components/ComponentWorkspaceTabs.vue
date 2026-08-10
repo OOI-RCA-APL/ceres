@@ -13,9 +13,9 @@ import { useModifiers } from '@/modifiers'
 import { moved, usePointerReorder } from '@/reorder'
 import { isStructurallyEqual } from '@/utilities'
 import {
+  comparableWorkspaceData,
   isWorkspaceWritable,
   useWorkspaces,
-  withoutMeta,
   Workspace,
   WorkspaceEdit,
   WorkspaceHeaderActions,
@@ -247,7 +247,13 @@ function hasWorkingCopy(workspace: Workspace): boolean {
   }
 
   const edit = edits[workspace.id]
-  return edit != null && !isStructurallyEqual(withoutMeta(edit.data), withoutMeta(workspace.data))
+  return (
+    edit != null &&
+    !isStructurallyEqual(
+      comparableWorkspaceData(edit.data),
+      comparableWorkspaceData(workspace.data)
+    )
+  )
 }
 
 // Which tab is having its name edited in place, if any.

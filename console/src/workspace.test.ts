@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { isStructurallyEqual } from '@/utilities'
 import {
   collectLayouts,
+  comparableWorkspaceData,
   layoutsWithin,
   planWidgetsMove,
   planWidgetsGroup,
@@ -733,5 +735,46 @@ describe('a stored button widget', () => {
 
     expect(button.frameless).toBe(false)
     expect(chart.frameless).toBe(false)
+  })
+})
+
+describe('comparableWorkspaceData', () => {
+  /** A stored chart widget with an ID-less series, the legacy shape a workspace saved before
+  series carried one still holds. */
+  function rawChartRow(field: string) {
+    return {
+      id: 'r1',
+      height: 250,
+      collapsed: false,
+      widgets: [
+        {
+          id: 'w1',
+          type: 'chart',
+          name: 'Chart',
+          particles: [{ type: 'temperature', series: [{ field }] }],
+        },
+      ],
+    }
+  }
+
+  it('treats two parses of the same ID-less chart series as equal', () => {
+    const first = WorkspaceDataModel.parse({ layout: [rawChartRow('value')] })
+    const second = WorkspaceDataModel.parse({ layout: [rawChartRow('value')] })
+
+    // Each parse mints its own series ID, so the parses themselves differ.
+    expect(isStructurallyEqual(first, second)).toBe(false)
+
+    expect(
+      isStructurallyEqual(comparableWorkspaceData(first), comparableWorkspaceData(second))
+    ).toBe(true)
+  })
+
+  it('still reports a real difference in the series', () => {
+    const first = WorkspaceDataModel.parse({ layout: [rawChartRow('value')] })
+    const second = WorkspaceDataModel.parse({ layout: [rawChartRow('other')] })
+
+    expect(
+      isStructurallyEqual(comparableWorkspaceData(first), comparableWorkspaceData(second))
+    ).toBe(false)
   })
 })

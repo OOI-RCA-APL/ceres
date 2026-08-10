@@ -748,7 +748,7 @@ const configHighlighted = $computed(() =>
         />
       </div>
       <!-- Deliberately not keyed on the workspace ID, so switching tabs updates this page in
-      place. Keyed instead on a counter that only charting into the open workspace bumps. -->
+      place. Keyed on a counter that only charting into the open workspace bumps. -->
       <workspace-page
         v-if="activeWorkspaceId != null"
         :id="activeWorkspaceId"

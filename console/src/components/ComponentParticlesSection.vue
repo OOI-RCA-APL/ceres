@@ -10,12 +10,12 @@ import { isStructurallyEqual } from '@/utilities'
 import {
   ChartWidget,
   ChartWidgetParticleModel,
+  comparableWorkspaceData,
   createWidget,
   getWidgetInfo,
   useWorkspaces,
   WidgetRow,
   WidgetRowModel,
-  withoutMeta,
   Workspace,
   WorkspaceData,
 } from '@/workspace'
@@ -66,8 +66,8 @@ function plottableFields(type: ParticleTypeInfo): string[] {
     .map((field) => field.name)
 }
 
-// Chartable fields start checked, others stay listed but disabled. Derived rather than seeded
-// once so no watcher is needed over the query result.
+// Chartable fields start checked, others stay listed but disabled. Derived on each read so no
+// watcher is needed over the query result.
 let selected = $ref<Record<string, string[]>>({})
 
 function selectionFor(type: ParticleTypeInfo): string[] {
@@ -90,8 +90,8 @@ function toggle(type: ParticleTypeInfo, field: string, value: boolean) {
   }
 }
 
-/** Persist a chart widget row onto a workspace's stored layout, reading it fresh rather than
-trusting the strip's own, only periodically refreshed, copy.
+/** Persist a chart widget row onto a workspace's stored layout, read fresh since the strip's own
+copy only refreshes periodically.
 */
 async function chartIntoExisting(
   targetId: string,
@@ -106,7 +106,7 @@ async function chartIntoExisting(
 }
 
 /** Reconcile this user's pending edit on `workspaceId`, which reads ahead of stored data on open.
-Discards one still matching `before`, leaves a diverging one alone and returns whether it did.
+Discards a matching edit, leaves a diverging one, and returns whether it discarded the edit.
 */
 async function reconcileEdit(workspaceId: string, before: WorkspaceData): Promise<boolean> {
   const edit = await workspaces.getEdit(workspaceId)
@@ -114,7 +114,7 @@ async function reconcileEdit(workspaceId: string, before: WorkspaceData): Promis
     return true
   }
 
-  if (!isStructurallyEqual(withoutMeta(edit.data), withoutMeta(before))) {
+  if (!isStructurallyEqual(comparableWorkspaceData(edit.data), comparableWorkspaceData(before))) {
     return false
   }
 

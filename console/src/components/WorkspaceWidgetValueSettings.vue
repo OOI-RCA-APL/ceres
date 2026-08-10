@@ -6,11 +6,17 @@ import ParticleTypeSelect from '@/components/ParticleTypeSelect.vue'
 import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
-import { ValueWidget, TextWeightModel } from '@/workspace'
+import { ValueWidget, TextWeightModel, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ValueWidget
 }>()
+
+const workspace = useWorkspace()
+
+const resolvedParticleAddress = $computed(
+  () => workspace.resolveAddress(widget.particleAddress)?.toString() ?? null
+)
 </script>
 
 <template>
@@ -34,14 +40,14 @@ const { widget } = defineProps<{
         </div>
         <div class="col-6">
           <particle-type-select
-            :address="widget.particleAddress?.toString() ?? null"
+            :address="resolvedParticleAddress"
             :model-value="widget.particleType ?? null"
             @update:model-value="(value) => (widget.particleType = value)"
           />
         </div>
         <div class="col">
           <particle-field-select
-            :address="widget.particleAddress?.toString() ?? null"
+            :address="resolvedParticleAddress"
             :model-value="widget.particleField ?? null"
             :particle-type="widget.particleType ?? null"
             @update:model-value="(value) => (widget.particleField = value)"

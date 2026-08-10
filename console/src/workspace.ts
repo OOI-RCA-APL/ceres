@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
-import { debounce, orderBy } from 'lodash-es'
+import { debounce, omit, orderBy } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { copyToClipboard, exportFile as download } from 'quasar'
 import { v7 } from 'uuid'
@@ -34,6 +34,7 @@ import { LogEntryFilterModel } from '@/api/logs'
 import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
+import { Failure } from '@/errors'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
@@ -656,6 +657,50 @@ export function withoutMeta(data: WorkspaceData): Omit<WorkspaceData, 'meta'> {
   return { layout }
 }
 
+/** Strip every chart series `id` from `rows`, recursing into carousel and tab pages.
+
+`ChartWidgetSeriesModel.id` mints a fresh ID on every parse of a series stored without one, so an
+ID-less legacy series never compares equal to itself across parses. Comparisons that only care
+about content go through this first.
+*/
+function withoutChartSeriesIds(rows: WidgetRow[]): WidgetRow[] {
+  return rows.map((row) => ({
+    ...row,
+    widgets: row.widgets.map((widget) => {
+      const pages = pagesOf(widget)
+      const scrubbed =
+        pages.length === 0
+          ? widget
+          : withPages(
+              widget,
+              pages.map((page) => ({ ...page, layout: withoutChartSeriesIds(page.layout) }))
+            )
+
+      if (scrubbed.type !== 'chart') {
+        return scrubbed
+      }
+
+      return {
+        ...scrubbed,
+        particles: scrubbed.particles.map((particle) => ({
+          ...particle,
+          series: particle.series.map((series) => omit(series, 'id')),
+        })),
+      }
+    }),
+  }))
+}
+
+/** Workspace data comparable across parses, with presentation `meta` and minted chart series IDs
+removed.
+
+Use for any comparison that should treat two parses of the same content as equal: the `edited`
+check, edit reconciliation, and the tab strip's unsaved-edit indicator.
+*/
+export function comparableWorkspaceData(data: WorkspaceData): Omit<WorkspaceData, 'meta'> {
+  return { layout: withoutChartSeriesIds(withoutMeta(data).layout) }
+}
+
 export type Workspace = Zod.infer<typeof WorkspaceModel>
 export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
@@ -873,7 +918,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       return false
     }
 
-    return !isStructurallyEqual(withoutMeta(data), withoutMeta(workspace.data))
+    return !isStructurallyEqual(
+      comparableWorkspaceData(data),
+      comparableWorkspaceData(workspace.data)
+    )
   })
 
   async function rename(newName: string) {
@@ -1377,7 +1425,15 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   async function afterFetch() {
     if (data == null) {
-      data = (await workspaces.getEdit(id))?.data ?? deepClone(workspace?.data ?? null) ?? null
+      // A failed fetch falls through to stored data, the same as there being no pending edit.
+      let edit: WorkspaceEdit | null = null
+      try {
+        edit = await workspaces.getEdit(id)
+      } catch {
+        // Ignore.
+      }
+
+      data = edit?.data ?? deepClone(workspace?.data ?? null) ?? null
 
       // Seed the history with the loaded state so the first edit has something to undo back to.
       if (data != null) {
@@ -1612,6 +1668,11 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return result
   }
 
+  /** This user's pending edit for `workspaceId`, null when none exists.
+
+  Rethrows on any failure other than not-found, so a caller reconciling the edit against fresh
+  data can tell "no edit" apart from "could not check."
+  */
   async function getEdit(workspaceId: string) {
     if (auth.user == null) {
       return null
@@ -1621,8 +1682,12 @@ export const useWorkspaces = defineStore('workspaces', () => {
       return await client.get(`/api/users/${auth.user.id}/workspace-edits/${workspaceId}`, {
         parse: WorkspaceEditModel,
       })
-    } catch {
-      return null
+    } catch (error) {
+      if (error instanceof Failure && error.error.type === 'not-found-error') {
+        return null
+      }
+
+      throw error
     }
   }
 

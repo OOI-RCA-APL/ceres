@@ -7,11 +7,18 @@ import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddButton.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
-import { ChartWidgetParticleModel, ChartWidgetSeriesModel, ChartWidget } from '@/workspace'
+import {
+  ChartWidgetParticleModel,
+  ChartWidgetSeriesModel,
+  ChartWidget,
+  useWorkspace,
+} from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ChartWidget
 }>()
+
+const workspace = useWorkspace()
 
 function addParticle() {
   widget.particles = [...widget.particles, ChartWidgetParticleModel.parse({})]
@@ -89,7 +96,7 @@ function removeSeries(particleIndex: number, seriesIndex: number) {
             />
           </div>
           <particle-type-select
-            :address="particle.address?.toString() ?? null"
+            :address="workspace.resolveAddress(particle.address)?.toString() ?? null"
             :model-value="particle.type ?? null"
             @update:model-value="(value) => (particle.type = value)"
           />
@@ -102,7 +109,7 @@ function removeSeries(particleIndex: number, seriesIndex: number) {
             >
               <div class="col-grow">
                 <particle-field-select
-                  :address="particle.address?.toString() ?? null"
+                  :address="workspace.resolveAddress(particle.address)?.toString() ?? null"
                   :model-value="series.field ?? null"
                   :particle-type="particle.type ?? null"
                   @update:model-value="(value) => (series.field = value)"
