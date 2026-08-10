@@ -167,6 +167,24 @@ async def get_component(engine: Engine, actor: Actor, address: Address) -> Compo
     return info
 
 
+async def _resolve_component(engine: Engine, actor: Actor, address: Address) -> Component:
+    """Resolve the component at `address`, checking that `actor` may view it.
+
+    Raises:
+        NotFoundError: If no component matches the given address.
+        NotPermittedError: If the caller has no access to the component.
+    """
+    component = engine.get_component(address)
+    if component is None:
+        raise NotFoundError()
+
+    access = await get_component_access(engine, actor.user, component)
+    if not actor.unrestricted and access is None:
+        raise NotPermittedError()
+
+    return component
+
+
 async def get_component_config(
     engine: Engine,
     actor: Actor,
@@ -183,14 +201,7 @@ async def get_component_config(
         NotFoundError: If no component matches the given address.
         NotPermittedError: If the caller has no access to the component.
     """
-    component = engine.get_component(address)
-    if component is None:
-        raise NotFoundError()
-
-    access = await get_component_access(engine, actor.user, component)
-    if not actor.unrestricted and access is None:
-        raise NotPermittedError()
-
+    component = await _resolve_component(engine, actor, address)
     return component.system.config
 
 
@@ -215,14 +226,7 @@ async def get_component_connections(
         NotFoundError: If no component matches the given address.
         NotPermittedError: If the caller has no access to the component.
     """
-    component = engine.get_component(address)
-    if component is None:
-        raise NotFoundError()
-
-    access = await get_component_access(engine, actor.user, component)
-    if not actor.unrestricted and access is None:
-        raise NotPermittedError()
-
+    component = await _resolve_component(engine, actor, address)
     return [
         ConnectionStateInfo(
             name=connection.name,
@@ -256,24 +260,6 @@ def _describe_schedule(schedule: object) -> str:
         return strify(schedule.interval)
 
     return strify(schedule)
-
-
-async def _resolve_component(engine: Engine, actor: Actor, address: Address) -> Component:
-    """Resolve the component at `address`, checking that `actor` may view it.
-
-    Raises:
-        NotFoundError: If no component matches the given address.
-        NotPermittedError: If the caller has no access to the component.
-    """
-    component = engine.get_component(address)
-    if component is None:
-        raise NotFoundError()
-
-    access = await get_component_access(engine, actor.user, component)
-    if not actor.unrestricted and access is None:
-        raise NotPermittedError()
-
-    return component
 
 
 async def get_component_jobs(
@@ -338,17 +324,18 @@ def _field_json_type(schema: dict[str, Any]) -> str:
 
 def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
     """Describe one particle class from its `data` model's JSON schema."""
-    data_model = cls.__pydantic_fields__["data"].annotation
-    schema = to_json_schema(data_model)
-    fields = [
-        ParticleFieldInfo(
-            name=name,
-            json_type=_field_json_type(property),
-            description=property.get("description"),
-            chartable=_field_json_type(property) in ("number", "integer"),
+    schema = to_json_schema(cls.Data)
+    fields = []
+    for name, property in schema.get("properties", {}).items():
+        json_type = _field_json_type(property)
+        fields.append(
+            ParticleFieldInfo(
+                name=name,
+                json_type=json_type,
+                description=property.get("description"),
+                chartable=json_type in ("number", "integer"),
+            )
         )
-        for name, property in schema.get("properties", {}).items()
-    ]
 
     description = cls.__doc__
     if description == Particle.__doc__:
