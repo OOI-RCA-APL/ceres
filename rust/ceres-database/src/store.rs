@@ -77,6 +77,27 @@ pub enum Error {
     Refused(String),
 }
 
+/// Create the directories leading to a local database file.
+///
+/// A backend that creates its own missing file creates the directories holding it too, so a
+/// configured path works on a first run rather than failing to open.
+pub(crate) fn create_parent_directories(path: &str) -> Result<(), Error> {
+    let parent = std::path::Path::new(path).parent().unwrap_or_else(|| {
+        // A bare filename names the working directory, which is already there.
+        std::path::Path::new("")
+    });
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(parent).map_err(|error| {
+        Error::Connect(format!(
+            "could not create the directory {}: {error}",
+            parent.display()
+        ))
+    })
+}
+
 /// Attach a configuration's connection lifecycle statements to a pool.
 ///
 /// These are the `init`, `connect`, and `close` hooks a database configuration declares,
@@ -268,9 +289,9 @@ impl RecordStore {
     /// The connection carries the query layer's busy timeout and foreign key enforcement,
     /// and holds one connection since the backend serializes writers anyway.
     ///
-    /// A missing file is created since the store runs migrations and a database has no
-    /// file before its first one. Callers that mean to read an existing database check for
-    /// it themselves.
+    /// A missing file is created, along with the directories leading to it, since the store
+    /// runs migrations and a database has no file before its first one. Callers that mean to
+    /// read an existing database check for it themselves.
     ///
     /// Incremental `auto_vacuum` is set here because the setting only takes on an empty
     /// database, and one that missed it can only reclaim freed pages through a full
@@ -285,6 +306,7 @@ impl RecordStore {
         on_connect: Vec<String>,
         on_close: Vec<String>,
     ) -> Result<Self, Error> {
+        create_parent_directories(path)?;
         let options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true)
@@ -1075,6 +1097,41 @@ mod tests {
 
         assert!(store.load_records(batches, Conflict::Error).await.is_err());
         assert!(contents(&store).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_writable_store_creates_the_directories_leading_to_its_file() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("nested").join("records.sqlite");
+        let store = RecordStore::sqlite_writable(
+            path.to_str().expect("the path is text"),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("the store opens");
+
+        // Nothing has created the schema so the table is missing rather than the file.
+        assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
+        assert!(path.exists(), "opening the database created its file");
+    }
+
+    #[tokio::test]
+    async fn a_read_only_store_creates_nothing() {
+        let directory = tempfile::tempdir().expect("the temporary directory is made");
+        let path = directory.path().join("nested").join("records.sqlite");
+        let store = RecordStore::sqlite(
+            path.to_str().expect("the path is text"),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("the store opens");
+
+        assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
+        assert!(
+            !path.parent().expect("the path has a parent").exists(),
+            "a read-only open left the filesystem alone"
+        );
     }
 
     #[tokio::test]

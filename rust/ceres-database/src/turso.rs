@@ -62,9 +62,11 @@ impl TursoBackend {
         let database = self
             .database
             .get_or_try_init(|| async {
-                // A missing file is created because this is what runs a database's
-                // migrations and a database has no file before its first one. Callers
-                // that mean to read an existing database check for it themselves.
+                // A missing file is created, along with the directories leading to it,
+                // because this is what runs a database's migrations and a database has no
+                // file before its first one. Callers that mean to read an existing
+                // database check for it themselves.
+                crate::store::create_parent_directories(&self.path)?;
                 turso::Builder::new_local(&self.path)
                     .build()
                     .await
@@ -883,10 +885,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_missing_file_is_created_but_a_missing_directory_is_not() {
-        // A database has no file before its first migration so opening one creates it.
+    async fn a_missing_file_and_the_directories_leading_to_it_are_created() {
+        // A database has no file before its first migration so opening one creates it,
+        // along with the directories a configured path names.
         let directory = tempfile::tempdir().expect("the temporary directory is made");
-        let path = directory.path().join("fresh.turso");
+        let path = directory.path().join("nested").join("fresh.turso");
         let store = RecordStore::turso(
             path.to_str().expect("the path is text"),
             false,
@@ -898,7 +901,7 @@ mod tests {
         assert!(store.fetch(RecordTable::Logs, None, None).await.is_err());
         assert!(path.exists(), "opening the database created its file");
 
-        // A path whose directory does not exist is still someone pointing at nothing.
+        // A directory the process cannot create is still a path pointing at nothing.
         let store = RecordStore::turso(
             "/nonexistent/records.turso",
             false,

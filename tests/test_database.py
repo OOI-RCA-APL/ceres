@@ -70,6 +70,17 @@ async def test_a_temporary_database_puts_its_files_in_the_temporary_directory():
     assert list(Path(gettempdir()).glob(f"*{identifier}*")) == []
 
 
+async def test_a_configured_path_creates_the_directories_leading_to_it(tmp_path: Path):
+    """A configured path works on a first run rather than needing the directories made first."""
+    path = tmp_path / "local" / "database.sqlite"
+    database = Database(SQLiteDatabaseConfig(path=str(path)))
+    try:
+        await database.migrate()
+        assert path.exists()
+    finally:
+        await database.dispose()
+
+
 def test_the_in_memory_path_is_refused():
     """`:memory:` names a database nothing outside its one connection can join.
 
