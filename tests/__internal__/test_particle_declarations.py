@@ -83,12 +83,11 @@ def test_describe_reads_the_data_model():
     info: ParticleTypeInfo = _describe_particle_class(Temperature)
     assert info.type == "temperature"
     assert [field.name for field in info.fields] == ["celsius"]
-    assert info.fields[0].json_type == "number"
-    assert info.fields[0].description == "Degrees Celsius."
-    assert info.fields[0].chartable is True
+    assert info.fields[0].schema["type"] == "number"
+    assert info.fields[0].schema["description"] == "Degrees Celsius."
 
 
-def test_non_numeric_fields_are_listed_but_not_chartable():
+def test_mixed_field_schemas_carry_their_own_types():
     class MixedData(ParticleData):
         label: str
         count: int
@@ -99,8 +98,8 @@ def test_non_numeric_fields_are_listed_but_not_chartable():
 
     info = _describe_particle_class(Mixed)
     by_name = {field.name: field for field in info.fields}
-    assert by_name["label"].chartable is False
-    assert by_name["count"].chartable is True
+    assert by_name["label"].schema["type"] == "string"
+    assert by_name["count"].schema["type"] == "integer"
 
 
 def test_duplicates_collapse():

@@ -292,9 +292,8 @@ class ParticleFieldInfo(DataObject):
     """Description of one field on a particle's `data` model."""
 
     name: str
-    json_type: str
-    description: str | None
-    chartable: bool
+    schema: dict[str, Any]
+    """The field's JSON Schema subtree verbatim, the console derives plottability and captions."""
 
 
 class ParticleTypeInfo(DataObject):
@@ -305,37 +304,13 @@ class ParticleTypeInfo(DataObject):
     fields: list[ParticleFieldInfo]
 
 
-def _field_json_type(schema: dict[str, Any]) -> str:
-    """Return the JSON Schema type name of `schema`, `"object"` when none is stated.
-
-    An optional or generic field reaches the schema as `anyOf` rather than a bare
-    `type`, so the first non-null member's type stands in for the field's own.
-    """
-    if "type" in schema:
-        return schema["type"]
-
-    for member in schema.get("anyOf", ()):
-        member_type = member.get("type")
-        if member_type is not None and member_type != "null":
-            return member_type
-
-    return "object"
-
-
 def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
     """Describe one particle class from its `data` model's JSON schema."""
     schema = to_json_schema(cls.Data)
-    fields = []
-    for name, property in schema.get("properties", {}).items():
-        json_type = _field_json_type(property)
-        fields.append(
-            ParticleFieldInfo(
-                name=name,
-                json_type=json_type,
-                description=property.get("description"),
-                chartable=json_type in ("number", "integer"),
-            )
-        )
+    fields = [
+        ParticleFieldInfo(name=name, schema=property)
+        for name, property in schema.get("properties", {}).items()
+    ]
 
     description = cls.__doc__
     if description == Particle.__doc__:
