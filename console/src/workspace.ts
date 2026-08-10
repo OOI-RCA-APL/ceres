@@ -106,6 +106,7 @@ export const ChartWidgetDisplayModel = Zod.enum(['line', 'scatter', 'bar'])
 
 export type ChartWidgetSeries = Zod.infer<typeof ChartWidgetSeriesModel>
 export const ChartWidgetSeriesModel = Zod.object({
+  id: Zod.string().catch(() => v7()),
   field: Zod.string().nullish(),
   label: Zod.string().nullish(),
 })
@@ -2160,6 +2161,14 @@ export function withFreshIds(widget: Widget): Widget {
   // Buttons carry IDs of their own.
   if (copy.type === 'controls') {
     copy.buttons = copy.buttons.map((button) => ({ ...button, id: v7() }))
+  }
+
+  // Chart series carry IDs of their own.
+  if (copy.type === 'chart') {
+    copy.particles = copy.particles.map((particle) => ({
+      ...particle,
+      series: particle.series.map((series) => ({ ...series, id: v7() })),
+    }))
   }
 
   return withPages(copy, pagesOf(copy).map(withFreshPage))

@@ -97,7 +97,7 @@ function removeSeries(particleIndex: number, seriesIndex: number) {
           <div class="column q-gutter-xs">
             <div
               v-for="(series, seriesIndex) in particle.series"
-              :key="seriesIndex"
+              :key="series.id"
               class="items-center q-gutter-xs row"
             >
               <div class="col-grow">
