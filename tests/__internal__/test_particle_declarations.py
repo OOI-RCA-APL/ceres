@@ -63,21 +63,21 @@ def test_union_annotations_contribute_each_member():
 
 def test_particles_attribute_adds_direct_emitters():
     class Sensor(Component):
-        __particles__ = (Humidity,)
+        __particles__: tuple[type[Particle], ...] = (Humidity,)
 
     assert declared_particle_classes(_build(Sensor)) == [Humidity]
 
 
 def test_undiscriminated_classes_are_skipped():
     class Sensor(Component):
-        __particles__ = (Undiscriminated, Temperature)
+        __particles__: tuple[type[Particle], ...] = (Undiscriminated, Temperature)
 
     assert declared_particle_classes(_build(Sensor)) == [Temperature]
 
 
 def test_duplicates_collapse():
     class Sensor(Component):
-        __particles__ = (Temperature,)
+        __particles__: tuple[type[Particle], ...] = (Temperature,)
 
         @sieve
         async def parse(self, messages: AsyncIterable[Message]) -> AsyncIterator[Temperature]:
