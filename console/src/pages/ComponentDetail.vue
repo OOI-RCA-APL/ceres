@@ -13,6 +13,7 @@ import { ConnectionInfo, ConnectionStateInfo, JobInfo, ProcedureInfo } from '@/a
 import { useEngine } from '@/api/engine'
 import { Connectivity } from '@/api/shared'
 import CommonText from '@/components/CommonText.vue'
+import ComponentParticlesSection from '@/components/ComponentParticlesSection.vue'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
 import FullPage, { appHeaderHeight, pageHeaderHeight } from '@/components/FullPage.vue'
@@ -75,6 +76,7 @@ const persisted = usePersisted({
       configuration: boolean().default(true),
       connections: boolean().default(false),
       jobs: boolean().default(false),
+      particles: boolean().default(false),
       queries: boolean().default(false),
       actions: boolean().default(false),
       overviewCollapsed: boolean().default(false),
@@ -316,6 +318,13 @@ function createScoped() {
     await refreshScoped()
     showWorkspace(created.id)
   })
+}
+
+// A chart lands on a workspace the particles section already picked, shown the same way a newly
+// created or reopened one is elsewhere on this page.
+async function chartedScoped(id: string) {
+  await refreshScoped()
+  showWorkspace(id)
 }
 
 // A file dropped on this component's strip belongs to this component, and is shared or private on
@@ -668,6 +677,13 @@ const configHighlighted = $computed(() =>
                   </q-list>
                 </q-expansion-item>
               </q-list>
+
+              <component-particles-section
+                v-model:expanded="persisted.particles"
+                :address
+                :scoped-workspaces="scopedWorkspaces"
+                @charted="chartedScoped"
+              />
 
               <div v-if="component.tags.length > 0" class="q-mt-md">
                 <div class="q-mb-xs text-subtitle2">Tags</div>

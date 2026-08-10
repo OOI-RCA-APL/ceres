@@ -12,6 +12,7 @@ const icons = {
   cancel: 'mdi-close-circle',
   clear: 'mdi-close-circle',
   changeRole: 'mdi-account-convert',
+  chart: 'mdi-chart-line',
   chevronDown: 'mdi-chevron-down',
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
