@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { AddressSelector } from '@/api/address'
 import CommonText from '@/components/CommonText.vue'
+import ParticleFieldSelect from '@/components/ParticleFieldSelect.vue'
+import ParticleTypeSelect from '@/components/ParticleTypeSelect.vue'
 import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
@@ -31,23 +33,18 @@ const { widget } = defineProps<{
           />
         </div>
         <div class="col-6">
-          <schema-form-value
-            v-model="widget.particleType"
-            :schema="{
-              type: 'string',
-              title: 'Type',
-              optional: true,
-            }"
+          <particle-type-select
+            :address="widget.particleAddress?.toString() ?? null"
+            :model-value="widget.particleType ?? null"
+            @update:model-value="(value) => (widget.particleType = value)"
           />
         </div>
         <div class="col">
-          <schema-form-value
-            v-model="widget.particleField"
-            :schema="{
-              type: 'string',
-              title: 'Field',
-              optional: true,
-            }"
+          <particle-field-select
+            :address="widget.particleAddress?.toString() ?? null"
+            :model-value="widget.particleField ?? null"
+            :particle-type="widget.particleType ?? null"
+            @update:model-value="(value) => (widget.particleField = value)"
           />
         </div>
       </div>
