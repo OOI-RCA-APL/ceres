@@ -5,6 +5,7 @@ from ceres.__internal__.app.shared import (
     get_component_access,
     get_components_access,
 )
+from ceres.__internal__.interop import _self_contained
 from ceres.__internal__.particles import declared_particle_classes
 from ceres.__internal__.utilities.text import strify
 from ceres.address import Address
@@ -305,16 +306,17 @@ class ParticleTypeInfo(DataObject):
 
 
 def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
-    """Describe one particle class from its `data` model's JSON schema."""
+    """Describe one particle class from its `data` model's JSON schema.
+
+    Each field's schema subtree is inlined against the model's `$defs` since it ships on
+    its own, detached from the schema that defined those references.
+    """
     schema = to_json_schema(cls.Data)
+    definitions = schema.get("$defs", {})
     fields = [
-        ParticleFieldInfo(name=name, schema=property)
+        ParticleFieldInfo(name=name, schema=_self_contained(property, definitions, frozenset()))
         for name, property in schema.get("properties", {}).items()
     ]
-
-    description = cls.__doc__
-    if description == Particle.__doc__:
-        description = None
 
     discriminator = _get_cls_particle_type(cls)
     if discriminator is None:
@@ -322,7 +324,7 @@ def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
 
     return ParticleTypeInfo(
         type=discriminator,
-        description=description,
+        description=cls.__doc__,
         fields=fields,
     )
 

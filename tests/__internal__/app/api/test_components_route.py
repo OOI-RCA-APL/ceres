@@ -1,10 +1,11 @@
 import pytest
 
-from ceres import Address, Component, Engine, action
+from ceres import Address, Component, Engine, Particle, ParticleData, action
 from ceres.__internal__.app.handlers.components import (
     get_component_config,
     get_component_connections,
     get_component_jobs,
+    get_component_particle_types,
     get_components,
 )
 from ceres.__internal__.app.shared import Actor
@@ -270,6 +271,47 @@ async def test_get_component_connections_requires_access() -> None:
 
     with pytest.raises(NotPermittedError):
         await get_component_connections(
+            engine=engine,
+            actor=Actor(user=user, unrestricted=False),
+            address=sensor.system.address,
+        )
+
+
+class _TemperatureData(ParticleData):
+    celsius: float
+
+
+class _Temperature(Particle[_TemperatureData]):
+    type = "temperature"
+    data: _TemperatureData
+
+
+class _SensingComponent(Component):
+    __particles__: tuple[type[Particle], ...] = (_Temperature,)
+
+
+async def test_get_component_particle_types_describes_each_type() -> None:
+    """Each particle type the component declares is returned with its field schemas."""
+    engine = Engine()
+    await engine.database.migrate()
+    engine.attach(_SensingComponent(__with_name__="sensing"))
+
+    result = await get_component_particle_types(
+        engine=engine, actor=_UNRESTRICTED, address=Address("@sensing")
+    )
+
+    assert len(result) == 1
+    assert result[0].type == "temperature"
+    assert [field.name for field in result[0].fields] == ["celsius"]
+
+
+async def test_get_component_particle_types_requires_access() -> None:
+    """A user with no access to the component cannot list its particle types."""
+    engine, sensor = await _build_restricted_engine()
+    user = await _create_user(engine, "nobody")
+
+    with pytest.raises(NotPermittedError):
+        await get_component_particle_types(
             engine=engine,
             actor=Actor(user=user, unrestricted=False),
             address=sensor.system.address,

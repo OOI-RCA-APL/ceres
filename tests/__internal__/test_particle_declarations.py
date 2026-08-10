@@ -1,6 +1,8 @@
 """Cover `declared_particle_classes` against sieves, unions, and `__particles__`."""
 
+import json
 from collections.abc import AsyncIterable, AsyncIterator
+from enum import StrEnum
 
 from ceres import Component, Message, Particle, ParticleData, sieve
 from ceres.__internal__.app.handlers.components import (
@@ -100,6 +102,27 @@ def test_mixed_field_schemas_carry_their_own_types():
     by_name = {field.name: field for field in info.fields}
     assert by_name["label"].schema["type"] == "string"
     assert by_name["count"].schema["type"] == "integer"
+
+
+class Status(StrEnum):
+    OK = "ok"
+    ERROR = "error"
+
+
+class StatusData(ParticleData):
+    status: Status
+
+
+class StatusParticle(Particle[StatusData]):
+    type = "status"
+    data: StatusData
+
+
+def test_field_schema_refs_are_inlined_against_defs():
+    info = _describe_particle_class(StatusParticle)
+    schema = info.fields[0].schema
+    assert "$ref" not in json.dumps(schema)
+    assert schema["enum"] == ["ok", "error"]
 
 
 def test_duplicates_collapse():
