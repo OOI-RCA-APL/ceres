@@ -41,6 +41,14 @@ const navigation = useNavigation()
 const notify = useNotify()
 
 const workspace = provideWorkspace(computed(() => id))
+
+let original = $ref<WorkspaceData | null>(null)
+let isViewingOriginal = $computed(() => original != null)
+
+// Read by a host deciding whether remounting this page would silently drop it out of "view
+// original". Exposed before the load below since the compiler forbids it after a top-level await.
+defineExpose({ isViewingOriginal: $$(isViewingOriginal) })
+
 await workspace.load()
 
 // One viewport below where the tab strip pins. That is the least this page can be and still let
@@ -54,9 +62,6 @@ const layoutView = $ref<InstanceType<typeof WorkspaceLayout> | null>(null)
 
 /** The box the widgets are laid out in, which a drag is measured against. */
 const layoutElement = $computed(() => layoutView?.element ?? null)
-
-let original = $ref<WorkspaceData | null>(null)
-let isViewingOriginal = $computed(() => original != null)
 
 if (workspace.data == null || workspace.name == null) {
   throw new NotFoundError('workspace', id)

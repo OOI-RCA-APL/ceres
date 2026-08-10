@@ -17,6 +17,7 @@ import {
   WidgetRowModel,
   withoutMeta,
   Workspace,
+  WorkspaceData,
 } from '@/workspace'
 
 const { address, scopedWorkspaces } = defineProps<{
@@ -27,8 +28,8 @@ const { address, scopedWorkspaces } = defineProps<{
 
 const emit = defineEmits<{
   /** A chart landed on the workspace with this ID, which the caller shows and refreshes its
-  strip for. */
-  charted: [id: string]
+  strip for. `revealed` is false when reopening the workspace is the only way to see it. */
+  charted: [id: string, revealed: boolean]
 }>()
 
 let expanded = $(defineModel<boolean>('expanded', { required: true }))
@@ -89,27 +90,36 @@ function toggle(type: ParticleTypeInfo, field: string, value: boolean) {
   }
 }
 
-/** Land a chart widget for `type`'s checked fields into a workspace's stored layout.
-
-Reads the workspace fresh rather than trusting the strip's own, only periodically refreshed,
-copy. A pending edit for this user that still matches is discarded, a diverging one is warned about.
+/** Persist a chart widget row onto a workspace's stored layout, reading it fresh rather than
+trusting the strip's own, only periodically refreshed, copy.
 */
-async function chartIntoExisting(targetId: string, row: WidgetRow): Promise<Workspace> {
+async function chartIntoExisting(
+  targetId: string,
+  row: WidgetRow
+): Promise<{ landed: Workspace; before: WorkspaceData }> {
   const current = await workspaces.get(targetId)
   const landed = await workspaces.update(targetId, {
     data: { ...current.data, layout: [...current.data.layout, row] },
   })
 
-  const edit = await workspaces.getEdit(targetId)
-  if (edit != null) {
-    if (isStructurallyEqual(withoutMeta(edit.data), withoutMeta(current.data))) {
-      await workspaces.discardEdit(targetId)
-    } else {
-      notify.warn('This workspace has unsaved edits that do not yet show the new chart.')
-    }
+  return { landed, before: current.data }
+}
+
+/** Reconcile this user's pending edit on `workspaceId`, which reads ahead of stored data on open.
+Discards one still matching `before`, leaves a diverging one alone and returns whether it did.
+*/
+async function reconcileEdit(workspaceId: string, before: WorkspaceData): Promise<boolean> {
+  const edit = await workspaces.getEdit(workspaceId)
+  if (edit == null) {
+    return true
   }
 
-  return landed
+  if (!isStructurallyEqual(withoutMeta(edit.data), withoutMeta(before))) {
+    return false
+  }
+
+  await workspaces.discardEdit(workspaceId)
+  return true
 }
 
 /** Build a chart widget for `type`'s checked fields and land it on the component's strip.
@@ -137,22 +147,43 @@ async function chart(type: ParticleTypeInfo) {
     height: getWidgetInfo('chart').options.minHeight,
   })
 
-  try {
-    const targetId = scopedWorkspaces[0]?.id
-    const landed =
-      targetId != null
-        ? await chartIntoExisting(targetId, row)
-        : await workspaces.create({
-            scope: address.toString(),
-            owner_id: auth.user?.id,
-            data: { layout: [row] },
-          })
+  const targetId = scopedWorkspaces[0]?.id
 
-    notify.success('Chart added to a workspace on this component.')
-    emit('charted', landed.id)
+  let landed: Workspace
+  let before: WorkspaceData | null = null
+  try {
+    if (targetId != null) {
+      ;({ landed, before } = await chartIntoExisting(targetId, row))
+    } else {
+      landed = await workspaces.create({
+        scope: address.toString(),
+        owner_id: auth.user?.id,
+        data: { layout: [row] },
+      })
+    }
   } catch {
     notify.error('Failed to add the chart.')
+    return
   }
+
+  // Bookkeeping runs before the caller is told, since it decides whether a remount of an already
+  // open workspace would actually reveal the chart or just reseed from a still-shadowing edit.
+  let revealed = true
+  if (before != null) {
+    try {
+      revealed = await reconcileEdit(landed.id, before)
+    } catch {
+      revealed = false
+    }
+  }
+
+  if (revealed) {
+    notify.success('Chart added to a workspace on this component.')
+  } else {
+    notify.warn('Chart added, but a stale edit on this workspace may hide or overwrite it.')
+  }
+
+  emit('charted', landed.id, revealed)
 }
 </script>
 

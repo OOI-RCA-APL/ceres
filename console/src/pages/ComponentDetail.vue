@@ -22,6 +22,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
+import { useNotify } from '@/notify'
 import WorkspacePage from '@/pages/Workspace.vue'
 import { usePersisted } from '@/persistence'
 import { useScrollMemory } from '@/scroll'
@@ -35,6 +36,7 @@ const access = useAccess()
 const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
+const notify = useNotify()
 const route = useRoute()
 const tabs = useTabs()
 const workspaces = useWorkspaces()
@@ -187,6 +189,10 @@ function showWorkspace(id: string) {
 // on load and does not otherwise notice a row landing in the stored data behind it.
 let workspaceRefreshKey = $ref(0)
 
+// Read before bumping the key above, since remounting while it is viewing an original snapshot
+// would silently drop that view back to live editing.
+let workspacePageRef = $ref<InstanceType<typeof WorkspacePage> | null>(null)
+
 /** Give the address what it asked for, then take the request back out of it.
 
 Workspaces named there join this component's strip if they were not already on it so a link
@@ -324,12 +330,16 @@ function createScoped() {
   })
 }
 
-// A chart lands on a workspace the particles section already picked. Charting into the one
-// already open leaves `activeWorkspaceId` unchanged, so only the remount bump shows it.
-async function chartedScoped(id: string) {
+// A chart lands on a workspace the particles section already picked. The remount bump reveals
+// it in the open one, skipped with nothing to reveal or while viewing a snapshot it would drop.
+async function chartedScoped(id: string, revealed: boolean) {
   await refreshScoped()
-  if (id === activeWorkspaceId) {
-    workspaceRefreshKey++
+  if (id === activeWorkspaceId && revealed) {
+    if (workspacePageRef?.isViewingOriginal) {
+      notify.warn('Chart added. Reopen this workspace to see it, viewing an original hides it.')
+    } else {
+      workspaceRefreshKey++
+    }
   }
   showWorkspace(id)
 }
@@ -743,6 +753,7 @@ const configHighlighted = $computed(() =>
         v-if="activeWorkspaceId != null"
         :id="activeWorkspaceId"
         :key="workspaceRefreshKey"
+        ref="workspacePageRef"
         :sticky-top="workspaceStickyTop"
         @duplicated="openBesideScoped"
       >
