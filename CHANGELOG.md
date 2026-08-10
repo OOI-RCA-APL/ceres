@@ -8,6 +8,16 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Fixes**
+
+- Create the directories leading to a configured database file, so a fresh project's
+  first run works without preparing them.
+
+**Documentation**
+
+- Rewrite the comments and documentation for clarity, and correct stale claims in the
+  development and driver guides.
+
 ## [0.41.1] - 2026-08-07
 
 **Fixes**
