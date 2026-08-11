@@ -45,9 +45,10 @@ const workspace = provideWorkspace(computed(() => id))
 let original = $ref<WorkspaceData | null>(null)
 let isViewingOriginal = $computed(() => original != null)
 
-// Read by a host deciding whether remounting this page would silently drop it out of "view
-// original". Exposed before the load below since the compiler forbids it after a top-level await.
-defineExpose({ isViewingOriginal: $$(isViewingOriginal) })
+// Lets a host land a widget on this workspace's live working copy, such as a chart built from
+// another page's own controls. Exposed before the load below since the compiler forbids it
+// after a top-level await.
+defineExpose({ insertWidget: workspace.insertWidget })
 
 await workspace.load()
 

@@ -29,7 +29,14 @@ import { useScrollMemory } from '@/scroll'
 import { requestedWorkspaces, resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
-import { inStandardOrder, useWorkspaces, Workspace } from '@/workspace'
+import {
+  ChartWidget,
+  getWidgetInfo,
+  inStandardOrder,
+  useWorkspaces,
+  WidgetRowModel,
+  Workspace,
+} from '@/workspace'
 
 const engine = useEngine()
 const access = useAccess()
@@ -185,12 +192,8 @@ function showWorkspace(id: string) {
   lastWorkspace.id = id
 }
 
-// Bumped to remount the open workspace's own editing context, whose working copy is seeded once
-// on load and does not otherwise notice a row landing in the stored data behind it.
-let workspaceRefreshKey = $ref(0)
-
-// Read before bumping the key above since remounting while it is viewing an original snapshot
-// would silently drop that view back to live editing.
+// Reached to land a chart built from the particles section directly on the open workspace's
+// live working copy.
 let workspacePageRef = $ref<InstanceType<typeof WorkspacePage> | null>(null)
 
 /** Give the address what it asked for, then take the request back out of it.
@@ -330,18 +333,35 @@ function createScoped() {
   })
 }
 
-// A chart lands on a workspace the particles section already picked. The remount bump reveals
-// it in the open one, skipped with nothing to reveal or while viewing a snapshot it would drop.
-async function chartedScoped(id: string, revealed: boolean) {
-  await refreshScoped()
-  if (id === activeWorkspaceId && revealed) {
-    if (workspacePageRef?.isViewingOriginal) {
-      notify.warn('Chart added. Reopen this workspace to see it, viewing an original hides it.')
-    } else {
-      workspaceRefreshKey++
-    }
+/** Land a chart the particles section built on the workspace open on this component's strip,
+through its live editing session so it shows immediately as an uncommitted change. With none
+open, a private workspace is created and opened to carry it. */
+async function createChartScoped(widget: ChartWidget) {
+  if (activeWorkspaceId != null && workspacePageRef != null) {
+    workspacePageRef.insertWidget(widget, -1)
+    notify.success('Chart added as an uncommitted change to the open workspace.')
+    return
   }
-  showWorkspace(id)
+
+  try {
+    const created = await workspaces.create({
+      scope: address.toString(),
+      owner_id: auth.user?.id,
+      data: {
+        layout: [
+          WidgetRowModel.parse({
+            widgets: [widget],
+            height: getWidgetInfo('chart').options.minHeight,
+          }),
+        ],
+      },
+    })
+    await refreshScoped()
+    showWorkspace(created.id)
+    notify.success('Chart added to a new workspace on this component.')
+  } catch {
+    notify.error('Failed to add the chart.')
+  }
 }
 
 // A file dropped on this component's strip belongs to this component, and is shared or private on
@@ -698,8 +718,7 @@ const configHighlighted = $computed(() =>
               <component-particles-section
                 v-model:expanded="persisted.particles"
                 :address
-                :scoped-workspaces="scopedWorkspaces"
-                @charted="chartedScoped"
+                @create-chart="createChartScoped"
               />
 
               <div v-if="component.tags.length > 0" class="q-mt-md">
@@ -748,11 +767,10 @@ const configHighlighted = $computed(() =>
         />
       </div>
       <!-- Deliberately not keyed on the workspace ID, so switching tabs updates this page in
-      place. Keyed on a counter that only charting into the open workspace bumps. -->
+      place. -->
       <workspace-page
         v-if="activeWorkspaceId != null"
         :id="activeWorkspaceId"
-        :key="workspaceRefreshKey"
         ref="workspacePageRef"
         :sticky-top="workspaceStickyTop"
         @duplicated="openBesideScoped"
