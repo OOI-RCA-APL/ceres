@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { useParticleTypes } from '@/particle-types'
-import { isType, Schema } from '@/schema-form'
+import { describeFieldType, isPlottableField, useParticleTypes } from '@/particle-types'
+import { Schema } from '@/schema-form'
 
 let modelValue = $(defineModel<string | null>({ required: true }))
 
@@ -13,25 +13,11 @@ const types = $(useParticleTypes(() => address).types)
 
 const selectedType = $computed(() => types.find((type) => type.type === particleType) ?? null)
 
-function isPlottable(schema: Schema): boolean {
-  return isType(schema, 'number') || isType(schema, 'integer')
-}
-
-function describeType(schema: Schema): string {
-  for (const type of ['string', 'number', 'integer', 'boolean', 'array', 'object']) {
-    if (isType(schema, type)) {
-      return type
-    }
-  }
-
-  return 'value'
-}
-
 // Fields that can plot lead the list since those are the ones worth reaching for first.
 const fields = $computed(() => {
   const fields = selectedType?.fields ?? []
-  const plottable = fields.filter((field) => isPlottable(field.schema as Schema))
-  const rest = fields.filter((field) => !isPlottable(field.schema as Schema))
+  const plottable = fields.filter((field) => isPlottableField(field.schema as Schema))
+  const rest = fields.filter((field) => !isPlottableField(field.schema as Schema))
   return [...plottable, ...rest]
 })
 
@@ -44,7 +30,7 @@ const options = $computed(() =>
     return {
       label: title ?? field.name,
       value: field.name,
-      typeLabel: describeType(schema),
+      typeLabel: describeFieldType(schema),
       description,
     }
   })
