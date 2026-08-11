@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { Address } from '@/api/address'
+import { seriesForGroup } from '@/particle-series'
 import { describeFieldDescription, describeFieldType, useParticleTypes } from '@/particle-types'
 import { Schema } from '@/schema-form'
 import { ChartWidgetParticle } from '@/workspace'
@@ -22,18 +23,12 @@ const emit = defineEmits<{
 
 let expanded = $ref(defaultOpened)
 
-// Fetched only once expanded, so an address nobody opens costs no request.
+// Fetched only once expanded so an address nobody opens costs no request.
 const types = $(useParticleTypes(() => (expanded ? address.toString() : null)).types)
 
-// Reads across every matching entry rather than just the first, so a stored widget carrying
-// more than one entry for the same address and type still reports every field it toggled on.
 function selectedFields(type: string): string[] {
-  return particles
-    .filter(
-      (particle) =>
-        (particle.address?.toString() ?? null) === address.toString() && particle.type === type
-    )
-    .flatMap((particle) => particle.series.map((series) => series.field))
+  return seriesForGroup(particles, address.toString(), type)
+    .map((series) => series.field)
     .filter((field): field is string => field != null)
 }
 

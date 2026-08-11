@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address, AddressSelector } from '@/api/address'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import ParticleFieldSelect from '@/components/ParticleFieldSelect.vue'
@@ -9,9 +9,9 @@ import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddButton.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
+import { addParticleSeries, removeParticleSeries, toggleParticleField } from '@/particle-series'
 import {
   ChartWidgetParticle,
-  ChartWidgetParticleModel,
   ChartWidgetSeries,
   ChartWidgetSeriesModel,
   useWorkspace,
@@ -22,7 +22,7 @@ const { address: pinnedAddress, showSelected = false } = defineProps<{
   component page's case. */
   address?: string | null
   /** Whether the "Selected Particle Series" section renders below the tree. Requires a
-  workspace context, so only a host without a pinned address sets this. */
+  workspace context so only a host without a pinned address sets this. */
   showSelected?: boolean
 }>()
 
@@ -30,7 +30,7 @@ let modelValue = $(defineModel<ChartWidgetParticle[]>({ required: true }))
 
 const engine = useEngine()
 
-// Not called when the address is pinned, since the component page hosts this outside any
+// Not called when the address is pinned since the component page hosts this outside any
 // workspace's own tree.
 const workspace = pinnedAddress == null ? useWorkspace() : null
 
@@ -56,43 +56,8 @@ const addressNodes = $computed<Address[]>(() => {
   })
 })
 
-function findParticleIndex(particles: ChartWidgetParticle[], address: string, type: string) {
-  return particles.findIndex(
-    (particle) => (particle.address?.toString() ?? null) === address && particle.type === type
-  )
-}
-
-/** Turn `field` on or off for `address`'s `type`, merging into that pair's existing entry or
-removing it once its last field goes off. */
 function toggleField(address: string, type: string, field: string, value: boolean) {
-  const particles = [...modelValue]
-  const index = findParticleIndex(particles, address, type)
-
-  if (value) {
-    if (index === -1) {
-      particles.push(
-        ChartWidgetParticleModel.parse({
-          address: new AddressSelector(address),
-          type,
-          series: [{ field }],
-        })
-      )
-    } else if (!particles[index].series.some((series) => series.field === field)) {
-      particles[index] = {
-        ...particles[index],
-        series: [...particles[index].series, ChartWidgetSeriesModel.parse({ field })],
-      }
-    }
-  } else if (index !== -1) {
-    const series = particles[index].series.filter((series) => series.field !== field)
-    if (series.length === 0) {
-      particles.splice(index, 1)
-    } else {
-      particles[index] = { ...particles[index], series }
-    }
-  }
-
-  modelValue = particles
+  modelValue = toggleParticleField(modelValue, address, type, field, value)
 }
 
 type SelectedTypeGroup = { type: string; series: ChartWidgetSeries[] }
@@ -118,12 +83,7 @@ const selectedGroups = $computed<SelectedAddressGroup[]>(() => {
 })
 
 function removeSeries(seriesId: string) {
-  modelValue = modelValue
-    .map((particle) => ({
-      ...particle,
-      series: particle.series.filter((series) => series.id !== seriesId),
-    }))
-    .filter((particle) => particle.series.length > 0)
+  modelValue = removeParticleSeries(modelValue, seriesId)
 }
 
 let manualAddress = $ref<string | null>(null)
@@ -135,9 +95,8 @@ const manualResolvedAddress = $computed(
   () => workspace?.resolveAddress(manualAddress)?.toString() ?? manualAddress
 )
 
-/** Add a manual entry for an undeclared type or field, merging into an existing address/type
-entry the way a toggle does. Only the field and label reset, so adding several fields for the
-same address and type does not require reselecting either. */
+/** Add a manual entry for an undeclared type or field, merging into an existing address and
+type entry the way a toggle does. Only the field and label reset. */
 function addManualEntry() {
   if (manualAddress == null || manualType == null || manualField == null) {
     return
@@ -148,23 +107,8 @@ function addManualEntry() {
     return
   }
 
-  const particles = [...modelValue]
-  const index = findParticleIndex(particles, address, manualType)
   const series = ChartWidgetSeriesModel.parse({ field: manualField, label: manualLabel })
-
-  if (index === -1) {
-    particles.push(
-      ChartWidgetParticleModel.parse({
-        address: new AddressSelector(address),
-        type: manualType,
-        series: [series],
-      })
-    )
-  } else {
-    particles[index] = { ...particles[index], series: [...particles[index].series, series] }
-  }
-
-  modelValue = particles
+  modelValue = addParticleSeries(modelValue, address, manualType, series)
   manualField = null
   manualLabel = null
 }

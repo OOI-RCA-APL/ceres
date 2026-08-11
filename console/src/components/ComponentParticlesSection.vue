@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { QMenu } from 'quasar'
+import { watch } from 'vue'
 
 import { Address } from '@/api/address'
 import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
@@ -28,6 +29,15 @@ const types = $(useParticleTypes(() => address.toString()).types)
 
 let selection = $ref<ChartWidgetParticle[]>([])
 
+// This page reuses the same instance across components it navigates between so a selection
+// left over from the previous address must not carry into the next one.
+watch(
+  () => address.toString(),
+  () => {
+    selection = []
+  }
+)
+
 const menu = $ref<QMenu | null>(null)
 
 function createChart() {
@@ -36,7 +46,7 @@ function createChart() {
   }
 
   const widget = createWidget('chart') as ChartWidget
-  // Cloned rather than assigned, so the tree's own selection state never ends up aliased into
+  // Cloned rather than assigned so the tree's own selection state never ends up aliased into
   // the widget once it lands in a workspace's layout.
   widget.particles = selection.map((particle) => ChartWidgetParticleModel.parse(particle))
   emit('createChart', widget)
