@@ -197,8 +197,9 @@ nextTick(async () => {
     return
   }
   if (workspace != null) {
-    form.load(workspace)
-    form.data.showWhenLoggedOut = workspace.show_when_logged_out
+    // Mapped in by hand because the form names this field differently from the wire, and loading
+    // it seeds the stored copy an edit resets to.
+    form.load({ ...workspace, showWhenLoggedOut: workspace.show_when_logged_out })
     if (action === 'duplicate') {
       form.data.name = `${workspace.name} (Copy)`
       form.data.isPrivate = true
@@ -294,9 +295,9 @@ nextTick(async () => {
                 v-model="form.data.showWhenLoggedOut"
                 dense
                 :disable="form.readonly"
-                label="Show on the home page"
+                label="Show On Home"
               />
-              <div class="q-mt-xs text-grey-6">
+              <div class="q-mt-sm text-grey-6">
                 Workspaces shown here are what a new user sees when they first sign in.
               </div>
             </template>
