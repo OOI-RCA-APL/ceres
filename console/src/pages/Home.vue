@@ -333,7 +333,7 @@ watch(
 
     <div v-if="auth.user == null" class="col column flex flex-center text-grey-6">
       <q-icon :name="icons.locked" size="32px" />
-      <div class="q-mt-sm text-subtitle1">Sign in to see anything.</div>
+      <q-btn class="q-mt-md" color="primary" label="Log In" no-caps to="/login" unelevated />
     </div>
     <template v-else>
       <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
