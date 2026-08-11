@@ -200,8 +200,8 @@ caller themselves against the resource they name.
 
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
-| `GET` | `/api/workspaces` | required | List workspaces. |
+| `GET` | `/api/workspaces` | optional | List workspaces, open to anonymous callers who see only the public ones. |
 | `POST` | `/api/workspaces` | required | Create a workspace. |
-| `GET` | `/api/workspaces/{id}` | required | Fetch one workspace. |
+| `GET` | `/api/workspaces/{id}` | optional | Fetch one workspace, open to anonymous callers who see only the public ones. |
 | `DELETE` | `/api/workspaces/{id}` | required | Delete a workspace. |
 | `PATCH` | `/api/workspaces/{id}` | required | Update a workspace. |

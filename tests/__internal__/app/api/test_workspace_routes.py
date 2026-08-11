@@ -2,10 +2,12 @@ import pytest
 
 from ceres import Engine
 from ceres.__internal__.app.handlers.workspaces import (
+    build_can_view,
     get_workspace,
     get_workspaces,
     update_workspace,
 )
+from ceres.__internal__.app.operations import _require_not_disabled
 from ceres.__internal__.app.shared import Actor
 from ceres.address import Address
 from ceres.config import ComponentAccessLevel, Config
@@ -341,5 +343,116 @@ async def test_workspace_response_not_redacted_for_admin() -> None:
         engine=engine, actor=Actor(user=admin, unrestricted=True), user=admin, id=workspace.id
     )
     assert result.data["layout"][0]["widgets"][0]["address"] == "@rig"
+
+    await engine.database.dispose()
+
+
+async def test_unrestricted_actor_still_sees_shared_workspace_without_the_flag() -> None:
+    engine = await _build_engine_with_component()
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="shared", scope=Address("@rig"))
+    )
+
+    listed = await get_workspaces(
+        engine=engine,
+        actor=Actor(user=None, unrestricted=True),
+        user=None,
+        filter=WorkspaceFilter(),
+    )
+    assert [current.id for current in listed] == [workspace.id]
+
+    await engine.database.dispose()
+
+
+async def test_build_can_view_denies_every_component_for_anonymous_caller() -> None:
+    engine = await _build_engine_with_component()
+    can_view = await build_can_view(engine, None)
+
+    assert can_view(Address("@rig")) is False
+    assert can_view(Address("@missing")) is True
+
+    await engine.database.dispose()
+
+
+async def test_anonymous_listing_returns_only_public_workspaces() -> None:
+    engine = await _build_engine_with_component()
+    owner = await _create_user(engine, "owner")
+    public = await engine.workspaces.create(
+        Workspace.Create(name="public", show_when_logged_out=True)
+    )
+    await engine.workspaces.create(
+        Workspace.Create(name="private", owner_id=owner.id, show_when_logged_out=True)
+    )
+    await engine.workspaces.create(Workspace.Create(name="shared"))
+
+    listed = await get_workspaces(
+        engine=engine,
+        actor=Actor(user=None, unrestricted=False),
+        user=None,
+        filter=WorkspaceFilter(),
+    )
+    assert [workspace.id for workspace in listed] == [public.id]
+
+    await engine.database.dispose()
+
+
+async def test_anonymous_read_of_public_workspace_is_redacted() -> None:
+    engine = await _build_engine_with_component(secret=True)
+    workspace = await engine.workspaces.create(
+        Workspace.Create(
+            name="dash",
+            show_when_logged_out=True,
+            data={
+                "layout": [
+                    {
+                        "widgets": [
+                            {
+                                "id": "w1",
+                                "type": "particles",
+                                "name": "Feed",
+                                "address": "@secret",
+                                "filter": {"address": "@secret"},
+                                "width": 60,
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+    )
+
+    result = await get_workspace(
+        engine=engine, actor=Actor(user=None, unrestricted=False), user=None, id=workspace.id
+    )
+    widget = result.data["layout"][0]["widgets"][0]
+    assert widget["restricted"] is True
+    assert "address" not in widget
+    assert "filter" not in widget
+
+    await engine.database.dispose()
+
+
+async def test_anonymous_read_of_workspace_without_flag_is_not_found() -> None:
+    engine = await _build_engine_with_component()
+    workspace = await engine.workspaces.create(Workspace.Create(name="dash"))
+
+    with pytest.raises(NotFoundError):
+        await get_workspace(
+            engine=engine, actor=Actor(user=None, unrestricted=False), user=None, id=workspace.id
+        )
+
+    await engine.database.dispose()
+
+
+async def test_require_not_disabled_refuses_a_disabled_users_token() -> None:
+    engine = await _build_engine()
+    disabled = await engine.database.users.create(
+        User.Create(
+            username="disabled", email="disabled@test.com", password="hashed", disabled=True
+        )
+    )
+
+    with pytest.raises(NotPermittedError):
+        _require_not_disabled(Actor(user=disabled, unrestricted=False))
 
     await engine.database.dispose()
