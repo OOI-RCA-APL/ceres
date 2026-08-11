@@ -33,8 +33,8 @@ async def build_can_view(engine: Engine, user: User | None) -> Callable[[Address
     """Build a per-request predicate testing view access on a component address.
 
     Fetch the user's access grants once so the returned predicate can be called repeatedly
-    without re-querying the database. An anonymous caller has no grants to fetch, and its
-    predicate denies every address with a live component.
+    without re-querying the database. With no user there are no grants, and the predicate
+    denies every address with a live component.
     """
     grants = await fetch_access_grants(engine.database, user) if user is not None else None
 
@@ -67,9 +67,8 @@ async def redact_workspace(
 ) -> Workspace:
     """Return `workspace` with widgets the caller cannot view replaced by stubs.
 
-    Admins receive the payload untouched, and an anonymous caller is redacted like any caller
-    with no access. The copy skips validation, because a workspace may hold field combinations
-    that predate a validator and would otherwise fail on reconstruction.
+    Admins receive the payload untouched. The copy skips validation, because a workspace may
+    hold field combinations that predate a validator and would otherwise fail on reconstruction.
     """
     if actor.admin:
         return workspace
@@ -158,8 +157,8 @@ async def require_placement_access(
 async def require_engine_manage(engine: Engine, actor: Actor, user: User | None) -> None:
     """Raise unless the caller may manage the engine root.
 
-    The logged-out marker decides what an anonymous visitor sees, which is an engine-wide question
-    however the workspace carrying it is placed.
+    Setting the logged-out marker is an engine-wide question however the workspace carrying it
+    is placed.
 
     Raises:
         NotPermittedError: If the caller lacks manage on the engine root.
@@ -167,21 +166,15 @@ async def require_engine_manage(engine: Engine, actor: Actor, user: User | None)
     await require_placement_access(engine, actor, user, Address.ENGINE, ComponentAccessLevel.MANAGE)
 
 
-def is_visible(
-    actor: Actor, user: User | None, workspace: Workspace, level: ComponentAccessLevel | None
-) -> bool:
+def is_visible(user: User | None, workspace: Workspace, level: ComponentAccessLevel | None) -> bool:
     """Whether the caller may see `workspace`, given their resolved access on its placement.
 
     A private workspace belongs to exactly one user, and administrators do not bypass that. The
     owner must still hold view access on the placement, so losing access to a component also
-    removes the private workspaces placed on it. An unauthenticated caller skips placement access
-    and sees only the workspaces marked `show_when_logged_out`.
+    removes the private workspaces placed on it.
     """
     if workspace.owner_id is not None and (user is None or workspace.owner_id != user.id):
         return False
-
-    if not actor.authenticated:
-        return workspace.show_when_logged_out
 
     return level is not None and level >= ComponentAccessLevel.VIEW
 
@@ -199,7 +192,7 @@ async def require_visible(
             viewable by the caller.
     """
     level = await resolve_placement_level(engine, actor, user, workspace.scope)
-    if not is_visible(actor, user, workspace, level):
+    if not is_visible(user, workspace, level):
         raise NotFoundError()
 
 
@@ -260,7 +253,7 @@ async def filter_visible(
     return [
         workspace
         for workspace in workspaces
-        if is_visible(actor, user, workspace, levels.get(workspace.scope))
+        if is_visible(user, workspace, levels.get(workspace.scope))
     ]
 
 

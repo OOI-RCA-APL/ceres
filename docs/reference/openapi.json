@@ -2352,10 +2352,9 @@
         "security": [
           {
             "bearer": []
-          },
-          {}
+          }
         ],
-        "summary": "List workspaces, open to anonymous callers who see only the public ones.",
+        "summary": "List workspaces.",
         "tags": [
           "workspaces"
         ]
@@ -2426,10 +2425,9 @@
         "security": [
           {
             "bearer": []
-          },
-          {}
+          }
         ],
-        "summary": "Fetch one workspace, open to anonymous callers who see only the public ones.",
+        "summary": "Fetch one workspace.",
         "tags": [
           "workspaces"
         ]

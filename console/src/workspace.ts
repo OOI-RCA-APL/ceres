@@ -1599,6 +1599,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     queryFn: async () => {
       return { all: await getAll() }
     },
+    enabled: computed(() => auth.user != null),
   })
 
   async function load() {

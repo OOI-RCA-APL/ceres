@@ -51,8 +51,7 @@ const persisted = usePersisted({
 // These are the deployment's own workspaces rather than any one component's.
 let placedWorkspaces = $ref<Workspace[]>([])
 
-// What the deployment lands on. Only the workspaces marked for logged-out display since these
-// are what a new user inherits.
+// What a new user's tab strip starts from. Only the workspaces flagged `show_when_logged_out`.
 const defaults = $computed(() =>
   placedWorkspaces.filter((workspace) => workspace.show_when_logged_out)
 )
@@ -254,17 +253,20 @@ async function importHome(files: File[]) {
   }
 }
 
-await tabs.load()
-await refreshPlaced()
+// Logged out, there is nothing to fetch and nothing to seed. The template shows a sign-in
+// state instead.
+if (auth.user != null) {
+  await tabs.load()
+  await refreshPlaced()
 
-// A first login starts from what the deployment shows when logged out so a new person lands on
-// the same view an anonymous visitor sees and then makes it their own. Seeding is skipped once the
-// user has arranged this strip so it never overwrites their own choices.
-if (!tabs.isTouched(placement)) {
-  await tabs.seed(
-    placement,
-    defaults.map((workspace) => workspace.id)
-  )
+  // A first login seeds this strip from the workspaces flagged `show_when_logged_out`. Seeding
+  // stops once the user has arranged the strip, so it never overwrites their own choices.
+  if (!tabs.isTouched(placement)) {
+    await tabs.seed(
+      placement,
+      defaults.map((workspace) => workspace.id)
+    )
+  }
 }
 
 watch(
@@ -309,8 +311,8 @@ watch(
 </script>
 
 <template>
-  <full-page :fill="pinTabs" title="Home">
-    <template #header-append>
+  <full-page :fill="pinTabs || auth.user == null" title="Home">
+    <template v-if="auth.user != null" #header-append>
       <q-space />
       <!-- Flush with the right edge of the widgets below, whose cards sit half a gutter in. -->
       <q-btn
@@ -329,52 +331,82 @@ watch(
       </q-btn>
     </template>
 
-    <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
-      <div
-        :class="[$style.overviewContent, 'scroll']"
-        :style="activeWorkspaceId != null ? { height: `${persisted.overviewHeight}px` } : undefined"
-      >
-        <!-- The engine root's own workspaces, which are the deployment's rather than any one
-        component's. A workspace placed on a component is reached from that component, and appears
-        here only once it has been opened as a tab below. -->
-        <component-workspaces-section
-          :can-manage="canManage"
-          class="q-pa-md"
-          :open-ids="homeWorkspaces.map((workspace) => workspace.id)"
-          :placement="placement"
-          :workspaces="placedWorkspaces"
-          @close="closeHome"
-          @open="showWorkspace"
-          @open-beside="openBesideHome"
-          @share="shareHome"
+    <div v-if="auth.user == null" class="col column flex flex-center text-grey-6">
+      <q-icon :name="icons.locked" size="32px" />
+      <div class="q-mt-sm text-subtitle1">Sign in to see anything.</div>
+    </div>
+    <template v-else>
+      <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
+        <div
+          :class="[$style.overviewContent, 'scroll']"
+          :style="
+            activeWorkspaceId != null ? { height: `${persisted.overviewHeight}px` } : undefined
+          "
+        >
+          <!-- The engine root's own workspaces, which are the deployment's rather than any one
+          component's. A workspace placed on a component is reached from that component, and
+          appears here only once it has been opened as a tab below. -->
+          <component-workspaces-section
+            :can-manage="canManage"
+            class="q-pa-md"
+            :open-ids="homeWorkspaces.map((workspace) => workspace.id)"
+            :placement="placement"
+            :workspaces="placedWorkspaces"
+            @close="closeHome"
+            @open="showWorkspace"
+            @open-beside="openBesideHome"
+            @share="shareHome"
+          />
+        </div>
+        <resize-handle
+          v-if="activeWorkspaceId != null"
+          v-model="persisted.overviewHeight"
+          :class="$style.overviewResizeHandle"
+          direction="vertical"
+          :max="800"
+          :min="120"
         />
       </div>
-      <resize-handle
-        v-if="activeWorkspaceId != null"
-        v-model="persisted.overviewHeight"
-        :class="$style.overviewResizeHandle"
-        direction="vertical"
-        :max="800"
-        :min="120"
-      />
-    </div>
 
-    <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
-    switching tabs updates this page in place and leaves the tab strip in its header mounted. -->
-    <workspace-page
-      v-if="activeWorkspaceId != null"
-      :id="activeWorkspaceId"
-      :sticky-top="workspaceStickyTop"
-      @duplicated="openBesideHome"
-    >
-      <template #header-prepend="{ actions, state }">
+      <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
+      switching tabs updates this page in place and leaves the tab strip in its header mounted. -->
+      <workspace-page
+        v-if="activeWorkspaceId != null"
+        :id="activeWorkspaceId"
+        :sticky-top="workspaceStickyTop"
+        @duplicated="openBesideHome"
+      >
+        <template #header-prepend="{ actions, state }">
+          <component-workspace-tabs
+            :active="activeWorkspaceId"
+            :active-actions="actions"
+            :active-state="state"
+            :can-create="canCreate"
+            :can-manage="canManage"
+            class="q-ml-sm"
+            :openable="openableWorkspaces"
+            :show-placement="showPlacement"
+            :workspaces="homeWorkspaces"
+            @close="closeHome"
+            @close-all="closeAllHome"
+            @close-others="closeOtherHome"
+            @create="createHome"
+            @import="importHome"
+            @open="openHome"
+            @open-beside="openBesideHome"
+            @reorder="reorderHome"
+            @select="showWorkspace"
+            @share="shareHome"
+          />
+        </template>
+      </workspace-page>
+      <div v-else-if="homeWorkspaces.length > 0 || canCreate" :class="pinTabs && $style.pinnedTabs">
+        <q-separator />
         <component-workspace-tabs
           :active="activeWorkspaceId"
-          :active-actions="actions"
-          :active-state="state"
           :can-create="canCreate"
           :can-manage="canManage"
-          class="q-ml-sm"
+          class="q-px-sm q-py-xs"
           :openable="openableWorkspaces"
           :show-placement="showPlacement"
           :workspaces="homeWorkspaces"
@@ -389,30 +421,8 @@ watch(
           @select="showWorkspace"
           @share="shareHome"
         />
-      </template>
-    </workspace-page>
-    <div v-else-if="homeWorkspaces.length > 0 || canCreate" :class="pinTabs && $style.pinnedTabs">
-      <q-separator />
-      <component-workspace-tabs
-        :active="activeWorkspaceId"
-        :can-create="canCreate"
-        :can-manage="canManage"
-        class="q-px-sm q-py-xs"
-        :openable="openableWorkspaces"
-        :show-placement="showPlacement"
-        :workspaces="homeWorkspaces"
-        @close="closeHome"
-        @close-all="closeAllHome"
-        @close-others="closeOtherHome"
-        @create="createHome"
-        @import="importHome"
-        @open="openHome"
-        @open-beside="openBesideHome"
-        @reorder="reorderHome"
-        @select="showWorkspace"
-        @share="shareHome"
-      />
-    </div>
+      </div>
+    </template>
   </full-page>
 </template>
 

@@ -145,8 +145,7 @@ async def _require_user(host: Host, arguments: dict[str, Any]) -> Any:
 def _require_not_disabled(actor: Actor) -> None:
     """Raise if the actor names a disabled user.
 
-    A `Gate::Open` route skips the token gate's own disabled check, so an operation that admits
-    an anonymous caller must still refuse a disabled account's token.
+    Defense in depth alongside the token gate's own disabled check.
 
     Raises:
         NotPermittedError: If the actor's user is disabled.

@@ -204,10 +204,10 @@ host_routes! {
         Gate::SelfOrAdmin("user_id"), "permissions.effective_at",
         params(id => "user_id": Uuid, address => "address": Raw);
 
-    /// List workspaces, open to anonymous callers who see only the public ones.
-    WorkspacesCollection: typed_get "/api/workspaces" => Gate::Open, "workspaces.list";
-    /// Fetch one workspace, open to anonymous callers who see only the public ones.
-    WorkspacesMember: typed_get "/api/workspaces/{id}" => Gate::Open, "workspaces.get",
+    /// List workspaces.
+    WorkspacesCollection: typed_get "/api/workspaces" => Gate::Authenticated, "workspaces.list";
+    /// Fetch one workspace.
+    WorkspacesMember: typed_get "/api/workspaces/{id}" => Gate::Authenticated, "workspaces.get",
         params(id => "id": Uuid);
     /// Create a workspace.
     WorkspacesCreate: typed_post "/api/workspaces" => Gate::Authenticated, "workspaces.create",
