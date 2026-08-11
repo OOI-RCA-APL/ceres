@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import { QMenu } from 'quasar'
-import { watch } from 'vue'
 
 import { Address } from '@/api/address'
 import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
@@ -28,15 +27,6 @@ let expanded = $(defineModel<boolean>('expanded', { required: true }))
 const types = $(useParticleTypes(() => address.toString()).types)
 
 let selection = $ref<ChartWidgetParticle[]>([])
-
-// This page reuses the same instance across components it navigates between so a selection
-// left over from the previous address must not carry into the next one.
-watch(
-  () => address.toString(),
-  () => {
-    selection = []
-  }
-)
 
 const menu = $ref<QMenu | null>(null)
 

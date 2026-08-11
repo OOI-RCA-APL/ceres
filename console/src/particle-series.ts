@@ -23,11 +23,7 @@ export function seriesForGroup(
 }
 
 /** Replace every entry for `address`'s `type` with one carrying `series`, dropping the pair
-entirely once `series` is empty.
-
-The replacement lands where the first matching entry stood, or at the end when there was none,
-so entries this pair does not touch keep their order.
-*/
+entirely once `series` is empty. Entries this pair does not touch keep their order. */
 export function withGroupSeries(
   particles: ChartWidgetParticle[],
   address: string,
