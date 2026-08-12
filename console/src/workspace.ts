@@ -383,6 +383,7 @@ export function createWidget(type: WidgetType): Widget {
 
 type WidgetOptionsInput = {
   minHeight?: number
+  initialHeight?: number
   paddingClass?: string | string[]
   fullHeight?: boolean
   reloadOnThemeChange?: boolean
@@ -390,6 +391,8 @@ type WidgetOptionsInput = {
 
 type WidgetOptions = {
   minHeight: number
+  /** The height a row created for this widget opens at, at least `minHeight`. */
+  initialHeight: number
   paddingClass: string | string[]
   fullHeight: boolean
   reloadOnThemeChange: boolean
@@ -398,6 +401,7 @@ type WidgetOptions = {
 function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
   return {
     minHeight: options.minHeight ?? defaultMinHeight,
+    initialHeight: options.initialHeight ?? options.minHeight ?? defaultMinHeight,
     paddingClass: options.paddingClass ?? defaultPaddingClass,
     fullHeight: options.fullHeight ?? true,
     reloadOnThemeChange: options.reloadOnThemeChange ?? false,
@@ -466,6 +470,7 @@ export const widgetInfos = {
     ),
     options: widgetOptions({
       minHeight: 50,
+      initialHeight: 60,
       paddingClass: [],
     }),
   },
@@ -1007,7 +1012,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   function openedRow(widgets: Widget[], opening: Widget): WidgetRow {
     return WidgetRowModel.parse({
       widgets,
-      height: getWidgetInfo(opening.type).options.minHeight,
+      height: getWidgetInfo(opening.type).options.initialHeight,
     })
   }
 
@@ -2507,26 +2512,6 @@ export function planWidgetsMove(
   }
 
   return { layouts: planned(), widths }
-}
-
-/** The one component a widget is pointed at, or null when it is pointed at none.
-
-A widget pointed at several components returns none since the header's shortcut is for a view of
-one thing.
-*/
-export function widgetTargetSelector(widget: Widget): Address | AddressSelector | null {
-  if (widget.restricted) {
-    return null
-  }
-
-  switch (widget.type) {
-    case 'procedures':
-      return widget.procedureAddress ?? null
-    case 'value':
-      return widget.particleAddress ?? null
-    default:
-      return null
-  }
 }
 
 // A value that changes whenever any of a widget's address-bearing fields change. Used to clear a

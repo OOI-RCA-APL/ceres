@@ -15,7 +15,6 @@ import {
   createWidget,
   getWidgetInfo,
   useWorkspace,
-  widgetTargetSelector,
   widgetTargetSignature,
   Widget,
   WidgetRow,
@@ -104,19 +103,6 @@ const key = $computed(() => {
   }
 
   return String(reloads)
-})
-
-// The address of the one component the widget is a view of, resolved through the scope, or null
-// when it is a view of none.
-const targetAddress = $computed(() => {
-  const raw = widgetTargetSelector(widget)
-  if (raw == null) {
-    return null
-  }
-
-  const resolved = workspace.resolveAddress(raw)
-  const text = resolved?.toString() ?? null
-  return text != null && text.startsWith('@') && !text.includes(':') ? text : null
 })
 
 // A press on the header either picks the widget out or takes hold of it. Held with a modifier it
@@ -236,8 +222,9 @@ watch(
           />
         </div>
         <div>
+          <!-- No margin after the gear, whose own padding already matches the name gap. -->
           <q-btn
-            :class="['faded-hover', widget.name !== '' && 'q-ml-xs']"
+            :class="['faded-hover', widget.name !== '' && settingsComponent == null && 'q-ml-xs']"
             flat
             :icon="icons.more"
             round
@@ -247,19 +234,6 @@ watch(
             @touchstart.stop
           />
         </div>
-        <q-btn
-          v-if="targetAddress != null"
-          dense
-          flat
-          :icon="icons.chevronRight"
-          round
-          size="xs"
-          :to="`/components/${targetAddress}`"
-          @mousedown.stop
-          @touchstart.stop
-        >
-          <q-tooltip>Open {{ targetAddress }}</q-tooltip>
-        </q-btn>
         <q-space />
         <q-btn
           v-if="$q.screen.gt.xs"

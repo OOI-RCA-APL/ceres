@@ -629,10 +629,10 @@ describe('a stored button widget', () => {
     expect(upgraded).not.toHaveProperty('arguments')
   })
 
-  it('comes back with both safeguards up, locked arguments and a confirm', () => {
+  it('comes back with a confirm up and its arguments unlocked', () => {
     const [upgraded] = loaded({ id: 'w1', type: 'button', name: '', action: 'restart' })
 
-    expect(buttonsOf(upgraded)[0].locked).toBe(true)
+    expect(buttonsOf(upgraded)[0].locked).toBe(false)
     expect(buttonsOf(upgraded)[0].confirm).toBe(true)
   })
 

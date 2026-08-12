@@ -942,13 +942,13 @@ $overview-columns-min: 720px;
 
 @media (min-width: $overview-columns-min) {
   .configColumn {
-    flex-basis: 58.3333%;
-    max-width: 58.3333%;
+    flex-basis: 41.6667%;
+    max-width: 41.6667%;
   }
 
   .detailsColumn {
-    flex-basis: 41.6667%;
-    max-width: 41.6667%;
+    flex-basis: 58.3333%;
+    max-width: 58.3333%;
   }
 }
 

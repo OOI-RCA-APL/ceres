@@ -172,8 +172,8 @@ function onContext(type: string, field: string, event: MouseEvent) {
                 </span>
                 <span
                   v-if="describeFieldDescription(field.schema)"
-                  :class="$style.fieldDescription"
                   class="ellipsis text-grey-6"
+                  :class="$style.fieldDescription"
                 >
                   {{ describeFieldDescription(field.schema) }}
                 </span>
