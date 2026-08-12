@@ -5,10 +5,10 @@ import { useClient } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import { Particle, ParticleModel } from '@/api/particles'
 import { utc, displayDuration, useTime } from '@/time'
-import { useWorkspace, ValueWidget } from '@/workspace'
+import { useWorkspace, MeterWidget } from '@/workspace'
 
 const { widget } = defineProps<{
-  widget: ValueWidget
+  widget: MeterWidget
 }>()
 
 const client = useClient()

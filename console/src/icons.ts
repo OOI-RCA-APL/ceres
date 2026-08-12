@@ -31,6 +31,7 @@ const icons = {
   copy: 'mdi-content-copy',
   darkMode: 'dark_mode',
   delete: 'mdi-delete',
+  details: 'mdi-information-outline',
   developer: 'construction', // Material Icons
   disable: 'mdi-minus-circle-outline',
   discard: 'mdi-arrow-u-left-top',
@@ -61,6 +62,7 @@ const icons = {
   manage: 'mdi-cog',
   manager: 'mdi-account-star',
   menuDown: 'mdi-menu-down',
+  meter: 'mdi-numeric',
   menuLeft: 'mdi-menu-left',
   menuRight: 'mdi-menu-right',
   menuUp: 'mdi-menu-up',
@@ -95,7 +97,6 @@ const icons = {
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',
-  value: 'mdi-numeric',
   view: 'mdi-eye',
   viewOriginal: 'mdi-eye-arrow-left',
   viewer: 'mdi-account-eye',

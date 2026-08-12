@@ -5,14 +5,14 @@ import ParticleFieldSelect from '@/components/ParticleFieldSelect.vue'
 import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
 import ParticleTypeSelect from '@/components/ParticleTypeSelect.vue'
 import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
+import WorkspaceWidgetMeter from '@/components/WorkspaceWidgetMeter.vue'
 import WorkspaceWidgetSettings from '@/components/WorkspaceWidgetSettings.vue'
-import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import { ParticleFieldRef } from '@/particle-series'
-import { ValueWidget, TextWeightModel, useWorkspace } from '@/workspace'
+import { MeterWidget, TextWeightModel, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
-  widget: ValueWidget
+  widget: MeterWidget
 }>()
 
 const workspace = useWorkspace()
@@ -22,7 +22,7 @@ const resolvedParticleAddress = $computed(
 )
 
 // The widget's own fields are the selection, so the tree highlights what is stored and a pick
-// writes straight back, single-select since a value view shows one field.
+// writes straight back, single-select since a meter shows one field.
 const selected = $computed<ParticleFieldRef[]>({
   get: () => {
     if (
@@ -57,7 +57,7 @@ const selected = $computed<ParticleFieldRef[]>({
 <template>
   <workspace-widget-settings :widget>
     <q-card bordered class="q-mb-md q-pa-sm" flat>
-      <workspace-widget-value :widget="widget" />
+      <workspace-widget-meter :widget="widget" />
     </q-card>
     <div>
       <common-text class="q-mb-sm" variant="title2">Particles</common-text>

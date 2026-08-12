@@ -18,6 +18,8 @@ import { provideWidgetDrop } from '@/widget-drop'
 import {
   provideWorkspace,
   rootLayoutId,
+  Widget,
+  WidgetPlacement,
   Workspace,
   WorkspaceData,
   WorkspaceHeaderActions,
@@ -79,10 +81,22 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 // top-level await.
 defineExpose({
   insertWidget: workspace.insertWidget,
+  insertWidgetsAt: workspace.insertWidgetsAt,
+  startInsertDrag,
   revealWidgets,
   headerActions,
   headerState: $$(headerState),
 })
+
+/** Put widgets built outside the workspace in hand, so the pointer already down starts the
+same drag a widget's own header would. `drop` takes the release. */
+function startInsertDrag(widgets: Widget[], drop: (placement: WidgetPlacement | null) => void) {
+  if (widgets.length === 0 || !workspace.canEdit) {
+    return
+  }
+
+  workspace.drag = { widget: widgets[0], widgets, layout: rootLayoutId, drop }
+}
 
 /** Select widgets a host just landed and scroll the first into view, which is the feedback
 for the insert. */

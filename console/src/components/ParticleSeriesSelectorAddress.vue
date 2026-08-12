@@ -4,6 +4,9 @@ import { watch } from 'vue'
 
 import { Address } from '@/api/address'
 import { ParticleFieldInfo, ParticleTypeInfo } from '@/api/components'
+import ParticleFieldDetailsDialog, {
+  ParticleFieldDetails,
+} from '@/components/ParticleFieldDetailsDialog.vue'
 import icons from '@/icons'
 import { seriesForGroup } from '@/particle-series'
 import { describeFieldDescription, describeFieldType, useParticleTypes } from '@/particle-types'
@@ -79,6 +82,9 @@ const emit = defineEmits<{
   /** A right click on a field row, before the hosting menu opens on the event. */
   context: [type: string, field: string, event: MouseEvent]
 
+  /** A plain press on a field row in highlight mode, which a host may turn into a drag. */
+  press: [type: string, field: string, event: PointerEvent]
+
   /** This address's declared types resolved, for the host's selection ordering. */
   loaded: [types: ParticleTypeInfo[]]
 }>()
@@ -126,16 +132,22 @@ function modeOf(event: MouseEvent): SelectMode {
   return event.metaKey || event.ctrlKey ? 'toggle' : 'replace'
 }
 
-/** The field whose details dialog is showing, with the type it belongs to. */
-let detailsField = $ref<{ type: string; field: ParticleFieldInfo } | null>(null)
+/** The field whose details dialog is showing. */
+let detailsField = $ref<ParticleFieldDetails | null>(null)
 
-// A highlight click is a selection, so the details dialog is reserved for toggle mode, where
-// the checkbox already carries the choice.
+// A highlight click is a selection, so there the details dialog moves to double click. In
+// toggle mode the checkbox already carries the choice and a single click opens it.
 function onClick(type: string, field: ParticleFieldInfo, event: MouseEvent) {
   if (selectionMode === 'highlight') {
     emit('select', type, field.name, modeOf(event))
   } else {
-    detailsField = { type, field }
+    detailsField = { address: address.toString(), type, field }
+  }
+}
+
+function onDoubleClick(type: string, field: ParticleFieldInfo) {
+  if (selectionMode === 'highlight') {
+    detailsField = { address: address.toString(), type, field }
   }
 }
 
@@ -144,6 +156,19 @@ function onContext(type: string, field: string, event: MouseEvent) {
     event.preventDefault()
     emit('context', type, field, event)
   }
+}
+
+// Only a plain press is offered as a drag. A modified press is a selection gesture, and the
+// click that follows an untravelled press still selects as it always did.
+function onPointerDown(type: string, field: string, event: PointerEvent) {
+  if (selectionMode !== 'highlight' || event.button !== 0) {
+    return
+  }
+  if (event.shiftKey || event.metaKey || event.ctrlKey) {
+    return
+  }
+
+  emit('press', type, field, event)
 }
 </script>
 
@@ -186,7 +211,9 @@ function onContext(type: string, field: string, event: MouseEvent) {
             clickable
             @click="onClick(type.type, field, $event as MouseEvent)"
             @contextmenu="onContext(type.type, field.name, $event as MouseEvent)"
+            @dblclick="onDoubleClick(type.type, field)"
             @mousedown="(event: MouseEvent) => event.shiftKey && event.preventDefault()"
+            @pointerdown="onPointerDown(type.type, field.name, $event as PointerEvent)"
           >
             <q-item-section v-if="selectionMode === 'toggle'" side @click.stop>
               <q-checkbox
@@ -250,28 +277,7 @@ function onContext(type: string, field: string, event: MouseEvent) {
     <reuse-type-list />
   </q-expansion-item>
 
-  <q-dialog
-    :model-value="detailsField != null"
-    @update:model-value="(value) => !value && (detailsField = null)"
-  >
-    <q-card v-if="detailsField != null" bordered flat :style="{ minWidth: '320px' }">
-      <div class="column q-gutter-y-sm q-pa-md">
-        <div class="items-baseline q-gutter-x-sm row">
-          <span class="monospace-sm text-weight-medium">{{ detailsField.field.name }}:</span>
-          <span class="monospace-sm text-grey-6">
-            {{ describeFieldType(detailsField.field.schema as Schema) }}
-          </span>
-        </div>
-        <div class="monospace-sm text-grey-6">
-          {{ address.toString() }}::particles::{{ detailsField.type }}
-        </div>
-        <div v-if="describeFieldDescription(detailsField.field.schema)">
-          {{ describeFieldDescription(detailsField.field.schema) }}
-        </div>
-        <div v-else class="text-grey-6">No description.</div>
-      </div>
-    </q-card>
-  </q-dialog>
+  <particle-field-details-dialog v-model="detailsField" />
 </template>
 
 <style module>

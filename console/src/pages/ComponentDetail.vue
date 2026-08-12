@@ -776,6 +776,8 @@ const configHighlighted = $computed(() =>
                 v-model:expanded="persisted.particles"
                 v-model:expanded-types="persisted.particleTypes"
                 :address
+                :insert-at="workspacePageRef?.insertWidgetsAt"
+                :insert-drag="workspacePageRef?.startInsertDrag"
                 @create="createWidgetsScoped"
               />
 

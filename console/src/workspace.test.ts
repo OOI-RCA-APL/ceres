@@ -17,6 +17,7 @@ import {
   withFreshPage,
   ControlsWidget,
   CarouselWidget,
+  MeterWidget,
   TabsWidget,
   Widget,
   WidgetRow,
@@ -735,6 +736,70 @@ describe('a stored button widget', () => {
 
     expect(button.frameless).toBe(false)
     expect(chart.frameless).toBe(false)
+  })
+})
+
+describe('a stored value widget', () => {
+  /** The widgets a stored workspace holds, once it has been read the way the app reads one. */
+  function loaded(...widgets: unknown[]): Widget[] {
+    const data = WorkspaceDataModel.parse({
+      layout: [{ id: 'r1', height: 250, collapsed: false, widgets }],
+    })
+
+    return data.layout[0].widgets
+  }
+
+  it('comes back as a meter widget, the kind it is stored under now', () => {
+    const [upgraded] = loaded({ id: 'w1', type: 'value', name: 'Depth' })
+
+    expect(upgraded.type).toBe('meter')
+    expect(upgraded.name).toBe('Depth')
+  })
+
+  it('keeps the fields it was stored with', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'value',
+      name: 'Pressure',
+      particleAddress: '@scpr',
+      particleType: 'science',
+      particleField: 'pressure',
+      fontSize: 24,
+      prefix: '~',
+      suffix: ' kPa',
+    })
+    const meter = upgraded as MeterWidget
+
+    expect(meter.particleAddress?.toString()).toBe('@scpr')
+    expect(meter.particleType).toBe('science')
+    expect(meter.particleField).toBe('pressure')
+    expect(meter.fontSize).toBe(24)
+    expect(meter.prefix).toBe('~')
+    expect(meter.suffix).toBe(' kPa')
+  })
+
+  it('is renamed inside a tab strip page too', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'tabs',
+      name: 'Tabs',
+      tabs: [
+        {
+          id: 't1',
+          name: '',
+          layout: [
+            {
+              id: 'r2',
+              height: 250,
+              collapsed: false,
+              widgets: [{ id: 'w2', type: 'value', name: 'Depth' }],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(pagesOf(upgraded)[0].layout[0].widgets[0].type).toBe('meter')
   })
 })
 

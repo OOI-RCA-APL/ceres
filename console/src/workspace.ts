@@ -136,10 +136,10 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
 export type TextWeight = Zod.infer<typeof TextWeightModel>
 export const TextWeightModel = Zod.enum(['slim', 'normal', 'bold'])
 
-export type ValueWidget = Zod.infer<typeof ValueWidgetModel>
-export const ValueWidgetModel = BaseWidgetModel.extend({
-  type: Zod.literal('value'),
-  name: Zod.string().catch('Value'),
+export type MeterWidget = Zod.infer<typeof MeterWidgetModel>
+export const MeterWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('meter'),
+  name: Zod.string().catch('Meter'),
   particleAddress: AddressSelectorModel.nullish(),
   particleType: Zod.string().nullish(),
   particleField: Zod.string().nullish(),
@@ -313,7 +313,7 @@ export type Widget =
   | LogsWidget
   | ProceduresWidget
   | ChartWidget
-  | ValueWidget
+  | MeterWidget
   | VideoWidget
   | ControlsWidget
   | CarouselWidget
@@ -329,21 +329,41 @@ export const UnknownWidgetModel = BaseWidgetModel.extend({
   name: Zod.string().catch(''),
 }).passthrough()
 
-export const WidgetModel = Zod.discriminatedUnion('type', [
-  MessagesWidgetModel,
-  ParticlesWidgetModel,
-  AlertsWidgetModel,
-  LogsWidgetModel,
-  ProceduresWidgetModel,
-  ChartWidgetModel,
-  ValueWidgetModel,
-  VideoWidgetModel,
-  ControlsWidgetModel,
-  // The controls widget's legacy stored kind, turned into `controls` by `upgradedWidget` on load.
-  StoredButtonWidgetModel,
-  CarouselWidgetModel,
-  TabsWidgetModel,
-]).or(UnknownWidgetModel) as unknown as Zod.ZodType<Widget>
+/** Kinds that were renamed without changing shape, rewritten on the stored data before its
+model parses. A kind whose shape also changed migrates in `upgradedWidget` instead. */
+const renamedWidgetTypes: Record<string, WidgetType> = {
+  value: 'meter',
+}
+
+function migratedRawWidget(stored: unknown): unknown {
+  if (typeof stored !== 'object' || stored == null) {
+    return stored
+  }
+
+  const renamed = renamedWidgetTypes[(stored as { type?: string }).type ?? '']
+
+  return renamed == null ? stored : { ...stored, type: renamed }
+}
+
+export const WidgetModel = Zod.preprocess(
+  migratedRawWidget,
+  Zod.discriminatedUnion('type', [
+    MessagesWidgetModel,
+    ParticlesWidgetModel,
+    AlertsWidgetModel,
+    LogsWidgetModel,
+    ProceduresWidgetModel,
+    ChartWidgetModel,
+    MeterWidgetModel,
+    VideoWidgetModel,
+    ControlsWidgetModel,
+    // The controls widget's legacy stored kind, turned into `controls` by `upgradedWidget` on
+    // load.
+    StoredButtonWidgetModel,
+    CarouselWidgetModel,
+    TabsWidgetModel,
+  ]).or(UnknownWidgetModel)
+) as unknown as Zod.ZodType<Widget>
 
 export type WidgetType = Widget['type']
 export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos] | typeof unknownWidgetInfo
@@ -460,13 +480,13 @@ export const widgetInfos = {
       reloadOnThemeChange: true,
     }),
   },
-  value: {
-    type: 'value',
-    name: 'Value',
-    model: ValueWidgetModel,
-    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetValue.vue')),
+  meter: {
+    type: 'meter',
+    name: 'Meter',
+    model: MeterWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetMeter.vue')),
     settingsComponent: defineAsyncComponent(
-      () => import('@/components/WorkspaceWidgetValueSettings.vue')
+      () => import('@/components/WorkspaceWidgetMeterSettings.vue')
     ),
     options: widgetOptions({
       minHeight: 50,
@@ -763,6 +783,11 @@ export type Drag = {
 
   /** The layout everything came from. A selection is always made within one layout. */
   layout: string
+
+  /** Takes the release of a drag carrying widgets from outside any layout, called with where
+  they landed or null when the drag never took hold anywhere. The widgets in hand stand for
+  what would be created, so releasing moves nothing itself. */
+  drop?: (placement: WidgetPlacement | null) => void
 }
 
 /** How a widget joins what is already picked out when it is chosen. */
@@ -1047,6 +1072,41 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
       rowObject.widgets = widgets
     }
+  }
+
+  /** Insert widgets arriving from outside the workspace at a drop placement.
+
+  A null column opens a row of their own at that index, and a column splices them into the
+  row side by side.
+  */
+  function insertWidgetsAt(widgets: Widget[], placement: WidgetPlacement) {
+    if (widgets.length === 0) {
+      return
+    }
+
+    if (placement.column != null) {
+      for (const [offset, widget] of widgets.entries()) {
+        insertWidget(widget, placement.row, placement.column + offset, placement.layout)
+      }
+
+      return
+    }
+
+    const layout = findLayout(placement.layout)
+    if (layout == null) {
+      return
+    }
+
+    resolveWidgetWidths(widgets)
+    const rows = layout.rows
+    const index = Math.max(0, Math.min(rows.length, placement.row))
+    const row = WidgetRowModel.parse({
+      widgets,
+      height: Math.max(
+        ...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight)
+      ),
+    })
+    layout.set([...rows.slice(0, index), row, ...rows.slice(index)])
   }
 
   function addWidget(
@@ -1516,6 +1576,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     getWidget,
     layouts: computed(() => layoutRefs()),
     insertWidget,
+    insertWidgetsAt,
     addWidget,
     deleteWidget,
     deleteWidgets,
@@ -2512,6 +2573,86 @@ export function planWidgetsMove(
   }
 
   return { layouts: planned(), widths }
+}
+
+/** Work out the layouts that inserting `widgets` at `placement` produces, changing nothing.
+
+The widgets stand for what a drop from outside the workspace would create, so only the
+destination layout changes and a null `placement` plans nothing at all.
+*/
+export function planWidgetsInsert(
+  layouts: Map<string, WidgetRow[]>,
+  widgets: Widget[],
+  placement: WidgetPlacement | null
+): WidgetMovePlan | null {
+  if (placement == null || widgets.length === 0) {
+    return null
+  }
+
+  const target =
+    layouts.get(placement.layout)?.map((row) => ({
+      id: row.id,
+      height: row.height,
+      collapsed: row.collapsed,
+      widgets: row.widgets.map((widget) => widget.id),
+    })) ?? null
+  if (target == null) {
+    return null
+  }
+
+  const widths: Record<string, number> = {}
+
+  if (placement.column == null) {
+    const resolved = resolveWidths(widgets.map((widget) => widget.width))
+    for (const [index, widget] of widgets.entries()) {
+      widths[widget.id] = resolved[index]
+    }
+
+    target.splice(placement.row, 0, {
+      id: v7(),
+      height: Math.max(
+        ...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight)
+      ),
+      collapsed: false,
+      widgets: widgets.map((widget) => widget.id),
+    })
+
+    return { layouts: { [placement.layout]: target }, widths }
+  }
+
+  const destinationRow = target[placement.row] ?? null
+  if (destinationRow == null) {
+    return null
+  }
+
+  destinationRow.widgets.splice(placement.column, 0, ...widgets.map((widget) => widget.id))
+  destinationRow.height = Math.max(
+    destinationRow.height,
+    ...widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight)
+  )
+
+  // Each arriving widget claims at most an even share of the row it joins, and the widgets
+  // already there give up the difference. Arriving widths are read from the widgets in hand
+  // since no layout holds them yet.
+  const currentWidths = widgetsIn(layouts)
+  const arriving = new Map(widgets.map((widget) => [widget.id, widget]))
+  const share = widgetWidthSubdivisions / destinationRow.widgets.length
+  const resolved = resolveWidths(
+    destinationRow.widgets.map((widgetId) => {
+      const held = arriving.get(widgetId)
+      if (held != null) {
+        return Math.min(share, held.width)
+      }
+
+      return currentWidths.get(widgetId)?.width ?? 0
+    }),
+    widgets.map((_, offset) => (placement.column ?? 0) + offset)
+  )
+  for (const [index, widgetId] of destinationRow.widgets.entries()) {
+    widths[widgetId] = resolved[index]
+  }
+
+  return { layouts: { [placement.layout]: target }, widths }
 }
 
 // A value that changes whenever any of a widget's address-bearing fields change. Used to clear a

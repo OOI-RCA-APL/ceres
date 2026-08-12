@@ -58,7 +58,10 @@ const {
 
 const emit = defineEmits<{
   /** A right click landed on a field row and the selection now includes it. */
-  itemContext: [event: MouseEvent]
+  itemContext: [event: MouseEvent, ref: ParticleFieldRef]
+
+  /** A plain press landed on a field row, which a host may turn into a drag. */
+  itemPress: [event: PointerEvent, ref: ParticleFieldRef]
 }>()
 
 let modelValue = $(defineModel<ChartWidgetParticle[]>({ default: () => [] }))
@@ -126,7 +129,7 @@ function onContext(address: string, type: string, field: string, event: MouseEve
     anchor = fieldRefKey(ref)
   }
 
-  emit('itemContext', event)
+  emit('itemContext', event, ref)
 }
 
 const engine = useEngine()
@@ -226,16 +229,20 @@ function addManualEntry() {
       <particle-series-selector-address
         v-for="node in addressNodes"
         :key="node.toString()"
+        v-model:expanded-types="expandedTypes"
         :address="node"
         :bare="addressNodes.length === 1"
         :collapse-unselected="collapseUnselected"
-        v-model:expanded-types="expandedTypes"
         :item-actions="itemActions"
         :particles="modelValue"
         :selected-keys="selectedKeys"
         :selection-mode="selectionMode"
         @context="(type, field, event) => onContext(node.toString(), type, field, event)"
         @loaded="(types) => loadedTypes.set(node.toString(), types)"
+        @press="
+          (type, field, event) =>
+            emit('itemPress', event, { address: node.toString(), type, field })
+        "
         @select="(type, field, mode) => onSelect(node.toString(), type, field, mode)"
         @toggle="(type, field, value) => toggleField(node.toString(), type, field, value)"
       />
