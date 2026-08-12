@@ -241,36 +241,39 @@ function addManualEntry() {
           <template v-for="typeGroup in group.types" :key="`${group.address}|${typeGroup.type}`">
             <!-- The established path notation, one line standing in for the address and type
             levels. -->
-            <q-item dense>
+            <q-item :class="$style.groupHeader" dense>
               <q-item-section>
                 <q-item-label class="monospace-sm">
                   {{ group.address }}::particles::{{ typeGroup.type }}
                 </q-item-label>
               </q-item-section>
             </q-item>
-            <q-item v-for="series in typeGroup.series" :key="series.id" dense :inset-level="0.4">
+            <q-item
+              v-for="series in typeGroup.series"
+              :key="series.id"
+              :class="$style.seriesRow"
+              dense
+              :inset-level="0.2"
+            >
               <q-item-section>
-                <q-item-label class="monospace-sm">{{ series.field }}</q-item-label>
-              </q-item-section>
-              <q-item-section side>
-                <q-input
-                  v-model="series.label"
-                  :class="$style.labelInput"
-                  clearable
-                  dense
-                  label="Label"
-                  outlined
-                />
-              </q-item-section>
-              <q-item-section side>
-                <q-btn
-                  dense
-                  flat
-                  :icon="icons.cancel"
-                  round
-                  size="9px"
-                  @click="removeSeries(series.id)"
-                />
+                <div class="items-center no-wrap q-gutter-x-sm row">
+                  <span class="monospace-sm" :class="$style.seriesField">{{ series.field }}</span>
+                  <q-input
+                    v-model="series.label"
+                    :class="$style.labelInput"
+                    dense
+                    outlined
+                    placeholder="Label"
+                  />
+                  <q-btn
+                    dense
+                    flat
+                    :icon="icons.cancel"
+                    round
+                    size="9px"
+                    @click="removeSeries(series.id)"
+                  />
+                </div>
               </q-item-section>
             </q-item>
           </template>
@@ -299,8 +302,36 @@ function addManualEntry() {
 </template>
 
 <style module>
+:global(.q-item).groupHeader {
+  padding-left: 8px;
+}
+
+/* Qualified to outrank the dense item's own min-height, matching the tree's row height. */
+:global(.q-item).seriesRow {
+  min-height: 24px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+/* Holds a common left edge for the label inputs across rows. */
+.seriesField {
+  min-width: 160px;
+}
+
 /* Sized so the field name keeps the row and the label reads as its annotation. */
 .labelInput {
   width: 180px;
+}
+
+.labelInput :global(.q-field__control),
+.labelInput :global(.q-field__marginal) {
+  height: 24px;
+  min-height: 24px;
+}
+
+.labelInput :global(.q-field__native) {
+  min-height: 24px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 </style>

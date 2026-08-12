@@ -3,7 +3,7 @@ import { createReusableTemplate } from '@vueuse/core'
 import { watch } from 'vue'
 
 import { Address } from '@/api/address'
-import { ParticleTypeInfo } from '@/api/components'
+import { ParticleFieldInfo, ParticleTypeInfo } from '@/api/components'
 import icons from '@/icons'
 import { seriesForGroup } from '@/particle-series'
 import {
@@ -96,9 +96,16 @@ function modeOf(event: MouseEvent): SelectMode {
   return event.metaKey || event.ctrlKey ? 'toggle' : 'replace'
 }
 
-function onClick(type: string, field: string, event: MouseEvent) {
+/** The field whose details dialog is showing, with the type it belongs to. */
+let detailsField = $ref<{ type: string; field: ParticleFieldInfo } | null>(null)
+
+// A highlight click is a selection, so the details dialog is reserved for toggle mode, where
+// the checkbox already carries the choice.
+function onClick(type: string, field: ParticleFieldInfo, event: MouseEvent) {
   if (selectionMode === 'highlight') {
-    emit('select', type, field, modeOf(event))
+    emit('select', type, field.name, modeOf(event))
+  } else {
+    detailsField = { type, field }
   }
 }
 
@@ -121,10 +128,11 @@ function onContext(type: string, field: string, event: MouseEvent) {
       <q-expansion-item
         v-for="type in types"
         :key="type.type"
-        :content-inset-level="0.4"
+        :content-inset-level="0.2"
         default-opened
         dense
         dense-toggle
+        :header-class="$style.groupHeader"
       >
         <template #header>
           <q-item-section>
@@ -139,15 +147,16 @@ function onContext(type: string, field: string, event: MouseEvent) {
             v-ripple
             :active="selectionMode === 'highlight' && isFieldOn(type.type, field.name)"
             :active-class="$style.selected"
-            :clickable="selectionMode === 'highlight'"
-            :tag="selectionMode === 'toggle' ? 'label' : 'div'"
-            @click="onClick(type.type, field.name, $event as MouseEvent)"
+            :class="$style.fieldRow"
+            clickable
+            @click="onClick(type.type, field, $event as MouseEvent)"
             @contextmenu="onContext(type.type, field.name, $event as MouseEvent)"
           >
-            <q-item-section v-if="selectionMode === 'toggle'" side>
+            <q-item-section v-if="selectionMode === 'toggle'" side @click.stop>
               <q-checkbox
                 dense
                 :model-value="isFieldOn(type.type, field.name)"
+                size="xs"
                 @update:model-value="
                   (value) => emit('toggle', type.type, field.name, Boolean(value))
                 "
@@ -156,11 +165,11 @@ function onContext(type: string, field: string, event: MouseEvent) {
             <q-item-section>
               <q-item-label class="items-baseline no-wrap q-gutter-x-sm row">
                 <span class="monospace-sm">{{ field.name }}</span>
+                <span v-if="describeFieldUnit(field.schema)" class="monospace-sm text-grey-6">
+                  {{ describeFieldUnit(field.schema) }}
+                </span>
                 <span class="monospace-sm text-grey-6">
                   {{ describeFieldType(field.schema as Schema) }}
-                  <template v-if="describeFieldUnit(field.schema)">
-                    &middot; {{ describeFieldUnit(field.schema) }}
-                  </template>
                 </span>
                 <span v-if="describeFieldDescription(field.schema)" class="ellipsis text-grey-6">
                   {{ describeFieldDescription(field.schema) }}
@@ -188,7 +197,14 @@ function onContext(type: string, field: string, event: MouseEvent) {
   <!-- A one-address tree starts at its types since the address level would only repeat the
   page. -->
   <reuse-type-list v-if="bare" />
-  <q-expansion-item v-else v-model="expanded" :content-inset-level="0.4" dense dense-toggle>
+  <q-expansion-item
+    v-else
+    v-model="expanded"
+    :content-inset-level="0.2"
+    dense
+    dense-toggle
+    :header-class="$style.groupHeader"
+  >
     <template #header>
       <q-item-section>
         <q-item-label class="monospace-sm">{{ address.toString() }}</q-item-label>
@@ -196,11 +212,51 @@ function onContext(type: string, field: string, event: MouseEvent) {
     </template>
     <reuse-type-list />
   </q-expansion-item>
+
+  <q-dialog
+    :model-value="detailsField != null"
+    @update:model-value="(value) => !value && (detailsField = null)"
+  >
+    <q-card v-if="detailsField != null" bordered flat :style="{ minWidth: '320px' }">
+      <div class="column q-gutter-y-sm q-pa-md">
+        <div class="items-baseline q-gutter-x-sm row">
+          <span class="monospace-sm text-weight-medium">{{ detailsField.field.name }}</span>
+          <span
+            v-if="describeFieldUnit(detailsField.field.schema)"
+            class="monospace-sm text-grey-6"
+          >
+            {{ describeFieldUnit(detailsField.field.schema) }}
+          </span>
+          <span class="monospace-sm text-grey-6">
+            {{ describeFieldType(detailsField.field.schema as Schema) }}
+          </span>
+        </div>
+        <div class="monospace-sm text-grey-6">
+          {{ address.toString() }}::particles::{{ detailsField.type }}
+        </div>
+        <div v-if="describeFieldDescription(detailsField.field.schema)">
+          {{ describeFieldDescription(detailsField.field.schema) }}
+        </div>
+        <div v-else class="text-grey-6">No description.</div>
+      </div>
+    </q-card>
+  </q-dialog>
 </template>
 
 <style module>
 /* Neutral so the highlight reads the same over both themes and never fights the text color. */
 .selected {
   background: #80808029;
+}
+
+/* Qualified to outrank the dense item's own min-height. */
+:global(.q-item).fieldRow {
+  min-height: 24px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+:global(.q-item).groupHeader {
+  padding-left: 8px;
 }
 </style>
