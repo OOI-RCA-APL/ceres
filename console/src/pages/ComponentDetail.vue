@@ -30,10 +30,10 @@ import { requestedWorkspaces, resolveTabs, useLastWorkspace, useTabs } from '@/t
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
 import {
-  ChartWidget,
   getWidgetInfo,
   inStandardOrder,
   useWorkspaces,
+  Widget,
   WidgetRowModel,
   Workspace,
 } from '@/workspace'
@@ -333,13 +333,24 @@ function createScoped() {
   })
 }
 
-/** Land a chart the particles section built on the workspace open on this component's strip,
-through its live editing session so it shows immediately as an uncommitted change. With none
-open, a private workspace is created and opened to carry it. */
-async function createChartScoped(widget: ChartWidget) {
+/** Land widgets the particles section built on the workspace open on this component's strip,
+through its live editing session so they show immediately as uncommitted changes. With none
+open, a private workspace is created and opened to carry them. */
+async function createWidgetsScoped(widgets: Widget[]) {
+  const [first, ...rest] = widgets
+  if (first == null) {
+    return
+  }
+
+  const noun = widgets.length > 1 ? 'Widgets' : 'Widget'
   if (activeWorkspaceId != null && workspacePageRef != null) {
-    workspacePageRef.insertWidget(widget, -1)
-    notify.success('Chart added as an uncommitted change to the open workspace.')
+    // The first insert opens a fresh top row and the rest join it beside each other.
+    workspacePageRef.insertWidget(first, -1)
+    for (const [index, widget] of rest.entries()) {
+      workspacePageRef.insertWidget(widget, 0, index + 1)
+    }
+
+    notify.success(`${noun} added as an uncommitted change to the open workspace.`)
     return
   }
 
@@ -350,17 +361,19 @@ async function createChartScoped(widget: ChartWidget) {
       data: {
         layout: [
           WidgetRowModel.parse({
-            widgets: [widget],
-            height: getWidgetInfo('chart').options.minHeight,
+            widgets,
+            height: Math.max(
+              ...widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight)
+            ),
           }),
         ],
       },
     })
     await refreshScoped()
     showWorkspace(created.id)
-    notify.success('Chart added to a new workspace on this component.')
+    notify.success(`${noun} added to a new workspace on this component.`)
   } catch {
-    notify.error('Failed to add the chart.')
+    notify.error(`Failed to add the ${noun.toLowerCase()}.`)
   }
 }
 
@@ -718,7 +731,7 @@ const configHighlighted = $computed(() =>
               <component-particles-section
                 v-model:expanded="persisted.particles"
                 :address
-                @create-chart="createChartScoped"
+                @create="createWidgetsScoped"
               />
 
               <div v-if="component.tags.length > 0" class="q-mt-md">

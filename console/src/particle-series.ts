@@ -6,6 +6,18 @@ import {
   ChartWidgetSeriesModel,
 } from '@/workspace'
 
+/** One field of one declared particle type, as the selector trees select them. */
+export type ParticleFieldRef = {
+  address: string
+  type: string
+  field: string
+}
+
+/** The key a selection tracks a field under, unique across the whole tree. */
+export function fieldRefKey(ref: ParticleFieldRef): string {
+  return `${ref.address}|${ref.type}|${ref.field}`
+}
+
 function isSameGroup(particle: ChartWidgetParticle, address: string, type: string): boolean {
   return (particle.address?.toString() ?? null) === address && particle.type === type
 }

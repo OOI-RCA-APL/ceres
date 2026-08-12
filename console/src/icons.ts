@@ -95,6 +95,7 @@ const icons = {
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',
+  value: 'mdi-numeric',
   view: 'mdi-eye',
   viewOriginal: 'mdi-eye-arrow-left',
   viewer: 'mdi-account-eye',

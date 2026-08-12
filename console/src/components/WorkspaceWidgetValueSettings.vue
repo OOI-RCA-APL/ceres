@@ -2,10 +2,12 @@
 import { AddressSelector } from '@/api/address'
 import CommonText from '@/components/CommonText.vue'
 import ParticleFieldSelect from '@/components/ParticleFieldSelect.vue'
+import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
 import ParticleTypeSelect from '@/components/ParticleTypeSelect.vue'
 import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
+import { ParticleFieldRef } from '@/particle-series'
 import { ValueWidget, TextWeightModel, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -17,6 +19,38 @@ const workspace = useWorkspace()
 const resolvedParticleAddress = $computed(
   () => workspace.resolveAddress(widget.particleAddress)?.toString() ?? null
 )
+
+// The widget's own fields are the selection, so the tree highlights what is stored and a pick
+// writes straight back, single-select since a value view shows one field.
+const selected = $computed<ParticleFieldRef[]>({
+  get: () => {
+    if (
+      resolvedParticleAddress == null ||
+      widget.particleType == null ||
+      widget.particleField == null
+    ) {
+      return []
+    }
+
+    return [
+      {
+        address: resolvedParticleAddress,
+        type: widget.particleType,
+        field: widget.particleField,
+      },
+    ]
+  },
+  set: (refs) => {
+    const ref = refs[0]
+    if (ref == null) {
+      return
+    }
+
+    widget.particleAddress = new AddressSelector(ref.address)
+    widget.particleType = ref.type
+    widget.particleField = ref.field
+  },
+})
 </script>
 
 <template>
@@ -27,6 +61,12 @@ const resolvedParticleAddress = $computed(
     </q-card>
     <div>
       <common-text class="q-mb-sm" variant="title2">Particles</common-text>
+      <particle-series-selector
+        v-model:selected="selected"
+        class="q-mb-sm"
+        selection-mode="highlight"
+        single
+      />
       <div class="q-col-gutter-sm q-mb-sm row">
         <div class="col-6">
           <workspace-address-select
