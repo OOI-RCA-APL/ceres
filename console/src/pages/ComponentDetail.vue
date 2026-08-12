@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useQuery } from '@tanstack/vue-query'
-import { useMediaQuery } from '@vueuse/core'
+import { until, useMediaQuery } from '@vueuse/core'
 import { upperFirst } from 'lodash-es'
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -16,7 +16,11 @@ import CommonText from '@/components/CommonText.vue'
 import ComponentParticlesSection from '@/components/ComponentParticlesSection.vue'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
-import FullPage, { appHeaderHeight, pageHeaderHeight } from '@/components/FullPage.vue'
+import FullPage, {
+  appHeaderHeight,
+  densePageHeaderHeight,
+  pageHeaderHeight,
+} from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useDialogs } from '@/dialogs'
@@ -90,6 +94,7 @@ const persisted = usePersisted({
       actions: boolean().default(false),
       overviewCollapsed: boolean().default(false),
       overviewHeight: number().default(320),
+      workspaceCollapsed: boolean().default(false),
     }),
   methods: computed(() => [
     { type: 'local-storage' as const, key: ['component-detail-drawers', address] },
@@ -113,7 +118,7 @@ const openableWorkspaces = $computed(() => {
 
 async function openScoped(id: string) {
   await tabs.open(address.toString(), id)
-  showWorkspace(id)
+  revealScoped(id)
 }
 
 // A copy belongs next to its original so the strip reads as the original followed by its copy.
@@ -125,7 +130,7 @@ async function openBesideScoped(afterId: string, id: string) {
     afterId,
     scopedWorkspaces.map((workspace) => workspace.id)
   )
-  showWorkspace(id)
+  revealScoped(id)
 }
 
 const lastWorkspace = useLastWorkspace(() => address.toString())
@@ -177,19 +182,29 @@ useScrollMemory(
   pinnedAt
 )
 
-// With tabs to show but no workspace beneath them, the strip sits at the bottom of the page rather
-// than floating below the overview with empty space under it. An empty strip has nothing to hold
-// down there, and collapsing the overview leaves nothing to push it away from so in either case
-// it goes back to sitting under the overview.
-const pinTabs = $computed(
-  () => activeWorkspaceId == null && !persisted.overviewCollapsed && scopedWorkspaces.length > 0
-)
-
 // Whatever is showing is what this component reopens on so it is recorded here rather than at
 // each of the places that can choose one.
 function showWorkspace(id: string) {
   activeWorkspaceId = id
   lastWorkspace.id = id
+}
+
+/** Scroll to where the strip pins under the header when it was clicked while stuck to the
+bottom edge, since a selection there is a request to see the workspace itself. */
+function scrollToWorkspaceIfDocked() {
+  const stripTop = pinnedAt() + workspaceStickyTop
+  if (stripTop > window.scrollY + window.innerHeight - densePageHeaderHeight) {
+    window.scrollTo({ top: pinnedAt(), behavior: 'smooth' })
+  }
+}
+
+/** Show a workspace the user explicitly chose, bringing hidden content back and scrolling to
+it when the strip is stuck at the bottom edge. The fallback selections after a close keep to
+`showWorkspace` so a context menu action or a drag never unhides anything. */
+function revealScoped(id: string) {
+  persisted.workspaceCollapsed = false
+  showWorkspace(id)
+  scrollToWorkspaceIfDocked()
 }
 
 // Reached to land a chart built from the particles section directly on the open workspace's
@@ -329,7 +344,7 @@ watch(
 function createScoped() {
   dialogs.createWorkspace(address.toString()).onOk(async (created: Workspace) => {
     await refreshScoped()
-    showWorkspace(created.id)
+    revealScoped(created.id)
   })
 }
 
@@ -342,7 +357,20 @@ async function createWidgetsScoped(widgets: Widget[]) {
     return
   }
 
-  if (activeWorkspaceId != null && workspacePageRef != null) {
+  // Hidden workspace content comes back first, since the widgets land through the mounted page.
+  if (activeWorkspaceId != null && persisted.workspaceCollapsed) {
+    persisted.workspaceCollapsed = false
+    await until(() => workspacePageRef != null).toBeTruthy({ timeout: 5000 })
+  }
+
+  // A missing page ref with a workspace open means it failed to mount, and falling through
+  // would quietly create a second workspace for widgets meant for the open one.
+  if (activeWorkspaceId != null) {
+    if (workspacePageRef == null) {
+      notify.error('Failed to add the widgets to the open workspace.')
+      return
+    }
+
     // The first insert opens a fresh top row and the rest join it beside each other.
     workspacePageRef.insertWidget(first, -1)
     for (const [index, widget] of rest.entries()) {
@@ -369,7 +397,7 @@ async function createWidgetsScoped(widgets: Widget[]) {
       },
     })
     await refreshScoped()
-    showWorkspace(created.id)
+    revealScoped(created.id)
   } catch {
     notify.error('Failed to add the widgets.')
   }
@@ -384,7 +412,7 @@ async function importScoped(files: File[]) {
   })
   await refreshScoped()
   if (imported.length > 0) {
-    showWorkspace(imported[0].id)
+    revealScoped(imported[0].id)
   }
 }
 
@@ -501,7 +529,7 @@ const configHighlighted = $computed(() =>
 </script>
 
 <template>
-  <full-page :fill="pinTabs">
+  <full-page fill>
     <template #header-append>
       <common-text class="q-ml-md" variant="title2">
         {{ component?.address?.toString() ?? address.toString() }}
@@ -520,6 +548,21 @@ const configHighlighted = $computed(() =>
       >
         <q-tooltip class="bg-primary text-white">
           {{ persisted.overviewCollapsed ? 'Show' : 'Hide' }} Details
+        </q-tooltip>
+      </q-btn>
+      <q-btn
+        v-if="activeWorkspaceId != null || persisted.workspaceCollapsed"
+        class="q-mr-sm"
+        :color="persisted.workspaceCollapsed ? undefined : 'primary'"
+        dense
+        flat
+        :icon="persisted.workspaceCollapsed ? icons.menuDown : icons.menuUp"
+        :icon-right="icons.workspace"
+        size="sm"
+        @click="persisted.workspaceCollapsed = !persisted.workspaceCollapsed"
+      >
+        <q-tooltip class="bg-primary text-white">
+          {{ persisted.workspaceCollapsed ? 'Show' : 'Hide' }} Workspace
         </q-tooltip>
       </q-btn>
       <!-- Flush with the right edge of the widgets below, whose cards sit half a gutter in. -->
@@ -542,10 +585,12 @@ const configHighlighted = $computed(() =>
     <div v-if="component == null" class="q-pa-xl text-center text-grey-6">Component not found.</div>
     <template v-else>
       <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
+        <!-- The dragged height only applies while workspace content shows below. With it
+        hidden the overview is the page and takes its full height. -->
         <div
           :class="[$style.overviewContent, 'scroll']"
           :style="
-            activeWorkspaceId != null && !overviewStacks
+            activeWorkspaceId != null && !persisted.workspaceCollapsed && !overviewStacks
               ? { height: `${persisted.overviewHeight}px` }
               : undefined
           "
@@ -769,7 +814,7 @@ const configHighlighted = $computed(() =>
           </div>
         </div>
         <resize-handle
-          v-if="activeWorkspaceId != null && !overviewStacks"
+          v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed && !overviewStacks"
           v-model="persisted.overviewHeight"
           :class="$style.overviewResizeHandle"
           direction="vertical"
@@ -777,20 +822,20 @@ const configHighlighted = $computed(() =>
           :min="120"
         />
       </div>
-      <!-- Deliberately not keyed on the workspace ID, so switching tabs updates this page in
-      place. -->
-      <workspace-page
-        v-if="activeWorkspaceId != null"
-        :id="activeWorkspaceId"
-        ref="workspacePageRef"
-        :sticky-top="workspaceStickyTop"
-        @duplicated="openBesideScoped"
+      <!-- The strip sits in flow between the overview and the workspace, and sticks at both
+      edges so it is always on screen, pinning under the header the way it always has and
+      resting at the bottom while its own place is still below the fold. -->
+      <div
+        v-if="scopedWorkspaces.length > 0 || canCreate"
+        :class="$style.tabStrip"
+        :style="{ top: `${workspaceStickyTop}px` }"
       >
-        <template #header-prepend="{ actions, state }">
+        <!-- The same band the page header gives its tabs, so they fill it to the bottom edge. -->
+        <div :class="[$style.tabStripRow, 'items-center', 'row']">
           <component-workspace-tabs
             :active="activeWorkspaceId"
-            :active-actions="actions"
-            :active-state="state"
+            :active-actions="workspacePageRef?.headerActions"
+            :active-state="workspacePageRef?.headerState"
             bound
             :can-create="canCreate"
             :can-manage="canManage"
@@ -806,37 +851,21 @@ const configHighlighted = $computed(() =>
             @open-all="openAllScoped"
             @open-beside="openBesideScoped"
             @reorder="reorderScoped"
-            @select="showWorkspace"
+            @select="revealScoped"
             @share="shareScoped"
           />
-        </template>
-      </workspace-page>
-      <div
-        v-else-if="scopedWorkspaces.length > 0 || canCreate"
-        :class="pinTabs && $style.pinnedTabs"
-      >
+        </div>
         <q-separator />
-        <component-workspace-tabs
-          :active="activeWorkspaceId"
-          bound
-          :can-create="canCreate"
-          :can-manage="canManage"
-          class="q-px-sm q-py-xs"
-          :openable="openableWorkspaces"
-          :workspaces="scopedWorkspaces"
-          @close="closeScoped"
-          @close-all="closeAllScoped"
-          @close-others="closeOtherScoped"
-          @create="createScoped"
-          @import="importScoped"
-          @open="openScoped"
-          @open-all="openAllScoped"
-          @open-beside="openBesideScoped"
-          @reorder="reorderScoped"
-          @select="showWorkspace"
-          @share="shareScoped"
-        />
       </div>
+      <!-- Deliberately not keyed on the workspace ID, so switching tabs updates this page in
+      place. -->
+      <workspace-page
+        v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed"
+        :id="activeWorkspaceId"
+        ref="workspacePageRef"
+        :sticky-top="workspaceStickyTop"
+        @duplicated="openBesideScoped"
+      />
     </template>
   </full-page>
 </template>
@@ -845,14 +874,33 @@ const configHighlighted = $computed(() =>
 // The config and connections blocks sit side by side above this width and stack below it.
 $overview-columns-min: 720px;
 
+// Sticky at both edges so the strip never leaves the screen, and pushed to the bottom by the
+// auto margin when nothing renders beneath it. Its top offset is set inline from the header
+// heights above it.
+.tabStrip {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin-top: auto;
+}
+
+:global(.dark) .tabStrip {
+  background-color: $dark;
+}
+
+:global(.light) .tabStrip {
+  background-color: white;
+}
+
+// Mirrors the dense page header band the tabs used to fill, so they reach its bottom edge.
+.tabStripRow {
+  height: 32px;
+}
+
 // With a workspace below, the panel takes the height dragged onto it, set inline. On its own it
 // grows with its content up to what is left of the viewport, then scrolls. This is a maximum
 // rather than a fixed height so a collapsed configuration does not leave the panel padded out
 // with empty space down to the fold.
-.pinnedTabs {
-  margin-top: auto;
-}
-
 .overviewContent {
   overflow-x: hidden;
   max-height: calc(100vh - 92px);

@@ -9,6 +9,7 @@ import {
   defineAsyncComponent,
   inject,
   MaybeRef,
+  onScopeDispose,
   provide,
   reactive,
   readonly,
@@ -722,8 +723,8 @@ export const WorkspaceEditModel = Zod.object({
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
-/** Handlers a `Workspace.vue` instance exposes to whatever renders its `header-prepend` slot,
-which is the tab strip the workspace is shown on. */
+/** Handlers a `Workspace.vue` instance exposes to its hosting page, which renders the tab
+strip the workspace is shown on. */
 export type WorkspaceHeaderActions = {
   rename: (name: string) => void
   openSettings: () => void
@@ -912,6 +913,12 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     } catch {
       // Ignore.
     }
+  })
+
+  // The save watcher is debounced, so an edit made just before the hosting page unmounts, such
+  // as the workspace content being hidden, would otherwise never reach the server.
+  onScopeDispose(() => {
+    void saveEdit()
   })
 
   const edited = $computed(() => {

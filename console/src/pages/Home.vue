@@ -6,7 +6,11 @@ import { Address, engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
-import FullPage, { appHeaderHeight, pageHeaderHeight } from '@/components/FullPage.vue'
+import FullPage, {
+  appHeaderHeight,
+  densePageHeaderHeight,
+  pageHeaderHeight,
+} from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
@@ -84,7 +88,7 @@ const openableWorkspaces = $computed(() => {
 
 async function openHome(id: string) {
   await tabs.open(placement, id)
-  showWorkspace(id)
+  revealHome(id)
 }
 
 // A copy belongs next to its original so the strip reads as the original followed by its copy.
@@ -95,7 +99,7 @@ async function openBesideHome(afterId: string, id: string) {
     afterId,
     homeWorkspaces.map((workspace) => workspace.id)
   )
-  showWorkspace(id)
+  revealHome(id)
 }
 
 const lastWorkspace = useLastWorkspace(placement)
@@ -145,19 +149,30 @@ useScrollMemory(
   pinnedAt
 )
 
-// With tabs to show but no workspace beneath them, the strip sits at the bottom of the screen
-// rather than floating below the overview with empty space under it. An empty strip has nothing to
-// hold down there, and collapsing the overview leaves nothing to push it away from so in either
-// case it goes back to sitting under the overview.
-const pinTabs = $computed(
-  () => activeWorkspaceId == null && !persisted.overviewCollapsed && homeWorkspaces.length > 0
-)
-
 // Whatever is showing is what home reopens on so it is recorded here rather than at each of the
 // places that can choose one.
 function showWorkspace(id: string) {
   activeWorkspaceId = id
   lastWorkspace.id = id
+}
+
+// Reached for the tab strip's active workspace actions and state, drawn on this page.
+let workspacePageRef = $ref<InstanceType<typeof WorkspacePage> | null>(null)
+
+/** Scroll to where the strip pins under the header when it was clicked while stuck to the
+bottom edge, since a selection there is a request to see the workspace itself. */
+function scrollToWorkspaceIfDocked() {
+  const stripTop = pinnedAt() + workspaceStickyTop
+  if (stripTop > window.scrollY + window.innerHeight - densePageHeaderHeight) {
+    window.scrollTo({ top: pinnedAt(), behavior: 'smooth' })
+  }
+}
+
+/** Show a workspace the user explicitly chose, scrolling to it when the strip is stuck to
+the bottom edge. The fallback selections after a close keep to `showWorkspace`. */
+function revealHome(id: string) {
+  showWorkspace(id)
+  scrollToWorkspaceIfDocked()
 }
 
 /** Give the address what it asked for, then take the request back out of it.
@@ -236,7 +251,7 @@ function createHome() {
   dialogs.createWorkspace(placement).onOk(async (created: Workspace) => {
     await tabs.open(placement, created.id)
     await refreshPlaced()
-    showWorkspace(created.id)
+    revealHome(created.id)
   })
 }
 
@@ -249,7 +264,7 @@ async function importHome(files: File[]) {
   await Promise.all(imported.map((workspace) => tabs.open(placement, workspace.id)))
   await refreshPlaced()
   if (imported.length > 0) {
-    showWorkspace(imported[0].id)
+    revealHome(imported[0].id)
   }
 }
 
@@ -311,7 +326,7 @@ watch(
 </script>
 
 <template>
-  <full-page :fill="pinTabs || auth.user == null" title="Home">
+  <full-page fill title="Home">
     <template v-if="auth.user != null" #header-append>
       <q-space />
       <!-- Flush with the right edge of the widgets below, whose cards sit half a gutter in. -->
@@ -368,19 +383,20 @@ watch(
         />
       </div>
 
-      <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
-      switching tabs updates this page in place and leaves the tab strip in its header mounted. -->
-      <workspace-page
-        v-if="activeWorkspaceId != null"
-        :id="activeWorkspaceId"
-        :sticky-top="workspaceStickyTop"
-        @duplicated="openBesideHome"
+      <!-- The strip sits in flow between the overview and the workspace, and sticks at both
+      edges so it is always on screen, pinning under the header the way it always has and
+      resting at the bottom while its own place is still below the fold. -->
+      <div
+        v-if="homeWorkspaces.length > 0 || canCreate"
+        :class="$style.tabStrip"
+        :style="{ top: `${workspaceStickyTop}px` }"
       >
-        <template #header-prepend="{ actions, state }">
+        <!-- The same band the page header gives its tabs, so they fill it to the bottom edge. -->
+        <div :class="[$style.tabStripRow, 'items-center', 'row']">
           <component-workspace-tabs
             :active="activeWorkspaceId"
-            :active-actions="actions"
-            :active-state="state"
+            :active-actions="workspacePageRef?.headerActions"
+            :active-state="workspacePageRef?.headerState"
             :can-create="canCreate"
             :can-manage="canManage"
             class="q-ml-sm"
@@ -395,33 +411,21 @@ watch(
             @open="openHome"
             @open-beside="openBesideHome"
             @reorder="reorderHome"
-            @select="showWorkspace"
+            @select="revealHome"
             @share="shareHome"
           />
-        </template>
-      </workspace-page>
-      <div v-else-if="homeWorkspaces.length > 0 || canCreate" :class="pinTabs && $style.pinnedTabs">
+        </div>
         <q-separator />
-        <component-workspace-tabs
-          :active="activeWorkspaceId"
-          :can-create="canCreate"
-          :can-manage="canManage"
-          class="q-px-sm q-py-xs"
-          :openable="openableWorkspaces"
-          :show-placement="showPlacement"
-          :workspaces="homeWorkspaces"
-          @close="closeHome"
-          @close-all="closeAllHome"
-          @close-others="closeOtherHome"
-          @create="createHome"
-          @import="importHome"
-          @open="openHome"
-          @open-beside="openBesideHome"
-          @reorder="reorderHome"
-          @select="showWorkspace"
-          @share="shareHome"
-        />
       </div>
+      <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
+      switching tabs updates this page in place. -->
+      <workspace-page
+        v-if="activeWorkspaceId != null"
+        :id="activeWorkspaceId"
+        ref="workspacePageRef"
+        :sticky-top="workspaceStickyTop"
+        @duplicated="openBesideHome"
+      />
     </template>
   </full-page>
 </template>
@@ -434,8 +438,27 @@ watch(
   max-height: calc(100vh - 92px);
 }
 
-.pinnedTabs {
+// Sticky at both edges so the strip never leaves the screen, and pushed to the bottom by the
+// auto margin when nothing renders beneath it. Its top offset is set inline from the header
+// heights above it.
+.tabStrip {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   margin-top: auto;
+}
+
+:global(.dark) .tabStrip {
+  background-color: $dark;
+}
+
+:global(.light) .tabStrip {
+  background-color: white;
+}
+
+// Mirrors the dense page header band the tabs used to fill, so they reach its bottom edge.
+.tabStripRow {
+  height: 32px;
 }
 
 .overviewResizeHandle {

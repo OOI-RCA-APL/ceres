@@ -27,7 +27,8 @@ import {
 const { id, stickyTop } = defineProps<{
   id: string
 
-  /** Where the workspace header pins, raised when it sits under another page's header. */
+  /** Where the host's tab strip pins, which the scroll room below the widgets is measured
+  from. */
   stickyTop?: number
 }>()
 
@@ -45,10 +46,43 @@ const workspace = provideWorkspace(computed(() => id))
 let original = $ref<WorkspaceData | null>(null)
 let isViewingOriginal = $computed(() => original != null)
 
-// Lets a host land a widget on this workspace's live working copy, such as a chart built from
-// another page's own controls. Exposed before the load below since the compiler forbids it
-// after a top-level await.
-defineExpose({ insertWidget: workspace.insertWidget, revealWidgets })
+// Exposed to the hosting page, whose tab strip is the only place these are reached from. This
+// page draws the widgets and nothing around them. Declared here, above the expose and the
+// load, so a host reading them mid-mount never lands in the temporal dead zone.
+const headerActions: WorkspaceHeaderActions = {
+  rename: (value) => {
+    name = value
+  },
+  openSettings,
+  undo: () => workspace.undo(),
+  redo: () => workspace.redo(),
+  duplicate,
+  exportFile,
+  promptDelete,
+  promptCommit,
+  promptRevert,
+  startViewingOriginal,
+  stopViewingOriginal,
+}
+
+const headerState = $computed<WorkspaceHeaderState>(() => ({
+  edited: workspace.edited,
+  canManage: workspace.canManage,
+  canEdit: workspace.canEdit,
+  canUndo: workspace.canUndo,
+  canRedo: workspace.canRedo,
+  isViewingOriginal,
+}))
+
+// Lets a host land a widget on this workspace's live working copy and drive the tab strip it
+// renders for this page. Exposed before the load below since the compiler forbids it after a
+// top-level await.
+defineExpose({
+  insertWidget: workspace.insertWidget,
+  revealWidgets,
+  headerActions,
+  headerState: $$(headerState),
+})
 
 /** Select widgets a host just landed and scroll the first into view, which is the feedback
 for the insert. */
@@ -343,37 +377,10 @@ function promptRevert() {
       key++
     })
 }
-
-// Exposed through the `header-prepend` slot, which is the tab strip a workspace is shown on and
-// the only place these are reached from. This page draws the widgets and nothing around them.
-const headerActions: WorkspaceHeaderActions = {
-  rename: (value) => {
-    name = value
-  },
-  openSettings,
-  undo: () => workspace.undo(),
-  redo: () => workspace.redo(),
-  duplicate,
-  exportFile,
-  promptDelete,
-  promptCommit,
-  promptRevert,
-  startViewingOriginal,
-  stopViewingOriginal,
-}
-
-const headerState = $computed<WorkspaceHeaderState>(() => ({
-  edited: workspace.edited,
-  canManage: workspace.canManage,
-  canEdit: workspace.canEdit,
-  canUndo: workspace.canUndo,
-  canRedo: workspace.canRedo,
-  isViewingOriginal,
-}))
 </script>
 
 <template>
-  <full-page :class="$style.root" dense :sticky-top="stickyTop">
+  <full-page :class="$style.root" no-header>
     <div
       v-if="drop.active && workspace.drag != null"
       key="dragged-widget-icon"
@@ -392,9 +399,6 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         />
       </q-card>
     </div>
-    <template #header-append>
-      <slot :actions="headerActions" name="header-prepend" :state="headerState" />
-    </template>
     <div
       :key="key"
       class="q-px-sm"
@@ -497,8 +501,8 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   padding: 4px 0;
 }
 
-// A floor rather than a fixed height since the minimum is set inline from where this page's
-// header pins.
+// A floor rather than a fixed height since the minimum is set inline from where the host's
+// tab strip pins.
 .bottomPadding {
   height: 250px;
 }
@@ -513,12 +517,14 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 .actionBar {
   position: fixed;
   z-index: 4;
-  bottom: 0;
+
+  // Raised over the tab strip the hosting page docks to the bottom of the screen.
+  bottom: 42px;
   transform: translateX(-50%);
   width: fit-content;
   gap: 4px;
   padding: 4px 10px;
-  border-radius: 8px 8px 0 0;
+  border-radius: 8px;
   backdrop-filter: blur(6px);
 }
 
