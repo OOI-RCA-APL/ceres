@@ -222,3 +222,10 @@ By default, `__particles__` is derived from `@sieve`-decorated method return ann
 class Driver(Component):
     __particles__ = (SensorParticle, OtherParticle)
 ```
+
+Annotate a data field with `Unit()` to record the unit its values are measured in. The unit is published in the field's JSON schema, and the pickers show it beside the field's type.
+
+```python
+class SensorData(ParticleData):
+    temperature: Annotated[float, Unit("degC")]
+```

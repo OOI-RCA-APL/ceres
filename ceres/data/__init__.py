@@ -45,6 +45,7 @@ __all__ = [
     "Name",
     "NonEmptyStr",
     "NonBlankStr",
+    "Unit",
     "Date",
     "Time",
     "DateTimeInput",
@@ -237,6 +238,7 @@ with __lazy_imports__(__name__, export=True):
         TimeDelta,
         TimeDeltaInput,
         ToBytes,
+        Unit,
         Username,
     )
     from ceres.data.uuid import uuid4, uuid7

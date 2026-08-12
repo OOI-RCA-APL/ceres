@@ -3,8 +3,9 @@
 import json
 from collections.abc import AsyncIterable, AsyncIterator
 from enum import StrEnum
+from typing import Annotated
 
-from ceres import Component, Message, Particle, ParticleData, sieve
+from ceres import Component, Message, Particle, ParticleData, Unit, sieve
 from ceres.__internal__.app.handlers.components import (
     ParticleTypeInfo,
     _describe_particle_class,
@@ -123,6 +124,18 @@ def test_field_schema_refs_are_inlined_against_defs():
     schema = info.fields[0].schema
     assert "$ref" not in json.dumps(schema)
     assert schema["enum"] == ["ok", "error"]
+
+
+def test_unit_marker_reaches_the_field_schema():
+    class PressureData(ParticleData):
+        pascals: Annotated[float, Unit("Pa")]
+
+    class Pressure(Particle[PressureData]):
+        type = "pressure"
+        data: PressureData
+
+    info = _describe_particle_class(Pressure)
+    assert info.fields[0].schema["unit"] == "Pa"
 
 
 def test_duplicates_collapse():
