@@ -178,9 +178,9 @@ export const ButtonActionModel = Zod.object({
   tooltip: Zod.string().nullish().catch(undefined),
 
   // Locked, pressing the button runs it with its stored arguments. Unlocked, pressing asks for
-  // the action's arguments first. On by default, like `confirm` so that a fresh button starts
-  // both safeguards up.
-  locked: Zod.boolean().catch(true),
+  // the action's arguments first, which is one more look before anything runs, so a fresh
+  // button starts unlocked.
+  locked: Zod.boolean().catch(false),
 
   /** Whether running the action asks first. On by default because a workspace button is easy
   to press by accident. */
