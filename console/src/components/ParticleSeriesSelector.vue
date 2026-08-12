@@ -33,6 +33,7 @@ const {
   single = false,
   itemActions = false,
   frameless = false,
+  collapseUnselected = false,
 } = defineProps<{
   /** Fixes the tree to this one address rather than a workspace's placement subtree, the
   component page's case. */
@@ -50,6 +51,9 @@ const {
   itemActions?: boolean
   /** Drops the tree's own frame, for a host that already draws a border around it. */
   frameless?: boolean
+  /** Starts each type collapsed unless one of its fields is selected, for hosts opening onto
+  an existing selection. */
+  collapseUnselected?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -61,6 +65,11 @@ let modelValue = $(defineModel<ChartWidgetParticle[]>({ default: () => [] }))
 
 /** The highlight-mode selection, in the order the rows were chosen. */
 let selected = $(defineModel<ParticleFieldRef[]>('selected', { default: () => [] }))
+
+/** Remembered type expansion, shared across the tree's addresses by `address|type` key. */
+let expandedTypes = $(
+  defineModel<Record<string, boolean> | null>('expandedTypes', { default: null })
+)
 
 const selectedKeys = $computed(() => new Set(selected.map(fieldRefKey)))
 
@@ -219,6 +228,8 @@ function addManualEntry() {
         :key="node.toString()"
         :address="node"
         :bare="addressNodes.length === 1"
+        :collapse-unselected="collapseUnselected"
+        v-model:expanded-types="expandedTypes"
         :item-actions="itemActions"
         :particles="modelValue"
         :selected-keys="selectedKeys"

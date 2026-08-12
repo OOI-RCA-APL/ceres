@@ -84,12 +84,13 @@ const workspacesUnderConfig = $computed(
 // components (the page container is keyed by route path) so this re-reads for the new address.
 // Declared up here because the scroll memory below reads the overview's own state as it starts.
 const persisted = usePersisted({
-  schema: ({ object, boolean, number }) =>
+  schema: ({ object, boolean, number, record, string }) =>
     object({
       configuration: boolean().default(true),
       connections: boolean().default(false),
       jobs: boolean().default(false),
       particles: boolean().default(false),
+      particleTypes: record(string(), boolean()).default({}),
       queries: boolean().default(false),
       actions: boolean().default(false),
       overviewCollapsed: boolean().default(false),
@@ -773,6 +774,7 @@ const configHighlighted = $computed(() =>
 
               <component-particles-section
                 v-model:expanded="persisted.particles"
+                v-model:expanded-types="persisted.particleTypes"
                 :address
                 @create="createWidgetsScoped"
               />

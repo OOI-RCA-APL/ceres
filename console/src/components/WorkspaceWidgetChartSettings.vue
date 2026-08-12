@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
 import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
+import WorkspaceWidgetSettings from '@/components/WorkspaceWidgetSettings.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import { ChartWidget } from '@/workspace'
 
@@ -10,8 +11,8 @@ const { widget } = defineProps<{
 </script>
 
 <template>
-  <div>
-    <div class="column q-gutter-xs q-pa-sm">
+  <workspace-widget-settings :widget>
+    <div class="column q-gutter-xs q-mb-sm">
       <schema-form-value
         v-model="widget.display"
         :schema="{
@@ -39,11 +40,9 @@ const { widget } = defineProps<{
         }"
       />
     </div>
-    <div class="q-px-sm">
-      <div class="q-pb-xs">
-        <common-text variant="th">Particle Fields</common-text>
-      </div>
-      <particle-series-selector v-model="widget.particles" show-selected />
+    <div class="q-pb-xs">
+      <common-text variant="th">Particle Fields</common-text>
     </div>
-  </div>
+    <particle-series-selector v-model="widget.particles" collapse-unselected show-selected />
+  </workspace-widget-settings>
 </template>

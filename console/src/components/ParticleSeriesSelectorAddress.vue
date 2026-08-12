@@ -18,6 +18,7 @@ const {
   itemActions = false,
   bare = false,
   defaultOpened = false,
+  collapseUnselected = false,
 } = defineProps<{
   address: Address
 
@@ -39,7 +40,34 @@ const {
   bare?: boolean
 
   defaultOpened?: boolean
+
+  /** Starts a type collapsed unless one of its fields is selected, for hosts opening onto an
+  existing selection. */
+  collapseUnselected?: boolean
 }>()
+
+/** Remembered type expansion by `address|type` key, for hosts that persist the tree between
+visits. Types without an entry fall back to the default. */
+let expandedTypes = $(
+  defineModel<Record<string, boolean> | null>('expandedTypes', { default: null })
+)
+
+function isTypeOpened(type: ParticleTypeInfo): boolean {
+  const remembered = expandedTypes?.[`${address.toString()}|${type.type}`]
+  if (remembered != null) {
+    return remembered
+  }
+
+  return !collapseUnselected || typeHasSelection(type)
+}
+
+function rememberTypeExpansion(type: string, value: boolean) {
+  if (expandedTypes == null) {
+    return
+  }
+
+  expandedTypes = { ...expandedTypes, [`${address.toString()}|${type}`]: value }
+}
 
 const emit = defineEmits<{
   /** A field's toggle changed for one of this address's declared particle types. */
@@ -85,6 +113,10 @@ function isFieldOn(type: string, field: string): boolean {
   return selectedFields(type).includes(field)
 }
 
+function typeHasSelection(type: ParticleTypeInfo): boolean {
+  return type.fields.some((field) => isFieldOn(type.type, field.name))
+}
+
 /** The select mode a click's modifiers ask for, matching the workspace's own vocabulary. */
 function modeOf(event: MouseEvent): SelectMode {
   if (event.shiftKey) {
@@ -127,10 +159,12 @@ function onContext(type: string, field: string, event: MouseEvent) {
         v-for="type in types"
         :key="type.type"
         :content-inset-level="0.2"
-        default-opened
+        :default-opened="isTypeOpened(type)"
         dense
         dense-toggle
         :header-class="$style.groupHeader"
+        @hide="rememberTypeExpansion(type.type, false)"
+        @show="rememberTypeExpansion(type.type, true)"
       >
         <template #header>
           <q-item-section>

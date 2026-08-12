@@ -25,6 +25,11 @@ const emit = defineEmits<{
 
 let expanded = $(defineModel<boolean>('expanded', { required: true }))
 
+/** Remembered type expansion, persisted by the hosting page. */
+let expandedTypes = $(
+  defineModel<Record<string, boolean> | null>('expandedTypes', { default: null })
+)
+
 const types = $(useParticleTypes(() => address.toString()).types)
 
 let selection = $ref<ParticleFieldRef[]>([])
@@ -77,6 +82,7 @@ function createValueViews() {
   <q-list v-if="types.length > 0" bordered class="q-mt-md rounded-borders" dense>
     <q-expansion-item v-model="expanded" dense dense-toggle :label="`Particles (${types.length})`">
       <particle-series-selector
+        v-model:expanded-types="expandedTypes"
         v-model:selected="selection"
         :address="address.toString()"
         frameless
