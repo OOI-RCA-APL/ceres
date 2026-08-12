@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/vue-query'
+import { useQueries, useQuery } from '@tanstack/vue-query'
 import { computed, MaybeRefOrGetter, toValue } from 'vue'
 
 import { Address } from '@/api/address'
@@ -35,6 +35,46 @@ export function useParticleTypes(address: MaybeRefOrGetter<string | null>) {
   })
 
   const types = computed<ParticleTypeInfo[]>(() => query.data.value ?? [])
+
+  return { types }
+}
+
+/** Declared particle types for several component addresses at once, keyed by address.
+
+Shares its cache entries with `useParticleTypes` through the same query keys. Unparseable
+addresses are dropped the same way that one disables its query.
+*/
+export function useParticleTypesByAddress(addresses: MaybeRefOrGetter<string[]>) {
+  const engine = useEngine()
+
+  const parsed = computed<Address[]>(() =>
+    [...new Set(toValue(addresses))].flatMap((value) => {
+      try {
+        return [Address.parse(value)]
+      } catch {
+        return []
+      }
+    })
+  )
+
+  const queries = useQueries({
+    queries: computed(() =>
+      parsed.value.map((address) => ({
+        queryKey: ['particle-types', address.toString()],
+        queryFn: () => engine.components.getParticleTypes(address),
+        retry: false,
+      }))
+    ),
+  })
+
+  const types = computed<Map<string, ParticleTypeInfo[]>>(() => {
+    const map = new Map<string, ParticleTypeInfo[]>()
+    parsed.value.forEach((address, index) => {
+      map.set(address.toString(), queries.value[index]?.data ?? [])
+    })
+
+    return map
+  })
 
   return { types }
 }

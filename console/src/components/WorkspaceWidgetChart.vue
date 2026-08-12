@@ -7,6 +7,7 @@ import { useEngine } from '@/api/engine'
 import { ParticleModel, Particle } from '@/api/particles'
 import { Option, DataValue } from '@/chart'
 import Chart from '@/components/Chart.vue'
+import { describeFieldUnit, useParticleTypesByAddress } from '@/particle-types'
 import { duration, utc, useTime } from '@/time'
 import { toTitle, debouncedComputed, parseDuration } from '@/utilities'
 import { ChartWidget, ChartWidgetSeries, useWorkspace } from '@/workspace'
@@ -100,6 +101,45 @@ const seriesIndexes = $computed(() => {
 const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
 const xMax = $computed(() => (isPaused ? frozenXMax : (end ?? time.now).valueOf()))
 
+const particleAddresses = $computed(() =>
+  widget.particles.flatMap((particle) => {
+    const resolved = workspace.resolveAddress(particle.address)?.toString()
+    return resolved == null ? [] : [resolved]
+  })
+)
+
+const declaredTypes = $(useParticleTypesByAddress(() => particleAddresses).types)
+
+/** The Y axis unit, from the setting or derived from the plotted fields' declared units. */
+const unit = $computed(() => {
+  const explicit = widget.unit?.trim()
+  if (explicit) {
+    return explicit
+  }
+
+  const units = new Set<string>()
+  for (const particle of widget.particles) {
+    const address = workspace.resolveAddress(particle.address)?.toString()
+    const info =
+      address == null
+        ? undefined
+        : declaredTypes.get(address)?.find((type) => type.type === particle.type)
+    if (info == null) {
+      continue
+    }
+
+    for (const series of particle.series) {
+      const field = info.fields.find((field) => field.name === series.field)
+      const fieldUnit = field == null ? undefined : describeFieldUnit(field.schema)
+      if (fieldUnit != null) {
+        units.add(fieldUnit)
+      }
+    }
+  }
+
+  return [...units].join(', ')
+})
+
 const smoothAnimations = {
   animation: true,
   animationDurationUpdate: 1000,
@@ -123,7 +163,7 @@ const axisOption: Option = $computed(() => {
       ...animation,
     },
     yAxis: {
-      name: widget.unit ?? '',
+      name: unit,
       type: 'value',
     },
   }
@@ -177,9 +217,7 @@ const baseOption: Option = $computed(() => {
         const header = utc(params[0].value[0]).format('YYYY-MM-DD HH:mm:ss.SSS') + ' UTC'
         const lines = params.map(
           (p: any) =>
-            `${p.marker} ${p.seriesName}: <strong>${p.value[1]}${
-              widget.unit ? ' ' + widget.unit : ''
-            }</strong>`
+            `${p.marker} ${p.seriesName}: <strong>${p.value[1]}${unit ? ' ' + unit : ''}</strong>`
         )
         return `${header}<br/>${lines.join('<br/>')}`
       },
@@ -337,15 +375,14 @@ watch(
   { immediate: true }
 )
 
+// Replace merge leaves null slots where removed series sat, so the list is filtered.
 function getSeries(option: Option) {
   if (option.series == null) {
     return []
   }
-  if (Array.isArray(option.series)) {
-    return option.series
-  }
 
-  return [option.series]
+  const list = Array.isArray(option.series) ? option.series : [option.series]
+  return list.filter((series) => series != null)
 }
 
 function clear(seriesName?: string) {
@@ -366,7 +403,7 @@ function clear(seriesName?: string) {
     }
   }
 
-  instance?.setOption({ series: option.series })
+  instance?.setOption({ series })
 }
 
 function getData(seriesName: string) {
@@ -413,7 +450,7 @@ function prune() {
     }
   }
 
-  instance?.setOption({ series: option.series })
+  instance?.setOption({ series })
 }
 
 useIntervalFn(prune, () => duration(1, 'minute').asMilliseconds())
