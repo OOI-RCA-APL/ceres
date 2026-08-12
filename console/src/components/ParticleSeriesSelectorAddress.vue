@@ -6,12 +6,7 @@ import { Address } from '@/api/address'
 import { ParticleFieldInfo, ParticleTypeInfo } from '@/api/components'
 import icons from '@/icons'
 import { seriesForGroup } from '@/particle-series'
-import {
-  describeFieldDescription,
-  describeFieldType,
-  describeFieldUnit,
-  useParticleTypes,
-} from '@/particle-types'
+import { describeFieldDescription, describeFieldType, useParticleTypes } from '@/particle-types'
 import { Schema } from '@/schema-form'
 import { ChartWidgetParticle, SelectMode } from '@/workspace'
 
@@ -68,9 +63,12 @@ let expanded = $ref(defaultOpened || bare)
 // Fetched only once expanded so an address nobody opens costs no request.
 const types = $(useParticleTypes(() => (expanded ? address.toString() : null)).types)
 
+// Immediate because the query cache can hold the types before this mounts, in which case they
+// never change and a change-only watch would leave the host's selection ordering empty.
 watch(
   () => types,
-  () => emit('loaded', types)
+  () => emit('loaded', types),
+  { immediate: true }
 )
 
 function selectedFields(type: string): string[] {
@@ -136,7 +134,10 @@ function onContext(type: string, field: string, event: MouseEvent) {
       >
         <template #header>
           <q-item-section>
-            <q-item-label class="monospace-sm">{{ type.type }}</q-item-label>
+            <!-- Bare carries the whole path since no address level stands above the types. -->
+            <q-item-label class="monospace-sm">
+              {{ bare ? `${address.toString()}::particles::${type.type}` : type.type }}
+            </q-item-label>
             <q-item-label v-if="type.description" caption>{{ type.description }}</q-item-label>
           </q-item-section>
         </template>
@@ -151,6 +152,7 @@ function onContext(type: string, field: string, event: MouseEvent) {
             clickable
             @click="onClick(type.type, field, $event as MouseEvent)"
             @contextmenu="onContext(type.type, field.name, $event as MouseEvent)"
+            @mousedown="(event: MouseEvent) => event.shiftKey && event.preventDefault()"
           >
             <q-item-section v-if="selectionMode === 'toggle'" side @click.stop>
               <q-checkbox
@@ -164,19 +166,20 @@ function onContext(type: string, field: string, event: MouseEvent) {
             </q-item-section>
             <q-item-section>
               <q-item-label class="items-baseline no-wrap q-gutter-x-sm row">
-                <span class="monospace-sm">{{ field.name }}</span>
-                <span v-if="describeFieldUnit(field.schema)" class="monospace-sm text-grey-6">
-                  {{ describeFieldUnit(field.schema) }}
-                </span>
+                <span class="monospace-sm">{{ field.name }}:</span>
                 <span class="monospace-sm text-grey-6">
                   {{ describeFieldType(field.schema as Schema) }}
                 </span>
-                <span v-if="describeFieldDescription(field.schema)" class="ellipsis text-grey-6">
+                <span
+                  v-if="describeFieldDescription(field.schema)"
+                  :class="$style.fieldDescription"
+                  class="ellipsis text-grey-6"
+                >
                   {{ describeFieldDescription(field.schema) }}
                 </span>
               </q-item-label>
             </q-item-section>
-            <q-item-section v-if="itemActions" side>
+            <q-item-section v-if="itemActions" :class="$style.rowActions" side>
               <q-btn
                 dense
                 flat
@@ -220,13 +223,7 @@ function onContext(type: string, field: string, event: MouseEvent) {
     <q-card v-if="detailsField != null" bordered flat :style="{ minWidth: '320px' }">
       <div class="column q-gutter-y-sm q-pa-md">
         <div class="items-baseline q-gutter-x-sm row">
-          <span class="monospace-sm text-weight-medium">{{ detailsField.field.name }}</span>
-          <span
-            v-if="describeFieldUnit(detailsField.field.schema)"
-            class="monospace-sm text-grey-6"
-          >
-            {{ describeFieldUnit(detailsField.field.schema) }}
-          </span>
+          <span class="monospace-sm text-weight-medium">{{ detailsField.field.name }}:</span>
           <span class="monospace-sm text-grey-6">
             {{ describeFieldType(detailsField.field.schema as Schema) }}
           </span>
@@ -249,14 +246,32 @@ function onContext(type: string, field: string, event: MouseEvent) {
   background: #80808029;
 }
 
-/* Qualified to outrank the dense item's own min-height. */
+/* Qualified to outrank the dense item's own min-height. Text selection is off so a shift
+click reads as extending the field selection rather than sweeping text. */
 :global(.q-item).fieldRow {
   min-height: 24px;
   padding-top: 0;
   padding-bottom: 0;
+  user-select: none;
 }
 
 :global(.q-item).groupHeader {
   padding-left: 8px;
+}
+
+/* Sized to sit beside the type text rather than standing out over it. */
+.fieldDescription {
+  font-size: 11px;
+}
+
+/* Offered on the row rather than standing on every one, with focus keeping it reachable by
+keyboard. */
+.rowActions {
+  opacity: 0;
+}
+
+.fieldRow:hover .rowActions,
+.fieldRow:focus-within .rowActions {
+  opacity: 1;
 }
 </style>

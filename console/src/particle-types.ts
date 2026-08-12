@@ -4,7 +4,7 @@ import { computed, MaybeRefOrGetter, toValue } from 'vue'
 import { Address } from '@/api/address'
 import { ParticleTypeInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
-import { isType, Schema } from '@/schema-form'
+import { describeSchemaType, isType, Schema } from '@/schema-form'
 
 /** Declared particle types for a component address.
 
@@ -84,15 +84,12 @@ export function isPlottableField(schema: Schema): boolean {
   return isType(schema, 'number') || isType(schema, 'integer')
 }
 
-/** The JSON schema type `schema` names, in the console's own display vocabulary. */
+/** The display label for a field, its type in the schema form's vocabulary with the unit in
+parentheses when the field declares one. */
 export function describeFieldType(schema: Schema): string {
-  for (const type of ['string', 'number', 'integer', 'boolean', 'array', 'object']) {
-    if (isType(schema, type)) {
-      return type
-    }
-  }
-
-  return 'value'
+  const type = describeSchemaType(schema)
+  const unit = describeFieldUnit(schema)
+  return unit == null ? type : `${type} (${unit})`
 }
 
 /** `schema`'s description, when it carries one. */

@@ -79,6 +79,7 @@ function createValueViews() {
       <particle-series-selector
         v-model:selected="selection"
         :address="address.toString()"
+        frameless
         item-actions
         selection-mode="highlight"
         @item-context="(event) => menu?.show(event)"

@@ -1,10 +1,5 @@
 <script lang="ts" setup>
-import {
-  describeFieldType,
-  describeFieldUnit,
-  isPlottableField,
-  useParticleTypes,
-} from '@/particle-types'
+import { describeFieldType, isPlottableField, useParticleTypes } from '@/particle-types'
 import { Schema } from '@/schema-form'
 
 let modelValue = $(defineModel<string | null>({ required: true }))
@@ -32,12 +27,10 @@ const options = $computed(() =>
     const title = typeof schema === 'object' ? schema.title : undefined
     const description = typeof schema === 'object' ? schema.description : undefined
 
-    const unit = describeFieldUnit(schema)
     return {
       label: title ?? field.name,
       value: field.name,
-      typeLabel:
-        unit == null ? describeFieldType(schema) : `${describeFieldType(schema)} · ${unit}`,
+      typeLabel: describeFieldType(schema),
       description,
     }
   })

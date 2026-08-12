@@ -32,6 +32,7 @@ const {
   selectionMode = 'toggle',
   single = false,
   itemActions = false,
+  frameless = false,
 } = defineProps<{
   /** Fixes the tree to this one address rather than a workspace's placement subtree, the
   component page's case. */
@@ -47,6 +48,8 @@ const {
   /** Renders a more-actions button on each field row, wired to `itemContext` like a right
   click. */
   itemActions?: boolean
+  /** Drops the tree's own frame, for a host that already draws a border around it. */
+  frameless?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -205,7 +208,7 @@ function addManualEntry() {
 
 <template>
   <div>
-    <q-list bordered class="rounded-borders" dense>
+    <q-list :bordered="!frameless" :class="!frameless && 'rounded-borders'" dense>
       <q-item v-if="addressNodes.length === 0">
         <q-item-section>
           <q-item-label class="text-grey-6">No components in this scope.</q-item-label>
@@ -280,23 +283,25 @@ function addManualEntry() {
         </template>
       </q-list>
 
-      <div class="q-mt-md q-pb-xs">
-        <common-text variant="th">Manual Entry</common-text>
-      </div>
-      <div class="column q-gutter-y-sm">
-        <workspace-address-select v-model="manualAddress" />
-        <particle-type-select v-model="manualType" :address="manualResolvedAddress" />
-        <div class="items-center no-wrap q-gutter-x-sm row">
-          <particle-field-select
-            v-model="manualField"
-            :address="manualResolvedAddress"
-            class="col"
-            :particle-type="manualType"
-          />
-          <q-input v-model="manualLabel" class="col" clearable dense label="Label" outlined />
-          <schema-form-node-add-button @click="addManualEntry" />
-        </div>
-      </div>
+      <!-- Collapsed by default since manual entry is the fallback for undeclared fields. -->
+      <q-list bordered class="q-mb-md q-mt-md rounded-borders" dense>
+        <q-expansion-item dense dense-toggle label="Manual Entry">
+          <div class="column q-gutter-y-sm q-pa-sm">
+            <workspace-address-select v-model="manualAddress" />
+            <particle-type-select v-model="manualType" :address="manualResolvedAddress" />
+            <div class="items-center no-wrap q-gutter-x-sm row">
+              <particle-field-select
+                v-model="manualField"
+                :address="manualResolvedAddress"
+                class="col"
+                :particle-type="manualType"
+              />
+              <q-input v-model="manualLabel" class="col" clearable dense label="Label" outlined />
+              <schema-form-node-add-button @click="addManualEntry" />
+            </div>
+          </div>
+        </q-expansion-item>
+      </q-list>
     </template>
   </div>
 </template>
