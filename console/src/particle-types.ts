@@ -61,3 +61,10 @@ export function describeFieldDescription(schema: unknown): string | undefined {
     ? (schema as { description?: string }).description
     : undefined
 }
+
+/** The measurement unit `schema` carries, published by the `Unit()` field marker. */
+export function describeFieldUnit(schema: unknown): string | undefined {
+  const unit =
+    typeof schema === 'object' && schema != null ? (schema as { unit?: unknown }).unit : undefined
+  return typeof unit === 'string' ? unit : undefined
+}

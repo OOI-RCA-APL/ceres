@@ -1,10 +1,17 @@
 <script lang="ts" setup>
+import { createReusableTemplate } from '@vueuse/core'
 import { watch } from 'vue'
 
 import { Address } from '@/api/address'
 import { ParticleTypeInfo } from '@/api/components'
+import icons from '@/icons'
 import { seriesForGroup } from '@/particle-series'
-import { describeFieldDescription, describeFieldType, useParticleTypes } from '@/particle-types'
+import {
+  describeFieldDescription,
+  describeFieldType,
+  describeFieldUnit,
+  useParticleTypes,
+} from '@/particle-types'
 import { Schema } from '@/schema-form'
 import { ChartWidgetParticle, SelectMode } from '@/workspace'
 
@@ -13,6 +20,7 @@ const {
   particles = [],
   selectionMode = 'toggle',
   selectedKeys = new Set<string>(),
+  itemActions = false,
   bare = false,
   defaultOpened = false,
 } = defineProps<{
@@ -26,6 +34,10 @@ const {
 
   /** The selection in highlight mode, as `fieldRefKey` keys spanning the whole tree. */
   selectedKeys?: Set<string>
+
+  /** Renders a more-actions button on each field row, sharing the `context` event with
+  right clicks. */
+  itemActions?: boolean
 
   /** Renders the types directly without the address header, for a tree of one address where
   the level would only repeat the page. */
@@ -47,6 +59,9 @@ const emit = defineEmits<{
   /** This address's declared types resolved, for the host's selection ordering. */
   loaded: [types: ParticleTypeInfo[]]
 }>()
+
+// The type list renders inside the address expansion item, or on its own in bare mode.
+const [DefineTypeList, ReuseTypeList] = createReusableTemplate()
 
 let expanded = $ref(defaultOpened || bare)
 
@@ -89,25 +104,14 @@ function onClick(type: string, field: string, event: MouseEvent) {
 
 function onContext(type: string, field: string, event: MouseEvent) {
   if (selectionMode === 'highlight') {
+    event.preventDefault()
     emit('context', type, field, event)
   }
 }
 </script>
 
 <template>
-  <!-- Bare hides the header and drops the inset so a one-address tree starts at its types. -->
-  <q-expansion-item
-    v-model="expanded"
-    :content-inset-level="bare ? 0 : 0.4"
-    dense
-    dense-toggle
-    :header-class="bare ? 'hidden' : undefined"
-  >
-    <template #header>
-      <q-item-section>
-        <q-item-label class="monospace-sm">{{ address.toString() }}</q-item-label>
-      </q-item-section>
-    </template>
+  <define-type-list>
     <q-list dense>
       <q-item v-if="types.length === 0">
         <q-item-section>
@@ -154,16 +158,43 @@ function onContext(type: string, field: string, event: MouseEvent) {
                 <span class="monospace-sm">{{ field.name }}</span>
                 <span class="monospace-sm text-grey-6">
                   {{ describeFieldType(field.schema as Schema) }}
+                  <template v-if="describeFieldUnit(field.schema)">
+                    &middot; {{ describeFieldUnit(field.schema) }}
+                  </template>
                 </span>
                 <span v-if="describeFieldDescription(field.schema)" class="ellipsis text-grey-6">
                   {{ describeFieldDescription(field.schema) }}
                 </span>
               </q-item-label>
             </q-item-section>
+            <q-item-section v-if="itemActions" side>
+              <q-btn
+                dense
+                flat
+                :icon="icons.more"
+                round
+                size="7px"
+                @click.stop="onContext(type.type, field.name, $event as MouseEvent)"
+              >
+                <q-tooltip>More Actions</q-tooltip>
+              </q-btn>
+            </q-item-section>
           </q-item>
         </q-list>
       </q-expansion-item>
     </q-list>
+  </define-type-list>
+
+  <!-- A one-address tree starts at its types since the address level would only repeat the
+  page. -->
+  <reuse-type-list v-if="bare" />
+  <q-expansion-item v-else v-model="expanded" :content-inset-level="0.4" dense dense-toggle>
+    <template #header>
+      <q-item-section>
+        <q-item-label class="monospace-sm">{{ address.toString() }}</q-item-label>
+      </q-item-section>
+    </template>
+    <reuse-type-list />
   </q-expansion-item>
 </template>
 

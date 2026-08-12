@@ -168,6 +168,7 @@ watch(
       workspace.isSelected(widget.id) && $style.selected,
       widget.frameless && $style.frameless,
     ]"
+    :data-widget-id="widget.id"
     flat
   >
     <!-- A widget wearing no frame is still taken hold of and still answers to a menu so what the

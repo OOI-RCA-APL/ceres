@@ -342,7 +342,6 @@ async function createWidgetsScoped(widgets: Widget[]) {
     return
   }
 
-  const noun = widgets.length > 1 ? 'Widgets' : 'Widget'
   if (activeWorkspaceId != null && workspacePageRef != null) {
     // The first insert opens a fresh top row and the rest join it beside each other.
     workspacePageRef.insertWidget(first, -1)
@@ -350,7 +349,7 @@ async function createWidgetsScoped(widgets: Widget[]) {
       workspacePageRef.insertWidget(widget, 0, index + 1)
     }
 
-    notify.success(`${noun} added as an uncommitted change to the open workspace.`)
+    await workspacePageRef.revealWidgets(widgets.map((widget) => widget.id))
     return
   }
 
@@ -371,9 +370,8 @@ async function createWidgetsScoped(widgets: Widget[]) {
     })
     await refreshScoped()
     showWorkspace(created.id)
-    notify.success(`${noun} added to a new workspace on this component.`)
   } catch {
-    notify.error(`Failed to add the ${noun.toLowerCase()}.`)
+    notify.error('Failed to add the widgets.')
   }
 }
 

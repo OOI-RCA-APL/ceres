@@ -76,27 +76,13 @@ function createValueViews() {
 <template>
   <q-list v-if="types.length > 0" bordered class="q-mt-md rounded-borders" dense>
     <q-expansion-item v-model="expanded" dense dense-toggle :label="`Particles (${types.length})`">
-      <div class="items-center justify-end q-px-sm q-py-xs row">
-        <q-btn
-          dense
-          :disable="selection.length === 0"
-          flat
-          :icon="icons.more"
-          round
-          size="7px"
-          @click="menu?.show($event)"
-        >
-          <q-tooltip>More Actions</q-tooltip>
-        </q-btn>
-      </div>
-      <div @contextmenu.prevent="menu?.show($event)">
-        <particle-series-selector
-          v-model:selected="selection"
-          :address="address.toString()"
-          selection-mode="highlight"
-          @item-context="(event) => menu?.show(event)"
-        />
-      </div>
+      <particle-series-selector
+        v-model:selected="selection"
+        :address="address.toString()"
+        item-actions
+        selection-mode="highlight"
+        @item-context="(event) => menu?.show(event)"
+      />
       <q-menu ref="menu" context-menu>
         <q-list bordered dense>
           <q-item

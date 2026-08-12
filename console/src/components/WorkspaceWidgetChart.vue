@@ -146,6 +146,9 @@ const baseOption: Option = $computed(() => {
     particle.series.map((series, index) => {
       const name = getSeriesName(series, index)
       const result = {
+        // The stable ID is what `replaceMerge` matches on, keeping surviving series merged
+        // in place rather than recreated.
+        id: series.id,
         name,
         type: widget.display,
         ...({ progressive: false } as any),
@@ -192,8 +195,14 @@ watch([() => instance, () => baseOption], () => {
   if (instance) {
     requestAnimationFrame(() => {
       if (instance) {
+        // Replace merge restarts every series, so it is reserved for removals, the one change
+        // the default merge mode cannot express and the cause of ghost lines otherwise.
+        const previousIds = getSeries(instance.getOption() ?? {}).map((series) => series.id)
+        const nextIds = new Set(getSeries(baseOption).map((series) => series.id))
+        const removed = previousIds.some((id) => !nextIds.has(id))
         instance.setOption(baseOption, {
           withDefaults: true,
+          ...(removed ? { replaceMerge: ['series'] } : {}),
         })
 
         isInitialized = true

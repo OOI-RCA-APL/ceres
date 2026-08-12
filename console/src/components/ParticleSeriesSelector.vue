@@ -10,7 +10,6 @@ import ParticleSeriesSelectorAddress from '@/components/ParticleSeriesSelectorAd
 import ParticleTypeSelect from '@/components/ParticleTypeSelect.vue'
 import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
 import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddButton.vue'
-import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import icons from '@/icons'
 import {
   ParticleFieldRef,
@@ -32,6 +31,7 @@ const {
   showSelected = false,
   selectionMode = 'toggle',
   single = false,
+  itemActions = false,
 } = defineProps<{
   /** Fixes the tree to this one address rather than a workspace's placement subtree, the
   component page's case. */
@@ -44,6 +44,9 @@ const {
   selectionMode?: 'toggle' | 'highlight'
   /** Caps the highlight selection at one field, for hosts choosing a single value. */
   single?: boolean
+  /** Renders a more-actions button on each field row, wired to `itemContext` like a right
+  click. */
+  itemActions?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -213,6 +216,7 @@ function addManualEntry() {
         :key="node.toString()"
         :address="node"
         :bare="addressNodes.length === 1"
+        :item-actions="itemActions"
         :particles="modelValue"
         :selected-keys="selectedKeys"
         :selection-mode="selectionMode"
@@ -224,36 +228,41 @@ function addManualEntry() {
     </q-list>
 
     <template v-if="showSelected">
-      <div class="q-pt-md q-px-sm">
+      <div class="q-mt-md q-pb-xs">
         <common-text variant="th">Selected Particle Series</common-text>
       </div>
-      <div class="column q-gutter-sm q-pa-sm">
-        <q-card v-if="selectedGroups.length === 0" bordered flat>
-          <div class="q-pa-sm text-grey-6">No particle series selected.</div>
-        </q-card>
-        <q-card v-for="group in selectedGroups" :key="group.address" bordered flat>
-          <div class="column q-gutter-xs q-pa-sm">
-            <common-text variant="th">{{ group.address }}</common-text>
-            <div
-              v-for="typeGroup in group.types"
-              :key="typeGroup.type"
-              class="column q-gutter-xs q-pl-sm"
-            >
-              <common-text class="text-grey-7" variant="description">
-                {{ typeGroup.type }}
-              </common-text>
-              <div
-                v-for="series in typeGroup.series"
-                :key="series.id"
-                class="items-center q-gutter-xs row"
-              >
-                <div class="col-grow">{{ series.field }}</div>
-                <div class="col-grow">
-                  <schema-form-value
-                    v-model="series.label"
-                    :schema="{ type: 'string', title: 'Label', optional: true }"
-                  />
-                </div>
+      <q-list bordered class="rounded-borders" dense>
+        <q-item v-if="selectedGroups.length === 0">
+          <q-item-section>
+            <q-item-label class="text-grey-6">No particle series selected.</q-item-label>
+          </q-item-section>
+        </q-item>
+        <template v-for="group in selectedGroups" :key="group.address">
+          <template v-for="typeGroup in group.types" :key="`${group.address}|${typeGroup.type}`">
+            <!-- The established path notation, one line standing in for the address and type
+            levels. -->
+            <q-item dense>
+              <q-item-section>
+                <q-item-label class="monospace-sm">
+                  {{ group.address }}::particles::{{ typeGroup.type }}
+                </q-item-label>
+              </q-item-section>
+            </q-item>
+            <q-item v-for="series in typeGroup.series" :key="series.id" dense :inset-level="0.4">
+              <q-item-section>
+                <q-item-label class="monospace-sm">{{ series.field }}</q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <q-input
+                  v-model="series.label"
+                  :class="$style.labelInput"
+                  clearable
+                  dense
+                  label="Label"
+                  outlined
+                />
+              </q-item-section>
+              <q-item-section side>
                 <q-btn
                   dense
                   flat
@@ -262,35 +271,36 @@ function addManualEntry() {
                   size="9px"
                   @click="removeSeries(series.id)"
                 />
-              </div>
-            </div>
-          </div>
-        </q-card>
+              </q-item-section>
+            </q-item>
+          </template>
+        </template>
+      </q-list>
 
-        <q-card bordered flat>
-          <div class="column q-gutter-xs q-pa-sm">
-            <common-text variant="th">Manual Entry</common-text>
-            <workspace-address-select v-model="manualAddress" />
-            <particle-type-select v-model="manualType" :address="manualResolvedAddress" />
-            <div class="items-center q-gutter-xs row">
-              <div class="col-grow">
-                <particle-field-select
-                  v-model="manualField"
-                  :address="manualResolvedAddress"
-                  :particle-type="manualType"
-                />
-              </div>
-              <div class="col-grow">
-                <schema-form-value
-                  v-model="manualLabel"
-                  :schema="{ type: 'string', title: 'Label', optional: true }"
-                />
-              </div>
-              <schema-form-node-add-button @click="addManualEntry" />
-            </div>
-          </div>
-        </q-card>
+      <div class="q-mt-md q-pb-xs">
+        <common-text variant="th">Manual Entry</common-text>
+      </div>
+      <div class="column q-gutter-y-sm">
+        <workspace-address-select v-model="manualAddress" />
+        <particle-type-select v-model="manualType" :address="manualResolvedAddress" />
+        <div class="items-center no-wrap q-gutter-x-sm row">
+          <particle-field-select
+            v-model="manualField"
+            :address="manualResolvedAddress"
+            class="col"
+            :particle-type="manualType"
+          />
+          <q-input v-model="manualLabel" class="col" clearable dense label="Label" outlined />
+          <schema-form-node-add-button @click="addManualEntry" />
+        </div>
       </div>
     </template>
   </div>
 </template>
+
+<style module>
+/* Sized so the field name keeps the row and the label reads as its annotation. */
+.labelInput {
+  width: 180px;
+}
+</style>

@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
 import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import { ChartWidget } from '@/workspace'
@@ -39,6 +40,9 @@ const { widget } = defineProps<{
       />
     </div>
     <div class="q-px-sm">
+      <div class="q-pb-xs">
+        <common-text variant="th">Particle Fields</common-text>
+      </div>
       <particle-series-selector v-model="widget.particles" show-selected />
     </div>
   </div>

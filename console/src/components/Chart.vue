@@ -114,7 +114,7 @@ defineExpose({
       lazyUpdate?: boolean
       withDefaults?: boolean
       silent?: boolean
-      replaceMerge?: boolean
+      replaceMerge?: string | string[]
     }
   ) {
     if (params?.withDefaults) {

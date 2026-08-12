@@ -450,6 +450,7 @@ export const widgetInfos = {
       () => import('@/components/WorkspaceWidgetChartSettings.vue')
     ),
     options: widgetOptions({
+      minHeight: 200,
       paddingClass: ['q-py-sm', 'q-pr-md'],
       reloadOnThemeChange: true,
     }),

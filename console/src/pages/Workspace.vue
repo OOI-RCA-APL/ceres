@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useElementBounding, useEventListener, useMouse } from '@vueuse/core'
 import { colors } from 'quasar'
-import { computed, reactive, watchEffect, watch } from 'vue'
+import { computed, nextTick, reactive, watchEffect, watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import FullPage, { appHeaderHeight, densePageHeaderHeight } from '@/components/FullPage.vue'
@@ -48,7 +48,26 @@ let isViewingOriginal = $computed(() => original != null)
 // Lets a host land a widget on this workspace's live working copy, such as a chart built from
 // another page's own controls. Exposed before the load below since the compiler forbids it
 // after a top-level await.
-defineExpose({ insertWidget: workspace.insertWidget })
+defineExpose({ insertWidget: workspace.insertWidget, revealWidgets })
+
+/** Select widgets a host just landed and scroll the first into view, which is the feedback
+for the insert. */
+async function revealWidgets(ids: string[]) {
+  const [first, ...rest] = ids
+  if (first == null) {
+    return
+  }
+
+  workspace.selectWidget(first)
+  for (const widgetId of rest) {
+    workspace.selectWidget(widgetId, 'toggle')
+  }
+
+  await nextTick()
+  document
+    .querySelector(`[data-widget-id="${first}"]`)
+    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
 
 await workspace.load()
 
