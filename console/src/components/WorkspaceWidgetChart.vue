@@ -7,7 +7,7 @@ import { useEngine } from '@/api/engine'
 import { ParticleModel, Particle } from '@/api/particles'
 import { Option, DataValue } from '@/chart'
 import Chart from '@/components/Chart.vue'
-import { describeFieldUnit, useParticleTypesByAddress } from '@/particle-types'
+import { deriveChartUnit, useParticleTypesByAddress } from '@/particle-types'
 import { duration, utc, useTime } from '@/time'
 import { toTitle, debouncedComputed, parseDuration } from '@/utilities'
 import { ChartWidget, ChartWidgetSeries, useWorkspace } from '@/workspace'
@@ -117,27 +117,11 @@ const unit = $computed(() => {
     return explicit
   }
 
-  const units = new Set<string>()
-  for (const particle of widget.particles) {
-    const address = workspace.resolveAddress(particle.address)?.toString()
-    const info =
-      address == null
-        ? undefined
-        : declaredTypes.get(address)?.find((type) => type.type === particle.type)
-    if (info == null) {
-      continue
-    }
-
-    for (const series of particle.series) {
-      const field = info.fields.find((field) => field.name === series.field)
-      const fieldUnit = field == null ? undefined : describeFieldUnit(field.schema)
-      if (fieldUnit != null) {
-        units.add(fieldUnit)
-      }
-    }
-  }
-
-  return [...units].join(', ')
+  return deriveChartUnit(
+    widget.particles,
+    (address) => workspace.resolveAddress(address)?.toString() ?? null,
+    declaredTypes
+  )
 })
 
 const smoothAnimations = {

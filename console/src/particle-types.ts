@@ -5,6 +5,7 @@ import { Address } from '@/api/address'
 import { ParticleTypeInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import { describeSchemaType, isType, Schema } from '@/schema-form'
+import { ChartWidgetParticle } from '@/workspace'
 
 /** Declared particle types for a component address.
 
@@ -97,6 +98,37 @@ export function describeFieldDescription(schema: unknown): string | undefined {
   return typeof schema === 'object' && schema != null
     ? (schema as { description?: string }).description
     : undefined
+}
+
+/** The Y axis unit a chart derives when its setting is blank, the units its plotted fields
+declare, joined when they differ. `resolveAddress` maps a particle entry's address selector
+to the concrete address its types are keyed by. */
+export function deriveChartUnit(
+  particles: ChartWidgetParticle[],
+  resolveAddress: (address: ChartWidgetParticle['address']) => string | null,
+  typesByAddress: Map<string, ParticleTypeInfo[]>
+): string {
+  const units = new Set<string>()
+  for (const particle of particles) {
+    const address = resolveAddress(particle.address)
+    const info =
+      address == null
+        ? undefined
+        : typesByAddress.get(address)?.find((type) => type.type === particle.type)
+    if (info == null) {
+      continue
+    }
+
+    for (const series of particle.series) {
+      const field = info.fields.find((field) => field.name === series.field)
+      const fieldUnit = field == null ? undefined : describeFieldUnit(field.schema)
+      if (fieldUnit != null) {
+        units.add(fieldUnit)
+      }
+    }
+  }
+
+  return [...units].join(', ')
 }
 
 /** The measurement unit `schema` carries, published by the `Unit()` field marker.

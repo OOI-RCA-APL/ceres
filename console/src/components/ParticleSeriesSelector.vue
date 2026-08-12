@@ -38,7 +38,7 @@ const {
   /** Fixes the tree to this one address rather than a workspace's placement subtree, the
   component page's case. */
   address?: string | null
-  /** Whether the "Selected Particle Series" section renders below the tree. Requires a
+  /** Whether the "Series" section renders below the tree. Requires a
   workspace context so only a host without a pinned address sets this. */
   showSelected?: boolean
   /** Whether fields toggle into the model or select as highlighted rows for the host to act
@@ -250,7 +250,7 @@ function addManualEntry() {
 
     <template v-if="showSelected">
       <div class="q-mt-md q-pb-xs">
-        <common-text variant="th">Selected Particle Series</common-text>
+        <common-text variant="th">Series</common-text>
       </div>
       <q-list bordered class="rounded-borders" dense>
         <q-item v-if="selectedGroups.length === 0">
