@@ -8,7 +8,6 @@ import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidgetGroupDialog from '@/components/WorkspaceWidgetGroupDialog.vue'
 import WorkspaceWidgetRestricted from '@/components/WorkspaceWidgetRestricted.vue'
 import icons from '@/icons'
-import { useModifiers } from '@/modifiers'
 import { usePreferences } from '@/preferences'
 import {
   convertedPagesWidget,
@@ -33,15 +32,12 @@ const { widget, layoutId } = defineProps<{
 const workspace = useWorkspace()
 const preferences = usePreferences()
 
-// Renaming is reached deliberately, by double-clicking the name or from the widget's menu, since a
-// single press on the header is what picks the widget out and takes hold of it.
 let isEditingName = $ref(false)
 
-// Holding shift over the name turns it into a field there and then, the same offer a tab makes.
-// Clicking into it is what makes the offer a real edit, which outlasts shift being let go of.
-const { shift: shiftHeld } = useModifiers()
+// Hovering the name turns it into a field there and then, and clicking into it is what makes the
+// offer a real edit. The rest of the header stays the widget's drag handle.
 let isNameHovered = $ref(false)
-const isNameOffered = $computed(() => isEditingName || (shiftHeld.value && isNameHovered))
+const isNameOffered = $computed(() => isEditingName || isNameHovered)
 
 const info = $computed(() => getWidgetInfo(widget.type))
 const settingsComponent = $computed(() => {
@@ -195,8 +191,6 @@ watch(
           <common-text
             :class="[$style.name, isNameOffered && $style.editingName]"
             variant="th"
-            @click.shift.stop="isEditingName = true"
-            @dblclick.stop="isEditingName = true"
             @pointerenter="isNameHovered = true"
             @pointerleave="isNameHovered = false"
           >

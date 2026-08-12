@@ -6,6 +6,7 @@ import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
 import icons from '@/icons'
 import { ParticleFieldRef } from '@/particle-series'
 import { useParticleTypes } from '@/particle-types'
+import { toTitle } from '@/utilities'
 import {
   ChartWidget,
   ChartWidgetParticleModel,
@@ -68,7 +69,7 @@ function createValueViews() {
     'create',
     selection.map((ref) => {
       const widget = createWidget('value') as ValueWidget
-      widget.name = ref.field
+      widget.name = toTitle(ref.field)
       widget.particleAddress = new AddressSelector(address.toString())
       widget.particleType = ref.type
       widget.particleField = ref.field
