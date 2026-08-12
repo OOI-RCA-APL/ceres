@@ -102,9 +102,27 @@ export function describeFieldDescription(schema: unknown): string | undefined {
     : undefined
 }
 
-/** The measurement unit `schema` carries, published by the `Unit()` field marker. */
+/** The measurement unit `schema` carries, published by the `Unit()` field marker.
+
+An optional field holds the unit on its non-null `anyOf` member rather than at the top, so
+union members are searched too.
+*/
 export function describeFieldUnit(schema: unknown): string | undefined {
-  const unit =
-    typeof schema === 'object' && schema != null ? (schema as { unit?: unknown }).unit : undefined
-  return typeof unit === 'string' ? unit : undefined
+  if (typeof schema !== 'object' || schema == null) {
+    return undefined
+  }
+
+  const { unit, anyOf } = schema as { unit?: unknown; anyOf?: unknown[] }
+  if (typeof unit === 'string') {
+    return unit
+  }
+
+  for (const member of anyOf ?? []) {
+    const found = describeFieldUnit(member)
+    if (found != null) {
+      return found
+    }
+  }
+
+  return undefined
 }

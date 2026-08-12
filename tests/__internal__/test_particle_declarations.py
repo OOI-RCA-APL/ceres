@@ -11,6 +11,7 @@ from ceres.__internal__.app.handlers.components import (
     _describe_particle_class,
 )
 from ceres.__internal__.particles import declared_particle_classes
+from ceres.data import Number
 
 
 class TemperatureData(ParticleData):
@@ -129,13 +130,19 @@ def test_field_schema_refs_are_inlined_against_defs():
 def test_unit_marker_reaches_the_field_schema():
     class PressureData(ParticleData):
         pascals: Annotated[float, Unit("Pa")]
+        flow: Annotated[Number, Unit("m/s")]
 
     class Pressure(Particle[PressureData]):
         type = "pressure"
         data: PressureData
 
     info = _describe_particle_class(Pressure)
-    assert info.fields[0].schema["unit"] == "Pa"
+    by_name = {field.name: field.schema for field in info.fields}
+    assert by_name["pascals"]["unit"] == "Pa"
+
+    # `Number` renders as a `$ref`, and the unit must survive the inlining that resolves it.
+    assert by_name["flow"]["unit"] == "m/s"
+    assert "$ref" not in json.dumps(by_name["flow"])
 
 
 def test_duplicates_collapse():
