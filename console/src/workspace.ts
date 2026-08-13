@@ -401,6 +401,14 @@ export function createWidget(type: WidgetType): Widget {
   return widget
 }
 
+/** A row opened for arriving widgets, as tall as the tallest of them asks to open at. */
+export function openedRowFor(widgets: Widget[]): WidgetRow {
+  return WidgetRowModel.parse({
+    widgets,
+    height: Math.max(...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight)),
+  })
+}
+
 type WidgetOptionsInput = {
   minHeight?: number
   initialHeight?: number
@@ -663,12 +671,13 @@ export function isWorkspaceWritable(
 /** Sort workspaces into the shared standard order.
 
 Position is carried in each workspace's own data, and those without one sort last, which is where a
-newly created workspace belongs. Ties fall back to the name so the order is stable.
+newly created workspace belongs. Ties fall back to the ID, which is creation order, so renaming a
+workspace never moves it.
 */
 export function inStandardOrder(workspaces: Workspace[]): Workspace[] {
   return orderBy(workspaces, [
     (workspace) => workspace.data.meta.order ?? Number.MAX_SAFE_INTEGER,
-    (workspace) => workspace.name,
+    (workspace) => workspace.id,
   ])
 }
 
@@ -1100,13 +1109,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     resolveWidgetWidths(widgets)
     const rows = layout.rows
     const index = Math.max(0, Math.min(rows.length, placement.row))
-    const row = WidgetRowModel.parse({
-      widgets,
-      height: Math.max(
-        ...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight)
-      ),
-    })
-    layout.set([...rows.slice(0, index), row, ...rows.slice(index)])
+    layout.set([...rows.slice(0, index), openedRowFor(widgets), ...rows.slice(index)])
   }
 
   function addWidget(
@@ -1468,6 +1471,48 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return copy
   }
 
+  /** Where a widget currently stands, or null when no layout holds it. */
+  function positionOf(id: string): { layout: string; row: number; column: number } | null {
+    for (const layout of layoutRefs()) {
+      for (const [rowIndex, rowObject] of layout.rows.entries()) {
+        const columnIndex = rowObject.widgets.findIndex((widget) => widget.id === id)
+        if (columnIndex >= 0) {
+          return { layout: layout.id, row: rowIndex, column: columnIndex }
+        }
+      }
+    }
+
+    return null
+  }
+
+  /** Duplicate every widget in `ids`, each copy landing directly after its original.
+
+  Positions are looked up one duplicate at a time since each insertion shifts the columns
+  after it.
+  */
+  function duplicateWidgets(ids: string[]) {
+    for (const id of ids) {
+      const position = positionOf(id)
+      if (position != null) {
+        duplicateWidget(id, position.row, position.column + 1, position.layout)
+      }
+    }
+  }
+
+  // Reload requests by widget ID, read into each widget's render key. Transient view state,
+  // sized by the widgets of this one workspace and freed with the context.
+  const reloadStamps = reactive(new Map<string, number>())
+
+  function requestReload(ids: string[]) {
+    for (const id of ids) {
+      reloadStamps.set(id, (reloadStamps.get(id) ?? 0) + 1)
+    }
+  }
+
+  function reloadStamp(id: string): number {
+    return reloadStamps.get(id) ?? 0
+  }
+
   watchEffect(() => {
     for (const layout of layoutRefs()) {
       if (layout.rows.some((row) => row.widgets.length === 0)) {
@@ -1581,7 +1626,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     deleteWidget,
     deleteWidgets,
     moveWidgets,
-    duplicateWidget,
+    duplicateWidgets,
+    requestReload,
+    reloadStamp,
     replaceWidget,
     groupWidgets,
     ungroupWidget,
@@ -1739,6 +1786,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     const result = await client.delete(`/api/workspaces/${id}`, {
       parse: WorkspaceModel,
     })
+    notify.success('Workspace deleted.')
     await refresh()
     return result
   }
@@ -2653,6 +2701,26 @@ export function planWidgetsInsert(
   }
 
   return { layouts: { [placement.layout]: target }, widths }
+}
+
+/** The one component a widget is pointed at, or null when it is pointed at none.
+
+A widget pointed at several components returns none since the shortcut is for a view of
+one thing.
+*/
+export function widgetTargetSelector(widget: Widget): Address | AddressSelector | null {
+  if (widget.restricted) {
+    return null
+  }
+
+  switch (widget.type) {
+    case 'procedures':
+      return widget.procedureAddress ?? null
+    case 'meter':
+      return widget.particleAddress ?? null
+    default:
+      return null
+  }
 }
 
 // A value that changes whenever any of a widget's address-bearing fields change. Used to clear a

@@ -403,16 +403,6 @@ async def components_jobs(host: Host, arguments: dict[str, Any]) -> Any:
     )
 
 
-@operation("components.particle_types")
-async def components_particle_types(host: Host, arguments: dict[str, Any]) -> Any:
-    actor = await _actor(host, arguments)
-    return _entities(
-        await component_handlers.get_component_particle_types(
-            engine=host.engine, actor=actor, address=_address(arguments)
-        )
-    )
-
-
 @operation("components.send")
 async def components_send(host: Host, arguments: dict[str, Any]) -> Any:
     actor = await _actor(host, arguments)

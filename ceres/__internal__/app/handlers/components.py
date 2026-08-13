@@ -1,4 +1,5 @@
 import traceback
+from functools import cache
 from typing import TYPE_CHECKING, Any, Literal
 
 from ceres.__internal__.app.shared import (
@@ -45,6 +46,22 @@ class ConnectionInfo(DataObject):
     label: str
 
 
+class ParticleFieldInfo(DataObject):
+    """Description of one field on a particle's `data` model."""
+
+    name: str
+    schema: dict[str, Any]
+    """The field's JSON Schema subtree verbatim, the console derives plottability and captions."""
+
+
+class ParticleTypeInfo(DataObject):
+    """Description of one particle type a component declares."""
+
+    type: str
+    description: str | None
+    fields: list[ParticleFieldInfo]
+
+
 class ComponentInfo(DataObject):
     """Recursive description of a component, its procedures, connections, and children."""
 
@@ -54,6 +71,8 @@ class ComponentInfo(DataObject):
     connections: list[ConnectionInfo]
     components: list[ComponentInfo]
     tags: list[str]
+    particles: list[ParticleTypeInfo]
+    """The particle types the component declares, with their field schemas."""
 
 
 ComponentInfo.__name__ = "Component"
@@ -75,10 +94,12 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
             if connection.name is not None
         ]
         tags = system.tags
+        particles = _described_particle_classes(component)
     else:
         procedures = []
         connections = []
         tags = []
+        particles = []
 
     return ComponentInfo(
         name=system.name,
@@ -87,6 +108,7 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
         connections=connections,
         components=[],
         tags=tags,
+        particles=particles,
     )
 
 
@@ -289,27 +311,13 @@ async def get_component_jobs(
     ]
 
 
-class ParticleFieldInfo(DataObject):
-    """Description of one field on a particle's `data` model."""
-
-    name: str
-    schema: dict[str, Any]
-    """The field's JSON Schema subtree verbatim, the console derives plottability and captions."""
-
-
-class ParticleTypeInfo(DataObject):
-    """Description of one particle type a component declares."""
-
-    type: str
-    description: str | None
-    fields: list[ParticleFieldInfo]
-
-
+@cache
 def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
     """Describe one particle class from its `data` model's JSON schema.
 
     Each field's schema subtree is inlined against the model's `$defs` since it ships on
-    its own, detached from the schema that defined those references.
+    its own, detached from the schema that defined those references. The result is cached
+    per class and shared across responses, so callers must not mutate it.
     """
     schema = to_json_schema(cls.Data)
     definitions = schema.get("$defs", {})
@@ -329,21 +337,17 @@ def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
     )
 
 
-async def get_component_particle_types(
-    engine: Engine,
-    actor: Actor,
-    address: Address,
-) -> list[ParticleTypeInfo]:
-    """Return the particle types the component at `address` declares.
+def _described_particle_classes(component: Component) -> list[ParticleTypeInfo]:
+    """Describe the component's declared particle classes, dropping any whose schema fails
+    to generate so one bad model cannot fail the whole components listing."""
+    result: list[ParticleTypeInfo] = []
+    for cls in declared_particle_classes(component):
+        try:
+            result.append(_describe_particle_class(cls))
+        except Exception:
+            traceback.print_exc()
 
-    Available to anyone who can access the component at all.
-
-    Raises:
-        NotFoundError: If no component matches the given address.
-        NotPermittedError: If the caller has no access to the component.
-    """
-    component = await _resolve_component(engine, actor, address)
-    return [_describe_particle_class(cls) for cls in declared_particle_classes(component)]
+    return result
 
 
 async def get_procedures(engine: Engine, address: Address) -> list[ProcedureBinding]:

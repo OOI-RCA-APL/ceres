@@ -26,12 +26,20 @@ import {
   WorkspaceHeaderState,
 } from '@/workspace'
 
-const { id, stickyTop } = defineProps<{
+const {
+  id,
+  stickyTop,
+  stripDocked = false,
+} = defineProps<{
   id: string
 
   /** Where the host's tab strip pins, which the scroll room below the widgets is measured
   from. */
   stickyTop?: number
+
+  /** Whether the host's tab strip is resting at the bottom edge, where the floating action
+  bar would sit, so the bar yields to it. */
+  stripDocked?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -456,7 +464,7 @@ function promptRevert() {
     bar reads as neutral status. It appears only while one exists, and the same actions stay in the
     tab's menu since this is a shortcut rather than the only route to them. -->
     <div
-      v-if="workspace.edited"
+      v-if="workspace.edited && !stripDocked"
       :class="[$style.actionBar, 'items-center', 'row']"
       :style="actionBarStyle"
     >
@@ -532,14 +540,22 @@ function promptRevert() {
   position: fixed;
   z-index: 4;
 
-  // Raised over the tab strip the hosting page docks to the bottom of the screen.
-  bottom: 42px;
+  // Attached to the bottom edge of the screen, squared where it meets it, and faded until
+  // reached for so it sits over the widgets without demanding attention.
+  bottom: 0;
   transform: translateX(-50%);
   width: fit-content;
   gap: 4px;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   backdrop-filter: blur(6px);
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+
+.actionBar:hover,
+.actionBar:focus-within {
+  opacity: 1;
 }
 
 :global(.dark) .actionBar {

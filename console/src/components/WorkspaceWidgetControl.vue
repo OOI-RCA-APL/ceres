@@ -30,6 +30,10 @@ const { button } = defineProps<{
 const emit = defineEmits<{
   duplicate: []
   remove: []
+
+  /** Insert a fresh button beside this one, on whichever side was asked for. */
+  addBefore: []
+  addAfter: []
 }>()
 
 const access = useAccess()
@@ -498,6 +502,22 @@ function toggleLock() {
           </q-item-section>
           <q-item-section>
             <q-item-label>Duplicate</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item v-close-popup clickable dense @click="emit('addBefore')">
+          <q-item-section avatar>
+            <q-icon :name="icons.add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Add Button Before</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item v-close-popup clickable dense @click="emit('addAfter')">
+          <q-item-section avatar>
+            <q-icon :name="icons.add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Add Button After</q-item-label>
           </q-item-section>
         </q-item>
         <q-separator />

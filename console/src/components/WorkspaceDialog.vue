@@ -9,6 +9,7 @@ import { useAuth } from '@/api/auth'
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
+import { useDialogs } from '@/dialogs'
 import { useForm } from '@/form'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
@@ -57,6 +58,7 @@ const { dialogRef, onDialogHide, onDialogOK, onDialogCancel } = useDialogPluginC
 
 const access = useAccess()
 const auth = useAuth()
+const dialogs = useDialogs()
 const engine = useEngine()
 const notify = useNotify()
 const preferences = usePreferences()
@@ -116,8 +118,40 @@ const form = useForm({
   },
   onSubmit: async (values) => {
     if (action === 'view') {
+      // Changing visibility moves this workspace rather than copying it, so publishing shows
+      // it to everyone on the placement and taking it private removes it for them. A private
+      // workspace needs an owner, so without one the change would silently publish instead.
+      const wasPrivate = workspace?.owner_id != null
+      const owner = values.isPrivate ? auth.user?.id ?? null : null
+      const changingVisibility =
+        values.isPrivate !== wasPrivate && (!values.isPrivate || owner != null)
+
+      // Taking a shared workspace private removes it for everyone else, so it takes the same
+      // warning the drag path shows.
+      if (changingVisibility && values.isPrivate) {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          dialogs
+            .confirm({
+              title: 'Make Workspace Private',
+              html: true,
+              message:
+                `"${values.name}" becomes private to you.\n\n` +
+                '<i>' +
+                'Anyone else who can see it loses access, along with any unsaved changes they ' +
+                'are holding against it.' +
+                '</i>',
+            })
+            .onOk(() => resolve(true))
+            .onDismiss(() => resolve(false))
+        })
+        if (!confirmed) {
+          return
+        }
+      }
+
       await engine.workspaces.update(workspaceId, {
         name: values.name,
+        ...(changingVisibility ? { owner_id: owner } : {}),
         ...(canMarkForHome ? { show_when_logged_out: values.showWhenLoggedOut } : {}),
       })
       notify.success('Workspace settings updated successfully.')
@@ -150,18 +184,22 @@ const form = useForm({
   },
 })
 
-// Creating and duplicating both explain the workspace the form is about to make, which the form's
-// own choice decides. Only the settings view describes a workspace that already exists.
+// Creating and duplicating both explain the workspace the form is about to make, and an edit in
+// the settings view explains the choice it is holding. Only a read-only view describes the
+// workspace exactly as it stands.
 const isPrivate = $computed(() =>
-  action === 'view' ? workspace?.owner_id != null : form.data.isPrivate
+  action === 'view' && !form.editable ? workspace?.owner_id != null : form.data.isPrivate
 )
 
-// Named rather than switched so the choice reads as two kinds of workspace.
-const visibilityOptions = [
-  { label: 'Shared', value: false, icon: icons.workspace },
+// Named rather than switched so the choice reads as two kinds of workspace. Publishing takes
+// manage on the placement, so without it the shared kind is not offered.
+const visibilityOptions = $computed(() => [
+  { label: 'Shared', value: false, icon: icons.workspace, disable: !canShare },
   { label: 'Private', value: true, icon: icons.privateWorkspace },
-]
+])
 
+// Read from the stored workspace rather than the form so an unsaved visibility choice cannot
+// take the caller's own controls away mid-edit.
 const canManage = $computed(() => {
   if (action !== 'view') {
     return true
@@ -169,7 +207,7 @@ const canManage = $computed(() => {
   if (workspace == null) {
     return false
   }
-  if (isPrivate) {
+  if (workspace.owner_id != null) {
     return workspace.owner_id === auth.user?.id
   }
 
@@ -197,9 +235,13 @@ nextTick(async () => {
     return
   }
   if (workspace != null) {
-    // Mapped in by hand because the form names this field differently from the wire, and loading
-    // it seeds the stored copy an edit resets to.
-    form.load({ ...workspace, showWhenLoggedOut: workspace.show_when_logged_out })
+    // Mapped in by hand because the form names these fields differently from the wire, and
+    // loading them seeds the stored copy an edit resets to.
+    form.load({
+      ...workspace,
+      isPrivate: workspace.owner_id != null,
+      showWhenLoggedOut: workspace.show_when_logged_out,
+    })
     if (action === 'duplicate') {
       form.data.name = `${workspace.name} (Copy)`
       form.data.isPrivate = true
@@ -235,7 +277,7 @@ nextTick(async () => {
             <q-input
               v-model="form.data.name"
               autofocus
-              class="q-mb-md"
+              class="q-mb-sm"
               color="primary"
               dense
               label="Workspace Name"
@@ -245,9 +287,9 @@ nextTick(async () => {
               :readonly="form.readonly"
             />
             <q-select
-              v-if="action !== 'view' && canShare"
+              v-if="action === 'view' || canShare"
               v-model="form.data.isPrivate"
-              class="q-mb-md"
+              class="q-mb-sm"
               color="primary"
               dense
               emit-value
@@ -256,6 +298,7 @@ nextTick(async () => {
               :options="visibilityOptions"
               options-dense
               outlined
+              :readonly="form.readonly"
             >
               <template #prepend>
                 <q-icon

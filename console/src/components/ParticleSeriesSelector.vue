@@ -1,6 +1,4 @@
 <script lang="ts" setup>
-import { reactive } from 'vue'
-
 import { Address } from '@/api/address'
 import { ParticleTypeInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
@@ -18,6 +16,7 @@ import {
   removeParticleSeries,
   toggleParticleField,
 } from '@/particle-series'
+import { filterParticleTypes, useParticleTypesByAddress } from '@/particle-types'
 import {
   ChartWidgetParticle,
   ChartWidgetSeries,
@@ -34,6 +33,7 @@ const {
   itemActions = false,
   frameless = false,
   collapseUnselected = false,
+  maxHeight = 232,
 } = defineProps<{
   /** Fixes the tree to this one address rather than a workspace's placement subtree, the
   component page's case. */
@@ -54,6 +54,8 @@ const {
   /** Starts each type collapsed unless one of its fields is selected, for hosts opening onto
   an existing selection. */
   collapseUnselected?: boolean
+  /** The tallest the tree grows before it scrolls, in pixels. */
+  maxHeight?: number
 }>()
 
 const emit = defineEmits<{
@@ -76,14 +78,12 @@ let expandedTypes = $(
 
 const selectedKeys = $computed(() => new Set(selected.map(fieldRefKey)))
 
-// Declared types by address, kept for range extension across everything the tree has loaded.
-const loadedTypes = reactive(new Map<string, ParticleTypeInfo[]>())
-
-// Every loaded field in tree order, which is what a shift range extends across.
+// Every visible field in tree order, so a shift range covers exactly the rows on screen and
+// never the ones a search is hiding.
 const flatOrder = $computed<ParticleFieldRef[]>(() =>
-  addressNodes.flatMap((node) => {
+  visibleNodes.flatMap((node) => {
     const address = node.toString()
-    return (loadedTypes.get(address) ?? []).flatMap((type) =>
+    return (filteredByAddress.get(address) ?? []).flatMap((type) =>
       type.fields.map((field) => ({ address, type: type.type, field: field.name }))
     )
   })
@@ -160,6 +160,44 @@ const addressNodes = $computed<Address[]>(() => {
   })
 })
 
+/** What the search input holds, matched case-insensitively across the tree. Null when the
+clear button empties it. */
+let filter = $ref<string | null>('')
+
+const normalizedFilter = $computed(() => filter?.trim().toLowerCase() ?? '')
+
+const declaredByAddress = $(
+  useParticleTypesByAddress(() => addressNodes.map((node) => node.toString())).types
+)
+
+// Filtered once for the whole tree, deciding address visibility here and handed down as each
+// child's rows. An address whose own name matches keeps everything under it.
+const filteredByAddress = $computed<Map<string, ParticleTypeInfo[]>>(() => {
+  const map = new Map<string, ParticleTypeInfo[]>()
+  for (const [address, types] of declaredByAddress) {
+    const effective = address.toLowerCase().includes(normalizedFilter) ? '' : normalizedFilter
+    map.set(address, filterParticleTypes(types, effective))
+  }
+
+  return map
+})
+
+// Addresses declaring nothing sink to the bottom since they offer nothing to pick, and a
+// search drops them along with everything else it does not match.
+const visibleNodes = $computed<Address[]>(() => {
+  const declaring = addressNodes.filter(
+    (node) => (declaredByAddress.get(node.toString())?.length ?? 0) > 0
+  )
+  if (normalizedFilter === '') {
+    const empty = addressNodes.filter(
+      (node) => (declaredByAddress.get(node.toString())?.length ?? 0) === 0
+    )
+    return [...declaring, ...empty]
+  }
+
+  return declaring.filter((node) => (filteredByAddress.get(node.toString())?.length ?? 0) > 0)
+})
+
 function toggleField(address: string, type: string, field: string, value: boolean) {
   modelValue = toggleParticleField(modelValue, address, type, field, value)
 }
@@ -221,38 +259,59 @@ function addManualEntry() {
 <template>
   <div>
     <q-list :bordered="!frameless" :class="!frameless && 'rounded-borders'" dense>
-      <q-item v-if="addressNodes.length === 0">
-        <q-item-section>
-          <q-item-label class="text-grey-6">No components in this scope.</q-item-label>
-        </q-item-section>
-      </q-item>
-      <particle-series-selector-address
-        v-for="node in addressNodes"
-        :key="node.toString()"
-        v-model:expanded-types="expandedTypes"
-        :address="node"
-        :bare="addressNodes.length === 1"
-        :collapse-unselected="collapseUnselected"
-        :item-actions="itemActions"
-        :particles="modelValue"
-        :selected-keys="selectedKeys"
-        :selection-mode="selectionMode"
-        @context="(type, field, event) => onContext(node.toString(), type, field, event)"
-        @loaded="(types) => loadedTypes.set(node.toString(), types)"
-        @press="
-          (type, field, event) =>
-            emit('itemPress', event, { address: node.toString(), type, field })
-        "
-        @select="(type, field, mode) => onSelect(node.toString(), type, field, mode)"
-        @toggle="(type, field, value) => toggleField(node.toString(), type, field, value)"
-      />
+      <q-input
+        v-model="filter"
+        borderless
+        :class="$style.searchInput"
+        clearable
+        dense
+        placeholder="Search"
+      >
+        <template #prepend>
+          <q-icon :name="icons.search" size="14px" />
+        </template>
+      </q-input>
+      <q-separator />
+      <div class="scroll" :style="{ maxHeight: `${maxHeight}px` }">
+        <q-item v-if="addressNodes.length === 0">
+          <q-item-section>
+            <q-item-label class="text-grey-6">No components in this scope.</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item v-else-if="visibleNodes.length === 0">
+          <q-item-section>
+            <q-item-label class="text-grey-6">No matching fields.</q-item-label>
+          </q-item-section>
+        </q-item>
+        <particle-series-selector-address
+          v-for="node in visibleNodes"
+          :key="node.toString()"
+          v-model:expanded-types="expandedTypes"
+          :address="node"
+          :bare="addressNodes.length === 1"
+          :collapse-unselected="collapseUnselected"
+          :filter="normalizedFilter"
+          :item-actions="itemActions"
+          :particles="modelValue"
+          :selected-keys="selectedKeys"
+          :selection-mode="selectionMode"
+          :shown-types="filteredByAddress.get(node.toString()) ?? []"
+          @context="(type, field, event) => onContext(node.toString(), type, field, event)"
+          @press="
+            (type, field, event) =>
+              emit('itemPress', event, { address: node.toString(), type, field })
+          "
+          @select="(type, field, mode) => onSelect(node.toString(), type, field, mode)"
+          @toggle="(type, field, value) => toggleField(node.toString(), type, field, value)"
+        />
+      </div>
     </q-list>
 
     <template v-if="showSelected">
       <div class="q-mt-md q-pb-xs">
         <common-text variant="th">Series</common-text>
       </div>
-      <q-list bordered class="rounded-borders" dense>
+      <q-list bordered class="q-pb-xs rounded-borders" dense>
         <q-item v-if="selectedGroups.length === 0">
           <q-item-section>
             <q-item-label class="text-grey-6">No particle series selected.</q-item-label>
@@ -304,7 +363,7 @@ function addManualEntry() {
       <!-- Collapsed by default since manual entry is the fallback for undeclared fields. -->
       <q-list bordered class="q-mb-md q-mt-md rounded-borders" dense>
         <q-expansion-item dense dense-toggle label="Manual Entry">
-          <div class="column q-gutter-y-sm q-pa-sm">
+          <div class="column q-gutter-y-sm q-pa-sm q-pt-md">
             <workspace-address-select v-model="manualAddress" />
             <particle-type-select v-model="manualType" :address="manualResolvedAddress" />
             <div class="items-center no-wrap q-gutter-x-sm row">
@@ -327,6 +386,18 @@ function addManualEntry() {
 <style module>
 :global(.q-item).groupHeader {
   padding-left: 8px;
+}
+
+/* Small and quiet, a filter row on the tree rather than a form field over it. */
+.searchInput {
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.searchInput :global(.q-field__control),
+.searchInput :global(.q-field__marginal) {
+  height: 28px;
+  min-height: 28px;
 }
 
 /* Qualified to outrank the dense item's own min-height, matching the tree's row height. */
@@ -356,5 +427,6 @@ function addManualEntry() {
   min-height: 24px;
   padding-top: 0;
   padding-bottom: 0;
+  font-size: 12px;
 }
 </style>

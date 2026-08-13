@@ -30,6 +30,8 @@ const {
   openable = [],
   showPlacement = false,
   bound = false,
+  trailingInset = 0,
+  docked = false,
   activeActions,
   activeState,
 } = defineProps<{
@@ -50,6 +52,15 @@ const {
   can see and opening all of those is never intended.
   */
   bound?: boolean
+
+  /** Room in pixels the host's own trailing controls take at the strip's right edge, which
+  the anchored picker stays clear of. */
+  trailingInset?: number
+
+  /** Whether the strip is resting at the bottom edge of the screen, where the picker's menu
+  opens upward and its chevron says so. */
+  docked?: boolean
+
   activeActions?: WorkspaceHeaderActions
   activeState?: WorkspaceHeaderState
 }>()
@@ -241,19 +252,32 @@ watch(
   { immediate: true }
 )
 
+// Computed as one map so the deep compares re-run when the edits or workspaces change, not on
+// every hover or drag re-render of the strip.
+const workingCopyIds = $computed(() => {
+  const ids = new Set<string>()
+  for (const workspace of workspaces) {
+    const edit = edits[workspace.id]
+    if (
+      edit != null &&
+      !isStructurallyEqual(
+        comparableWorkspaceData(edit.data),
+        comparableWorkspaceData(workspace.data)
+      )
+    ) {
+      ids.add(workspace.id)
+    }
+  }
+
+  return ids
+})
+
 function hasWorkingCopy(workspace: Workspace): boolean {
   if (workspace.id === active && activeState != null) {
     return activeState.edited
   }
 
-  const edit = edits[workspace.id]
-  return (
-    edit != null &&
-    !isStructurallyEqual(
-      comparableWorkspaceData(edit.data),
-      comparableWorkspaceData(workspace.data)
-    )
-  )
+  return workingCopyIds.has(workspace.id)
 }
 
 // Which tab is having its name edited in place, if any.
@@ -605,7 +629,8 @@ function promptDeleteById(workspace: Workspace) {
     </q-tabs>
     <!-- The picker sits beside the last tab while there is room for it there, takes the middle of
     an empty strip rather than hugging an edge with nothing next to it, and pins to the trailing
-    edge once the tabs have outgrown the strip and begun to scroll under it. -->
+    edge, beside any overlaid host controls, once the tabs have outgrown the strip and begun to
+    scroll under it. -->
     <q-btn
       v-if="canCreate"
       :class="[
@@ -616,9 +641,15 @@ function promptDeleteById(workspace: Workspace) {
       ]"
       dense
       flat
-      :icon="opensPicker ? icons.chevronDown : icons.add"
-      round
+      :icon="opensPicker ? (docked ? icons.chevronUp : icons.chevronDown) : icons.add"
       size="sm"
+      :style="
+        trailingInset > 0
+          ? workspaces.length > 0 && overflowing
+            ? { right: `${trailingInset}px` }
+            : { marginRight: `${trailingInset}px` }
+          : undefined
+      "
       @click="onAddClick"
     >
       <!-- The chevron speaks for itself so only the plus that shift turns it into is named. -->
@@ -752,6 +783,12 @@ function promptDeleteById(workspace: Workspace) {
   @include strip.scroller;
 }
 
+// The strip's leading inset lives inside the scroller, so it scrolls away with the first tab
+// and a scrolled tab reaches the very edge, while an unscrolled strip keeps the space.
+.tabs :global(.q-tabs__content) {
+  padding-left: 8px;
+}
+
 // Stretched to the header's full height on top of what the strip clears so the selected tab's
 // fill reaches the separator under the header.
 .tabs .tab {
@@ -839,9 +876,17 @@ function promptDeleteById(workspace: Workspace) {
   min-width: 280px;
 }
 
+// Filled to the band so the button reads as part of the bar, sized to sit beside the hosting
+// strip's own trailing toggle.
 .add {
   @include strip.add;
   @include strip.fadedIcon;
+
+  align-self: stretch;
+  width: 34px;
+  height: 100%;
+  padding: 0;
+  border-radius: 0;
 }
 
 .addCentered {
@@ -852,6 +897,11 @@ function promptDeleteById(workspace: Workspace) {
 // and the strip ends on the button rather than beside it.
 .addAnchored {
   @include strip.addAnchored(0);
+
+  top: 0;
+  height: 100%;
+  border-radius: 0;
+  transform: none;
 }
 
 :global(.dark) .addAnchored,
@@ -861,6 +911,6 @@ function promptDeleteById(workspace: Workspace) {
 
 :global(.light) .addAnchored,
 :global(.light) .addCentered {
-  background-color: white;
+  background-color: #fff;
 }
 </style>

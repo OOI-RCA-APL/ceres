@@ -7,7 +7,7 @@ import { useEngine } from '@/api/engine'
 import { ParticleModel, Particle } from '@/api/particles'
 import { Option, DataValue } from '@/chart'
 import Chart from '@/components/Chart.vue'
-import { deriveChartUnit, useParticleTypesByAddress } from '@/particle-types'
+import { useDerivedChartUnit } from '@/particle-types'
 import { duration, utc, useTime } from '@/time'
 import { toTitle, debouncedComputed, parseDuration } from '@/utilities'
 import { ChartWidget, ChartWidgetSeries, useWorkspace } from '@/workspace'
@@ -101,28 +101,10 @@ const seriesIndexes = $computed(() => {
 const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
 const xMax = $computed(() => (isPaused ? frozenXMax : (end ?? time.now).valueOf()))
 
-const particleAddresses = $computed(() =>
-  widget.particles.flatMap((particle) => {
-    const resolved = workspace.resolveAddress(particle.address)?.toString()
-    return resolved == null ? [] : [resolved]
-  })
-)
-
-const declaredTypes = $(useParticleTypesByAddress(() => particleAddresses).types)
+const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
 
 /** The Y axis unit, from the setting or derived from the plotted fields' declared units. */
-const unit = $computed(() => {
-  const explicit = widget.unit?.trim()
-  if (explicit) {
-    return explicit
-  }
-
-  return deriveChartUnit(
-    widget.particles,
-    (address) => workspace.resolveAddress(address)?.toString() ?? null,
-    declaredTypes
-  )
-})
+const unit = $computed(() => widget.unit?.trim() || derivedUnit)
 
 const smoothAnimations = {
   animation: true,

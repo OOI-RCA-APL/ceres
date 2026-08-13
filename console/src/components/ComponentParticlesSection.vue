@@ -7,12 +7,12 @@ import ParticleFieldDetailsDialog, {
 } from '@/components/ParticleFieldDetailsDialog.vue'
 import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
 import icons from '@/icons'
-import { fieldRefKey, ParticleFieldRef } from '@/particle-series'
+import { fieldRefKey, ParticleFieldRef, toggleParticleField } from '@/particle-series'
 import { useParticleTypes } from '@/particle-types'
 import { toTitle } from '@/utilities'
 import {
   ChartWidget,
-  ChartWidgetParticleModel,
+  ChartWidgetParticle,
   MeterWidget,
   Widget,
   WidgetPlacement,
@@ -75,24 +75,17 @@ function showDetails() {
   detailsField = { address: contextRef.address, type: contextRef.type, field }
 }
 
-/** One chart plotting every given field, grouped into an entry per particle type. */
+/** One chart plotting every given field, grouped the same way the selectors' toggles group. */
 function chartWidgetFor(refs: ParticleFieldRef[]): ChartWidget | null {
-  const byType = new Map<string, string[]>()
-  for (const ref of refs) {
-    byType.set(ref.type, [...(byType.get(ref.type) ?? []), ref.field])
-  }
-
-  if (byType.size === 0) {
+  if (refs.length === 0) {
     return null
   }
 
   const widget = createWidget('chart') as ChartWidget
-  widget.particles = [...byType.entries()].map(([type, fields]) =>
-    ChartWidgetParticleModel.parse({
-      address: new AddressSelector(address.toString()),
-      type,
-      series: fields.map((field) => ({ field })),
-    })
+  widget.particles = refs.reduce<ChartWidgetParticle[]>(
+    (particles, ref) =>
+      toggleParticleField(particles, address.toString(), ref.type, ref.field, true),
+    []
   )
 
   return widget

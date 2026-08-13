@@ -109,6 +109,7 @@ export type ComponentInfo = {
   procedures: ProcedureInfo[]
   connections: ConnectionInfo[]
   components: ComponentInfo[]
+  particles: ParticleTypeInfo[]
 }
 
 export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
@@ -118,6 +119,7 @@ export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   procedures: Zod.array(ProcedureInfoModel),
   connections: Zod.array(ConnectionInfoModel),
   components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
+  particles: Zod.array(ParticleTypeInfoModel),
 }) as any
 
 export const useComponents = defineStore('components', () => {
@@ -146,13 +148,6 @@ export const useComponents = defineStore('components', () => {
   async function getConnections(address: Address): Promise<ConnectionStateInfo[]> {
     return await client.get(`/api/components/${address}/connections`, {
       parse: Zod.array(ConnectionStateInfoModel),
-    })
-  }
-
-  /** Fetch declared particle types for a component. */
-  async function getParticleTypes(address: Address): Promise<ParticleTypeInfo[]> {
-    return await client.get(`/api/components/${address}/particle-types`, {
-      parse: Zod.array(ParticleTypeInfoModel),
     })
   }
 
@@ -291,7 +286,6 @@ export const useComponents = defineStore('components', () => {
     getConfig,
     getJobs,
     getConnections,
-    getParticleTypes,
     call,
     send,
   }

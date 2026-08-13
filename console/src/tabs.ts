@@ -1,10 +1,70 @@
+import { useEventListener, useResizeObserver } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { computed, MaybeRefOrGetter, toValue } from 'vue'
+import { computed, MaybeRefOrGetter, nextTick, ref, toValue, watch } from 'vue'
 import { LocationQuery } from 'vue-router'
 import Zod from 'zod'
 
 import { useSettings } from '@/api/settings'
 import { usePersisted } from '@/persistence'
+
+/** Ease a step down into workspace content that is just appearing.
+
+The content mounts and loads asynchronously, so the scroll waits until the page has grown the
+room to take it, and gives up quietly when nothing appears.
+*/
+export async function stepIntoWorkspaces(step = 200, timeout = 3000) {
+  const deadline = performance.now() + timeout
+  while (
+    document.body.scrollHeight <= window.scrollY + window.innerHeight + step / 2 &&
+    performance.now() < deadline
+  ) {
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+  }
+
+  window.scrollBy({ top: step, behavior: 'smooth' })
+}
+
+/** Whether a page's workspace tab strip is resting at the bottom edge of the screen.
+
+Read from the strip's own box against the viewport's client height, which excludes the
+horizontal scrollbar band the sticky strip pins above, and re-measured on scroll, on resize,
+whenever the page's own size changes, and as the strip appears.
+*/
+export function useStripDocked(element: MaybeRefOrGetter<HTMLElement | null>) {
+  const docked = ref(false)
+  let scheduled = false
+
+  // One layout read per frame however many triggers fire, so a scroll never pays a forced
+  // reflow inside its own handler.
+  function measure() {
+    if (scheduled) {
+      return
+    }
+
+    scheduled = true
+    requestAnimationFrame(() => {
+      scheduled = false
+
+      // The slack covers the fractional pixels browser zoom introduces on both measurements.
+      const box = toValue(element)?.getBoundingClientRect()
+      docked.value = box != null && box.bottom >= document.documentElement.clientHeight - 2
+    })
+  }
+
+  useEventListener(window, 'scroll', measure, { passive: true })
+  useEventListener(window, 'resize', measure)
+  useResizeObserver(document.body, measure)
+  watch(
+    () => toValue(element),
+    async () => {
+      await nextTick()
+      measure()
+    },
+    { immediate: true }
+  )
+
+  return docked
+}
 
 export type TabSet = Zod.infer<typeof TabSetModel>
 export const TabSetModel = Zod.object({

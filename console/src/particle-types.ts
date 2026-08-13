@@ -1,5 +1,4 @@
-import { useQueries, useQuery } from '@tanstack/vue-query'
-import { computed, MaybeRefOrGetter, toValue } from 'vue'
+import { MaybeRefOrGetter, toValue } from 'vue'
 
 import { Address } from '@/api/address'
 import { ParticleTypeInfo } from '@/api/components'
@@ -7,77 +6,75 @@ import { useEngine } from '@/api/engine'
 import { describeSchemaType, isType, Schema } from '@/schema-form'
 import { ChartWidgetParticle } from '@/workspace'
 
-/** Declared particle types for a component address.
+/** Declared particle types for one component address, from the store behind `useEngine`.
 
-The types endpoint takes a concrete address, so a wildcard or pipe selector, which fails
-`Address`'s stricter parse, leaves the query disabled and `types` empty.
+The store is keyed by canonical addresses, so the lookup goes through `Address.parse`. A
+wildcard or pipe selector, which fails that stricter parse, names no one component and
+reads as no types.
 */
+function declaredParticleTypes(
+  engine: ReturnType<typeof useEngine>,
+  value: string
+): ParticleTypeInfo[] {
+  try {
+    return engine.components.get(Address.parse(value).toString())?.particles ?? []
+  } catch {
+    return []
+  }
+}
+
+/** Declared particle types for a component address, read from the components listing. */
 export function useParticleTypes(address: MaybeRefOrGetter<string | null>) {
   const engine = useEngine()
 
-  const componentAddress = computed<Address | null>(() => {
+  const types = $computed<ParticleTypeInfo[]>(() => {
     const value = toValue(address)
-    if (value == null) {
-      return null
-    }
-
-    try {
-      return Address.parse(value)
-    } catch {
-      return null
-    }
+    return value == null ? [] : declaredParticleTypes(engine, value)
   })
 
-  const query = useQuery({
-    queryKey: computed(() => ['particle-types', componentAddress.value?.toString() ?? null]),
-    queryFn: () => engine.components.getParticleTypes(componentAddress.value as Address),
-    enabled: computed(() => componentAddress.value != null),
-    retry: false,
-  })
-
-  const types = computed<ParticleTypeInfo[]>(() => query.data.value ?? [])
-
-  return { types }
+  return { types: $$(types) }
 }
 
-/** Declared particle types for several component addresses at once, keyed by address.
-
-Shares its cache entries with `useParticleTypes` through the same query keys. Unparseable
-addresses are dropped the same way that one disables its query.
-*/
+/** Declared particle types for several component addresses at once, keyed by address as
+given, canonical or not. */
 export function useParticleTypesByAddress(addresses: MaybeRefOrGetter<string[]>) {
   const engine = useEngine()
 
-  const parsed = computed<Address[]>(() =>
-    [...new Set(toValue(addresses))].flatMap((value) => {
-      try {
-        return [Address.parse(value)]
-      } catch {
-        return []
-      }
-    })
-  )
-
-  const queries = useQueries({
-    queries: computed(() =>
-      parsed.value.map((address) => ({
-        queryKey: ['particle-types', address.toString()],
-        queryFn: () => engine.components.getParticleTypes(address),
-        retry: false,
-      }))
-    ),
-  })
-
-  const types = computed<Map<string, ParticleTypeInfo[]>>(() => {
+  const types = $computed<Map<string, ParticleTypeInfo[]>>(() => {
     const map = new Map<string, ParticleTypeInfo[]>()
-    parsed.value.forEach((address, index) => {
-      map.set(address.toString(), queries.value[index]?.data ?? [])
-    })
+    for (const value of new Set(toValue(addresses))) {
+      map.set(value, declaredParticleTypes(engine, value))
+    }
 
     return map
   })
 
-  return { types }
+  return { types: $$(types) }
+}
+
+/** Narrow `types` to what a search string matches, case-insensitively.
+
+A type whose own name matches keeps every field, and one matched through its fields keeps
+only those. Fields match on their names and descriptions.
+*/
+export function filterParticleTypes(types: ParticleTypeInfo[], filter: string): ParticleTypeInfo[] {
+  if (filter === '') {
+    return types
+  }
+
+  return types.flatMap((type) => {
+    if (type.type.toLowerCase().includes(filter)) {
+      return [type]
+    }
+
+    const fields = type.fields.filter(
+      (field) =>
+        field.name.toLowerCase().includes(filter) ||
+        (describeFieldDescription(field.schema) ?? '').toLowerCase().includes(filter)
+    )
+
+    return fields.length === 0 ? [] : [{ ...type, fields }]
+  })
 }
 
 /** Whether `schema` describes a field a chart can plot, a number or an integer. */
@@ -129,6 +126,38 @@ export function deriveChartUnit(
   }
 
   return [...units].join(', ')
+}
+
+/** The derived Y axis unit for a chart widget, recomputed as its particles change.
+
+Both the chart and its settings dialog show this, so the resolution lives here once.
+`workspace` resolves each particle entry's address selector to the concrete component.
+*/
+export function useDerivedChartUnit(
+  widget: MaybeRefOrGetter<{ particles?: ChartWidgetParticle[] }>,
+  workspace: {
+    resolveAddress: (
+      value: ChartWidgetParticle['address']
+    ) => { toString(): string } | null | undefined
+  }
+) {
+  const particles = $computed(() => toValue(widget).particles ?? [])
+
+  const resolve = (value: ChartWidgetParticle['address']) =>
+    workspace.resolveAddress(value)?.toString() ?? null
+
+  const addresses = $computed(() =>
+    particles.flatMap((particle) => {
+      const resolved = resolve(particle.address)
+      return resolved == null ? [] : [resolved]
+    })
+  )
+
+  const types = $(useParticleTypesByAddress(() => addresses).types)
+
+  const unit = $computed(() => deriveChartUnit(particles, resolve, types))
+
+  return { unit: $$(unit) }
 }
 
 /** The measurement unit `schema` carries, published by the `Unit()` field marker.

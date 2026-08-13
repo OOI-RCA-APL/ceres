@@ -610,34 +610,6 @@
         ]
       }
     },
-    "/api/components/{id}/particle-types": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The request succeeded."
-          },
-          "default": {
-            "description": "The request failed, carrying an error."
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "List the particle types one component declares.",
-        "tags": [
-          "components"
-        ]
-      }
-    },
     "/api/components/{id}/procedures": {
       "get": {
         "parameters": [

@@ -263,9 +263,6 @@ host_routes! {
     /// List one component's scheduled jobs.
     ComponentsJobs: typed_get "/api/components/{id}/jobs" => Gate::Authenticated,
         "components.jobs", params(id => "address": Raw);
-    /// List the particle types one component declares.
-    ComponentsParticleTypes: typed_get "/api/components/{id}/particle-types" =>
-        Gate::Authenticated, "components.particle_types", params(id => "address": Raw);
     /// List one component's procedures.
     ProceduresCollection: typed_get "/api/components/{id}/procedures" => Gate::Authenticated,
         "procedures.list", params(id => "address": Raw);

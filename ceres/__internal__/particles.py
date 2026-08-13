@@ -2,6 +2,7 @@
 
 import inspect
 from collections.abc import Callable
+from functools import cache
 from types import UnionType
 from typing import TYPE_CHECKING, Union, get_args, get_origin
 
@@ -81,18 +82,26 @@ def _sieve_config_function(
     return None
 
 
-def _resolve_particle_members(function: Callable[..., object]) -> list[type[Particle]]:
+def _resolve_particle_members(function: Callable[..., object]) -> tuple[type[Particle], ...]:
     """Resolve the particle classes named by `function`'s return annotation.
 
     An annotation that fails to resolve is skipped so one bad import cannot hide the
-    caller's other declarations.
+    caller's other declarations. A bound method resolves through its underlying function,
+    which keys the cache below by code rather than by instance.
     """
+    return _resolved_particle_members(getattr(function, "__func__", function))
+
+
+@cache
+def _resolved_particle_members(function: Callable[..., object]) -> tuple[type[Particle], ...]:
+    """Evaluate the annotation once per function, since the listing route resolves it per
+    request otherwise."""
     try:
         annotations = inspect.get_annotations(function, eval_str=True)
     except Exception:
-        return []
+        return ()
 
-    return _particle_members(annotations.get("return"))
+    return tuple(_particle_members(annotations.get("return")))
 
 
 def _particle_members(annotation: object) -> list[type[Particle]]:

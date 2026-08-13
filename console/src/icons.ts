@@ -16,6 +16,7 @@ const icons = {
   chevronDown: 'mdi-chevron-down',
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
+  chevronUp: 'mdi-chevron-up',
   circle: 'mdi-circle',
   components: 'mdi-hexagon-multiple',
   clearLocalStorage: 'mdi-delete-sweep',

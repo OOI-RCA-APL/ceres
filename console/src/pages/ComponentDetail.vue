@@ -14,13 +14,12 @@ import { useEngine } from '@/api/engine'
 import { Connectivity } from '@/api/shared'
 import CommonText from '@/components/CommonText.vue'
 import ComponentParticlesSection from '@/components/ComponentParticlesSection.vue'
+import ComponentWorkspaceStrip, {
+  overviewFillHeight,
+} from '@/components/ComponentWorkspaceStrip.vue'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
-import FullPage, {
-  appHeaderHeight,
-  densePageHeaderHeight,
-  pageHeaderHeight,
-} from '@/components/FullPage.vue'
+import FullPage, { appHeaderHeight, pageHeaderHeight } from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useDialogs } from '@/dialogs'
@@ -33,14 +32,7 @@ import { useScrollMemory } from '@/scroll'
 import { requestedWorkspaces, resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
-import {
-  getWidgetInfo,
-  inStandardOrder,
-  useWorkspaces,
-  Widget,
-  WidgetRowModel,
-  Workspace,
-} from '@/workspace'
+import { inStandardOrder, openedRowFor, useWorkspaces, Widget, Workspace } from '@/workspace'
 
 const engine = useEngine()
 const access = useAccess()
@@ -87,6 +79,7 @@ const persisted = usePersisted({
   schema: ({ object, boolean, number, record, string }) =>
     object({
       configuration: boolean().default(true),
+      workspaces: boolean().default(true),
       connections: boolean().default(false),
       jobs: boolean().default(false),
       particles: boolean().default(false),
@@ -148,6 +141,11 @@ const requestedIds = $computed(() => requestedWorkspaces(navigation.route.query)
 
 let overviewElement = $ref<HTMLElement | null>(null)
 
+// The dragged overview height, never less than what puts the strip at the bottom edge.
+const overviewHeightStyle = $computed(() => ({
+  height: overviewFillHeight(workspaceStickyTop, persisted.overviewHeight),
+}))
+
 /** How far the page must be scrolled for the tab strip to have pinned under the header.
 
 Measured from the overview, which sits above the strip and is never itself pinned, so its box is
@@ -190,14 +188,10 @@ function showWorkspace(id: string) {
   lastWorkspace.id = id
 }
 
-/** Scroll to where the strip pins under the header when it was clicked while stuck to the
-bottom edge, since a selection there is a request to see the workspace itself. */
-function scrollToWorkspaceIfDocked() {
-  const stripTop = pinnedAt() + workspaceStickyTop
-  if (stripTop > window.scrollY + window.innerHeight - densePageHeaderHeight) {
-    window.scrollTo({ top: pinnedAt(), behavior: 'smooth' })
-  }
-}
+// Followed reactively so the floating action bar can yield while the strip rests at the
+// bottom edge.
+let stripRef = $ref<InstanceType<typeof ComponentWorkspaceStrip> | null>(null)
+const stripDocked = $computed(() => stripRef?.docked ?? false)
 
 /** Show a workspace the user explicitly chose, bringing hidden content back and scrolling to
 it when the strip is stuck at the bottom edge. The fallback selections after a close keep to
@@ -205,7 +199,7 @@ it when the strip is stuck at the bottom edge. The fallback selections after a c
 function revealScoped(id: string) {
   persisted.workspaceCollapsed = false
   showWorkspace(id)
-  scrollToWorkspaceIfDocked()
+  void stripRef?.scrollToPin(pinnedAt())
 }
 
 // Reached to land a chart built from the particles section directly on the open workspace's
@@ -387,14 +381,7 @@ async function createWidgetsScoped(widgets: Widget[]) {
       scope: address.toString(),
       owner_id: auth.user?.id,
       data: {
-        layout: [
-          WidgetRowModel.parse({
-            widgets,
-            height: Math.max(
-              ...widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight)
-            ),
-          }),
-        ],
+        layout: [openedRowFor(widgets)],
       },
     })
     await refreshScoped()
@@ -551,21 +538,6 @@ const configHighlighted = $computed(() =>
           {{ persisted.overviewCollapsed ? 'Show' : 'Hide' }} Details
         </q-tooltip>
       </q-btn>
-      <q-btn
-        v-if="activeWorkspaceId != null || persisted.workspaceCollapsed"
-        class="q-mr-sm"
-        :color="persisted.workspaceCollapsed ? undefined : 'primary'"
-        dense
-        flat
-        :icon="persisted.workspaceCollapsed ? icons.menuDown : icons.menuUp"
-        :icon-right="icons.workspace"
-        size="sm"
-        @click="persisted.workspaceCollapsed = !persisted.workspaceCollapsed"
-      >
-        <q-tooltip class="bg-primary text-white">
-          {{ persisted.workspaceCollapsed ? 'Show' : 'Hide' }} Workspace
-        </q-tooltip>
-      </q-btn>
       <!-- Flush with the right edge of the widgets below, whose cards sit half a gutter in. -->
       <q-chip
         v-if="effectiveAccess != null"
@@ -586,13 +558,15 @@ const configHighlighted = $computed(() =>
     <div v-if="component == null" class="q-pa-xl text-center text-grey-6">Component not found.</div>
     <template v-else>
       <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
-        <!-- The dragged height only applies while workspace content shows below. With it
-        hidden the overview is the page and takes its full height. -->
+        <!-- The dragged height only applies while workspace content shows below, and never
+        less than what puts the strip at the bottom edge, where it rests until the page is
+        scrolled. With workspace content hidden the overview is the page and takes its full
+        height. -->
         <div
           :class="[$style.overviewContent, 'scroll']"
           :style="
             activeWorkspaceId != null && !persisted.workspaceCollapsed && !overviewStacks
-              ? { height: `${persisted.overviewHeight}px` }
+              ? overviewHeightStyle
               : undefined
           "
         >
@@ -614,8 +588,10 @@ const configHighlighted = $computed(() =>
               </q-list>
               <component-workspaces-section
                 v-if="workspacesUnderConfig"
+                v-model:expanded="persisted.workspaces"
                 :can-manage="canManage"
                 class="q-mt-md"
+                collapsible
                 :open-ids="scopedWorkspaces.map((workspace) => workspace.id)"
                 :placement="address.toString()"
                 :workspaces="placedWorkspaces"
@@ -631,8 +607,10 @@ const configHighlighted = $computed(() =>
               they are what the page is usually opened for and the rest is reference. -->
               <component-workspaces-section
                 v-if="!workspacesUnderConfig"
+                v-model:expanded="persisted.workspaces"
                 :can-manage="canManage"
                 class="q-mb-md"
+                collapsible
                 :open-ids="scopedWorkspaces.map((workspace) => workspace.id)"
                 :placement="address.toString()"
                 :workspaces="placedWorkspaces"
@@ -829,13 +807,13 @@ const configHighlighted = $computed(() =>
       <!-- The strip sits in flow between the overview and the workspace, and sticks at both
       edges so it is always on screen, pinning under the header the way it always has and
       resting at the bottom while its own place is still below the fold. -->
-      <div
+      <component-workspace-strip
         v-if="scopedWorkspaces.length > 0 || canCreate"
-        :class="$style.tabStrip"
-        :style="{ top: `${workspaceStickyTop}px` }"
+        ref="stripRef"
+        v-model:collapsed="persisted.workspaceCollapsed"
+        :sticky-top="workspaceStickyTop"
       >
-        <!-- The same band the page header gives its tabs, so they fill it to the bottom edge. -->
-        <div :class="[$style.tabStripRow, 'items-center', 'row']">
+        <template #default="{ docked, trailingInset }">
           <component-workspace-tabs
             :active="activeWorkspaceId"
             :active-actions="workspacePageRef?.headerActions"
@@ -843,8 +821,9 @@ const configHighlighted = $computed(() =>
             bound
             :can-create="canCreate"
             :can-manage="canManage"
-            class="q-ml-sm"
+            :docked="docked"
             :openable="openableWorkspaces"
+            :trailing-inset="trailingInset"
             :workspaces="scopedWorkspaces"
             @close="closeScoped"
             @close-all="closeAllScoped"
@@ -858,9 +837,8 @@ const configHighlighted = $computed(() =>
             @select="revealScoped"
             @share="shareScoped"
           />
-        </div>
-        <q-separator />
-      </div>
+        </template>
+      </component-workspace-strip>
       <!-- Deliberately not keyed on the workspace ID, so switching tabs updates this page in
       place. -->
       <workspace-page
@@ -868,6 +846,7 @@ const configHighlighted = $computed(() =>
         :id="activeWorkspaceId"
         ref="workspacePageRef"
         :sticky-top="workspaceStickyTop"
+        :strip-docked="stripDocked"
         @duplicated="openBesideScoped"
       />
     </template>
@@ -877,29 +856,6 @@ const configHighlighted = $computed(() =>
 <style lang="scss" module>
 // The config and connections blocks sit side by side above this width and stack below it.
 $overview-columns-min: 720px;
-
-// Sticky at both edges so the strip never leaves the screen, and pushed to the bottom by the
-// auto margin when nothing renders beneath it. Its top offset is set inline from the header
-// heights above it.
-.tabStrip {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  margin-top: auto;
-}
-
-:global(.dark) .tabStrip {
-  background-color: $dark;
-}
-
-:global(.light) .tabStrip {
-  background-color: white;
-}
-
-// Mirrors the dense page header band the tabs used to fill, so they reach its bottom edge.
-.tabStripRow {
-  height: 32px;
-}
 
 // With a workspace below, the panel takes the height dragged onto it, set inline. On its own it
 // grows with its content up to what is left of the viewport, then scrolls. This is a maximum

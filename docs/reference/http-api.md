@@ -49,7 +49,6 @@ caller themselves against the resource they name.
 | `GET` | `/api/components/{id}/connections` | required | List one component's connections with their connectivity. |
 | `POST` | `/api/components/{id}/connections/{second}/send` | required | Send data over one component connection. |
 | `GET` | `/api/components/{id}/jobs` | required | List one component's scheduled jobs. |
-| `GET` | `/api/components/{id}/particle-types` | required | List the particle types one component declares. |
 
 ## Config
 

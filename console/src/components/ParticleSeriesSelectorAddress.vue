@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { createReusableTemplate } from '@vueuse/core'
-import { watch } from 'vue'
+import { nextTick, watch } from 'vue'
 
 import { Address } from '@/api/address'
 import { ParticleFieldInfo, ParticleTypeInfo } from '@/api/components'
@@ -8,7 +8,7 @@ import ParticleFieldDetailsDialog, {
   ParticleFieldDetails,
 } from '@/components/ParticleFieldDetailsDialog.vue'
 import icons from '@/icons'
-import { seriesForGroup } from '@/particle-series'
+import { fieldRefKey } from '@/particle-series'
 import { describeFieldDescription, describeFieldType, useParticleTypes } from '@/particle-types'
 import { Schema } from '@/schema-form'
 import { ChartWidgetParticle, SelectMode } from '@/workspace'
@@ -22,8 +22,13 @@ const {
   bare = false,
   defaultOpened = false,
   collapseUnselected = false,
+  filter = '',
+  shownTypes,
 } = defineProps<{
   address: Address
+
+  /** The rows to render, the address's declared types as the host's search narrowed them. */
+  shownTypes: ParticleTypeInfo[]
 
   /** The chart model's particle entries, read in toggle mode to mark which fields are on. */
   particles?: ChartWidgetParticle[]
@@ -47,6 +52,10 @@ const {
   /** Starts a type collapsed unless one of its fields is selected, for hosts opening onto an
   existing selection. */
   collapseUnselected?: boolean
+
+  /** A lowercased search string narrowing the types and fields shown. Matching the address
+  itself shows everything under it. */
+  filter?: string
 }>()
 
 /** Remembered type expansion by `address|type` key, for hosts that persist the tree between
@@ -65,7 +74,7 @@ function isTypeOpened(type: ParticleTypeInfo): boolean {
 }
 
 function rememberTypeExpansion(type: string, value: boolean) {
-  if (expandedTypes == null) {
+  if (expandedTypes == null || filterSettling || effectiveFilter !== '') {
     return
   }
 
@@ -84,9 +93,6 @@ const emit = defineEmits<{
 
   /** A plain press on a field row in highlight mode, which a host may turn into a drag. */
   press: [type: string, field: string, event: PointerEvent]
-
-  /** This address's declared types resolved, for the host's selection ordering. */
-  loaded: [types: ParticleTypeInfo[]]
 }>()
 
 // The type list renders inside the address expansion item, or on its own in bare mode.
@@ -94,34 +100,78 @@ const [DefineTypeList, ReuseTypeList] = createReusableTemplate()
 
 let expanded = $ref(defaultOpened || bare)
 
-// Fetched only once expanded so an address nobody opens costs no request.
-const types = $(useParticleTypes(() => (expanded ? address.toString() : null)).types)
+const types = $(useParticleTypes(() => address.toString()).types)
 
-// Immediate because the query cache can hold the types before this mounts, in which case they
-// never change and a change-only watch would leave the host's selection ordering empty.
-watch(
-  () => types,
-  () => emit('loaded', types),
-  { immediate: true }
+// The address's own name matching is as good as every type matching, so the filter stops
+// narrowing below it.
+const effectiveFilter = $computed(() =>
+  address.toString().toLowerCase().includes(filter) ? '' : filter
 )
 
-function selectedFields(type: string): string[] {
-  return seriesForGroup(particles, address.toString(), type)
-    .map((series) => series.field)
-    .filter((field): field is string => field != null)
-}
+// A search reaches into addresses whether or not they were opened, so typing one opens them,
+// and clearing it restores whatever the user had arranged.
+let expandedBeforeSearch: boolean | null = null
+
+watch(
+  () => filter,
+  (value, previous) => {
+    if (value !== '' && previous === '') {
+      expandedBeforeSearch = expanded
+      expanded = true
+    } else if (value === '' && expandedBeforeSearch != null) {
+      expanded = expandedBeforeSearch
+      expandedBeforeSearch = null
+    }
+  }
+)
+
+// Items torn down as the filter changes fire hide events of their own, which must not be
+// mistaken for the user collapsing anything, so remembering pauses across the swap.
+let filterSettling = false
+
+watch(
+  () => effectiveFilter,
+  async () => {
+    filterSettling = true
+    await nextTick()
+    filterSettling = false
+  }
+)
+
+// Toggle mode reads the model through one key set rather than rebuilding series per field row.
+const onFieldKeys = $computed(() => {
+  const keys = new Set<string>()
+  const base = address.toString()
+  for (const particle of particles) {
+    if ((particle.address?.toString() ?? null) !== base || particle.type == null) {
+      continue
+    }
+
+    for (const series of particle.series) {
+      if (series.field != null) {
+        keys.add(`${particle.type}|${series.field}`)
+      }
+    }
+  }
+
+  return keys
+})
 
 function isFieldOn(type: string, field: string): boolean {
   if (selectionMode === 'highlight') {
-    return selectedKeys.has(`${address.toString()}|${type}|${field}`)
+    return selectedKeys.has(fieldRefKey({ address: address.toString(), type, field }))
   }
 
-  return selectedFields(type).includes(field)
+  return onFieldKeys.has(`${type}|${field}`)
 }
 
 function typeHasSelection(type: ParticleTypeInfo): boolean {
   return type.fields.some((field) => isFieldOn(type.type, field.name))
 }
+
+// Read against every declared type rather than the filtered view so a selection hidden by a
+// search still marks its containers.
+const addressHasSelection = $computed(() => types.some(typeHasSelection))
 
 /** The select mode a click's modifiers ask for, matching the workspace's own vocabulary. */
 function modeOf(event: MouseEvent): SelectMode {
@@ -175,19 +225,23 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
 <template>
   <define-type-list>
     <q-list dense>
-      <q-item v-if="types.length === 0">
+      <q-item v-if="shownTypes.length === 0">
         <q-item-section>
-          <q-item-label class="text-grey-6">No declared particle types.</q-item-label>
+          <q-item-label class="text-grey-6">
+            {{ effectiveFilter === '' ? 'No declared particle types.' : 'No matching fields.' }}
+          </q-item-label>
         </q-item-section>
       </q-item>
+      <!-- Keyed on whether a search is narrowing so entering one remounts the items opened,
+      whatever their remembered state, and leaving it restores that state. -->
       <q-expansion-item
-        v-for="type in types"
-        :key="type.type"
+        v-for="type in shownTypes"
+        :key="`${type.type}|${effectiveFilter !== ''}`"
         :content-inset-level="0.2"
-        :default-opened="isTypeOpened(type)"
+        :default-opened="effectiveFilter !== '' || isTypeOpened(type)"
         dense
         dense-toggle
-        :header-class="$style.groupHeader"
+        :header-class="[$style.groupHeader, typeHasSelection(type) && $style.containsSelection]"
         @hide="rememberTypeExpansion(type.type, false)"
         @show="rememberTypeExpansion(type.type, true)"
       >
@@ -227,7 +281,11 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
             </q-item-section>
             <q-item-section>
               <q-item-label class="items-baseline no-wrap q-gutter-x-sm row">
-                <span class="monospace-sm">{{ field.name }}:</span>
+                <span
+                  class="monospace-sm"
+                  :class="isFieldOn(type.type, field.name) && $style.selectedName"
+                  >{{ field.name }}:</span
+                >
                 <span class="monospace-sm text-grey-6">
                   {{ describeFieldType(field.schema as Schema) }}
                 </span>
@@ -261,13 +319,19 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
   <!-- A one-address tree starts at its types since the address level would only repeat the
   page. -->
   <reuse-type-list v-if="bare" />
+  <!-- An address declaring nothing has nothing to expand, so it stands as a quiet row. -->
+  <q-item v-else-if="types.length === 0" :class="[$style.groupHeader, $style.emptyAddress]" dense>
+    <q-item-section>
+      <q-item-label class="monospace-sm">{{ address.toString() }}</q-item-label>
+    </q-item-section>
+  </q-item>
   <q-expansion-item
     v-else
     v-model="expanded"
     :content-inset-level="0.2"
     dense
     dense-toggle
-    :header-class="$style.groupHeader"
+    :header-class="[$style.groupHeader, addressHasSelection && $style.containsSelection]"
   >
     <template #header>
       <q-item-section>
@@ -280,10 +344,19 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
   <particle-field-details-dialog v-model="detailsField" />
 </template>
 
-<style module>
+<style lang="scss" module>
 /* Neutral so the highlight reads the same over both themes and never fights the text color. */
 .selected {
   background: #80808029;
+}
+
+// Primary on the text, saying something inside is selected without filling the row.
+:global(.q-item).containsSelection {
+  color: $primary;
+}
+
+.selectedName {
+  color: $primary;
 }
 
 /* Qualified to outrank the dense item's own min-height. Text selection is off so a shift
@@ -297,6 +370,12 @@ click reads as extending the field selection rather than sweeping text. */
 
 :global(.q-item).groupHeader {
   padding-left: 8px;
+}
+
+/* Quiet since there is nothing to pick under it, kept on the list so the tree still says the
+component exists. */
+.emptyAddress {
+  opacity: 0.55;
 }
 
 /* Sized to sit beside the type text rather than standing out over it. */

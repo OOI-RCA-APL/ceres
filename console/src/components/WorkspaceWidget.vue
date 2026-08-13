@@ -14,6 +14,7 @@ import {
   createWidget,
   getWidgetInfo,
   useWorkspace,
+  widgetTargetSelector,
   widgetTargetSignature,
   Widget,
   WidgetRow,
@@ -50,13 +51,15 @@ const settingsComponent = $computed(() => {
 
 let isShowingSettingsDialog = $ref(false)
 let isShowingGroupDialog = $ref(false)
-let reloads = $ref(0)
+
+// Bumped through the workspace so a reload asked of a selection reaches every widget in it.
+const reloads = $computed(() => workspace.reloadStamp(widget.id))
 
 // Held so the dots can open the same menu a right click does, at wherever the pointer is.
 const menu = $ref<QMenu | null>(null)
 
 function onReloadRequested() {
-  reloads++
+  workspace.requestReload(menuTargets)
 }
 
 function onSettingsRequested() {
@@ -79,13 +82,28 @@ const conversion = $computed(() => {
   }
 })
 
-// Grouping acts on everything picked out when this widget is among them, the same way dragging
-// does, and on this widget alone otherwise.
-const groupTargets = $computed(() =>
+// The menu acts on everything picked out when this widget is among them, the same way
+// dragging does, and on this widget alone otherwise. Actions that only make sense for one
+// widget hide behind `actsOnMany` instead.
+const menuTargets = $computed(() =>
   workspace.isSelected(widget.id) && workspace.selectionLayout === layoutId
     ? [...workspace.selection]
     : [widget.id]
 )
+
+const actsOnMany = $computed(() => menuTargets.length > 1)
+
+/** Toggle every targeted widget's frame to where this one is headed, so a mixed selection
+settles on one state rather than each widget flipping its own. */
+function toggleFrames() {
+  const value = !widget.frameless
+  for (const id of menuTargets) {
+    const target = workspace.getWidget(id)
+    if (target != null) {
+      target.frameless = value
+    }
+  }
+}
 
 // Replace the widget with a fresh one of its kind, which is all a stub is once it no longer
 // hides anything.
@@ -99,6 +117,19 @@ const key = $computed(() => {
   }
 
   return String(reloads)
+})
+
+// The address of the one component the widget is a view of, resolved through the scope, or null
+// when it is a view of none.
+const targetAddress = $computed(() => {
+  const raw = widgetTargetSelector(widget)
+  if (raw == null) {
+    return null
+  }
+
+  const resolved = workspace.resolveAddress(raw)
+  const text = resolved?.toString() ?? null
+  return text != null && text.startsWith('@') && !text.includes(':') ? text : null
 })
 
 // A press on the header either picks the widget out or takes hold of it. Held with a modifier it
@@ -282,12 +313,26 @@ watch(
     context menu is looked for first. Hung off the card so the whole widget answers to it. -->
     <q-menu ref="menu" context-menu>
       <q-list bordered>
-        <q-item v-close-popup clickable dense @click="isEditingName = true">
+        <q-item v-if="!actsOnMany" v-close-popup clickable dense @click="isEditingName = true">
           <q-item-section avatar>
             <q-icon :name="icons.rename" />
           </q-item-section>
           <q-item-section>
             <q-item-label>Rename</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item
+          v-if="!actsOnMany && targetAddress != null"
+          v-close-popup
+          clickable
+          dense
+          :to="`/components/${targetAddress}`"
+        >
+          <q-item-section avatar>
+            <q-icon :name="icons.chevronRight" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Open {{ targetAddress }}</q-item-label>
           </q-item-section>
         </q-item>
         <!-- A widget the viewer may not see loads with its configuration stripped, and most kinds
@@ -315,12 +360,7 @@ watch(
             <q-item-label>Settings ...</q-item-label>
           </q-item-section>
         </q-item>
-        <q-item
-          v-close-popup
-          clickable
-          dense
-          @click="workspace.duplicateWidget(widget.id, row, column + 1, layoutId)"
-        >
+        <q-item v-close-popup clickable dense @click="workspace.duplicateWidgets(menuTargets)">
           <q-item-section avatar>
             <q-icon :name="icons.duplicate" />
           </q-item-section>
@@ -328,8 +368,8 @@ watch(
             <q-item-label>Duplicate</q-item-label>
           </q-item-section>
         </q-item>
-        <q-separator />
-        <q-item clickable dense>
+        <q-separator v-if="!actsOnMany" />
+        <q-item v-if="!actsOnMany" clickable dense>
           <q-item-section avatar>
             <q-icon :name="icons.add" />
           </q-item-section>
@@ -338,7 +378,7 @@ watch(
           </q-item-section>
           <workspace-add-widget-menu :column="column" :layout-id="layoutId" :row="row" />
         </q-item>
-        <q-item clickable dense>
+        <q-item v-if="!actsOnMany" clickable dense>
           <q-item-section avatar>
             <q-icon :name="icons.add" />
           </q-item-section>
@@ -391,12 +431,14 @@ watch(
         <q-separator />
         <!-- Held here as well as on the header since a widget wearing no frame has no header to
         reach either of them from. -->
-        <q-item v-close-popup clickable dense @click="widget.frameless = !widget.frameless">
+        <q-item v-close-popup clickable dense @click="toggleFrames">
           <q-item-section avatar>
             <q-icon :name="widget.frameless ? icons.frame : icons.frameless" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>{{ widget.frameless ? 'Show Frame' : 'Hide Frame' }}</q-item-label>
+            <q-item-label>
+              {{ widget.frameless ? 'Show' : 'Hide' }} {{ actsOnMany ? 'Frames' : 'Frame' }}
+            </q-item-label>
           </q-item-section>
         </q-item>
         <q-item v-close-popup clickable dense @click="onReloadRequested">
@@ -408,7 +450,7 @@ watch(
           </q-item-section>
         </q-item>
         <q-separator />
-        <q-item v-close-popup clickable dense @click="workspace.deleteWidget(widget.id)">
+        <q-item v-close-popup clickable dense @click="workspace.deleteWidgets(menuTargets)">
           <q-item-section avatar>
             <q-icon :name="icons.delete" />
           </q-item-section>
@@ -421,7 +463,7 @@ watch(
     <!-- Mounted only while showing so its remembered choices are read fresh each time. -->
     <workspace-widget-group-dialog
       v-if="isShowingGroupDialog"
-      :widget-ids="groupTargets"
+      :widget-ids="menuTargets"
       @close="isShowingGroupDialog = false"
     />
     <!-- Hung off the card rather than off the button that opens it so the menu can open it too on

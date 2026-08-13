@@ -4,13 +4,12 @@ import { watch } from 'vue'
 import { useAccess } from '@/api/access'
 import { Address, engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
+import ComponentWorkspaceStrip, {
+  overviewFillHeight,
+} from '@/components/ComponentWorkspaceStrip.vue'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
-import FullPage, {
-  appHeaderHeight,
-  densePageHeaderHeight,
-  pageHeaderHeight,
-} from '@/components/FullPage.vue'
+import FullPage, { appHeaderHeight, pageHeaderHeight } from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
@@ -47,6 +46,8 @@ const persisted = usePersisted({
     object({
       overviewCollapsed: boolean().default(false),
       overviewHeight: number().default(320),
+      workspaces: boolean().default(true),
+      workspaceCollapsed: boolean().default(false),
     }),
   methods: [{ type: 'local-storage', key: 'home-overview' }],
 })
@@ -114,6 +115,16 @@ const requestedIds = $computed(() => requestedWorkspaces(navigation.route.query)
 
 let overviewElement = $ref<HTMLElement | null>(null)
 
+// The dragged overview height, never less than what puts the strip at the bottom edge.
+const overviewHeightStyle = $computed(() => ({
+  height: overviewFillHeight(workspaceStickyTop, persisted.overviewHeight),
+}))
+
+// Followed reactively so the floating action bar can yield while the strip rests at the
+// bottom edge.
+let stripRef = $ref<InstanceType<typeof ComponentWorkspaceStrip> | null>(null)
+const stripDocked = $computed(() => stripRef?.docked ?? false)
+
 /** How far the page must be scrolled for the tab strip to have pinned under the header.
 
 Measured from the overview, which sits above the strip and is never itself pinned, so its box is
@@ -159,20 +170,13 @@ function showWorkspace(id: string) {
 // Reached for the tab strip's active workspace actions and state, drawn on this page.
 let workspacePageRef = $ref<InstanceType<typeof WorkspacePage> | null>(null)
 
-/** Scroll to where the strip pins under the header when it was clicked while stuck to the
-bottom edge, since a selection there is a request to see the workspace itself. */
-function scrollToWorkspaceIfDocked() {
-  const stripTop = pinnedAt() + workspaceStickyTop
-  if (stripTop > window.scrollY + window.innerHeight - densePageHeaderHeight) {
-    window.scrollTo({ top: pinnedAt(), behavior: 'smooth' })
-  }
-}
-
-/** Show a workspace the user explicitly chose, scrolling to it when the strip is stuck to
-the bottom edge. The fallback selections after a close keep to `showWorkspace`. */
+/** Show a workspace the user explicitly chose, bringing hidden content back and scrolling to
+it when the strip is stuck to the bottom edge. The fallback selections after a close keep to
+`showWorkspace`. */
 function revealHome(id: string) {
+  persisted.workspaceCollapsed = false
   showWorkspace(id)
-  scrollToWorkspaceIfDocked()
+  void stripRef?.scrollToPin(pinnedAt())
 }
 
 /** Give the address what it asked for, then take the request back out of it.
@@ -352,18 +356,24 @@ watch(
     </div>
     <template v-else>
       <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
+        <!-- Never less than what puts the strip at the bottom edge, where it rests until the
+        page is scrolled. With workspace content hidden the overview takes its full height. -->
         <div
           :class="[$style.overviewContent, 'scroll']"
           :style="
-            activeWorkspaceId != null ? { height: `${persisted.overviewHeight}px` } : undefined
+            activeWorkspaceId != null && !persisted.workspaceCollapsed
+              ? overviewHeightStyle
+              : undefined
           "
         >
           <!-- The engine root's own workspaces, which are the deployment's rather than any one
           component's. A workspace placed on a component is reached from that component, and
           appears here only once it has been opened as a tab below. -->
           <component-workspaces-section
+            v-model:expanded="persisted.workspaces"
             :can-manage="canManage"
             class="q-pa-md"
+            collapsible
             :open-ids="homeWorkspaces.map((workspace) => workspace.id)"
             :placement="placement"
             :workspaces="placedWorkspaces"
@@ -374,7 +384,7 @@ watch(
           />
         </div>
         <resize-handle
-          v-if="activeWorkspaceId != null"
+          v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed"
           v-model="persisted.overviewHeight"
           :class="$style.overviewResizeHandle"
           direction="vertical"
@@ -386,22 +396,23 @@ watch(
       <!-- The strip sits in flow between the overview and the workspace, and sticks at both
       edges so it is always on screen, pinning under the header the way it always has and
       resting at the bottom while its own place is still below the fold. -->
-      <div
+      <component-workspace-strip
         v-if="homeWorkspaces.length > 0 || canCreate"
-        :class="$style.tabStrip"
-        :style="{ top: `${workspaceStickyTop}px` }"
+        ref="stripRef"
+        v-model:collapsed="persisted.workspaceCollapsed"
+        :sticky-top="workspaceStickyTop"
       >
-        <!-- The same band the page header gives its tabs, so they fill it to the bottom edge. -->
-        <div :class="[$style.tabStripRow, 'items-center', 'row']">
+        <template #default="{ docked, trailingInset }">
           <component-workspace-tabs
             :active="activeWorkspaceId"
             :active-actions="workspacePageRef?.headerActions"
             :active-state="workspacePageRef?.headerState"
             :can-create="canCreate"
             :can-manage="canManage"
-            class="q-ml-sm"
+            :docked="docked"
             :openable="openableWorkspaces"
             :show-placement="showPlacement"
+            :trailing-inset="trailingInset"
             :workspaces="homeWorkspaces"
             @close="closeHome"
             @close-all="closeAllHome"
@@ -414,16 +425,16 @@ watch(
             @select="revealHome"
             @share="shareHome"
           />
-        </div>
-        <q-separator />
-      </div>
+        </template>
+      </component-workspace-strip>
       <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
       switching tabs updates this page in place. -->
       <workspace-page
-        v-if="activeWorkspaceId != null"
+        v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed"
         :id="activeWorkspaceId"
         ref="workspacePageRef"
         :sticky-top="workspaceStickyTop"
+        :strip-docked="stripDocked"
         @duplicated="openBesideHome"
       />
     </template>
@@ -436,29 +447,6 @@ watch(
 .overviewContent {
   overflow-x: hidden;
   max-height: calc(100vh - 92px);
-}
-
-// Sticky at both edges so the strip never leaves the screen, and pushed to the bottom by the
-// auto margin when nothing renders beneath it. Its top offset is set inline from the header
-// heights above it.
-.tabStrip {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  margin-top: auto;
-}
-
-:global(.dark) .tabStrip {
-  background-color: $dark;
-}
-
-:global(.light) .tabStrip {
-  background-color: white;
-}
-
-// Mirrors the dense page header band the tabs used to fill, so they reach its bottom edge.
-.tabStripRow {
-  height: 32px;
 }
 
 .overviewResizeHandle {

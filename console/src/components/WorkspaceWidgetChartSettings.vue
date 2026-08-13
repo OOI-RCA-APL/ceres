@@ -3,7 +3,7 @@ import CommonText from '@/components/CommonText.vue'
 import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
 import WorkspaceWidgetSettings from '@/components/WorkspaceWidgetSettings.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
-import { deriveChartUnit, useParticleTypesByAddress } from '@/particle-types'
+import { useDerivedChartUnit } from '@/particle-types'
 import { ChartWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -12,23 +12,8 @@ const { widget } = defineProps<{
 
 const workspace = useWorkspace()
 
-const particleAddresses = $computed(() =>
-  widget.particles.flatMap((particle) => {
-    const resolved = workspace.resolveAddress(particle.address)?.toString()
-    return resolved == null ? [] : [resolved]
-  })
-)
-
-const declaredTypes = $(useParticleTypesByAddress(() => particleAddresses).types)
-
 // Offered as the unit input's placeholder so a blank setting says what the chart will show.
-const derivedUnit = $computed(() =>
-  deriveChartUnit(
-    widget.particles,
-    (address) => workspace.resolveAddress(address)?.toString() ?? null,
-    declaredTypes
-  )
-)
+const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
 </script>
 
 <template>
