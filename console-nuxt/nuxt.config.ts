@@ -25,6 +25,18 @@ export default defineNuxtConfig({
   devServer: {
     port: 8086,
   },
+  hooks: {
+    // The developer section is a dev-only surface for iterating on the theme and
+    // components in isolation, production builds ship without it.
+    'pages:extend'(pages) {
+      if (process.env.NODE_ENV === 'production') {
+        const withoutDeveloperPages = pages.filter(
+          (page) => !(page.path ?? '').startsWith('/developer')
+        )
+        pages.splice(0, pages.length, ...withoutDeveloperPages)
+      }
+    },
+  },
   nitro: {
     devProxy: {
       '/api': {
