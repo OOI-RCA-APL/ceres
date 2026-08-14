@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-08-14
+
 **Web Console**
 
 - Build chart and meter widgets from a component's declared particle fields, selected in a
