@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -20,11 +21,15 @@ FINGERPRINT_PATTERN = re.compile(r"<!-- coverage:fingerprint:([0-9a-f]+) -->")
 
 
 def _run_coverage() -> dict[str, Any]:
+    # Host-gated tests stay out of the run so the recorded tables are the same on every
+    # machine that regenerates them.
+    environment = {key: value for key, value in os.environ.items() if key != "CERES_SERVICE_TEST"}
     result = run(
         # Each worker measures its own subprocess and coverage combines the results.
         ["uv", "run", "pytest", "--cov", "--cov-report=json", "-q", "-n", "auto", "--capture=fd"],
         capture_output=True,
         text=True,
+        env=environment,
     )
     if result.returncode != 0:
         print("pytest failed:")

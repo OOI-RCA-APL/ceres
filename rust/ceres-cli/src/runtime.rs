@@ -50,22 +50,29 @@ pub fn delegate(arguments: Vec<OsString>) -> Result<std::convert::Infallible> {
 /// Search order:
 ///
 /// 1. The `CERES_PYTHON` environment variable.
-/// 2. A `python` executable next to this binary, which covers installs into a virtual
-///    environment's `bin` directory.
-/// 3. The active virtual environment's interpreter via `VIRTUAL_ENV`.
-/// 4. `python3`, then `python`, on `PATH`.
+/// 2. A `python` executable next to the path this binary was invoked as, which covers
+///    installs into a virtual environment's `bin` directory, including a symlinked
+///    development binary that `current_exe` would resolve out of the environment.
+/// 3. A `python` executable next to this binary's resolved path.
+/// 4. The active virtual environment's interpreter via `VIRTUAL_ENV`.
+/// 5. `python3`, then `python`, on `PATH`.
 fn find_python() -> Result<PathBuf> {
     if let Some(python) = std::env::var_os("CERES_PYTHON") {
         return Ok(PathBuf::from(python));
     }
 
-    if let Ok(current) = std::env::current_exe()
-        && let Ok(current) = current.canonicalize()
-        && let Some(directory) = current.parent()
-    {
-        let sibling = directory.join("python");
-        if sibling.is_file() {
-            return Ok(sibling);
+    let candidates = [
+        invoked_executable(),
+        std::env::current_exe()
+            .and_then(|path| path.canonicalize())
+            .ok(),
+    ];
+    for candidate in candidates.into_iter().flatten() {
+        if let Some(directory) = candidate.parent() {
+            let sibling = directory.join("python");
+            if sibling.is_file() {
+                return Ok(sibling);
+            }
         }
     }
 
@@ -86,6 +93,21 @@ fn find_python() -> Result<PathBuf> {
         "No Python interpreter found for the Ceres runtime. Set CERES_PYTHON to the \
          interpreter of the environment Ceres is installed in."
     ))
+}
+
+/// The absolute path this binary was invoked as, from its own argument zero.
+///
+/// Unlike `current_exe`, this keeps a symlink's own location, which is what places a
+/// development binary inside the virtual environment that links it.
+pub fn invoked_executable() -> Option<PathBuf> {
+    let argument = PathBuf::from(std::env::args_os().next()?);
+    let path = if argument.components().count() > 1 {
+        std::env::current_dir().ok()?.join(argument)
+    } else {
+        which(argument.to_str()?)?
+    };
+
+    path.is_file().then_some(path)
 }
 
 /// Find an executable by name on `PATH`.

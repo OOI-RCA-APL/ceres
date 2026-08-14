@@ -107,10 +107,17 @@ impl ServiceContext {
     }
 
     /// The command line the service executes, this binary's `run` command.
+    ///
+    /// The path is the one this binary was invoked as rather than its resolved location,
+    /// so the service keeps running inside the virtual environment whose `bin` links it
+    /// and its runtime finds that environment's interpreter from a clean spawn.
     fn command(&self) -> Result<Vec<String>> {
-        let current = std::env::current_exe()
-            .and_then(|path| path.canonicalize())
-            .map_err(|error| failure!("Failed to resolve the CLI path. {error}"))?;
+        let current = match crate::runtime::invoked_executable() {
+            Some(path) => path,
+            None => std::env::current_exe()
+                .and_then(|path| path.canonicalize())
+                .map_err(|error| failure!("Failed to resolve the CLI path. {error}"))?,
+        };
 
         Ok(vec![
             current.to_string_lossy().into_owned(),
@@ -149,14 +156,53 @@ fn current_user() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
-/// Run a command silently and return its exit status code.
-fn execute(program: &str, arguments: &[&str]) -> Result<i32> {
-    let result = Command::new(program)
-        .args(arguments)
-        .output()
-        .map_err(|error| failure!("Failed to execute {program}. {error}"))?;
+/// Run a command silently, failing with its captured stderr on a non-zero exit.
+fn execute(program: &str, arguments: &[&str], environment: &[(&str, String)]) -> Result<()> {
+    let output = output_of(program, arguments, environment)?;
+    if output.status.success() {
+        return Ok(());
+    }
 
-    Ok(result.status.code().unwrap_or(1))
+    let detail = String::from_utf8_lossy(&output.stderr);
+    let detail = detail.trim();
+    Err(failure!(
+        "`{program} {}` failed with status {}.{}{}",
+        arguments.join(" "),
+        output.status.code().unwrap_or(1),
+        if detail.is_empty() { "" } else { " " },
+        detail,
+    ))
+}
+
+/// Run a command silently and return its exit status code, for queries whose non-zero
+/// exit is an answer rather than a failure.
+fn execute_code(program: &str, arguments: &[&str], environment: &[(&str, String)]) -> Result<i32> {
+    Ok(output_of(program, arguments, environment)?
+        .status
+        .code()
+        .unwrap_or(1))
+}
+
+fn output_of(
+    program: &str,
+    arguments: &[&str],
+    environment: &[(&str, String)],
+) -> Result<std::process::Output> {
+    Command::new(program)
+        .args(arguments)
+        .envs(environment.iter().map(|(key, value)| (key, value)))
+        .output()
+        .map_err(|error| failure!("Failed to execute {program}. {error}"))
+}
+
+/// Environment for `systemctl --user`, pointing it at the user bus when the session lacks
+/// the variable, which a shell reached through `su` or a bare ssh session does.
+fn user_bus_environment() -> Vec<(&'static str, String)> {
+    if std::env::var_os("XDG_RUNTIME_DIR").is_some() {
+        return Vec::new();
+    }
+
+    vec![("XDG_RUNTIME_DIR", format!("/run/user/{}", user_id()))]
 }
 
 /// Write a definition file when its contents changed, returning whether a write happened.
@@ -204,21 +250,48 @@ impl SystemDService {
             .join(self.label())
     }
 
-    fn systemctl(&self, arguments: &[&str]) -> Result<i32> {
-        execute("systemctl", arguments)
+    /// Run `systemctl`, failing loudly on a non-zero exit rather than reporting success
+    /// over a command that did nothing.
+    fn systemctl(&self, arguments: &[&str]) -> Result<()> {
+        execute("systemctl", arguments, &user_bus_environment())
+    }
+
+    /// Run `systemctl` and return its exit code, for queries whose non-zero exit is an
+    /// answer rather than a failure, such as `is-active` reporting an inactive unit.
+    fn systemctl_code(&self, arguments: &[&str]) -> Result<i32> {
+        execute_code("systemctl", arguments, &user_bus_environment())
     }
 
     /// Enable `loginctl` linger so the service persists after logout.
+    ///
+    /// Also what brings the user manager and its bus up on a session-less shell, since
+    /// `loginctl` talks to logind over the system bus and needs no user session itself.
     fn enable_linger(&self) {
         let user = self.context.user();
         self.context
             .log(format!("Enabling loginctl linger for user '{user}'..."));
 
-        if execute("loginctl", &["enable-linger", &user]).unwrap_or(1) != 0 {
+        if execute_code("loginctl", &["enable-linger", &user], &[]).unwrap_or(1) != 0 {
             self.context.log(format!(
                 "WARNING: Failed to enable loginctl linger. Execute 'loginctl enable-linger \
                  {user}' to persist the service after logout."
             ));
+        }
+    }
+
+    /// Wait for the user manager's runtime directory after a fresh linger, since logind
+    /// creates it asynchronously and `systemctl --user` fails until it exists.
+    fn await_user_bus(&self) {
+        let Some((_, directory)) = user_bus_environment().into_iter().next() else {
+            return;
+        };
+
+        for _ in 0..50 {
+            if Path::new(&directory).join("bus").exists() {
+                return;
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
 
@@ -240,7 +313,7 @@ impl SystemDService {
 
 impl Service for SystemDService {
     fn state(&self) -> ServiceState {
-        match self.systemctl(&["is-active", "--user", &self.label()]) {
+        match self.systemctl_code(&["is-active", "--user", &self.label()]) {
             Ok(0) => ServiceState::Running,
             _ => ServiceState::Stopped,
         }
@@ -273,7 +346,13 @@ impl Service for SystemDService {
     }
 
     fn start(&self) -> Result<()> {
+        // Linger comes first because it is what starts the user manager on a machine
+        // nobody is logged in to, and everything after needs that manager's bus.
+        self.enable_linger();
+        self.await_user_bus();
+
         if self.state() == ServiceState::Running {
+            self.context.log("The service is already running.");
             return Ok(());
         }
 
@@ -281,7 +360,6 @@ impl Service for SystemDService {
         self.systemctl(&["daemon-reload", "--user"])?;
         self.systemctl(&["start", "--user", &self.label()])?;
         self.systemctl(&["enable", "--user", &self.label()])?;
-        self.enable_linger();
         Ok(())
     }
 
@@ -327,8 +405,16 @@ impl LaunchDService {
         format!("user/{}/{}", user_id(), self.label())
     }
 
-    fn launchctl(&self, arguments: &[&str]) -> Result<i32> {
-        execute("launchctl", arguments)
+    /// Run `launchctl`, failing loudly on a non-zero exit rather than reporting success
+    /// over a command that did nothing.
+    fn launchctl(&self, arguments: &[&str]) -> Result<()> {
+        execute("launchctl", arguments, &[])
+    }
+
+    /// Run `launchctl` and return its exit code, for queries whose non-zero exit is an
+    /// answer rather than a failure, such as `list` reporting an unloaded job.
+    fn launchctl_code(&self, arguments: &[&str]) -> Result<i32> {
+        execute_code("launchctl", arguments, &[])
     }
 
     /// Build the plist definition for the launchd agent.
@@ -389,7 +475,7 @@ impl Service for LaunchDService {
             return ServiceState::Stopped;
         }
 
-        match self.launchctl(&["list", &self.label()]) {
+        match self.launchctl_code(&["list", &self.label()]) {
             Ok(0) => ServiceState::Running,
             _ => ServiceState::Stopped,
         }
@@ -418,7 +504,7 @@ impl Service for LaunchDService {
         let path = self.path().to_string_lossy().into_owned();
         self.launchctl(&["load", "-w", &path])?;
         self.launchctl(&["enable", &self.target()])?;
-        let _ = self.launchctl(&["start", &self.target()]);
+        let _ = self.launchctl_code(&["start", &self.target()]);
         Ok(())
     }
 

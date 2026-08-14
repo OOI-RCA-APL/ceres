@@ -8,6 +8,12 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**CLI**
+
+- Point `systemctl --user` at the user bus when the session lacks one, enable linger
+  before anything needs that bus, and fail service commands loudly when the underlying
+  `systemctl` or `launchctl` call fails.
+
 ## [0.42.0] - 2026-08-14
 
 **Web Console**
