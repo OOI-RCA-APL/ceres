@@ -22,6 +22,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 uuid = "1"
 # `string` lets an argument be named at runtime, which the table commands are, their
 # whole surface being generated from the entity definitions.
+rpassword = "7"
 clap = { version = "4.5", features = ["derive", "string", "suggestions", "wrap_help"] }
 mimalloc = "0.1"
 tokio = { version = "1", default-features = false, features = ["rt"] }

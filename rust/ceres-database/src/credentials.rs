@@ -51,39 +51,43 @@ impl Credentials {
         Self { hashing }
     }
 
-    /// Apply the rules to one wire object bound for a table, `false` to refuse it.
+    /// Apply the rules to one wire object bound for a table, the failure naming the
+    /// refused column.
     ///
     /// Only a user carries either column so every other table passes through untouched.
     /// A refusal here happens while the object is still being read, before anything has
     /// been written, which lets the whole command delegate.
-    pub fn apply(&self, table: EntityTable, object: &mut Map<String, Value>) -> bool {
+    pub fn apply(&self, table: EntityTable, object: &mut Map<String, Value>) -> Result<(), String> {
         if table != EntityTable::Users {
-            return true;
+            return Ok(());
         }
 
         for (key, value) in object.iter_mut() {
             let Value::String(text) = value else {
                 // A non-string in either column is the model's error to report.
                 if key == "password" || key == "email" {
-                    return false;
+                    return Err(format!("The `{key}` value is not text."));
                 }
 
                 continue;
             };
 
             let replaced = match key.as_str() {
-                "password" => self.password(text),
-                "email" => normalize_email(text),
+                "password" => self.password(text).ok_or_else(|| {
+                    String::from(
+                        "The `password` value is not one the model accepts, or could not \
+                         be hashed.",
+                    )
+                }),
+                "email" => normalize_email(text)
+                    .ok_or_else(|| String::from("The `email` value is not a valid email address.")),
                 _ => continue,
-            };
-            let Some(replaced) = replaced else {
-                return false;
-            };
+            }?;
 
             *value = Value::String(replaced);
         }
 
-        true
+        Ok(())
     }
 
     /// Hash a password, or pass an already-hashed one through.
@@ -465,21 +469,25 @@ mod tests {
         // A variable's own `value` column is untouched whatever it holds.
         let mut values = object(r#"{"address": "@a", "name": "password", "value": "plain"}"#);
         let before = values.clone();
-        assert!(credentials.apply(EntityTable::Variables, &mut values));
+        assert!(
+            credentials
+                .apply(EntityTable::Variables, &mut values)
+                .is_ok()
+        );
         assert_eq!(values, before);
 
         let mut user =
             object(r#"{"username": "ada", "email": "Ada@Example.com", "password": "pw"}"#);
-        assert!(credentials.apply(EntityTable::Users, &mut user));
+        assert!(credentials.apply(EntityTable::Users, &mut user).is_ok());
         assert_eq!(user["email"], Value::String("ada@example.com".into()));
         assert!(is_password_hash(user["password"].as_str().unwrap()));
 
         // An address outside the subset refuses the whole write.
         let mut user = object(r#"{"username": "ada", "email": "a@localhost", "password": "pw"}"#);
-        assert!(!credentials.apply(EntityTable::Users, &mut user));
+        assert!(credentials.apply(EntityTable::Users, &mut user).is_err());
 
         // So does a column holding something other than text.
         let mut user = object(r#"{"username": "ada", "email": 5, "password": "pw"}"#);
-        assert!(!credentials.apply(EntityTable::Users, &mut user));
+        assert!(credentials.apply(EntityTable::Users, &mut user).is_err());
     }
 }

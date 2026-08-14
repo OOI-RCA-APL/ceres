@@ -81,7 +81,7 @@ pub(crate) const BATCH: usize = 1000;
 ///
 /// `Send` because a load hands these batches to a backend, whose transaction runs on the
 /// executor's threads rather than the caller's.
-type Convert<T> = Box<dyn Fn(&[Map<String, Value>]) -> Option<T> + Send>;
+type Convert<T> = Box<dyn Fn(&[Map<String, Value>]) -> Result<T, String> + Send>;
 
 /// Walk an input's rows, decoding one batch at a time.
 ///
@@ -113,7 +113,10 @@ impl<R: BufRead, T> Iterator for Batches<R, T> {
                 None => break,
                 Some(None) => {
                     self.spent = true;
-                    return Some(Err(refused(start + objects.len() + 1)));
+                    return Some(Err(refused(
+                        start + objects.len() + 1,
+                        "The row does not parse as the format claims.",
+                    )));
                 }
                 Some(Some(object)) => objects.push(object),
             }
@@ -125,27 +128,27 @@ impl<R: BufRead, T> Iterator for Batches<R, T> {
 
         self.read += objects.len();
         match (self.convert)(&objects) {
-            Some(batch) => Some(Ok(batch)),
-            None => {
+            Ok(batch) => Some(Ok(batch)),
+            Err(reason) => {
                 self.spent = true;
                 // The batch says only that something in it was refused so the rows are
                 // walked again one at a time to name which. This runs on the failing
                 // load alone, where the cost buys the reader the row number.
                 let offending = objects
                     .iter()
-                    .position(|object| (self.convert)(std::slice::from_ref(object)).is_none())
+                    .position(|object| (self.convert)(std::slice::from_ref(object)).is_err())
                     .map_or(start + 1, |index| start + index + 1);
-                Some(Err(refused(offending)))
+                Some(Err(refused(offending, &reason)))
             }
         }
     }
 }
 
 /// What to say about a row that could not be read.
-fn refused(row: usize) -> String {
+fn refused(row: usize, reason: &str) -> String {
     format!(
-        "Row {row} could not be read. Nothing was loaded, because a load either lands \
-         whole or not at all."
+        "Row {row} could not be read. {reason} Nothing was loaded, because a load \
+         either lands whole or not at all."
     )
 }
 
@@ -235,11 +238,11 @@ pub fn read(table: RecordTable, text: &str, format: LoadFormat) -> Option<Vec<Re
         .ok()
 }
 
-/// Build the one record a create names from its field values, `None` when a field or a
-/// value falls outside what the native types represent faithfully.
+/// Build the one record a create names from its field values, the failure naming the
+/// field and reason.
 ///
 /// The values are raw argument text, read by `Schema::wire_object`'s rules.
-pub fn build(table: RecordTable, values: &[(String, String)]) -> Option<Records> {
+pub fn build(table: RecordTable, values: &[(String, String)]) -> Result<Records, String> {
     table.records(&[table.schema().wire_object(values)?])
 }
 
@@ -248,7 +251,7 @@ pub fn build_entity(
     table: EntityTable,
     values: &[(String, String)],
     credentials: Option<Credentials>,
-) -> Option<Entities> {
+) -> Result<Entities, String> {
     let object = table.schema().wire_object(values)?;
     table.entities(&table.credentialed(&[object], credentials)?)
 }
@@ -259,18 +262,26 @@ impl Schema {
     /// A payload or value column reads as YAML, the form its create model takes it in,
     /// and every other column is the text itself. A column named twice keeps its last
     /// value, the way a repeated flag does.
-    fn wire_object(self, values: &[(String, String)]) -> Option<Map<String, Value>> {
+    fn wire_object(self, values: &[(String, String)]) -> Result<Map<String, Value>, String> {
         let mut object = Map::new();
         for (key, text) in values {
-            let field = self.columns.iter().find(|field| field.key == key)?;
+            let field = self
+                .columns
+                .iter()
+                .find(|field| field.key == key)
+                .ok_or_else(|| format!("`{key}` is not a column a create takes."))?;
             let value = match field.family {
-                FieldFamily::Json | FieldFamily::JsonValue => yaml_serde::from_str(text).ok()?,
+                FieldFamily::Json | FieldFamily::JsonValue => {
+                    yaml_serde::from_str(text).map_err(|error| {
+                        format!("The `{key}` value does not parse as YAML. {error}")
+                    })?
+                }
                 _ => text.clone().into(),
             };
             object.insert(key.clone(), value);
         }
 
-        Some(object)
+        Ok(object)
     }
 }
 
@@ -309,13 +320,13 @@ fn csv_object(row: &csv::StringRecord, headers: &csv::StringRecord) -> Option<Ma
 
 impl RecordTable {
     /// Deserialize one batch of wire objects into records.
-    fn records(self, objects: &[Map<String, Value>]) -> Option<Records> {
+    fn records(self, objects: &[Map<String, Value>]) -> Result<Records, String> {
         let rows = objects
             .iter()
             .map(|object| complete(self.accepted(), object, record_default))
-            .collect::<Option<Vec<_>>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
-        Some(match self {
+        Ok(match self {
             Self::Messages => Records::Messages(convert::<Message>(rows)?),
             Self::Particles => Records::Particles(convert::<Particle>(rows)?),
             Self::Alerts => Records::Alerts(convert::<Alert>(rows)?),
@@ -341,30 +352,33 @@ impl RecordTable {
 }
 
 impl EntityTable {
-    /// Apply the credential rules to a batch of wire objects, `None` when one is
-    /// refused.
+    /// Apply the credential rules to a batch of wire objects, the failure naming the
+    /// refused column.
     fn credentialed(
         self,
         objects: &[Map<String, Value>],
         credentials: Option<Credentials>,
-    ) -> Option<Vec<Map<String, Value>>> {
+    ) -> Result<Vec<Map<String, Value>>, String> {
         let mut applied = objects.to_vec();
         if self == Self::Users {
             // A user's columns cannot be written without the rules so a caller that
             // has none refuses rather than storing a password as it arrived.
-            let credentials = credentials?;
+            let credentials = credentials.ok_or_else(|| {
+                String::from(
+                    "This database hashes passwords with parameters this command cannot \
+                     reproduce.",
+                )
+            })?;
             for object in &mut applied {
-                if !credentials.apply(self, object) {
-                    return None;
-                }
+                credentials.apply(self, object)?;
             }
         }
 
-        Some(applied)
+        Ok(applied)
     }
 
     /// Deserialize one batch of wire objects into entities.
-    fn entities(self, objects: &[Map<String, Value>]) -> Option<Entities> {
+    fn entities(self, objects: &[Map<String, Value>]) -> Result<Entities, String> {
         let accepted: Vec<&'static str> = self
             .schema()
             .columns
@@ -385,16 +399,18 @@ impl EntityTable {
                     }
 
                     if let Some(Value::String(text)) = row.get(field.key) {
-                        let parsed = yaml_serde::from_str(text).ok()?;
+                        let parsed = yaml_serde::from_str(text).map_err(|error| {
+                            format!("The `{}` value does not parse as YAML. {error}", field.key)
+                        })?;
                         row.insert(field.key.to_string(), parsed);
                     }
                 }
 
-                Some(row)
+                Ok(row)
             })
-            .collect::<Option<Vec<_>>>()?;
+            .collect::<Result<Vec<_>, String>>()?;
 
-        Some(match self {
+        Ok(match self {
             Self::Users => Entities::Users(convert::<User>(rows)?),
             Self::Variables => Entities::Variables(convert::<Variable>(rows)?),
             Self::Settings => Entities::Settings(convert::<Setting>(rows)?),
@@ -412,7 +428,7 @@ impl EntityTable {
     ///
     /// A variable's value is required and may still be null so an absent one cannot
     /// read as a null the way a record's optional column does.
-    fn default_value(self, key: &str) -> Option<Value> {
+    pub(crate) fn default_value(self, key: &str) -> Option<Value> {
         match (self, key) {
             (Self::Workspaces, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
             (Self::Workspaces, "scope") => Some("~".into()),
@@ -430,9 +446,22 @@ impl EntityTable {
     }
 }
 
-fn convert<T: serde::de::DeserializeOwned>(rows: Vec<Map<String, Value>>) -> Option<Vec<T>> {
+/// Deserialize rows into their model, the failure naming the field and reason.
+fn convert<T: serde::de::DeserializeOwned>(
+    rows: Vec<Map<String, Value>>,
+) -> Result<Vec<T>, String> {
     rows.into_iter()
-        .map(|row| serde_json::from_value(Value::Object(row)).ok())
+        .map(|row| {
+            serde_path_to_error::deserialize(Value::Object(row)).map_err(|error| {
+                let path = error.path().to_string();
+                let inner = error.into_inner();
+                if path == "." {
+                    format!("{inner}.")
+                } else {
+                    format!("The `{path}` value does not validate. {inner}.")
+                }
+            })
+        })
         .collect()
 }
 
@@ -445,7 +474,7 @@ fn complete(
     accepted: &[&str],
     object: &Map<String, Value>,
     default: impl Fn(&str) -> Option<Value>,
-) -> Option<Map<String, Value>> {
+) -> Result<Map<String, Value>, String> {
     let mut remaining = object.len();
     let mut completed = Map::new();
     for &key in accepted {
@@ -462,7 +491,16 @@ fn complete(
         }
     }
 
-    (remaining == 0).then_some(completed)
+    if remaining != 0 {
+        let unaccepted = object
+            .keys()
+            .find(|key| !accepted.contains(&key.as_str()))
+            .cloned()
+            .unwrap_or_default();
+        return Err(format!("`{unaccepted}` is not a field a write takes."));
+    }
+
+    Ok(completed)
 }
 
 /// The value an absent record field takes, matching the record models' own defaults.
@@ -633,7 +671,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        let Some(Records::Messages(messages)) = build(
+        let Ok(Records::Messages(messages)) = build(
             RecordTable::Messages,
             &pairs(&[("address", "@a"), ("direction", "receive"), ("data", "hi")]),
         ) else {
@@ -646,7 +684,7 @@ mod tests {
         assert_eq!(messages[0].data, b"hi");
 
         // A payload reads as YAML, which is the grammar the create model takes.
-        let Some(Records::Alerts(alerts)) = build(
+        let Ok(Records::Alerts(alerts)) = build(
             RecordTable::Alerts,
             &pairs(&[
                 ("address", "@a"),
@@ -662,13 +700,13 @@ mod tests {
 
         // A field the entity does not carry, a value outside a closed set, and a payload
         // that is not an object all refuse.
-        assert!(build(RecordTable::Logs, &pairs(&[("nope", "1")])).is_none());
+        assert!(build(RecordTable::Logs, &pairs(&[("nope", "1")])).is_err());
         assert!(
             build(
                 RecordTable::Messages,
                 &pairs(&[("address", "@a"), ("direction", "sideways"), ("data", "")]),
             )
-            .is_none()
+            .is_err()
         );
         assert!(
             build(
@@ -680,7 +718,7 @@ mod tests {
                     ("data", "3"),
                 ]),
             )
-            .is_none()
+            .is_err()
         );
     }
 

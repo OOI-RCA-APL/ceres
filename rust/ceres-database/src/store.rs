@@ -950,15 +950,9 @@ impl Stored for EntityTable {
             ));
         };
 
-        if !credentials.apply(table, values) {
-            return Err(Error::Refused(
-                "A user's password must be between 1 and 72 bytes, and their email \
-                 address must be one this command can normalize."
-                    .to_string(),
-            ));
-        }
-
-        Ok(())
+        credentials
+            .apply(table, values)
+            .map_err(|reason| Error::Refused(format!("{reason} It will not be written.")))
     }
 }
 

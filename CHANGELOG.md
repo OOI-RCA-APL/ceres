@@ -8,6 +8,14 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**CLI**
+
+- Require and type-check create arguments in the parser, so a missing flag or a value
+  outside its set is named exactly rather than refused vaguely.
+- Name the field and reason when a create or load value fails validation.
+- Prompt for `users create`'s password with echo off when `--password` is omitted, so
+  passwords stay out of shell history.
+
 ## [0.42.1] - 2026-08-14
 
 **CLI**

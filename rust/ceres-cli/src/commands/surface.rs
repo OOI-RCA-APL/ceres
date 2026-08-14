@@ -14,8 +14,10 @@
 
 use ceres_database::{
     Arity, EntityFilter, EntityTable, FilterKey, OperationKind, RecordFilter, RecordTable, Role,
-    Window,
+    Table as DynamicTable, Window,
 };
+use ceres_entities::FieldFamily;
+use clap::builder::PossibleValuesParser;
 use clap::{Arg, ArgAction, Command};
 
 /// The verbs a table command takes.
@@ -302,17 +304,48 @@ impl Table {
     /// The arguments a create takes, one per column it may fill.
     fn create_arguments(self) -> Vec<Arg> {
         let singular = self.singular();
+        let dynamic = self.dynamic();
         self.columns()
             .into_iter()
             .flat_map(|key| {
                 let field = long(key.key);
                 let help = match key.arity {
                     Arity::Flag => format!("Mark the {singular} {field}."),
+                    Arity::Value if key.key == "password" => {
+                        format!("The {singular}'s password. Prompted for, hidden, when omitted.")
+                    }
                     Arity::Value => format!("The {singular}'s {field}."),
                 };
-                argument(key, help, VALUES)
+                let mut arguments = argument(key, help, VALUES);
+
+                // A required column is required of clap too, so a missing one is the
+                // parser's own error naming the flag. The password stays optional
+                // because an absent one is prompted for rather than demanded on the
+                // command line, where it would land in shell history.
+                if dynamic.create_requires(key.key) && key.key != "password" {
+                    arguments[0] = arguments[0].clone().required(true);
+                }
+
+                // A closed set parses in clap as well, so a value outside it is
+                // refused with the set listed.
+                if let Some(FieldFamily::Values(values)) = dynamic.family(key.key) {
+                    arguments[0] = arguments[0]
+                        .clone()
+                        .value_parser(PossibleValuesParser::new(values));
+                }
+
+                arguments
             })
             .collect()
+    }
+
+    /// The dynamic form of this table, which knows each column's family and whether a
+    /// create requires it.
+    pub(crate) fn dynamic(self) -> DynamicTable {
+        match self {
+            Self::Record(table) => DynamicTable::Record(table),
+            Self::Entity(table) => DynamicTable::Entity(table),
+        }
     }
 
     /// Worked examples for one verb, shown under its help.
